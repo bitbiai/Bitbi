@@ -46,6 +46,54 @@ const LIVE_MEMBER_CHECKOUT_SCOPE = "member";
 const LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE = "member_subscription";
 export const BITBI_TERMS_VERSION = "2026-05-05";
 
+const LIVE_OPERATOR_REVIEW_POLICIES = Object.freeze({
+  "invoice.payment_failed": Object.freeze({
+    reviewState: "needs_review",
+    recommendedAction: "Review the invoice, customer, subscription state, and Stripe retry outcome before granting access or credits.",
+    reason: "Stripe reported a failed live invoice payment; BITBI does not grant or revoke credits automatically for this event.",
+  }),
+  "invoice.payment_action_required": Object.freeze({
+    reviewState: "needs_review",
+    recommendedAction: "Review the customer payment-action requirement in Stripe and confirm whether the subscription should remain pending.",
+    reason: "Stripe reported that live invoice payment requires customer action; BITBI does not grant or revoke credits automatically for this event.",
+  }),
+  "checkout.session.expired": Object.freeze({
+    reviewState: "informational",
+    recommendedAction: "Confirm the expired checkout did not complete elsewhere; no automatic credit grant is performed.",
+    reason: "Stripe reported a live checkout session expired.",
+  }),
+  "charge.refunded": Object.freeze({
+    reviewState: "needs_review",
+    recommendedAction: "Review the live charge refund in Stripe, match it to any BITBI ledger entries, and decide on manual remediation.",
+    reason: "Stripe reported a refunded live charge; BITBI does not automatically claw back credits.",
+  }),
+  "refund.created": Object.freeze({
+    reviewState: "needs_review",
+    recommendedAction: "Review the live refund creation in Stripe, match it to any BITBI ledger entries, and decide on manual remediation.",
+    reason: "Stripe reported a live refund was created; BITBI does not automatically claw back credits.",
+  }),
+  "refund.updated": Object.freeze({
+    reviewState: "needs_review",
+    recommendedAction: "Review the live refund update in Stripe and confirm whether any manual billing action is required.",
+    reason: "Stripe reported a live refund update; BITBI does not automatically adjust credits.",
+  }),
+  "charge.dispute.created": Object.freeze({
+    reviewState: "blocked",
+    recommendedAction: "Treat the disputed charge as blocked for operator review; investigate in Stripe and decide any manual account or credit action.",
+    reason: "Stripe reported a new live dispute; BITBI does not automatically remove credits or cancel access.",
+  }),
+  "charge.dispute.updated": Object.freeze({
+    reviewState: "needs_review",
+    recommendedAction: "Review the live dispute update in Stripe and decide whether manual billing or account action is required.",
+    reason: "Stripe reported a live dispute update; BITBI does not automatically adjust credits.",
+  }),
+  "charge.dispute.closed": Object.freeze({
+    reviewState: "needs_review",
+    recommendedAction: "Review the closed live dispute outcome in Stripe and decide whether manual billing or account action is required.",
+    reason: "Stripe reported a live dispute closed; BITBI does not automatically adjust credits.",
+  }),
+});
+
 export const STRIPE_CREDIT_PACKS = Object.freeze([
   Object.freeze({
     id: "credits_5000",
@@ -2465,6 +2513,218 @@ function normalizeLiveInvoicePaidEvent(payload) {
   };
 }
 
+function getOptionalStripeEventObject(payload) {
+  const object = payload?.data?.object;
+  return object && typeof object === "object" && !Array.isArray(object) ? object : {};
+}
+
+function extractStripeLiveReviewIdentifiers({ payload, stored }) {
+  const object = getOptionalStripeEventObject(payload);
+  const metadata = metadataObject(object.metadata);
+  const objectType = safeString(object.object, 64);
+  const objectId = safeString(object.id, 128);
+  const eventType = safeString(payload?.type, 128);
+  const identifiers = {
+    providerEventId: safeString(stored?.event?.providerEventId || payload?.id, 128),
+    invoiceId: null,
+    chargeId: null,
+    refundId: null,
+    disputeId: null,
+    checkoutSessionId: null,
+    customerId: safeString(object.customer, 128),
+    subscriptionId: safeString(
+      object.subscription ||
+      object.parent?.subscription_details?.subscription ||
+      object.subscription_details?.subscription ||
+      metadata.subscription_id ||
+      metadata.subscriptionId,
+      128
+    ),
+    paymentIntentId: safeString(object.payment_intent, 128),
+  };
+
+  if (objectType === "invoice" || eventType?.startsWith("invoice.")) {
+    identifiers.invoiceId = objectId;
+  }
+  if (objectType === "charge" || eventType === "charge.refunded") {
+    identifiers.chargeId = objectId;
+  }
+  if (objectType === "refund" || eventType?.startsWith("refund.")) {
+    identifiers.refundId = objectId;
+  }
+  if (objectType === "dispute" || eventType?.startsWith("charge.dispute.")) {
+    identifiers.disputeId = objectId;
+  }
+  if (objectType === "checkout.session" || eventType === "checkout.session.expired") {
+    identifiers.checkoutSessionId = objectId;
+  }
+
+  identifiers.invoiceId ||= safeString(object.invoice, 128);
+  identifiers.chargeId ||= safeString(object.charge, 128);
+  identifiers.refundId ||= safeString(object.refund, 128);
+  identifiers.disputeId ||= safeString(object.dispute, 128);
+  identifiers.checkoutSessionId ||= safeString(object.checkout_session || object.checkoutSession, 128);
+
+  return {
+    objectType,
+    objectLivemode: object.livemode === true ? true : (object.livemode === false ? false : null),
+    identifiers,
+  };
+}
+
+function summarizeCheckoutReviewRow(row, scope) {
+  if (!row) return null;
+  const ledgerEntryId = row.credit_ledger_entry_id || row.member_credit_ledger_entry_id || null;
+  return {
+    scope,
+    status: row.status || null,
+    providerMode: row.provider_mode || null,
+    userId: row.user_id || null,
+    organizationId: row.organization_id || null,
+    creditPackId: row.credit_pack_id || row.plan_id || null,
+    ledgerEntryPresent: Boolean(ledgerEntryId),
+    completedAtPresent: Boolean(row.completed_at),
+    grantedAtPresent: Boolean(row.granted_at),
+    billingEventLinked: Boolean(row.billing_event_id),
+  };
+}
+
+function checkoutReviewRowNeedsReview(summary) {
+  if (!summary) return false;
+  return summary.status === "completed" ||
+    summary.ledgerEntryPresent ||
+    summary.completedAtPresent ||
+    summary.grantedAtPresent;
+}
+
+async function inspectExpiredLiveCheckoutSession(env, checkoutSessionId) {
+  const sessionId = safeString(checkoutSessionId, 220);
+  if (!sessionId) {
+    return {
+      reviewState: "needs_review",
+      reason: "Stripe checkout.session.expired did not include a safe checkout session id.",
+      recommendedAction: "Review the Stripe event manually and confirm no BITBI checkout or credit grant is linked.",
+      persistedCheckoutState: [],
+      organizationId: null,
+      userId: null,
+    };
+  }
+
+  const rows = [
+    summarizeCheckoutReviewRow(await fetchCheckoutByProviderSession(env, sessionId), LIVE_ORGANIZATION_CHECKOUT_SCOPE),
+    summarizeCheckoutReviewRow(await fetchMemberCheckoutByProviderSession(env, sessionId), LIVE_MEMBER_CHECKOUT_SCOPE),
+    summarizeCheckoutReviewRow(await fetchMemberSubscriptionCheckoutByProviderSession(env, sessionId), LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE),
+  ].filter((row) => row && row.providerMode === STRIPE_MODE_LIVE);
+  const inconsistent = rows.some(checkoutReviewRowNeedsReview);
+  const first = rows[0] || null;
+  if (inconsistent) {
+    return {
+      reviewState: "needs_review",
+      reason: "Expired live checkout has persisted state that may already be completed or ledger-linked.",
+      recommendedAction: "Review the checkout, ledger, and Stripe session before taking any manual remediation.",
+      persistedCheckoutState: rows,
+      organizationId: first?.organizationId || null,
+      userId: first?.userId || null,
+    };
+  }
+  return {
+    reviewState: "informational",
+    reason: rows.length
+      ? "Expired live checkout is known locally and has no completed or ledger-linked state."
+      : "Expired live checkout has no local persisted checkout state.",
+    recommendedAction: "No automatic credit grant was performed; keep as audit evidence unless Stripe shows a later successful payment.",
+    persistedCheckoutState: rows,
+    organizationId: first?.organizationId || null,
+    userId: first?.userId || null,
+  };
+}
+
+async function handleLiveOperatorReviewEvent({ env, stored, payload }) {
+  const policy = LIVE_OPERATOR_REVIEW_POLICIES[payload?.type];
+  if (!policy) return null;
+  const { objectType, objectLivemode, identifiers } = extractStripeLiveReviewIdentifiers({ payload, stored });
+  if (objectLivemode === false) {
+    throw new StripeBillingError("Testmode Stripe event objects are not accepted on the live webhook.", {
+      status: 403,
+      code: "stripe_live_webhook_mode_mismatch",
+    });
+  }
+
+  const checkoutReview = payload.type === "checkout.session.expired"
+    ? await inspectExpiredLiveCheckoutSession(env, identifiers.checkoutSessionId)
+    : null;
+  const reviewState = checkoutReview?.reviewState || policy.reviewState;
+  const actionStatus = reviewState === "informational" ? "ignored" : "deferred";
+  const event = await updateBillingProviderEventProcessing(env, {
+    eventId: stored.event.id,
+    processingStatus: reviewState === "informational" ? "ignored" : "planned",
+    organizationId: checkoutReview?.organizationId || null,
+    userId: checkoutReview?.userId || null,
+    actionType: payload.type,
+    actionStatus,
+    actionDryRun: true,
+    actionSummary: {
+      eventType: payload.type,
+      providerMode: STRIPE_MODE_LIVE,
+      sideEffectsEnabled: false,
+      reviewState,
+      reviewReason: checkoutReview?.reason || policy.reason,
+      recommendedAction: checkoutReview?.recommendedAction || policy.recommendedAction,
+      safeIdentifiers: identifiers,
+      stripeObjectType: objectType || null,
+      stripeObjectLivemode: objectLivemode,
+      persistedCheckoutState: checkoutReview?.persistedCheckoutState || undefined,
+      creditsGranted: 0,
+      creditsReversed: 0,
+      creditMutation: "none",
+      operatorReviewOnly: true,
+    },
+  });
+  return {
+    event,
+    duplicate: false,
+    actionPlanned: reviewState !== "informational",
+    creditGrant: null,
+    checkout: null,
+    subscription: null,
+  };
+}
+
+async function markLiveOperatorReviewEventFailed(env, { stored, payload, error }) {
+  const code = error instanceof BillingError || error instanceof StripeBillingError || error instanceof BillingEventError
+    ? error.code
+    : "stripe_live_review_event_failed";
+  const message = error instanceof BillingError || error instanceof StripeBillingError || error instanceof BillingEventError
+    ? error.message
+    : "Stripe live review event handling failed.";
+  const { objectType, objectLivemode, identifiers } = extractStripeLiveReviewIdentifiers({ payload, stored });
+  return updateBillingProviderEventProcessing(env, {
+    eventId: stored.event.id,
+    processingStatus: "failed",
+    errorCode: code,
+    errorMessage: message,
+    actionType: payload.type,
+    actionStatus: "failed",
+    actionDryRun: true,
+    actionSummary: {
+      eventType: payload.type,
+      providerMode: STRIPE_MODE_LIVE,
+      sideEffectsEnabled: false,
+      reviewState: "blocked",
+      reviewReason: "Stripe live operator-review event failed validation or storage update.",
+      recommendedAction: "Review the Stripe event and BITBI billing-event record manually before taking any billing action.",
+      safeIdentifiers: identifiers,
+      stripeObjectType: objectType || null,
+      stripeObjectLivemode: objectLivemode,
+      errorCode: code,
+      creditsGranted: 0,
+      creditsReversed: 0,
+      creditMutation: "none",
+      operatorReviewOnly: true,
+    },
+  });
+}
+
 async function markStripeEventFailed(env, {
   eventId,
   actionType,
@@ -3377,6 +3637,15 @@ export async function handleVerifiedStripeLiveWebhookEvent({
       checkout: null,
       subscription: null,
     };
+  }
+
+  if (LIVE_OPERATOR_REVIEW_POLICIES[payload?.type]) {
+    try {
+      return await handleLiveOperatorReviewEvent({ env, stored, payload });
+    } catch (error) {
+      await markLiveOperatorReviewEventFailed(env, { stored, payload, error });
+      throw error;
+    }
   }
 
   if (payload?.type === "customer.subscription.created" || payload?.type === "customer.subscription.updated" || payload?.type === "customer.subscription.deleted") {

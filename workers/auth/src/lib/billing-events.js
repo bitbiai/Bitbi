@@ -18,6 +18,21 @@ const EVENT_ID_PATTERN = /^[A-Za-z0-9._:-]{3,128}$/;
 const EVENT_TYPE_PATTERN = /^[a-z0-9_.:-]{3,128}$/i;
 const PROVIDER_PATTERN = /^[a-z0-9_-]{2,32}$/i;
 const MAX_SUMMARY_STRING_LENGTH = 128;
+const MAX_REVIEW_NOTE_LENGTH = 1000;
+const REVIEW_STATES = new Set(["needs_review", "blocked", "informational", "resolved", "dismissed"]);
+const REVIEW_RESOLUTION_STATUSES = new Set(["resolved", "dismissed"]);
+const REVIEW_PROVIDER_MODES = new Set(["test", "sandbox", "synthetic", "live"]);
+const REVIEW_IDENTIFIER_KEYS = new Set([
+  "providerEventId",
+  "invoiceId",
+  "chargeId",
+  "refundId",
+  "disputeId",
+  "checkoutSessionId",
+  "customerId",
+  "subscriptionId",
+  "paymentIntentId",
+]);
 const SUPPORTED_ACTION_EVENT_TYPES = new Set([
   "checkout.completed",
   "checkout.session.completed",
@@ -30,6 +45,14 @@ const SUPPORTED_ACTION_EVENT_TYPES = new Set([
   "invoice.paid",
   "invoice.payment_succeeded",
   "invoice.payment_failed",
+  "invoice.payment_action_required",
+  "checkout.session.expired",
+  "charge.refunded",
+  "refund.created",
+  "refund.updated",
+  "charge.dispute.created",
+  "charge.dispute.updated",
+  "charge.dispute.closed",
   "credit_pack.purchased",
 ]);
 
@@ -417,6 +440,202 @@ function serializeActionRow(row) {
   };
 }
 
+function normalizeReviewState(value) {
+  const state = safeString(value, 32);
+  return REVIEW_STATES.has(state) ? state : null;
+}
+
+function normalizeReviewStateFilter(value) {
+  if (value == null || value === "") return null;
+  const state = safeString(value, 32);
+  if (!REVIEW_STATES.has(state)) {
+    throw new BillingEventError("Billing review state is invalid.", {
+      status: 400,
+      code: "invalid_billing_review_state",
+    });
+  }
+  return state;
+}
+
+function normalizeReviewProviderMode(value) {
+  if (value == null || value === "") return null;
+  const mode = safeString(value, 32);
+  if (!REVIEW_PROVIDER_MODES.has(mode)) {
+    throw new BillingEventError("Billing review provider mode is invalid.", {
+      status: 400,
+      code: "invalid_billing_review_provider_mode",
+    });
+  }
+  return mode;
+}
+
+function normalizeReviewResolutionStatus(value) {
+  const status = safeString(value, 32);
+  if (!REVIEW_RESOLUTION_STATUSES.has(status)) {
+    throw new BillingEventError("Billing review resolution status is invalid.", {
+      status: 400,
+      code: "invalid_billing_review_resolution_status",
+    });
+  }
+  return status;
+}
+
+function normalizeReviewResolutionNote(value) {
+  const raw = String(value || "");
+  const stripped = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, " ").trim();
+  if (!stripped) {
+    throw new BillingEventError("Billing review resolution note is required.", {
+      status: 400,
+      code: "billing_review_resolution_note_required",
+    });
+  }
+  if (stripped.length > MAX_REVIEW_NOTE_LENGTH) {
+    throw new BillingEventError("Billing review resolution note is too long.", {
+      status: 400,
+      code: "billing_review_resolution_note_too_long",
+    });
+  }
+  if (/(?:sk_live_|sk_test_|whsec_|(?:authorization|secret|token|password)\s*[:=]|pm_[A-Za-z0-9]|card\s*[:=])/i.test(stripped)) {
+    throw new BillingEventError("Billing review resolution note must not include secrets or payment method values.", {
+      status: 400,
+      code: "unsafe_billing_review_resolution_note",
+    });
+  }
+  return stripped;
+}
+
+function sanitizeReviewIdentifierValue(value) {
+  const text = safeString(value, 128);
+  if (!text) return null;
+  if (/(?:secret|signature|authorization|password|credential|payment_?method|card|bank|token)/i.test(text)) {
+    return null;
+  }
+  return text;
+}
+
+function sanitizeReviewIdentifiers(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const identifiers = {};
+  for (const key of REVIEW_IDENTIFIER_KEYS) {
+    const sanitized = sanitizeReviewIdentifierValue(value[key]);
+    if (sanitized) identifiers[key] = sanitized;
+  }
+  return identifiers;
+}
+
+function sanitizePersistedCheckoutState(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const safe = {};
+  for (const key of [
+    "scope",
+    "sessionId",
+    "status",
+    "organizationId",
+    "userId",
+    "creditPackId",
+    "credits",
+    "hasLedgerEntry",
+    "hasCompletedAt",
+    "hasGrantedAt",
+    "needsReview",
+  ]) {
+    if (value[key] == null) continue;
+    if (typeof value[key] === "string") {
+      const text = safeString(value[key], 128);
+      if (text) safe[key] = text;
+    } else if (typeof value[key] === "number" || typeof value[key] === "boolean") {
+      safe[key] = value[key];
+    }
+  }
+  return Object.keys(safe).length > 0 ? safe : null;
+}
+
+function findBillingReviewAction(event) {
+  const actions = Array.isArray(event?.actions) ? event.actions : [];
+  for (const action of actions) {
+    const summary = action.summary && typeof action.summary === "object" && !Array.isArray(action.summary)
+      ? action.summary
+      : {};
+    const reviewState = normalizeReviewState(summary.reviewState || summary.resolutionStatus);
+    if (reviewState || summary.operatorReviewOnly === true) {
+      return {
+        action,
+        summary,
+        reviewState: reviewState || "needs_review",
+      };
+    }
+  }
+  return null;
+}
+
+function sanitizeReviewSummary(summary = {}) {
+  const reviewState = normalizeReviewState(summary.reviewState || summary.resolutionStatus) || "needs_review";
+  const resolution = summary.resolution && typeof summary.resolution === "object" && !Array.isArray(summary.resolution)
+    ? summary.resolution
+    : {};
+  const sanitized = {
+    eventType: safeString(summary.eventType, 128),
+    providerMode: safeString(summary.providerMode, 32),
+    sideEffectsEnabled: summary.sideEffectsEnabled === true,
+    operatorReviewOnly: summary.operatorReviewOnly === true,
+    reviewState,
+    reviewReason: safeString(summary.reviewReason, 512),
+    recommendedAction: safeString(summary.recommendedAction, 512),
+    safeIdentifiers: sanitizeReviewIdentifiers(summary.safeIdentifiers),
+    creditMutation: safeString(summary.creditMutation, 64),
+    creditsGranted: Number.isFinite(Number(summary.creditsGranted)) ? Number(summary.creditsGranted) : 0,
+    creditsReversed: Number.isFinite(Number(summary.creditsReversed)) ? Number(summary.creditsReversed) : 0,
+    resolutionStatus: normalizeReviewState(summary.resolutionStatus || resolution.status),
+    resolutionNote: safeString(summary.resolutionNote || resolution.note, MAX_REVIEW_NOTE_LENGTH),
+    resolvedByUserId: safeString(summary.resolvedByUserId || resolution.resolvedByUserId, 128),
+    resolvedAt: safeString(summary.resolvedAt || resolution.resolvedAt, 64),
+    previousReviewState: normalizeReviewState(summary.previousReviewState),
+  };
+  const checkoutState = sanitizePersistedCheckoutState(summary.persistedCheckoutState);
+  if (checkoutState) sanitized.persistedCheckoutState = checkoutState;
+  return sanitized;
+}
+
+function serializeBillingReviewEvent(event, action, { includeSummary = false } = {}) {
+  const summary = action?.summary && typeof action.summary === "object" && !Array.isArray(action.summary)
+    ? action.summary
+    : {};
+  const reviewSummary = sanitizeReviewSummary(summary);
+  const reviewState = reviewSummary.reviewState;
+  const review = {
+    id: event.id,
+    billingEventId: event.id,
+    actionId: action?.id || null,
+    providerEventId: event.providerEventId,
+    provider: event.provider,
+    providerMode: event.providerMode,
+    eventType: event.eventType,
+    eventCreatedAt: event.eventCreatedAt || null,
+    receivedAt: event.receivedAt,
+    processingStatus: event.processingStatus,
+    actionStatus: action?.status || null,
+    reviewState,
+    reviewReason: reviewSummary.reviewReason,
+    recommendedAction: reviewSummary.recommendedAction,
+    sideEffectsEnabled: reviewSummary.sideEffectsEnabled,
+    operatorReviewOnly: reviewSummary.operatorReviewOnly,
+    safeIdentifiers: reviewSummary.safeIdentifiers,
+    resolutionStatus: reviewSummary.resolutionStatus,
+    resolutionNote: reviewSummary.resolutionNote,
+    resolvedByUserId: reviewSummary.resolvedByUserId,
+    resolvedAt: reviewSummary.resolvedAt,
+    warning: reviewState === "blocked"
+      ? "Blocked billing lifecycle event: operator review is required before any billing or account readiness claim."
+      : null,
+    createdAt: event.createdAt,
+    updatedAt: event.updatedAt,
+  };
+  if (includeSummary) {
+    review.actionSummary = reviewSummary;
+  }
+  return review;
+}
+
 export async function ingestVerifiedBillingProviderEvent({
   env,
   provider,
@@ -615,6 +834,141 @@ export async function getBillingProviderEvent(env, { id }) {
     includeActions: true,
     actions: actions.results || [],
   });
+}
+
+export async function listBillingReviewEvents(env, {
+  reviewState = null,
+  provider = null,
+  providerMode = null,
+  eventType = null,
+  limit = 25,
+} = {}) {
+  const appliedLimit = normalizeLimit(limit);
+  const stateFilter = normalizeReviewStateFilter(reviewState);
+  const modeFilter = normalizeReviewProviderMode(providerMode);
+  const scanLimit = Math.min(Math.max(appliedLimit * 5, 25), 500);
+  const candidateEvents = await listBillingProviderEvents(env, {
+    provider,
+    eventType,
+    limit: scanLimit,
+  });
+  const reviews = [];
+  for (const event of candidateEvents) {
+    if (modeFilter && event.providerMode !== modeFilter) continue;
+    const detail = await getBillingProviderEvent(env, { id: event.id });
+    const reviewAction = findBillingReviewAction(detail);
+    if (!reviewAction) continue;
+    const review = serializeBillingReviewEvent(detail, reviewAction.action);
+    if (stateFilter && review.reviewState !== stateFilter) continue;
+    reviews.push(review);
+    if (reviews.length >= appliedLimit) break;
+  }
+  return {
+    reviews,
+    nextCursor: null,
+  };
+}
+
+export async function getBillingReviewEvent(env, { id }) {
+  const event = await getBillingProviderEvent(env, { id });
+  const reviewAction = findBillingReviewAction(event);
+  if (!reviewAction) {
+    throw new BillingEventError("Billing review event not found.", {
+      status: 404,
+      code: "billing_review_event_not_found",
+    });
+  }
+  return serializeBillingReviewEvent(event, reviewAction.action, { includeSummary: true });
+}
+
+export async function resolveBillingReviewEvent(env, {
+  id,
+  resolutionStatus,
+  resolutionNote,
+  resolvedByUserId,
+  idempotencyKey,
+}) {
+  const status = normalizeReviewResolutionStatus(resolutionStatus);
+  const note = normalizeReviewResolutionNote(resolutionNote);
+  const event = await getBillingProviderEvent(env, { id });
+  const reviewAction = findBillingReviewAction(event);
+  if (!reviewAction) {
+    throw new BillingEventError("Billing review event not found.", {
+      status: 404,
+      code: "billing_review_event_not_found",
+    });
+  }
+
+  const summary = reviewAction.summary || {};
+  const existingKeyHash = summary.resolutionIdempotencyKeyHash || summary.resolution?.idempotencyKeyHash || null;
+  const keyHash = await sha256Hex(`${event.id}:${String(idempotencyKey || "")}`);
+  const requestHash = await sha256Hex(JSON.stringify({
+    billingEventId: event.id,
+    resolutionStatus: status,
+    resolutionNote: note,
+  }));
+  const existingRequestHash = summary.resolutionRequestHash || summary.resolution?.requestHash || null;
+  if (existingKeyHash === keyHash) {
+    if (existingRequestHash && existingRequestHash !== requestHash) {
+      throw new BillingEventError("Idempotency-Key conflicts with a different billing review resolution.", {
+        status: 409,
+        code: "idempotency_conflict",
+      });
+    }
+    return {
+      review: serializeBillingReviewEvent(event, reviewAction.action, { includeSummary: true }),
+      reused: true,
+    };
+  }
+
+  const currentState = normalizeReviewState(summary.reviewState || summary.resolutionStatus) || reviewAction.reviewState;
+  if (currentState === "resolved" || currentState === "dismissed") {
+    throw new BillingEventError("Billing review event is already resolved or dismissed.", {
+      status: 409,
+      code: "billing_review_already_finalized",
+    });
+  }
+
+  const resolvedAt = nowIso();
+  const updatedSummary = {
+    ...summary,
+    previousReviewState: currentState,
+    reviewState: status,
+    resolutionStatus: status,
+    resolutionNote: note,
+    resolvedByUserId: safeString(resolvedByUserId, 128),
+    resolvedAt,
+    resolutionIdempotencyKeyHash: keyHash,
+    resolutionRequestHash: requestHash,
+    sideEffectsEnabled: false,
+    operatorReviewOnly: true,
+    creditMutation: "none",
+    creditsGranted: 0,
+    creditsReversed: 0,
+    resolution: {
+      status,
+      note,
+      resolvedByUserId: safeString(resolvedByUserId, 128),
+      resolvedAt,
+      idempotencyKeyHash: keyHash,
+      requestHash,
+      sideEffectsEnabled: false,
+    },
+  };
+
+  await updateBillingProviderEventProcessing(env, {
+    eventId: event.id,
+    processingStatus: event.processingStatus,
+    actionType: reviewAction.action.actionType,
+    actionStatus: reviewAction.action.status,
+    actionDryRun: reviewAction.action.dryRun,
+    actionSummary: updatedSummary,
+  });
+
+  return {
+    review: await getBillingReviewEvent(env, { id: event.id }),
+    reused: false,
+  };
 }
 
 export async function updateBillingProviderEventProcessing(env, {

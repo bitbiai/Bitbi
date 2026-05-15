@@ -12,6 +12,9 @@ import {
     apiAdminBillingEvent,
     apiAdminBillingEvents,
     apiAdminBillingPlans,
+    apiAdminBillingReview,
+    apiAdminBillingReviews,
+    apiAdminResolveBillingReview,
     apiAdminDataLifecycleArchives,
     apiAdminDataLifecycleRequests,
     apiAdminGrantOrganizationCredits,
@@ -59,6 +62,7 @@ const STATUS_VARIANTS = {
 };
 
 const SENSITIVE_KEY_PATTERN = /secret|token|password|hash|signature|raw|payload|request_?fingerprint|idempotency|r2_?key|private_?key|mfa|recovery|webhook_?secret|stripe_?secret|service_?auth|card|payment_?method|credential|authorization|cookie|session/i;
+const SENSITIVE_VALUE_PATTERN = /\b(?:sk_(?:live|test)|rk_(?:live|test)|whsec|Bearer\s+|Stripe-Signature|authorization=|secret=|token=|password=|pm_[A-Za-z0-9]|card=)[A-Za-z0-9_:=+./-]*/i;
 
 function byId(id) {
     return document.getElementById(id);
@@ -110,7 +114,9 @@ function safeSummaryValue(value) {
     if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'Not reported';
     if (Array.isArray(value)) return `[${value.length} items]`;
     if (typeof value === 'object') return '[object summary]';
-    return String(value);
+    const text = String(value);
+    if (SENSITIVE_VALUE_PATTERN.test(text)) return '[redacted]';
+    return text;
 }
 
 function createIdempotencyKey(prefix) {
@@ -249,6 +255,8 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         orgGrant: null,
         userGrant: null,
     };
+    let selectedBillingReviewId = '';
+    let billingReviewResolutionSubmitting = false;
 
     function notify(message, type = 'success') {
         if (typeof showToast === 'function') showToast(message, type);
@@ -457,7 +465,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Billing Events / Stripe',
                 badge: { label: probes[2].status, variant: probes[2].variant },
-                copy: 'Inspect synthetic/Stripe Testmode billing events. Live billing, subscriptions, invoices, and customer portal remain disabled.',
+                copy: 'Inspect sanitized provider events and operator-only live Stripe review records. Automated reconciliation, credit clawback, and Stripe remediation remain disabled.',
                 href: '#billing-events',
             },
             {
@@ -837,6 +845,219 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
     }
 
+    function reviewStateLabel(value) {
+        return String(value || 'unknown').replace(/_/g, ' ');
+    }
+
+    function reviewStateVariant(value) {
+        const state = String(value || '').toLowerCase();
+        if (state === 'resolved') return 'active';
+        if (state === 'blocked') return 'disabled';
+        if (state === 'dismissed' || state === 'informational') return 'legacy';
+        return 'user';
+    }
+
+    function isFinalReviewState(value) {
+        const state = String(value || '').toLowerCase();
+        return state === 'resolved' || state === 'dismissed';
+    }
+
+    function isBlockedReview(review) {
+        return String(review?.reviewState || '').toLowerCase() === 'blocked'
+            || /dispute/i.test(String(review?.eventType || ''));
+    }
+
+    function renderSafeIdentifiers(identifiers) {
+        if (!identifiers || typeof identifiers !== 'object' || Array.isArray(identifiers)) return '-';
+        const safeEntries = Object.entries(identifiers)
+            .filter(([key, value]) => !isSensitiveKey(key) && value != null && value !== '')
+            .slice(0, 12);
+        if (safeEntries.length === 0) return '-';
+        return safeEntries.map(([key, value]) => `${key}: ${safeSummaryValue(value)}`).join(', ');
+    }
+
+    function appendBlockedReviewWarning(container, review) {
+        if (!isBlockedReview(review)) return;
+        const warning = el('div', 'admin-billing-review-warning');
+        warning.setAttribute('role', 'alert');
+        warning.textContent = review.warning
+            || 'Blocked dispute lifecycle event: operator review is required. Do not claim live billing readiness from this UI.';
+        container.appendChild(warning);
+    }
+
+    function appendBillingReviewResolutionForm(container, review) {
+        if (!review?.id || isFinalReviewState(review.reviewState)) return;
+        const form = el('form', 'admin-billing-review-resolution');
+        form.id = 'billingReviewResolutionForm';
+
+        const safety = el('p', 'admin-shell__desc', 'Resolution records operator review metadata only. It does not adjust credits, call Stripe, refund payments, claw back credits, cancel subscriptions, or reconcile chargebacks.');
+        const noteField = el('label', 'admin-ai__field');
+        noteField.appendChild(el('span', 'admin-ai__label', 'Resolution note'));
+        const note = document.createElement('textarea');
+        note.id = 'billingReviewResolutionNote';
+        note.className = 'admin-ai__textarea';
+        note.rows = 3;
+        note.maxLength = 1000;
+        note.setAttribute('aria-required', 'true');
+        note.placeholder = 'Summarize the human review decision and any external accounting/support follow-up.';
+        noteField.appendChild(note);
+
+        const confirmationField = el('label', 'admin-ai__field admin-ai__field--inline admin-billing-review-confirm');
+        const checkbox = document.createElement('input');
+        checkbox.id = 'billingReviewResolutionConfirm';
+        checkbox.type = 'checkbox';
+        checkbox.setAttribute('aria-required', 'true');
+        confirmationField.appendChild(checkbox);
+        confirmationField.appendChild(el('span', null, 'I confirm this records review metadata only and does not perform payment, credit, account, or Stripe remediation.'));
+
+        const result = el('div', 'admin-state');
+        result.id = 'billingReviewResolutionState';
+        result.setAttribute('aria-live', 'polite');
+
+        const actions = el('div', 'admin-billing-review-actions');
+        for (const [status, label] of [['resolved', 'Mark Resolved'], ['dismissed', 'Mark Dismissed']]) {
+            const button = el('button', 'btn-action', label);
+            button.type = 'submit';
+            button.dataset.resolutionStatus = status;
+            actions.appendChild(button);
+        }
+
+        form.append(safety, noteField, confirmationField, actions, result);
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const resolutionStatus = event.submitter?.dataset?.resolutionStatus || '';
+            const resolutionNote = note.value.trim();
+            if (billingReviewResolutionSubmitting) return;
+            if (!resolutionNote || !checkbox.checked) {
+                result.dataset.state = 'error';
+                result.textContent = 'Resolution note and confirmation are required.';
+                return;
+            }
+            billingReviewResolutionSubmitting = true;
+            form.querySelectorAll('button').forEach((button) => setSubmitting(button, true));
+            result.dataset.state = 'neutral';
+            result.textContent = 'Recording review resolution...';
+            try {
+                const res = await apiAdminResolveBillingReview(review.id, {
+                    resolutionStatus,
+                    resolutionNote,
+                    idempotencyKey: createIdempotencyKey('billing-review-resolution'),
+                });
+                if (!res.ok) {
+                    result.dataset.state = 'error';
+                    result.textContent = apiUnavailableMessage(res, 'Billing review resolution failed.');
+                    notify('Billing review resolution failed.', 'error');
+                    return;
+                }
+                result.dataset.state = 'success';
+                result.textContent = res.data?.reused
+                    ? 'Billing review resolution was already recorded for this request.'
+                    : 'Billing review resolution recorded.';
+                notify('Billing review resolution recorded.', 'success');
+                selectedBillingReviewId = res.data?.review?.id || review.id;
+                await loadBillingReviews();
+                await loadBillingReviewDetail(selectedBillingReviewId);
+            } finally {
+                billingReviewResolutionSubmitting = false;
+                form.querySelectorAll('button').forEach((button) => setSubmitting(button, false));
+            }
+        });
+        container.appendChild(form);
+    }
+
+    async function loadBillingReviews() {
+        const reviewState = byId('billingReviewsStateFilter')?.value || '';
+        const providerMode = byId('billingReviewsProviderMode')?.value || 'live';
+        const eventType = byId('billingReviewsEventType')?.value.trim() || '';
+        const list = byId('billingReviewsList');
+        setState('billingReviewsState', 'Loading billing reviews...');
+        clear(list);
+        const res = await apiAdminBillingReviews({
+            reviewState,
+            provider: 'stripe',
+            providerMode,
+            eventType,
+            limit: 25,
+        });
+        if (!res.ok) {
+            setState('billingReviewsState', '');
+            renderUnavailable(list, res, 'Billing review queue unavailable.');
+            return;
+        }
+        const reviews = Array.isArray(res.data?.reviews) ? res.data.reviews : [];
+        if (reviews.length === 0) {
+            setState('billingReviewsState', 'No billing review events found for the selected filters.');
+            return;
+        }
+        setState('billingReviewsState', `Showing ${reviews.length} sanitized billing review event${reviews.length === 1 ? '' : 's'}.`);
+        const { wrap, tbody } = table(['State', 'Type', 'Provider', 'Mode', 'Provider event', 'Received', 'Recommended action', 'Actions']);
+        wrap.classList.add('admin-billing-review-table');
+        for (const review of reviews) {
+            const tr = document.createElement('tr');
+            if (isBlockedReview(review)) tr.classList.add('admin-billing-review-row--blocked');
+            addCell(tr, badge(reviewStateLabel(review.reviewState), reviewStateVariant(review.reviewState)));
+            addCell(tr, review.eventType || '-');
+            addCell(tr, review.provider || '-');
+            addCell(tr, badge(review.providerMode || '-', review.providerMode === 'live' ? 'disabled' : 'user'));
+            addCell(tr, shortId(review.providerEventId));
+            addCell(tr, formatDate(review.receivedAt || review.createdAt));
+            addCell(tr, review.recommendedAction || review.reviewReason || '-');
+            const btn = el('button', 'btn-action', 'Inspect Review');
+            btn.type = 'button';
+            btn.addEventListener('click', () => {
+                selectedBillingReviewId = review.id;
+                loadBillingReviewDetail(review.id);
+            });
+            addCell(tr, btn);
+            tbody.appendChild(tr);
+        }
+        list.appendChild(wrap);
+    }
+
+    async function loadBillingReviewDetail(reviewId) {
+        const detail = byId('billingReviewDetail');
+        if (!detail) return;
+        detail.hidden = false;
+        detail.textContent = 'Loading billing review detail...';
+        const res = await apiAdminBillingReview(reviewId);
+        clear(detail);
+        if (!res.ok) {
+            renderUnavailable(detail, res, 'Billing review detail unavailable.');
+            return;
+        }
+        const review = res.data?.review || {};
+        detail.appendChild(el('h3', 'admin-section-title', 'Billing Review Detail'));
+        appendBlockedReviewWarning(detail, review);
+        detail.appendChild(detailRows([
+            ['Review state', reviewStateLabel(review.reviewState)],
+            ['Review reason', review.reviewReason || '-'],
+            ['Recommended action', review.recommendedAction || '-'],
+            ['Event type', review.eventType || '-'],
+            ['Provider', review.provider || '-'],
+            ['Provider mode', review.providerMode || '-'],
+            ['Provider event', shortId(review.providerEventId)],
+            ['Processing', review.processingStatus || '-'],
+            ['Action status', review.actionStatus || '-'],
+            ['Side effects enabled', review.sideEffectsEnabled === true ? 'Yes' : 'No'],
+            ['Operator review only', review.operatorReviewOnly === true ? 'Yes' : 'No'],
+            ['Safe identifiers', renderSafeIdentifiers(review.safeIdentifiers)],
+            ['Received', formatDate(review.receivedAt || review.createdAt)],
+            ['Resolved at', review.resolvedAt ? formatDate(review.resolvedAt) : '-'],
+            ['Resolution status', review.resolutionStatus || '-'],
+            ['Resolution note', review.resolutionNote || '-'],
+        ]));
+        if (review.actionSummary && typeof review.actionSummary === 'object') {
+            detail.appendChild(el('h3', 'admin-section-title', 'Action Summary'));
+            detail.appendChild(detailRows([
+                ['Credit mutation', review.actionSummary.creditMutation || 'none'],
+                ['Credits granted', review.actionSummary.creditsGranted ?? 0],
+                ['Credits reversed', review.actionSummary.creditsReversed ?? 0],
+                ['Persisted checkout state', renderJsonSummary(review.actionSummary.persistedCheckoutState)],
+            ]));
+        }
+        appendBillingReviewResolutionForm(detail, review);
+    }
+
     async function loadAiAttempts() {
         const list = byId('aiAttemptsList');
         setState('aiAttemptsState', 'Loading usage attempts...');
@@ -1143,6 +1364,11 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             event.preventDefault();
             loadBillingEvents();
         });
+        byId('billingReviewsFilter')?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            loadBillingReviews();
+        });
+        byId('billingReviewsRefresh')?.addEventListener('click', loadBillingReviews);
         byId('aiAttemptsRefresh')?.addEventListener('click', loadAiAttempts);
         byId('aiAttemptsFilter')?.addEventListener('submit', (event) => {
             event.preventDefault();
@@ -1176,7 +1402,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         loaded.add(sectionName);
         if (sectionName === 'orgs') await loadOrgs();
         if (sectionName === 'billing') await loadBillingPlans();
-        if (sectionName === 'billing-events') await loadBillingEvents();
+        if (sectionName === 'billing-events') await Promise.all([loadBillingReviews(), loadBillingEvents()]);
         if (sectionName === 'ai-usage') await loadAiAttempts();
         if (sectionName === 'lifecycle') await loadLifecycle();
         if (sectionName === 'operations') await loadOperations();

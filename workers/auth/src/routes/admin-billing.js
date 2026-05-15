@@ -28,7 +28,10 @@ import {
   BillingEventError,
   billingEventErrorResponse,
   getBillingProviderEvent,
+  getBillingReviewEvent,
   listBillingProviderEvents,
+  listBillingReviewEvents,
+  resolveBillingReviewEvent,
 } from "../lib/billing-events.js";
 import {
   getErrorFields,
@@ -121,7 +124,10 @@ export async function handleAdminBilling(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
   const isBillingRoute = pathname === "/api/admin/billing/plans"
     || pathname === "/api/admin/billing/events"
+    || pathname === "/api/admin/billing/reviews"
     || /^\/api\/admin\/billing\/events\/[^/]+$/.test(pathname)
+    || /^\/api\/admin\/billing\/reviews\/[^/]+$/.test(pathname)
+    || /^\/api\/admin\/billing\/reviews\/[^/]+\/resolution$/.test(pathname)
     || /^\/api\/admin\/orgs\/[^/]+\/billing$/.test(pathname)
     || /^\/api\/admin\/orgs\/[^/]+\/credits\/grant$/.test(pathname)
     || /^\/api\/admin\/users\/[^/]+\/billing$/.test(pathname)
@@ -158,6 +164,28 @@ export async function handleAdminBilling(ctx) {
     }
   }
 
+  if (pathname === "/api/admin/billing/reviews" && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const result = await listBillingReviewEvents(env, {
+        reviewState: url.searchParams.get("review_state") || url.searchParams.get("reviewState"),
+        provider: url.searchParams.get("provider"),
+        providerMode: url.searchParams.get("provider_mode") || url.searchParams.get("providerMode"),
+        eventType: url.searchParams.get("event_type") || url.searchParams.get("eventType"),
+        limit: url.searchParams.get("limit"),
+      });
+      return json({
+        ok: true,
+        reviews: result.reviews,
+        nextCursor: result.nextCursor,
+        livePaymentProviderEnabled: false,
+      });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
   const eventMatch = pathname.match(/^\/api\/admin\/billing\/events\/([^/]+)$/);
   if (eventMatch && method === "GET") {
     const limited = await enforceAdminBillingRateLimit(ctx);
@@ -165,6 +193,66 @@ export async function handleAdminBilling(ctx) {
     try {
       const event = await getBillingProviderEvent(env, { id: eventMatch[1] });
       return json({ ok: true, event, livePaymentProviderEnabled: false });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  const reviewMatch = pathname.match(/^\/api\/admin\/billing\/reviews\/([^/]+)$/);
+  if (reviewMatch && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const review = await getBillingReviewEvent(env, { id: reviewMatch[1] });
+      return json({
+        ok: true,
+        review,
+        livePaymentProviderEnabled: false,
+      });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  const reviewResolutionMatch = pathname.match(/^\/api\/admin\/billing\/reviews\/([^/]+)\/resolution$/);
+  // route-policy: admin.billing.reviews.resolve
+  if (reviewResolutionMatch && method === "POST") {
+    const limited = await enforceAdminBillingRateLimit(ctx, {
+      scope: "admin-billing-write-ip",
+      maxRequests: 30,
+      windowMs: 15 * 60_000,
+      component: "admin-billing-write",
+    });
+    if (limited) return limited;
+
+    const idempotency = idempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+
+    try {
+      const result = await resolveBillingReviewEvent(env, {
+        id: reviewResolutionMatch[1],
+        resolutionStatus: parsed.body?.resolution_status || parsed.body?.resolutionStatus,
+        resolutionNote: parsed.body?.resolution_note || parsed.body?.resolutionNote,
+        resolvedByUserId: session.user.id,
+        idempotencyKey: idempotency.key,
+      });
+      if (!result.reused) {
+        await auditBillingEvent(ctx, session.user, `billing_review_${result.review.resolutionStatus}`, {
+          billing_event_id: result.review.billingEventId,
+          provider: result.review.provider,
+          provider_mode: result.review.providerMode,
+          event_type: result.review.eventType,
+          provider_event_id: result.review.providerEventId,
+          review_state: result.review.reviewState,
+          previous_review_state: result.review.actionSummary?.previousReviewState || null,
+        });
+      }
+      return json({ ok: true, ...result, sideEffectsEnabled: false });
     } catch (error) {
       return billingErrorJson(error, ctx);
     }

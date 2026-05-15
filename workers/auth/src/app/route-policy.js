@@ -400,6 +400,21 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },
     notes: "Read-only sanitized billing event detail and dry-run action plan inspection.",
   }),
+  adminRead("admin.billing.reviews.list", "/api/admin/billing/reviews", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+    notes: "Read-only operator review queue for live Stripe lifecycle events. Returns sanitized review metadata only.",
+  }),
+  adminRead("admin.billing.reviews.read", "/api/admin/billing/reviews/:id", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+    notes: "Read-only sanitized billing lifecycle review detail. Raw webhook payloads, signatures, secrets, and payment method data are not returned.",
+  }),
+  adminJsonWrite("admin.billing.reviews.resolve", "POST", "/api/admin/billing/reviews/:id/resolution", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "billing_review_resolution_recorded" },
+    notes: "Admin-only manual resolved/dismissed marker for operator-review billing lifecycle events. Does not call Stripe, reverse credits, cancel subscriptions, or alter raw provider payloads.",
+  }),
   adminRead("admin.avatars.latest", "/api/admin/avatars/latest", "admin", { config: ["DB"] }),
   adminRead("admin.avatars.read", "/api/admin/avatars/:userId", "admin", { config: ["DB", "PRIVATE_MEDIA"] }),
   adminRead("admin.activity.read", "/api/admin/activity", "admin", {

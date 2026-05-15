@@ -46,10 +46,14 @@ Live billing requires all production readiness evidence plus billing-specific ev
 | Live Stripe config presence | Stripe/release operator | Live canary | Stripe live access | Names and present/missing only; never print live key or webhook secret. |
 | Live credit-pack canary, if intentionally enabled | Release owner plus Stripe operator | Bounded live canary | Approved live canary window | Record enable flag timing and rollback; never paste live secrets. |
 | BITBI Pro subscription checkout/invoice/cancel/reactivate evidence | Release owner plus Stripe operator | Staging/Testmode first; live only after approval | Stripe and test account access | Redact secrets and raw payloads. |
-| Refund/dispute/chargeback/failed-payment handling | Billing owner | Staging/Testmode before live | Stripe Testmode access | Redact payloads; record expected state transitions. |
-| Billing reconciliation/admin needs-review workflow | Billing/admin operator | Staging | Admin access | Redact customer data; record action ids/status only. |
+| Refund/dispute/chargeback/failed-payment/expired-checkout review handling | Billing owner | Staging/Testmode before live | Stripe Testmode access | Redact payloads; record expected review states and action ids only. |
+| Billing review queue/resolution workflow | Billing/admin operator | Staging | Admin access | Redact customer data; record review ids/status/note presence only. |
+| Admin Control Plane billing review UI | Billing/admin operator | Staging | Admin access and MFA | Record screenshots/notes with ids redacted; no raw payloads, signatures, card data, or secret values. |
+| Billing reconciliation/admin remediation workflow | Billing/admin operator | Staging | Admin access and approved support/accounting process | Redact customer data; record action ids/status only. |
 
-Live billing remains blocked until failure, refund, dispute, chargeback, expired-session, reconciliation, invoice/customer-portal/tax/legal, and support workflow evidence is complete or explicitly scoped out by product/legal with documented risk acceptance.
+Phase 2.1 adds repository-local code for operator-review-only live Stripe event classification. It records `invoice.payment_failed`, `invoice.payment_action_required`, `checkout.session.expired`, `charge.refunded`, `refund.created`, `refund.updated`, `charge.dispute.created`, `charge.dispute.updated`, and `charge.dispute.closed` as billing event actions with sanitized safe identifiers and `needs_review`, `blocked`, or `informational` review state. Phase 2.2 adds admin-only list/detail/resolution metadata APIs for these records. Phase 2.3 adds Admin Control Plane UI for the review queue, including filters, safe detail, blocked-event warnings, and note/confirmation-gated `resolved` / `dismissed` actions. Operators can mark a review `resolved` or `dismissed` with a bounded note and `Idempotency-Key`; the write route is same-origin/admin/MFA/rate-limit guarded and audited. It does not automatically grant, reverse, subtract, delete, cancel, refund, call Stripe, claw back credits, or resolve credits/accounts beyond manual metadata.
+
+Live billing remains blocked until failure, refund, dispute, chargeback, expired-session, review queue/resolution, reconciliation/remediation, invoice/customer-portal/tax/legal, and support workflow evidence is complete or explicitly scoped out by product/legal with documented risk acceptance.
 
 ## Repo-Local Checks
 
@@ -161,6 +165,7 @@ Unacceptable evidence includes:
 - Claims without commands, screenshots, or traceable operator notes.
 - Secret values, raw webhook secrets/signatures, API keys, raw cookies, session tokens, private keys, or unredacted customer data.
 - Live billing success alone without failure/refund/dispute/reconciliation evidence.
+- Phase 2.3 review queue UI/resolution records presented as automated refund, chargeback, failed-payment remediation, accounting reconciliation, or live billing readiness.
 - Local-only validation presented as production readiness.
 
 ## Explicitly Unproven
@@ -172,6 +177,7 @@ Until filled evidence proves otherwise, these remain unproven:
 - Stripe Testmode checkout/webhook behavior in staging.
 - Live credit-pack canary behavior.
 - BITBI Pro subscription lifecycle behavior.
-- Failed payment, refund, dispute, chargeback, expired-session, and reconciliation workflows.
+- Staging/live evidence for Phase 2.3 failed-payment, refund, dispute, chargeback, and expired-checkout review queue UI/resolution handling.
+- Automated failed-payment remediation, refund/chargeback credit adjustment, and approved billing reconciliation/admin remediation workflow.
 - Restore drill success and rollback readiness.
 - Full SaaS maturity, full tenant isolation, full privacy/legal compliance, and full live billing readiness.

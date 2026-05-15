@@ -171,6 +171,10 @@ The helper runs only read-only GET requests against explicit URLs. It records st
 | Dashboard loads sanitized data |  |  | BLOCKED |  |
 | Readiness panels do not expose secrets |  |  | BLOCKED |  |
 | Billing/event panels redact payloads |  |  | BLOCKED |  |
+| Billing review queue UI lists sanitized `needs_review` / `blocked` events |  |  | BLOCKED |  |
+| Billing review detail UI shows safe identifiers and blocked warnings only |  |  | BLOCKED |  |
+| Billing review resolve/dismiss UI requires note, confirmation, and `Idempotency-Key` |  |  | BLOCKED |  |
+| Billing review UI has no Stripe/remediation/credit-clawback action buttons |  |  | BLOCKED |  |
 | Data lifecycle panels render fail-closed/unavailable states |  |  | BLOCKED |  |
 
 ## 14. Pricing / Credits / Organization Smoke Evidence
@@ -194,6 +198,11 @@ The helper runs only read-only GET requests against explicit URLs. It records st
 | Webhook signature verification rejects invalid signatures |  | BLOCKED |  |
 | Duplicate webhook does not double grant |  | BLOCKED |  |
 | Failed/unpaid/expired session does not grant credits |  | BLOCKED |  |
+| Phase 2.1 failure/refund/dispute/expired events record review-only action metadata |  | BLOCKED |  |
+| Phase 2.3 review queue UI lists `needs_review`, `blocked`, and `informational` events with sanitized metadata |  | BLOCKED |  |
+| Phase 2.3 review detail UI shows safe identifiers/recommended action and no raw payload/signatures/secrets |  | BLOCKED |  |
+| Phase 2.3 review resolution UI records `resolved`/`dismissed` metadata with `Idempotency-Key` and audit evidence |  | BLOCKED |  |
+| Phase 2.3 review-only/resolution events do not call Stripe, reverse, claw back, or subtract credits automatically |  | BLOCKED |  |
 
 ## 16. Live Credit-Pack Canary Evidence, If Intentionally Enabled
 
@@ -220,7 +229,8 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Cancel at period end works for signed-in owner |  | BLOCKED |  |
 | Reactivate works for signed-in owner |  | BLOCKED |  |
 | Failed payment does not grant credits |  | BLOCKED |  |
-| Refund/dispute/chargeback behavior documented and tested |  | BLOCKED |  |
+| Refund/dispute/chargeback behavior documented and tested as review queue/resolution metadata only |  | BLOCKED |  |
+| Automated refund/dispute/chargeback credit remediation is intentionally absent or separately approved |  | BLOCKED |  |
 
 ## 18. Restore Drill Evidence
 
@@ -249,7 +259,8 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 - Remote migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql`:
 - Stripe Testmode checkout/webhook evidence:
 - Stripe live credit-pack/BITBI Pro canary evidence:
-- Refund/dispute/chargeback/failed-payment/reconciliation evidence:
+- Phase 2.3 review queue UI/resolution refund/dispute/chargeback/failed-payment/expired-checkout evidence:
+- Automated billing remediation/reconciliation evidence:
 - Restore drill evidence:
 - Alert/WAF/static header/RUM evidence:
 - Legal/product approval:
@@ -260,7 +271,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records are not live billing readiness, accounting reconciliation, or automated remediation. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

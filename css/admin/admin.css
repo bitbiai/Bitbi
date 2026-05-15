@@ -770,6 +770,11 @@
         grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
     }
 
+    .admin-control-subsection {
+        margin-block-start: var(--space-5);
+        min-width: 0;
+    }
+
     .admin-control-card,
     .admin-control-mini-card,
     .admin-control-detail,
@@ -845,6 +850,46 @@
 
     .admin-control-chip-row {
         margin-block-start: var(--space-4);
+    }
+
+    .admin-billing-review-table {
+        margin-block-start: var(--space-3);
+    }
+
+    .admin-billing-review-row--blocked td {
+        background: rgba(239, 68, 68, 0.06);
+        border-block-color: rgba(239, 68, 68, 0.18);
+    }
+
+    .admin-billing-review-warning {
+        margin-block: 0 var(--space-4);
+        padding: var(--space-3) var(--space-4);
+        border: 1px solid rgba(239, 68, 68, 0.28);
+        border-radius: var(--radius-sm);
+        background: rgba(239, 68, 68, 0.08);
+        color: rgba(255, 210, 210, 0.92);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.6;
+    }
+
+    .admin-billing-review-resolution {
+        display: grid;
+        gap: var(--space-3);
+        margin-block-start: var(--space-5);
+        padding-block-start: var(--space-4);
+        border-block-start: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .admin-billing-review-confirm {
+        align-items: flex-start;
+        line-height: 1.5;
+    }
+
+    .admin-billing-review-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
     }
 
     .admin-control-card .admin-inventory,

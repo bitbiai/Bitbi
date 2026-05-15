@@ -322,6 +322,30 @@ export function apiAdminBillingEvent(eventId) {
     return request('GET', `/admin/billing/events/${encodeURIComponent(eventId)}`);
 }
 
+export function apiAdminBillingReviews({ reviewState, provider, providerMode, eventType, limit } = {}) {
+    const params = new URLSearchParams();
+    if (reviewState) params.set('review_state', reviewState);
+    if (provider) params.set('provider', provider);
+    if (providerMode) params.set('provider_mode', providerMode);
+    if (eventType) params.set('event_type', eventType);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/billing/reviews${qs}`);
+}
+
+export function apiAdminBillingReview(reviewId) {
+    return request('GET', `/admin/billing/reviews/${encodeURIComponent(reviewId)}`);
+}
+
+export function apiAdminResolveBillingReview(reviewId, { resolutionStatus, resolutionNote, idempotencyKey }) {
+    return request('POST', `/admin/billing/reviews/${encodeURIComponent(reviewId)}/resolution`, {
+        resolution_status: resolutionStatus,
+        resolution_note: resolutionNote,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminAiUsageAttempts({ status, organizationId, userId, feature, limit, cursor } = {}) {
     const params = new URLSearchParams();
     if (status) params.set('status', status);

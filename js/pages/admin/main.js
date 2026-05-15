@@ -131,7 +131,7 @@ const sectionMeta = {
     security:  { title: 'Security & Policy', desc: 'Route policy, MFA, service auth, and fail-closed guardrails' },
     orgs:      { title: 'Organizations',    desc: 'Organization, tenant, and membership inspection' },
     billing:   { title: 'Billing & Credits', desc: 'Plans, entitlements, balances, and safe manual credit grants' },
-    'billing-events': { title: 'Billing Events', desc: 'Provider event inspection and Stripe Testmode status' },
+    'billing-events': { title: 'Billing Events', desc: 'Provider event inspection and operator billing review queue' },
     'ai-usage': { title: 'AI Usage',         desc: 'Org-scoped usage attempts, reservations, replay, and cleanup' },
     lifecycle: { title: 'Data Lifecycle',   desc: 'Export, deletion planning, archive, and retention operations' },
     operations: { title: 'Operations',      desc: 'Async AI video diagnostics and operational visibility' },

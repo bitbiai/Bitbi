@@ -1677,6 +1677,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.userCreditGrantRequests = captures.userCreditGrantRequests || [];
   captures.aiCleanupRequests = captures.aiCleanupRequests || [];
   captures.storageRequests = captures.storageRequests || [];
+  captures.billingReviewResolutionRequests = captures.billingReviewResolutionRequests || [];
   const adminUsers = captures.adminUsers || [
     {
       id: 'user_member',
@@ -2083,6 +2084,142 @@ async function mockAdminControlPlane(page, captures = {}) {
         ],
       },
     });
+  });
+
+  const billingReviews = [
+    {
+      id: 'bpe_review_1',
+      billingEventId: 'bpe_review_1',
+      actionId: 'bea_review_1',
+      providerEventId: 'evt_review_failure_1',
+      provider: 'stripe',
+      providerMode: 'live',
+      eventType: 'invoice.payment_failed',
+      receivedAt: '2026-05-12T08:00:00.000Z',
+      processingStatus: 'planned',
+      actionStatus: 'deferred',
+      reviewState: 'needs_review',
+      reviewReason: 'Live invoice payment failed.',
+      recommendedAction: 'Review the member subscription and contact the customer before any manual account decision.',
+      sideEffectsEnabled: false,
+      operatorReviewOnly: true,
+      safeIdentifiers: {
+        providerEventId: 'evt_review_failure_1',
+        invoiceId: 'in_review_failure_1',
+        customerId: 'cus_review_1',
+        subscriptionId: 'sub_review_1',
+        rawPayload: 'should-not-render',
+        stripeSignature: 'Stripe-Signature should-not-render',
+      },
+    },
+    {
+      id: 'bpe_review_2',
+      billingEventId: 'bpe_review_2',
+      actionId: 'bea_review_2',
+      providerEventId: 'evt_review_dispute_1',
+      provider: 'stripe',
+      providerMode: 'live',
+      eventType: 'charge.dispute.created',
+      receivedAt: '2026-05-12T09:00:00.000Z',
+      processingStatus: 'planned',
+      actionStatus: 'deferred',
+      reviewState: 'blocked',
+      reviewReason: 'Live charge dispute opened.',
+      recommendedAction: 'Block billing readiness claims until a human accounting/legal review is complete.',
+      sideEffectsEnabled: false,
+      operatorReviewOnly: true,
+      safeIdentifiers: {
+        providerEventId: 'evt_review_dispute_1',
+        chargeId: 'ch_review_1',
+        disputeId: 'du_review_1',
+        customerId: 'cus_review_1',
+        cardLast4: '4242',
+        paymentMethodId: 'pm_card_visa',
+        secretValue: 'sk_live_should_not_render',
+      },
+      warning: 'Blocked billing lifecycle event: operator review is required before any billing or account readiness claim.',
+    },
+  ];
+
+  function reviewDetail(review) {
+    return {
+      ok: true,
+      livePaymentProviderEnabled: false,
+      review: {
+        ...review,
+        actionSummary: {
+          eventType: review.eventType,
+          providerMode: review.providerMode,
+          sideEffectsEnabled: false,
+          operatorReviewOnly: true,
+          reviewState: review.reviewState,
+          reviewReason: review.reviewReason,
+          recommendedAction: review.recommendedAction,
+          safeIdentifiers: review.safeIdentifiers,
+          creditMutation: 'none',
+          creditsGranted: 0,
+          creditsReversed: 0,
+          persistedCheckoutState: {
+            status: 'needs_review',
+            hasLedgerEntry: false,
+            raw_payload: 'should-not-render',
+          },
+          rawPayload: 'should-not-render',
+          stripeSignature: 'Stripe-Signature should-not-render',
+        },
+      },
+    };
+  }
+
+  await page.route('**/api/admin/billing/reviews?*', async (route) => {
+    const url = new URL(route.request().url());
+    const state = url.searchParams.get('review_state');
+    const filtered = state
+      ? billingReviews.filter((review) => review.reviewState === state)
+      : billingReviews;
+    await fulfillJson(route, {
+      ok: true,
+      livePaymentProviderEnabled: false,
+      reviews: filtered,
+      nextCursor: null,
+    });
+  });
+  await page.route('**/api/admin/billing/reviews', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      livePaymentProviderEnabled: false,
+      reviews: billingReviews,
+      nextCursor: null,
+    });
+  });
+  await page.route('**/api/admin/billing/reviews/bpe_review_1/resolution', async (route) => {
+    captures.billingReviewResolutionRequests.push({
+      method: route.request().method(),
+      path: new URL(route.request().url()).pathname,
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await wait(80);
+    const body = route.request().postDataJSON();
+    billingReviews[0] = {
+      ...billingReviews[0],
+      reviewState: body.resolution_status,
+      resolutionStatus: body.resolution_status,
+      resolutionNote: body.resolution_note,
+      resolvedAt: '2026-05-12T10:00:00.000Z',
+    };
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      sideEffectsEnabled: false,
+      review: reviewDetail(billingReviews[0]).review,
+    });
+  });
+  await page.route('**/api/admin/billing/reviews/bpe_review_1', async (route) => {
+    await fulfillJson(route, reviewDetail(billingReviews[0]));
+  });
+  await page.route('**/api/admin/billing/reviews/bpe_review_2', async (route) => {
+    await fulfillJson(route, reviewDetail(billingReviews[1]));
   });
 
   const attemptsPayload = {
@@ -8283,6 +8420,9 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'billing-events');
     await expect(page.locator('#sectionBillingEvents')).toContainText('Testmode only');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Review Queue');
+    await expect(page.locator('#billingReviewsList')).toContainText('invoice.payment_failed');
+    await expect(page.locator('#billingReviewsList')).toContainText('charge.dispute.created');
     await expect(page.locator('#billingEventsList')).toContainText('checkout.session.completed');
     await page.locator('#billingEventsList').getByRole('button', { name: 'Inspect' }).click();
     await expect(page.locator('#billingEventDetail')).toContainText('grant_credits');
@@ -8323,6 +8463,92 @@ test.describe('Admin Control Plane', () => {
     expect(renderedText).not.toContain('idempotencyKeyHash');
     expect(renderedText).not.toContain('requestFingerprintHash');
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('renders billing review queue safely and records manual resolutions only', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#billing-events');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionBillingEvents')).toBeVisible();
+    await expect(page.locator('#sectionBillingEvents')).toContainText(/operator review only/i);
+    await expect(page.locator('#sectionBillingEvents')).toContainText(/does not adjust credits/i);
+    await expect(page.locator('#billingReviewsState')).toContainText('Showing 2 sanitized billing review events');
+
+    const reviewList = page.locator('#billingReviewsList');
+    await expect(reviewList).toContainText('invoice.payment_failed');
+    await expect(reviewList).toContainText('needs review');
+    await expect(reviewList).toContainText('evt_review');
+    await expect(reviewList).toContainText('charge.dispute.created');
+    await expect(reviewList).toContainText('blocked');
+    await expect(reviewList).not.toContainText('should-not-render');
+    await expect(reviewList).not.toContainText('sk_live_should_not_render');
+    await expect(reviewList).not.toContainText('pm_card_visa');
+    await expect(reviewList).not.toContainText('4242');
+
+    await page.locator('#billingReviewsList').getByRole('button', { name: 'Inspect Review' }).nth(1).click();
+    const reviewDetail = page.locator('#billingReviewDetail');
+    await expect(reviewDetail).toContainText('Blocked billing lifecycle event');
+    await expect(reviewDetail).toContainText('du_review_1');
+    await expect(reviewDetail).toContainText('Side effects enabled');
+    await expect(reviewDetail).toContainText('No');
+    await expect(reviewDetail).not.toContainText('should-not-render');
+    await expect(reviewDetail).not.toContainText('Stripe-Signature');
+    await expect(reviewDetail).not.toContainText('sk_live_should_not_render');
+    await expect(reviewDetail).not.toContainText('pm_card_visa');
+    await expect(reviewDetail).not.toContainText('4242');
+    await expect(page.locator('#sectionBillingEvents').getByRole('button', { name: /refund|reverse credits|clawback|cancel subscription|chargeback action/i })).toHaveCount(0);
+
+    await page.locator('#billingReviewsList').getByRole('button', { name: 'Inspect Review' }).first().click();
+    await expect(reviewDetail).toContainText('invoice.payment_failed');
+    await reviewDetail.getByRole('button', { name: 'Mark Resolved' }).click();
+    await expect(page.locator('#billingReviewResolutionState')).toContainText('Resolution note and confirmation are required.');
+    expect(captures.billingReviewResolutionRequests).toHaveLength(0);
+
+    await page.locator('#billingReviewResolutionNote').fill('Reviewed invoice failure with support. No automatic credit or Stripe action was taken.');
+    await reviewDetail.getByRole('button', { name: 'Mark Dismissed' }).click();
+    await expect(page.locator('#billingReviewResolutionState')).toContainText('Resolution note and confirmation are required.');
+    expect(captures.billingReviewResolutionRequests).toHaveLength(0);
+
+    await page.locator('#billingReviewResolutionConfirm').check();
+    await reviewDetail.getByRole('button', { name: 'Mark Resolved' }).evaluate((button) => {
+      button.click();
+      button.click();
+    });
+    await expect(reviewDetail).toContainText('resolved');
+    expect(captures.billingReviewResolutionRequests).toHaveLength(1);
+    expect(captures.billingReviewResolutionRequests[0]).toMatchObject({
+      method: 'POST',
+      path: '/api/admin/billing/reviews/bpe_review_1/resolution',
+      body: {
+        resolution_status: 'resolved',
+        resolution_note: 'Reviewed invoice failure with support. No automatic credit or Stripe action was taken.',
+      },
+    });
+    expect(captures.billingReviewResolutionRequests[0].idempotencyKey).toMatch(/^billing-review-resolution-/);
+  });
+
+  test('renders billing review unavailable state without unsafe fallback actions', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page);
+    await page.route('**/api/admin/billing/reviews?*', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'Limiter backend unavailable' }, 503);
+    });
+    await page.route('**/api/admin/billing/reviews', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'Limiter backend unavailable' }, 503);
+    });
+
+    const response = await page.goto('/admin/index.html#billing-events');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#billingReviewsList')).toContainText('Backend dependency is unavailable or fail-closed');
+    await expect(page.locator('#billingReviewsList')).not.toContainText('Production ready');
+    await expect(page.locator('#sectionBillingEvents').getByRole('button', { name: /refund|reverse credits|clawback|cancel subscription|chargeback action/i })).toHaveCount(0);
   });
 
   test('keeps control-plane cards, badges, nav, and tables legible across viewports', async ({

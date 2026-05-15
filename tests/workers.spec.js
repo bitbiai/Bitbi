@@ -1424,6 +1424,22 @@ test.describe('Phase 1-E auth route policy registry', () => {
       id: 'admin.billing.events.read',
       auth: 'admin',
     }));
+    expect(getRoutePolicy('GET', '/api/admin/billing/reviews')).toEqual(expect.objectContaining({
+      id: 'admin.billing.reviews.list',
+      auth: 'admin',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/billing/reviews/bpe_0123456789abcdef0123456789abcdef')).toEqual(expect.objectContaining({
+      id: 'admin.billing.reviews.read',
+      auth: 'admin',
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/billing/reviews/bpe_0123456789abcdef0123456789abcdef/resolution')).toEqual(expect.objectContaining({
+      id: 'admin.billing.reviews.resolve',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
   });
 });
 
@@ -3666,6 +3682,26 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     });
   }
 
+  function liveStripeReviewPayload({ id, type, object = {} }) {
+    return {
+      id,
+      object: 'event',
+      type,
+      created: 1777372800,
+      livemode: true,
+      data: {
+        object: {
+          livemode: true,
+          ...object,
+        },
+      },
+    };
+  }
+
+  function latestBillingActionSummary(env) {
+    return JSON.parse(env.DB.state.billingEventActions.at(-1).summary_json);
+  }
+
   test('organization live checkout is restricted to platform admins and active organization owners', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const calls = [];
@@ -4383,6 +4419,688 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(staleBody.code).toBe('stripe_checkout_owner_scope_required');
     expect(env.DB.state.creditLedger).toHaveLength(0);
     expect(env.DB.state.billingProviderEvents.at(-1).processing_status).toBe('failed');
+  });
+
+  test('Stripe live billing lifecycle review rejects Testmode events and stores unknown live events safely', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv(seedLiveBillingOrg());
+
+    const testmodePayload = liveStripeReviewPayload({
+      id: 'evt_phase21_testmode_invoice_failed',
+      type: 'invoice.payment_failed',
+      object: {
+        id: 'in_phase21_testmode_invoice_failed',
+        object: 'invoice',
+        livemode: false,
+        customer: 'cus_phase21_testmode',
+      },
+    });
+    testmodePayload.livemode = false;
+    const testmode = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: testmodePayload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(testmode.status).toBe(403);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+
+    const unknownPayload = liveStripeReviewPayload({
+      id: 'evt_phase21_unknown_live',
+      type: 'customer.updated',
+      object: {
+        id: 'cus_phase21_unknown_live',
+        object: 'customer',
+        email: 'do-not-store@example.invalid',
+      },
+    });
+    const unknown = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: unknownPayload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const unknownBody = await unknown.json();
+    expect(unknown.status).toBe(202);
+    expect(unknownBody.actionPlanned).toBe(false);
+    expect(unknownBody.event).toEqual(expect.objectContaining({
+      provider: 'stripe',
+      providerMode: 'live',
+      eventType: 'customer.updated',
+      processingStatus: 'ignored',
+    }));
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingEventActions).toHaveLength(0);
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(JSON.stringify(unknownBody)).not.toContain('do-not-store@example.invalid');
+  });
+
+  test('Stripe live billing lifecycle review records failed invoice metadata for sanitized admin inspection', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv(seedLiveBillingOrg());
+    const adminToken = await seedSession(env, 'phase2l-platform-admin');
+    const payload = liveStripeReviewPayload({
+      id: 'evt_phase21_invoice_failed',
+      type: 'invoice.payment_failed',
+      object: {
+        id: 'in_phase21_invoice_failed',
+        object: 'invoice',
+        customer: 'cus_phase21_invoice_failed',
+        subscription: 'sub_phase21_invoice_failed',
+        payment_intent: 'pi_live_phase21_invoice_failed',
+        payment_method: 'pm_live_should_not_leak',
+        card: { last4: '4242' },
+      },
+    });
+
+    const response = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(202);
+    expect(body.event).toEqual(expect.objectContaining({
+      provider: 'stripe',
+      providerMode: 'live',
+      eventType: 'invoice.payment_failed',
+      processingStatus: 'planned',
+    }));
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+    expect(latestBillingActionSummary(env)).toEqual(expect.objectContaining({
+      eventType: 'invoice.payment_failed',
+      providerMode: 'live',
+      sideEffectsEnabled: false,
+      reviewState: 'needs_review',
+      operatorReviewOnly: true,
+      creditsGranted: 0,
+      creditsReversed: 0,
+      creditMutation: 'none',
+    }));
+
+    const eventId = env.DB.state.billingProviderEvents[0].id;
+    const detail = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/events/${eventId}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const detailBody = await detail.json();
+    expect(detail.status).toBe(200);
+    expect(detailBody.event.actions[0].summary).toEqual(expect.objectContaining({
+      reviewState: 'needs_review',
+      recommendedAction: expect.stringContaining('Review'),
+      safeIdentifiers: expect.objectContaining({
+        providerEventId: 'evt_phase21_invoice_failed',
+        invoiceId: 'in_phase21_invoice_failed',
+        customerId: 'cus_phase21_invoice_failed',
+        subscriptionId: 'sub_phase21_invoice_failed',
+      }),
+    }));
+    const serialized = JSON.stringify(detailBody);
+    expect(serialized).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
+    expect(serialized).not.toContain('Stripe-Signature');
+    expect(serialized).not.toContain('payload_hash');
+    expect(serialized).not.toContain('pm_live_should_not_leak');
+    expect(serialized).not.toContain('4242');
+  });
+
+  test('Stripe live billing lifecycle review records expired checkout without granting credits', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv(seedLiveBillingOrg());
+    const payload = liveStripeReviewPayload({
+      id: 'evt_phase21_checkout_expired',
+      type: 'checkout.session.expired',
+      object: {
+        id: 'cs_live_phase21_checkout_expired',
+        object: 'checkout.session',
+        mode: 'payment',
+        customer: 'cus_phase21_checkout_expired',
+        payment_status: 'unpaid',
+        metadata: {
+          organization_id: ORG_ID,
+          user_id: 'phase2l-owner',
+          credit_pack_id: 'live_credits_5000',
+        },
+      },
+    });
+
+    const response = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(202);
+    expect(body.actionPlanned).toBe(false);
+    expect(body.event.processingStatus).toBe('ignored');
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(latestBillingActionSummary(env)).toEqual(expect.objectContaining({
+      eventType: 'checkout.session.expired',
+      reviewState: 'informational',
+      sideEffectsEnabled: false,
+      creditsGranted: 0,
+      creditsReversed: 0,
+    }));
+
+    env.DB.state.billingCheckoutSessions.push({
+      id: 'bcs_phase21_expired_completed',
+      provider: 'stripe',
+      provider_mode: 'live',
+      provider_checkout_session_id: 'cs_live_phase21_checkout_expired_done',
+      organization_id: ORG_ID,
+      user_id: 'phase2l-owner',
+      credit_pack_id: 'live_credits_5000',
+      status: 'completed',
+      credit_ledger_entry_id: 'cl_phase21_expired_completed',
+      billing_event_id: 'bpe_phase21_previous',
+      completed_at: '2026-05-15T09:00:00.000Z',
+      granted_at: '2026-05-15T09:00:01.000Z',
+    });
+    const inconsistentPayload = liveStripeReviewPayload({
+      id: 'evt_phase21_checkout_expired_inconsistent',
+      type: 'checkout.session.expired',
+      object: {
+        id: 'cs_live_phase21_checkout_expired_done',
+        object: 'checkout.session',
+        mode: 'payment',
+        customer: 'cus_phase21_checkout_expired_done',
+        payment_status: 'unpaid',
+      },
+    });
+    const inconsistent = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: inconsistentPayload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const inconsistentBody = await inconsistent.json();
+    expect(inconsistent.status).toBe(202);
+    expect(inconsistentBody.actionPlanned).toBe(true);
+    expect(inconsistentBody.event.processingStatus).toBe('planned');
+    expect(latestBillingActionSummary(env)).toEqual(expect.objectContaining({
+      eventType: 'checkout.session.expired',
+      reviewState: 'needs_review',
+      sideEffectsEnabled: false,
+      creditMutation: 'none',
+    }));
+  });
+
+  test('Stripe live billing lifecycle review records refunds without subtracting credits', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      extra: {
+        creditLedger: [{
+          id: 'cl_phase21_existing_live_grant',
+          organization_id: ORG_ID,
+          amount: 5000,
+          balance_after: 5000,
+          entry_type: 'grant',
+          feature_key: 'credits',
+          source: 'stripe_live_checkout',
+          reason: 'credit_pack:live_credits_5000',
+          idempotency_key: 'stripe_live_checkout:cs_live_phase21_refund:live_credits_5000',
+          created_by_user_id: 'phase2l-owner',
+          created_at: '2026-05-15T10:00:00.000Z',
+        }],
+      },
+    }));
+    const originalLedger = JSON.stringify(env.DB.state.creditLedger);
+    const events = [
+      liveStripeReviewPayload({
+        id: 'evt_phase21_charge_refunded',
+        type: 'charge.refunded',
+        object: {
+          id: 'ch_phase21_refunded',
+          object: 'charge',
+          customer: 'cus_phase21_refunded',
+          invoice: 'in_phase21_refunded',
+          payment_intent: 'pi_live_phase21_refunded',
+          amount_refunded: 999,
+          currency: 'eur',
+        },
+      }),
+      liveStripeReviewPayload({
+        id: 'evt_phase21_refund_created',
+        type: 'refund.created',
+        object: {
+          id: 're_phase21_created',
+          object: 'refund',
+          charge: 'ch_phase21_refunded',
+          payment_intent: 'pi_live_phase21_refunded',
+          amount: 999,
+          currency: 'eur',
+        },
+      }),
+    ];
+
+    for (const payload of events) {
+      const response = await worker.fetch(
+        await signedLiveStripeWebhookRequest({ body: payload }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(response.status).toBe(202);
+      expect(latestBillingActionSummary(env)).toEqual(expect.objectContaining({
+        eventType: payload.type,
+        reviewState: 'needs_review',
+        sideEffectsEnabled: false,
+        creditsReversed: 0,
+        creditMutation: 'none',
+      }));
+    }
+    expect(JSON.stringify(env.DB.state.creditLedger)).toBe(originalLedger);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+  });
+
+  test('Stripe live billing lifecycle review blocks disputes without mutating credits', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      extra: {
+        creditLedger: [{
+          id: 'cl_phase21_existing_dispute_grant',
+          organization_id: ORG_ID,
+          amount: 12000,
+          balance_after: 12000,
+          entry_type: 'grant',
+          feature_key: 'credits',
+          source: 'stripe_live_checkout',
+          reason: 'credit_pack:live_credits_12000',
+          idempotency_key: 'stripe_live_checkout:cs_live_phase21_dispute:live_credits_12000',
+          created_by_user_id: 'phase2l-owner',
+          created_at: '2026-05-15T10:00:00.000Z',
+        }],
+      },
+    }));
+    const originalLedger = JSON.stringify(env.DB.state.creditLedger);
+    const payload = liveStripeReviewPayload({
+      id: 'evt_phase21_dispute_created',
+      type: 'charge.dispute.created',
+      object: {
+        id: 'dp_phase21_dispute_created',
+        object: 'dispute',
+        charge: 'ch_phase21_disputed',
+        payment_intent: 'pi_live_phase21_disputed',
+        amount: 1999,
+        currency: 'eur',
+      },
+    });
+
+    const response = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(response.status).toBe(202);
+    expect(env.DB.state.billingProviderEvents[0].processing_status).toBe('planned');
+    expect(latestBillingActionSummary(env)).toEqual(expect.objectContaining({
+      eventType: 'charge.dispute.created',
+      reviewState: 'blocked',
+      sideEffectsEnabled: false,
+      creditsReversed: 0,
+      creditMutation: 'none',
+    }));
+    expect(JSON.stringify(env.DB.state.creditLedger)).toBe(originalLedger);
+  });
+
+  test('Stripe live billing lifecycle review dedupes duplicate events and rejects payload mismatches', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv(seedLiveBillingOrg());
+    const payload = liveStripeReviewPayload({
+      id: 'evt_phase21_duplicate_review',
+      type: 'invoice.payment_action_required',
+      object: {
+        id: 'in_phase21_action_required',
+        object: 'invoice',
+        customer: 'cus_phase21_action_required',
+        subscription: 'sub_phase21_action_required',
+      },
+    });
+
+    const first = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(first.status).toBe(202);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+
+    const duplicate = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const duplicateBody = await duplicate.json();
+    expect(duplicate.status).toBe(200);
+    expect(duplicateBody.duplicate).toBe(true);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+
+    const mismatchPayload = JSON.parse(JSON.stringify(payload));
+    mismatchPayload.data.object.amount_due = 1999;
+    const mismatch = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: mismatchPayload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mismatch.status).toBe(409);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+  });
+
+  test('billing review queue is admin-only and lists live needs-review and blocked events safely', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase22-review-admin');
+    const nonAdmin = createContractUser({ id: 'phase22-review-member', role: 'user' });
+    const env = createAuthTestEnv(seedLiveBillingOrg({ platformAdmin: admin }));
+    env.DB.state.users.push(nonAdmin);
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    for (const payload of [
+      liveStripeReviewPayload({
+        id: 'evt_phase22_invoice_failed',
+        type: 'invoice.payment_failed',
+        object: {
+          id: 'in_phase22_invoice_failed',
+          object: 'invoice',
+          customer: 'cus_phase22_invoice_failed',
+          subscription: 'sub_phase22_invoice_failed',
+          payment_method: 'pm_phase22_should_not_leak',
+        },
+      }),
+      liveStripeReviewPayload({
+        id: 'evt_phase22_dispute_created',
+        type: 'charge.dispute.created',
+        object: {
+          id: 'dp_phase22_dispute_created',
+          object: 'dispute',
+          charge: 'ch_phase22_disputed',
+          payment_intent: 'pi_phase22_disputed',
+          card: { last4: '4242' },
+        },
+      }),
+    ]) {
+      const response = await worker.fetch(
+        await signedLiveStripeWebhookRequest({ body: payload }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(response.status).toBe(202);
+    }
+
+    const denied = await worker.fetch(
+      authJsonRequest('/api/admin/billing/reviews?provider=stripe&provider_mode=live&review_state=needs_review', 'GET', undefined, {
+        Cookie: `bitbi_session=${nonAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const needsReview = await worker.fetch(
+      authJsonRequest('/api/admin/billing/reviews?provider=stripe&provider_mode=live&review_state=needs_review&limit=10', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const needsReviewBody = await needsReview.json();
+    expect(needsReview.status).toBe(200);
+    expect(needsReviewBody.reviews).toHaveLength(1);
+    expect(needsReviewBody.reviews[0]).toEqual(expect.objectContaining({
+      provider: 'stripe',
+      providerMode: 'live',
+      eventType: 'invoice.payment_failed',
+      reviewState: 'needs_review',
+      sideEffectsEnabled: false,
+      safeIdentifiers: expect.objectContaining({
+        providerEventId: 'evt_phase22_invoice_failed',
+        invoiceId: 'in_phase22_invoice_failed',
+        customerId: 'cus_phase22_invoice_failed',
+        subscriptionId: 'sub_phase22_invoice_failed',
+      }),
+    }));
+
+    const blocked = await worker.fetch(
+      authJsonRequest('/api/admin/billing/reviews?provider=stripe&provider_mode=live&review_state=blocked', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const blockedBody = await blocked.json();
+    expect(blocked.status).toBe(200);
+    expect(blockedBody.reviews).toHaveLength(1);
+    expect(blockedBody.reviews[0]).toEqual(expect.objectContaining({
+      eventType: 'charge.dispute.created',
+      reviewState: 'blocked',
+      warning: expect.stringContaining('Blocked billing lifecycle event'),
+    }));
+
+    const serialized = JSON.stringify({ needsReviewBody, blockedBody });
+    expect(serialized).not.toContain('pm_phase22_should_not_leak');
+    expect(serialized).not.toContain('4242');
+    expect(serialized).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
+    expect(serialized).not.toContain('Stripe-Signature');
+    expect(serialized).not.toContain('payload_hash');
+  });
+
+  test('billing review detail returns sanitized metadata only', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv(seedLiveBillingOrg());
+    const adminToken = await seedSession(env, 'phase2l-platform-admin');
+    const payload = liveStripeReviewPayload({
+      id: 'evt_phase22_refund_detail',
+      type: 'refund.created',
+      object: {
+        id: 're_phase22_refund_detail',
+        object: 'refund',
+        charge: 'ch_phase22_refund_detail',
+        payment_intent: 'pi_phase22_refund_detail',
+        payment_method: 'pm_phase22_refund_secret',
+        card: { last4: '1234' },
+      },
+    });
+
+    const ingested = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(ingested.status).toBe(202);
+    const eventId = env.DB.state.billingProviderEvents[0].id;
+
+    const detail = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/reviews/${eventId}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const detailBody = await detail.json();
+    expect(detail.status).toBe(200);
+    expect(detailBody.review).toEqual(expect.objectContaining({
+      id: eventId,
+      providerEventId: 'evt_phase22_refund_detail',
+      provider: 'stripe',
+      providerMode: 'live',
+      eventType: 'refund.created',
+      reviewState: 'needs_review',
+      sideEffectsEnabled: false,
+      actionSummary: expect.objectContaining({
+        reviewState: 'needs_review',
+        safeIdentifiers: expect.objectContaining({
+          providerEventId: 'evt_phase22_refund_detail',
+          refundId: 're_phase22_refund_detail',
+          chargeId: 'ch_phase22_refund_detail',
+          paymentIntentId: 'pi_phase22_refund_detail',
+        }),
+      }),
+    }));
+    const serialized = JSON.stringify(detailBody);
+    expect(serialized).not.toContain('pm_phase22_refund_secret');
+    expect(serialized).not.toContain('1234');
+    expect(serialized).not.toContain('payload_hash');
+    expect(serialized).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
+    expect(serialized).not.toContain('Stripe-Signature');
+  });
+
+  test('billing review resolution is idempotent, audited, and has no billing or Stripe side effects', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    let stripeCalls = 0;
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      extra: {
+        __TEST_FETCH: async () => {
+          stripeCalls += 1;
+          throw new Error('Stripe must not be called by billing review resolution.');
+        },
+        creditLedger: [{
+          id: 'cl_phase22_existing_review_grant',
+          organization_id: ORG_ID,
+          amount: 5000,
+          balance_after: 5000,
+          entry_type: 'grant',
+          feature_key: 'credits',
+          source: 'stripe_live_checkout',
+          reason: 'credit_pack:live_credits_5000',
+          idempotency_key: 'stripe_live_checkout:cs_live_phase22_review:live_credits_5000',
+          created_by_user_id: 'phase2l-owner',
+          created_at: '2026-05-15T10:00:00.000Z',
+        }],
+      },
+    }));
+    const adminToken = await seedSession(env, 'phase2l-platform-admin');
+    const payload = liveStripeReviewPayload({
+      id: 'evt_phase22_resolution_refund',
+      type: 'charge.refunded',
+      object: {
+        id: 'ch_phase22_resolution_refund',
+        object: 'charge',
+        customer: 'cus_phase22_resolution',
+        payment_intent: 'pi_phase22_resolution',
+        amount_refunded: 999,
+        currency: 'eur',
+      },
+    });
+    const dismissPayload = liveStripeReviewPayload({
+      id: 'evt_phase22_resolution_dispute',
+      type: 'charge.dispute.created',
+      object: {
+        id: 'dp_phase22_resolution_dispute',
+        object: 'dispute',
+        charge: 'ch_phase22_resolution_dispute',
+        payment_intent: 'pi_phase22_resolution_dispute',
+      },
+    });
+
+    const ingested = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(ingested.status).toBe(202);
+    const dispute = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: dismissPayload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dispute.status).toBe(202);
+    const eventId = env.DB.state.billingProviderEvents[0].id;
+    const disputeEventId = env.DB.state.billingProviderEvents[1].id;
+    const originalCreditLedger = JSON.stringify(env.DB.state.creditLedger);
+    const originalMemberLedger = JSON.stringify(env.DB.state.memberCreditLedger);
+
+    const first = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/reviews/${eventId}/resolution`, 'POST', {
+        resolution_status: 'resolved',
+        resolution_note: 'Operator matched refund to accounting ticket FIN-220 and left credits unchanged.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase22-review-resolution-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const firstBody = await first.json();
+    expect(first.status).toBe(200);
+    expect(firstBody.reused).toBe(false);
+    expect(firstBody.review).toEqual(expect.objectContaining({
+      id: eventId,
+      reviewState: 'resolved',
+      resolutionStatus: 'resolved',
+      resolutionNote: 'Operator matched refund to accounting ticket FIN-220 and left credits unchanged.',
+      sideEffectsEnabled: false,
+      resolvedByUserId: 'phase2l-platform-admin',
+    }));
+
+    const duplicate = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/reviews/${eventId}/resolution`, 'POST', {
+        resolution_status: 'resolved',
+        resolution_note: 'Operator matched refund to accounting ticket FIN-220 and left credits unchanged.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase22-review-resolution-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const duplicateBody = await duplicate.json();
+    expect(duplicate.status).toBe(200);
+    expect(duplicateBody.reused).toBe(true);
+
+    const conflict = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/reviews/${eventId}/resolution`, 'POST', {
+        resolution_status: 'dismissed',
+        resolution_note: 'Different decision with the same idempotency key must fail.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase22-review-resolution-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
+
+    const dismissed = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/reviews/${disputeEventId}/resolution`, 'POST', {
+        resolution_status: 'dismissed',
+        resolution_note: 'Duplicate Stripe dashboard alert; primary dispute task is tracked separately.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase22-review-dismiss-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const dismissedBody = await dismissed.json();
+    expect(dismissed.status).toBe(200);
+    expect(dismissedBody.review).toEqual(expect.objectContaining({
+      id: disputeEventId,
+      reviewState: 'dismissed',
+      resolutionStatus: 'dismissed',
+    }));
+
+    expect(JSON.stringify(env.DB.state.creditLedger)).toBe(originalCreditLedger);
+    expect(JSON.stringify(env.DB.state.memberCreditLedger)).toBe(originalMemberLedger);
+    expect(stripeCalls).toBe(0);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(2);
+    expect(env.DB.state.billingEventActions).toHaveLength(2);
+    const auditActions = [
+      ...env.DB.state.adminAuditLog.map((row) => row.action),
+      ...(env.ACTIVITY_INGEST_QUEUE?.messages || []).map((message) => message.action),
+    ];
+    expect(auditActions).toContain('billing_review_resolved');
+    expect(auditActions).toContain('billing_review_dismissed');
   });
 
   test('credits dashboard is owner-or-platform-admin only and returns sanitized live billing data', async () => {

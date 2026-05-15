@@ -453,19 +453,57 @@
             </div>
 
             <!-- ═══════════════════════════════════════
-                 BILLING EVENTS / STRIPE TESTMODE
+                 BILLING EVENTS / STRIPE REVIEW QUEUE
                  ═══════════════════════════════════════ -->
             <div id="sectionBillingEvents" class="admin-section" style="display:none">
                 <div class="admin-control-toolbar glass glass-card reveal visible">
                     <div>
-                        <h3 class="admin-section-title">Billing Events / Stripe Testmode</h3>
-                        <p class="admin-shell__desc">Sanitized billing-provider event inspection. Stripe is Testmode-only; live billing is disabled.</p>
+                        <h3 class="admin-section-title">Billing Events / Stripe Reviews</h3>
+                        <p class="admin-shell__desc">Sanitized billing-provider inspection and operator-only review workflow. Resolving or dismissing review items does not adjust credits, call Stripe, cancel subscriptions, or prove production readiness.</p>
                     </div>
                     <div class="admin-control-toolbar__badges">
-                        <span class="badge badge--user">Testmode only</span>
-                        <span class="badge badge--disabled">Live disabled</span>
+                        <span class="badge badge--disabled">Production blocked</span>
+                        <span class="badge badge--legacy">Operator review only</span>
+                        <span class="badge badge--user">Testmode only event log</span>
                     </div>
                 </div>
+                <div class="admin-control-subsection">
+                    <h3 class="admin-section-title">Billing Review Queue</h3>
+                    <p class="admin-shell__desc">Live Stripe failure, refund, dispute, and expired-checkout lifecycle events are shown here for human review only. Refund, dispute, chargeback, and credit remediation remains manual outside this UI until a later approved phase.</p>
+                    <form id="billingReviewsFilter" class="admin-control-filter">
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Review state</span>
+                            <select id="billingReviewsStateFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="needs_review">Needs review</option>
+                                <option value="blocked">Blocked</option>
+                                <option value="informational">Informational</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="dismissed">Dismissed</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Provider mode</span>
+                            <select id="billingReviewsProviderMode" class="admin-ai__input">
+                                <option value="live">Live</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Event type</span>
+                            <input id="billingReviewsEventType" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="charge.dispute.created">
+                        </label>
+                        <button type="submit" class="btn-action">Apply</button>
+                    </form>
+                    <div class="admin-control-toolbar__badges">
+                        <button type="button" id="billingReviewsRefresh" class="btn-action">Refresh</button>
+                    </div>
+                    <div id="billingReviewsState" class="admin-state" aria-live="polite">Loading billing reviews...</div>
+                    <div id="billingReviewsList"></div>
+                    <div id="billingReviewDetail" class="admin-control-detail glass glass-card" hidden></div>
+                </div>
+                <div class="admin-control-subsection">
+                    <h3 class="admin-section-title">Provider Event Log</h3>
+                    <p class="admin-shell__desc">Sanitized billing-provider event inspection. Raw webhook payloads and signatures are never rendered.</p>
                 <form id="billingEventsFilter" class="admin-control-filter glass glass-card">
                     <label class="admin-ai__field">
                         <span class="admin-ai__label">Provider</span>
@@ -490,6 +528,7 @@
                 <div id="billingEventsState" class="admin-state">Loading billing events...</div>
                 <div id="billingEventsList"></div>
                 <div id="billingEventDetail" class="admin-control-detail glass glass-card" hidden></div>
+                </div>
             </div>
 
             <!-- ═══════════════════════════════════════

@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 2-O, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, the gated live Credits/Organization dashboards, member credit buckets, BITBI Pro subscription scaffolding, and the 2026-05-15 Alpha Audit documentation reconciliation. This is not a production deploy approval or live billing readiness claim.
+Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 2.3, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, the gated live Credits/Organization dashboards, member credit buckets, BITBI Pro subscription scaffolding, the 2026-05-15 Alpha Audit documentation reconciliation, and Stripe live billing lifecycle operator-review queue/resolution UI foundations. This is not a production deploy approval or live billing readiness claim.
 
 ## Current Baseline
 
@@ -11,7 +11,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Branch | `main` |
 | Latest observed commit before Phase 2-O work | `9198621 org` |
 | Working tree at Phase 2-O start | Clean |
-| Latest implemented work | BITBI Pro member subscription/credit bucket foundation plus Alpha Audit documentation reconciliation |
+| Latest implemented work | Phase 2.3 Admin Control Plane UI for the Stripe live billing lifecycle review queue plus prior Phase 2.2 review APIs, BITBI Pro member subscription/credit bucket foundation, and Alpha Audit documentation reconciliation |
 | Latest corrective fix | Current-state documentation is reconciled to the release contract latest auth migration, `0047_add_member_subscriptions_and_credit_buckets.sql`; historical phase reports remain preserved as historical evidence. |
 | Latest auth D1 migration | `0047_add_member_subscriptions_and_credit_buckets.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
@@ -22,10 +22,10 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Phase 2-M validation | Baseline `npm run release:preflight`, focused Phase 2-M/Phase 2-L Worker tests, focused Admin AI/Credits static tests, `npm run test:workers` 359/359, `npm run test:static` 168/168, `npm run build:static`, and `npm run release:preflight` passed during implementation |
 | Phase 2-N validation | See `PHASE2N_ORGANIZATION_CONTEXT_AND_CREDIT_DEBIT_VISIBILITY_REPORT.md` and final Codex response for command results |
 | Phase 2-O validation | See `PHASE2O_PRICING_HERO_LIVE_PACKS_AND_PROFILE_NAV_REPORT.md` and final Codex response for command results |
-| Merge readiness | Ready only after Phase 0 documentation/currentness validation passes; no commit made by Codex |
+| Merge readiness | Ready only after current Phase 2.3 validation passes; no commit made by Codex |
 | Staging readiness | Requires migrations/config/resources and functional staging verification |
 | Production readiness | Blocked |
-| Live billing readiness | Guarded one-time credit-pack and BITBI Pro subscription code exists, but full live billing remains blocked without live/staging evidence, failure/refund/dispute handling, reconciliation workflow, and legal/product approval |
+| Live billing readiness | Guarded one-time credit-pack, BITBI Pro subscription, review-only failure/refund/dispute/expired-checkout classification, admin-only review queue/resolution metadata code, and Admin Control Plane UI for that queue exist, but full live billing remains blocked without live/staging evidence, automated remediation/reconciliation workflow, and legal/product approval |
 
 ## What Is Implemented
 
@@ -47,10 +47,11 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Member credit ledger/bucket foundation through migration `0047`, separating subscription, purchased, and legacy/bonus credits while preserving existing ledger compatibility.
 - BITBI Pro subscription checkout/cancel/reactivate scaffolding and paid-invoice subscription credit top-up handling behind live Stripe configuration gates.
 - Per-user asset storage quota now resolves free versus active BITBI Pro limits through the subscription state.
+- Phase 2.1 records selected live Stripe failed-payment, refund, dispute, and expired-checkout webhook events as sanitized billing action review metadata only. Phase 2.2 exposes those records through admin-only review list/detail/resolution metadata APIs. Phase 2.3 adds Admin Control Plane UI for the queue, safe detail panel, blocked-event warnings, and note/confirmation-gated `resolved` / `dismissed` actions with generated `Idempotency-Key`; it does not automatically grant, reverse, subtract, delete, cancel, refund, call Stripe, claw back credits, or resolve credits/accounts beyond manual metadata.
 
 ## What Is Not Implemented
 
-- Full production payment processing, customer portal, Stripe Tax, Stripe Connect, coupons, invoice operations, refund/chargeback automation, failed-payment handling, billing reconciliation/admin needs-review workflow, or live billing readiness evidence.
+- Full production payment processing, customer portal, Stripe Tax, Stripe Connect, coupons, invoice operations, refund/chargeback automation, automated failed-payment remediation, approved billing reconciliation/remediation workflow, or live billing readiness evidence. Phase 2.3 is review queue UI/resolution metadata only, not remediation.
 - Full tenant-owned asset migration or full enterprise tenant isolation.
 - A single AI Cost Gateway for all expensive member AI routes with required idempotency, pre-provider reservations, provider-result replay/cache, and release-on-failure semantics.
 - User self-service privacy center.
@@ -72,7 +73,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Keep `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` except during the explicitly bounded live credit-pack canary.
 - Verify live checkout/webhook exactly-once credit grant behavior only through the operator-run canary.
 - Configure and verify BITBI Pro subscription values only if running an explicitly approved subscription canary: `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS`, `STRIPE_LIVE_SUBSCRIPTION_PRICE_ID`, `STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL`, and `STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL`.
-- Do not claim live billing readiness until failed-payment, refund, dispute/chargeback, expired-checkout, and billing reconciliation/needs-review workflows are implemented or explicitly accepted with documented operational controls.
+- Do not claim live billing readiness until Phase 2.3 failed-payment/refund/dispute/chargeback/expired-checkout review capture, Admin Control Plane UI, and resolution metadata are verified in staging/live and billing reconciliation/remediation workflows are implemented or explicitly accepted with documented operational controls.
 - Verify Phase 2-M admin-only BFL image-test charging against real staging/canary org credit balances, including no provider call on missing org/idempotency/insufficient credits, no debit on provider failure, exactly-once debit on retry, and ledger/dashboard visibility.
 - Verify Phase 2-N organization selection in staging/canary, including solo-admin BITBI auto-selection, platform-admin organization selector, owner-only Organization page access, Organization/Credits/Admin AI Lab context sharing, and visible debit diagnostics after BFL admin image tests.
 - Verify Admin Control Plane and Pricing in staging against real APIs.
@@ -206,7 +207,7 @@ Priority order:
 5. Verify the Phase 2-L Credits page, live checkout authorization, live webhook signature validation, exactly-once grant, no-credit failure paths, and no public pricing exposure.
 6. Verify Phase 2-N `/account/organization.html`, active organization selector/defaulting, solo-admin BITBI owner setup, Organization/Credits/Admin AI Lab context sharing, and safe platform-admin-not-owner warning.
 7. Verify Phase 2-M Admin AI Lab organization selector, BFL cost labels, sufficient-credit denial, provider-failure no-charge behavior, exactly-once debit, balance refresh, and sanitized ledger/Credits/Organization dashboard display.
-8. Choose one next implementation track: refund/chargeback/manual-review policy, video AI entitlement wiring, or tenant-owned asset migration.
+8. Choose one next implementation track: refund/chargeback/manual-remediation policy, video AI entitlement wiring, or tenant-owned asset migration.
 
 ## What Not To Redo
 

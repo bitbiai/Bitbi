@@ -583,6 +583,7 @@ const baseManifest = {
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",
       "GET /api/admin/billing/events",
+      "GET /api/admin/billing/reviews",
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
       "GET /api/admin/user-activity",
@@ -605,6 +606,8 @@ const baseManifest = {
       "GET /api/admin/users/:id/billing",
       "POST /api/admin/users/:id/credits/grant",
       "GET /api/admin/billing/events/:id",
+      "GET /api/admin/billing/reviews/:id",
+      "POST /api/admin/billing/reviews/:id/resolution",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
@@ -911,6 +914,7 @@ function createValidContext() {
       if (pathname === "/api/admin/orgs" && method === "GET") return handleAdminOrgs();
       if (pathname === "/api/admin/billing/plans" && method === "GET") return handleAdminBillingPlans();
       if (pathname === "/api/admin/billing/events" && method === "GET") return handleAdminBillingEvents();
+      if (pathname === "/api/admin/billing/reviews" && method === "GET") return handleAdminBillingReviews();
       if (pathname === "/api/admin/avatars/latest" && method === "GET") return handleAdminLatestAvatars();
       if (pathname === "/api/admin/activity" && method === "GET") return handleAdminActivity();
       if (pathname === "/api/admin/user-activity" && method === "GET") return handleAdminUserActivity();
@@ -944,6 +948,10 @@ function createValidContext() {
       if (adminUserCreditGrantMatch && method === "POST") return handleAdminUserCreditGrant();
       const adminBillingEventMatch = pathname.match(/^\\/api\\/admin\\/billing\\/events\\/([^/]+)$/);
       if (adminBillingEventMatch && method === "GET") return handleAdminBillingEvent();
+      const adminBillingReviewResolutionMatch = pathname.match(/^\\/api\\/admin\\/billing\\/reviews\\/([^/]+)\\/resolution$/);
+      if (adminBillingReviewResolutionMatch && method === "POST") return handleAdminBillingReviewResolution();
+      const adminBillingReviewMatch = pathname.match(/^\\/api\\/admin\\/billing\\/reviews\\/([^/]+)$/);
+      if (adminBillingReviewMatch && method === "GET") return handleAdminBillingReview();
     `,
     authAdminMfaSource: `
       if (pathname === "/api/admin/mfa/status" && method === "GET") return handleAdminMfaStatus();
