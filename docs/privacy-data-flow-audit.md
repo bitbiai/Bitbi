@@ -58,16 +58,20 @@ no storage or migration; it extends the same metadata-only
 `admin_ai_usage_attempts` foundation only to Admin Music and stores no raw
 prompts, lyrics, audio, or provider bodies. Phase 4.10 adds no storage or
 migration; it extends that foundation only to Admin Compare and stores no raw
-prompts, compare outputs, provider request bodies, or provider response bodies. These phases do not call real
+prompts, compare outputs, provider request bodies, or provider response bodies.
+Phase 4.11 adds no storage or migration; it audits Admin Live-Agent only and
+does not persist Live-Agent messages/output, require idempotency, add durable
+attempts, enforce caller-policy, or change runtime behavior. These phases do not call real
 providers in tests, change public billing, add Admin UI, migrate Admin
-live-agent, migrate Admin video beyond Phase 4.5, migrate OpenClaw/News
+live-agent runtime behavior, migrate Admin video beyond Phase 4.5, migrate OpenClaw/News
 Pulse beyond Phase 4.6 compatibility, migrate platform/background AI, globally
 hard-fail internal AI Worker routes, change member image/music/video billing
 behavior, change org-scoped member route behavior, or make
 admin/platform/internal AI cost flows production-ready. Phase 4.3, Phase 4.5,
-Phase 4.6, Phase 4.7, Phase 4.8, Phase 4.8.1, Phase 4.8.2, Phase 4.9, and Phase 4.10
+Phase 4.6, Phase 4.7, Phase 4.8, Phase 4.8.1, Phase 4.8.2, Phase 4.9, Phase 4.10,
+and Phase 4.11
 metadata/inspection responses must not include raw prompts, raw lyrics, raw
-audio, raw compare prompts, compare outputs, raw provider request bodies, provider response bodies, auth headers, cookies, Stripe data,
+audio, raw compare prompts, compare outputs, raw Live-Agent messages/output, raw provider request bodies, provider response bodies, auth headers, cookies, Stripe data,
 Cloudflare tokens, private R2 keys, secrets, or sensitive raw article/source
 payloads beyond already public-safe text.
 
@@ -211,7 +215,7 @@ items.
 | Member text generation | Prompt/system/settings when org-scoped text is used | Response/replay metadata where enabled | Cloudflare Workers AI text models through auth/AI worker patterns |
 | Member music generation | Style prompt, optional lyrics, mode/settings; optional separate lyrics generation | MP3/audio bytes in R2, asset row, generated cover thumbnail, safe member attempt/replay metadata without raw prompt or lyrics, safe cover status metadata | Auth Worker -> AI service binding -> Workers AI/AI Gateway `minimax/music-2.6`; cover uses `@cf/black-forest-labs/flux-1-schnell`; Phase 3.7 replay responses omit raw prompt/lyrics and missing replay does not re-run providers or double debit |
 | Member PixVerse/HappyHorse video generation | Prompt, optional negative prompt, optional data URI image, duration/aspect/quality/audio/seed | Video bytes/poster in R2, asset row, safe member attempt/replay metadata without raw prompt or internal R2 key leakage | Auth Worker -> Workers AI `pixverse/v6` / HappyHorse T2V with AI Gateway; Phase 3.8 requires member gateway idempotency/reservation before provider work and returns replay-unavailable without re-running providers or double debiting |
-| Admin AI Lab | Admin prompts/settings/images/audio/video jobs | Admin-visible result metadata and optionally saved assets/jobs | AI Worker internal service routes with service-auth. Phase 4.8/4.8.1 admin text/embeddings add safe `platform_admin_lab_budget`, caller-policy metadata, and metadata-only durable idempotency rows; Phase 4.9 extends that metadata-only pattern to Admin Music, and Phase 4.10 extends it to Admin Compare. Those rows must not store raw prompts, raw embedding inputs, raw lyrics, raw compare prompts, generated text, embedding vectors, audio, compare outputs, provider request bodies, or provider response bodies. |
+| Admin AI Lab | Admin prompts/settings/images/audio/video jobs | Admin-visible result metadata and optionally saved assets/jobs | AI Worker internal service routes with service-auth. Phase 4.8/4.8.1 admin text/embeddings add safe `platform_admin_lab_budget`, caller-policy metadata, and metadata-only durable idempotency rows; Phase 4.9 extends that metadata-only pattern to Admin Music, and Phase 4.10 extends it to Admin Compare. Phase 4.11 audits Admin Live-Agent only and adds no Live-Agent storage or runtime change; Phase 4.12 should keep Live-Agent replay metadata-only unless full replay is proven safe. Those rows must not store raw prompts, raw embedding inputs, raw lyrics, raw compare prompts, raw Live-Agent messages/output, generated text, embedding vectors, audio, compare outputs, provider request bodies, or provider response bodies. |
 
 Cloudflare's Workers AI documentation says Customer Content includes inputs,
 outputs, embeddings, and training data, and that Cloudflare does not use Workers

@@ -643,7 +643,15 @@ export const ROUTE_POLICIES = Object.freeze([
     },
     notes: "Admin Compare is Phase 4.10-covered only for this auth route. Admin Live-Agent, sync video debug, and unmetered admin image branches remain separate unmigrated gaps.",
   }),
-  adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", { config: REQUIRED_CONFIG.adminAi }),
+  adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {
+    config: REQUIRED_CONFIG.adminAi,
+    billing: {
+      budgetScope: "platform_admin_lab_budget",
+      killSwitchTarget: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET",
+      auditStatus: "Phase 4.11 flow audit/design only; runtime route behavior is unchanged.",
+    },
+    notes: "Admin Live-Agent remains a baselined streaming provider-cost gap pending Phase 4.12. Do not treat this route as budget-enforced yet.",
+  }),
   adminJsonWrite("admin.ai.derivatives.backfill", "POST", "/api/admin/ai/image-derivatives/backfill", "admin-ai", "adminJson", "admin-ai-derivative-backfill-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI_IMAGE_DERIVATIVES_QUEUE"],
     audit: { event: "admin_ai_derivative_backfill_enqueued" },

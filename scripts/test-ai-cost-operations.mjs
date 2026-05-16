@@ -259,6 +259,34 @@ assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.compare").currentEnforcement.providerSuppression,
   "implemented"
 );
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.targetBudgetScope,
+  AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.targetFuturePhase,
+  "Phase 4.12 admin live-agent budget enforcement"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.targetEnforcementStatus,
+  "design_complete"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.killSwitchTarget,
+  "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").currentStatus,
+  "missing"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").operationConfig.idempotencyPolicy,
+  "optional"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").currentEnforcement.providerSuppression,
+  "missing"
+);
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();
 assert(routePolicyBaselines.some((entry) => entry.id === "ai.generate-image" && entry.expected === "required"));

@@ -972,13 +972,37 @@ Migration risk:
 
 - No Phase 4.10 migration.
 
-## Phase 4.11: Remaining Admin/Internal Caller Migration
+## Phase 4.11: Admin Live-Agent Budget Flow Audit
+
+Status: completed for audit/design/prep only. No Admin Live-Agent runtime behavior change, no `Idempotency-Key` requirement, no durable Live-Agent attempts, no caller-policy behavior change, no budget enforcement, no provider call, no Stripe call, no deployment, no remote migration, no credit mutation, no credit clawback, no public billing change, and no live billing readiness claim occurred.
+
+- Audit the current `POST /api/admin/ai/live-agent` flow, `/internal/ai/live-agent` service-auth/caller-policy behavior, streaming provider call shape, current validation limits, persistence absence, and current tests.
+- Keep Admin Live-Agent as a baseline gap with future phase `Phase 4.12 admin live-agent budget enforcement`.
+- Record target budget scope `platform_admin_lab_budget`, operation id `admin.live_agent`, and future kill-switch target `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET`.
+- Define the Phase 4.12 target model: required request-level idempotency, metadata-only durable parent stream-session attempt, parent plus sub-step metadata only if future agentic/multi-call behavior exists, signed caller-policy propagation, metadata stripping before provider payloads, and safe stream/failure finalization.
+- Document metadata-only replay and privacy policy: do not store raw messages, prompts, streamed output, provider request/response bodies, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, private R2 keys, or raw idempotency keys.
+- Keep Admin Text/Embeddings covered only by Phase 4.8/4.8.1/4.8.2 behavior, Admin Music covered only by Phase 4.9 behavior, Admin Compare covered only by Phase 4.10 behavior, Admin Video Jobs covered only by Phase 4.5 behavior, and OpenClaw/News Pulse covered only by Phase 4.6 behavior.
+- Keep production/live billing blocked until operator evidence is complete and reviewed.
+
+Deploy units:
+
+- Validation-only or Auth Worker impacted if the operation registry/evidence metadata is bundled. No schema applies. No AI Worker, contact Worker, or static deploy is expected from Phase 4.11.
+
+Migration risk:
+
+- No Phase 4.11 migration.
+
+## Phase 4.12: Admin Live-Agent Budget Enforcement
 
 Scope:
 
-- Choose one remaining narrow gap, such as Admin Live-Agent, sync video debug, the unmetered admin image branch, or another internal caller path, and migrate it without broad Admin AI or internal route refactors.
-- Keep Admin Music covered only by Phase 4.9 behavior and Admin Compare covered only by Phase 4.10 behavior.
-- Keep production/live billing blocked until operator evidence is complete and reviewed.
+- Implement the Admin Live-Agent migration described in `ADMIN_LIVE_AGENT_BUDGET_FLOW_AUDIT.md`.
+- Require valid `Idempotency-Key` before internal AI Worker/provider work.
+- Build `platform_admin_lab_budget` metadata using the Phase 4.2 helper.
+- Use future kill-switch metadata target `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET` without claiming live budget caps unless route-specific runtime enforcement is explicitly added and tested.
+- Reuse `admin_ai_usage_attempts` for a metadata-only parent stream-session attempt only if stream lifecycle finalization can be made reliable; stop for an additive schema design if sub-step tracking is needed.
+- Propagate signed caller-policy metadata under `__bitbi_ai_caller_policy` to `/internal/ai/live-agent`.
+- Preserve Admin Text/Embeddings, Admin Music, Admin Compare, Admin Video Jobs, OpenClaw/News Pulse, member routes, org-scoped routes, public pricing, Stripe, credit behavior, and live billing readiness.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 

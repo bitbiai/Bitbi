@@ -470,6 +470,7 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
     ],
     remainingLimitations: [
       "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only; Phase 4.8.1 supplies admin text/embeddings caller metadata plus durable caller-side idempotency, Phase 4.9 extends that pattern to admin music, and Phase 4.10 extends it to admin compare, but shared internal routes do not fail closed for every caller.",
+      "Phase 4.11 audits Admin live-agent for Phase 4.12 but does not require Live-Agent caller policy, idempotency, or durable attempts yet.",
       "Admin live-agent, sync video debug, unmetered image, and other internal routes remain baseline-allowed until targeted caller migrations.",
       isPoll
         ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
@@ -515,6 +516,7 @@ function baselineGapEvidence(gap, entriesById) {
     killSwitchTarget: gap.killSwitchTarget || null,
     killSwitchExemptionReason: gap.killSwitchExemptionReason || null,
     runtimeEnforcementStatus: gapRuntimeStatus(gap, entriesById),
+    designPrepStatus: gap.designPrepStatus || null,
     recommendedNextAction: gap.futureEnforcementPath || `Implement ${gap.targetFuturePhase || "the target phase"} before runtime enforcement.`,
     allowedUnmigratedForNow: gap.allowedUnmigratedForNow === true,
   };
@@ -651,6 +653,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
 
   const baselinedGaps = knownGaps.map((gap) => baselineGapEvidence(gap, entriesById));
   const blockedCriticalGaps = baselinedGaps.filter((gap) => gap.severity === "P0" || gap.severity === "P1");
+  const adminLiveAgentGap = baselinedGaps.find((gap) => gap.id === "admin-ai-live-agent-unmetered");
 
   const implementedOperations = [
     ...memberGatewayOperations.map((entry) => memberGatewayEvidence(entry, routeIndex)),
@@ -698,6 +701,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       adminTextEmbeddingsDurableIdempotency: partialAdminTextEmbeddingsOperations.length,
       adminMusicDurableIdempotency: partialAdminMusicOperations.length,
       adminCompareDurableIdempotency: partialAdminCompareOperations.length,
+      adminLiveAgentAuditPrepared: adminLiveAgentGap?.designPrepStatus === "phase_4_11_audited_not_enforced",
       adminLabDurableIdempotency: partialAdminLabDurableOperations.length,
       adminTextEmbeddingsAttemptsOperable: true,
       adminLabAttemptsOperable: true,
@@ -739,6 +743,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
       "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music/compare now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
+      "Phase 4.11 adds Admin Live-Agent flow audit/design evidence only; Admin Live-Agent remains a baseline gap until Phase 4.12 implements runtime budget/idempotency/caller-policy controls.",
       "Admin live-agent, sync video debug, unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],

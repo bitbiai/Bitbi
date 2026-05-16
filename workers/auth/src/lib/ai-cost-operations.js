@@ -231,11 +231,17 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
   }),
   "admin.live_agent": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
-    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
-    targetEnforcementStatus: "missing",
-    targetEnforcement: { idempotency: "stream_session_required", budgetLedger: "platform_admin_lab_budget", replay: "disabled", killSwitch: "required" },
-    notes: "Streaming live-agent spend needs stream duration/token telemetry and a platform lab budget cap.",
+    targetFuturePhase: "Phase 4.12 admin live-agent budget enforcement",
+    targetEnforcementStatus: "design_complete",
+    targetEnforcement: {
+      idempotency: "required_future_stream_session_parent_attempt",
+      budgetLedger: "platform_admin_lab_budget_metadata_future",
+      replay: "metadata_only_future",
+      killSwitch: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET metadata target",
+    },
+    notes: "Phase 4.11 audits the streaming live-agent flow only. Future enforcement needs request-level idempotency, stream-session budget metadata, timeout/token caps, and metadata-only replay without changing the current route in Phase 4.11.",
     temporaryBaselineAllowed: true,
+    killSwitchTarget: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET",
   }),
   "internal.text.generate": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
     targetFuturePhase: "Phase 4.7 internal AI Worker route caller-policy guard",
@@ -294,10 +300,10 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     temporaryBaselineAllowed: true,
   }),
   "internal.live_agent": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
-    targetFuturePhase: "Phase 4.7 internal AI Worker route caller-policy guard",
+    targetFuturePhase: "Phase 4.12 admin live-agent budget enforcement",
     targetEnforcementStatus: "delegated",
-    targetEnforcement: { idempotency: "caller_stream_session", budgetLedger: "caller_enforced", replay: "disabled", killSwitch: "service_binding_only" },
-    notes: "Internal live-agent spend must be controlled by caller stream-session policy.",
+    targetEnforcement: { idempotency: "caller_stream_session_required_future", budgetLedger: "caller_enforced", replay: "metadata_only_future", killSwitch: "service_binding_only plus ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET caller metadata" },
+    notes: "Internal live-agent spend remains service-auth protected and baseline-allowed for missing caller-policy; Phase 4.12 should require caller-supplied stream-session policy from the admin route.",
     temporaryBaselineAllowed: true,
   }),
   "platform.news_pulse.visual.ingest": budgetPolicy(AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET, {
@@ -1101,7 +1107,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "admin.live_agent",
       routeId: "admin.ai.live-agent",
       routePath: "/api/admin/ai/live-agent",
-      notes: "Admin streaming live-agent route can consume provider tokens until stream ends.",
+      notes: "Admin streaming live-agent route can consume provider tokens until stream ends. Phase 4.11 completes audit/design only; no runtime idempotency, durable attempt, or budget enforcement is active yet.",
     },
     sourceFiles: ["workers/auth/src/routes/admin-ai.js", "workers/ai/src/routes/live-agent.js"],
     currentStatus: "missing",
@@ -1117,9 +1123,9 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       path: "/api/admin/ai/live-agent",
       expectedIdempotency: "explicit-admin-unmetered",
     },
-    currentGaps: ["No explicit admin budget telemetry for streaming provider spend."],
+    currentGaps: ["Phase 4.11 audit/design is complete, but no explicit admin budget telemetry, required idempotency, durable attempt, or stream budget cap is active yet."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    nextMigrationPhase: "Phase 4.12 admin live-agent budget enforcement",
   }),
   operation({
     operationConfig: {
@@ -1420,7 +1426,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "internal.live_agent",
       routeId: "internal.ai.live-agent",
       routePath: "/internal/ai/live-agent",
-      notes: "Internal streaming route relies on admin caller policy.",
+      notes: "Internal streaming route is service-auth protected and baseline-compatible; Phase 4.11 audits the admin caller flow without requiring policy.",
     },
     sourceFiles: ["workers/ai/src/routes/live-agent.js"],
     currentStatus: "partial",
@@ -1432,9 +1438,9 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       providerSuppression: "delegated",
     },
     routePolicy: null,
-    currentGaps: ["Admin live-agent caller needs explicit platform budget telemetry."],
+    currentGaps: ["Admin live-agent caller needs explicit platform budget telemetry and required stream-session caller policy in Phase 4.12."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    nextMigrationPhase: "Phase 4.12 admin live-agent budget enforcement",
   }),
   operation({
     operationConfig: {

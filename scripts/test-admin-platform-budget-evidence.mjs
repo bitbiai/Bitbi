@@ -31,6 +31,7 @@ assert.equal(report.summary.adminPlatformImplemented, 8);
 assert.equal(report.summary.adminTextEmbeddingsDurableIdempotency, 2);
 assert.equal(report.summary.adminMusicDurableIdempotency, 1);
 assert.equal(report.summary.adminCompareDurableIdempotency, 1);
+assert.equal(report.summary.adminLiveAgentAuditPrepared, true);
 assert.equal(report.summary.adminLabDurableIdempotency, 4);
 assert.equal(report.summary.adminTextEmbeddingsAttemptsOperable, true);
 assert.equal(report.summary.adminLabAttemptsOperable, true);
@@ -169,6 +170,11 @@ assert(internalGuard.baselineAllowedInternalRoutes.includes("/internal/ai/test-t
 assert(internalGuard.remainingLimitations.some((entry) => entry.includes("baseline-allowed")));
 
 const baselineIds = gapIds(report.baselinedGaps);
+const liveAgentGap = report.baselinedGaps.find((entry) => entry.id === "admin-ai-live-agent-unmetered");
+assert.equal(liveAgentGap.futurePhase, "Phase 4.12 admin live-agent budget enforcement");
+assert.equal(liveAgentGap.killSwitchTarget, "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET");
+assert.equal(liveAgentGap.designPrepStatus, "phase_4_11_audited_not_enforced");
+assert.equal(liveAgentGap.runtimeEnforcementStatus, "missing");
 assert(!baselineIds.includes("admin-ai-video-job-create"));
 assert(!baselineIds.includes("admin-ai-video-task-create-poll"));
 assert(!baselineIds.includes("openclaw-news-pulse-visual-generation"));
