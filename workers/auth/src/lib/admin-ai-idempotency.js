@@ -21,6 +21,7 @@ const VISIBLE_OPERATIONS = new Set([
   "admin.embeddings.test",
   "admin.music.test",
   "admin.compare",
+  "admin.live_agent",
 ]);
 const DANGEROUS_METADATA_KEY_PATTERN =
   /(?:authorization|cookie|secret|token|password|api[_-]?key|idempotency[_-]?key|stripe|cloudflare|private[_-]?key|r2[_-]?key|provider[_-]?(?:request|body)|request[_-]?body|raw[_-]?(?:prompt|input|output)|prompt|generated[_-]?text|embedding[_-]?(?:input|vectors?)|vectors?|lyrics|messages?)/i;
@@ -195,6 +196,8 @@ export function serializeAdminAiUsageAttempt(row, { detail = false } = {}) {
       providerRequestBodyReturned: false,
       providerResponseBodyReturned: false,
       compareResultsReturned: false,
+      rawMessagesReturned: false,
+      streamOutputReturned: false,
     };
   } else {
     out.resultMetadata = {
@@ -211,6 +214,10 @@ export function serializeAdminAiUsageAttempt(row, { detail = false } = {}) {
       sizeBytes: resultMetadata?.size_bytes == null ? null : Number(resultMetadata.size_bytes),
       audioStored: resultMetadata?.audio_stored === true,
       resultsStored: resultMetadata?.results_stored === true,
+      streamStarted: resultMetadata?.stream_started === true,
+      streamCompleted: resultMetadata?.stream_completed === true,
+      streamChunkCount: resultMetadata?.chunk_count == null ? null : Number(resultMetadata.chunk_count),
+      streamByteLength: resultMetadata?.byte_length == null ? null : Number(resultMetadata.byte_length),
     };
   }
   return out;
@@ -243,7 +250,7 @@ function normalizeOptionalOperationKey(value) {
 function normalizeOptionalRoute(value) {
   const text = safeShortText(value, null, 160);
   if (!text) return null;
-  if (!/^(?:\/api\/admin\/ai\/test-(?:text|embeddings|music)|\/api\/admin\/ai\/compare)$/.test(text)) {
+  if (!/^(?:\/api\/admin\/ai\/test-(?:text|embeddings|music)|\/api\/admin\/ai\/compare|\/api\/admin\/ai\/live-agent)$/.test(text)) {
     throw new AdminAiIdempotencyError("Invalid route filter.", {
       code: "validation_error",
       status: 400,

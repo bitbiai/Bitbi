@@ -20,23 +20,21 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     routePolicyIds: [
       "admin.ai.test-image",
       "admin.ai.test-video-debug",
-      "admin.ai.live-agent",
     ],
-    functions: ["proxyToAiLab", "proxyLiveAgentToAiLab"],
+    functions: ["proxyToAiLab"],
     category: "admin",
     reason: "Known admin provider-cost routes remain unmetered or partially covered pending targeted platform budget policy migration.",
     temporaryAllowanceReason: "Admin-only routes remain accepted only while each targeted admin provider-cost migration is completed.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    targetFuturePhase: "Phase 4.12 remaining admin provider-cost budget migrations",
+    targetFuturePhase: "Phase 4.13 remaining admin provider-cost budget migrations",
     severity: "P2",
     ownerDomain: "admin-ai",
     killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_TESTS",
-    futureEnforcementPath: "Phase 4.12 should start with the audited Admin Live-Agent stream-session budget migration, then later narrow admin route migrations should cover the remaining sync-video/unmetered-image gaps.",
+    futureEnforcementPath: "Phase 4.13 should cover the remaining sync-video/unmetered-image gaps after Admin Live-Agent stream-session budget migration.",
     providerCostBearing: true,
     registryOperationIds: [
       "admin.image.test.unmetered",
       "admin.video.sync_debug",
-      "admin.live_agent",
     ],
     coveredByRegistryMetadata: true,
     allowedUnmigratedForNow: true,
@@ -50,11 +48,11 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     reason: "Known internal service routes rely on caller-side gateway or admin policy controls.",
     temporaryAllowanceReason: "Internal service routes remain accepted only while remaining callers migrate after the Phase 4.7 caller-policy guard.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
-    targetFuturePhase: "Phase 4.12 targeted remaining caller migrations",
+    targetFuturePhase: "Phase 4.13 targeted remaining caller migrations",
     severity: "P2",
     ownerDomain: "ai-worker",
     killSwitchTarget: "caller route budget kill switch required",
-    futureEnforcementPath: "Phase 4.12 should require policy metadata for the audited Admin Live-Agent caller, then later targeted migrations should cover remaining broad internal routes.",
+    futureEnforcementPath: "Phase 4.13 should cover remaining broad internal routes after Admin Live-Agent caller-policy metadata is required for the covered admin caller.",
     providerCostBearing: true,
     registryOperationIds: [
       "internal.text.generate",
@@ -63,7 +61,6 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
       "internal.music.generate",
       "internal.video.generate",
       "internal.compare",
-      "internal.live_agent",
     ],
     coveredByRegistryMetadata: true,
     allowedUnmigratedForNow: true,
@@ -123,7 +120,9 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.compare", "POST", "/api/admin/ai/compare", "admin-ai", "adminJson", "admin-ai-compare-ip", {
     billing: { idempotency: "Idempotency-Key header is required and backed by admin_ai_usage_attempts metadata-only duplicate suppression." },
   }),
-  adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {}),
+  adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {
+    billing: { idempotency: "Idempotency-Key header is required and backed by admin_ai_usage_attempts metadata-only stream-session duplicate suppression." },
+  }),
   policy({ id: "openclaw.news_pulse.ingest", method: "POST", path: "/api/openclaw/news-pulse/ingest", billing: { idempotency: "deterministic OpenClaw item id/content hash plus visual status guards suppress duplicate provider calls" }, notes: "OpenClaw HMAC ingest." }),
   ${routePolicyExtra}
 ]);
@@ -177,8 +176,7 @@ ${inventoryExtra}
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-text"));
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.compare"));
-  assert(result.policyGaps.some((gap) => gap.route === "admin.ai.live-agent"));
-  assert(result.knownPolicyGaps.some((gap) => gap.route === "admin.ai.live-agent"));
+  assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.live-agent"));
   assert(!result.knownPolicyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert.equal(result.unknownPolicyGaps.length, 0);
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-text"));
@@ -209,14 +207,14 @@ ${inventoryExtra}
   assert(output.includes("admin.embeddings.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.music.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.compare: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
+  assert(output.includes("admin.live_agent: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.video.job.create: implemented/hardened; scope=platform_admin_lab_budget"));
   assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
   assert(output.includes("Phase 4.6 OpenClaw/News Pulse visual budget controls are represented"));
   assert(output.includes("Phase 4.7 internal AI Worker caller-policy guard is represented"));
-  assert(output.includes("Phase 4.10 admin compare use admin_ai_usage_attempts"));
+  assert(output.includes("Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts"));
   assert(output.includes("Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection"));
-  assert(output.includes("Phase 4.11 completes Admin Live-Agent flow audit/design only"));
-  assert(output.includes("Admin Live-Agent remains an accepted baseline gap for Phase 4.12"));
+  assert(output.includes("Phase 4.12 implements Admin Live-Agent budget metadata"));
   assert(output.includes("internal.video_task.create: implemented/hardened; scope=internal_ai_worker_caller_enforced"));
   assert(output.includes("Known baseline gaps:"));
   assert(output.includes("killSwitch="));
@@ -231,7 +229,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.12 should implement the Admin Live-Agent budget migration from the Phase 4.11 audit"));
+  assert(output.includes("Phase 4.13 should address the next remaining narrow admin/platform gap"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
@@ -240,11 +238,10 @@ ${inventoryExtra}
 {
   const actual = analyzeAiCostPolicy(process.cwd());
   const output = renderAiCostPolicyReport(actual);
-  assert(actual.policyGaps.some((gap) => gap.route === "admin.ai.live-agent"));
-  assert(actual.knownPolicyGaps.some((gap) => gap.baselineId === "admin-ai-live-agent-unmetered"));
-  assert(output.includes("admin-ai-live-agent-unmetered"));
-  assert(output.includes("target Phase 4.12 admin live-agent budget enforcement"));
-  assert(output.includes("ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET"));
+  assert(!actual.policyGaps.some((gap) => gap.route === "admin.ai.live-agent"));
+  assert(!actual.knownPolicyGaps.some((gap) => gap.baselineId === "admin-ai-live-agent-unmetered"));
+  assert(!output.includes("admin-ai-live-agent-unmetered"));
+  assert(output.includes("admin.live_agent: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
 }
 
 {

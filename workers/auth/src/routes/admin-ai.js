@@ -6,6 +6,8 @@ import { json } from "../lib/response.js";
 import { requireAdmin } from "../lib/session.js";
 import {
   AdminAiValidationError as InputError,
+  ADMIN_AI_LIVE_AGENT_LIMITS,
+  ADMIN_AI_LIVE_AGENT_MODEL,
   validateAdminAiCompareBody as validateComparePayload,
   validateAdminAiEmbeddingsBody as validateEmbeddingsPayload,
   validateAdminAiImageBody as validateImagePayload,
@@ -125,10 +127,12 @@ const ADMIN_TEXT_OPERATION_ID = "admin.text.test";
 const ADMIN_EMBEDDINGS_OPERATION_ID = "admin.embeddings.test";
 const ADMIN_MUSIC_OPERATION_ID = "admin.music.test";
 const ADMIN_COMPARE_OPERATION_ID = "admin.compare";
+const ADMIN_LIVE_AGENT_OPERATION_ID = "admin.live_agent";
 const ADMIN_TEXT_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_TEXT_BUDGET";
 const ADMIN_EMBEDDINGS_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET";
 const ADMIN_MUSIC_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_MUSIC_BUDGET";
 const ADMIN_COMPARE_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_COMPARE_BUDGET";
+const ADMIN_LIVE_AGENT_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET";
 const ADMIN_LAB_IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const ADMIN_LAB_IDEMPOTENCY_KEY_MIN_LENGTH = 8;
 const ADMIN_LAB_IDEMPOTENCY_KEY_MAX_LENGTH = 128;
@@ -505,6 +509,24 @@ function compactAdminCallerPolicy(callerPolicy) {
   };
 }
 
+function redactAdminLabBudgetPolicyForResponse(budgetPolicy, { omitFingerprints = false } = {}) {
+  if (!budgetPolicy || typeof budgetPolicy !== "object") return null;
+  const out = { ...budgetPolicy };
+  if (omitFingerprints) {
+    delete out.fingerprint;
+    delete out.idempotency_key_hash;
+  }
+  return out;
+}
+
+function compactAdminCallerPolicyForResponse(callerPolicy, { omitFingerprints = false } = {}) {
+  const out = compactAdminCallerPolicy(callerPolicy);
+  if (!out || !omitFingerprints) return out;
+  delete out.budget_fingerprint;
+  delete out.request_fingerprint;
+  return out;
+}
+
 function adminTextRequestMetadata(payload) {
   return {
     prompt_length: payload?.prompt ? String(payload.prompt).length : 0,
@@ -542,6 +564,45 @@ function adminCompareRequestMetadata(payload) {
     compared_model_ids: modelIds.map((modelId) => String(modelId || "").slice(0, 120)),
     max_tokens: payload?.maxTokens ?? null,
     temperature: payload?.temperature ?? null,
+  };
+}
+
+function adminLiveAgentRequestMetadata(payload) {
+  const turns = Array.isArray(payload?.messages) ? payload.messages : [];
+  const roleCounts = turns.reduce((counts, turn) => {
+    const role = turn?.role || "unknown";
+    counts[role] = (counts[role] || 0) + 1;
+    return counts;
+  }, {});
+  const contentLengths = turns.reduce((totals, turn) => {
+    const role = turn?.role || "unknown";
+    const length = turn?.content ? String(turn.content).length : 0;
+    totals.total += length;
+    if (role === "system") totals.system += length;
+    else if (role === "user") totals.user += length;
+    else if (role === "assistant") totals.assistant += length;
+    return totals;
+  }, {
+    total: 0,
+    system: 0,
+    user: 0,
+    assistant: 0,
+  });
+  return {
+    result_kind: "live_agent_stream",
+    turn_count: turns.length,
+    system_turn_count: roleCounts.system || 0,
+    user_turn_count: roleCounts.user || 0,
+    assistant_turn_count: roleCounts.assistant || 0,
+    total_content_length: contentLengths.total,
+    system_content_length: contentLengths.system,
+    user_content_length: contentLengths.user,
+    assistant_content_length: contentLengths.assistant,
+    max_turns: ADMIN_AI_LIVE_AGENT_LIMITS.maxMessages,
+    max_system_chars: ADMIN_AI_LIVE_AGENT_LIMITS.maxSystemLength,
+    max_turn_chars: ADMIN_AI_LIVE_AGENT_LIMITS.maxMessageLength,
+    max_output_tokens_target: null,
+    stream_duration_cap_ms: null,
   };
 }
 
@@ -608,6 +669,27 @@ function adminCompareResultMetadata(providerBody) {
   };
 }
 
+function adminLiveAgentResultMetadata({
+  streamStarted = false,
+  streamCompleted = false,
+  chunkCount = 0,
+  byteLength = 0,
+  durationMs = null,
+  errorCode = null,
+} = {}) {
+  return {
+    result_kind: "live_agent_stream",
+    stream_started: streamStarted === true,
+    stream_completed: streamCompleted === true,
+    chunk_count: Number(chunkCount || 0),
+    byte_length: Number(byteLength || 0),
+    duration_ms: durationMs == null ? null : Number(durationMs),
+    error_code: errorCode || null,
+    output_stored: false,
+    full_result_stored: false,
+  };
+}
+
 function adminMusicResultMetadata(providerBody) {
   const result = providerBody?.result || {};
   return {
@@ -656,8 +738,13 @@ function adminLabAttemptResponse({
   attempt,
   budgetPolicy,
   callerPolicy,
+  omitFingerprints = false,
 }, correlationId) {
-  const attemptBudget = withAdminLabAttemptBudgetMetadata(budgetPolicy, attempt, attempt?.status || kind);
+  const attemptBudget = redactAdminLabBudgetPolicyForResponse(
+    withAdminLabAttemptBudgetMetadata(budgetPolicy, attempt, attempt?.status || kind),
+    { omitFingerprints }
+  );
+  const callerPolicySummary = compactAdminCallerPolicyForResponse(callerPolicy, { omitFingerprints });
   if (kind === "completed") {
     return withCorrelationId(json({
       ok: true,
@@ -676,7 +763,7 @@ function adminLabAttemptResponse({
         completed_at: attempt?.completedAt || null,
       },
       budget_policy: attemptBudget,
-      caller_policy: compactAdminCallerPolicy(callerPolicy),
+      caller_policy: callerPolicySummary,
     }), correlationId);
   }
 
@@ -692,7 +779,7 @@ function adminLabAttemptResponse({
         replay_policy: "metadata_only_no_result_replay",
       },
       budget_policy: attemptBudget,
-      caller_policy: compactAdminCallerPolicy(callerPolicy),
+      caller_policy: callerPolicySummary,
     }, { status: 409 }), correlationId);
   }
 
@@ -708,7 +795,7 @@ function adminLabAttemptResponse({
       replay_policy: "metadata_only_no_result_replay",
     },
     budget_policy: attemptBudget,
-    caller_policy: compactAdminCallerPolicy(callerPolicy),
+    caller_policy: callerPolicySummary,
   }, { status: 409 }), correlationId);
 }
 
@@ -744,6 +831,129 @@ async function appendAdminLabBudgetMetadata(response, {
     caller_policy: compactAdminCallerPolicy(callerPolicy),
   }), {
     status: response.status,
+    headers,
+  }), correlationId);
+}
+
+function isEventStreamResponse(response) {
+  if (!(response instanceof Response) || !response.ok || !response.body) return false;
+  const contentType = response.headers.get("content-type") || "";
+  return contentType.includes("text/event-stream");
+}
+
+function wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
+  env,
+  attemptId,
+  requestMetadata,
+  budgetPolicy,
+  callerPolicy,
+  correlationId,
+  requestInfo,
+  adminUserId,
+  startedAt,
+}) {
+  if (!isEventStreamResponse(response)) return response;
+
+  const reader = response.body.getReader();
+  let finalized = false;
+  let chunkCount = 0;
+  let byteLength = 0;
+
+  async function finalizeSucceeded() {
+    if (finalized) return;
+    finalized = true;
+    const resultMetadata = adminLiveAgentResultMetadata({
+      streamStarted: true,
+      streamCompleted: true,
+      chunkCount,
+      byteLength,
+      durationMs: Date.now() - startedAt,
+    });
+    try {
+      await markAdminAiIdempotencySucceeded(env, attemptId, {
+        resultMetadata,
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata,
+          resultMetadata,
+          budgetPolicy: withAdminLabAttemptBudgetMetadata(
+            budgetPolicy,
+            { id: attemptId, status: "succeeded", resultStatus: "metadata_only" },
+            "succeeded"
+          ),
+          callerPolicy,
+          state: "succeeded",
+        }),
+      });
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-live-agent",
+        event: "admin_ai_live_agent_stream_finalization_failed",
+        level: "warn",
+        correlationId,
+        admin_user_id: adminUserId,
+        attempt_id: attemptId,
+        ...getRequestLogFields(requestInfo),
+        ...getErrorFields(error, { includeMessage: false }),
+      });
+    }
+  }
+
+  async function finalizeFailed(code) {
+    if (finalized) return;
+    finalized = true;
+    try {
+      await markAdminAiIdempotencyProviderFailed(env, attemptId, {
+        code,
+        message: "Admin live-agent stream did not complete successfully.",
+      });
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-live-agent",
+        event: "admin_ai_live_agent_stream_failure_mark_failed",
+        level: "warn",
+        correlationId,
+        admin_user_id: adminUserId,
+        attempt_id: attemptId,
+        ...getRequestLogFields(requestInfo),
+        ...getErrorFields(error, { includeMessage: false }),
+      });
+    }
+  }
+
+  const stream = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          await finalizeSucceeded();
+          controller.close();
+          return;
+        }
+        if (value) {
+          chunkCount += 1;
+          byteLength += Number(value.byteLength || value.length || 0);
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        await finalizeFailed("admin_live_agent_stream_error");
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } catch {}
+      await finalizeFailed("admin_live_agent_stream_cancelled");
+    },
+  });
+
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return withCorrelationId(new Response(stream, {
+    status: response.status,
+    statusText: response.statusText,
     headers,
   }), correlationId);
 }
@@ -2253,24 +2463,113 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const idempotencyKey = normalizeAdminLabIdempotencyKey(request.headers.get("Idempotency-Key"));
       const validated = validateLiveAgentPayload(body);
-      return proxyLiveAgentToAiLab(
+      const modelId = ADMIN_AI_LIVE_AGENT_MODEL.id;
+      const budgetPolicy = await buildAdminLabBudgetPolicyContext({
+        user: result.user,
+        operationId: ADMIN_LIVE_AGENT_OPERATION_ID,
+        modelId,
+        modelResolverKey: "admin.live_agent.model",
+        routeId: "admin.ai.live-agent",
+        routePath: "/api/admin/ai/live-agent",
+        payload: validated,
+        hashFields: ["content"],
+        idempotencyKey,
+        killSwitchTarget: ADMIN_LIVE_AGENT_BUDGET_KILL_SWITCH,
+        correlationId,
+      });
+      const callerPolicy = buildAdminAiCallerPolicy({
+        operationId: ADMIN_LIVE_AGENT_OPERATION_ID,
+        enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
+        callerClass: AI_CALLER_POLICY_CALLER_CLASSES.ADMIN,
+        modelId,
+        modelResolverKey: "admin.live_agent.model",
+        idempotencyPolicy: "required",
+        sourceRoute: "/api/admin/ai/live-agent",
+        budgetFingerprint: budgetPolicy.summary.fingerprint,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        killSwitchTarget: ADMIN_LIVE_AGENT_BUDGET_KILL_SWITCH,
+        correlationId,
+        reason: "phase_4_12_admin_live_agent_stream_session_metadata_only",
+        notes: "Idempotency-Key is required and backed by durable metadata-only stream-session duplicate suppression.",
+      });
+      const requestMetadata = adminLiveAgentRequestMetadata(validated);
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata({
+        ...budgetPolicy.summary,
+        stream_session_caps: {
+          max_turns: ADMIN_AI_LIVE_AGENT_LIMITS.maxMessages,
+          max_system_chars: ADMIN_AI_LIVE_AGENT_LIMITS.maxSystemLength,
+          max_turn_chars: ADMIN_AI_LIVE_AGENT_LIMITS.maxMessageLength,
+          max_output_tokens_target: null,
+          stream_duration_cap_ms: null,
+          output_token_cap_enforced: false,
+          stream_duration_cap_enforced: false,
+        },
+        stream_finalization: "auth_worker_stream_completion_observed",
+      }, null, "pending");
+      const attemptState = await beginAdminAiIdempotencyAttempt({
+        env,
+        operationKey: ADMIN_LIVE_AGENT_OPERATION_ID,
+        route: "/api/admin/ai/live-agent",
+        adminUserId: result.user.id,
+        idempotencyKey,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        providerFamily: budgetPolicy.summary.provider_family,
+        modelKey: modelId,
+        budgetScope: budgetPolicy.summary.budget_scope,
+        budgetPolicy: initialBudgetPolicy,
+        callerPolicy: compactAdminCallerPolicy(callerPolicy),
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata,
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+          state: "pending",
+        }),
+      });
+      if (attemptState.kind !== "created") {
+        return adminLabAttemptResponse({
+          task: "live-agent",
+          modelId,
+          kind: attemptState.kind,
+          attempt: attemptState.attempt,
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+          omitFingerprints: true,
+        }, correlationId);
+      }
+      const streamStartedAt = Date.now();
+      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const response = await proxyLiveAgentToAiLab(
         env,
         validated,
         result.user,
         correlationId,
         requestInfo,
-        buildAdminAiCallerPolicy({
-          operationId: "admin.live_agent",
-          modelId: validated.model || null,
-          modelResolverKey: "admin.live_agent.model",
-          sourceRoute: "/api/admin/ai/live-agent",
-          killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_LIVE_AGENT",
-          correlationId,
-        })
+        callerPolicy
       );
+      if (!isEventStreamResponse(response)) {
+        const providerBody = await parseJsonResponseBody(response);
+        await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          code: providerBody?.code || "provider_failed",
+          message: "Admin live-agent provider stream setup failed.",
+        });
+        return response;
+      }
+      return wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
+        env,
+        attemptId: attemptState.attempt.id,
+        requestMetadata,
+        budgetPolicy: initialBudgetPolicy,
+        callerPolicy,
+        correlationId,
+        requestInfo,
+        adminUserId: result.user.id,
+        startedAt: streamStartedAt,
+      });
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
       throw error;
     }
   }

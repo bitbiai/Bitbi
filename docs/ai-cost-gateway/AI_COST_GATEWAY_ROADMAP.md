@@ -994,15 +994,35 @@ Migration risk:
 
 ## Phase 4.12: Admin Live-Agent Budget Enforcement
 
+Status: completed for `POST /api/admin/ai/live-agent` only. No sync video debug migration, unmetered Admin Image migration, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, Admin Music change beyond Phase 4.9 compatibility, Admin Compare change beyond Phase 4.10 compatibility, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
+
 Scope:
 
-- Implement the Admin Live-Agent migration described in `ADMIN_LIVE_AGENT_BUDGET_FLOW_AUDIT.md`.
-- Require valid `Idempotency-Key` before internal AI Worker/provider work.
-- Build `platform_admin_lab_budget` metadata using the Phase 4.2 helper.
-- Use future kill-switch metadata target `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET` without claiming live budget caps unless route-specific runtime enforcement is explicitly added and tested.
-- Reuse `admin_ai_usage_attempts` for a metadata-only parent stream-session attempt only if stream lifecycle finalization can be made reliable; stop for an additive schema design if sub-step tracking is needed.
-- Propagate signed caller-policy metadata under `__bitbi_ai_caller_policy` to `/internal/ai/live-agent`.
+- Implemented the Admin Live-Agent migration described in `ADMIN_LIVE_AGENT_BUDGET_FLOW_AUDIT.md` for the current single-call streaming flow.
+- Requires valid `Idempotency-Key` before internal AI Worker/provider work.
+- Builds `platform_admin_lab_budget` metadata using the Phase 4.2 helper.
+- Uses future kill-switch metadata target `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET` without enforcing a new runtime env flag or claiming live budget caps.
+- Reuses `admin_ai_usage_attempts` for a metadata-only parent stream-session attempt. Same-key/same-request active, completed, or failed attempts do not create another provider stream; same-key/different-request retries conflict before provider execution.
+- Propagates signed caller-policy metadata under `__bitbi_ai_caller_policy` to `/internal/ai/live-agent`, and the AI Worker now requires valid caller-policy metadata for that internal route after service-auth.
+- Marks observable stream completion as metadata-only success and observable setup/stream errors as failed; unobserved stale active rows rely on bounded cleanup.
+- Stores no raw messages, streamed output, provider request bodies, provider response bodies, raw idempotency keys, cookies, auth headers, Stripe data, Cloudflare tokens, secrets, private keys, or private R2 keys.
 - Preserve Admin Text/Embeddings, Admin Music, Admin Compare, Admin Video Jobs, OpenClaw/News Pulse, member routes, org-scoped routes, public pricing, Stripe, credit behavior, and live billing readiness.
+
+Deploy units:
+
+- Auth Worker and AI Worker source changed. No new schema apply from Phase 4.12; existing Phase 4.8.1 additive migration `0051_add_admin_ai_usage_attempts.sql` is still required before deploying auth Worker code that uses the table.
+
+Migration risk:
+
+- No Phase 4.12 migration.
+
+## Phase 4.13: Sync Video Debug Or Unmetered Admin Image Budget Controls
+
+Scope:
+
+- Choose one remaining provider-cost gap, preferably sync video debug retirement/budget controls or the unmetered admin image branch.
+- Keep Admin Text/Embeddings, Admin Music, Admin Compare, Admin Live-Agent, Admin Video Jobs, OpenClaw/News Pulse, member routes, org-scoped routes, public pricing, Stripe, credit behavior, and live billing readiness unchanged.
+- Do not broaden internal AI Worker route enforcement globally unless the chosen caller path supplies valid policy metadata.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 

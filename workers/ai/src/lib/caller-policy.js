@@ -87,10 +87,10 @@ const INTERNAL_AI_CALLER_POLICY_RULES = Object.freeze({
     allowedStatuses: REQUIRED_VIDEO_TASK_STATUSES,
   },
   "/internal/ai/live-agent": {
-    required: false,
-    baselineAllowed: true,
+    required: true,
+    baselineAllowed: false,
     allowedOperationIds: ["admin.live_agent", "internal.live_agent"],
-    allowedStatuses: BASELINE_STATUSES,
+    allowedStatuses: REQUIRED_VIDEO_TASK_STATUSES,
   },
 });
 

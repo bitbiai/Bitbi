@@ -269,7 +269,7 @@ assert.equal(
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.targetEnforcementStatus,
-  "design_complete"
+  "partial"
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.killSwitchTarget,
@@ -277,15 +277,19 @@ assert.equal(
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").currentStatus,
-  "missing"
+  "partial"
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").operationConfig.idempotencyPolicy,
-  "optional"
+  "required"
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").currentEnforcement.providerSuppression,
-  "missing"
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").operationConfig.replayPolicy,
+  "metadata_only"
 );
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();

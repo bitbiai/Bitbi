@@ -16711,6 +16711,80 @@ test.describe('Worker routes', () => {
       expect(aiRunCalls).toHaveLength(1);
       expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('__bitbi_ai_caller_policy');
       expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_TEXT_BUDGET');
+
+      const missingLiveAgentPolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/live-agent', {
+          messages: [{ role: 'user', content: 'missing live-agent caller policy should not run' }],
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingLiveAgentPolicy.status).toBe(428);
+      await expect(missingLiveAgentPolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_required',
+      });
+      expect(aiRunCalls).toHaveLength(1);
+
+      const invalidLiveAgentPolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/live-agent', {
+          messages: [{ role: 'user', content: 'invalid live-agent caller policy should not run' }],
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'admin.live_agent',
+            budget_scope: 'platform_admin_lab_budget',
+            enforcement_status: 'budget_metadata_only',
+            caller_class: 'admin',
+            owner_domain: 'admin-ai',
+            provider_family: 'ai_worker',
+            source_route: '/api/admin/ai/live-agent',
+            source_component: 'test',
+            raw_messages: 'must not pass',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidLiveAgentPolicy.status).toBe(400);
+      await expect(invalidLiveAgentPolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_invalid',
+      });
+      expect(aiRunCalls).toHaveLength(1);
+
+      const validLiveAgent = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/live-agent', {
+          messages: [{ role: 'user', content: 'live-agent caller policy is stripped before provider payload' }],
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'admin.live_agent',
+            budget_scope: 'platform_admin_lab_budget',
+            enforcement_status: 'budget_metadata_only',
+            caller_class: 'admin',
+            owner_domain: 'admin-ai',
+            provider_family: 'ai_worker',
+            model_id: '@cf/google/gemma-4-26b-a4b-it',
+            model_resolver_key: 'admin.live_agent.model',
+            idempotency_policy: 'required',
+            source_route: '/api/admin/ai/live-agent',
+            source_component: 'auth-worker-admin-ai',
+            budget_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+            request_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+            kill_switch_target: 'ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET',
+            correlation_id: 'caller-policy-live-agent-strip-test',
+            reason: 'phase_4_12_admin_live_agent_stream_session_metadata_only',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(validLiveAgent.status).toBe(200);
+      expect(validLiveAgent.headers.get('content-type') || '').toContain('text/event-stream');
+      await expect(validLiveAgent.text()).resolves.toContain('[DONE]');
+      expect(aiRunCalls).toHaveLength(2);
+      expect(JSON.stringify(aiRunCalls[1].payload)).not.toContain('__bitbi_ai_caller_policy');
+      expect(JSON.stringify(aiRunCalls[1].payload)).not.toContain('ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET');
+      expect(JSON.stringify(aiRunCalls[1].payload.messages)).toContain('live-agent caller policy is stripped before provider payload');
     });
 
     test('AI worker service auth fails closed when its shared secret is missing', async () => {
@@ -18305,7 +18379,7 @@ test.describe('Worker routes', () => {
       expect(serializedAttempt).not.toContain('Authorization');
     });
 
-    test('POST /api/admin/ai/test-text, test-embeddings, test-music, and compare require valid idempotency before internal AI calls', async () => {
+    test('POST /api/admin/ai/test-text, test-embeddings, test-music, compare, and live-agent require valid idempotency before internal AI calls', async () => {
       const cases = [
         {
           route: '/api/admin/ai/test-text',
@@ -18339,6 +18413,14 @@ test.describe('Worker routes', () => {
             ],
             prompt: 'This compare prompt should not reach the AI worker.',
             maxTokens: 80,
+          },
+        },
+        {
+          route: '/api/admin/ai/live-agent',
+          payload: {
+            messages: [
+              { role: 'user', content: 'This live-agent message should not reach the AI worker.' },
+            ],
           },
         },
       ];
@@ -18624,7 +18706,7 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(attempt)).not.toContain('failing embedding request');
     });
 
-    test('admin text, embeddings, and compare fail closed before provider calls when durable idempotency table is unavailable', async () => {
+    test('admin text, embeddings, compare, and live-agent fail closed before provider calls when durable idempotency table is unavailable', async () => {
       const cases = [
         {
           route: '/api/admin/ai/test-text',
@@ -18654,6 +18736,15 @@ test.describe('Worker routes', () => {
             maxTokens: 80,
           },
           key: 'admin-compare-missing-table-1',
+        },
+        {
+          route: '/api/admin/ai/live-agent',
+          payload: {
+            messages: [
+              { role: 'user', content: 'Missing table should fail before live-agent provider stream.' },
+            ],
+          },
+          key: 'admin-live-agent-missing-table-1',
         },
       ];
 
@@ -19129,6 +19220,215 @@ test.describe('Worker routes', () => {
         expect(JSON.stringify(call.payload)).not.toContain('ENABLE_ADMIN_AI_COMPARE_BUDGET');
         expect(JSON.stringify(call.payload.messages)).toContain('Provider should see compare prompt, not caller metadata.');
       }
+    });
+
+    test('admin live-agent durable stream idempotency suppresses completed duplicates, in-progress duplicates, and conflicts different requests', async () => {
+      const aiRunCalls = [];
+      const aiRunStub = createAiLabRunStub();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return aiRunStub(modelId, payload, options);
+        },
+      });
+      const payload = {
+        messages: [
+          { role: 'system', content: 'You are a test assistant.' },
+          { role: 'user', content: 'Same idempotency key should not run the live-agent stream twice.' },
+        ],
+      };
+      const headers = adminAiIdempotencyHeaders(authHeaders, 'admin-live-agent-durable-1');
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(200);
+      expect(first.headers.get('content-type') || '').toContain('text/event-stream');
+      const streamText = await first.text();
+      expect(streamText).toContain('[DONE]');
+
+      const second = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(second.status).toBe(200);
+      const secondBody = await second.json();
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiRunCalls).toHaveLength(1);
+      expect(secondBody).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'live-agent',
+        code: 'admin_ai_idempotency_metadata_replay',
+        result: null,
+      }));
+      expect(secondBody.idempotency).toEqual(expect.objectContaining({
+        idempotent_replay: true,
+        replay_available: false,
+        replay_policy: 'metadata_only_no_result_replay',
+      }));
+      expect(secondBody.budget_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.live_agent',
+        duplicate_suppression: 'durable_idempotency_metadata_only',
+        idempotency_attempt_status: 'succeeded',
+        kill_switch_flag_name: 'ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET',
+      }));
+      expect(secondBody.budget_policy.fingerprint).toBeUndefined();
+      expect(secondBody.budget_policy.idempotency_key_hash).toBeUndefined();
+      expect(secondBody.caller_policy.request_fingerprint).toBeUndefined();
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.live_agent',
+        enforcement_status: 'budget_metadata_only',
+        kill_switch_target: 'ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET',
+        idempotency_policy: 'required',
+      }));
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('__bitbi_ai_caller_policy');
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET');
+      expect(JSON.stringify(aiRunCalls[0].payload.messages)).toContain('Same idempotency key should not run');
+      const attempt = env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.live_agent',
+        route: '/api/admin/ai/live-agent',
+        status: 'succeeded',
+        provider_status: 'succeeded',
+        result_status: 'metadata_only',
+        budget_scope: 'platform_admin_lab_budget',
+      }));
+      const attemptMetadata = JSON.parse(attempt.metadata_json);
+      const resultMetadata = JSON.parse(attempt.result_metadata_json);
+      expect(attemptMetadata.request).toEqual(expect.objectContaining({
+        result_kind: 'live_agent_stream',
+        turn_count: 2,
+        max_turns: 40,
+        max_system_chars: 1200,
+        max_turn_chars: 4000,
+      }));
+      expect(resultMetadata).toEqual(expect.objectContaining({
+        result_kind: 'live_agent_stream',
+        stream_started: true,
+        stream_completed: true,
+        output_stored: false,
+        full_result_stored: false,
+      }));
+      expect(JSON.stringify(attempt)).not.toContain('Same idempotency key should not run');
+      expect(JSON.stringify(attempt)).not.toContain('Live agent response');
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', {
+          messages: [
+            { role: 'user', content: 'Different live-agent request with the same key must conflict.' },
+          ],
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_conflict',
+      });
+      expect(aiLabRequests).toHaveLength(1);
+
+      let releaseProvider;
+      let providerStarted;
+      const providerStartedPromise = new Promise((resolve) => {
+        providerStarted = resolve;
+      });
+      const releaseProviderPromise = new Promise((resolve) => {
+        releaseProvider = resolve;
+      });
+      const pendingAiRunStub = createAiLabRunStub();
+      const pendingHarness = await createAdminAiContractHarness({
+        aiRun: async (...args) => {
+          providerStarted();
+          await releaseProviderPromise;
+          return pendingAiRunStub(...args);
+        },
+      });
+      const pendingHeaders = adminAiIdempotencyHeaders(pendingHarness.authHeaders, 'admin-live-agent-in-progress-1');
+      const firstPending = pendingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', payload, pendingHeaders),
+        pendingHarness.env,
+        createExecutionContext().execCtx
+      );
+      await providerStartedPromise;
+      const duplicatePending = await pendingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', payload, pendingHeaders),
+        pendingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(duplicatePending.status).toBe(409);
+      await expect(duplicatePending.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_in_progress',
+      });
+      expect(pendingHarness.aiLabRequests).toHaveLength(1);
+      releaseProvider();
+      const completedPending = await firstPending;
+      expect(completedPending.status).toBe(200);
+      await completedPending.text();
+      expect(pendingHarness.aiLabRequests).toHaveLength(1);
+    });
+
+    test('admin live-agent provider failures are terminal and missing attempts table fails before provider work', async () => {
+      const payload = {
+        messages: [
+          { role: 'user', content: 'Failing live-agent request should become terminal.' },
+        ],
+      };
+      const failingHarness = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('simulated live-agent provider failure');
+        },
+      });
+      const headers = adminAiIdempotencyHeaders(failingHarness.authHeaders, 'admin-live-agent-failure-1');
+
+      const first = await failingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', payload, headers),
+        failingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(502);
+      const attempt = failingHarness.env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.live_agent',
+        status: 'provider_failed',
+        provider_status: 'failed',
+        result_status: 'none',
+        error_code: 'upstream_error',
+      }));
+      expect(JSON.stringify(attempt)).not.toContain('Failing live-agent request');
+
+      const second = await failingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', payload, headers),
+        failingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(second.status).toBe(409);
+      await expect(second.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_terminal',
+      });
+      expect(failingHarness.aiLabRequests).toHaveLength(1);
+
+      const missingHarness = await createAdminAiContractHarness();
+      missingHarness.env.DB.missingTables.add('admin_ai_usage_attempts');
+      const missing = await missingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', payload, adminAiIdempotencyHeaders(
+          missingHarness.authHeaders,
+          'admin-live-agent-missing-table-2'
+        )),
+        missingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(missing.status).toBe(503);
+      await expect(missing.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_unavailable',
+      });
+      expect(missingHarness.aiLabRequests).toHaveLength(0);
     });
 
     test('admin AI usage attempt inspection is admin-only, bounded, and sanitized', async () => {
@@ -21670,7 +21970,7 @@ test.describe('Worker routes', () => {
             { role: 'system', content: 'You are a test assistant.' },
             { role: 'user', content: 'Hello' },
           ],
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-live-agent-contract-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -21681,6 +21981,12 @@ test.describe('Worker routes', () => {
       const text = await res.text();
       expect(text).toContain('data:');
       expect(text).toContain('[DONE]');
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      expect(env.DB.state.adminAiUsageAttempts[0]).toEqual(expect.objectContaining({
+        operation_key: 'admin.live_agent',
+        status: 'succeeded',
+        result_status: 'metadata_only',
+      }));
     });
 
     test('POST /api/admin/ai/live-agent rejects requests without a user message', async () => {
@@ -21691,7 +21997,7 @@ test.describe('Worker routes', () => {
           messages: [
             { role: 'system', content: 'You are a test assistant.' },
           ],
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-live-agent-no-user-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -21727,7 +22033,7 @@ test.describe('Worker routes', () => {
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/live-agent', 'POST', {
           messages: [],
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-live-agent-empty-1')),
         env,
         createExecutionContext().execCtx
       );

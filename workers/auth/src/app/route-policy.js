@@ -648,9 +648,13 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: {
       budgetScope: "platform_admin_lab_budget",
       killSwitchTarget: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET",
-      auditStatus: "Phase 4.11 flow audit/design only; runtime route behavior is unchanged.",
+      idempotency: "Idempotency-Key header is required. Phase 4.12 stores only a hash in admin_ai_usage_attempts, suppresses same-key duplicate stream sessions for pending/completed/failed attempts, and conflicts same-key/different-request retries.",
+      callerPolicy: "Phase 4.12 signs the internal /internal/ai/live-agent call with __bitbi_ai_caller_policy using budget_metadata_only status.",
+      runtimeEnforcement: "Builds a platform_admin_lab_budget plan and durable metadata-only stream-session attempt before proxying to the streaming live-agent route. Runtime env kill-switch enforcement, explicit output-token caps, stream-duration caps, and live platform budget caps remain future work.",
+      replay: "Metadata-only: completed duplicate requests return no streamed output and do not re-run the provider stream.",
+      streamFinalization: "Auth Worker wraps the upstream SSE body and marks the attempt succeeded only after stream completion, or failed on setup/stream errors observable by the wrapper.",
     },
-    notes: "Admin Live-Agent remains a baselined streaming provider-cost gap pending Phase 4.12. Do not treat this route as budget-enforced yet.",
+    notes: "Admin Live-Agent is Phase 4.12-covered only for this auth route. Sync video debug and unmetered admin image branches remain separate unmigrated gaps.",
   }),
   adminJsonWrite("admin.ai.derivatives.backfill", "POST", "/api/admin/ai/image-derivatives/backfill", "admin-ai", "adminJson", "admin-ai-derivative-backfill-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI_IMAGE_DERIVATIVES_QUEUE"],
