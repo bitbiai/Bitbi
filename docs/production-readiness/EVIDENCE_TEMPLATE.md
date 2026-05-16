@@ -281,16 +281,17 @@ Use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` fo
 | No raw prompt, secret, cookie, token, provider payload, or unsafe R2 key in evidence |  | BLOCKED |
 | Operator verdict: `BLOCKED`, `MAIN DEPLOYED - EVIDENCE INCOMPLETE`, `MAIN DEPLOYED - OPERATOR VERIFIED`, or `ROLLBACK REQUIRED` |  | BLOCKED |
 
-Phase 3.4 evidence does not prove full AI Cost Gateway coverage. Member music/video, admin AI, platform/background AI, internal AI Worker routes, and broader replay/provider-result cache work remain open. Live billing remains blocked.
+Phase 3.4 evidence does not prove full AI Cost Gateway coverage. Member music/video and later admin/platform coverage must still be verified separately. Admin Compare/Live-Agent, sync video debug, unmetered admin image, platform/background AI, broader internal AI Worker routes, and broader replay/provider-result cache work remain open. Live billing remains blocked.
 
 ## 18A. Admin Text/Embeddings Attempt Cleanup Evidence
 
-This section records Phase 4.8.2 API-first operator evidence only. It does not approve Admin Music migration, Compare/Live-Agent migration, public billing, provider calls, Stripe calls, or live billing.
+This section records Phase 4.8.2 API-first operator evidence and Phase 4.9 Admin Music reuse of the same attempt table only. It does not approve Compare/Live-Agent migration, sync video debug migration, unmetered admin image migration, public billing, provider calls, Stripe calls, or live billing.
 
 | Evidence Item | Environment | Result | Evidence |
 | --- | --- | --- | --- |
 | Admin-only list endpoint `GET /api/admin/ai/admin-usage-attempts` denies non-admins |  | BLOCKED |  |
-| Admin list/detail responses omit raw prompts, raw embedding input, generated text, embedding vectors, provider request bodies, raw idempotency keys/hashes, request fingerprints, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, and private R2 keys |  | BLOCKED |  |
+| Admin list/detail responses omit raw prompts, raw lyrics, raw embedding input, generated text, embedding vectors, audio, provider request bodies, raw idempotency keys/hashes, request fingerprints, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, and private R2 keys |  | BLOCKED |  |
+| Admin Music duplicate same-key and same-key/different-request conflict evidence shows no duplicate provider-cost work |  | BLOCKED |  |
 | Cleanup dry-run endpoint returns bounded counts and mutates no rows |  | BLOCKED |  |
 | Cleanup execution marks only expired pending/running rows and retains completed/succeeded/failed rows |  | BLOCKED |  |
 | Scheduled cleanup logs count-only safe metadata and does not break unrelated scheduled tasks |  | BLOCKED |  |
@@ -368,7 +369,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, and Phase 4.8.2 admin usage-attempt cleanup/inspection are not live billing readiness, automated accounting reconciliation, automated remediation, or full AI budget enforcement. A human approver must verify migrations through `0051_add_admin_ai_usage_attempts.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, and Phase 4.9 Admin Music metadata-only idempotency are not live billing readiness, automated accounting reconciliation, automated remediation, or full AI budget enforcement. A human approver must verify migrations through `0051_add_admin_ai_usage_attempts.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection behavior, Admin Music duplicate-suppression/conflict behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

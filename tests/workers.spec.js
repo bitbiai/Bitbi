@@ -704,6 +704,13 @@ function adminImageChargeHeaders(authHeaders, key = 'admin-image-charge-key') {
   };
 }
 
+function adminAiIdempotencyHeaders(authHeaders, key) {
+  return {
+    ...authHeaders,
+    'Idempotency-Key': key,
+  };
+}
+
 function captureDiagnosticLogs() {
   const entries = [];
   const originalConsole = {
@@ -16614,6 +16621,34 @@ test.describe('Worker routes', () => {
       });
       expect(aiRunCalls).toHaveLength(0);
 
+      const invalidMusicPolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-music', {
+          prompt: 'invalid music caller policy should not run',
+          mode: 'instrumental',
+          lyricsMode: 'auto',
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'admin.music.test',
+            budget_scope: 'platform_admin_lab_budget',
+            enforcement_status: 'budget_metadata_only',
+            caller_class: 'admin',
+            owner_domain: 'admin-ai',
+            provider_family: 'ai_worker',
+            source_route: '/api/admin/ai/test-music',
+            source_component: 'test',
+            raw_lyrics: 'must not pass',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidMusicPolicy.status).toBe(400);
+      await expect(invalidMusicPolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_invalid',
+      });
+      expect(aiRunCalls).toHaveLength(0);
+
       const valid = await aiWorker.fetch(
         await signedInternalAiJsonRequest('/internal/ai/test-text', {
           preset: 'balanced',
@@ -17160,7 +17195,7 @@ test.describe('Worker routes', () => {
     test('POST /api/admin/ai/test-image allows FLUX.2 Klein 9B and uses the multipart AI path', async () => {
       let capturedModelId = null;
       let capturedPayload = null;
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
         aiRun: async (modelId, payload) => {
           capturedModelId = modelId;
           capturedPayload = payload;
@@ -18239,7 +18274,7 @@ test.describe('Worker routes', () => {
       expect(serializedAttempt).not.toContain('Authorization');
     });
 
-    test('POST /api/admin/ai/test-text and test-embeddings require valid idempotency before internal AI calls', async () => {
+    test('POST /api/admin/ai/test-text, test-embeddings, and test-music require valid idempotency before internal AI calls', async () => {
       const cases = [
         {
           route: '/api/admin/ai/test-text',
@@ -18254,6 +18289,14 @@ test.describe('Worker routes', () => {
           payload: {
             preset: 'embedding_default',
             input: ['This embedding input should not reach the AI worker.'],
+          },
+        },
+        {
+          route: '/api/admin/ai/test-music',
+          payload: {
+            prompt: 'This music prompt should not reach the AI worker.',
+            mode: 'instrumental',
+            lyricsMode: 'auto',
           },
         },
       ];
@@ -18637,6 +18680,198 @@ test.describe('Worker routes', () => {
       expect(aiRunCalls[1].payload.text).toBe('Provider should see input, not caller metadata.');
     });
 
+    test('admin music durable idempotency suppresses completed duplicates, in-progress duplicates, and conflicts different requests', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+      const payload = {
+        prompt: 'Same idempotency key should not run the music provider twice.',
+        mode: 'instrumental',
+        lyricsMode: 'auto',
+      };
+      const headers = adminAiIdempotencyHeaders(authHeaders, 'admin-music-durable-1');
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      const second = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      const secondBody = await second.json();
+      expect(aiLabRequests).toHaveLength(1);
+      expect(secondBody).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'music',
+        code: 'admin_ai_idempotency_metadata_replay',
+        result: null,
+      }));
+      expect(secondBody.idempotency).toEqual(expect.objectContaining({
+        idempotent_replay: true,
+        replay_available: false,
+        replay_policy: 'metadata_only_no_result_replay',
+      }));
+      expect(secondBody.budget_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.music.test',
+        duplicate_suppression: 'durable_idempotency_metadata_only',
+        idempotency_attempt_status: 'succeeded',
+        kill_switch_flag_name: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+      }));
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('Same idempotency key should not run');
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          ...payload,
+          prompt: 'Different music request with the same key must conflict.',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_conflict',
+      });
+      expect(aiLabRequests).toHaveLength(1);
+
+      let releaseProvider;
+      let providerStarted;
+      const providerStartedPromise = new Promise((resolve) => {
+        providerStarted = resolve;
+      });
+      const releaseProviderPromise = new Promise((resolve) => {
+        releaseProvider = resolve;
+      });
+      const aiRunStub = createAiLabRunStub();
+      const pendingHarness = await createAdminAiContractHarness({
+        aiRun: async (...args) => {
+          providerStarted();
+          await releaseProviderPromise;
+          return aiRunStub(...args);
+        },
+      });
+      const pendingHeaders = adminAiIdempotencyHeaders(pendingHarness.authHeaders, 'admin-music-in-progress-1');
+      const firstPending = pendingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, pendingHeaders),
+        pendingHarness.env,
+        createExecutionContext().execCtx
+      );
+      await providerStartedPromise;
+      const duplicatePending = await pendingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, pendingHeaders),
+        pendingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(duplicatePending.status).toBe(409);
+      await expect(duplicatePending.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_in_progress',
+      });
+      expect(pendingHarness.aiLabRequests).toHaveLength(1);
+      releaseProvider();
+      const completedPending = await firstPending;
+      expect(completedPending.status).toBe(200);
+      expect(pendingHarness.aiLabRequests).toHaveLength(1);
+    });
+
+    test('admin music provider failures and missing idempotency table fail safely before duplicate provider work', async () => {
+      const failingHarness = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('simulated music provider failure');
+        },
+      });
+      const payload = {
+        prompt: 'Failing music request should become terminal.',
+        mode: 'vocals',
+        lyricsMode: 'auto',
+      };
+      const headers = adminAiIdempotencyHeaders(failingHarness.authHeaders, 'admin-music-failure-1');
+
+      const first = await failingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, headers),
+        failingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(502);
+      const attempt = failingHarness.env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.music.test',
+        status: 'provider_failed',
+        provider_status: 'failed',
+        result_status: 'none',
+        error_code: 'upstream_error',
+      }));
+      expect(JSON.stringify(attempt)).not.toContain('Failing music request');
+
+      const second = await failingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, headers),
+        failingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(second.status).toBe(409);
+      await expect(second.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_terminal',
+      });
+      expect(failingHarness.aiLabRequests).toHaveLength(1);
+
+      const missingHarness = await createAdminAiContractHarness();
+      missingHarness.env.DB.missingTables.add('admin_ai_usage_attempts');
+      const missing = await missingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, adminAiIdempotencyHeaders(
+          missingHarness.authHeaders,
+          'admin-music-missing-table-1'
+        )),
+        missingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(missing.status).toBe(503);
+      await expect(missing.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_unavailable',
+      });
+      expect(missingHarness.aiLabRequests).toHaveLength(0);
+    });
+
+    test('admin music caller-policy metadata is stripped before provider payloads', async () => {
+      const aiRunCalls = [];
+      const aiRunStub = createAiLabRunStub();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return aiRunStub(modelId, payload, options);
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          prompt: 'Provider should see music prompt, not caller metadata.',
+          mode: 'vocals',
+          lyricsMode: 'custom',
+          lyrics: '[Verse]\nProvider should see lyrics only in provider payload.',
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-music-strip-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.music.test',
+        enforcement_status: 'budget_metadata_only',
+        kill_switch_target: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+      }));
+      expect(aiRunCalls).toHaveLength(1);
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('__bitbi_ai_caller_policy');
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_MUSIC_BUDGET');
+      expect(aiRunCalls[0].payload.prompt).toContain('Provider should see music prompt');
+      expect(aiRunCalls[0].payload.lyrics).toBe('[Verse]\nProvider should see lyrics only in provider payload.');
+    });
+
     test('admin AI usage attempt inspection is admin-only, bounded, and sanitized', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('phase482-inspect-admin');
@@ -18761,14 +18996,18 @@ test.describe('Worker routes', () => {
       expect(serialized).not.toContain('bitbi_session=secret-cookie');
       expect(serialized).not.toContain('0.1');
 
-      const invalid = await authWorker.fetch(
+      const musicFilter = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/admin-usage-attempts?operation_key=admin.music.test', 'GET', undefined, {
           Cookie: `bitbi_session=${adminToken}`,
         }),
         env,
         createExecutionContext().execCtx
       );
-      expect(invalid.status).toBe(400);
+      expect(musicFilter.status).toBe(200);
+      await expect(musicFilter.json()).resolves.toMatchObject({
+        ok: true,
+        attempts: [],
+      });
     });
 
     test('admin AI usage attempt cleanup is dry-run by default and marks only expired active attempts', async () => {
@@ -18978,7 +19217,7 @@ test.describe('Worker routes', () => {
       let capturedModelId = null;
       let capturedPayload = null;
       let capturedOptions = null;
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
         aiRun: async (modelId, payload, options) => {
           capturedModelId = modelId;
           capturedPayload = payload;
@@ -19011,7 +19250,7 @@ test.describe('Worker routes', () => {
           lyrics: '[Verse]\nHold the skyline in tune',
           bpm: 118,
           key: 'A Minor',
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-music-contract-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -19045,6 +19284,34 @@ test.describe('Worker routes', () => {
           lyricsPreview: '[Verse]\nHold the skyline in tune',
         }),
         elapsedMs: expect.any(Number),
+        budget_policy: expect.objectContaining({
+          budget_policy_version: 'admin-platform-budget-policy-v1',
+          operation_id: 'admin.music.test',
+          budget_scope: 'platform_admin_lab_budget',
+          owner_domain: 'admin-ai',
+          provider_family: 'ai_worker',
+          model_id: 'minimax/music-2.6',
+          estimated_credits: 160,
+          idempotency_policy: 'required',
+          idempotency_key_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          duplicate_suppression: 'durable_idempotency_metadata_only',
+          durable_idempotency: true,
+          replay_policy: 'metadata_only_no_result_replay',
+          idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
+          idempotency_attempt_status: 'succeeded',
+          runtime_enforcement_status: 'budget_metadata_only',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+          fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        caller_policy: expect.objectContaining({
+          operation_id: 'admin.music.test',
+          budget_scope: 'platform_admin_lab_budget',
+          enforcement_status: 'budget_metadata_only',
+          caller_class: 'admin',
+          idempotency_policy: 'required',
+          kill_switch_target: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+          source_route: '/api/admin/ai/test-music',
+        }),
       }));
       expect(capturedModelId).toBe('minimax/music-2.6');
       expect(capturedPayload).toEqual(expect.objectContaining({
@@ -19063,6 +19330,52 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.prompt).toContain('Preferred key center: A Minor.');
       expect(capturedPayload.prompt).toContain('Lead vocals should remain present.');
       expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.music.test',
+        budget_scope: 'platform_admin_lab_budget',
+        enforcement_status: 'budget_metadata_only',
+        caller_class: 'admin',
+        kill_switch_target: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+        idempotency_policy: 'required',
+      }));
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      const attempt = env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.music.test',
+        route: '/api/admin/ai/test-music',
+        admin_user_id: 'admin-ai-user',
+        status: 'succeeded',
+        provider_status: 'succeeded',
+        result_status: 'metadata_only',
+        budget_scope: 'platform_admin_lab_budget',
+      }));
+      const attemptMetadata = JSON.parse(attempt.metadata_json);
+      const resultMetadata = JSON.parse(attempt.result_metadata_json);
+      expect(attemptMetadata.request).toEqual(expect.objectContaining({
+        prompt_length: 'Dark synthwave pulse with cinematic tension.'.length,
+        lyric_text_length: '[Verse]\nHold the skyline in tune'.length,
+        mode: 'vocals',
+        lyric_mode: 'custom',
+      }));
+      expect(resultMetadata).toEqual(expect.objectContaining({
+        result_kind: 'music',
+        duration_ms: 25364,
+        audio_stored: false,
+        full_result_stored: false,
+      }));
+      const serialized = JSON.stringify({
+        budget_policy: body.budget_policy,
+        caller_policy: body.caller_policy,
+        internal_caller_policy: aiLabRequests[0].body.__bitbi_ai_caller_policy,
+        attempt,
+      });
+      expect(serialized).not.toContain('Dark synthwave pulse');
+      expect(serialized).not.toContain('Hold the skyline');
+      expect(serialized).not.toContain('494433');
+      expect(serialized).not.toContain('Cookie');
+      expect(serialized).not.toContain('Authorization');
     });
 
     test('POST /api/admin/ai/test-music passes AI Gateway options for the proxied minimax model', async () => {
@@ -19085,7 +19398,7 @@ test.describe('Worker routes', () => {
           prompt: 'Gateway routing test.',
           mode: 'instrumental',
           lyricsMode: 'auto',
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-music-gateway-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -19116,7 +19429,7 @@ test.describe('Worker routes', () => {
           lyricsMode: 'auto',
           bpm: 92,
           key: 'E Minor',
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-music-instrumental-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -19161,7 +19474,7 @@ test.describe('Worker routes', () => {
           mode: 'vocals',
           lyricsMode: 'custom',
           lyrics: '[Verse]\nWe hold the line',
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-music-inline-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -19193,7 +19506,7 @@ test.describe('Worker routes', () => {
           prompt: 'Minimal house groove.',
           mode: 'vocals',
           lyricsMode: 'auto',
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-music-provider-error-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -19215,7 +19528,7 @@ test.describe('Worker routes', () => {
           prompt: 'Need a lyrical song.',
           mode: 'vocals',
           lyricsMode: 'custom',
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-music-lyrics-validation-1')),
         env,
         createExecutionContext().execCtx
       );

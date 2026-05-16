@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: Phase 3.7 hardens the already migrated member `/api/ai/generate-music` AI Cost Gateway path, and Phase 3.8 later migrates member video separately. This document records the member music cost decomposition, the implemented parent-reservation policy, Phase 3.7 replay/cover/finalization/cleanup hardening, and remaining music-specific gaps. It does not document admin AI, platform/background AI, OpenClaw/News Pulse, or internal AI Worker route migration. It does not call real AI providers in tests, call Stripe, deploy, or prove production/live billing readiness.
+Status: Phase 3.7 hardens the already migrated member `/api/ai/generate-music` AI Cost Gateway path, and Phase 3.8 later migrates member video separately. Phase 4.9 Admin Music budget enforcement is separate and does not change member music pricing, debit timing, replay behavior, or saved asset behavior. This document records the member music cost decomposition, the implemented parent-reservation policy, Phase 3.7 replay/cover/finalization/cleanup hardening, and remaining music-specific gaps. It does not document admin AI, platform/background AI, OpenClaw/News Pulse, or internal AI Worker route migration beyond noting that admin music is separate. It does not call real AI providers in tests, call Stripe, deploy, or prove production/live billing readiness.
 
 ## Current Request Flow
 
@@ -81,4 +81,4 @@ Phase 3.7 keeps the single parent music reservation/debit model and adds:
 
 ## Phase 3.7 Result
 
-Phase 3.7 hardens only already migrated member image and member music generation. Phase 3.8 later adds member video gateway coverage in its own route. Admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated. No real AI provider calls were made by Codex/tests, no Stripe calls were made, no migration was added, no remote migration was applied, and production/live billing remains BLOCKED.
+Phase 3.7 hardens only already migrated member image and member music generation. Phase 3.8 later adds member video gateway coverage in its own route. Phase 4.9 covers only Admin Music test generation using `platform_admin_lab_budget` metadata and `admin_ai_usage_attempts`; it does not change member music behavior. Admin compare/live-agent, sync video debug, unmetered admin image, platform/background AI outside News Pulse visuals, and remaining broad internal AI Worker routes remain unmigrated or baselined. No real AI provider calls were made by Codex/tests, no Stripe calls were made, no remote migration was applied, and production/live billing remains BLOCKED.

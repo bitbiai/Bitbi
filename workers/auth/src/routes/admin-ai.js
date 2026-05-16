@@ -123,8 +123,10 @@ const MAX_ADMIN_LAB_USAGE_ATTEMPT_CLEANUP_LIMIT = 50;
 const CHARGED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.charged";
 const ADMIN_TEXT_OPERATION_ID = "admin.text.test";
 const ADMIN_EMBEDDINGS_OPERATION_ID = "admin.embeddings.test";
+const ADMIN_MUSIC_OPERATION_ID = "admin.music.test";
 const ADMIN_TEXT_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_TEXT_BUDGET";
 const ADMIN_EMBEDDINGS_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET";
+const ADMIN_MUSIC_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_MUSIC_BUDGET";
 const ADMIN_LAB_IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const ADMIN_LAB_IDEMPOTENCY_KEY_MIN_LENGTH = 8;
 const ADMIN_LAB_IDEMPOTENCY_KEY_MAX_LENGTH = 128;
@@ -377,12 +379,12 @@ function adminLabBudgetOperation({
       disabledBehavior: "manual_only",
       operatorCanOverride: false,
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-      notes: "Phase 4.8.1 records the future kill-switch metadata target only; runtime env enforcement remains future work for this route.",
+      notes: "Admin lab budget routes record the future kill-switch metadata target only; runtime env enforcement remains future work for each route.",
     },
     routeId: registryConfig.routeId || routeId,
     routePath: registryConfig.routePath || routePath,
     auditEventPrefix: registryConfig.observabilityEventPrefix || operationId,
-    notes: "Phase 4.8.1 records sanitized platform_admin_lab_budget metadata and durable metadata-only idempotency for admin text/embeddings tests without enabling live billing or full result replay.",
+    notes: "Records sanitized platform_admin_lab_budget metadata and durable metadata-only idempotency for targeted admin lab tests without enabling live billing or full result replay.",
   };
 }
 
@@ -453,7 +455,7 @@ async function buildAdminLabBudgetPolicyContext({
     actorUserId: user?.id || null,
     actorRole: "admin",
     modelId,
-    reason: `${operationId}_phase_4_8_1_durable_metadata_only`,
+    reason: `${operationId}_admin_lab_durable_metadata_only`,
     correlationId,
   });
   if (!plan.ok) {
@@ -518,6 +520,17 @@ function adminEmbeddingsRequestMetadata(payload) {
   };
 }
 
+function adminMusicRequestMetadata(payload) {
+  return {
+    prompt_length: payload?.prompt ? String(payload.prompt).length : 0,
+    lyric_text_length: payload?.lyrics ? String(payload.lyrics).length : 0,
+    mode: payload?.mode || null,
+    lyric_mode: payload?.lyricsMode || null,
+    bpm: payload?.bpm ?? null,
+    key_center: payload?.key || null,
+  };
+}
+
 function adminTextResultMetadata(providerBody) {
   const text = providerBody?.result?.text == null ? "" : String(providerBody.result.text);
   return {
@@ -546,6 +559,25 @@ function adminEmbeddingsResultMetadata(providerBody) {
       : null,
     pooling: typeof result.pooling === "string" ? result.pooling.slice(0, 80) : null,
     vectors_stored: false,
+  };
+}
+
+function adminMusicResultMetadata(providerBody) {
+  const result = providerBody?.result || {};
+  return {
+    result_kind: "music",
+    duration_ms: result.durationMs == null ? null : Number(result.durationMs),
+    sample_rate: result.sampleRate == null ? null : Number(result.sampleRate),
+    channels: result.channels == null ? null : Number(result.channels),
+    bitrate: result.bitrate == null ? null : Number(result.bitrate),
+    size_bytes: result.sizeBytes == null ? null : Number(result.sizeBytes),
+    provider_status: result.providerStatus == null ? null : Number(result.providerStatus),
+    mime_type: typeof result.mimeType === "string" ? result.mimeType.slice(0, 80) : null,
+    audio_url_present: typeof result.audioUrl === "string" && result.audioUrl.length > 0,
+    audio_base64_present: typeof result.audioBase64 === "string" && result.audioBase64.length > 0,
+    vocal_text_present: typeof result.lyricsPreview === "string" && result.lyricsPreview.length > 0,
+    audio_stored: false,
+    full_result_stored: false,
   };
 }
 
@@ -1674,28 +1706,107 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const idempotencyKey = normalizeAdminLabIdempotencyKey(request.headers.get("Idempotency-Key"));
       const validated = validateMusicPayload(body);
-      return proxyToAiLab(
+      const selection = resolveAdminAiModelSelection("music", validated);
+      const modelId = selection.model.id;
+      const budgetPolicy = await buildAdminLabBudgetPolicyContext({
+        user: result.user,
+        operationId: ADMIN_MUSIC_OPERATION_ID,
+        modelId,
+        modelResolverKey: "admin.music.model_registry",
+        routeId: "admin.ai.test-music",
+        routePath: "/api/admin/ai/test-music",
+        payload: validated,
+        hashFields: ["prompt", "lyrics"],
+        idempotencyKey,
+        killSwitchTarget: ADMIN_MUSIC_BUDGET_KILL_SWITCH,
+        correlationId,
+      });
+      const callerPolicy = buildAdminAiCallerPolicy({
+        operationId: ADMIN_MUSIC_OPERATION_ID,
+        enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
+        callerClass: AI_CALLER_POLICY_CALLER_CLASSES.ADMIN,
+        modelId,
+        modelResolverKey: "admin.music.model_registry",
+        idempotencyPolicy: "required",
+        sourceRoute: "/api/admin/ai/test-music",
+        budgetFingerprint: budgetPolicy.summary.fingerprint,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        killSwitchTarget: ADMIN_MUSIC_BUDGET_KILL_SWITCH,
+        correlationId,
+        reason: "phase_4_9_admin_music_durable_idempotency_metadata_only",
+        notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression.",
+      });
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const attemptState = await beginAdminAiIdempotencyAttempt({
+        env,
+        operationKey: ADMIN_MUSIC_OPERATION_ID,
+        route: "/api/admin/ai/test-music",
+        adminUserId: result.user.id,
+        idempotencyKey,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        providerFamily: budgetPolicy.summary.provider_family,
+        modelKey: modelId,
+        budgetScope: budgetPolicy.summary.budget_scope,
+        budgetPolicy: initialBudgetPolicy,
+        callerPolicy: compactAdminCallerPolicy(callerPolicy),
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminMusicRequestMetadata(validated),
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+          state: "pending",
+        }),
+      });
+      if (attemptState.kind !== "created") {
+        return adminLabAttemptResponse({
+          task: "music",
+          modelId,
+          kind: attemptState.kind,
+          attempt: attemptState.attempt,
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+        }, correlationId);
+      }
+      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const response = await proxyToAiLab(
         env,
         "/internal/ai/test-music",
         {
           method: "POST",
           body: validated,
-          callerPolicy: buildAdminAiCallerPolicy({
-            operationId: "admin.music.test",
-            modelId: validated.model || null,
-            modelResolverKey: "admin.music.model_registry",
-            sourceRoute: "/api/admin/ai/test-music",
-            killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_MUSIC_TESTS",
-            correlationId,
-          }),
+          callerPolicy,
         },
         result.user,
         correlationId,
         requestInfo
       );
+      const providerBody = await parseJsonResponseBody(response);
+      if (!response.ok || !providerBody?.ok) {
+        await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          code: providerBody?.code || "provider_failed",
+          message: "Admin music provider call failed.",
+        });
+        return response;
+      }
+      const resultMetadata = adminMusicResultMetadata(providerBody);
+      const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        resultMetadata,
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminMusicRequestMetadata(validated),
+          resultMetadata,
+          budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, attemptState.attempt, "succeeded"),
+          callerPolicy,
+          state: "succeeded",
+        }),
+      });
+      return appendAdminLabBudgetMetadata(response, {
+        budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
+        callerPolicy,
+      }, correlationId);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
       throw error;
     }
   }

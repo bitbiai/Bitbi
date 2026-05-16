@@ -30,6 +30,10 @@ const ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS = Object.freeze([
   "admin.text.test",
   "admin.embeddings.test",
 ]);
+const ADMIN_LAB_DURABLE_OPERATION_IDS = Object.freeze([
+  ...ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS,
+  "admin.music.test",
+]);
 const ADMIN_VIDEO_JOB_OPERATION_ID = "admin.video.job.create";
 const NEWS_PULSE_VISUAL_OPERATION_IDS = Object.freeze([
   "platform.news_pulse.visual.ingest",
@@ -305,19 +309,22 @@ function implementedAdminVideoJobEvidence(entry, routeIndex) {
   };
 }
 
-function implementedAdminTextEmbeddingsEvidence(entry, routeIndex) {
+function implementedAdminLabDurableEvidence(entry, routeIndex) {
   const base = basicOperationEvidence(entry, routeIndex);
   const operation = operationId(entry);
   const isEmbeddings = operation === "admin.embeddings.test";
+  const isMusic = operation === "admin.music.test";
   return {
     ...base,
     type: "partial_admin_budget_operation",
     runtimeStatus: "budget_metadata_with_durable_idempotency",
     idempotencyTarget: "required Idempotency-Key; admin_ai_usage_attempts stores only a safe key hash and request fingerprint",
-    killSwitchTarget: isEmbeddings
-      ? "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET"
-      : "ENABLE_ADMIN_AI_TEXT_BUDGET",
-    modelClass: isEmbeddings ? "admin embeddings tests" : "admin text tests",
+    killSwitchTarget: isMusic
+      ? "ENABLE_ADMIN_AI_MUSIC_BUDGET"
+      : isEmbeddings
+        ? "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET"
+        : "ENABLE_ADMIN_AI_TEXT_BUDGET",
+    modelClass: isMusic ? "admin music tests" : isEmbeddings ? "admin embeddings tests" : "admin text tests",
     callerPolicyTransport: "reserved_signed_json_body_key",
     reservedBodyKey: AI_CALLER_POLICY_BODY_KEY,
     metadataFieldsExpected: [
@@ -345,10 +352,12 @@ function implementedAdminTextEmbeddingsEvidence(entry, routeIndex) {
       "caller_policy",
     ],
     remainingLimitations: [
-      "Runtime env kill-switch enforcement is metadata only in Phase 4.8.1.",
-      "Full result replay is intentionally unavailable; duplicate completed requests return metadata-only replay without generated text or embedding vectors.",
-      "Phase 4.8.2 adds API-first admin-only inspection plus bounded non-destructive cleanup for stuck admin text/embeddings attempts.",
-      "The AI Worker internal text/embeddings routes still allow baseline-missing caller policy for other known callers to preserve org/member compatibility.",
+      isMusic
+        ? "Runtime env kill-switch enforcement is metadata only in Phase 4.9."
+        : "Runtime env kill-switch enforcement is metadata only in Phase 4.8.1.",
+      "Full result replay is intentionally unavailable; duplicate completed requests return metadata-only replay without generated text, embedding vectors, audio, lyrics, or provider response bodies.",
+      "Phase 4.8.2 adds API-first admin-only inspection plus bounded non-destructive cleanup for stuck admin lab usage attempts.",
+      "The AI Worker internal text/embeddings/music routes still allow baseline-missing caller policy for other known callers to preserve org/member and baseline compatibility.",
       "No live platform budget cap, Stripe call, or credit debit is performed.",
     ],
   };
@@ -417,6 +426,7 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
       "admin async video job queue task create/poll",
       "admin text test",
       "admin embeddings test",
+      "admin music test",
     ],
     baselineAllowedInternalRoutes: [
       "/internal/ai/test-text",
@@ -446,8 +456,8 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
       "reason",
     ],
     remainingLimitations: [
-      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only; Phase 4.8.1 supplies admin text/embeddings caller metadata plus durable caller-side idempotency, but does not make the shared internal routes fail closed for every caller.",
-      "Admin music/compare/live-agent, sync video debug, unmetered image, and other internal routes remain baseline-allowed until targeted caller migrations.",
+      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only; Phase 4.8.1 supplies admin text/embeddings caller metadata plus durable caller-side idempotency, and Phase 4.9 extends that pattern to admin music, but shared internal routes do not fail closed for every caller.",
+      "Admin compare/live-agent, sync video debug, unmetered image, and other internal routes remain baseline-allowed until targeted caller migrations.",
       isPoll
         ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
         : "Duplicate provider task creation is still suppressed by the auth job budget state and queue lease.",
@@ -614,9 +624,14 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   const partialAdminTextEmbeddingsOperations = ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS
     .map((id) => entriesById.get(id))
     .filter((entry) => entry && operationRuntimeStatus(entry) === "partial");
+  const partialAdminLabDurableOperations = ADMIN_LAB_DURABLE_OPERATION_IDS
+    .map((id) => entriesById.get(id))
+    .filter((entry) => entry && operationRuntimeStatus(entry) === "partial");
+  const partialAdminMusicOperations = partialAdminLabDurableOperations
+    .filter((entry) => operationId(entry) === "admin.music.test");
   const reportedAdminBudgetOperations = [
     ...implementedAdminBudgetOperations,
-    ...partialAdminTextEmbeddingsOperations,
+    ...partialAdminLabDurableOperations,
   ];
 
   const baselinedGaps = knownGaps.map((gap) => baselineGapEvidence(gap, entriesById));
@@ -628,8 +643,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       if (operationId(entry) === HARDENED_ADMIN_OPERATION_ID) {
         return implementedAdminImageEvidence(entry, routeIndex);
       }
-      if (ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS.includes(operationId(entry))) {
-        return implementedAdminTextEmbeddingsEvidence(entry, routeIndex);
+      if (ADMIN_LAB_DURABLE_OPERATION_IDS.includes(operationId(entry))) {
+        return implementedAdminLabDurableEvidence(entry, routeIndex);
       }
       if (operationId(entry) === ADMIN_VIDEO_JOB_OPERATION_ID) {
         return implementedAdminVideoJobEvidence(entry, routeIndex);
@@ -666,7 +681,10 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       memberGatewayMigrated: memberGatewayOperations.length,
       adminPlatformImplemented: implementedAdminBudgetOperations.length,
       adminTextEmbeddingsDurableIdempotency: partialAdminTextEmbeddingsOperations.length,
+      adminMusicDurableIdempotency: partialAdminMusicOperations.length,
+      adminLabDurableIdempotency: partialAdminLabDurableOperations.length,
       adminTextEmbeddingsAttemptsOperable: true,
+      adminLabAttemptsOperable: true,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
@@ -704,8 +722,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement, Phase 4.6 adds OpenClaw/News Pulse visual budget metadata/control evidence, and Phase 4.7 adds an internal AI Worker caller-policy guard for covered caller paths.",
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
-      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
-      "Admin music/compare/live-agent, sync video debug, unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
+      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
+      "Admin compare/live-agent, sync video debug, unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,

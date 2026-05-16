@@ -16,7 +16,7 @@ const VISIBLE_STATUSES = new Set([
   "terminal_failure",
   "expired",
 ]);
-const VISIBLE_OPERATIONS = new Set(["admin.text.test", "admin.embeddings.test"]);
+const VISIBLE_OPERATIONS = new Set(["admin.text.test", "admin.embeddings.test", "admin.music.test"]);
 const DANGEROUS_METADATA_KEY_PATTERN =
   /(?:authorization|cookie|secret|token|password|api[_-]?key|idempotency[_-]?key|stripe|cloudflare|private[_-]?key|r2[_-]?key|provider[_-]?(?:request|body)|request[_-]?body|raw[_-]?(?:prompt|input|output)|prompt|generated[_-]?text|embedding[_-]?(?:input|vectors?)|vectors?|lyrics|messages?)/i;
 const SAFE_LENGTH_KEY_PATTERN =
@@ -182,9 +182,11 @@ export function serializeAdminAiUsageAttempt(row, { detail = false } = {}) {
       rawIdempotencyKeyReturned: false,
       idempotencyKeyHashReturned: false,
       rawPromptReturned: false,
+      rawLyricsReturned: false,
       rawEmbeddingInputReturned: false,
       rawGeneratedTextReturned: false,
       embeddingVectorsReturned: false,
+      audioReturned: false,
       providerRequestBodyReturned: false,
     };
   } else {
@@ -194,6 +196,9 @@ export function serializeAdminAiUsageAttempt(row, { detail = false } = {}) {
       count: resultMetadata?.count == null ? null : Number(resultMetadata.count),
       dimensions: resultMetadata?.dimensions == null ? null : Number(resultMetadata.dimensions),
       vectorsStored: resultMetadata?.vectors_stored === true,
+      durationMs: resultMetadata?.duration_ms == null ? null : Number(resultMetadata.duration_ms),
+      sizeBytes: resultMetadata?.size_bytes == null ? null : Number(resultMetadata.size_bytes),
+      audioStored: resultMetadata?.audio_stored === true,
     };
   }
   return out;
@@ -226,7 +231,7 @@ function normalizeOptionalOperationKey(value) {
 function normalizeOptionalRoute(value) {
   const text = safeShortText(value, null, 160);
   if (!text) return null;
-  if (!/^\/api\/admin\/ai\/test-(?:text|embeddings)$/.test(text)) {
+  if (!/^\/api\/admin\/ai\/test-(?:text|embeddings|music)$/.test(text)) {
     throw new AdminAiIdempotencyError("Invalid route filter.", {
       code: "validation_error",
       status: 400,
