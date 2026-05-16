@@ -29,8 +29,15 @@ assert.equal(report.billingMutation, false);
 assert.equal(report.summary.memberGatewayMigrated, 3);
 assert.equal(report.summary.adminPlatformImplemented, 8);
 assert.equal(report.summary.adminTextEmbeddingsDurableIdempotency, 2);
+assert.equal(report.summary.adminTextEmbeddingsAttemptsOperable, true);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
+assert.equal(report.adminAiUsageAttempts.cleanup.registered, true);
+assert.equal(report.adminAiUsageAttempts.cleanup.defaultDryRun, true);
+assert.equal(report.adminAiUsageAttempts.cleanup.destructiveDelete, false);
+assert.equal(report.adminAiUsageAttempts.cleanup.providerCalls, false);
+assert.equal(report.adminAiUsageAttempts.inspection.listRegistered, true);
+assert.equal(report.adminAiUsageAttempts.inspection.detailRegistered, true);
 
 for (const scope of [
   "admin_org_credit_account",
@@ -110,6 +117,7 @@ assert.equal(adminText.killSwitchTarget, "ENABLE_ADMIN_AI_TEXT_BUDGET");
 assert(adminText.metadataFieldsExpected.includes("caller_policy"));
 assert(adminText.metadataFieldsExpected.includes("idempotency_attempt_id"));
 assert(adminText.remainingLimitations.some((entry) => entry.includes("Full result replay")));
+assert(adminText.remainingLimitations.some((entry) => entry.includes("bounded non-destructive cleanup")));
 
 const adminEmbeddings = report.implementedOperations.find((entry) => entry.operationId === "admin.embeddings.test");
 assert.equal(adminEmbeddings.budgetScope, "platform_admin_lab_budget");
@@ -241,6 +249,27 @@ assert(baselineIds.includes("internal-ai-worker-music-video-compare-live-agent")
     globalThis.fetch = originalFetch;
   }
   assert.equal(fetchCalls, 0);
+}
+
+{
+  const withAttemptSummary = buildAdminPlatformBudgetEvidenceReport({
+    generatedAt,
+    adminAiUsageAttemptSummary: {
+      available: true,
+      totalCount: 3,
+      recentCount: 2,
+      activeCount: 1,
+      staleActiveCount: 1,
+      expiredCount: 1,
+      failedTerminalCount: 0,
+      succeededCount: 1,
+      latestUpdatedAt: "2026-05-16T10:00:00.000Z",
+      recentWindowHours: 24,
+    },
+  });
+  assert.equal(withAttemptSummary.adminAiUsageAttempts.available, true);
+  assert.equal(withAttemptSummary.adminAiUsageAttempts.totalCount, 3);
+  assert.equal(withAttemptSummary.adminAiUsageAttempts.staleActiveCount, 1);
 }
 
 {

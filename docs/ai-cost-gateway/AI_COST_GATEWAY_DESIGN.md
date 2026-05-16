@@ -2,7 +2,7 @@
 
 Date: 2026-05-16
 
-Status: target design plus Phase 4.8.1 admin text/embeddings durable idempotency foundation. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Phase 4.4 adds read-only evidence reporting. Phase 4.5 imports the helper into admin async video job creation and auth queue processing to add sanitized `platform_admin_lab_budget` job/queue metadata and budget-state checks before internal video task create/poll calls. Phase 4.6 imports the helper only into News Pulse visual generation/backfill to add sanitized `openclaw_news_pulse_budget` visual metadata, invalid-policy provider blocking, and status/attempt duplicate suppression. Phase 4.7 adds a service-auth-first internal caller-policy metadata contract and requires it for async video task create/poll while broader internal routes remain baseline-allowed. Phase 4.8 imports the helper only into admin text/embeddings tests to require `Idempotency-Key`, add `platform_admin_lab_budget` metadata, and propagate signed `budget_metadata_only` caller-policy metadata. Phase 4.8.1 adds `admin_ai_usage_attempts` metadata-only duplicate suppression/conflict detection for those same two routes. Admin music/compare/live-agent, sync video debug, unmetered admin image, and platform/background AI outside News Pulse visuals remain outside runtime budget enforcement.
+Status: target design plus Phase 4.8.2 admin text/embeddings usage-attempt cleanup and inspection. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Phase 4.4 adds read-only evidence reporting. Phase 4.5 imports the helper into admin async video job creation and auth queue processing to add sanitized `platform_admin_lab_budget` job/queue metadata and budget-state checks before internal video task create/poll calls. Phase 4.6 imports the helper only into News Pulse visual generation/backfill to add sanitized `openclaw_news_pulse_budget` visual metadata, invalid-policy provider blocking, and status/attempt duplicate suppression. Phase 4.7 adds a service-auth-first internal caller-policy metadata contract and requires it for async video task create/poll while broader internal routes remain baseline-allowed. Phase 4.8 imports the helper only into admin text/embeddings tests to require `Idempotency-Key`, add `platform_admin_lab_budget` metadata, and propagate signed `budget_metadata_only` caller-policy metadata. Phase 4.8.1 adds `admin_ai_usage_attempts` metadata-only duplicate suppression/conflict detection for those same two routes. Phase 4.8.2 adds no migration; it adds bounded non-destructive cleanup, scheduled expiry handling, and admin-only sanitized list/detail inspection for those attempt rows. Admin music/compare/live-agent, sync video debug, unmetered admin image, and platform/background AI outside News Pulse visuals remain outside runtime budget enforcement.
 
 ## Goals
 
@@ -35,6 +35,7 @@ Primary goals:
    - Phase 4.6 uses the helper only for OpenClaw/News Pulse visuals; it records `ENABLE_NEWS_PULSE_VISUAL_BUDGET` as a future kill-switch target but does not enforce a new env flag.
    - Phase 4.7 uses reserved signed JSON body caller-policy metadata (`__bitbi_ai_caller_policy`) for internal Auth Worker -> AI Worker provider-cost calls; it validates and strips the metadata before provider payloads.
    - Phase 4.8.1 uses the helper only for admin text/embeddings; it records `ENABLE_ADMIN_AI_TEXT_BUDGET` and `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET` as future kill-switch targets, creates metadata-only idempotency attempts, and does not enforce new env flags.
+   - Phase 4.8.2 keeps provider and billing behavior unchanged while adding bounded cleanup and sanitized operator inspection for those admin text/embeddings attempts.
    - Platform/admin-unmetered operations still need explicit cost telemetry and a budget exception before runtime migration.
 
 3. Resolve model/provider/cost
@@ -110,7 +111,7 @@ Primary goals:
 18. Cleanup expired attempts/replay objects
     - Expired reservations are released without debits.
     - Replay metadata and temporary replay objects expire according to policy.
-    - Cleanup must not delete ledger rows, final usage rows, saved user media, audit archives, or unrelated R2 objects.
+    - Cleanup must not delete ledger rows, final usage rows, saved user media, audit archives, or unrelated R2 objects. Phase 4.8.2 follows this pattern for `admin_ai_usage_attempts` by marking only expired pending/running rows and retaining completed/failed records for operator review.
 
 ## Gateway API Shape
 
@@ -144,7 +145,7 @@ The registry currently exports:
 - `getAiCostProviderCallSourceFiles(entries)`
 - `summarizeAiCostOperationRegistry(entries)`
 
-The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened because the existing selected-organization credit branch now records safe budget-policy metadata. Phase 4.5 marks admin async video jobs as implemented for job/queue budget metadata. Phase 4.6 marks OpenClaw/News Pulse visual generation as implemented for caller-side visual budget metadata and duplicate suppression. Phase 4.8.1 marks admin text/embeddings as partial metadata-only durable-idempotency coverage; other admin/platform/internal gaps remain baselined.
+The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened because the existing selected-organization credit branch now records safe budget-policy metadata. Phase 4.5 marks admin async video jobs as implemented for job/queue budget metadata. Phase 4.6 marks OpenClaw/News Pulse visual generation as implemented for caller-side visual budget metadata and duplicate suppression. Phase 4.8.1 marks admin text/embeddings as partial metadata-only durable-idempotency coverage; Phase 4.8.2 adds operational cleanup/inspection evidence for the same rows. Other admin/platform/internal gaps remain baselined.
 
 Phase 4.2 admin/platform budget helper: `workers/auth/src/lib/admin-platform-budget-policy.js`
 
@@ -368,7 +369,7 @@ Helper contract:
 - Fingerprints are deterministic, omit sensitive fields, and hash prompt-like fields inside the fingerprint payload.
 - Plan statuses are `ready_for_budget_check`, `requires_kill_switch`, `blocked_by_policy`, `caller_enforced`, `explicit_unmetered`, `platform_budget_review`, `admin_org_credit_required`, and `invalid_config`.
 
-Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. Phase 4.4 adds read-only evidence reporting only; it does not add runtime enforcement, migrate routes, call providers, mutate billing, or prove live readiness. Phase 4.5 adds additive migration `0049_add_admin_video_job_budget_metadata.sql` and changes only admin async video job budget metadata/queue checks. Phase 4.6 adds additive migration `0050_add_news_pulse_visual_budget_metadata.sql` and changes only OpenClaw/News Pulse visual budget metadata/status controls. Phase 4.7 adds no schema; it changes only internal caller-policy validation/metadata handling. Phase 4.8 adds no schema; it changes only admin text/embeddings required idempotency, safe budget metadata, and caller-policy propagation. Phase 4.8.1 adds additive migration `0051_add_admin_ai_usage_attempts.sql` and changes only admin text/embeddings durable metadata-only idempotency. It does not migrate Admin music, Admin video beyond Phase 4.5, Admin compare, Admin live-agent, OpenClaw/News Pulse beyond Phase 4.6, platform/background AI globally, member/org routes, Stripe, public billing, or live billing.
+Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. Phase 4.4 adds read-only evidence reporting only; it does not add runtime enforcement, migrate routes, call providers, mutate billing, or prove live readiness. Phase 4.5 adds additive migration `0049_add_admin_video_job_budget_metadata.sql` and changes only admin async video job budget metadata/queue checks. Phase 4.6 adds additive migration `0050_add_news_pulse_visual_budget_metadata.sql` and changes only OpenClaw/News Pulse visual budget metadata/status controls. Phase 4.7 adds no schema; it changes only internal caller-policy validation/metadata handling. Phase 4.8 adds no schema; it changes only admin text/embeddings required idempotency, safe budget metadata, and caller-policy propagation. Phase 4.8.1 adds additive migration `0051_add_admin_ai_usage_attempts.sql` and changes only admin text/embeddings durable metadata-only idempotency. Phase 4.8.2 adds no migration and changes only admin text/embeddings attempt operability: admin-only sanitized list/detail, dry-run-default bounded cleanup, and scheduled non-destructive expiry marking for pending/running rows. It does not migrate Admin music, Admin video beyond Phase 4.5, Admin compare, Admin live-agent, OpenClaw/News Pulse beyond Phase 4.6, platform/background AI globally, member/org routes, Stripe, public billing, or live billing.
 
 ## Phase 4.5 Admin Async Video Job Budget Enforcement
 
@@ -445,6 +446,35 @@ Limits:
 
 - full generated text replay and embedding-vector replay are intentionally not implemented.
 - runtime env kill-switch enforcement, live platform budget caps, credit debits, Stripe calls, Admin music/compare/live-agent migration, and production/live billing readiness remain future work.
+
+## Phase 4.8.2 Admin AI Usage Attempts Cleanup And Inspection
+
+Phase 4.8.2 covers only operational safety for the `admin_ai_usage_attempts`
+rows created by Phase 4.8.1. It adds no schema and does not migrate another
+provider-cost route.
+
+Implemented behavior:
+
+- admin-only sanitized list/detail endpoints expose attempt state without raw
+  prompts, raw embedding input, generated text, embedding vectors, raw provider
+  bodies, raw idempotency keys, key hashes, request fingerprints, cookies,
+  auth headers, Stripe data, Cloudflare tokens, secrets, private keys, or
+  private R2 keys
+- `POST /api/admin/ai/admin-usage-attempts/cleanup-expired` is same-origin
+  protected, production-MFA-classified, fail-closed rate limited, audited,
+  bounded by limit, and dry-run by default
+- cleanup marks only expired active `pending` / `provider_running` rows as
+  `expired`; completed/succeeded/failed rows are retained by default
+- scheduled cleanup runs the same bounded non-destructive helper with count-only
+  safe logs and does not block unrelated scheduled work on missing tables or
+  cleanup failure
+
+Limits:
+
+- cleanup does not delete rows or R2 objects, call providers, call Stripe,
+  mutate credits, mutate billing ledgers, replay generated text, replay
+  embeddings, migrate Admin music/compare/live-agent, or prove production/live
+  billing readiness.
 
 ## Phase 4.6 OpenClaw/News Pulse Visual Budget Controls
 

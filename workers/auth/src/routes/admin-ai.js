@@ -74,9 +74,13 @@ import {
 import {
   AdminAiIdempotencyError,
   beginAdminAiIdempotencyAttempt,
+  cleanupExpiredAdminAiUsageAttempts,
+  getAdminAiUsageAttemptDetail,
+  listAdminAiUsageAttempts as listAdminLabUsageAttempts,
   markAdminAiIdempotencyProviderFailed,
   markAdminAiIdempotencyProviderRunning,
   markAdminAiIdempotencySucceeded,
+  summarizeAdminAiUsageAttempts,
 } from "../lib/admin-ai-idempotency.js";
 import {
   calculateAdminImageTestCreditCost,
@@ -94,6 +98,7 @@ import { sha256Hex } from "../lib/tokens.js";
 import { handleAdminAiDerivativeBackfillRequest } from "../lib/admin-ai-derivative-backfill.js";
 import { handleAdminAiSaveTextAssetRequest } from "../lib/admin-ai-save-text.js";
 import { withAdminAiCode } from "../lib/admin-ai-response.js";
+import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import {
   decodePaginationCursor,
   encodePaginationCursor,
@@ -112,6 +117,9 @@ import { createAiGeneratedSaveReferenceFromBase64 } from "./ai/generated-image-s
 const ADMIN_AI_USAGE_ATTEMPT_CURSOR_TYPE = "admin_ai_usage_attempts";
 const DEFAULT_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 25;
 const MAX_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 100;
+const DEFAULT_ADMIN_LAB_USAGE_ATTEMPT_LIMIT = 25;
+const MAX_ADMIN_LAB_USAGE_ATTEMPT_LIMIT = 100;
+const MAX_ADMIN_LAB_USAGE_ATTEMPT_CLEANUP_LIMIT = 50;
 const CHARGED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.charged";
 const ADMIN_TEXT_OPERATION_ID = "admin.text.test";
 const ADMIN_EMBEDDINGS_OPERATION_ID = "admin.embeddings.test";
@@ -847,6 +855,26 @@ async function encodeUsageAttemptCursor(env, filterHash, row) {
   });
 }
 
+async function auditAdminAiMaintenanceEvent(ctx, adminUser, action, meta = {}) {
+  await enqueueAdminAuditEvent(
+    ctx.env,
+    {
+      adminUserId: adminUser.id,
+      action,
+      targetUserId: null,
+      meta: {
+        ...meta,
+        actor_email: adminUser.email,
+      },
+    },
+    {
+      correlationId: ctx.correlationId,
+      requestInfo: ctx,
+      allowDirectFallback: true,
+    }
+  );
+}
+
 function videoJobResponse(job, correlationId, { status = 200, existing = false } = {}) {
   return withCorrelationId(json({
     ok: true,
@@ -941,7 +969,110 @@ export async function handleAdminAI(ctx) {
   if (pathname === "/api/admin/ai/budget-evidence" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-budget-evidence-ip", 30, 600_000, correlationId);
     if (limited) return limited;
-    return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport()), correlationId);
+    const adminAiUsageAttemptSummary = await summarizeAdminAiUsageAttempts(env);
+    return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport({
+      adminAiUsageAttemptSummary,
+    })), correlationId);
+  }
+
+  if (pathname === "/api/admin/ai/admin-usage-attempts" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-admin-usage-attempts-ip", 60, 600_000, correlationId);
+    if (limited) return limited;
+
+    try {
+      const page = await listAdminLabUsageAttempts(env, {
+        status: url.searchParams.get("status"),
+        operationKey: url.searchParams.get("operation_key"),
+        route: url.searchParams.get("route"),
+        adminUserId: url.searchParams.get("admin_user_id"),
+        limit: resolvePaginationLimit(url.searchParams.get("limit"), {
+          defaultValue: DEFAULT_ADMIN_LAB_USAGE_ATTEMPT_LIMIT,
+          maxValue: MAX_ADMIN_LAB_USAGE_ATTEMPT_LIMIT,
+        }),
+      });
+      return withCorrelationId(json({
+        ok: true,
+        attempts: page.attempts,
+        appliedLimit: page.appliedLimit,
+        filters: page.filters,
+      }), correlationId);
+    } catch (error) {
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      throw error;
+    }
+  }
+
+  // route-policy: admin.ai.admin-usage-attempts.cleanup-expired
+  if (pathname === "/api/admin/ai/admin-usage-attempts/cleanup-expired" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-admin-usage-attempts-write-ip", 20, 600_000, correlationId);
+    if (limited) return limited;
+
+    try {
+      normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const cleanup = await cleanupExpiredAdminAiUsageAttempts({
+        env,
+        limit: resolvePaginationLimit(parsed.body?.limit, {
+          defaultValue: DEFAULT_ADMIN_LAB_USAGE_ATTEMPT_LIMIT,
+          maxValue: MAX_ADMIN_LAB_USAGE_ATTEMPT_CLEANUP_LIMIT,
+        }),
+        dryRun: parsed.body?.dry_run !== false,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-admin-usage-attempts",
+        event: "admin_ai_usage_attempt_cleanup_completed",
+        level: cleanup.failedCount > 0 || cleanup.skippedCount > 0 ? "warn" : "info",
+        correlationId,
+        admin_user_id: result.user.id,
+        dry_run: cleanup.dryRun,
+        scanned_count: cleanup.scannedCount,
+        expired_count: cleanup.expiredCount,
+        skipped_count: cleanup.skippedCount,
+        failed_count: cleanup.failedCount,
+        applied_limit: cleanup.appliedLimit,
+      });
+      await auditAdminAiMaintenanceEvent(
+        ctx,
+        result.user,
+        "admin_ai_usage_attempt_cleanup_completed",
+        {
+          dry_run: cleanup.dryRun,
+          scanned_count: cleanup.scannedCount,
+          expired_count: cleanup.expiredCount,
+          skipped_count: cleanup.skippedCount,
+          failed_count: cleanup.failedCount,
+          applied_limit: cleanup.appliedLimit,
+        }
+      );
+      return withCorrelationId(json({ ok: true, cleanup }), correlationId);
+    } catch (error) {
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      return billingAdminErrorResponse(error, correlationId);
+    }
+  }
+
+  const adminUsageAttemptMatch = pathname.match(/^\/api\/admin\/ai\/admin-usage-attempts\/([^/]+)$/);
+  if (adminUsageAttemptMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-admin-usage-attempts-ip", 60, 600_000, correlationId);
+    if (limited) return limited;
+
+    const attemptId = decodePathSegment(adminUsageAttemptMatch[1]);
+    if (!attemptId || attemptId.includes("/")) {
+      return notFoundResponse(correlationId);
+    }
+
+    try {
+      const attempt = await getAdminAiUsageAttemptDetail(env, attemptId);
+      if (!attempt) return notFoundResponse(correlationId);
+      return withCorrelationId(json({ ok: true, attempt }), correlationId);
+    } catch (error) {
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      throw error;
+    }
   }
 
   if (pathname === "/api/admin/ai/models" && method === "GET") {

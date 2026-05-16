@@ -695,7 +695,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
     "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
     "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
-    "- Phase 4.8.1 admin text/embeddings use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; full result replay/live budget caps remain future work.",
+    "- Phase 4.8.1 admin text/embeddings use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay/live budget caps remain future work.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>

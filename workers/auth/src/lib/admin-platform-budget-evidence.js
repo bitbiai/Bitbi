@@ -347,7 +347,7 @@ function implementedAdminTextEmbeddingsEvidence(entry, routeIndex) {
     remainingLimitations: [
       "Runtime env kill-switch enforcement is metadata only in Phase 4.8.1.",
       "Full result replay is intentionally unavailable; duplicate completed requests return metadata-only replay without generated text or embedding vectors.",
-      "Admin text/embeddings attempts need future bounded cleanup/inspection before broad admin AI migration.",
+      "Phase 4.8.2 adds API-first admin-only inspection plus bounded non-destructive cleanup for stuck admin text/embeddings attempts.",
       "The AI Worker internal text/embeddings routes still allow baseline-missing caller policy for other known callers to preserve org/member compatibility.",
       "No live platform budget cap, Stripe call, or credit debit is performed.",
     ],
@@ -547,6 +547,44 @@ function scopeEvidence(scope, { entries, knownGaps, entriesById, limits, warning
   };
 }
 
+function adminAiUsageAttemptOperationalEvidence(summary = null, routeIndex) {
+  const normalized = summary && typeof summary === "object" ? summary : null;
+  return {
+    type: "admin_ai_usage_attempt_operational_safety",
+    table: "admin_ai_usage_attempts",
+    phase: "Phase 4.8.2",
+    available: normalized?.available === true,
+    unavailableCode: normalized?.available === false ? normalized.code || "admin_ai_usage_attempt_summary_unavailable" : null,
+    totalCount: normalized?.available === true ? Number(normalized.totalCount || 0) : null,
+    recentCount: normalized?.available === true ? Number(normalized.recentCount || 0) : null,
+    recentWindowHours: normalized?.available === true ? Number(normalized.recentWindowHours || 24) : null,
+    activeCount: normalized?.available === true ? Number(normalized.activeCount || 0) : null,
+    staleActiveCount: normalized?.available === true ? Number(normalized.staleActiveCount || 0) : null,
+    expiredCount: normalized?.available === true ? Number(normalized.expiredCount || 0) : null,
+    failedTerminalCount: normalized?.available === true ? Number(normalized.failedTerminalCount || 0) : null,
+    succeededCount: normalized?.available === true ? Number(normalized.succeededCount || 0) : null,
+    latestUpdatedAt: normalized?.available === true ? normalized.latestUpdatedAt || null : null,
+    cleanup: {
+      endpoint: "/api/admin/ai/admin-usage-attempts/cleanup-expired",
+      registered: Boolean(routeIndex.byPath.get("/api/admin/ai/admin-usage-attempts/cleanup-expired")),
+      bounded: true,
+      defaultDryRun: true,
+      destructiveDelete: false,
+      mutatesCredits: false,
+      mutatesBilling: false,
+      providerCalls: false,
+    },
+    inspection: {
+      listEndpoint: "/api/admin/ai/admin-usage-attempts",
+      detailEndpoint: "/api/admin/ai/admin-usage-attempts/:id",
+      listRegistered: Boolean(routeIndex.byPath.get("/api/admin/ai/admin-usage-attempts")),
+      detailRegistered: Boolean(routeIndex.byPath.get("/api/admin/ai/admin-usage-attempts/:id")),
+      adminOnly: true,
+      sanitized: true,
+    },
+  };
+}
+
 export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   const limits = normalizeLimits(options.limits);
   const generatedAt = options.generatedAt || new Date().toISOString();
@@ -608,6 +646,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
 
   const evidenceItems = [
     ...implementedOperations,
+    adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
       ...gap,
@@ -627,10 +666,12 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       memberGatewayMigrated: memberGatewayOperations.length,
       adminPlatformImplemented: implementedAdminBudgetOperations.length,
       adminTextEmbeddingsDurableIdempotency: partialAdminTextEmbeddingsOperations.length,
+      adminTextEmbeddingsAttemptsOperable: true,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
     },
+    adminAiUsageAttempts: adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
     budgetScopes: ADMIN_PLATFORM_BUDGET_EVIDENCE_SCOPES.map((scope) =>
       scopeEvidence(scope, {
         entries: registryEntries,
@@ -663,7 +704,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement, Phase 4.6 adds OpenClaw/News Pulse visual budget metadata/control evidence, and Phase 4.7 adds an internal AI Worker caller-policy guard for covered caller paths.",
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
-      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, and signed caller-policy metadata.",
+      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
       "Admin music/compare/live-agent, sync video debug, unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],

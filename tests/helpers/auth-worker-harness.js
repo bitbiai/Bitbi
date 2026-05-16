@@ -7511,6 +7511,77 @@ class MockD1 {
       return this.state.adminAiUsageAttempts.find((row) => row.id === id) || null;
     }
 
+    if (
+      query.startsWith('SELECT id, operation_key, route, admin_user_id, idempotency_key_hash, request_fingerprint')
+      && query.includes('FROM admin_ai_usage_attempts WHERE (? IS NULL OR status = ?)')
+    ) {
+      const [
+        status,
+        statusAgain,
+        operationKey,
+        operationKeyAgain,
+        route,
+        routeAgain,
+        adminUserId,
+        adminUserIdAgain,
+        limit,
+      ] = bindings;
+      const rows = this.state.adminAiUsageAttempts
+        .filter((row) =>
+          (status == null || row.status === statusAgain) &&
+          (operationKey == null || row.operation_key === operationKeyAgain) &&
+          (route == null || row.route === routeAgain) &&
+          (adminUserId == null || row.admin_user_id === adminUserIdAgain)
+        )
+        .sort((left, right) => {
+          const byUpdated = String(right.updated_at || '').localeCompare(String(left.updated_at || ''));
+          if (byUpdated !== 0) return byUpdated;
+          return String(right.id || '').localeCompare(String(left.id || ''));
+        })
+        .slice(0, Number(limit || 25));
+      return { results: rows };
+    }
+
+    if (
+      query.startsWith('SELECT id, operation_key, route, admin_user_id, idempotency_key_hash, request_fingerprint')
+      && query.includes("FROM admin_ai_usage_attempts WHERE expires_at <= ? AND status IN ('pending', 'provider_running')")
+    ) {
+      const [now, limit] = bindings;
+      const rows = this.state.adminAiUsageAttempts
+        .filter((row) => String(row.expires_at || '') <= String(now || '') && ['pending', 'provider_running'].includes(row.status))
+        .sort((left, right) => {
+          const byExpires = String(left.expires_at || '').localeCompare(String(right.expires_at || ''));
+          if (byExpires !== 0) return byExpires;
+          const byUpdated = String(left.updated_at || '').localeCompare(String(right.updated_at || ''));
+          if (byUpdated !== 0) return byUpdated;
+          return String(left.id || '').localeCompare(String(right.id || ''));
+        })
+        .slice(0, Number(limit || 25));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS total_count') && query.includes('FROM admin_ai_usage_attempts')) {
+      const [since, now] = bindings;
+      const rows = this.state.adminAiUsageAttempts || [];
+      const countWhere = (predicate) => rows.filter(predicate).length;
+      const latest = rows.reduce((max, row) =>
+        String(row.updated_at || '') > String(max || '') ? row.updated_at : max,
+      null);
+      return {
+        total_count: rows.length,
+        recent_count: countWhere((row) => String(row.created_at || '') >= String(since || '')),
+        active_count: countWhere((row) => ['pending', 'provider_running'].includes(row.status)),
+        stale_active_count: countWhere((row) =>
+          ['pending', 'provider_running'].includes(row.status) &&
+          String(row.expires_at || '') <= String(now || '')
+        ),
+        expired_count: countWhere((row) => row.status === 'expired'),
+        failed_terminal_count: countWhere((row) => ['provider_failed', 'terminal_failure'].includes(row.status)),
+        succeeded_count: countWhere((row) => row.status === 'succeeded'),
+        latest_updated_at: latest,
+      };
+    }
+
     if (query.startsWith('INSERT INTO admin_ai_usage_attempts (')) {
       const [
         id,
@@ -7600,6 +7671,24 @@ class MockD1 {
       row.metadata_json = metadataJson;
       row.error_code = null;
       row.error_message = null;
+      row.updated_at = updatedAt;
+      row.completed_at = completedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE admin_ai_usage_attempts SET status = 'expired', provider_status = CASE WHEN provider_status = 'running' THEN 'failed' ELSE provider_status END, result_status = 'none', error_code = ?, error_message = ?, updated_at = ?, completed_at = ? WHERE id = ? AND status IN ('pending', 'provider_running') AND expires_at <= ?") {
+      const [errorCode, errorMessage, updatedAt, completedAt, id, now] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) =>
+        item.id === id &&
+        ['pending', 'provider_running'].includes(item.status) &&
+        String(item.expires_at || '') <= String(now || '')
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'expired';
+      if (row.provider_status === 'running') row.provider_status = 'failed';
+      row.result_status = 'none';
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
       row.updated_at = updatedAt;
       row.completed_at = completedAt;
       return { success: true, meta: { changes: 1 } };

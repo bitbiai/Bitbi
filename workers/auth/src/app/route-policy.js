@@ -594,6 +594,21 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     rateLimit: { id: "admin-ai-usage-attempts-ip", failClosed: true },
   }),
+  adminRead("admin.ai.admin-usage-attempts.list", "/api/admin/ai/admin-usage-attempts", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-admin-usage-attempts-ip", failClosed: true },
+    notes: "Phase 4.8.2 read-only inspection for sanitized admin_ai_usage_attempts rows. Does not return raw prompts, embedding inputs, generated text, vectors, provider bodies, raw idempotency keys, secrets, cookies, tokens, Stripe data, Cloudflare tokens, or private R2 keys.",
+  }),
+  adminJsonWrite("admin.ai.admin-usage-attempts.cleanup-expired", "POST", "/api/admin/ai/admin-usage-attempts/cleanup-expired", "admin-ai", "smallJson", "admin-ai-admin-usage-attempts-write-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "admin_ai_usage_attempt_cleanup_completed" },
+    notes: "Phase 4.8.2 bounded non-destructive cleanup. Defaults to dry-run and only marks expired pending/running admin_ai_usage_attempts as expired; no provider calls, credit debits, billing mutations, or row deletions.",
+  }),
+  adminRead("admin.ai.admin-usage-attempts.read", "/api/admin/ai/admin-usage-attempts/:id", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-admin-usage-attempts-ip", failClosed: true },
+    notes: "Phase 4.8.2 sanitized detail inspection for one admin_ai_usage_attempts row. Raw input/output/provider/idempotency material is omitted or redacted.",
+  }),
   adminRead("admin.ai.video-jobs.status", "/api/admin/ai/video-jobs/:id", "admin-ai", {
     config: REQUIRED_CONFIG.adminVideoJobs,
     rateLimit: { id: "admin-ai-video-job-status-ip", failClosed: true },

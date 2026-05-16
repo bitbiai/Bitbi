@@ -51,14 +51,17 @@ caller-policy metadata to the AI Worker. Phase 4.8.1 adds additive migration
 `0051_add_admin_ai_usage_attempts.sql` and metadata-only durable idempotency rows
 for those same two admin routes, suppressing same-key duplicate provider calls
 and same-key/different-request conflicts without storing generated text or
-embedding vectors. These phases do not call real providers in tests, change
-public billing, add Admin UI, migrate Admin music/video/compare/live-agent,
-migrate Admin video beyond Phase 4.5, migrate OpenClaw/News Pulse beyond Phase
+embedding vectors. Phase 4.8.2 adds no storage or migration; it adds admin-only
+sanitized list/detail inspection and bounded non-destructive cleanup that marks
+expired pending/running admin AI attempts without deleting rows. These phases do
+not call real providers in tests, change public billing, add Admin UI, migrate
+Admin music/compare/live-agent, migrate Admin video beyond Phase 4.5, migrate
+OpenClaw/News Pulse beyond Phase
 4.6 compatibility, migrate platform/background AI, globally hard-fail internal
 AI Worker routes, change member image/music/video billing behavior, change
 org-scoped member route behavior, or make admin/platform/internal AI cost flows
-production-ready. Phase 4.3, Phase 4.5, Phase 4.6, Phase 4.7, Phase 4.8, and
-Phase 4.8.1 metadata must not include
+production-ready. Phase 4.3, Phase 4.5, Phase 4.6, Phase 4.7, Phase 4.8,
+Phase 4.8.1, and Phase 4.8.2 metadata/inspection responses must not include
 raw prompts, raw provider request bodies, auth headers, cookies, Stripe data,
 Cloudflare tokens, private R2 keys, secrets, or sensitive raw article/source
 payloads beyond already public-safe text.

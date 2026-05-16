@@ -56,6 +56,8 @@ Phase 2.1 adds repository-local code for operator-review-only live Stripe event 
 
 Live billing remains blocked until failure, refund, dispute, chargeback, expired-session, review queue/resolution, read-only reconciliation, approved remediation, invoice/customer-portal/tax/legal, and support workflow evidence is complete or explicitly scoped out by product/legal with documented risk acceptance.
 
+Phase 4.8.2 adds admin-only sanitized inspection and bounded non-destructive cleanup for `admin_ai_usage_attempts` created by admin text/embeddings idempotency. It adds no migration, does not migrate Admin Music/Compare/Live-Agent, does not change member routes, does not call providers or Stripe, does not enable live billing, and does not make production/live billing ready. Operators should verify list/detail redaction, dry-run cleanup, execution of expired pending/running rows only, scheduled count-only cleanup logs, and no credit/billing/provider side effects before using those endpoints operationally.
+
 ## Repo-Local Checks
 
 These checks are safe local/repo checks:
@@ -111,7 +113,7 @@ npm run readiness:evidence
 npm run readiness:evidence -- --markdown
 ```
 
-Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0050_add_news_pulse_visual_budget_metadata.sql` before deploying current auth Worker code or running API smoke checks.
+Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0051_add_admin_ai_usage_attempts.sql` before deploying current auth Worker code or running API smoke checks.
 
 Staging read-only evidence example with explicit URLs:
 
@@ -173,7 +175,7 @@ Local main-release gate:
 npm run check:main-release-readiness
 ```
 
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0050_add_news_pulse_visual_budget_metadata.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0050` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0051_add_admin_ai_usage_attempts.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0051` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
 
 For local planning evidence only:
 
@@ -209,7 +211,7 @@ This evidence does not prove later admin video job controls, OpenClaw/News Pulse
 
 These are not run automatically by this framework:
 
-- Remote D1 migration status in staging/production through `0050_add_news_pulse_visual_budget_metadata.sql`.
+- Remote D1 migration status in staging/production through `0051_add_admin_ai_usage_attempts.sql`.
 - Cloudflare Worker binding/resource presence in staging/production.
 - Cloudflare secret presence in staging/production.
 - Live health/security-header checks against staging/production URLs.
@@ -281,7 +283,7 @@ Unacceptable evidence includes:
 Until filled evidence proves otherwise, these remain unproven:
 
 - Production Cloudflare resource, binding, secret, route, WAF, header, RUM, and alert state.
-- Remote D1 migration status through `0050_add_news_pulse_visual_budget_metadata.sql`.
+- Remote D1 migration status through `0051_add_admin_ai_usage_attempts.sql`.
 - Stripe Testmode checkout/webhook behavior in staging.
 - Live credit-pack canary behavior.
 - BITBI Pro subscription lifecycle behavior.

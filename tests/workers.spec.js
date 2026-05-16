@@ -349,6 +349,42 @@ function createAdminUser(id = 'admin-ai-user') {
   return createContractUser({ id, role: 'admin' });
 }
 
+function seedAdminAiUsageAttempt(overrides = {}) {
+  return {
+    id: overrides.id || 'aaia_seeded00000000000000000000000000',
+    operation_key: overrides.operation_key || 'admin.text.test',
+    route: overrides.route || '/api/admin/ai/test-text',
+    admin_user_id: overrides.admin_user_id || 'phase48-admin',
+    idempotency_key_hash: overrides.idempotency_key_hash || 'hashed-idempotency-key',
+    request_fingerprint: overrides.request_fingerprint || 'request-fingerprint',
+    provider_family: overrides.provider_family || 'ai_worker',
+    model_key: overrides.model_key ?? '@cf/meta/llama-3.1-8b-instruct',
+    budget_scope: overrides.budget_scope || 'platform_admin_lab_budget',
+    budget_policy_json: overrides.budget_policy_json || JSON.stringify({
+      operation_id: overrides.operation_key || 'admin.text.test',
+      budget_scope: 'platform_admin_lab_budget',
+      idempotency_key_hash: 'hashed-idempotency-key',
+      prompt: 'raw prompt should be redacted',
+    }),
+    caller_policy_json: overrides.caller_policy_json || JSON.stringify({
+      operation_id: overrides.operation_key || 'admin.text.test',
+      budget_scope: 'platform_admin_lab_budget',
+      enforcement_status: 'budget_metadata_only',
+    }),
+    status: overrides.status || 'pending',
+    provider_status: overrides.provider_status || 'not_started',
+    result_status: overrides.result_status || 'none',
+    result_metadata_json: overrides.result_metadata_json || '{}',
+    error_code: overrides.error_code ?? null,
+    error_message: overrides.error_message ?? null,
+    created_at: overrides.created_at || '2026-05-16T08:00:00.000Z',
+    updated_at: overrides.updated_at || '2026-05-16T08:00:00.000Z',
+    completed_at: overrides.completed_at ?? null,
+    expires_at: overrides.expires_at || '2026-05-16T08:30:00.000Z',
+    metadata_json: overrides.metadata_json || '{}',
+  };
+}
+
 function createAiLabRunStub() {
   return async (modelId, payload) => {
     if (
@@ -1368,6 +1404,22 @@ test.describe('Phase 1-E auth route policy registry', () => {
     }));
     expect(getRoutePolicy('GET', '/api/admin/ai/usage-attempts/aua_123')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.read',
+      auth: 'admin',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/admin-usage-attempts')).toEqual(expect.objectContaining({
+      id: 'admin.ai.admin-usage-attempts.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/admin-usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
+      id: 'admin.ai.admin-usage-attempts.cleanup-expired',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/admin-usage-attempts/aaia_123')).toEqual(expect.objectContaining({
+      id: 'admin.ai.admin-usage-attempts.read',
       auth: 'admin',
     }));
     expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/job-123')).toEqual(expect.objectContaining({
@@ -18583,6 +18635,343 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(aiRunCalls[1].payload)).not.toContain('ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET');
       expect(JSON.stringify(aiRunCalls[0].payload.messages)).toContain('Provider should see prompt, not caller metadata.');
       expect(aiRunCalls[1].payload.text).toBe('Provider should see input, not caller metadata.');
+    });
+
+    test('admin AI usage attempt inspection is admin-only, bounded, and sanitized', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('phase482-inspect-admin');
+      const nonAdmin = createContractUser({ id: 'phase482-inspect-member', role: 'user' });
+      const env = createAuthTestEnv({
+        users: [admin, nonAdmin],
+        adminAiUsageAttempts: [
+          seedAdminAiUsageAttempt({
+            id: 'aaia_phase482_text_pending',
+            admin_user_id: admin.id,
+            operation_key: 'admin.text.test',
+            route: '/api/admin/ai/test-text',
+            idempotency_key_hash: 'raw-idempotency-key-hash-should-not-return',
+            request_fingerprint: 'request-fingerprint-should-not-return',
+            status: 'pending',
+            provider_status: 'not_started',
+            updated_at: '2026-05-16T09:02:00.000Z',
+            budget_policy_json: JSON.stringify({
+              operation_id: 'admin.text.test',
+              budget_scope: 'platform_admin_lab_budget',
+              idempotency_key_hash: 'raw-idempotency-key-hash-should-not-return',
+              prompt: 'raw prompt should not return',
+            }),
+            result_metadata_json: JSON.stringify({
+              result_kind: 'text',
+              text_length: 17,
+              generated_text: 'generated text should not return',
+            }),
+            metadata_json: JSON.stringify({
+              request: {
+                prompt_length: 29,
+                prompt: 'raw prompt should not return',
+                cookie: 'bitbi_session=secret-cookie',
+              },
+              provider_request_body: 'provider body should not return',
+            }),
+          }),
+          seedAdminAiUsageAttempt({
+            id: 'aaia_phase482_embeddings_done',
+            admin_user_id: admin.id,
+            operation_key: 'admin.embeddings.test',
+            route: '/api/admin/ai/test-embeddings',
+            status: 'succeeded',
+            provider_status: 'succeeded',
+            result_status: 'metadata_only',
+            completed_at: '2026-05-16T09:01:00.000Z',
+            updated_at: '2026-05-16T09:01:00.000Z',
+            result_metadata_json: JSON.stringify({
+              result_kind: 'embeddings',
+              count: 1,
+              dimensions: 4,
+              vectors_stored: false,
+              vectors: [[0.1, 0.2, 0.3, 0.4]],
+            }),
+            metadata_json: JSON.stringify({
+              request: {
+                input_count: 1,
+                input_total_length: 23,
+                raw_embedding_input: 'embedding input should not return',
+              },
+            }),
+          }),
+        ],
+      });
+      const adminToken = await seedSession(env, admin.id);
+      const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+      const denied = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts', 'GET', undefined, {
+          Cookie: `bitbi_session=${nonAdminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const list = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts?operation_key=admin.text.test&limit=1', 'GET', undefined, {
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(list.status).toBe(200);
+      const listBody = await list.json();
+      expect(listBody.attempts).toHaveLength(1);
+      expect(listBody.attempts[0]).toEqual(expect.objectContaining({
+        attemptId: 'aaia_phase482_text_pending',
+        operationKey: 'admin.text.test',
+        status: 'pending',
+      }));
+      expect(listBody.appliedLimit).toBe(1);
+
+      const detail = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts/aaia_phase482_text_pending', 'GET', undefined, {
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(detail.status).toBe(200);
+      const detailBody = await detail.json();
+      expect(detailBody.attempt).toMatchObject({
+        attemptId: 'aaia_phase482_text_pending',
+        operationKey: 'admin.text.test',
+        privacy: {
+          rawIdempotencyKeyReturned: false,
+          rawPromptReturned: false,
+          rawEmbeddingInputReturned: false,
+          rawGeneratedTextReturned: false,
+          embeddingVectorsReturned: false,
+          providerRequestBodyReturned: false,
+        },
+      });
+      const serialized = JSON.stringify({ listBody, detailBody });
+      expect(serialized).not.toContain('raw prompt should not return');
+      expect(serialized).not.toContain('generated text should not return');
+      expect(serialized).not.toContain('embedding input should not return');
+      expect(serialized).not.toContain('provider body should not return');
+      expect(serialized).not.toContain('raw-idempotency-key-hash-should-not-return');
+      expect(serialized).not.toContain('request-fingerprint-should-not-return');
+      expect(serialized).not.toContain('bitbi_session=secret-cookie');
+      expect(serialized).not.toContain('0.1');
+
+      const invalid = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts?operation_key=admin.music.test', 'GET', undefined, {
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalid.status).toBe(400);
+    });
+
+    test('admin AI usage attempt cleanup is dry-run by default and marks only expired active attempts', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        user: createAdminUser('phase482-cleanup-admin'),
+      });
+      env.DB.state.adminAiUsageAttempts.push(
+        seedAdminAiUsageAttempt({
+          id: 'aaia_phase482_expired_pending',
+          admin_user_id: 'phase482-cleanup-admin',
+          status: 'pending',
+          provider_status: 'not_started',
+          expires_at: '2000-01-01T00:00:00.000Z',
+          updated_at: '2000-01-01T00:00:00.000Z',
+        }),
+        seedAdminAiUsageAttempt({
+          id: 'aaia_phase482_expired_running',
+          admin_user_id: 'phase482-cleanup-admin',
+          operation_key: 'admin.embeddings.test',
+          route: '/api/admin/ai/test-embeddings',
+          status: 'provider_running',
+          provider_status: 'running',
+          expires_at: '2000-01-02T00:00:00.000Z',
+          updated_at: '2000-01-02T00:00:00.000Z',
+        }),
+        seedAdminAiUsageAttempt({
+          id: 'aaia_phase482_completed',
+          admin_user_id: 'phase482-cleanup-admin',
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          result_status: 'metadata_only',
+          completed_at: '2000-01-03T00:00:00.000Z',
+          expires_at: '2000-01-03T00:00:00.000Z',
+          updated_at: '2000-01-03T00:00:00.000Z',
+        }),
+        seedAdminAiUsageAttempt({
+          id: 'aaia_phase482_fresh_pending',
+          admin_user_id: 'phase482-cleanup-admin',
+          status: 'pending',
+          provider_status: 'not_started',
+          expires_at: '2999-01-01T00:00:00.000Z',
+          updated_at: '2999-01-01T00:00:00.000Z',
+        }),
+      );
+
+      const dryRun = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts/cleanup-expired', 'POST', { limit: 10 }, {
+          ...authHeaders,
+          'Idempotency-Key': 'phase482-admin-ai-cleanup-dry',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(dryRun.status).toBe(200);
+      await expect(dryRun.json()).resolves.toMatchObject({
+        ok: true,
+        cleanup: {
+          dryRun: true,
+          scannedCount: 2,
+          expiredCount: 2,
+          failedCount: 0,
+        },
+      });
+      expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_expired_pending').status).toBe('pending');
+
+      const cleanup = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts/cleanup-expired', 'POST', { limit: 10, dry_run: false }, {
+          ...authHeaders,
+          'Idempotency-Key': 'phase482-admin-ai-cleanup-run',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(cleanup.status).toBe(200);
+      const cleanupBody = await cleanup.json();
+      expect(cleanupBody.cleanup).toMatchObject({
+        dryRun: false,
+        scannedCount: 2,
+        expiredCount: 2,
+        failedCount: 0,
+      });
+      expect(JSON.stringify(cleanupBody)).not.toContain('raw prompt');
+      expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_expired_pending')).toMatchObject({
+        status: 'expired',
+        provider_status: 'not_started',
+      });
+      expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_expired_running')).toMatchObject({
+        status: 'expired',
+        provider_status: 'failed',
+      });
+      expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_completed')).toMatchObject({
+        status: 'succeeded',
+        provider_status: 'succeeded',
+      });
+      expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_fresh_pending')).toMatchObject({
+        status: 'pending',
+      });
+      expect(env.DB.state.usageEvents).toHaveLength(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+      expect(aiLabRequests).toHaveLength(0);
+      const auditActions = [
+        ...env.DB.state.adminAuditLog.map((row) => row.action),
+        ...(env.ACTIVITY_INGEST_QUEUE?.messages || []).map((message) => message.action),
+      ];
+      expect(auditActions).toContain('admin_ai_usage_attempt_cleanup_completed');
+    });
+
+    test('admin AI usage attempt cleanup enforces same-origin, rate limits, and table availability', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('phase482-cleanup-guard-admin');
+      const seed = {
+        users: [admin],
+        adminAiUsageAttempts: [
+          seedAdminAiUsageAttempt({
+            id: 'aaia_phase482_guard_pending',
+            admin_user_id: admin.id,
+            status: 'pending',
+            expires_at: '2000-01-01T00:00:00.000Z',
+          }),
+        ],
+      };
+
+      const foreignEnv = createAuthTestEnv(seed);
+      const foreignToken = await seedSession(foreignEnv, admin.id);
+      const foreign = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts/cleanup-expired', 'POST', { dry_run: false }, {
+          Origin: 'https://evil.example',
+          Cookie: `bitbi_session=${foreignToken}`,
+          'Idempotency-Key': 'phase482-admin-ai-cleanup-foreign',
+        }),
+        foreignEnv,
+        createExecutionContext().execCtx
+      );
+      expect(foreign.status).toBe(403);
+      expect(foreignEnv.DB.state.adminAiUsageAttempts[0].status).toBe('pending');
+
+      const failClosedEnv = createAuthTestEnv({
+        ...seed,
+        disablePublicRateLimiterBinding: true,
+      });
+      const failClosedToken = await seedSession(failClosedEnv, admin.id);
+      const failClosed = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts/cleanup-expired', 'POST', { dry_run: false }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${failClosedToken}`,
+          'Idempotency-Key': 'phase482-admin-ai-cleanup-fail-closed',
+        }),
+        failClosedEnv,
+        createExecutionContext().execCtx
+      );
+      expect(failClosed.status).toBe(503);
+      expect(failClosedEnv.DB.state.adminAiUsageAttempts[0].status).toBe('pending');
+
+      const missingEnv = createAuthTestEnv(seed);
+      missingEnv.DB.missingTables.add('admin_ai_usage_attempts');
+      const missingToken = await seedSession(missingEnv, admin.id);
+      const missing = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/admin-usage-attempts', 'GET', undefined, {
+          Cookie: `bitbi_session=${missingToken}`,
+        }),
+        missingEnv,
+        createExecutionContext().execCtx
+      );
+      expect(missing.status).toBe(503);
+      await expect(missing.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_unavailable',
+      });
+    });
+
+    test('scheduled admin AI usage attempt cleanup is bounded and isolated', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('phase482-scheduled-admin');
+      const env = createAuthTestEnv({
+        users: [admin],
+        adminAiUsageAttempts: [
+          seedAdminAiUsageAttempt({
+            id: 'aaia_phase482_scheduled_expired',
+            admin_user_id: admin.id,
+            status: 'provider_running',
+            provider_status: 'running',
+            expires_at: '2000-01-01T00:00:00.000Z',
+          }),
+          seedAdminAiUsageAttempt({
+            id: 'aaia_phase482_scheduled_done',
+            admin_user_id: admin.id,
+            status: 'succeeded',
+            provider_status: 'succeeded',
+            result_status: 'metadata_only',
+            expires_at: '2000-01-01T00:00:00.000Z',
+          }),
+        ],
+      });
+
+      await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+      expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_scheduled_expired')).toMatchObject({
+        status: 'expired',
+        provider_status: 'failed',
+      });
+      expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_scheduled_done')).toMatchObject({
+        status: 'succeeded',
+        provider_status: 'succeeded',
+      });
     });
 
     test('POST /api/admin/ai/test-music returns the music response contract used by the UI', async () => {

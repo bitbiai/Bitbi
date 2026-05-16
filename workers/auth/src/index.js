@@ -51,6 +51,7 @@ import {
 import { archiveColdActivityLogs } from "./lib/activity-archive.js";
 import { cleanupExpiredDataExportArchives } from "./lib/data-export-cleanup.js";
 import { cleanupExpiredAiUsageAttempts } from "./lib/ai-usage-attempts.js";
+import { cleanupExpiredAdminAiUsageAttempts } from "./lib/admin-ai-idempotency.js";
 import { cleanupExpiredMemberAiUsageAttempts } from "./lib/member-ai-usage-attempts.js";
 import { refreshNewsPulse } from "./lib/news-pulse.js";
 import {
@@ -498,6 +499,41 @@ export default {
         event: "member_ai_usage_attempt_cleanup_failed",
         level: "error",
         ...getErrorFields(error),
+      });
+    }
+
+    try {
+      const adminUsageAttemptCleanup = await cleanupExpiredAdminAiUsageAttempts({
+        env,
+        now,
+        limit: 25,
+        dryRun: false,
+      });
+      if (
+        adminUsageAttemptCleanup.scannedCount > 0 ||
+        adminUsageAttemptCleanup.expiredCount > 0 ||
+        adminUsageAttemptCleanup.failedCount > 0 ||
+        adminUsageAttemptCleanup.skippedCount > 0
+      ) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-admin-ai-usage-attempt-cleanup",
+          event: "admin_ai_usage_attempt_cleanup_completed",
+          level: adminUsageAttemptCleanup.failedCount > 0 || adminUsageAttemptCleanup.skippedCount > 0 ? "warn" : "info",
+          scanned_count: adminUsageAttemptCleanup.scannedCount,
+          expired_count: adminUsageAttemptCleanup.expiredCount,
+          skipped_count: adminUsageAttemptCleanup.skippedCount,
+          failed_count: adminUsageAttemptCleanup.failedCount,
+          applied_limit: adminUsageAttemptCleanup.appliedLimit,
+        });
+      }
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-admin-ai-usage-attempt-cleanup",
+        event: "admin_ai_usage_attempt_cleanup_failed",
+        level: "error",
+        ...getErrorFields(error, { includeMessage: false }),
       });
     }
 

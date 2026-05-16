@@ -35,9 +35,9 @@ Record the exact branch, commit, and whether the worktree was clean. If dirty, s
 
 ## 3. Migration Status Through Latest Auth Migration
 
-Latest auth D1 migration required by release config: `0050_add_news_pulse_visual_budget_metadata.sql`.
+Latest auth D1 migration required by release config: `0051_add_admin_ai_usage_attempts.sql`.
 
-| Environment | Database | Evidence Through `0050` | Operator | Date | Result |
+| Environment | Database | Evidence Through `0051` | Operator | Date | Result |
 | --- | --- | --- | --- | --- | --- |
 | staging | `bitbi-auth-db` |  |  |  | BLOCKED |
 | production | `bitbi-auth-db` |  |  |  | BLOCKED |
@@ -216,7 +216,7 @@ Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` for t
 | Auth Worker deployed commit |  | BLOCKED |
 | Static deployed commit |  | BLOCKED |
 | Release plan attached and expected deploy units are auth Worker plus static/pages |  | BLOCKED |
-| Staging auth D1 migration evidence through `0050_add_news_pulse_visual_budget_metadata.sql` |  | BLOCKED |
+| Staging auth D1 migration evidence through `0051_add_admin_ai_usage_attempts.sql` |  | BLOCKED |
 | Admin authentication and MFA prerequisites verified |  | BLOCKED |
 | Billing Review Queue API smoke: admin-only list/filter with sanitized fields |  | BLOCKED |
 | Billing Review Detail API smoke: safe identifiers, no raw payload/signature/secret/card data |  | BLOCKED |
@@ -243,7 +243,7 @@ Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/productio
 | Release plan output attached |  | BLOCKED |
 | Auth Worker deploy evidence and deployed commit/version |  | BLOCKED |
 | Static/pages deploy evidence and deployed commit/build |  | BLOCKED |
-| Production D1 migration evidence through `0050_add_news_pulse_visual_budget_metadata.sql` |  | BLOCKED |
+| Production D1 migration evidence through `0051_add_admin_ai_usage_attempts.sql` |  | BLOCKED |
 | Live readiness evidence collector output with explicit URLs |  | BLOCKED |
 | Manual admin login/MFA smoke evidence |  | BLOCKED |
 | Manual billing review queue list/filter evidence |  | BLOCKED |
@@ -282,6 +282,19 @@ Use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` fo
 | Operator verdict: `BLOCKED`, `MAIN DEPLOYED - EVIDENCE INCOMPLETE`, `MAIN DEPLOYED - OPERATOR VERIFIED`, or `ROLLBACK REQUIRED` |  | BLOCKED |
 
 Phase 3.4 evidence does not prove full AI Cost Gateway coverage. Member music/video, admin AI, platform/background AI, internal AI Worker routes, and broader replay/provider-result cache work remain open. Live billing remains blocked.
+
+## 18A. Admin Text/Embeddings Attempt Cleanup Evidence
+
+This section records Phase 4.8.2 API-first operator evidence only. It does not approve Admin Music migration, Compare/Live-Agent migration, public billing, provider calls, Stripe calls, or live billing.
+
+| Evidence Item | Environment | Result | Evidence |
+| --- | --- | --- | --- |
+| Admin-only list endpoint `GET /api/admin/ai/admin-usage-attempts` denies non-admins |  | BLOCKED |  |
+| Admin list/detail responses omit raw prompts, raw embedding input, generated text, embedding vectors, provider request bodies, raw idempotency keys/hashes, request fingerprints, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, and private R2 keys |  | BLOCKED |  |
+| Cleanup dry-run endpoint returns bounded counts and mutates no rows |  | BLOCKED |  |
+| Cleanup execution marks only expired pending/running rows and retains completed/succeeded/failed rows |  | BLOCKED |  |
+| Scheduled cleanup logs count-only safe metadata and does not break unrelated scheduled tasks |  | BLOCKED |  |
+| No provider calls, credit mutations, billing ledger mutations, R2 deletes, or destructive row deletes occurred |  | BLOCKED |  |
 
 ## 19. Live Credit-Pack Canary Evidence, If Intentionally Enabled
 
@@ -335,7 +348,8 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 ## 23. Blockers
 
 - Production Cloudflare live validation:
-- Remote migration evidence through `0050_add_news_pulse_visual_budget_metadata.sql`:
+- Remote migration evidence through `0051_add_admin_ai_usage_attempts.sql`:
+- Admin AI usage-attempt cleanup/inspection evidence:
 - Phase 3.4 member personal image gateway main-only evidence:
 - Stripe Testmode checkout/webhook evidence:
 - Stripe live credit-pack/BITBI Pro canary evidence:
@@ -354,7 +368,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, and Phase 2.6 main-only release evidence processes are not live billing readiness, automated accounting reconciliation, or automated remediation. A human approver must verify migrations through `0050_add_news_pulse_visual_budget_metadata.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata behavior, News Pulse visual budget metadata behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, and Phase 4.8.2 admin usage-attempt cleanup/inspection are not live billing readiness, automated accounting reconciliation, automated remediation, or full AI budget enforcement. A human approver must verify migrations through `0051_add_admin_ai_usage_attempts.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

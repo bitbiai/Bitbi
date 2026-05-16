@@ -772,6 +772,7 @@ Non-goals:
 Status: completed for admin text and embeddings test routes only. No Admin music migration, Admin video change beyond Phase 4.5 compatibility, Admin compare migration, Admin live-agent migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, unrelated internal route migration, member/org billing behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Phase 4.8.1 supersedes the Phase 4.8 durable-idempotency gap for these two routes with a narrow additive table and metadata-only duplicate suppression.
+Phase 4.8.2 supersedes the Phase 4.8.1 operability gap by adding bounded cleanup and admin-only sanitized inspection for the same attempt rows without changing provider, credit, billing, or route-migration behavior.
 
 Scope:
 
@@ -801,7 +802,7 @@ Tests:
 - sanitized budget metadata includes operation id, budget scope, provider family/model, plan status, and future kill-switch target
 - caller-policy metadata is propagated to the AI Worker and stripped before mocked provider payloads
 - no raw prompts/input, secrets, cookies, auth headers, provider payloads, Stripe data, Cloudflare tokens, private keys, or R2 keys in metadata
-- same-key behavior was documented/tested as metadata-only in Phase 4.8; Phase 4.8.1 adds durable metadata-only duplicate suppression/conflict detection
+- same-key behavior was documented/tested as metadata-only in Phase 4.8; Phase 4.8.1 adds durable metadata-only duplicate suppression/conflict detection; Phase 4.8.2 adds sanitized list/detail and cleanup tests
 - member image/music/video, Admin BFL image, admin async video, News Pulse visual, route-policy, and cost-policy checks remain compatible
 
 Rollback:
@@ -870,12 +871,63 @@ Non-goals:
 
 - No full result replay, no live budget cap, no runtime env kill-switch enforcement, no Admin UI, no automated shutdown/remediation, no live billing readiness claim, no pricing changes.
 
-## Phase 4.9: Remaining Admin/Internal Caller Migration
+## Phase 4.8.2: Admin AI Usage Attempts Cleanup And Inspection
+
+Status: completed for `admin_ai_usage_attempts` operability only. No Admin music migration, Admin video change beyond Phase 4.5 compatibility, Admin compare migration, Admin live-agent migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, unrelated internal route migration, member/org billing behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
-- Choose one remaining admin/provider-cost or internal caller path such as Admin music, compare, live-agent, sync video debug, unmetered admin image, or a remaining internal caller and migrate it narrowly to explicit budget/caller-policy metadata.
-- Preserve Phase 4.5 admin video, Phase 4.6 News Pulse, Phase 4.7 caller-policy guard, and Phase 4.8/4.8.1 admin text/embeddings behavior.
+- Add bounded cleanup for expired active admin text/embeddings attempts.
+- Retain completed, succeeded, failed, and terminal rows by default.
+- Add admin-only sanitized list/detail endpoints for `admin_ai_usage_attempts`.
+- Add admin-only cleanup endpoint that is dry-run by default, same-origin protected, rate limited, and audited.
+- Integrate small scheduled cleanup with safe count-only logging.
+- Update budget evidence so operators can see admin text/embeddings attempt cleanup and inspection status.
+
+Files:
+
+- `workers/auth/src/lib/admin-ai-idempotency.js`
+- `workers/auth/src/routes/admin-ai.js`
+- `workers/auth/src/index.js`
+- `workers/auth/src/lib/admin-platform-budget-evidence.js`
+- `workers/auth/src/app/route-policy.js`
+- `tests/helpers/auth-worker-harness.js`
+- `tests/workers.spec.js`
+
+Tests:
+
+- non-admin list/detail/cleanup denial
+- admin list/detail sanitization and bounded filters
+- raw prompt/input/output/vector/provider body/idempotency key redaction
+- dry-run cleanup does not mutate rows
+- execution marks only expired pending/running rows
+- completed/succeeded rows are retained
+- no provider calls, credit mutations, billing mutations, or destructive deletion
+- scheduled cleanup is bounded and isolated
+- route-policy coverage
+
+Rollback:
+
+- Revert the helper route additions, scheduled integration, route-policy entries, evidence/reporting updates, and tests. Leave the additive Phase 4.8.1 `admin_ai_usage_attempts` table and rows intact unless a separately reviewed rollback migration exists.
+
+Deploy units:
+
+- Auth Worker. No new schema apply from Phase 4.8.2. No AI Worker/contact Worker/static deploy is expected unless unrelated files are changed.
+
+Migration risk:
+
+- No Phase 4.8.2 migration. Existing Phase 4.8.1 additive migration `0051_add_admin_ai_usage_attempts.sql` is still required before deploying auth Worker code that uses the table.
+
+Non-goals:
+
+- No Admin music/compare/live-agent migration, no new provider route, no public UI, no provider calls, no credit or billing mutation, no destructive purge, no live billing readiness claim.
+
+## Phase 4.9: Admin Music Budget Enforcement Or One Remaining Admin/Internal Caller Migration
+
+Scope:
+
+- Prefer Admin music as the next narrow migration candidate now that admin text/embeddings attempts have durable idempotency plus cleanup/inspection. Compare, live-agent, sync video debug, unmetered admin image, or a remaining internal caller can be chosen instead if product risk changes.
+- Preserve Phase 4.5 admin video, Phase 4.6 News Pulse, Phase 4.7 caller-policy guard, and Phase 4.8/4.8.1/4.8.2 admin text/embeddings behavior.
 - Do not change member/org billing behavior, public pricing, Stripe, OpenClaw/News Pulse outside Phase 4.6, platform/background AI globally, or live billing readiness.
 
 ## Historical Superseded Item: Policy Enforcement Guard
