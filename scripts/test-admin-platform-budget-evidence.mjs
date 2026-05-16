@@ -27,7 +27,7 @@ assert.equal(report.runtimeMutation, false);
 assert.equal(report.providerCalls, false);
 assert.equal(report.billingMutation, false);
 assert.equal(report.summary.memberGatewayMigrated, 3);
-assert.equal(report.summary.adminPlatformImplemented, 6);
+assert.equal(report.summary.adminPlatformImplemented, 8);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 
@@ -67,6 +67,7 @@ assert(internalScope.operationCount >= 9);
 assert(internalScope.baselineGapIds.includes("internal-ai-worker-text-image-embeddings"));
 assert(internalScope.baselineGapIds.includes("internal-ai-worker-music-video-compare-live-agent"));
 assert.equal(internalScope.runtimeEnforcementExists, false);
+assert(internalScope.implementedCount >= 4);
 
 const implementedIds = operationIds(report.implementedOperations);
 assert(implementedIds.includes("member.image.generate"));
@@ -74,6 +75,8 @@ assert(implementedIds.includes("member.music.generate"));
 assert(implementedIds.includes("member.video.generate"));
 assert(implementedIds.includes("admin.image.test.charged"));
 assert(implementedIds.includes("admin.video.job.create"));
+assert(implementedIds.includes("internal.video_task.create"));
+assert(implementedIds.includes("internal.video_task.poll"));
 assert(implementedIds.includes("platform.news_pulse.visual.ingest"));
 assert(implementedIds.includes("platform.news_pulse.visual.scheduled"));
 
@@ -104,6 +107,15 @@ assert.equal(newsPulseVisual.killSwitchTarget, "ENABLE_NEWS_PULSE_VISUAL_BUDGET"
 assert(newsPulseVisual.metadataFieldsExpected.includes("visual_budget_policy_json"));
 assert(newsPulseVisual.duplicateProviderSuppression.some((entry) => entry.includes("ready visual")));
 assert(newsPulseVisual.remainingLimitations.some((entry) => entry.includes("kill-switch")));
+
+const internalGuard = report.implementedOperations.find((entry) => entry.operationId === "internal.video_task.create");
+assert.equal(internalGuard.budgetScope, "internal_ai_worker_caller_enforced");
+assert.equal(internalGuard.runtimeStatus, "implemented_caller_policy_guard");
+assert.equal(internalGuard.callerPolicyTransport, "reserved_signed_json_body_key");
+assert.equal(internalGuard.reservedBodyKey, "__bitbi_ai_caller_policy");
+assert(internalGuard.requiredForInternalRoutes.includes("/internal/ai/video-task/create"));
+assert(internalGuard.baselineAllowedInternalRoutes.includes("/internal/ai/test-text"));
+assert(internalGuard.remainingLimitations.some((entry) => entry.includes("baseline-allowed")));
 
 const baselineIds = gapIds(report.baselinedGaps);
 assert(!baselineIds.includes("admin-ai-video-job-create"));

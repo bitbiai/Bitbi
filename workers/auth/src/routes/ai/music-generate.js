@@ -7,6 +7,13 @@ import {
 } from "../../../../../js/shared/music-2-6-pricing.mjs";
 import { buildServiceAuthHeaders } from "../../../../../js/shared/service-auth.mjs";
 import {
+  AI_CALLER_POLICY_BUDGET_SCOPES,
+  AI_CALLER_POLICY_CALLER_CLASSES,
+  AI_CALLER_POLICY_ENFORCEMENT_STATUSES,
+  AI_CALLER_POLICY_VERSION,
+  withAiCallerPolicy,
+} from "../../../../shared/ai-caller-policy.mjs";
+import {
   BITBI_CORRELATION_HEADER,
   getDurationMs,
   getErrorFields,
@@ -74,6 +81,36 @@ const ALLOWED_BODY_FIELDS = new Set([
   "creditPrice",
   "price",
 ]);
+
+function buildMemberMusicCallerPolicy({
+  operationId,
+  sourceComponent,
+  correlationId,
+  idempotencyPolicy = "required",
+  notes = null,
+} = {}) {
+  return {
+    policy_version: AI_CALLER_POLICY_VERSION,
+    operation_id: operationId,
+    budget_scope: AI_CALLER_POLICY_BUDGET_SCOPES.MEMBER_CREDIT_ACCOUNT,
+    enforcement_status: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.GATEWAY_ENFORCED,
+    caller_class: AI_CALLER_POLICY_CALLER_CLASSES.MEMBER,
+    owner_domain: "member-music",
+    provider_family: "ai_worker",
+    model_id: operationId === "member.music.audio.generate"
+      ? MINIMAX_MUSIC_2_6_MODEL_ID
+      : "@cf/google/gemma-4-26b-a4b-it",
+    model_resolver_key: operationId === "member.music.audio.generate"
+      ? "member.music.audio_model"
+      : "member.music.lyrics_model",
+    idempotency_policy: idempotencyPolicy,
+    source_route: ROUTE_PATH,
+    source_component: sourceComponent,
+    correlation_id: correlationId || null,
+    reason: "member_music_gateway_parent_reservation_verified",
+    notes,
+  };
+}
 
 function respondWith(correlationId, body, init) {
   return withCorrelationId(json(body, init), correlationId);
@@ -200,6 +237,7 @@ async function signedAiLabJsonRequest({
   correlationId,
   requestInfo,
   component,
+  callerPolicy = null,
 }) {
   const startedAt = Date.now();
   if (!env?.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
@@ -216,7 +254,8 @@ async function signedAiLabJsonRequest({
     return { ok: false, status: 503, code: "upstream_unavailable", error: "AI lab service unavailable." };
   }
 
-  const bodyText = JSON.stringify(payload);
+  const requestBody = callerPolicy ? withAiCallerPolicy(payload, callerPolicy) : payload;
+  const bodyText = JSON.stringify(requestBody);
   let serviceAuthHeaders;
   try {
     assertAuthAiServiceConfig(env);
@@ -327,6 +366,12 @@ async function generateLyrics({ env, input, user, correlationId, requestInfo }) 
     correlationId,
     requestInfo,
     component: "ai-generate-music-lyrics",
+    callerPolicy: buildMemberMusicCallerPolicy({
+      operationId: "member.music.lyrics.generate",
+      sourceComponent: "auth-worker-member-music-lyrics",
+      correlationId,
+      notes: "Included in member music gateway bundle when separate lyrics generation is requested.",
+    }),
   });
   if (response.response) return response;
   if (!response.ok) return response;
@@ -365,6 +410,12 @@ async function generateMusic({ env, input, lyrics, user, correlationId, requestI
     correlationId,
     requestInfo,
     component: "ai-generate-music",
+    callerPolicy: buildMemberMusicCallerPolicy({
+      operationId: "member.music.audio.generate",
+      sourceComponent: "auth-worker-member-music-audio",
+      correlationId,
+      notes: "Included in member music gateway parent debit; no separate credit debit occurs.",
+    }),
   });
 }
 

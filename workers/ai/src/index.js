@@ -16,6 +16,7 @@ import { handleText } from "./routes/text.js";
 import { handleVideo } from "./routes/video.js";
 import { handleVideoTaskCreate, handleVideoTaskPoll } from "./routes/video-task.js";
 import { INTERNAL_AI_JSON_MAX_BYTES } from "./lib/validate.js";
+import { evaluateInternalAiCallerPolicy } from "./lib/caller-policy.js";
 import {
   getCorrelationId,
   withCorrelationId,
@@ -84,6 +85,11 @@ export default {
           ), ctx.correlationId);
         }
         throw error;
+      }
+      const callerPolicyResult = await evaluateInternalAiCallerPolicy(ctx);
+      ctx.aiCallerPolicy = callerPolicyResult;
+      if (callerPolicyResult.response) {
+        return withCorrelationId(callerPolicyResult.response, ctx.correlationId);
       }
     }
 

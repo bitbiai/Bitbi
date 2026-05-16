@@ -40,11 +40,16 @@ the helper only for admin async video jobs, adding sanitized
 before internal video task create/poll. Phase 4.6 uses the helper only for
 OpenClaw/News Pulse visual generation, adding sanitized
 `openclaw_news_pulse_budget` visual metadata before generated-thumbnail provider
-calls and preserving status/attempt duplicate suppression. These phases do not
-call real providers in tests, change public billing, add Admin UI, migrate broad
-admin/platform routes, migrate Admin video beyond Phase 4.5, globally enforce
-internal AI Worker routes, or make admin/platform/internal AI cost flows
-production-ready. Phase 4.3, Phase 4.5, and Phase 4.6 metadata must not include
+calls and preserving status/attempt duplicate suppression. Phase 4.7 adds an
+internal AI Worker caller-policy guard/metadata contract: signed internal calls
+may include `__bitbi_ai_caller_policy`, the AI Worker validates it after
+service-auth, and the reserved key is stripped before provider payload handling.
+These phases do not call real providers in tests, change public billing, add
+Admin UI, migrate broad admin/platform routes, migrate Admin video beyond Phase
+4.5, migrate OpenClaw/News Pulse beyond Phase 4.6 compatibility, globally
+hard-fail internal AI Worker routes, change member image/music/video billing
+behavior, or make admin/platform/internal AI cost flows production-ready. Phase
+4.3, Phase 4.5, Phase 4.6, and Phase 4.7 metadata must not include
 raw prompts, raw provider request bodies, auth headers, cookies, Stripe data,
 Cloudflare tokens, private R2 keys, secrets, or sensitive raw article/source
 payloads beyond already public-safe text.

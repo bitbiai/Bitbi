@@ -12,6 +12,12 @@ import {
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
 import {
+  AI_CALLER_POLICY_BUDGET_SCOPES,
+  AI_CALLER_POLICY_CALLER_CLASSES,
+  AI_CALLER_POLICY_ENFORCEMENT_STATUSES,
+  AI_CALLER_POLICY_VERSION,
+} from "../../../shared/ai-caller-policy.mjs";
+import {
   ADMIN_PLATFORM_BUDGET_SCOPES,
   buildAdminPlatformBudgetFingerprint,
   classifyAdminPlatformBudgetPlan,
@@ -29,6 +35,32 @@ export const ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID = "admin.video.job.create";
 export const ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID = "admin.video.task.create";
 export const ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID = "admin.video.task.poll";
 export const ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET";
+
+function buildAdminVideoTaskCallerPolicy({ job, path, budgetPolicy, correlationId }) {
+  const isPoll = path.endsWith("/poll");
+  return {
+    policy_version: AI_CALLER_POLICY_VERSION,
+    operation_id: isPoll
+      ? ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID
+      : ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID,
+    budget_scope: AI_CALLER_POLICY_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
+    enforcement_status: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.CALLER_ENFORCED,
+    caller_class: AI_CALLER_POLICY_CALLER_CLASSES.PLATFORM_ADMIN,
+    owner_domain: "admin-video-jobs",
+    provider_family: budgetPolicy?.provider_family || job.provider || "external_video_provider",
+    model_id: budgetPolicy?.model_id || job.model || null,
+    model_resolver_key: "admin.video.model_registry",
+    idempotency_policy: "inherited",
+    source_route: "/api/admin/ai/video-jobs",
+    source_component: "auth-worker-ai-video-jobs",
+    budget_fingerprint: budgetPolicy?.fingerprint || job.budget_policy_fingerprint || null,
+    kill_switch_target: ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH,
+    correlation_id: correlationId || null,
+    reason: isPoll
+      ? "admin_video_job_budget_state_verified_before_provider_poll"
+      : "admin_video_job_budget_state_verified_before_provider_task_create",
+  };
+}
 
 const JOB_COLUMN_NAMES = [
   "id",
@@ -1310,7 +1342,11 @@ async function callVideoProviderTask(env, path, job, parsedInput, correlationId,
   return proxyToAiLab(
     env,
     path,
-    { method: "POST", body },
+    {
+      method: "POST",
+      body,
+      callerPolicy: buildAdminVideoTaskCallerPolicy({ job, path, budgetPolicy, correlationId }),
+    },
     {
       id: job.user_id,
       email: job.user_email || "",

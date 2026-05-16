@@ -714,11 +714,15 @@ Non-goals:
 
 ## Phase 4.7: Internal AI Worker Caller-Policy Guard
 
+Status: completed for internal caller-policy validation/metadata handling only. No broad Admin AI migration, Admin music/text/compare/live-agent migration, Admin video change beyond Phase 4.5 compatibility, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org billing behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
+
 Scope:
 
-- Keep internal AI Worker routes service-only but require caller-supplied operation/budget metadata or a signed caller policy before provider execution.
-- Reject unknown/internal callers and prevent new service routes from bypassing registry/baseline classification.
-- Preserve member image/music/video callers and admin callers during migration.
+- Keep internal AI Worker routes service-only and validate signed caller-policy metadata after service-auth.
+- Use reserved signed JSON body metadata key `__bitbi_ai_caller_policy`; strip it before provider payload construction.
+- Require valid caller policy for `/internal/ai/video-task/create` and `/internal/ai/video-task/poll`.
+- Validate supplied metadata on known provider-cost routes while allowing missing policy only for explicit baseline gaps.
+- Preserve member image/music/video billing behavior and admin caller compatibility during migration.
 
 Likely files:
 
@@ -730,6 +734,8 @@ Likely files:
 - `workers/ai/src/routes/video-task.js`
 - `workers/ai/src/routes/compare.js`
 - `workers/ai/src/routes/live-agent.js`
+- `workers/ai/src/lib/caller-policy.js`
+- `workers/shared/ai-caller-policy.mjs`
 - Auth Worker proxy/caller metadata helpers
 - Worker tests and `check:ai-cost-policy`
 
@@ -737,41 +743,46 @@ Tests:
 
 - service auth still required
 - missing caller-policy metadata rejects before provider execution where enabled
-- migrated member callers pass required operation metadata
-- admin callers pass only after their budget phase is ready or remain explicitly baselined
+- malformed caller-policy metadata rejects where supplied
+- metadata is stripped before mocked provider payloads
+- migrated member music internal calls pass gateway metadata without changing billing behavior
+- admin async video task create/poll pass caller-policy metadata tied to job budget state
+- charged Admin BFL image-test passes budget-policy metadata
+- broad admin/internal callers remain explicitly baselined
 - no public exposure, no secret logging, no real provider calls
 
 Rollback:
 
-- Disable caller-policy enforcement flag while preserving service-auth requirements and route-policy baseline checks.
+- Revert the caller-policy helper/imports and AI Worker guard while preserving service-auth requirements and route-policy baseline checks. No D1/R2/credit/provider state is created by this phase.
 
 Deploy units:
 
-- AI Worker and Auth Worker if caller metadata is passed from Auth.
+- AI Worker and Auth Worker.
 
 Migration risk:
 
-- None expected unless durable internal call audit is added later.
+- No Phase 4.7 migration. Existing Phase 4.5/4.6 additive migrations remain separate release considerations.
 
 Non-goals:
 
-- No public route exposure, no member billing changes, no admin budget dashboard.
+- No public route exposure, no member billing changes, no admin budget dashboard, no broad Admin AI migration, no platform/background global migration.
 
-## Phase 4.8: Admin/Platform Budget Observability Dashboard
+## Phase 4.8: Targeted Remaining Admin/Internal Caller Migration
 
 Scope:
 
-- Add read-only admin/platform AI budget summaries after telemetry from earlier phases is reliable.
-- Show budget scope, operation id, actor/admin, provider/model, daily/monthly spend estimates, kill-switch state, and unresolved budget warnings.
-- Keep it observational; remediation and provider actions remain manual/future work.
+- Choose one remaining broad Admin AI or internal caller path and migrate it to explicit budget/caller-policy metadata.
+- Preserve the Phase 4.7 service-auth-first caller-policy guard and metadata stripping behavior.
+- Keep Admin music/text/compare/live-agent, OpenClaw/News Pulse beyond Phase 4.6, platform/background AI outside News Pulse visuals, member/org billing behavior, public pricing, Stripe, and live billing unchanged unless that single chosen path is explicitly scoped.
+- Keep production/live billing blocked until operator evidence is complete.
 
 Likely files:
 
-- admin read-only routes
-- `workers/auth/src/lib/ai-cost-gateway.js` or budget telemetry helpers
-- Admin Control Plane static UI
-- `css/admin/admin.css`
-- `tests/auth-admin.spec.js`
+- one selected auth Worker caller route/helper
+- `workers/auth/src/lib/admin-ai-proxy.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `config/ai-cost-policy-baseline.json`
+- `workers/ai/src/lib/caller-policy.js`
 - `tests/workers.spec.js`
 
 Tests:

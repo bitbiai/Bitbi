@@ -190,6 +190,14 @@ assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "internal.text.generate").budgetPolicy.targetBudgetScope,
   AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED
 );
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "internal.video_task.create").currentStatus,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "internal.video_task.create").budgetPolicy.targetEnforcementStatus,
+  "implemented"
+);
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();
 assert(routePolicyBaselines.some((entry) => entry.id === "ai.generate-image" && entry.expected === "required"));

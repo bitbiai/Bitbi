@@ -1,5 +1,6 @@
 import { json } from "./response.js";
 import { buildServiceAuthHeaders } from "../../../../js/shared/service-auth.mjs";
+import { withAiCallerPolicy } from "../../../shared/ai-caller-policy.mjs";
 import { withAdminAiCode } from "./admin-ai-response.js";
 import {
   assertAuthAiServiceConfig,
@@ -97,7 +98,7 @@ async function buildSignedAiLabHeaders({ env, method, path, bodyText, adminUser,
   }
 }
 
-export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlationId, requestInfo = null) {
+export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlationId, requestInfo = null, callerPolicy = null) {
   const startedAt = Date.now();
   if (!env.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
     logDiagnostic({
@@ -117,7 +118,8 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
   let response;
   try {
     const path = "/internal/ai/live-agent";
-    const bodyText = JSON.stringify(payload);
+    const body = callerPolicy ? withAiCallerPolicy(payload, callerPolicy) : payload;
+    const bodyText = JSON.stringify(body);
     const serviceAuthHeaders = await buildSignedAiLabHeaders({
       env,
       method: "POST",
@@ -199,7 +201,10 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
     return serviceUnavailableResponse(correlationId);
   }
 
-  const bodyText = init.body !== undefined ? JSON.stringify(init.body) : "";
+  const requestBody = init.body !== undefined && init.callerPolicy
+    ? withAiCallerPolicy(init.body, init.callerPolicy)
+    : init.body;
+  const bodyText = requestBody !== undefined ? JSON.stringify(requestBody) : "";
   const serviceAuthHeaders = await buildSignedAiLabHeaders({
     env,
     method: init.method,
@@ -219,7 +224,7 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
     ...serviceAuthHeaders,
   });
 
-  if (init.body !== undefined) {
+  if (requestBody !== undefined) {
     headers.set("content-type", "application/json; charset=utf-8");
   }
 
@@ -229,7 +234,7 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
       new Request(`${AI_LAB_BASE_URL}${path}`, {
         method: init.method,
         headers,
-        body: init.body !== undefined ? bodyText : undefined,
+        body: requestBody !== undefined ? bodyText : undefined,
       })
     );
   } catch (error) {

@@ -523,7 +523,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
     config: REQUIRED_CONFIG.adminAi,
     sensitivity: "high",
-    notes: "Admin area only. Platform admin required. Charged BFL image-test subset uses admin_org_credit_account budget-policy metadata and requires organization_id, Idempotency-Key, server-side credit calculation, sufficient selected organization credits, and no charge on provider failure. Unpriced admin image models and other admin AI routes remain separately baselined/unmigrated. No public/member/owner route exposure.",
+    notes: "Admin area only. Platform admin required. Charged BFL image-test subset uses admin_org_credit_account budget-policy metadata and now propagates signed internal AI caller-policy metadata; it requires organization_id, Idempotency-Key, server-side credit calculation, sufficient selected organization credits, and no charge on provider failure. Unpriced admin image models and other admin AI routes remain separately baselined/unmigrated. No public/member/owner route exposure.",
   }),
   adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", { config: REQUIRED_CONFIG.adminAi }),
   adminJsonWrite("admin.ai.test-music", "POST", "/api/admin/ai/test-music", "admin-ai", "adminJson", "admin-ai-music-ip", { config: REQUIRED_CONFIG.adminAi }),
@@ -540,9 +540,10 @@ export const ROUTE_POLICIES = Object.freeze([
       killSwitchTarget: "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET",
       idempotency: "Idempotency-Key header is required; same-key same-request reuses the existing job and same-key different-request conflicts before queueing.",
       queueBudgetMetadata: "Phase 4.5 stores sanitized job-row budget_policy_json and includes a bounded queue budget_policy summary before provider-cost processing.",
+      callerPolicy: "Phase 4.7 signs internal AI Worker calls with __bitbi_ai_caller_policy metadata for video-task create/poll; the AI Worker rejects missing/invalid policy for those two covered routes.",
       runtimeEnforcement: "Admin async video job queue processing verifies job budget metadata before internal video-task create/poll calls. Runtime env kill-switch enforcement remains future work for this route only.",
     },
-    notes: "Phase 4.5 covers only admin async video jobs with platform_admin_lab_budget metadata and duplicate queue/provider-task guards. The sync video debug route and broader admin AI routes remain separate baseline gaps.",
+    notes: "Phase 4.5 covers only admin async video jobs with platform_admin_lab_budget metadata and duplicate queue/provider-task guards; Phase 4.7 adds internal AI caller-policy propagation for task create/poll. The sync video debug route and broader admin AI routes remain separate baseline gaps.",
   }),
   adminRead("admin.ai.video-jobs.poison.list", "/api/admin/ai/video-jobs/poison", "admin-ai", {
     config: REQUIRED_CONFIG.adminVideoJobs,

@@ -4,6 +4,7 @@ import {
   AI_COST_BUDGET_SCOPES,
   AI_COST_OPERATION_REGISTRY,
 } from "./ai-cost-operations.js";
+import { AI_CALLER_POLICY_BODY_KEY } from "../../../shared/ai-caller-policy.mjs";
 
 export const ADMIN_PLATFORM_BUDGET_EVIDENCE_VERSION = "admin-platform-budget-evidence-v1";
 export const ADMIN_PLATFORM_BUDGET_EVIDENCE_SOURCE = "local_registry_baseline_route_policy_read_only";
@@ -29,6 +30,12 @@ const ADMIN_VIDEO_JOB_OPERATION_ID = "admin.video.job.create";
 const NEWS_PULSE_VISUAL_OPERATION_IDS = Object.freeze([
   "platform.news_pulse.visual.ingest",
   "platform.news_pulse.visual.scheduled",
+]);
+const INTERNAL_CALLER_POLICY_GUARD_OPERATION_IDS = Object.freeze([
+  "admin.video.task.create",
+  "admin.video.task.poll",
+  "internal.video_task.create",
+  "internal.video_task.poll",
 ]);
 
 const DEFAULT_LIMITS = Object.freeze({
@@ -338,6 +345,61 @@ function implementedNewsPulseVisualEvidence(entry, routeIndex) {
   };
 }
 
+function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
+  const base = basicOperationEvidence(entry, routeIndex);
+  const operation = operationId(entry);
+  const isPoll = operation.endsWith(".poll");
+  return {
+    ...base,
+    type: "implemented_internal_ai_caller_policy_guard",
+    runtimeStatus: "implemented_caller_policy_guard",
+    budgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
+    callerPolicyTransport: "reserved_signed_json_body_key",
+    reservedBodyKey: AI_CALLER_POLICY_BODY_KEY,
+    requiredForInternalRoutes: [
+      "/internal/ai/video-task/create",
+      "/internal/ai/video-task/poll",
+    ],
+    coveredCallerPaths: [
+      "admin async video job queue task create/poll",
+    ],
+    baselineAllowedInternalRoutes: [
+      "/internal/ai/test-text",
+      "/internal/ai/test-image",
+      "/internal/ai/test-embeddings",
+      "/internal/ai/test-music",
+      "/internal/ai/test-video",
+      "/internal/ai/compare",
+      "/internal/ai/live-agent",
+    ],
+    metadataFieldsExpected: [
+      "policy_version",
+      "operation_id",
+      "budget_scope",
+      "enforcement_status",
+      "caller_class",
+      "owner_domain",
+      "provider_family",
+      "model_id",
+      "model_resolver_key",
+      "idempotency_policy",
+      "source_route",
+      "source_component",
+      "budget_fingerprint",
+      "kill_switch_target",
+      "correlation_id",
+      "reason",
+    ],
+    remainingLimitations: [
+      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only.",
+      "Broad Admin AI, Admin music/text/compare/live-agent, sync video debug, and other internal routes remain baseline-allowed until targeted caller migrations.",
+      isPoll
+        ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
+        : "Duplicate provider task creation is still suppressed by the auth job budget state and queue lease.",
+    ],
+  };
+}
+
 function memberGatewayEvidence(entry, routeIndex) {
   return {
     ...basicOperationEvidence(entry, routeIndex),
@@ -473,6 +535,9 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       if (NEWS_PULSE_VISUAL_OPERATION_IDS.includes(operationId(entry))) {
         return implementedNewsPulseVisualEvidence(entry, routeIndex);
       }
+      if (INTERNAL_CALLER_POLICY_GUARD_OPERATION_IDS.includes(operationId(entry))) {
+        return implementedInternalCallerPolicyGuardEvidence(entry, routeIndex);
+      }
       return basicOperationEvidence(entry, routeIndex);
     }),
   ].sort((left, right) => left.operationId.localeCompare(right.operationId));
@@ -530,11 +595,11 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     ),
     warnings,
     notes: [
-      "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement and Phase 4.6 adds OpenClaw/News Pulse visual budget metadata/control evidence.",
+      "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement, Phase 4.6 adds OpenClaw/News Pulse visual budget metadata/control evidence, and Phase 4.7 adds an internal AI Worker caller-policy guard for covered caller paths.",
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
-      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata; News Pulse visuals use openclaw_news_pulse_budget metadata.",
-      "Broad Admin AI, Admin music/text/compare/live-agent, platform/background AI outside News Pulse visuals, and internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
+      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata.",
+      "Broad Admin AI, Admin music/text/compare/live-agent, sync video debug, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,

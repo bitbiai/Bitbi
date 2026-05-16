@@ -163,6 +163,15 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
+    files: ["workers/shared/ai-caller-policy.mjs"],
+  });
+  assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth"]);
+  assert.equal(plan.impacts.static.required, false);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
     files: ["js/shared/request-body.mjs"],
   });
   assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth", "contact"]);

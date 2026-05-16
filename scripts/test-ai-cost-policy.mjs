@@ -58,13 +58,13 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     functions: ["invokeAi", "invokeAiVideo", "createVideoProviderTask", "pollVideoProviderTask"],
     category: "internal",
     reason: "Known internal service routes rely on caller-side gateway or admin policy controls.",
-    temporaryAllowanceReason: "Internal service routes remain accepted only while Phase 4.7 defines caller-policy guards.",
+    temporaryAllowanceReason: "Internal service routes remain accepted only while remaining callers migrate after the Phase 4.7 caller-policy guard.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
-    targetFuturePhase: "Phase 4.7 internal AI Worker route caller-policy guard",
+    targetFuturePhase: "Phase 4.8 targeted remaining caller migrations",
     severity: "P2",
     ownerDomain: "ai-worker",
     killSwitchTarget: "caller route budget kill switch required",
-    futureEnforcementPath: "Phase 4.7 internal AI Worker caller-policy guard.",
+    futureEnforcementPath: "Later targeted caller migrations should require policy metadata on remaining broad internal routes.",
     providerCostBearing: true,
     registryOperationIds: [
       "internal.text.generate",
@@ -72,8 +72,6 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
       "internal.embeddings.generate",
       "internal.music.generate",
       "internal.video.generate",
-      "internal.video_task.create",
-      "internal.video_task.poll",
       "internal.compare",
       "internal.live_agent",
     ],
@@ -208,6 +206,8 @@ ${inventoryExtra}
   assert(output.includes("admin.video.job.create: implemented/hardened; scope=platform_admin_lab_budget"));
   assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
   assert(output.includes("Phase 4.6 OpenClaw/News Pulse visual budget controls are represented"));
+  assert(output.includes("Phase 4.7 internal AI Worker caller-policy guard is represented"));
+  assert(output.includes("internal.video_task.create: implemented/hardened; scope=internal_ai_worker_caller_enforced"));
   assert(output.includes("Known baseline gaps:"));
   assert(output.includes("killSwitch="));
   assert(output.includes("Admin gaps by budget scope:"));
@@ -221,8 +221,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.6 covers only OpenClaw/News Pulse visual budget controls"));
-  assert(output.includes("Phase 4.7 should add the internal AI Worker caller-policy guard"));
+  assert(output.includes("Phase 4.8 should target one remaining broad Admin AI or internal caller path"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;

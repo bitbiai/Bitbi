@@ -2,7 +2,7 @@
 
 Date: 2026-05-16
 
-Status: Phase 4.6 OpenClaw/News Pulse visual generation budget controls on top of the Phase 4.2 contract/helper foundation, Phase 4.3 charged Admin BFL image-test hardening, Phase 4.4 read-only budget evidence reporting, and Phase 4.5 admin async video job budget enforcement. Phase 4.6 covers only OpenClaw/News Pulse generated thumbnails from signed ingest waitUntil work and scheduled visual backfill: visual generation now records sanitized `openclaw_news_pulse_budget` metadata before provider execution, blocks provider calls on invalid budget policy config, preserves status/attempt duplicate suppression, and records future kill-switch target `ENABLE_NEWS_PULSE_VISUAL_BUDGET` as metadata only. Broad Admin AI, Admin music/text/compare/live-agent, Admin video beyond the Phase 4.5 job-budget path, platform/background AI outside News Pulse visuals, and internal AI Worker routes globally remain unmigrated. No real provider calls, Stripe calls, live billing enablement, public billing changes, credit mutations, deploys, or remote migrations were performed.
+Status: Phase 4.7 internal AI Worker caller-policy guard on top of the Phase 4.2 contract/helper foundation, Phase 4.3 charged Admin BFL image-test hardening, Phase 4.4 read-only budget evidence reporting, Phase 4.5 admin async video job budget enforcement, and Phase 4.6 OpenClaw/News Pulse visual budget controls. Phase 4.7 adds a signed internal caller-policy metadata contract for Auth Worker -> AI Worker provider-cost calls, strips that metadata before provider payload construction, and requires valid caller policy for internal async video task create/poll. Broad Admin AI, Admin music/text/compare/live-agent, Admin video beyond Phase 4.5 compatibility, platform/background AI outside News Pulse visuals, and broad internal AI Worker routes remain unmigrated or baseline-allowed. No real provider calls, Stripe calls, live billing enablement, public billing changes, credit mutations, deploys, or remote migrations were performed.
 
 ## Scope
 
@@ -16,9 +16,9 @@ Covered provider-cost classes:
 
 Non-goals:
 
-- No broad runtime budget enforcement beyond the admin async video job caller path and News Pulse visual caller-side budget metadata/status checks.
+- No broad runtime budget enforcement beyond the admin async video job caller path, News Pulse visual caller-side budget metadata/status checks, and the Phase 4.7 internal caller-policy guard for covered routes.
 - No broad admin route migration beyond the charged Admin BFL image-test branch and the admin async video job path.
-- No D1 schema except additive migrations `0049_add_admin_video_job_budget_metadata.sql` for sanitized job budget metadata and `0050_add_news_pulse_visual_budget_metadata.sql` for sanitized News Pulse visual budget metadata.
+- No D1 schema except additive migrations `0049_add_admin_video_job_budget_metadata.sql` for sanitized job budget metadata and `0050_add_news_pulse_visual_budget_metadata.sql` for sanitized News Pulse visual budget metadata. Phase 4.7 adds no migration.
 - No Admin UI.
 - No provider, Stripe, Cloudflare, GitHub, DNS, WAF, secret, deployment, remote migration, or live-billing action.
 
@@ -32,7 +32,8 @@ The report is read-only and bounded. It returns a blocked verdict while known ad
 - charged Admin BFL image-test as implemented/hardened with `admin_org_credit_account` metadata
 - admin async video jobs as Phase 4.5 `platform_admin_lab_budget` job/queue metadata coverage
 - OpenClaw/News Pulse visual generation as Phase 4.6 `openclaw_news_pulse_budget` visual metadata and duplicate-suppression coverage
-- broad Admin AI, platform/background AI outside News Pulse visuals, and internal AI Worker routes beyond the admin video and News Pulse caller paths as baselined gaps
+- Phase 4.7 internal AI Worker caller-policy guard coverage for async video task create/poll, including the reserved signed JSON body key transport
+- broad Admin AI, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond covered caller paths as baselined gaps
 
 The report does not include raw prompts, provider request bodies, cookies, tokens, secrets, private keys, Stripe data, or raw R2 keys. The endpoint is admin-only, production-MFA-classified through route-policy, fail-closed rate limited, and returns the same sanitized local evidence. It performs no provider calls and no billing, credit, D1, R2, Stripe, Cloudflare, GitHub, DNS, WAF, secret, deployment, or remediation mutation.
 
@@ -50,7 +51,7 @@ Runtime behavior changed only for admin async video jobs:
 - Duplicate queue delivery does not create a second provider task after a provider task id is recorded.
 - If task creation was already attempted but no provider task id was recorded, a later retry fails closed with safe operator-review state instead of making another provider create call.
 
-The kill-switch target is recorded as `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET`, but Phase 4.5 does not enforce a new runtime env flag. Live platform budget caps and runtime env kill-switch enforcement remain future work. Internal AI Worker service-auth semantics were not changed; only the auth Worker caller/job state now gates the admin video task create/poll calls. No member image/music/video behavior, org-scoped member image/text behavior, public pricing, Stripe behavior, credit debit behavior, or Admin UI changed.
+The kill-switch target is recorded as `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET`, but Phase 4.5 does not enforce a new runtime env flag. Live platform budget caps and runtime env kill-switch enforcement remain future work. Phase 4.7 keeps service-auth as the first AI Worker gate and adds caller-policy validation for the internal video task create/poll routes. No member image/music/video billing behavior, org-scoped member image/text behavior, public pricing, Stripe behavior, credit debit behavior, or Admin UI changed.
 
 ## Phase 4.6 OpenClaw/News Pulse Visuals
 
@@ -67,6 +68,26 @@ Runtime behavior changed only for News Pulse generated thumbnails:
 - The future kill-switch target is recorded as `ENABLE_NEWS_PULSE_VISUAL_BUDGET`, but Phase 4.6 does not enforce a new runtime env flag or live budget cap.
 
 Phase 4.6 does not change member image/music/video, org-scoped member image/text, public pricing, Stripe behavior, credit debit behavior, Admin UI, public News Pulse response shape, OpenClaw signed ingest authorization, Admin video beyond Phase 4.5, or internal AI Worker service-auth semantics.
+
+## Phase 4.7 Internal AI Worker Caller-Policy Guard
+
+Phase 4.7 adds a narrow metadata guard for internal Auth Worker -> AI Worker provider-cost calls. The chosen transport is a reserved JSON body key, `__bitbi_ai_caller_policy`, inside the already service-auth-signed request body. The AI Worker validates service-auth first, then validates caller-policy metadata, then strips the reserved key through the shared internal JSON parser before route validators and provider payload construction. Dedicated headers were avoided so the existing body hash covers the metadata without weakening service-auth.
+
+Implemented behavior:
+
+- `workers/shared/ai-caller-policy.mjs` defines the caller-policy version, allowed enforcement statuses, budget scopes, caller classes, sanitization, validation, and audit summary helpers.
+- Auth Worker proxy calls can attach safe caller-policy metadata without changing user-visible request or response shapes.
+- The charged Admin BFL image-test path propagates `budget_policy_enforced` metadata for `admin.image.test.charged`.
+- Admin async video task create/poll propagates `caller_enforced` metadata tied to the Phase 4.5 job budget fingerprint and kill-switch target `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET`.
+- Member music lyrics/audio internal AI calls propagate `gateway_enforced` metadata for compatibility with the migrated member music gateway; this does not change member billing or debit behavior.
+- The AI Worker rejects missing or malformed caller-policy metadata for `/internal/ai/video-task/create` and `/internal/ai/video-task/poll`.
+- Known broad internal routes (`test-text`, `test-image`, `test-embeddings`, `test-music`, sync video debug, compare, and live-agent) still allow missing policy only as explicit `baseline_allowed` gaps; malformed supplied metadata is rejected.
+
+Limits:
+
+- Phase 4.7 does not migrate broad Admin AI, Admin music/text/compare/live-agent, sync video debug, OpenClaw/News Pulse beyond Phase 4.6 compatibility, or platform/background AI globally.
+- News Pulse visuals do not call the AI Worker in this flow; they remain direct Auth Worker provider calls covered by Phase 4.6 caller-side budget metadata.
+- No new D1 migration, credit debit change, credit clawback, Stripe call, real provider call in tests, live billing enablement, or production readiness claim is introduced.
 
 ## Phase 4.2 Helper Contract
 
@@ -120,12 +141,12 @@ Policy rule: new provider-cost routes must use one of these scopes in the operat
 | News Pulse/OpenClaw visuals | `openclaw_news_pulse_budget` | Phase 4.6 records safe visual budget metadata before provider calls and preserves status/attempt duplicate suppression; no credits are debited. | HMAC ingest nonce plus deterministic item/content hash and visual status/attempt guards. | Runtime env kill switch and live platform budget caps remain future; current enforcement is metadata validation, deterministic fingerprinting, and duplicate provider-call suppression. | Ready thumbnail is durable replay; failed rows retry only within attempt cap and budget-policy validity. | Future target `ENABLE_NEWS_PULSE_VISUAL_BUDGET`; metadata-only in Phase 4.6. | Invalid policy, ready/pending duplicate suppression, provider/storage failure, sanitized telemetry. | Phase 4.6 completed for News Pulse visuals only. |
 | Scheduled/backfill visual jobs | `openclaw_news_pulse_budget` | Phase 4.6 records safe scheduled visual budget metadata before provider calls and respects existing bounded batch/status/attempt guards. | Deterministic item/content hash plus status/attempt caps. | Runtime env kill switch and live scheduled budget window remain future; current enforcement is metadata validation and item-level suppression. | Existing ready thumbnails prevent regeneration; failed rows are bounded by attempt caps. | Future target `ENABLE_NEWS_PULSE_VISUAL_BUDGET`; metadata-only in Phase 4.6. | Scheduled metadata, ready/pending duplicate suppression, no provider on invalid policy. | Phase 4.6 completed for News Pulse visuals only. |
 | Generated music cover/background cover | `member_credit_account` today; `platform_background_budget` only if future policy changes | Phase 3.7 includes cover in parent member music bundle. | Parent member music idempotency. | Keep inside parent member music bundle unless product explicitly changes it; if split, use platform/background or member sub-budget with separate evidence. | Cover failure after audio success must not double debit. | Parent music caps today. | Preserve no separate charge and safe cover status. | No Phase 4.2 runtime work. |
-| Internal AI Worker routes | `internal_ai_worker_caller_enforced` | Service-only routes call providers and rely on auth-worker callers. Phase 4.5 ties admin video task create/poll to the job budget state; Phase 4.6 records News Pulse caller-side budget metadata before its direct auth Worker provider call. | Inherited/delegated. | Internal routes remain service-only; callers must pass operation id/budget metadata before internal worker executes provider work. | Replay/failure policy belongs to caller; internal route returns safe provider result/status only. | Service binding only, caller kill switch, no public exposure. | Unknown caller rejected in future, no public route, no secret leakage. | Phase 4.7. |
+| Internal AI Worker routes | `internal_ai_worker_caller_enforced` | Service-only routes call providers and rely on auth-worker callers. Phase 4.7 validates signed caller-policy metadata, requires it for async video task create/poll, and keeps broader internal routes baseline-allowed until targeted migrations. | Inherited/delegated; video task create/poll require caller-policy metadata. | Internal routes remain service-only; covered callers pass operation id/budget metadata before internal worker executes provider work. | Replay/failure policy belongs to caller; internal route returns safe provider result/status only. | Service binding only, caller kill switch metadata, no public exposure. | Service-auth-first rejection, malformed policy rejection, metadata stripping before provider payloads. | Phase 4.7 guard completed for covered paths; remaining callers future. |
 | Derivative/backfill flows | Not AI provider-cost today unless future route calls provider | Current image derivatives use transforms/R2, not AI provider calls. | Queue/job leases. | Keep outside AI provider budget guard unless provider-call patterns appear; storage/transform cost should be tracked separately. | No AI provider replay needed. | Queue limits and transform/storage budgets. | Guard catches any future provider call. | Outside Phase 4.2. |
 
 ## Operation Mapping
 
-Admin and platform operation metadata is now explicit in `workers/auth/src/lib/ai-cost-operations.js`; known temporary gaps are mirrored in `config/ai-cost-policy-baseline.json`. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened for the existing selected-organization credit branch. Phase 4.5 marks admin async video job operations as covered by job/queue budget metadata. Phase 4.6 marks OpenClaw/News Pulse visual operations as covered by visual budget metadata and status/attempt duplicate suppression. Other admin/platform/internal entries remain policy metadata and known gaps unless a later phase migrates them.
+Admin and platform operation metadata is now explicit in `workers/auth/src/lib/ai-cost-operations.js`; known temporary gaps are mirrored in `config/ai-cost-policy-baseline.json`. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened for the existing selected-organization credit branch. Phase 4.5 marks admin async video job operations as covered by job/queue budget metadata. Phase 4.6 marks OpenClaw/News Pulse visual operations as covered by visual budget metadata and status/attempt duplicate suppression. Phase 4.7 marks internal async video task create/poll as caller-policy guarded. Other admin/platform/internal entries remain policy metadata and known gaps unless a later phase migrates them.
 
 | Operation / route | Target budget scope | Current status | Target phase |
 | --- | --- | --- | --- |
@@ -142,7 +163,7 @@ Admin and platform operation metadata is now explicit in `workers/auth/src/lib/a
 | Generated music cover/background cover | `member_credit_account` today; future `platform_background_budget` only if product changes | included in parent music bundle | No Phase 4.2 runtime work |
 | Future AI provider backfills | `platform_background_budget` | not currently baselined as AI provider-cost unless a provider call appears | future targeted phase |
 
-Internal AI Worker routes remain service-bound provider execution surfaces. Phase 4.2 does not migrate them; Phase 4.5 ties admin video task create/poll to the auth Worker job budget state, and Phase 4.6 records caller-side News Pulse budget metadata before direct auth Worker visual provider calls. Global internal AI Worker caller-policy verification remains Phase 4.7 work.
+Internal AI Worker routes remain service-bound provider execution surfaces. Phase 4.7 validates caller-policy metadata after service-auth and before provider route handling. It requires metadata for async video task create/poll, validates supplied metadata on all known provider-cost routes, strips the reserved key before provider payload construction, and leaves broad routes baseline-allowed until targeted migrations.
 
 | Internal AI Worker route | Operation ids | Target budget scope | Current policy owner |
 | --- | --- | --- | --- |
@@ -151,8 +172,8 @@ Internal AI Worker routes remain service-bound provider execution surfaces. Phas
 | `/internal/ai/test-embeddings` | `internal.embeddings.generate` | `internal_ai_worker_caller_enforced` | Admin embeddings caller |
 | `/internal/ai/test-music` | `internal.music.generate` | `internal_ai_worker_caller_enforced` | Member music gateway or admin music caller |
 | `/internal/ai/test-video` | `internal.video.generate` | `internal_ai_worker_caller_enforced` | Member video gateway or default-disabled admin debug caller |
-| `/internal/ai/video-task/create` | `admin.video.task.create`, `internal.video_task.create` | `internal_ai_worker_caller_enforced` | Phase 4.5 ties the admin video job caller to job budget metadata; the internal route is not globally migrated |
-| `/internal/ai/video-task/poll` | `admin.video.task.poll`, `internal.video_task.poll` | `internal_ai_worker_caller_enforced` | Phase 4.5 ties the admin video job caller to job budget metadata and persisted task id; the internal route is not globally migrated |
+| `/internal/ai/video-task/create` | `admin.video.task.create`, `internal.video_task.create` | `internal_ai_worker_caller_enforced` | Phase 4.7 requires signed caller-policy metadata tied to the Phase 4.5 admin video job budget state |
+| `/internal/ai/video-task/poll` | `admin.video.task.poll`, `internal.video_task.poll` | `internal_ai_worker_caller_enforced` | Phase 4.7 requires signed caller-policy metadata tied to the persisted Phase 4.5 provider task id |
 | `/internal/ai/compare` | `internal.compare` | `internal_ai_worker_caller_enforced` | Admin compare caller |
 | `/internal/ai/live-agent` | `internal.live_agent` | `internal_ai_worker_caller_enforced` | Admin live-agent caller |
 
@@ -198,7 +219,7 @@ Do not store raw prompts, lyrics, auth headers, cookies, tokens, Stripe data, pr
 3. Phase 4.4: Add read-only Admin/Platform AI budget evidence reporting. Completed for helper/script/admin endpoint/test scope only; no runtime enforcement changed.
 4. Phase 4.5: Add admin async video job budget reservation metadata and internal task create/poll caller linkage. Completed only for admin async video jobs; broad Admin AI remains unmigrated.
 5. Phase 4.6: Add OpenClaw/News Pulse visual budget metadata, invalid-policy provider blocking, and duplicate provider-call suppression. Completed only for News Pulse visuals; runtime env kill-switch enforcement and live caps remain future work.
-6. Phase 4.7: Add internal AI Worker caller-policy guard for service-bound routes.
-7. Phase 4.8: Add read-only admin/platform AI budget observability dashboard after telemetry is reliable.
+6. Phase 4.7: Add internal AI Worker caller-policy guard for service-bound routes. Completed for caller-policy validation/metadata handling only.
+7. Phase 4.8: Migrate one remaining broad Admin AI or internal caller path to explicit budget/caller-policy metadata without broad rewrites.
 
 Each phase must be small, tested, reversible, and independently deployable. None of these phases should claim production readiness or live billing readiness without operator evidence.

@@ -13,15 +13,19 @@ import {
   readJsonBodyLimited,
 } from "../../../../js/shared/request-body.mjs";
 import { AdminAiValidationError } from "../../../../js/shared/admin-ai-contract.mjs";
+import { stripAiCallerPolicyFromBody } from "../../../shared/ai-caller-policy.mjs";
 
 export const INTERNAL_AI_JSON_MAX_BYTES = 512 * 1024;
 
 export async function readJsonBody(request) {
   try {
-    return await readJsonBodyLimited(request, {
+    const body = await readJsonBodyLimited(request, {
       maxBytes: INTERNAL_AI_JSON_MAX_BYTES,
       requiredContentType: false,
     });
+    // Caller-policy metadata is signed inside the internal JSON body for Auth -> AI Worker
+    // requests, then stripped before route validators build provider payloads.
+    return stripAiCallerPolicyFromBody(body).body;
   } catch (error) {
     if (isRequestBodyError(error)) {
       throw new AdminAiValidationError(

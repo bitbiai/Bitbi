@@ -23,6 +23,12 @@ import {
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
 import {
+  AI_CALLER_POLICY_BUDGET_SCOPES,
+  AI_CALLER_POLICY_CALLER_CLASSES,
+  AI_CALLER_POLICY_ENFORCEMENT_STATUSES,
+  AI_CALLER_POLICY_VERSION,
+} from "../../../shared/ai-caller-policy.mjs";
+import {
   REMOTE_MEDIA_URL_POLICY_CODE,
   attachRemoteMediaPolicyContext,
   buildRemoteMediaUrlRejectedMessage,
@@ -100,6 +106,45 @@ const ADMIN_AI_USAGE_ATTEMPT_CURSOR_TYPE = "admin_ai_usage_attempts";
 const DEFAULT_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 25;
 const MAX_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 100;
 const CHARGED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.charged";
+
+function buildAdminAiCallerPolicy({
+  operationId,
+  budgetScope = AI_CALLER_POLICY_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+  enforcementStatus = AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BASELINE_ALLOWED,
+  callerClass = AI_CALLER_POLICY_CALLER_CLASSES.ADMIN,
+  ownerDomain = "admin-ai",
+  providerFamily = "ai_worker",
+  modelId = null,
+  modelResolverKey = null,
+  idempotencyPolicy = "optional",
+  sourceRoute,
+  sourceComponent = "auth-worker-admin-ai",
+  budgetFingerprint = null,
+  killSwitchTarget = null,
+  correlationId = null,
+  reason = "baseline_admin_ai_provider_cost_route",
+  notes = null,
+} = {}) {
+  return {
+    policy_version: AI_CALLER_POLICY_VERSION,
+    operation_id: operationId,
+    budget_scope: budgetScope,
+    enforcement_status: enforcementStatus,
+    caller_class: callerClass,
+    owner_domain: ownerDomain,
+    provider_family: providerFamily,
+    model_id: modelId || null,
+    model_resolver_key: modelResolverKey || null,
+    idempotency_policy: idempotencyPolicy,
+    source_route: sourceRoute,
+    source_component: sourceComponent,
+    budget_fingerprint: budgetFingerprint || null,
+    kill_switch_target: killSwitchTarget || null,
+    correlation_id: correlationId || null,
+    reason,
+    notes,
+  };
+}
 
 function inputErrorResponse(error, correlationId = null) {
   return withCorrelationId(json(
@@ -666,10 +711,22 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const validated = validateTextPayload(body);
       return proxyToAiLab(
         env,
         "/internal/ai/test-text",
-        { method: "POST", body: validateTextPayload(body) },
+        {
+          method: "POST",
+          body: validated,
+          callerPolicy: buildAdminAiCallerPolicy({
+            operationId: "admin.text.test",
+            modelId: validated.model || null,
+            modelResolverKey: "admin.text.model_registry",
+            sourceRoute: "/api/admin/ai/test-text",
+            killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_TEXT_TESTS",
+            correlationId,
+          }),
+        },
         result.user,
         correlationId,
         requestInfo
@@ -715,7 +772,18 @@ export async function handleAdminAI(ctx) {
         const response = await proxyToAiLab(
           env,
           "/internal/ai/test-image",
-          { method: "POST", body: payload },
+          {
+            method: "POST",
+            body: payload,
+            callerPolicy: buildAdminAiCallerPolicy({
+              operationId: "admin.image.test.unmetered",
+              modelId,
+              modelResolverKey: "admin.image.model_registry",
+              sourceRoute: "/api/admin/ai/test-image",
+              killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_IMAGE_TESTS",
+              correlationId,
+            }),
+          },
           result.user,
           correlationId,
           requestInfo
@@ -778,7 +846,24 @@ export async function handleAdminAI(ctx) {
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-image",
-        { method: "POST", body: payload },
+        {
+          method: "POST",
+          body: payload,
+          callerPolicy: buildAdminAiCallerPolicy({
+            operationId: CHARGED_ADMIN_IMAGE_OPERATION_ID,
+            budgetScope: AI_CALLER_POLICY_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT,
+            enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_POLICY_ENFORCED,
+            callerClass: AI_CALLER_POLICY_CALLER_CLASSES.PLATFORM_ADMIN,
+            modelId,
+            modelResolverKey: "admin.image.priced_model_catalog",
+            idempotencyPolicy: "required",
+            sourceRoute: "/api/admin/ai/test-image",
+            budgetFingerprint: budgetPolicy.summary?.fingerprint || null,
+            killSwitchTarget: budgetPolicy.summary?.kill_switch_flag_name || "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET",
+            correlationId,
+            reason: "charged_admin_image_budget_policy_enforced",
+          }),
+        },
         result.user,
         correlationId,
         requestInfo
@@ -906,10 +991,22 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const validated = validateEmbeddingsPayload(body);
       return proxyToAiLab(
         env,
         "/internal/ai/test-embeddings",
-        { method: "POST", body: validateEmbeddingsPayload(body) },
+        {
+          method: "POST",
+          body: validated,
+          callerPolicy: buildAdminAiCallerPolicy({
+            operationId: "admin.embeddings.test",
+            modelId: validated.model || null,
+            modelResolverKey: "admin.embeddings.model_registry",
+            sourceRoute: "/api/admin/ai/test-embeddings",
+            killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_EMBEDDINGS_TESTS",
+            correlationId,
+          }),
+        },
         result.user,
         correlationId,
         requestInfo
@@ -931,10 +1028,22 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const validated = validateMusicPayload(body);
       return proxyToAiLab(
         env,
         "/internal/ai/test-music",
-        { method: "POST", body: validateMusicPayload(body) },
+        {
+          method: "POST",
+          body: validated,
+          callerPolicy: buildAdminAiCallerPolicy({
+            operationId: "admin.music.test",
+            modelId: validated.model || null,
+            modelResolverKey: "admin.music.model_registry",
+            sourceRoute: "/api/admin/ai/test-music",
+            killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_MUSIC_TESTS",
+            correlationId,
+          }),
+        },
         result.user,
         correlationId,
         requestInfo
@@ -987,7 +1096,18 @@ export async function handleAdminAI(ctx) {
       return proxyToAiLab(
         env,
         "/internal/ai/test-video",
-        { method: "POST", body: validated },
+        {
+          method: "POST",
+          body: validated,
+          callerPolicy: buildAdminAiCallerPolicy({
+            operationId: "admin.video.sync_debug",
+            modelId: validated.model || null,
+            modelResolverKey: "admin.video.model_registry",
+            sourceRoute: "/api/admin/ai/test-video",
+            killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_VIDEO_DEBUG",
+            correlationId,
+          }),
+        },
         result.user,
         correlationId,
         requestInfo
@@ -1215,10 +1335,21 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const validated = validateComparePayload(body);
       return proxyToAiLab(
         env,
         "/internal/ai/compare",
-        { method: "POST", body: validateComparePayload(body) },
+        {
+          method: "POST",
+          body: validated,
+          callerPolicy: buildAdminAiCallerPolicy({
+            operationId: "admin.compare",
+            modelResolverKey: "admin.compare.model_registry",
+            sourceRoute: "/api/admin/ai/compare",
+            killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_COMPARE",
+            correlationId,
+          }),
+        },
         result.user,
         correlationId,
         requestInfo
@@ -1240,7 +1371,22 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
-      return proxyLiveAgentToAiLab(env, validateLiveAgentPayload(body), result.user, correlationId, requestInfo);
+      const validated = validateLiveAgentPayload(body);
+      return proxyLiveAgentToAiLab(
+        env,
+        validated,
+        result.user,
+        correlationId,
+        requestInfo,
+        buildAdminAiCallerPolicy({
+          operationId: "admin.live_agent",
+          modelId: validated.model || null,
+          modelResolverKey: "admin.live_agent.model",
+          sourceRoute: "/api/admin/ai/live-agent",
+          killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_LIVE_AGENT",
+          correlationId,
+        })
+      );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       throw error;

@@ -427,6 +427,12 @@ function createAiLabServiceBinding(aiWorker, aiEnv, observedRequests = null) {
   return {
     async fetch(request) {
       if (Array.isArray(observedRequests)) {
+        let body = null;
+        try {
+          body = request.method === 'POST' ? await request.clone().json() : null;
+        } catch {
+          body = null;
+        }
         observedRequests.push({
           url: request.url,
           method: request.method,
@@ -434,6 +440,7 @@ function createAiLabServiceBinding(aiWorker, aiEnv, observedRequests = null) {
           serviceTimestamp: request.headers.get('x-bitbi-service-timestamp'),
           serviceNonce: request.headers.get('x-bitbi-service-nonce'),
           serviceSignature: request.headers.get('x-bitbi-service-signature'),
+          body,
         });
       }
       return aiWorker.fetch(request, aiEnv, createExecutionContext().execCtx);
@@ -484,6 +491,30 @@ function createAiVideoJobServiceBinding(handler = null) {
       },
     },
   };
+}
+
+async function signedInternalAiJsonRequest(pathname, body, {
+  secret = 'test-ai-service-auth-secret',
+  method = 'POST',
+  headers = {},
+} = {}) {
+  const { buildServiceAuthHeaders } = await loadServiceAuthModule();
+  const bodyText = body === undefined ? '' : JSON.stringify(body);
+  const serviceHeaders = await buildServiceAuthHeaders({
+    secret,
+    method,
+    path: pathname,
+    body: bodyText,
+  });
+  return new Request(`https://bitbi-ai.internal${pathname}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...headers,
+      ...serviceHeaders,
+    },
+    body: body === undefined ? undefined : bodyText,
+  });
 }
 
 function createVideoAssetFetchStub(overrides = {}) {
@@ -6977,6 +7008,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const aiWorker = await loadWorker('workers/ai/src/index.js');
     const calls = [];
+    const aiLabRequests = [];
     const createdAt = '2026-04-30T12:00:00.000Z';
     const env = createAuthTestEnv({
       users: [user],
@@ -7028,7 +7060,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
           };
         },
       },
-    });
+    }, aiLabRequests);
     const token = await seedSession(env, user.id);
     return {
       authWorker,
@@ -7036,8 +7068,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       token,
       user,
       calls,
+      aiLabRequests,
     };
-  }
+	  }
 
   async function postGenerateMusic({
     worker,
@@ -8661,7 +8694,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
   });
 
   test('member music generation charges 150 credits, ignores client prices, and saves the audio asset', async () => {
-    const { authWorker, env, token, user, calls } = await createMemberMusicHarness();
+    const { authWorker, env, token, user, calls, aiLabRequests } = await createMemberMusicHarness();
 
     const res = await postGenerateMusic({
       worker: authWorker,
@@ -8708,6 +8741,18 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       bitrate: 256000,
       format: 'mp3',
     }));
+    expect(calls[0].payload).not.toHaveProperty('__bitbi_ai_caller_policy');
+    expect(aiLabRequests).toHaveLength(1);
+    expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+      policy_version: 'ai-caller-policy-v1',
+      operation_id: 'member.music.audio.generate',
+      budget_scope: 'member_credit_account',
+      enforcement_status: 'gateway_enforced',
+      caller_class: 'member',
+      owner_domain: 'member-music',
+      source_route: '/api/ai/generate-music',
+    }));
+    expect(JSON.stringify(aiLabRequests[0].body.__bitbi_ai_caller_policy)).not.toContain('Hold the light');
 
     const musicConsume = env.DB.state.memberCreditLedger.find((row) =>
       row.user_id === user.id && row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
@@ -14579,7 +14624,7 @@ test.describe('Worker routes', () => {
     });
 
     test('GET /api/admin/ai/models returns the catalog shape used by the UI', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
 
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/models', 'GET', undefined, authHeaders),
@@ -14663,7 +14708,7 @@ test.describe('Worker routes', () => {
         billingMutation: false,
         summary: expect.objectContaining({
           memberGatewayMigrated: 3,
-          adminPlatformImplemented: 6,
+          adminPlatformImplemented: 8,
           baselineGaps: expect.any(Number),
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
@@ -14724,6 +14769,11 @@ test.describe('Worker routes', () => {
           budgetScope: 'openclaw_news_pulse_budget',
           runtimeStatus: 'implemented_visual_budget_metadata',
           killSwitchTarget: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+        }),
+        expect.objectContaining({
+          operationId: 'internal.video_task.create',
+          budgetScope: 'internal_ai_worker_caller_enforced',
+          runtimeStatus: 'implemented_caller_policy_guard',
         }),
       ]));
       expect(body.baselinedGaps).toEqual(expect.arrayContaining([
@@ -14950,7 +15000,11 @@ test.describe('Worker routes', () => {
 
       expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(service.calls).toHaveLength(1);
-      expect(service.calls[0].body).toEqual({
+      const {
+        __bitbi_ai_caller_policy: callerPolicy,
+        ...internalProviderBody
+      } = service.calls[0].body;
+      expect(internalProviderBody).toEqual({
         preset: null,
         model: 'alibaba/hh1-t2v',
         prompt: 'Admin-only HappyHorse queue test',
@@ -14960,6 +15014,16 @@ test.describe('Worker routes', () => {
         seed: 123,
         watermark: false,
       });
+      expect(callerPolicy).toMatchObject({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.video.task.create',
+        budget_scope: 'internal_ai_worker_caller_enforced',
+        enforcement_status: 'caller_enforced',
+        caller_class: 'platform_admin',
+        owner_domain: 'admin-video-jobs',
+        kill_switch_target: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+      });
+      expect(JSON.stringify(callerPolicy)).not.toContain('Admin-only HappyHorse queue test');
       expect(service.calls[0].body.__admin_generation_metadata).toBeUndefined();
       expect(env.DB.state.creditLedger).toHaveLength(0);
       expect(env.DB.state.usageEvents).toHaveLength(0);
@@ -15525,6 +15589,17 @@ test.describe('Worker routes', () => {
       expect(firstBatch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(service.calls).toHaveLength(1);
       expect(service.calls[0].url).toBe('https://bitbi-ai.internal/internal/ai/video-task/create');
+      expect(service.calls[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.video.task.create',
+        budget_scope: 'internal_ai_worker_caller_enforced',
+        enforcement_status: 'caller_enforced',
+        caller_class: 'platform_admin',
+        owner_domain: 'admin-video-jobs',
+        kill_switch_target: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+        source_route: '/api/admin/ai/video-jobs',
+      }));
+      expect(JSON.stringify(service.calls[0].body.__bitbi_ai_caller_policy)).not.toContain('Short poll job');
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
         id: createBody.job.jobId,
         status: 'provider_pending',
@@ -15559,6 +15634,13 @@ test.describe('Worker routes', () => {
         url: 'https://bitbi-ai.internal/internal/ai/video-task/poll',
         body: expect.objectContaining({ providerTaskId: 'provider-task-123' }),
       });
+      expect(service.calls[1].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.video.task.poll',
+        budget_scope: 'internal_ai_worker_caller_enforced',
+        enforcement_status: 'caller_enforced',
+        kill_switch_target: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+      }));
+      expect(JSON.stringify(service.calls[1].body.__bitbi_ai_caller_policy)).not.toContain('Short poll job');
       expect(service.calls.some((call) => call.url.endsWith('/internal/ai/test-video'))).toBe(false);
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
         status: 'succeeded',
@@ -16355,6 +16437,135 @@ test.describe('Worker routes', () => {
       expect(malformedNonce.status).toBe(401);
     });
 
+    test('AI worker caller-policy guard runs after service auth and fails closed for covered video task routes', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const secret = 'test-ai-service-auth-secret';
+      const bodyWithUnsafePolicy = {
+        model: 'pixverse/v6',
+        prompt: 'signed body is ignored when service auth fails',
+        duration: 5,
+        aspect_ratio: '16:9',
+        __bitbi_ai_caller_policy: {
+          policy_version: 'ai-caller-policy-v1',
+          operation_id: 'admin.video.task.create',
+          budget_scope: 'internal_ai_worker_caller_enforced',
+          enforcement_status: 'caller_enforced',
+          caller_class: 'platform_admin',
+          owner_domain: 'admin-video-jobs',
+          prompt: 'raw prompt must not be accepted',
+        },
+      };
+      const env = {
+        AI_SERVICE_AUTH_SECRET: secret,
+        SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        AI: { run: createAiLabRunStub() },
+      };
+
+      const unauthorized = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/video-task/create', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(bodyWithUnsafePolicy),
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(unauthorized.status).toBe(401);
+      await expect(unauthorized.json()).resolves.toMatchObject({
+        ok: false,
+        code: expect.stringContaining('service_auth'),
+      });
+
+      const missingPolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/video-task/create', {
+          model: 'pixverse/v6',
+          prompt: 'missing caller policy',
+          duration: 5,
+          aspect_ratio: '16:9',
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingPolicy.status).toBe(428);
+      await expect(missingPolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_required',
+      });
+    });
+
+    test('AI worker caller-policy validates supplied metadata and strips it before provider execution', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const secret = 'test-ai-service-auth-secret';
+      const aiRunCalls = [];
+      const env = {
+        AI_SERVICE_AUTH_SECRET: secret,
+        SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        AI: {
+          async run(modelId, payload) {
+            aiRunCalls.push({ modelId, payload });
+            return createAiLabRunStub()(modelId, payload);
+          },
+        },
+      };
+
+      const invalidPolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-text', {
+          preset: 'balanced',
+          prompt: 'invalid caller policy should not run',
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'admin.text.test',
+            budget_scope: 'platform_admin_lab_budget',
+            enforcement_status: 'baseline_allowed',
+            caller_class: 'admin',
+            owner_domain: 'admin-ai',
+            provider_family: 'ai_worker',
+            source_route: '/api/admin/ai/test-text',
+            source_component: 'test',
+            secret_token: 'sk_test_should_not_pass',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidPolicy.status).toBe(400);
+      await expect(invalidPolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_invalid',
+      });
+      expect(aiRunCalls).toHaveLength(0);
+
+      const valid = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-text', {
+          preset: 'balanced',
+          prompt: 'caller policy is stripped before provider payload',
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'admin.text.test',
+            budget_scope: 'platform_admin_lab_budget',
+            enforcement_status: 'baseline_allowed',
+            caller_class: 'admin',
+            owner_domain: 'admin-ai',
+            provider_family: 'ai_worker',
+            model_resolver_key: 'admin.text.model_registry',
+            idempotency_policy: 'optional',
+            source_route: '/api/admin/ai/test-text',
+            source_component: 'auth-worker-admin-ai',
+            kill_switch_target: 'ENABLE_ADMIN_AI_BUDGETED_TEXT_TESTS',
+            correlation_id: 'caller-policy-strip-test',
+            reason: 'baseline_admin_ai_provider_cost_route',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(valid.status).toBe(200);
+      await expect(valid.json()).resolves.toMatchObject({ ok: true, task: 'text' });
+      expect(aiRunCalls).toHaveLength(1);
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('__bitbi_ai_caller_policy');
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_BUDGETED_TEXT_TESTS');
+    });
+
     test('AI worker service auth fails closed when its shared secret is missing', async () => {
       const aiWorker = await loadWorker('workers/ai/src/index.js');
       const res = await aiWorker.fetch(
@@ -16488,7 +16699,7 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/test-image returns the image response contract used by the UI', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
       const { decodeAiGeneratedSaveReference } = await loadAiGeneratedSaveReferenceModule();
       seedAdminImageChargeOrg(env);
 
@@ -16599,6 +16810,20 @@ test.describe('Worker routes', () => {
         budget_scope: 'admin_org_credit_account',
         kill_switch_flag_name: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
       }));
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.image.test.charged',
+        budget_scope: 'admin_org_credit_account',
+        enforcement_status: 'budget_policy_enforced',
+        caller_class: 'platform_admin',
+        owner_domain: 'admin-ai',
+        kill_switch_target: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+        source_route: '/api/admin/ai/test-image',
+      }));
+      expect(JSON.stringify(aiLabRequests[0].body.__bitbi_ai_caller_policy)).not.toContain('A cinematic skyline');
+      expect(JSON.stringify(aiLabRequests[0].body.__bitbi_ai_caller_policy)).not.toContain('Cookie');
+      expect(JSON.stringify(aiLabRequests[0].body.__bitbi_ai_caller_policy)).not.toContain('Authorization');
       const serializedMetadata = JSON.stringify({ usageMetadata, attemptMetadata });
       expect(serializedMetadata).not.toContain('A cinematic skyline');
       expect(serializedMetadata).not.toContain('Cookie');
