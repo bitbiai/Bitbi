@@ -39,6 +39,9 @@ assert.equal(report.summary.adminLabAttemptsOperable, true);
 assert.equal(report.summary.adminImageChargedBranches, 4);
 assert.equal(report.summary.adminImageExplicitUnmeteredBranches, 1);
 assert.equal(report.summary.adminImageBlockedUnsupportedGuards, 1);
+assert.equal(report.summary.runtimeBudgetSwitchTargets, 10);
+assert.equal(report.summary.runtimeBudgetSwitchesEnabled, null);
+assert.equal(report.summary.runtimeBudgetSwitchesDisabled, null);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 assert.equal(report.adminAiUsageAttempts.cleanup.registered, true);
@@ -47,6 +50,17 @@ assert.equal(report.adminAiUsageAttempts.cleanup.destructiveDelete, false);
 assert.equal(report.adminAiUsageAttempts.cleanup.providerCalls, false);
 assert.equal(report.adminAiUsageAttempts.inspection.listRegistered, true);
 assert.equal(report.adminAiUsageAttempts.inspection.detailRegistered, true);
+assert.equal(report.runtimeBudgetSwitches.defaultDisabled, true);
+assert.equal(report.runtimeBudgetSwitches.liveBudgetCapsEnforced, false);
+assert(report.runtimeBudgetSwitches.targets.some((entry) =>
+  entry.flagName === "ENABLE_ADMIN_AI_TEXT_BUDGET"
+  && entry.configured === null
+  && entry.enabled === null
+));
+assert(report.runtimeBudgetSwitches.targets.some((entry) =>
+  entry.flagName === "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET"
+  && entry.routePath === "/api/admin/ai/test-image"
+));
 
 for (const scope of [
   "admin_org_credit_account",
@@ -64,7 +78,7 @@ const adminOrgScope = report.budgetScopes.find((entry) => entry.scope === "admin
 assert.equal(adminOrgScope.implementedCount, 1);
 assert.equal(adminOrgScope.runtimeEnforcementExists, true);
 assert.equal(adminOrgScope.runtimeEnforcementStatus, "implemented");
-assert(adminOrgScope.killSwitchTargets.includes("model-specific charged image budget metadata target"));
+assert(adminOrgScope.killSwitchTargets.includes("model-specific charged image budget runtime_enforced"));
 
 const platformLabScope = report.budgetScopes.find((entry) => entry.scope === "platform_admin_lab_budget");
 assert(platformLabScope.operationCount >= 7);
@@ -82,7 +96,7 @@ assert.equal(openClawScope.operationCount, 2);
 assert.equal(openClawScope.implementedCount, 2);
 assert.equal(openClawScope.baselineGapCount, 0);
 assert.equal(openClawScope.runtimeEnforcementStatus, "implemented");
-assert(openClawScope.killSwitchTargets.includes("ENABLE_NEWS_PULSE_VISUAL_BUDGET metadata target"));
+assert(openClawScope.killSwitchTargets.includes("ENABLE_NEWS_PULSE_VISUAL_BUDGET runtime_enforced"));
 
 const internalScope = report.budgetScopes.find((entry) => entry.scope === "internal_ai_worker_caller_enforced");
 assert(internalScope.operationCount >= 9);
@@ -111,11 +125,11 @@ assert(implementedIds.includes("platform.news_pulse.visual.scheduled"));
 const adminBfl = report.implementedOperations.find((entry) => entry.operationId === "admin.image.test.charged");
 assert.equal(adminBfl.budgetScope, "admin_org_credit_account");
 assert.equal(adminBfl.runtimeStatus, "implemented_hardened");
-assert.equal(adminBfl.killSwitchTarget, "model-specific charged image metadata target");
+assert.equal(adminBfl.killSwitchTarget, "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET");
 assert.equal(adminBfl.modelClass, "priced Admin image tests (BFL FLUX and GPT Image 2)");
 assert(adminBfl.metadataFieldsExpected.includes("budget_policy_version"));
 assert(adminBfl.metadataFieldsExpected.includes("fingerprint"));
-assert(adminBfl.remainingLimitations.some((entry) => entry.includes("metadata only")));
+assert(adminBfl.remainingLimitations.some((entry) => entry.includes("runtime budget switch")));
 
 const adminImageUnmetered = report.implementedOperations.find((entry) => entry.operationId === "admin.image.test.unmetered");
 assert.equal(adminImageUnmetered.budgetScope, "explicit_unmetered_admin");
@@ -139,7 +153,7 @@ assert.equal(adminVideoJob.budgetScope, "platform_admin_lab_budget");
 assert.equal(adminVideoJob.runtimeStatus, "implemented_job_budget_metadata");
 assert.equal(adminVideoJob.killSwitchTarget, "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET");
 assert(adminVideoJob.metadataFieldsExpected.includes("provider_task_create"));
-assert(adminVideoJob.remainingLimitations.some((entry) => entry.includes("kill-switch")));
+assert(adminVideoJob.remainingLimitations.some((entry) => entry.includes("Phase 4.15 enforces")));
 
 const adminText = report.implementedOperations.find((entry) => entry.operationId === "admin.text.test");
 assert.equal(adminText.budgetScope, "platform_admin_lab_budget");
@@ -178,7 +192,7 @@ assert.equal(newsPulseVisual.runtimeStatus, "implemented_visual_budget_metadata"
 assert.equal(newsPulseVisual.killSwitchTarget, "ENABLE_NEWS_PULSE_VISUAL_BUDGET");
 assert(newsPulseVisual.metadataFieldsExpected.includes("visual_budget_policy_json"));
 assert(newsPulseVisual.duplicateProviderSuppression.some((entry) => entry.includes("ready visual")));
-assert(newsPulseVisual.remainingLimitations.some((entry) => entry.includes("kill-switch")));
+assert(newsPulseVisual.remainingLimitations.some((entry) => entry.includes("Phase 4.15 enforces")));
 
 const internalGuard = report.implementedOperations.find((entry) => entry.operationId === "internal.video_task.create");
 assert.equal(internalGuard.budgetScope, "internal_ai_worker_caller_enforced");

@@ -76,7 +76,7 @@ const EXPLICIT_UNMETERED_BRANCHES = Object.freeze([
     budgetScope: "explicit_unmetered_admin",
     killSwitchTarget: ADMIN_IMAGE_TEST_UNMETERED_KILL_SWITCH,
     modelResolverKey: "admin.image.explicit_unmetered_model_registry",
-    unmeteredJustification: "FLUX.2 Dev is retained as a narrow admin-only lab exception for structured prompt/reference-image experiments while pricing, live budget caps, and runtime kill-switch enforcement remain future work.",
+    unmeteredJustification: "FLUX.2 Dev is retained as a narrow admin-only lab exception for structured prompt/reference-image experiments while pricing and live budget caps remain future work.",
     notes: "No credits are debited and no durable replay/idempotency is claimed; Phase 4.14 makes the exception explicit, budget-visible, and caller-policy-tagged.",
   }),
 ]);

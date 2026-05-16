@@ -96,6 +96,12 @@ import {
   buildAdminPlatformBudgetFingerprint,
   classifyAdminPlatformBudgetPlan,
 } from "../lib/admin-platform-budget-policy.js";
+import {
+  AdminPlatformBudgetSwitchError,
+  assertBudgetSwitchEnabled,
+  budgetSwitchDisabledResponse,
+  budgetSwitchLogFields,
+} from "../lib/admin-platform-budget-switches.js";
 import { buildAdminPlatformBudgetEvidenceReport } from "../lib/admin-platform-budget-evidence.js";
 import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
 import { normalizeOrgId } from "../lib/orgs.js";
@@ -191,6 +197,33 @@ function inputErrorResponse(error, correlationId = null) {
     },
     { status: error.status || 400 }
   ), correlationId);
+}
+
+function adminBudgetSwitchResponseOrNull({
+  env,
+  plan,
+  correlationId,
+  component = "admin-ai-budget-switch",
+  adminUserId = null,
+  requestInfo = null,
+}) {
+  try {
+    assertBudgetSwitchEnabled(env, plan);
+    return null;
+  } catch (error) {
+    if (!(error instanceof AdminPlatformBudgetSwitchError)) throw error;
+    logDiagnostic({
+      service: "bitbi-auth",
+      component,
+      event: "admin_ai_budget_switch_disabled",
+      level: "warn",
+      correlationId,
+      admin_user_id: adminUserId,
+      ...budgetSwitchLogFields(plan),
+      ...getRequestLogFields(requestInfo),
+    });
+    return withCorrelationId(budgetSwitchDisabledResponse(error), correlationId);
+  }
 }
 
 function badJsonResponse(correlationId) {
@@ -389,7 +422,7 @@ function adminLabBudgetOperation({
       disabledBehavior: "manual_only",
       operatorCanOverride: false,
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-      notes: "Admin lab budget routes record the future kill-switch metadata target only; runtime env enforcement remains future work for each route.",
+      notes: "Phase 4.15 enforces this runtime budget switch before provider-cost admin lab execution.",
     },
     routeId: registryConfig.routeId || routeId,
     routePath: registryConfig.routePath || routePath,
@@ -416,7 +449,8 @@ function compactAdminLabBudgetPolicy(plan, fingerprint, {
     duplicate_suppression: duplicateSuppression,
     durable_idempotency: duplicateSuppression !== "idempotency_key_required_no_durable_replay",
     replay_policy: "metadata_only_no_result_replay",
-    runtime_enforcement_status: "budget_metadata_only",
+    runtime_enforcement_status: "runtime_budget_switch_enforced_metadata_only",
+    runtime_env_kill_switch_enforced: true,
     plan_status: plan.status,
     required_next_action: plan.requiredNextAction,
     kill_switch_flag_name: plan.killSwitchPolicy?.flagName || null,
@@ -987,7 +1021,7 @@ function adminImageBudgetOperation({ modelId, pricing }) {
       disabledBehavior: "fail_closed",
       operatorCanOverride: false,
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT,
-      notes: "Future enforcement target only in Phase 4.3; existing org-credit/idempotency gates remain the runtime controls.",
+      notes: "Phase 4.15 enforces this runtime budget switch before provider calls or selected-organization credit debits.",
     },
     routeId: registryConfig.routeId || "admin.ai.test-image",
     routePath: registryConfig.routePath || "/api/admin/ai/test-image",
@@ -1012,6 +1046,7 @@ function compactAdminImageBudgetPolicy(plan, fingerprint) {
     kill_switch_flag_name: plan.killSwitchPolicy?.flagName || null,
     kill_switch_default_state: plan.killSwitchPolicy?.defaultState || null,
     kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? null,
+    runtime_env_kill_switch_enforced: true,
     fingerprint,
     audit_fields: plan.auditFields,
   };
@@ -1083,7 +1118,7 @@ function adminImageUnmeteredBudgetOperation({ modelId, branch }) {
       disabledBehavior: "manual_only",
       operatorCanOverride: false,
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
-      notes: "Phase 4.14 records an explicit unmetered Admin Image branch metadata target only; runtime env enforcement remains future work.",
+      notes: "Phase 4.15 enforces this runtime budget switch before explicit unmetered admin image provider execution.",
     },
     unmeteredJustification: branch?.unmeteredJustification
       || "Explicitly reviewed admin-only image lab exception.",
@@ -1110,7 +1145,8 @@ function compactAdminImageUnmeteredBudgetPolicy(plan, fingerprint, branch) {
     explicit_unmetered_admin: true,
     unmetered_justification: branch?.unmeteredJustification || null,
     replay_policy: "metadata_only_no_result_replay",
-    runtime_enforcement_status: "explicit_unmetered_admin_metadata",
+    runtime_enforcement_status: "runtime_budget_switch_enforced_explicit_unmetered_admin",
+    runtime_env_kill_switch_enforced: true,
     plan_status: plan.status,
     required_next_action: plan.requiredNextAction,
     kill_switch_flag_name: plan.killSwitchPolicy?.flagName || null,
@@ -1372,6 +1408,7 @@ export async function handleAdminAI(ctx) {
     if (limited) return limited;
     const adminAiUsageAttemptSummary = await summarizeAdminAiUsageAttempts(env);
     return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport({
+      env,
       adminAiUsageAttemptSummary,
     })), correlationId);
   }
@@ -1616,6 +1653,15 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_TEXT_BUDGET_KILL_SWITCH,
         correlationId,
       });
+      const switchResponse = adminBudgetSwitchResponseOrNull({
+        env,
+        plan: budgetPolicy.plan,
+        correlationId,
+        component: "admin-ai-text",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (switchResponse) return switchResponse;
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_TEXT_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -1751,6 +1797,15 @@ export async function handleAdminAI(ctx) {
           branch,
           correlationId,
         });
+        const switchResponse = adminBudgetSwitchResponseOrNull({
+          env,
+          plan: budgetPolicy.plan,
+          correlationId,
+          component: "admin-ai-image",
+          adminUserId: result.user.id,
+          requestInfo,
+        });
+        if (switchResponse) return switchResponse;
         const callerPolicy = buildAdminAiCallerPolicy({
           operationId: UNMETERED_ADMIN_IMAGE_OPERATION_ID,
           budgetScope: AI_CALLER_POLICY_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
@@ -1798,6 +1853,15 @@ export async function handleAdminAI(ctx) {
         pricing,
         correlationId,
       });
+      const switchResponse = adminBudgetSwitchResponseOrNull({
+        env,
+        plan: budgetPolicy.plan,
+        correlationId,
+        component: "admin-ai-image",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (switchResponse) return switchResponse;
       const scopedIdempotencyKey = `admin-ai-image:${await sha256Hex(stableJson({
         organizationId,
         userId: result.user.id,
@@ -2004,6 +2068,15 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_EMBEDDINGS_BUDGET_KILL_SWITCH,
         correlationId,
       });
+      const switchResponse = adminBudgetSwitchResponseOrNull({
+        env,
+        plan: budgetPolicy.plan,
+        correlationId,
+        component: "admin-ai-embeddings",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (switchResponse) return switchResponse;
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_EMBEDDINGS_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -2120,6 +2193,15 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_MUSIC_BUDGET_KILL_SWITCH,
         correlationId,
       });
+      const switchResponse = adminBudgetSwitchResponseOrNull({
+        env,
+        plan: budgetPolicy.plan,
+        correlationId,
+        component: "admin-ai-music",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (switchResponse) return switchResponse;
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_MUSIC_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -2410,6 +2492,19 @@ export async function handleAdminAI(ctx) {
       return videoJobResponse(job, correlationId, { status: existing ? 200 : 202, existing });
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof AdminPlatformBudgetSwitchError) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "admin-ai-video-jobs",
+          event: "admin_ai_budget_switch_disabled",
+          level: "warn",
+          correlationId,
+          admin_user_id: result.user.id,
+          ...budgetSwitchLogFields(error.fields || {}),
+          ...getRequestLogFields(requestInfo),
+        });
+        return withCorrelationId(budgetSwitchDisabledResponse(error), correlationId);
+      }
       if (error instanceof WorkerConfigError) {
         logWorkerConfigFailure({
           env,
@@ -2505,6 +2600,15 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_COMPARE_BUDGET_KILL_SWITCH,
         correlationId,
       });
+      const switchResponse = adminBudgetSwitchResponseOrNull({
+        env,
+        plan: budgetPolicy.plan,
+        correlationId,
+        component: "admin-ai-compare",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (switchResponse) return switchResponse;
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_COMPARE_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -2620,6 +2724,15 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_LIVE_AGENT_BUDGET_KILL_SWITCH,
         correlationId,
       });
+      const switchResponse = adminBudgetSwitchResponseOrNull({
+        env,
+        plan: budgetPolicy.plan,
+        correlationId,
+        component: "admin-ai-live-agent",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (switchResponse) return switchResponse;
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_LIVE_AGENT_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,

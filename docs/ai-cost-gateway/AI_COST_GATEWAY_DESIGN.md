@@ -2,7 +2,7 @@
 
 Date: 2026-05-16
 
-Status: target design plus Phase 4.14 Admin Image branch classification. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Phase 4.4 adds read-only evidence reporting. Phase 4.5 imports the helper into admin async video job creation and auth queue processing to add sanitized `platform_admin_lab_budget` job/queue metadata and budget-state checks before internal video task create/poll calls. Phase 4.6 imports the helper only into News Pulse visual generation/backfill to add sanitized `openclaw_news_pulse_budget` visual metadata, invalid-policy provider blocking, and status/attempt duplicate suppression. Phase 4.7 adds a service-auth-first internal caller-policy metadata contract and requires it for async video task create/poll while broader internal routes remain baseline-allowed. Phase 4.8 imports the helper only into admin text/embeddings tests to require `Idempotency-Key`, add `platform_admin_lab_budget` metadata, and propagate signed `budget_metadata_only` caller-policy metadata. Phase 4.8.1 adds `admin_ai_usage_attempts` metadata-only duplicate suppression/conflict detection for those same two routes. Phase 4.8.2 adds no migration; it adds bounded non-destructive cleanup, scheduled expiry handling, and admin-only sanitized list/detail inspection for those attempt rows. Phase 4.9 reuses that foundation only for Admin Music. Phase 4.10 reuses it only for Admin Compare. Phase 4.11 audits the current Admin Live-Agent streaming flow. Phase 4.12 imports the helper into Live-Agent runtime code to require request idempotency, create metadata-only stream-session attempts, propagate signed caller-policy metadata to `/internal/ai/live-agent`, and record safe observable stream completion/failure metadata under `platform_admin_lab_budget` and `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET`. Phase 4.13 retires sync video debug from normal provider-cost operations as disabled-by-default/emergency-only. Phase 4.14 classifies Admin Image test branches: charged priced models remain the selected-organization credit path, FLUX.2 Dev is an explicit unmetered admin exception with safe metadata, and unknown/unclassified models block before AI Worker/provider execution. Platform/background AI outside News Pulse visuals remains outside runtime budget enforcement.
+Status: target design plus Phase 4.15 runtime budget kill-switch enforcement. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Phase 4.4 adds read-only evidence reporting. Phase 4.5 imports the helper into admin async video job creation and auth queue processing to add sanitized `platform_admin_lab_budget` job/queue metadata and budget-state checks before internal video task create/poll calls. Phase 4.6 imports the helper only into News Pulse visual generation/backfill to add sanitized `openclaw_news_pulse_budget` visual metadata, invalid-policy provider blocking, and status/attempt duplicate suppression. Phase 4.7 adds a service-auth-first internal caller-policy metadata contract and requires it for async video task create/poll while broader internal routes remain baseline-allowed. Phase 4.8 imports the helper only into admin text/embeddings tests to require `Idempotency-Key`, add `platform_admin_lab_budget` metadata, and propagate signed `budget_metadata_only` caller-policy metadata. Phase 4.8.1 adds `admin_ai_usage_attempts` metadata-only duplicate suppression/conflict detection for those same two routes. Phase 4.8.2 adds bounded non-destructive cleanup, scheduled expiry handling, and admin-only sanitized list/detail inspection for those attempt rows. Phase 4.9 reuses that foundation only for Admin Music. Phase 4.10 reuses it only for Admin Compare. Phase 4.11 audits the current Admin Live-Agent streaming flow. Phase 4.12 imports the helper into Live-Agent runtime code to require request idempotency, create metadata-only stream-session attempts, propagate signed caller-policy metadata to `/internal/ai/live-agent`, and record safe observable stream completion/failure metadata under `platform_admin_lab_budget` and `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET`. Phase 4.13 retires sync video debug from normal provider-cost operations as disabled-by-default/emergency-only. Phase 4.14 classifies Admin Image test branches. Phase 4.15 enforces runtime budget switches before provider/queue/credit/durable-attempt work for already budget-classified admin/platform paths only; it does not add live platform caps or migrate new routes. Platform/background AI outside News Pulse visuals remains outside runtime budget enforcement.
 
 ## Goals
 
@@ -30,17 +30,17 @@ Primary goals:
    - Billing scope is member personal balance, organization balance, admin-unmetered, or platform-internal budget.
    - Phase 4.1 adds a target budget-scope taxonomy for non-member-credit flows: `admin_org_credit_account`, `platform_admin_lab_budget`, `platform_background_budget`, `openclaw_news_pulse_budget`, `internal_ai_worker_caller_enforced`, `explicit_unmetered_admin`, and `external_provider_only`.
    - Phase 4.2 adds pure helper validation and plan classification for those scopes.
-   - Phase 4.3 uses the helper only for charged Admin image-test metadata; it does not enforce a new env kill switch or migrate broad Admin AI.
-   - Phase 4.5 uses the helper only for admin async video jobs; it records `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` as a future kill-switch target but does not enforce a new env flag.
-   - Phase 4.6 uses the helper only for OpenClaw/News Pulse visuals; it records `ENABLE_NEWS_PULSE_VISUAL_BUDGET` as a future kill-switch target but does not enforce a new env flag.
+   - Phase 4.3 uses the helper only for charged Admin image-test metadata; Phase 4.15 now enforces the charged model-specific env switches without migrating broad Admin AI.
+   - Phase 4.5 uses the helper only for admin async video jobs; Phase 4.15 enforces `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` before job row creation and queueing.
+   - Phase 4.6 uses the helper only for OpenClaw/News Pulse visuals; Phase 4.15 enforces `ENABLE_NEWS_PULSE_VISUAL_BUDGET` before provider visual generation/backfill while public reads remain unaffected.
    - Phase 4.7 uses reserved signed JSON body caller-policy metadata (`__bitbi_ai_caller_policy`) for internal Auth Worker -> AI Worker provider-cost calls; it validates and strips the metadata before provider payloads.
-   - Phase 4.8.1 uses the helper only for admin text/embeddings; it records `ENABLE_ADMIN_AI_TEXT_BUDGET` and `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET` as future kill-switch targets, creates metadata-only idempotency attempts, and does not enforce new env flags.
+   - Phase 4.8.1 uses the helper only for admin text/embeddings; Phase 4.15 enforces `ENABLE_ADMIN_AI_TEXT_BUDGET` and `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET` before durable attempts or provider work.
    - Phase 4.8.2 keeps provider and billing behavior unchanged while adding bounded cleanup and sanitized operator inspection for those admin text/embeddings attempts.
-   - Phase 4.9 uses the helper only for Admin Music; it records `ENABLE_ADMIN_AI_MUSIC_BUDGET` as a future kill-switch target, creates metadata-only idempotency attempts, propagates signed caller-policy metadata, and does not enforce a new env flag.
-   - Phase 4.10 uses the helper only for Admin Compare; it records `ENABLE_ADMIN_AI_COMPARE_BUDGET` as a future kill-switch target, creates metadata-only idempotency attempts before multi-model fanout, propagates signed caller-policy metadata, and does not enforce a new env flag.
+   - Phase 4.9 uses the helper only for Admin Music; Phase 4.15 enforces `ENABLE_ADMIN_AI_MUSIC_BUDGET` before durable attempts or provider work.
+   - Phase 4.10 uses the helper only for Admin Compare; Phase 4.15 enforces `ENABLE_ADMIN_AI_COMPARE_BUDGET` before durable attempts or multi-model provider fanout.
    - Phase 4.11 audits Admin Live-Agent only and records the Phase 4.12 target. Phase 4.12 implements that target narrowly for `POST /api/admin/ai/live-agent`: `platform_admin_lab_budget`, `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET` metadata, request-level idempotency, metadata-only stream-session attempts, signed caller-policy propagation, observable stream finalization, and no raw message/output persistence.
    - Phase 4.13 audits and retires sync video debug as disabled-by-default/emergency-only. It does not add budget enforcement because async admin video jobs are the supported budgeted admin video path.
-   - Phase 4.14 resolves Admin Image branch ambiguity: FLUX.2 Dev is the only explicit `explicit_unmetered_admin` admin image exception, charged priced models remain `admin_org_credit_account`, and unclassified Admin Image models are blocked before provider execution.
+   - Phase 4.14 resolves Admin Image branch ambiguity: FLUX.2 Dev is the only explicit `explicit_unmetered_admin` admin image exception, charged priced models remain `admin_org_credit_account`, and unclassified Admin Image models are blocked before provider execution. Phase 4.15 enforces model-specific charged image switches and `ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS` before provider work.
    - Other platform/admin-unmetered operations still need explicit cost telemetry and a budget exception before runtime migration.
 
 3. Resolve model/provider/cost
@@ -374,7 +374,7 @@ Helper contract:
 - Fingerprints are deterministic, omit sensitive fields, and hash prompt-like fields inside the fingerprint payload.
 - Plan statuses are `ready_for_budget_check`, `requires_kill_switch`, `blocked_by_policy`, `caller_enforced`, `explicit_unmetered`, `platform_budget_review`, `admin_org_credit_required`, and `invalid_config`.
 
-Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. Phase 4.4 adds read-only evidence reporting only; it does not add runtime enforcement, migrate routes, call providers, mutate billing, or prove live readiness. Phase 4.5 adds additive migration `0049_add_admin_video_job_budget_metadata.sql` and changes only admin async video job budget metadata/queue checks. Phase 4.6 adds additive migration `0050_add_news_pulse_visual_budget_metadata.sql` and changes only OpenClaw/News Pulse visual budget metadata/status controls. Phase 4.7 adds no schema; it changes only internal caller-policy validation/metadata handling. Phase 4.8 adds no schema; it changes only admin text/embeddings required idempotency, safe budget metadata, and caller-policy propagation. Phase 4.8.1 adds additive migration `0051_add_admin_ai_usage_attempts.sql` and changes only admin text/embeddings durable metadata-only idempotency. Phase 4.8.2 adds no migration and changes only admin text/embeddings attempt operability: admin-only sanitized list/detail, dry-run-default bounded cleanup, and scheduled non-destructive expiry marking for pending/running rows. Phase 4.9 adds no migration and changes only Admin Music required idempotency, safe budget metadata, caller-policy propagation, and metadata-only duplicate suppression. Phase 4.10 adds no migration and changes only Admin Compare required idempotency, safe budget metadata, caller-policy propagation, and metadata-only duplicate provider-fanout suppression. It does not migrate Admin video beyond Phase 4.5, Admin text/embeddings beyond Phase 4.8/4.8.1/4.8.2, Admin Music beyond Phase 4.9, Admin live-agent, OpenClaw/News Pulse beyond Phase 4.6, platform/background AI globally, member/org routes, Stripe, public billing, or live billing.
+Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. Phase 4.4 adds read-only evidence reporting only; it does not add runtime enforcement, migrate routes, call providers, mutate billing, or prove live readiness. Phase 4.5 adds additive migration `0049_add_admin_video_job_budget_metadata.sql` and changes only admin async video job budget metadata/queue checks. Phase 4.6 adds additive migration `0050_add_news_pulse_visual_budget_metadata.sql` and changes only OpenClaw/News Pulse visual budget metadata/status controls. Phase 4.7 adds no schema; it changes only internal caller-policy validation/metadata handling. Phase 4.8 adds no schema; it changes only admin text/embeddings required idempotency, safe budget metadata, and caller-policy propagation. Phase 4.8.1 adds additive migration `0051_add_admin_ai_usage_attempts.sql` and changes only admin text/embeddings durable metadata-only idempotency. Phase 4.8.2 adds no migration and changes only admin text/embeddings attempt operability: admin-only sanitized list/detail, dry-run-default bounded cleanup, and scheduled non-destructive expiry marking for pending/running rows. Phase 4.9 adds no migration and changes only Admin Music required idempotency, safe budget metadata, caller-policy propagation, and metadata-only duplicate suppression. Phase 4.10 adds no migration and changes only Admin Compare required idempotency, safe budget metadata, caller-policy propagation, and metadata-only duplicate provider-fanout suppression. Phase 4.11 audits Live-Agent only, Phase 4.12 migrates Live-Agent narrowly, Phase 4.13 retires sync video debug as disabled-by-default, Phase 4.14 classifies Admin Image branches, and Phase 4.15 enforces runtime budget switches for already budget-classified admin/platform paths before provider/queue/credit/durable-attempt work. Phase 4.15 does not add live platform budget caps, migrate new provider-cost routes, mutate member/org billing behavior, call Stripe, or prove live billing readiness.
 
 ## Phase 4.5 Admin Async Video Job Budget Enforcement
 
@@ -384,7 +384,7 @@ Implemented behavior:
 
 - requires the existing `Idempotency-Key` for job creation and preserves same-key replay/conflict behavior
 - builds a Phase 4.2 budget plan with scope `platform_admin_lab_budget` before inserting or queueing a new job
-- stores sanitized budget metadata on the job row: operation id, actor/admin id, actor class, budget scope, owner domain, provider family, model resolver key, estimated credits when available, idempotency policy, plan status, future kill-switch target, and fingerprint
+- stores sanitized budget metadata on the job row: operation id, actor/admin id, actor class, budget scope, owner domain, provider family, model resolver key, estimated credits when available, idempotency policy, plan status, runtime switch target, and fingerprint
 - includes a bounded budget summary in `AI_VIDEO_JOBS_QUEUE` messages without prompts, provider request bodies, tokens, cookies, Stripe data, Cloudflare tokens, or raw R2 keys
 - verifies job budget metadata before the queue consumer calls `/internal/ai/video-task/create` or `/internal/ai/video-task/poll`
 - suppresses duplicate provider task creation after a prior unresolved create attempt with no provider task id
@@ -392,7 +392,7 @@ Implemented behavior:
 
 Limits:
 
-- `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` is metadata only in this phase; runtime env enforcement and live platform budget caps remain future work.
+- Phase 4.15 enforces `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` before job row creation/queueing; live platform budget caps remain future work.
 - Internal AI Worker service-auth remains the first gate. Phase 4.7 adds caller-policy validation after service-auth and before provider route handling for async video task create/poll; broader internal routes are still baseline-allowed.
 - No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, and production/live billing remains blocked.
 
@@ -413,7 +413,7 @@ Implemented behavior:
 Limits:
 
 - Phase 4.7 does not add a new migration, live budget caps, credit debits, credit clawbacks, Stripe calls, real provider calls in tests, Admin UI, or production/live billing readiness.
-- Sync video debug is retired/disabled-by-default by Phase 4.13 and tracked as a retired debug path rather than a normal baseline gap. Admin Image branches are classified by Phase 4.14: charged priced models are covered by the selected-organization path, FLUX.2 Dev is an explicit unmetered admin exception, and unclassified models block before provider execution. Platform/background AI outside News Pulse visuals and broader internal routes remain tracked baseline gaps. Admin Live-Agent is covered only by Phase 4.12 metadata-only stream-session enforcement; runtime env kill-switch enforcement, full stream replay, and live platform caps remain future work.
+- Sync video debug is retired/disabled-by-default by Phase 4.13 and tracked as a retired debug path rather than a normal baseline gap. Admin Image branches are classified by Phase 4.14: charged priced models are covered by the selected-organization path, FLUX.2 Dev is an explicit unmetered admin exception, and unclassified models block before provider execution. Phase 4.15 adds runtime switch enforcement for already budget-classified admin/platform paths. Platform/background AI outside News Pulse visuals and broader internal routes remain tracked baseline gaps. Full stream/result replay and live platform caps remain future work.
 
 ## Phase 4.8 Admin Text / Embeddings Budget Enforcement
 
@@ -423,16 +423,16 @@ Implemented behavior:
 
 - both routes remain admin-only and require a valid `Idempotency-Key`
 - both routes build a Phase 4.2 `platform_admin_lab_budget` plan before proxying to the AI Worker
-- sanitized admin responses include `budget_policy` and `caller_policy` summaries with operation id, budget scope, provider family/model, plan status, safe fingerprint, and future kill-switch target
+- sanitized admin responses include `budget_policy` and `caller_policy` summaries with operation id, budget scope, provider family/model, plan status, safe fingerprint, and runtime switch target
 - Auth Worker proxy bodies include signed `__bitbi_ai_caller_policy` metadata with `budget_metadata_only` status
 - AI Worker service-auth remains first, supplied caller-policy metadata is validated, and the reserved key is stripped before provider payload construction
 - raw prompt/input, provider request bodies, auth headers, cookies, Stripe data, Cloudflare tokens, private keys, and R2 keys are not included in budget/caller metadata
 
 Limits:
 
-- `ENABLE_ADMIN_AI_TEXT_BUDGET` and `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET` are metadata-only targets in this phase.
+- Phase 4.15 enforces `ENABLE_ADMIN_AI_TEXT_BUDGET` and `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET` before durable attempt creation or internal AI Worker/provider work.
 - Phase 4.8.1 supersedes the original Phase 4.8 duplicate-suppression gap with durable metadata-only attempt rows. Full result replay is still not claimed.
-- No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, and production/live billing remains blocked.
+- No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, no live platform budget caps are enforced, and production/live billing remains blocked.
 
 ## Phase 4.8.1 Admin Text / Embeddings Durable Idempotency
 
@@ -450,7 +450,7 @@ Implemented behavior:
 Limits:
 
 - full generated text replay and embedding-vector replay are intentionally not implemented.
-- runtime env kill-switch enforcement, live platform budget caps, credit debits, Stripe calls, Admin live-agent migration, and production/live billing readiness remain future work.
+- live platform budget caps, credit debits, Stripe calls, unrelated Admin AI migration, and production/live billing readiness remain future work.
 
 ## Phase 4.8.2 Admin AI Usage Attempts Cleanup And Inspection
 
@@ -489,7 +489,7 @@ Implemented behavior:
 
 - builds a Phase 4.2 budget plan with scope `openclaw_news_pulse_budget` before the direct FLUX visual provider call
 - records operation ids `platform.news_pulse.visual.ingest` and `platform.news_pulse.visual.scheduled` for ingest-triggered and scheduled paths
-- stores sanitized visual budget metadata on `news_pulse_items`: operation id, actor class/id, budget scope, owner domain, provider family, model resolver key, idempotency policy, plan status, future kill-switch target, fingerprint, trigger, item id, locale, content hash, attempt count, and safe runtime status
+- stores sanitized visual budget metadata on `news_pulse_items`: operation id, actor class/id, budget scope, owner domain, provider family, model resolver key, idempotency policy, plan status, runtime switch target, fingerprint, trigger, item id, locale, content hash, attempt count, and safe runtime status
 - blocks provider execution when budget policy config is invalid
 - preserves existing ready/pending/status/attempt duplicate suppression so ready visuals and active attempts do not call the provider again
 - keeps public News Pulse read routes compatible; visuals fall back safely when unavailable
@@ -497,7 +497,7 @@ Implemented behavior:
 
 Limits:
 
-- `ENABLE_NEWS_PULSE_VISUAL_BUDGET` is metadata only in this phase; runtime env enforcement and live platform budget caps remain future work.
+- Phase 4.15 enforces `ENABLE_NEWS_PULSE_VISUAL_BUDGET` before visual provider generation/backfill; live platform budget caps remain future work.
 - Signed OpenClaw ingest authorization, public read route behavior, and internal AI Worker service-auth semantics are unchanged.
 - Broad platform/background AI outside this domain remains unmigrated.
 - No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, and production/live billing remains blocked.
@@ -513,7 +513,7 @@ Implemented behavior:
 - creates an `admin_org_credit_account` budget policy plan through `classifyAdminPlatformBudgetPlan`
 - computes a deterministic budget policy fingerprint through `buildAdminPlatformBudgetFingerprint`, hashing prompt-like fields and excluding organization aliases
 - records safe `budget_policy` metadata in the Admin AI response, `usage_events.metadata_json`, and `ai_usage_attempts.metadata_json`
-- records future kill-switch target metadata such as `ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET` for BFL models without reading or enforcing a new env flag in this phase
+- records kill-switch target metadata such as `ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET` for BFL models; Phase 4.15 enforces the relevant model-specific switch before provider work or credit debit
 - preserves no charge on provider failure, exactly-once debit on provider success, conflict handling for same-key/different-body retries, and metadata-only duplicate-completed replay
 
 Safe metadata can include policy version, operation id, actor user id, actor role/class, budget scope, owner domain, provider family, model id, estimated credits, idempotency policy, plan status, required next action, kill-switch flag name, correlation id, and the budget fingerprint. It must not include raw prompts, provider request bodies, cookies, auth headers, tokens, Stripe data, Cloudflare tokens, secrets, or internal R2 keys.

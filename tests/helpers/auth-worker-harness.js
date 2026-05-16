@@ -8395,6 +8395,7 @@ function createAuthTestEnv(seed = {}) {
             counters: seed.publicRateLimitCounters,
             failWith: seed.publicRateLimiterFailWith,
           }));
+  const budgetFlag = (name) => Object.prototype.hasOwnProperty.call(seed, name) ? seed[name] : 'true';
   return {
     APP_BASE_URL: 'https://bitbi.ai',
     BITBI_ENV: seed.BITBI_ENV || 'test',
@@ -8414,6 +8415,16 @@ function createAuthTestEnv(seed = {}) {
       ? 'test-billing-webhook-secret-v1-32chars'
       : seed.BILLING_WEBHOOK_TEST_SECRET,
     ENABLE_ADMIN_STRIPE_TEST_CHECKOUT: seed.ENABLE_ADMIN_STRIPE_TEST_CHECKOUT,
+    ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: budgetFlag('ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET'),
+    ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET: budgetFlag('ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET'),
+    ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS: budgetFlag('ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS'),
+    ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET: budgetFlag('ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET'),
+    ENABLE_NEWS_PULSE_VISUAL_BUDGET: budgetFlag('ENABLE_NEWS_PULSE_VISUAL_BUDGET'),
+    ENABLE_ADMIN_AI_TEXT_BUDGET: budgetFlag('ENABLE_ADMIN_AI_TEXT_BUDGET'),
+    ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET: budgetFlag('ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET'),
+    ENABLE_ADMIN_AI_MUSIC_BUDGET: budgetFlag('ENABLE_ADMIN_AI_MUSIC_BUDGET'),
+    ENABLE_ADMIN_AI_COMPARE_BUDGET: budgetFlag('ENABLE_ADMIN_AI_COMPARE_BUDGET'),
+    ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET: budgetFlag('ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET'),
     STRIPE_MODE: seed.STRIPE_MODE,
     STRIPE_SECRET_KEY: seed.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: seed.STRIPE_WEBHOOK_SECRET,

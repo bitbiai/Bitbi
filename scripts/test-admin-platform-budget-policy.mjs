@@ -11,6 +11,15 @@ import {
   normalizeAdminPlatformBudgetOperation,
   validateAdminPlatformKillSwitchConfig,
 } from "../workers/auth/src/lib/admin-platform-budget-policy.js";
+import {
+  AdminPlatformBudgetSwitchError,
+  assertBudgetSwitchEnabled,
+  budgetSwitchDisabledResponse,
+  budgetSwitchLogFields,
+  getBudgetSwitchState,
+  isBudgetSwitchEnabled,
+  normalizeBudgetSwitchValue,
+} from "../workers/auth/src/lib/admin-platform-budget-switches.js";
 
 function killSwitch(scope, overrides = {}) {
   return {
@@ -279,6 +288,50 @@ assert.throws(
     globalThis.fetch = originalFetch;
   }
   assert.equal(fetchCalls, 0);
+}
+
+{
+  for (const value of ["1", "true", "TRUE", "yes", "on", true, 1]) {
+    assert.equal(normalizeBudgetSwitchValue(value), true);
+  }
+  for (const value of [undefined, null, "", "0", "false", "FALSE", "no", "off", false, 0, "unexpected"]) {
+    assert.equal(normalizeBudgetSwitchValue(value), false);
+  }
+  assert.equal(isBudgetSwitchEnabled({ ENABLE_ADMIN_AI_TEXT_BUDGET: "yes" }, "ENABLE_ADMIN_AI_TEXT_BUDGET"), true);
+  assert.equal(isBudgetSwitchEnabled({}, "ENABLE_ADMIN_AI_TEXT_BUDGET"), false);
+  assert.equal(getBudgetSwitchState({ ENABLE_ADMIN_AI_TEXT_BUDGET: "on" }, "ENABLE_ADMIN_AI_TEXT_BUDGET").enabled, true);
+}
+
+{
+  const plan = classifyAdminPlatformBudgetPlan(operation({
+    killSwitchPolicy: killSwitch(ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+      flagName: "ENABLE_ADMIN_AI_TEXT_BUDGET",
+    }),
+  }));
+  assert.doesNotThrow(() => assertBudgetSwitchEnabled({ ENABLE_ADMIN_AI_TEXT_BUDGET: "true" }, plan));
+  assert.throws(
+    () => assertBudgetSwitchEnabled({ ENABLE_ADMIN_AI_TEXT_BUDGET: "off" }, plan),
+    AdminPlatformBudgetSwitchError
+  );
+  const fields = budgetSwitchLogFields(plan);
+  assert.equal(fields.budget_switch_flag, "ENABLE_ADMIN_AI_TEXT_BUDGET");
+  const serializedFields = JSON.stringify(fields);
+  assert(!serializedFields.includes("secret"));
+  assert(!serializedFields.includes("Cookie"));
+  assert(!serializedFields.includes("Authorization"));
+  const disabled = budgetSwitchDisabledResponse(new AdminPlatformBudgetSwitchError("disabled", {
+    fields: {
+      flagName: "ENABLE_ADMIN_AI_TEXT_BUDGET",
+      operationId: "admin.text.test",
+      budgetScope: "platform_admin_lab_budget",
+      ownerDomain: "admin-ai",
+    },
+  }));
+  assert.equal(disabled.status, 503);
+  const body = await disabled.json();
+  assert.equal(body.code, "admin_ai_budget_disabled");
+  assert.equal(body.flag, "ENABLE_ADMIN_AI_TEXT_BUDGET");
+  assert(!JSON.stringify(body).includes("secret"));
 }
 
 console.log("Admin/platform budget policy tests passed.");

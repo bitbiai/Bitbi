@@ -1,6 +1,6 @@
 # Admin Live-Agent Budget Flow Audit
 
-Status: Phase 4.11 completed the audit/design/prep work. Phase 4.12 implements the narrow Admin Live-Agent budget enforcement path only: `POST /api/admin/ai/live-agent` now requires `Idempotency-Key`, creates a durable metadata-only stream-session attempt in `admin_ai_usage_attempts`, propagates signed caller-policy metadata to `/internal/ai/live-agent`, and finalizes observable stream completion/failure without storing raw messages or streamed output. No real provider calls were made by Codex/tests, no Stripe calls were made, no live billing was enabled, and production/live billing remains BLOCKED.
+Status: Phase 4.11 completed the audit/design/prep work. Phase 4.12 implements the narrow Admin Live-Agent budget enforcement path only: `POST /api/admin/ai/live-agent` now requires `Idempotency-Key`, creates a durable metadata-only stream-session attempt in `admin_ai_usage_attempts`, propagates signed caller-policy metadata to `/internal/ai/live-agent`, and finalizes observable stream completion/failure without storing raw messages or streamed output. Phase 4.15 enforces `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET` before durable-attempt or stream/internal AI/provider work. No real provider calls were made by Codex/tests, no Stripe calls were made, no live billing was enabled, and production/live billing remains BLOCKED.
 
 ## Current Flow
 
@@ -13,7 +13,7 @@ Current Auth Worker route:
 - CSRF/body/rate-limit classification: same-origin JSON route, `adminJson` body limit, fail-closed shared limiter scope `admin-ai-liveagent-ip`.
 - Runtime limiter in handler: 20 requests per 600 seconds per IP.
 - Current idempotency: Phase 4.12 requires `Idempotency-Key`, hashes the key, builds a stable request fingerprint from safe message counts/lengths/content hashes, and creates a metadata-only parent stream-session attempt before proxying to the AI Worker.
-- Current budget behavior: Phase 4.12 builds a `platform_admin_lab_budget` plan with operation id `admin.live_agent` and future kill-switch target `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET`. It does not debit credits, enforce a runtime env kill switch, or enforce live platform budget caps.
+- Current budget behavior: Phase 4.12 builds a `platform_admin_lab_budget` plan with operation id `admin.live_agent` and kill-switch target `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET`. Phase 4.15 enforces that runtime switch before durable-attempt or stream/internal AI/provider work. It does not debit credits or enforce live platform budget caps.
 
 Current request shape:
 - Body contains `messages`.
@@ -148,7 +148,7 @@ Phase 4.12 tests cover:
 - No D1 migration.
 - No full stream-output replay.
 - No raw message, prompt, provider request body, or provider response body storage.
-- No runtime env kill-switch enforcement or live platform budget cap.
+- Phase 4.15 later adds runtime switch enforcement for this implemented path; no live platform budget cap is enforced.
 - No sync video debug migration.
 - No Admin Image branch migration in Phase 4.12; Phase 4.14 later classifies Admin Image branches separately.
 - No Admin Text/Embeddings, Admin Music, Admin Compare, Admin Video Jobs, OpenClaw/News Pulse, member route, org-scoped route, public pricing, credit debit, or billing behavior change.

@@ -4,6 +4,11 @@ import {
   buildAdminPlatformBudgetFingerprint,
   classifyAdminPlatformBudgetPlan,
 } from "./admin-platform-budget-policy.js";
+import {
+  AdminPlatformBudgetSwitchError,
+  assertBudgetSwitchEnabled,
+  budgetSwitchLogFields,
+} from "./admin-platform-budget-switches.js";
 import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 
 export const NEWS_PULSE_VISUAL_MODEL_ID = "@cf/black-forest-labs/flux-1-schnell";
@@ -326,7 +331,7 @@ function newsPulseBudgetOperation({
       disabledBehavior: "skip_provider_call",
       operatorCanOverride: false,
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
-      notes: "Future runtime kill-switch target only in Phase 4.6; row metadata and visual status guards are the active controls.",
+      notes: "Phase 4.15 enforces this runtime budget switch before News Pulse visual provider generation.",
     },
     budgetLimitPolicy: {
       mode: "metadata_only",
@@ -372,7 +377,7 @@ function compactNewsPulseVisualBudgetPolicy(plan, fingerprint, {
     kill_switch_default_state: plan.killSwitchPolicy?.defaultState || "disabled",
     kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? true,
     runtime_budget_limit_enforced: false,
-    runtime_env_kill_switch_enforced: false,
+    runtime_env_kill_switch_enforced: true,
     credit_debit: false,
     trigger,
     visual: {
@@ -391,7 +396,7 @@ function compactNewsPulseVisualBudgetPolicy(plan, fingerprint, {
     audit_fields: plan.auditFields || null,
     limitations: [
       "Phase 4.6 records caller-side metadata and validates policy before provider calls.",
-      "Runtime env kill-switch enforcement and live platform budget caps remain future work.",
+      "Phase 4.15 enforces the runtime env kill-switch before provider calls; live platform budget caps remain future work.",
     ],
   };
 }
@@ -675,6 +680,32 @@ async function generateNewsPulseVisualForItem(env, item, {
         plan_status: budgetPolicy.plan_status,
       });
       return { status: "failed", reason: "budget_policy_invalid" };
+    }
+    try {
+      assertBudgetSwitchEnabled(env, budgetContext.plan);
+    } catch (error) {
+      if (!(error instanceof AdminPlatformBudgetSwitchError)) throw error;
+      const skippedPolicy = withBudgetRuntimeStatus(budgetPolicy, {
+        status: "skipped_by_budget_switch",
+        reason: "budget_switch_disabled",
+        now,
+      });
+      await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, { policy: skippedPolicy, now });
+      await markNewsPulseVisualSkipped(env, item, { reason: "budget_switch_disabled", now });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: COMPONENT,
+        event: "news_pulse_visual_budget_switch_disabled",
+        level: "warn",
+        correlationId,
+        item_id: item.id,
+        ...budgetSwitchLogFields(error.fields || budgetContext.plan),
+      });
+      return {
+        status: "skipped",
+        reason: "budget_switch_disabled",
+        flag: error.fields?.flagName || NEWS_PULSE_VISUAL_BUDGET_KILL_SWITCH,
+      };
     }
   } catch (error) {
     await markNewsPulseVisualFailed(env, item, {

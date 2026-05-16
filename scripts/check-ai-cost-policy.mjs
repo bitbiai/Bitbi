@@ -27,6 +27,18 @@ const MIGRATED_MEMBER_OPERATION_IDS = Object.freeze([
   "member.music.generate",
   "member.video.generate",
 ]);
+const RUNTIME_BUDGET_SWITCH_OPERATION_IDS = Object.freeze([
+  "admin.image.test.charged",
+  "admin.image.test.unmetered",
+  "admin.video.job.create",
+  "platform.news_pulse.visual.ingest",
+  "platform.news_pulse.visual.scheduled",
+  "admin.text.test",
+  "admin.embeddings.test",
+  "admin.music.test",
+  "admin.compare",
+  "admin.live_agent",
+]);
 
 const PROVIDER_CALL_PATTERNS = Object.freeze([
   "env.AI.run",
@@ -392,6 +404,30 @@ function validateMigratedMemberGatewayCoverage({ routePolicyText, registryEntrie
   return issues;
 }
 
+function validateRuntimeBudgetSwitchCoverage(registryEntries) {
+  const issues = [];
+  const entriesById = new Map(registryEntries.map((entry) => [
+    entry.operationConfig?.operationId,
+    entry,
+  ]));
+  for (const operationId of RUNTIME_BUDGET_SWITCH_OPERATION_IDS) {
+    const entry = entriesById.get(operationId);
+    if (!entry) {
+      issues.push(`${operationId}: missing runtime budget switch registry entry.`);
+      continue;
+    }
+    const killSwitch = entry.budgetPolicy?.killSwitchTarget || entry.budgetPolicy?.targetEnforcement?.killSwitch;
+    if (!killSwitch || typeof killSwitch !== "string" || killSwitch.includes("metadata target")) {
+      issues.push(`${operationId}: runtime budget switch coverage requires a concrete runtime killSwitchTarget.`);
+    }
+    const runtimeSwitch = entry.budgetPolicy?.targetEnforcement?.runtimeKillSwitch;
+    if (runtimeSwitch !== "implemented" && !String(killSwitch || "").includes("runtime_enforced")) {
+      issues.push(`${operationId}: budgetPolicy must mark runtime kill-switch enforcement as implemented.`);
+    }
+  }
+  return issues;
+}
+
 export function analyzeAiCostPolicy(repoRoot, options = {}) {
   const strict = options.strict === true;
   const fatalIssues = [];
@@ -509,6 +545,9 @@ export function analyzeAiCostPolicy(repoRoot, options = {}) {
     : [];
   for (const issue of memberGatewayIssues) {
     fatalIssues.push(`Member gateway enforcement issue: ${issue}`);
+  }
+  for (const issue of validateRuntimeBudgetSwitchCoverage(registryEntries)) {
+    fatalIssues.push(`Runtime budget switch coverage issue: ${issue}`);
   }
   for (const gap of unknownPolicyGaps) {
     fatalIssues.push(`Unbaselined AI cost policy gap: ${gap.route} (${gap.path}).`);
@@ -738,9 +777,10 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
     "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
     "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay/live budget caps remain future work.",
-    "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; explicit output-token/duration caps, runtime env kill-switch enforcement, and live platform budget caps remain future work.",
+    "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; explicit output-token/duration caps and live platform budget caps remain future work.",
     "- Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path.",
     "- Phase 4.14 classifies Admin Image branches: charged priced models remain admin_org_credit_account-covered, FLUX.2 Dev is explicit_unmetered_admin with safe budget/caller-policy metadata, and unclassified Admin Image models are blocked before provider calls.",
+    "- Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost paths; missing or false switches block before provider, queue, credit, or durable-attempt work where applicable.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -809,7 +849,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.15 should address runtime budget kill-switch enforcement and live platform budget caps without changing member/org billing behavior or broad platform/background AI.",
+    "- Phase 4.16 should address live platform budget cap design/enforcement without changing member/org billing behavior or broad platform/background AI.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

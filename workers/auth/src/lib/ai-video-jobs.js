@@ -22,6 +22,10 @@ import {
   buildAdminPlatformBudgetFingerprint,
   classifyAdminPlatformBudgetPlan,
 } from "./admin-platform-budget-policy.js";
+import {
+  assertBudgetSwitchEnabled,
+  budgetSwitchLogFields,
+} from "./admin-platform-budget-switches.js";
 import { proxyToAiLab } from "./admin-ai-proxy.js";
 import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
@@ -221,7 +225,7 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
       disabledBehavior: "fail_closed",
       operatorCanOverride: false,
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-      notes: "Future runtime kill-switch target only in Phase 4.5; job metadata and idempotency are the active controls.",
+      notes: "Phase 4.15 enforces this runtime budget switch before admin async video jobs are queued.",
     },
     budgetLimitPolicy: {
       mode: "metadata_only",
@@ -253,6 +257,7 @@ function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso()
     kill_switch_flag_name: plan.killSwitchPolicy?.flagName || null,
     kill_switch_default_state: plan.killSwitchPolicy?.defaultState || null,
     kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? null,
+    runtime_env_kill_switch_enforced: true,
     runtime_budget_limit_enforced: false,
     credit_debit: false,
     reservation: {
@@ -351,6 +356,7 @@ function safeBudgetPolicyForResponse(value) {
     kill_switch_flag_name: policy.kill_switch_flag_name || null,
     kill_switch_default_state: policy.kill_switch_default_state || null,
     kill_switch_required_for_provider_call: policy.kill_switch_required_for_provider_call ?? null,
+    runtime_env_kill_switch_enforced: policy.runtime_env_kill_switch_enforced === true,
     runtime_budget_limit_enforced: policy.runtime_budget_limit_enforced === true,
     credit_debit: policy.credit_debit === true,
     reservation: policy.reservation && typeof policy.reservation === "object" ? {
@@ -379,6 +385,7 @@ function queueBudgetPolicySummary(job) {
     budget_scope: policy.budget_scope,
     plan_status: policy.plan_status,
     kill_switch_flag_name: policy.kill_switch_flag_name,
+    runtime_env_kill_switch_enforced: policy.runtime_env_kill_switch_enforced === true,
     runtime_budget_limit_enforced: false,
     credit_debit: false,
     fingerprint: policy.fingerprint,
@@ -769,6 +776,7 @@ export async function createAdminAiVideoJob({
     createdAt: now,
     operationOverride: budgetOperationOverride,
   });
+  assertBudgetSwitchEnabled(env, budgetPolicy.plan);
   const budgetPolicySummary = budgetPolicy.summary;
   const job = {
     id: `vidjob_${randomTokenHex(16)}`,
@@ -832,6 +840,7 @@ export async function createAdminAiVideoJob({
     budget_scope: budgetPolicySummary.budget_scope,
     budget_policy_status: budgetPolicySummary.plan_status,
     budget_policy_fingerprint: budgetPolicySummary.fingerprint,
+    ...budgetSwitchLogFields(budgetPolicy.plan),
   });
 
   logDiagnostic({

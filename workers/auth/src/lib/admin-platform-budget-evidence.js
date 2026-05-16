@@ -8,6 +8,7 @@ import {
   ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
   listAdminImageTestBranchClassifications,
 } from "./admin-ai-image-credit-pricing.js";
+import { getBudgetSwitchState } from "./admin-platform-budget-switches.js";
 import { AI_CALLER_POLICY_BODY_KEY } from "../../../shared/ai-caller-policy.mjs";
 
 export const ADMIN_PLATFORM_BUDGET_EVIDENCE_VERSION = "admin-platform-budget-evidence-v1";
@@ -52,6 +53,68 @@ const INTERNAL_CALLER_POLICY_GUARD_OPERATION_IDS = Object.freeze([
   "admin.video.task.poll",
   "internal.video_task.create",
   "internal.video_task.poll",
+]);
+const RUNTIME_BUDGET_SWITCH_TARGETS = Object.freeze([
+  {
+    flagName: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET",
+    routePath: "/api/admin/ai/test-image",
+    operationIds: ["admin.image.test.charged"],
+    domain: "charged Admin BFL image tests",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET",
+    routePath: "/api/admin/ai/test-image",
+    operationIds: ["admin.image.test.charged"],
+    domain: "charged Admin GPT Image 2 image tests",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS",
+    routePath: "/api/admin/ai/test-image",
+    operationIds: ["admin.image.test.unmetered"],
+    domain: "explicit unmetered Admin FLUX.2 Dev image tests",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET",
+    routePath: "/api/admin/ai/video-jobs",
+    operationIds: ["admin.video.job.create"],
+    domain: "admin async video jobs",
+  },
+  {
+    flagName: "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
+    routePath: "/api/openclaw/news-pulse/ingest and scheduled News Pulse visual backfill",
+    operationIds: [...NEWS_PULSE_VISUAL_OPERATION_IDS],
+    domain: "OpenClaw / News Pulse visual generation",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_TEXT_BUDGET",
+    routePath: "/api/admin/ai/test-text",
+    operationIds: ["admin.text.test"],
+    domain: "Admin Text test route",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET",
+    routePath: "/api/admin/ai/test-embeddings",
+    operationIds: ["admin.embeddings.test"],
+    domain: "Admin Embeddings test route",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_MUSIC_BUDGET",
+    routePath: "/api/admin/ai/test-music",
+    operationIds: ["admin.music.test"],
+    domain: "Admin Music test route",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_COMPARE_BUDGET",
+    routePath: "/api/admin/ai/compare",
+    operationIds: ["admin.compare"],
+    domain: "Admin Compare route",
+  },
+  {
+    flagName: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET",
+    routePath: "/api/admin/ai/live-agent",
+    operationIds: ["admin.live_agent"],
+    domain: "Admin Live-Agent route",
+  },
 ]);
 
 const DEFAULT_LIMITS = Object.freeze({
@@ -249,7 +312,7 @@ function implementedAdminImageEvidence(entry, routeIndex) {
     type: "implemented_admin_budget_operation",
     runtimeStatus: "implemented_hardened",
     idempotencyTarget: "required selected-organization scoped idempotency key",
-    killSwitchTarget: "model-specific charged image metadata target",
+    killSwitchTarget: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET",
     modelClass: "priced Admin image tests (BFL FLUX and GPT Image 2)",
     metadataFieldsExpected: [
       "budget_policy_version",
@@ -270,7 +333,7 @@ function implementedAdminImageEvidence(entry, routeIndex) {
       "audit_fields",
     ],
     remainingLimitations: [
-      "Runtime kill-switch target is metadata only for charged Admin Image tests.",
+      "Phase 4.15 enforces the charged Admin Image runtime budget switch before provider calls and credit debits; live platform budget caps remain future work.",
       "Generated image result is not replayed for completed same-key admin image tests.",
       "FLUX.2 Dev remains a separate explicit_unmetered_admin exception rather than a charged provider-cost path.",
     ],
@@ -322,7 +385,7 @@ function adminImageBranchClassificationEvidence(entry, routeIndex) {
     },
     remainingLimitations: [
       "Explicit unmetered FLUX.2 Dev remains an admin lab exception with metadata only, no durable idempotency, no credit debit, and no live platform budget cap.",
-      "Runtime env kill-switch enforcement for explicit unmetered admin image tests remains future work.",
+      "Phase 4.15 enforces ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS before provider execution.",
     ],
   };
 }
@@ -360,7 +423,7 @@ function implementedAdminVideoJobEvidence(entry, routeIndex) {
       "audit_fields",
     ],
     remainingLimitations: [
-      "Runtime env kill-switch enforcement remains future work.",
+      "Phase 4.15 enforces ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET before job creation/queueing.",
       "No live platform budget cap or credit debit is performed.",
       "Internal AI Worker routes are not globally migrated; admin video task create/poll are caller-enforced through the auth job budget state.",
     ],
@@ -429,12 +492,12 @@ function implementedAdminLabDurableEvidence(entry, routeIndex) {
     ].filter(Boolean),
     remainingLimitations: [
       isMusic
-        ? "Runtime env kill-switch enforcement is metadata only in Phase 4.9."
+        ? "Phase 4.15 enforces ENABLE_ADMIN_AI_MUSIC_BUDGET before durable attempts or provider calls."
         : isCompare
-          ? "Runtime env kill-switch enforcement is metadata only in Phase 4.10."
+          ? "Phase 4.15 enforces ENABLE_ADMIN_AI_COMPARE_BUDGET before durable attempts or provider calls."
           : isLiveAgent
-            ? "Runtime env kill-switch enforcement is metadata only in Phase 4.12."
-          : "Runtime env kill-switch enforcement is metadata only in Phase 4.8.1.",
+            ? "Phase 4.15 enforces ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET before durable attempts or provider streams."
+          : `Phase 4.15 enforces ${isEmbeddings ? "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET" : "ENABLE_ADMIN_AI_TEXT_BUDGET"} before durable attempts or provider calls.`,
       isLiveAgent
         ? "Full stream replay is intentionally unavailable; duplicate completed requests return metadata-only replay without streamed output, raw messages, provider request bodies, or provider response bodies."
         : "Full result replay is intentionally unavailable; duplicate completed requests return metadata-only replay without generated text, embedding vectors, audio, lyrics, compare results, or provider response bodies.",
@@ -485,7 +548,7 @@ function implementedNewsPulseVisualEvidence(entry, routeIndex) {
       "same deterministic item/content hash preserves ready visuals on duplicate ingest",
     ],
     remainingLimitations: [
-      "Runtime env kill-switch enforcement is metadata only in Phase 4.6.",
+      "Phase 4.15 enforces ENABLE_NEWS_PULSE_VISUAL_BUDGET before News Pulse visual provider calls.",
       "Live daily/monthly platform budget caps remain future work.",
       operation === "platform.news_pulse.visual.ingest"
         ? "Signed OpenClaw ingest remains separate from public read routes."
@@ -716,6 +779,39 @@ function adminAiUsageAttemptOperationalEvidence(summary = null, routeIndex) {
   };
 }
 
+function runtimeBudgetSwitchEvidence(env = null) {
+  const hasEnv = env && typeof env === "object";
+  const targets = RUNTIME_BUDGET_SWITCH_TARGETS.map((target) => {
+    const state = hasEnv ? getBudgetSwitchState(env, target.flagName) : {
+      flagName: target.flagName,
+      configured: null,
+      enabled: null,
+    };
+    return {
+      ...target,
+      defaultState: "disabled",
+      requiredForProviderCall: true,
+      configured: state.configured,
+      enabled: state.enabled,
+      exposesSecretValue: false,
+    };
+  });
+  return {
+    type: "runtime_budget_kill_switch_enforcement",
+    phase: "Phase 4.15",
+    defaultDisabled: true,
+    acceptedTrueValues: ["1", "true", "yes", "on"],
+    acceptedFalseValues: ["absent", "empty", "0", "false", "no", "off", "unrecognized"],
+    providerCostWorkBlockedWhenDisabled: true,
+    liveBudgetCapsEnforced: false,
+    envStateAvailable: hasEnv,
+    targetCount: targets.length,
+    enabledCount: hasEnv ? targets.filter((target) => target.enabled === true).length : null,
+    disabledCount: hasEnv ? targets.filter((target) => target.enabled !== true).length : null,
+    targets,
+  };
+}
+
 export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   const limits = normalizeLimits(options.limits);
   const generatedAt = options.generatedAt || new Date().toISOString();
@@ -793,6 +889,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     ...implementedOperations,
     ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
     adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
+    runtimeBudgetSwitchEvidence(options.env),
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
       ...gap,
@@ -802,6 +899,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     entriesById.get(UNMETERED_ADMIN_IMAGE_OPERATION_ID) || entriesById.get(HARDENED_ADMIN_OPERATION_ID),
     routeIndex
   );
+  const runtimeSwitches = runtimeBudgetSwitchEvidence(options.env);
 
   const report = {
     ok: true,
@@ -826,12 +924,16 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       adminImageChargedBranches: adminImageBranches.counts.chargedAdminOrgCredit,
       adminImageExplicitUnmeteredBranches: adminImageBranches.counts.explicitUnmeteredAdmin,
       adminImageBlockedUnsupportedGuards: adminImageBranches.counts.blockedUnsupportedGuard,
+      runtimeBudgetSwitchTargets: runtimeSwitches.targetCount,
+      runtimeBudgetSwitchesEnabled: runtimeSwitches.enabledCount,
+      runtimeBudgetSwitchesDisabled: runtimeSwitches.disabledCount,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
     },
     adminImageBranches,
     adminAiUsageAttempts: adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
+    runtimeBudgetSwitches: runtimeSwitches,
     retiredDebugPaths: limitList(
       retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
       limits.maxImplementedOperations,
@@ -871,7 +973,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
       "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music/compare/live-agent now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
-      "Phase 4.12 covers Admin Live-Agent only with required idempotency, metadata-only stream-session attempts, caller-policy propagation, and safe stream completion/failure tracking; runtime env kill-switch enforcement and live platform budget caps remain future work.",
+      "Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost routes. Missing or false switch values block provider-cost work before provider, queue, credit, or durable-attempt execution where applicable.",
+      "Phase 4.15 is not live platform budget cap enforcement and does not enable production or live billing readiness.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
       "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
       "Platform/background AI outside News Pulse visuals and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
@@ -898,6 +1001,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     `- Explicit unmetered admin branches: ${report.adminImageBranches?.counts?.explicitUnmeteredAdmin ?? 0}`,
     `- Blocked unsupported guard: ${report.adminImageBranches?.counts?.blockedUnsupportedGuard ?? 0}`,
   ];
+  const switchLines = (report.runtimeBudgetSwitches?.targets || []).map((target) =>
+    `- ${target.flagName}: ${target.enabled === true ? "enabled" : target.enabled === false ? "disabled" : "not evaluated"}; domain=${target.domain}`
+  );
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
   );
@@ -926,6 +1032,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     "",
     "## Admin Image Branches",
     imageBranchLines.join("\n"),
+    "",
+    "## Runtime Budget Switches",
+    switchLines.length ? switchLines.join("\n") : "- None",
     "",
     "## Baselined Gaps",
     gapLines.length ? gapLines.join("\n") : "- None",

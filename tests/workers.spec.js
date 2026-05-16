@@ -589,6 +589,7 @@ async function createAdminAiContractHarness(options = {}) {
     ALLOW_SYNC_VIDEO_DEBUG: options.ALLOW_SYNC_VIDEO_DEBUG === undefined
       ? 'true'
       : options.ALLOW_SYNC_VIDEO_DEBUG,
+    ...(options.authEnv || {}),
   });
   const aiEnvOverrides = options.aiEnv && typeof options.aiEnv === 'object' ? options.aiEnv : {};
   const { AI: _ignoredAiEnvOverride, ...safeAiEnvOverrides } = aiEnvOverrides;
@@ -12158,7 +12159,7 @@ test.describe('Worker routes', () => {
         idempotency_policy: 'inherited',
         kill_switch_flag_name: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
         runtime_budget_limit_enforced: false,
-        runtime_env_kill_switch_enforced: false,
+        runtime_env_kill_switch_enforced: true,
       }));
       expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
         status: 'ready',
@@ -12513,6 +12514,86 @@ test.describe('Worker routes', () => {
       expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
         status: 'blocked_by_invalid_policy',
       }));
+    });
+
+    test('News Pulse visual runtime budget switch skips provider work without affecting public reads', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        ENABLE_NEWS_PULSE_VISUAL_BUDGET: 'false',
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        newsPulseItems: [{
+          id: 'disabled-switch-visual-item',
+          locale: 'en',
+          title: 'Disabled switch visual item',
+          summary: 'A disabled runtime budget switch should skip generated thumbnails.',
+          source: 'Source Example',
+          url: 'https://example.com/disabled-switch-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'disabled-switch-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      const result = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 1,
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        skipped: false,
+        scannedCount: 1,
+        readyCount: 0,
+        failedCount: 0,
+        skippedCount: 1,
+      }));
+      expect(aiCalls).toBe(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'skipped',
+        visual_attempts: 1,
+        visual_error: 'budget_switch_disabled',
+        visual_budget_policy_status: 'skipped_by_budget_switch',
+      }));
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems[0].visual_budget_policy_json);
+      expect(budgetPolicy).toEqual(expect.objectContaining({
+        operation_id: 'platform.news_pulse.visual.scheduled',
+        budget_scope: 'openclaw_news_pulse_budget',
+        kill_switch_flag_name: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+        runtime_env_kill_switch_enforced: true,
+      }));
+      expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
+        status: 'skipped_by_budget_switch',
+        reason: 'budget_switch_disabled',
+      }));
+
+      const publicRes = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(publicRes.status).toBe(200);
+      const publicBody = await publicRes.json();
+      expect(publicBody.items[0]).toEqual(expect.objectContaining({
+        id: 'disabled-switch-visual-item',
+        visual_type: 'icon',
+        visual_url: null,
+      }));
+      expect(JSON.stringify(publicBody)).not.toContain('budget_switch_disabled');
+      expect(JSON.stringify(publicBody)).not.toContain('ENABLE_NEWS_PULSE_VISUAL_BUDGET');
     });
 
     test('News Pulse thumbnail backfill generates one ready WebP and skips pending ready or exhausted rows', async () => {
@@ -14774,6 +14855,9 @@ test.describe('Worker routes', () => {
           memberGatewayMigrated: 3,
           adminPlatformImplemented: 9,
           adminImageExplicitUnmeteredBranches: 1,
+          runtimeBudgetSwitchTargets: 10,
+          runtimeBudgetSwitchesEnabled: 10,
+          runtimeBudgetSwitchesDisabled: 0,
           baselineGaps: expect.any(Number),
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
@@ -14803,7 +14887,7 @@ test.describe('Worker routes', () => {
           operationId: 'admin.image.test.charged',
           budgetScope: 'admin_org_credit_account',
           runtimeStatus: 'implemented_hardened',
-          killSwitchTarget: 'model-specific charged image metadata target',
+          killSwitchTarget: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET',
         }),
         expect.objectContaining({
           operationId: 'admin.image.test.unmetered',
@@ -14868,6 +14952,22 @@ test.describe('Worker routes', () => {
           }),
         ]),
       }));
+      expect(body.runtimeBudgetSwitches).toEqual(expect.objectContaining({
+        defaultDisabled: true,
+        liveBudgetCapsEnforced: false,
+      }));
+      expect(body.runtimeBudgetSwitches.targets).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          flagName: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+          configured: true,
+          enabled: true,
+        }),
+        expect.objectContaining({
+          flagName: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+          configured: true,
+          enabled: true,
+        }),
+      ]));
       const serialized = JSON.stringify(body);
       expect(serialized).not.toContain('raw prompt');
       expect(serialized).not.toContain('sk_live_');
@@ -16958,7 +17058,7 @@ test.describe('Worker routes', () => {
           replay_policy: 'metadata_only_no_result_replay',
           idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
           idempotency_attempt_status: 'succeeded',
-          runtime_enforcement_status: 'budget_metadata_only',
+          runtime_enforcement_status: 'runtime_budget_switch_enforced_metadata_only',
           kill_switch_flag_name: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
           fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),
@@ -17939,7 +18039,8 @@ test.describe('Worker routes', () => {
           explicit_unmetered_admin: true,
           plan_status: 'explicit_unmetered',
           required_next_action: 'record_explicit_unmetered_audit',
-          runtime_enforcement_status: 'explicit_unmetered_admin_metadata',
+          runtime_enforcement_status: 'runtime_budget_switch_enforced_explicit_unmetered_admin',
+          runtime_env_kill_switch_enforced: true,
           kill_switch_flag_name: 'ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS',
           fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),
@@ -18412,7 +18513,7 @@ test.describe('Worker routes', () => {
           replay_policy: 'metadata_only_no_result_replay',
           idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
           idempotency_attempt_status: 'succeeded',
-          runtime_enforcement_status: 'budget_metadata_only',
+          runtime_enforcement_status: 'runtime_budget_switch_enforced_metadata_only',
           kill_switch_flag_name: 'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
           fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),
@@ -18555,6 +18656,176 @@ test.describe('Worker routes', () => {
       }
     });
 
+    test('runtime admin AI budget switches block budgeted lab routes before internal provider work', async () => {
+      const cases = [
+        {
+          route: '/api/admin/ai/test-text',
+          flag: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+          key: 'admin-text-switch-disabled-1',
+          payload: {
+            preset: 'balanced',
+            prompt: 'Disabled text budget switch must block before provider.',
+            maxTokens: 80,
+          },
+        },
+        {
+          route: '/api/admin/ai/test-embeddings',
+          flag: 'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
+          key: 'admin-embeddings-switch-disabled-1',
+          payload: {
+            preset: 'embedding_default',
+            input: ['Disabled embeddings budget switch must block before provider.'],
+          },
+        },
+        {
+          route: '/api/admin/ai/test-music',
+          flag: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+          key: 'admin-music-switch-disabled-1',
+          payload: {
+            prompt: 'Disabled music budget switch must block before provider.',
+            mode: 'instrumental',
+            lyricsMode: 'auto',
+          },
+        },
+        {
+          route: '/api/admin/ai/compare',
+          flag: 'ENABLE_ADMIN_AI_COMPARE_BUDGET',
+          key: 'admin-compare-switch-disabled-1',
+          payload: {
+            models: [
+              '@cf/meta/llama-3.1-8b-instruct-fast',
+              '@cf/openai/gpt-oss-20b',
+            ],
+            prompt: 'Disabled compare budget switch must block before provider fanout.',
+            maxTokens: 80,
+          },
+        },
+        {
+          route: '/api/admin/ai/live-agent',
+          flag: 'ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET',
+          key: 'admin-live-agent-switch-disabled-1',
+          payload: {
+            messages: [
+              { role: 'user', content: 'Disabled live-agent budget switch must block before stream setup.' },
+            ],
+          },
+        },
+      ];
+
+      for (const { route, flag, key, payload } of cases) {
+        const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+          authEnv: { [flag]: 'false' },
+        });
+        const res = await authWorker.fetch(
+          authJsonRequest(route, 'POST', payload, adminAiIdempotencyHeaders(authHeaders, key)),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(503);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'admin_ai_budget_disabled',
+          flag,
+        });
+        expect(aiLabRequests).toHaveLength(0);
+        expect(env.DB.state.adminAiUsageAttempts).toHaveLength(0);
+      }
+    });
+
+    test('runtime admin image budget switches block charged and explicit-unmetered branches before provider or credit work', async () => {
+      {
+        const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+          authEnv: { ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'false' },
+        });
+        seedAdminImageChargeOrg(env);
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+            preset: 'image_fast',
+            prompt: 'Disabled charged image branch must not debit.',
+            width: 1024,
+            height: 1024,
+            steps: 4,
+            seed: 12345,
+          }), adminImageChargeHeaders(authHeaders, 'admin-image-switch-disabled-1')),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(503);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'admin_ai_budget_disabled',
+          flag: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+        });
+        expect(aiLabRequests).toHaveLength(0);
+        expect(env.DB.state.aiUsageAttempts).toHaveLength(0);
+        expect(env.DB.state.usageEvents).toHaveLength(0);
+        expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+      }
+
+      {
+        const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+          authEnv: { ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS: 'false' },
+        });
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-image', 'POST', {
+            model: '@cf/black-forest-labs/flux-2-dev',
+            prompt: 'Disabled explicit-unmetered branch must not run provider.',
+            width: 1024,
+            height: 1024,
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(503);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'admin_ai_budget_disabled',
+          flag: 'ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS',
+        });
+        expect(aiLabRequests).toHaveLength(0);
+        expect(env.DB.state.aiUsageAttempts).toHaveLength(0);
+        expect(env.DB.state.usageEvents).toHaveLength(0);
+      }
+    });
+
+    test('runtime admin video job budget switch blocks before queue and job creation', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('video-job-switch-disabled-admin');
+      const service = createAiVideoJobServiceBinding();
+      const env = createAuthTestEnv({
+        users: [admin],
+        ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET: 'false',
+      });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'pixverse/v6',
+          prompt: 'Disabled video job budget switch must not queue work.',
+          duration: 5,
+          aspect_ratio: '16:9',
+          quality: '720p',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-switch-disabled-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_budget_disabled',
+        flag: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+      });
+      expect(env.DB.state.aiVideoJobs).toHaveLength(0);
+      expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
+      expect(service.calls).toHaveLength(0);
+    });
+
     test('POST /api/admin/ai/test-text remains admin-only before budget/provider work', async () => {
       const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
         user: createContractUser({ id: 'member-admin-text-budget-user', role: 'user' }),
@@ -18611,7 +18882,7 @@ test.describe('Worker routes', () => {
       expect(firstBody.budget_policy).toEqual(expect.objectContaining({
         duplicate_suppression: 'durable_idempotency_metadata_only',
         idempotency_attempt_status: 'succeeded',
-        runtime_enforcement_status: 'budget_metadata_only',
+        runtime_enforcement_status: 'runtime_budget_switch_enforced_metadata_only',
       }));
       expect(secondBody).toEqual(expect.objectContaining({
         ok: true,
@@ -19956,7 +20227,7 @@ test.describe('Worker routes', () => {
           replay_policy: 'metadata_only_no_result_replay',
           idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
           idempotency_attempt_status: 'succeeded',
-          runtime_enforcement_status: 'budget_metadata_only',
+          runtime_enforcement_status: 'runtime_budget_switch_enforced_metadata_only',
           kill_switch_flag_name: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
           fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),
@@ -21688,7 +21959,7 @@ test.describe('Worker routes', () => {
           replay_policy: 'metadata_only_no_result_replay',
           idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
           idempotency_attempt_status: 'succeeded',
-          runtime_enforcement_status: 'budget_metadata_only',
+          runtime_enforcement_status: 'runtime_budget_switch_enforced_metadata_only',
           kill_switch_flag_name: 'ENABLE_ADMIN_AI_COMPARE_BUDGET',
           fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         }),

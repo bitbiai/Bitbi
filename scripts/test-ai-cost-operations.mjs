@@ -305,7 +305,7 @@ assert.equal(
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.targetFuturePhase,
-  "Phase 4.12 admin live-agent budget enforcement"
+  "Phase 4.15 runtime budget kill-switch enforcement"
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").budgetPolicy.targetEnforcementStatus,
@@ -348,6 +348,30 @@ assert.equal(
   "partial"
 );
 assert(!policyBaseline.knownGaps.some((gap) => gap.id === "admin-ai-sync-video-debug"));
+
+for (const operationId of [
+  "admin.image.test.charged",
+  "admin.image.test.unmetered",
+  "admin.video.job.create",
+  "platform.news_pulse.visual.ingest",
+  "platform.news_pulse.visual.scheduled",
+  "admin.text.test",
+  "admin.embeddings.test",
+  "admin.music.test",
+  "admin.compare",
+  "admin.live_agent",
+]) {
+  const entry = AI_COST_OPERATION_REGISTRY.find((item) => item.operationConfig.operationId === operationId);
+  assert.equal(
+    entry.budgetPolicy.targetEnforcement.runtimeKillSwitch,
+    "implemented",
+    `${operationId} should mark runtime budget switch enforcement implemented`
+  );
+  assert(
+    String(entry.budgetPolicy.targetEnforcement.killSwitch || "").includes("runtime_enforced"),
+    `${operationId} should use a runtime-enforced kill-switch target`
+  );
+}
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();
 assert(routePolicyBaselines.some((entry) => entry.id === "ai.generate-image" && entry.expected === "required"));
