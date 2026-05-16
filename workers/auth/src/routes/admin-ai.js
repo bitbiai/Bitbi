@@ -98,9 +98,12 @@ import {
 } from "../lib/admin-platform-budget-policy.js";
 import {
   AdminPlatformBudgetSwitchError,
-  assertBudgetSwitchEnabled,
+  AdminRuntimeBudgetSwitchError,
+  assertBudgetSwitchEffectiveEnabled,
   budgetSwitchDisabledResponse,
   budgetSwitchLogFields,
+  listAdminRuntimeBudgetSwitchStates,
+  updateAdminRuntimeBudgetSwitch,
 } from "../lib/admin-platform-budget-switches.js";
 import { buildAdminPlatformBudgetEvidenceReport } from "../lib/admin-platform-budget-evidence.js";
 import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
@@ -199,7 +202,7 @@ function inputErrorResponse(error, correlationId = null) {
   ), correlationId);
 }
 
-function adminBudgetSwitchResponseOrNull({
+async function adminBudgetSwitchResponseOrNull({
   env,
   plan,
   correlationId,
@@ -208,7 +211,7 @@ function adminBudgetSwitchResponseOrNull({
   requestInfo = null,
 }) {
   try {
-    assertBudgetSwitchEnabled(env, plan);
+    await assertBudgetSwitchEffectiveEnabled(env, plan);
     return null;
   } catch (error) {
     if (!(error instanceof AdminPlatformBudgetSwitchError)) throw error;
@@ -224,6 +227,18 @@ function adminBudgetSwitchResponseOrNull({
     });
     return withCorrelationId(budgetSwitchDisabledResponse(error), correlationId);
   }
+}
+
+function runtimeBudgetSwitchErrorResponse(error, correlationId = null) {
+  if (error instanceof AdminRuntimeBudgetSwitchError) {
+    return withCorrelationId(json({
+      ok: false,
+      error: error.message,
+      code: error.code,
+      switch_key: error.fields?.switchKey || null,
+    }, { status: error.status || 400 }), correlationId);
+  }
+  throw error;
 }
 
 function badJsonResponse(correlationId) {
@@ -1407,10 +1422,91 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-budget-evidence-ip", 30, 600_000, correlationId);
     if (limited) return limited;
     const adminAiUsageAttemptSummary = await summarizeAdminAiUsageAttempts(env);
+    const runtimeBudgetSwitchState = await listAdminRuntimeBudgetSwitchStates(env, { tolerateUnavailable: true });
     return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport({
       env,
       adminAiUsageAttemptSummary,
+      runtimeBudgetSwitchState,
     })), correlationId);
+  }
+
+  if (pathname === "/api/admin/ai/budget-switches" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-budget-switches-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const result = await listAdminRuntimeBudgetSwitchStates(env);
+      return withCorrelationId(json({
+        ok: true,
+        summary: result.summary,
+        switches: result.switches,
+      }), correlationId);
+    } catch (error) {
+      if (error instanceof AdminRuntimeBudgetSwitchError) {
+        return runtimeBudgetSwitchErrorResponse(error, correlationId);
+      }
+      throw error;
+    }
+  }
+
+  const budgetSwitchMatch = pathname.match(/^\/api\/admin\/ai\/budget-switches\/([^/]+)$/);
+  // route-policy: admin.ai.budget-switches.update
+  if (budgetSwitchMatch && method === "PATCH") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-budget-switches-write-ip", 20, 600_000, correlationId);
+    if (limited) return limited;
+
+    try {
+      const idempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const switchKey = decodePathSegment(budgetSwitchMatch[1]);
+      if (!switchKey || switchKey.includes("/")) return notFoundResponse(correlationId);
+      const updated = await updateAdminRuntimeBudgetSwitch(env, {
+        switchKey,
+        enabled: parsed.body?.enabled === true,
+        reason: parsed.body?.reason,
+        metadata: parsed.body?.metadata,
+        adminUser: result.user,
+        idempotencyKey,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-budget-switches",
+        event: "admin_ai_budget_switch_updated",
+        level: "warn",
+        correlationId,
+        admin_user_id: result.user.id,
+        switch_key: updated.state.switchKey,
+        app_switch_enabled: updated.state.appSwitchEnabled,
+        master_flag_status: updated.state.masterFlagStatus,
+        effective_enabled: updated.state.effectiveEnabled,
+        idempotency_replayed: updated.event.replayed,
+        ...getRequestLogFields(requestInfo),
+      });
+      if (!updated.event.replayed) {
+        await auditAdminAiMaintenanceEvent(
+          ctx,
+          result.user,
+          "admin_ai_budget_switch_updated",
+          {
+            switch_key: updated.state.switchKey,
+            app_switch_enabled: updated.state.appSwitchEnabled,
+            master_flag_status: updated.state.masterFlagStatus,
+            effective_enabled: updated.state.effectiveEnabled,
+            live_budget_caps_status: updated.state.liveCapStatus,
+          }
+        );
+      }
+      return withCorrelationId(json({
+        ok: true,
+        switch: updated.state,
+        event: updated.event,
+      }, { status: updated.event.replayed ? 200 : 200 }), correlationId);
+    } catch (error) {
+      if (error instanceof AdminRuntimeBudgetSwitchError) return runtimeBudgetSwitchErrorResponse(error, correlationId);
+      return billingAdminErrorResponse(error, correlationId);
+    }
   }
 
   if (pathname === "/api/admin/ai/admin-usage-attempts" && method === "GET") {
@@ -1653,7 +1749,7 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_TEXT_BUDGET_KILL_SWITCH,
         correlationId,
       });
-      const switchResponse = adminBudgetSwitchResponseOrNull({
+      const switchResponse = await adminBudgetSwitchResponseOrNull({
         env,
         plan: budgetPolicy.plan,
         correlationId,
@@ -1797,7 +1893,7 @@ export async function handleAdminAI(ctx) {
           branch,
           correlationId,
         });
-        const switchResponse = adminBudgetSwitchResponseOrNull({
+        const switchResponse = await adminBudgetSwitchResponseOrNull({
           env,
           plan: budgetPolicy.plan,
           correlationId,
@@ -1853,7 +1949,7 @@ export async function handleAdminAI(ctx) {
         pricing,
         correlationId,
       });
-      const switchResponse = adminBudgetSwitchResponseOrNull({
+      const switchResponse = await adminBudgetSwitchResponseOrNull({
         env,
         plan: budgetPolicy.plan,
         correlationId,
@@ -2068,7 +2164,7 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_EMBEDDINGS_BUDGET_KILL_SWITCH,
         correlationId,
       });
-      const switchResponse = adminBudgetSwitchResponseOrNull({
+      const switchResponse = await adminBudgetSwitchResponseOrNull({
         env,
         plan: budgetPolicy.plan,
         correlationId,
@@ -2193,7 +2289,7 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_MUSIC_BUDGET_KILL_SWITCH,
         correlationId,
       });
-      const switchResponse = adminBudgetSwitchResponseOrNull({
+      const switchResponse = await adminBudgetSwitchResponseOrNull({
         env,
         plan: budgetPolicy.plan,
         correlationId,
@@ -2600,7 +2696,7 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_COMPARE_BUDGET_KILL_SWITCH,
         correlationId,
       });
-      const switchResponse = adminBudgetSwitchResponseOrNull({
+      const switchResponse = await adminBudgetSwitchResponseOrNull({
         env,
         plan: budgetPolicy.plan,
         correlationId,
@@ -2724,7 +2820,7 @@ export async function handleAdminAI(ctx) {
         killSwitchTarget: ADMIN_LIVE_AGENT_BUDGET_KILL_SWITCH,
         correlationId,
       });
-      const switchResponse = adminBudgetSwitchResponseOrNull({
+      const switchResponse = await adminBudgetSwitchResponseOrNull({
         env,
         plan: budgetPolicy.plan,
         correlationId,

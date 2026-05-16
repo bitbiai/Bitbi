@@ -6,11 +6,12 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const EXPECTED_MAIN_RELEASE_AUTH_MIGRATION =
-  "0050_add_news_pulse_visual_budget_metadata.sql";
+  "0052_add_admin_runtime_budget_switches.sql";
 
 const MAIN_RELEASE_DEPLOY_UNITS = Object.freeze([
-  "auth schema checkpoint 0050",
+  "auth schema checkpoint 0052",
   "auth Worker",
+  "static site",
 ]);
 
 function readJson(filePath) {
@@ -111,7 +112,7 @@ export function collectMainReleaseReadiness(options = {}) {
       "Direct-main release is riskier than staging because no separate staging environment is used.",
       "Production readiness remains BLOCKED until operator evidence is complete and reviewed.",
       "Live billing readiness remains BLOCKED; this check does not enable billing or approve Stripe live use.",
-      "Phase 4.6 OpenClaw/News Pulse visual budget metadata requires auth D1 migration 0050 before auth Worker deployment from the reviewed main commit.",
+      "Phase 4.15.1 Admin AI budget switch control requires auth D1 migration 0052 before auth Worker deployment from the reviewed main commit.",
       `Production D1 migration status through ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION} must be verified manually before auth Worker deploy and live smoke checks.`,
       "This check never deploys, runs remote migrations, calls Stripe APIs, changes secrets, or mutates Cloudflare/GitHub settings.",
     ],

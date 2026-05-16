@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0051_add_admin_ai_usage_attempts.sql",
+        "latest": "0052_add_admin_runtime_budget_switches.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -615,6 +615,7 @@
       "/admin/ai/video-jobs",
       "/admin/ai/video-jobs/poison",
       "/admin/ai/video-jobs/failed",
+      "/admin/ai/budget-switches",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset",
@@ -639,6 +640,7 @@
     ],
     "authOnlyRoutes": [
       "/api/admin/ai/budget-evidence",
+      "/api/admin/ai/budget-switches",
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
       "/api/admin/ai/video-jobs",
@@ -651,6 +653,7 @@
       "/api/admin/ai/proxy-video"
     ],
     "authOnlyPatternRoutes": [
+      "PATCH /api/admin/ai/budget-switches/:id",
       "GET /api/admin/ai/video-jobs/:id",
       "GET /api/admin/ai/video-jobs/poison/:id",
       "GET /api/admin/ai/video-jobs/failed/:id",

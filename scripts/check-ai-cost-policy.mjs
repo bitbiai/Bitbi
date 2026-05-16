@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   AI_COST_BUDGET_SCOPES,
+  AI_COST_LIVE_BUDGET_CAP_STATUSES,
   AI_COST_OPERATION_REGISTRY,
   getAiCostProviderCallSourceFiles,
   getAiCostRoutePolicyBaselines,
@@ -22,6 +23,7 @@ export const PROVIDER_CALL_SOURCE_FILES = Object.freeze(getAiCostProviderCallSou
 const KNOWN_GAP_CATEGORIES = new Set(["admin", "platform", "internal", "background"]);
 const KNOWN_GAP_SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
 const KNOWN_BUDGET_SCOPES = new Set(Object.values(AI_COST_BUDGET_SCOPES));
+const LIVE_BUDGET_CAP_STATUSES = new Set(AI_COST_LIVE_BUDGET_CAP_STATUSES);
 const MIGRATED_MEMBER_OPERATION_IDS = Object.freeze([
   "member.image.generate",
   "member.music.generate",
@@ -428,6 +430,43 @@ function validateRuntimeBudgetSwitchCoverage(registryEntries) {
   return issues;
 }
 
+function validateLiveBudgetCapMetadata(registryEntries) {
+  const issues = [];
+  const capRequiredScopes = new Set([
+    AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT,
+    AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    AI_COST_BUDGET_SCOPES.PLATFORM_BACKGROUND_BUDGET,
+    AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
+    AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
+    AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+  ]);
+  for (const entry of registryEntries) {
+    const operationId = entry.operationConfig?.operationId || "unknown";
+    const providerCost = entry.operationConfig?.providerCost !== false;
+    const policy = entry.budgetPolicy || null;
+    if (!providerCost || !policy || !capRequiredScopes.has(policy.targetBudgetScope)) continue;
+    if (!LIVE_BUDGET_CAP_STATUSES.has(policy.liveBudgetCapStatus)) {
+      issues.push(`${operationId}: missing or invalid live budget cap status metadata.`);
+    }
+    if (!LIVE_BUDGET_CAP_STATUSES.has(policy.liveBudgetCapReadiness)) {
+      issues.push(`${operationId}: missing or invalid live budget cap readiness metadata.`);
+    }
+    if (!policy.liveBudgetCapFuturePhase || typeof policy.liveBudgetCapFuturePhase !== "string") {
+      issues.push(`${operationId}: missing live budget cap future phase.`);
+    }
+    if (!policy.liveBudgetCapScope || !KNOWN_BUDGET_SCOPES.has(policy.liveBudgetCapScope)) {
+      issues.push(`${operationId}: invalid live budget cap scope.`);
+    }
+    if (policy.liveBudgetCapStatus === "cap_enforced" || policy.targetEnforcement?.liveBudgetCap === "implemented") {
+      issues.push(`${operationId}: live budget caps must not be reported as enforced in Phase 4.16.`);
+    }
+    if (policy.targetEnforcement?.runtimeKillSwitch === "implemented" && policy.liveBudgetCapStatus !== "not_implemented") {
+      issues.push(`${operationId}: runtime kill-switch enforcement must remain distinct from live budget cap enforcement.`);
+    }
+  }
+  return issues;
+}
+
 export function analyzeAiCostPolicy(repoRoot, options = {}) {
   const strict = options.strict === true;
   const fatalIssues = [];
@@ -548,6 +587,9 @@ export function analyzeAiCostPolicy(repoRoot, options = {}) {
   }
   for (const issue of validateRuntimeBudgetSwitchCoverage(registryEntries)) {
     fatalIssues.push(`Runtime budget switch coverage issue: ${issue}`);
+  }
+  for (const issue of validateLiveBudgetCapMetadata(registryEntries)) {
+    fatalIssues.push(`Live budget cap metadata issue: ${issue}`);
   }
   for (const gap of unknownPolicyGaps) {
     fatalIssues.push(`Unbaselined AI cost policy gap: ${gap.route} (${gap.path}).`);
@@ -725,6 +767,29 @@ function renderExplicitUnmeteredAdminOperations(entries = AI_COST_OPERATION_REGI
     .join("\n");
 }
 
+function renderLiveBudgetCapStatus(entries = AI_COST_OPERATION_REGISTRY) {
+  const budgeted = entries
+    .filter((entry) =>
+      entry.operationConfig?.providerCost !== false &&
+      entry.budgetPolicy &&
+      !String(entry.operationConfig?.operationId || "").startsWith("member.")
+    )
+    .map((entry) => ({
+      operationId: entry.operationConfig.operationId,
+      scope: entry.budgetPolicy.targetBudgetScope,
+      status: entry.budgetPolicy.liveBudgetCapStatus || "not_implemented",
+      readiness: entry.budgetPolicy.liveBudgetCapReadiness || "requires_schema",
+      future: entry.budgetPolicy.liveBudgetCapFuturePhase || "missing",
+    }))
+    .sort((left, right) => left.operationId.localeCompare(right.operationId));
+  if (!budgeted.length) return "- None";
+  return budgeted
+    .map((entry) =>
+      `- ${entry.operationId}: cap=${entry.status}; readiness=${entry.readiness}; scope=${entry.scope}; future=${entry.future}`
+    )
+    .join("\n");
+}
+
 export function renderAiCostPolicyReport(result) {
   const highRisk = result.registrySummary.highRiskOperations.length
     ? result.registrySummary.highRiskOperations.join(", ")
@@ -771,6 +836,12 @@ export function renderAiCostPolicyReport(result) {
     "Explicit unmetered admin operations:",
     renderExplicitUnmeteredAdminOperations(),
     "",
+    "Live platform budget cap status:",
+    "- Phase 4.16 is design/evidence only; live daily/monthly platform budget caps are not implemented or enforced.",
+    "- Recommended first cap scope: platform_admin_lab_budget (Phase 4.17).",
+    "- Runtime budget kill-switches are separate from live budget caps.",
+    renderLiveBudgetCapStatus(),
+    "",
     "Read-only admin/platform budget evidence:",
     "- Phase 4.4 evidence collector: `npm run report:ai-budget-evidence` and `GET /api/admin/ai/budget-evidence` expose sanitized local registry/baseline/route-policy coverage.",
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
@@ -781,6 +852,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path.",
     "- Phase 4.14 classifies Admin Image branches: charged priced models remain admin_org_credit_account-covered, FLUX.2 Dev is explicit_unmetered_admin with safe budget/caller-policy metadata, and unclassified Admin Image models are blocked before provider calls.",
     "- Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost paths; missing or false switches block before provider, queue, credit, or durable-attempt work where applicable.",
+    "- Phase 4.16 adds live platform budget cap design/evidence only; no route behavior changes and no aggregate cap enforcement are implemented.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -849,7 +921,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.16 should address live platform budget cap design/enforcement without changing member/org billing behavior or broad platform/background AI.",
+    "- Phase 4.17 should implement the first narrow live cap foundation for platform_admin_lab_budget without changing member/org billing behavior or broad platform/background AI.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

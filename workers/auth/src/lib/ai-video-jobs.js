@@ -23,7 +23,7 @@ import {
   classifyAdminPlatformBudgetPlan,
 } from "./admin-platform-budget-policy.js";
 import {
-  assertBudgetSwitchEnabled,
+  assertBudgetSwitchEffectiveEnabled,
   budgetSwitchLogFields,
 } from "./admin-platform-budget-switches.js";
 import { proxyToAiLab } from "./admin-ai-proxy.js";
@@ -776,7 +776,7 @@ export async function createAdminAiVideoJob({
     createdAt: now,
     operationOverride: budgetOperationOverride,
   });
-  assertBudgetSwitchEnabled(env, budgetPolicy.plan);
+  await assertBudgetSwitchEffectiveEnabled(env, budgetPolicy.plan);
   const budgetPolicySummary = budgetPolicy.summary;
   const job = {
     id: `vidjob_${randomTokenHex(16)}`,

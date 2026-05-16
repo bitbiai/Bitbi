@@ -142,6 +142,7 @@
             <div class="admin-nav__group-items" id="adminNavGroupAi">
                 <a href="#ai-lab" class="admin-nav__link" data-section="ai-lab">AI Lab</a>
                 <a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI Usage</a>
+                <a href="#ai-budget-switches" class="admin-nav__link" data-section="ai-budget-switches">Budget Switches</a>
             </div>
         </div>
         <div class="admin-nav__group" role="group" aria-label="Finance">
@@ -594,6 +595,34 @@
                         <button type="submit" class="admin-ai__run">Run Cleanup</button>
                     </form>
                     <div id="aiCleanupResult" class="admin-state" aria-live="polite"></div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 AI BUDGET SWITCHES
+                 ═══════════════════════════════════════ -->
+            <div id="sectionAiBudgetSwitches" class="admin-section" style="display:none">
+                <div class="admin-control-toolbar glass glass-card reveal visible">
+                    <div>
+                        <h3 class="admin-section-title">AI Budget Switches</h3>
+                        <p class="admin-shell__desc">App-level controls for already budget-classified admin/platform AI provider-cost paths. Cloudflare master flags must also be enabled.</p>
+                    </div>
+                    <button type="button" id="aiBudgetSwitchesRefresh" class="btn-action">Refresh</button>
+                </div>
+                <div class="admin-shell glass glass-card reveal visible">
+                    <h3 class="admin-section-title">Effective Rule</h3>
+                    <p class="admin-shell__desc">Provider-cost work runs only when the Cloudflare master flag and the D1 app switch are both enabled. This UI does not show Cloudflare values, does not edit Cloudflare variables, and live platform budget caps are not enforced yet.</p>
+                    <div id="aiBudgetSwitchesSummary"></div>
+                </div>
+                <div class="admin-shell glass glass-card reveal visible">
+                    <div class="admin-control-card-head">
+                        <div>
+                            <h3 class="admin-section-title">Allowed Switches</h3>
+                            <p class="admin-shell__desc">Updates require a reason and an Idempotency-Key. Turning on the app switch cannot override a disabled or missing Cloudflare master flag.</p>
+                        </div>
+                    </div>
+                    <div id="aiBudgetSwitchesState" class="admin-state">Loading AI budget switches...</div>
+                    <div id="aiBudgetSwitchesList"></div>
                 </div>
             </div>
 

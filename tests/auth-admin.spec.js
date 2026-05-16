@@ -1678,6 +1678,78 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.aiCleanupRequests = captures.aiCleanupRequests || [];
   captures.storageRequests = captures.storageRequests || [];
   captures.billingReviewResolutionRequests = captures.billingReviewResolutionRequests || [];
+  captures.aiBudgetSwitchUpdateRequests = captures.aiBudgetSwitchUpdateRequests || [];
+  const budgetSwitches = captures.aiBudgetSwitches || [
+    {
+      switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+      flagName: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+      label: 'Admin Text Budget',
+      description: 'Allows Admin Text test provider calls with budget metadata and durable metadata-only attempts.',
+      category: 'admin_lab',
+      budgetScope: 'platform_admin_lab_budget',
+      operationIds: ['admin.text.test'],
+      ownerDomain: 'admin-ai',
+      riskLevel: 'medium',
+      recommendedOperatorNote: 'Cloudflare master flag must also be enabled.',
+      relatedRoutes: ['POST /api/admin/ai/test-text'],
+      liveCapStatus: 'not_implemented',
+      liveCapFuturePhase: 'Phase 4.17',
+      masterFlagStatus: 'enabled',
+      masterConfigured: true,
+      masterEnabled: true,
+      appSwitchStatus: 'disabled',
+      appSwitchEnabled: false,
+      appSwitchAvailable: true,
+      effectiveEnabled: false,
+      disabledReason: 'admin_switch_disabled',
+      updatedAt: '2026-05-16T10:00:00.000Z',
+      updatedBy: { email: 'operator@example.com' },
+      reason: 'Initial disabled state for control-plane test',
+    },
+    {
+      switchKey: 'ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET',
+      flagName: 'ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET',
+      label: 'Admin Live-Agent Budget',
+      description: 'Allows Admin Live-Agent streaming provider calls with durable metadata-only stream attempts.',
+      category: 'admin_lab',
+      budgetScope: 'platform_admin_lab_budget',
+      operationIds: ['admin.live_agent'],
+      ownerDomain: 'admin-ai',
+      riskLevel: 'high',
+      recommendedOperatorNote: 'Live platform budget caps are not enforced yet.',
+      relatedRoutes: ['POST /api/admin/ai/live-agent'],
+      liveCapStatus: 'not_implemented',
+      liveCapFuturePhase: 'Phase 4.17',
+      masterFlagStatus: 'missing',
+      masterConfigured: false,
+      masterEnabled: false,
+      appSwitchStatus: 'enabled',
+      appSwitchEnabled: true,
+      appSwitchAvailable: true,
+      effectiveEnabled: false,
+      disabledReason: 'cloudflare_master_disabled',
+      updatedAt: '2026-05-16T10:05:00.000Z',
+      updatedBy: { email: 'operator@example.com' },
+      reason: 'App switch alone cannot override Cloudflare master',
+    },
+  ];
+  function budgetSwitchPayload() {
+    return {
+      ok: true,
+      summary: {
+        totalSwitches: budgetSwitches.length,
+        masterEnabledCount: budgetSwitches.filter((entry) => entry.masterEnabled).length,
+        appEnabledCount: budgetSwitches.filter((entry) => entry.appSwitchEnabled).length,
+        effectiveEnabledCount: budgetSwitches.filter((entry) => entry.effectiveEnabled).length,
+        disabledByMasterCount: budgetSwitches.filter((entry) => !entry.masterEnabled).length,
+        disabledByAppCount: budgetSwitches.filter((entry) => entry.masterEnabled && !entry.appSwitchEnabled).length,
+        unknownOrUnavailableCount: 0,
+        d1SwitchStoreAvailable: true,
+        liveBudgetCapsStatus: 'not_implemented',
+      },
+      switches: budgetSwitches,
+    };
+  }
   const adminUsers = captures.adminUsers || [
     {
       id: 'user_member',
@@ -2369,6 +2441,50 @@ async function mockAdminControlPlane(page, captures = {}) {
         reservationsReleasedCount: 1,
         replayObjectsDeletedCount: 0,
         failedCount: 0,
+      },
+    });
+  });
+
+  await page.route('**/api/admin/ai/budget-switches', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await fulfillJson(route, budgetSwitchPayload());
+  });
+  await page.route('**/api/admin/ai/budget-switches/*', async (route) => {
+    const request = route.request();
+    if (request.method() !== 'PATCH') {
+      await route.fallback();
+      return;
+    }
+    const switchKey = decodeURIComponent(new URL(request.url()).pathname.split('/').pop() || '');
+    const entry = budgetSwitches.find((item) => item.switchKey === switchKey);
+    if (!entry) {
+      await fulfillJson(route, { ok: false, code: 'admin_ai_budget_switch_not_found' }, 404);
+      return;
+    }
+    const body = request.postDataJSON();
+    captures.aiBudgetSwitchUpdateRequests.push({
+      idempotencyKey: request.headers()['idempotency-key'],
+      switchKey,
+      body,
+    });
+    entry.appSwitchEnabled = body.enabled === true;
+    entry.appSwitchStatus = entry.appSwitchEnabled ? 'enabled' : 'disabled';
+    entry.effectiveEnabled = entry.masterEnabled === true && entry.appSwitchEnabled === true;
+    entry.disabledReason = entry.effectiveEnabled
+      ? null
+      : (entry.masterEnabled ? 'admin_switch_disabled' : 'cloudflare_master_disabled');
+    entry.reason = body.reason;
+    entry.updatedAt = '2026-05-16T11:00:00.000Z';
+    await fulfillJson(route, {
+      ok: true,
+      switch: entry,
+      event: {
+        id: 'budsw_static_1',
+        replayed: false,
+        createdAt: entry.updatedAt,
       },
     });
   });
@@ -8577,6 +8693,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="billing"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="billing-events"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeAttached();
 
@@ -8667,6 +8784,42 @@ test.describe('Admin Control Plane', () => {
     expect(captures.aiCleanupRequests).toHaveLength(1);
     expect(captures.aiCleanupRequests[0].idempotencyKey).toMatch(/^ai-usage-cleanup-/);
     expect(captures.aiCleanupRequests[0].body.dry_run).toBe(true);
+
+    await clickAdminNavSection(page, 'ai-budget-switches');
+    const switchSection = page.locator('#sectionAiBudgetSwitches');
+    await expect(switchSection).toContainText('AI Budget Switches');
+    await expect(switchSection).toContainText('Cloudflare master flag');
+    await expect(switchSection).toContainText('Live platform budget caps are not enforced');
+    await expect(page.locator('#aiBudgetSwitchesSummary')).toContainText('Cloudflare master flag enabled AND app switch enabled');
+    await expect(page.locator('#aiBudgetSwitchesSummary')).toContainText('not_implemented');
+    await expect(page.locator('#aiBudgetSwitchesList')).toContainText('Admin Text Budget');
+    await expect(page.locator('#aiBudgetSwitchesList')).toContainText('Admin Live-Agent Budget');
+    await expect(page.locator('#aiBudgetSwitchesList')).toContainText('missing');
+    await expect(page.locator('#aiBudgetSwitchesList')).not.toContainText('sk_live_');
+    let budgetSwitchDialogs = 0;
+    const budgetSwitchDialogHandler = (dialog) => {
+      budgetSwitchDialogs += 1;
+      if (dialog.type() === 'prompt') {
+        expect(dialog.message()).toContain('Cloudflare master flag');
+        dialog.accept('Enable admin text switch for static test');
+        return;
+      }
+      expect(dialog.type()).toBe('confirm');
+      expect(dialog.message()).toContain('does not change Cloudflare variables');
+      dialog.accept();
+    };
+    page.on('dialog', budgetSwitchDialogHandler);
+    await page.locator('#aiBudgetSwitchesList').getByRole('button', { name: 'Enable' }).first().click();
+    page.off('dialog', budgetSwitchDialogHandler);
+    await expect(page.locator('#aiBudgetSwitchesState')).toContainText('Showing 2 allowed switches');
+    expect(budgetSwitchDialogs).toBe(2);
+    expect(captures.aiBudgetSwitchUpdateRequests).toHaveLength(1);
+    expect(captures.aiBudgetSwitchUpdateRequests[0].switchKey).toBe('ENABLE_ADMIN_AI_TEXT_BUDGET');
+    expect(captures.aiBudgetSwitchUpdateRequests[0].idempotencyKey).toMatch(/^ai-budget-switch-/);
+    expect(captures.aiBudgetSwitchUpdateRequests[0].body).toEqual({
+      enabled: true,
+      reason: 'Enable admin text switch for static test',
+    });
 
     await clickAdminNavSection(page, 'lifecycle');
     await expect(page.locator('#sectionLifecycle')).toContainText('archive_generated');

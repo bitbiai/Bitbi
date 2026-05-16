@@ -11,7 +11,7 @@ German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1
-migration as `0051_add_admin_ai_usage_attempts.sql`. This audit
+migration as `0052_add_admin_runtime_budget_switches.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
@@ -72,17 +72,27 @@ migration or storage; it classifies Admin Image branches, keeps charged priced
 models on the existing selected-organization path, treats FLUX.2 Dev as an
 explicit unmetered admin exception with safe metadata, and blocks unclassified
 models before provider execution. Phase 4.15 adds no migration or storage; it
-enforces default-disabled runtime budget switches for already budget-classified
-admin/platform provider-cost paths before provider/queue/credit/durable-attempt
-work and reports only boolean switch state, never values. These phases do not
-call real providers in tests, change public billing, add Admin UI, migrate Admin
+enforces default-disabled Cloudflare master runtime budget switches for already
+budget-classified admin/platform provider-cost paths before
+provider/queue/credit/durable-attempt work and reports only safe boolean switch
+state, never values. Phase 4.15.1 adds migration `0052` and stores only D1
+app-level budget switch booleans, bounded operator reasons, safe metadata,
+safe updater identifiers, idempotency keys, request hashes, and timestamps.
+It does not store Cloudflare variable values, Cloudflare API tokens, prompts,
+provider payloads, Stripe data, auth headers, cookies, private keys, or
+secrets, and the Admin UI cannot mutate Cloudflare master flags. Phase 4.16
+adds no migration, storage, or runtime route behavior change; it documents
+future live platform budget cap tables and adds read-only cap-readiness evidence
+only.
+These phases do not
+call real providers in tests, change public billing, add provider-cost action buttons, migrate Admin
 video beyond Phase 4.5, migrate OpenClaw/News
 Pulse beyond Phase 4.6 compatibility, migrate platform/background AI, globally
 hard-fail internal AI Worker routes, change member image/music/video billing
 behavior, change org-scoped member route behavior, or make
 admin/platform/internal AI cost flows production-ready. Phase 4.3, Phase 4.5,
 Phase 4.6, Phase 4.7, Phase 4.8, Phase 4.8.1, Phase 4.8.2, Phase 4.9, Phase 4.10,
-Phase 4.11, Phase 4.12, Phase 4.13, Phase 4.14, and Phase 4.15
+Phase 4.11, Phase 4.12, Phase 4.13, Phase 4.14, Phase 4.15, and Phase 4.16
 metadata/inspection responses must not include raw prompts, raw lyrics, raw
 audio, raw compare prompts, compare outputs, raw Live-Agent messages/output, raw provider request bodies, provider response bodies, auth headers, cookies, Stripe data,
 Cloudflare tokens, private R2 keys, secrets, or sensitive raw article/source
@@ -228,7 +238,7 @@ items.
 | Member text generation | Prompt/system/settings when org-scoped text is used | Response/replay metadata where enabled | Cloudflare Workers AI text models through auth/AI worker patterns |
 | Member music generation | Style prompt, optional lyrics, mode/settings; optional separate lyrics generation | MP3/audio bytes in R2, asset row, generated cover thumbnail, safe member attempt/replay metadata without raw prompt or lyrics, safe cover status metadata | Auth Worker -> AI service binding -> Workers AI/AI Gateway `minimax/music-2.6`; cover uses `@cf/black-forest-labs/flux-1-schnell`; Phase 3.7 replay responses omit raw prompt/lyrics and missing replay does not re-run providers or double debit |
 | Member PixVerse/HappyHorse video generation | Prompt, optional negative prompt, optional data URI image, duration/aspect/quality/audio/seed | Video bytes/poster in R2, asset row, safe member attempt/replay metadata without raw prompt or internal R2 key leakage | Auth Worker -> Workers AI `pixverse/v6` / HappyHorse T2V with AI Gateway; Phase 3.8 requires member gateway idempotency/reservation before provider work and returns replay-unavailable without re-running providers or double debiting |
-| Admin AI Lab | Admin prompts/settings/images/audio/video jobs | Admin-visible result metadata and optionally saved assets/jobs | AI Worker internal service routes with service-auth. Phase 4.8/4.8.1 admin text/embeddings add safe `platform_admin_lab_budget`, caller-policy metadata, and metadata-only durable idempotency rows; Phase 4.9 extends that metadata-only pattern to Admin Music, Phase 4.10 extends it to Admin Compare, and Phase 4.12 extends it to Admin Live-Agent stream sessions. Phase 4.13 retires sync video debug from normal provider-cost operations as disabled-by-default/emergency-only; the async admin video job flow remains the supported budgeted admin video path. Phase 4.14 classifies Admin Image branches: charged priced models keep selected-organization credit attempts, FLUX.2 Dev emits sanitized `explicit_unmetered_admin` metadata only, and unknown/unclassified image models block before AI Worker/provider execution. Phase 4.15 enforces runtime budget switches before covered admin/platform provider work and exposes only safe flag names/boolean state. Live-Agent replay remains metadata-only with no raw message/output persistence. Those rows and metadata must not store raw prompts, raw embedding inputs, raw lyrics, raw compare prompts, raw Live-Agent messages/output, generated text, embedding vectors, audio, compare outputs, provider request bodies, provider response bodies, auth headers, cookies, Stripe data, Cloudflare tokens, private keys, private R2 keys, or runtime flag values. |
+| Admin AI Lab | Admin prompts/settings/images/audio/video jobs | Admin-visible result metadata and optionally saved assets/jobs | AI Worker internal service routes with service-auth. Phase 4.8/4.8.1 admin text/embeddings add safe `platform_admin_lab_budget`, caller-policy metadata, and metadata-only durable idempotency rows; Phase 4.9 extends that metadata-only pattern to Admin Music, Phase 4.10 extends it to Admin Compare, and Phase 4.12 extends it to Admin Live-Agent stream sessions. Phase 4.13 retires sync video debug from normal provider-cost operations as disabled-by-default/emergency-only; the async admin video job flow remains the supported budgeted admin video path. Phase 4.14 classifies Admin Image branches: charged priced models keep selected-organization credit attempts, FLUX.2 Dev emits sanitized `explicit_unmetered_admin` metadata only, and unknown/unclassified image models block before AI Worker/provider execution. Phase 4.15 enforces Cloudflare master runtime budget switches before covered admin/platform provider work. Phase 4.15.1 adds D1 app-level switch state and exposes only safe master/app/effective status; missing app rows default disabled and the Admin UI cannot mutate Cloudflare variables. Phase 4.16 adds read-only live cap readiness evidence and a future cap data-model design only; it does not enforce live caps or add cap tables. Live-Agent replay remains metadata-only with no raw message/output persistence. Those rows and metadata must not store raw prompts, raw embedding inputs, raw lyrics, raw compare prompts, raw Live-Agent messages/output, generated text, embedding vectors, audio, compare outputs, provider request bodies, provider response bodies, auth headers, cookies, Stripe data, Cloudflare tokens, private keys, private R2 keys, runtime flag values, or future cap override secret values. |
 
 Cloudflare's Workers AI documentation says Customer Content includes inputs,
 outputs, embeddings, and training data, and that Cloudflare does not use Workers

@@ -8,7 +8,10 @@ import {
   ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
   listAdminImageTestBranchClassifications,
 } from "./admin-ai-image-credit-pricing.js";
-import { getBudgetSwitchState } from "./admin-platform-budget-switches.js";
+import {
+  getBudgetSwitchState,
+  listAdminPlatformBudgetSwitchDefinitions,
+} from "./admin-platform-budget-switches.js";
 import { AI_CALLER_POLICY_BODY_KEY } from "../../../shared/ai-caller-policy.mjs";
 
 export const ADMIN_PLATFORM_BUDGET_EVIDENCE_VERSION = "admin-platform-budget-evidence-v1";
@@ -54,68 +57,89 @@ const INTERNAL_CALLER_POLICY_GUARD_OPERATION_IDS = Object.freeze([
   "internal.video_task.create",
   "internal.video_task.poll",
 ]);
-const RUNTIME_BUDGET_SWITCH_TARGETS = Object.freeze([
-  {
-    flagName: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET",
-    routePath: "/api/admin/ai/test-image",
-    operationIds: ["admin.image.test.charged"],
-    domain: "charged Admin BFL image tests",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET",
-    routePath: "/api/admin/ai/test-image",
-    operationIds: ["admin.image.test.charged"],
-    domain: "charged Admin GPT Image 2 image tests",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS",
-    routePath: "/api/admin/ai/test-image",
-    operationIds: ["admin.image.test.unmetered"],
-    domain: "explicit unmetered Admin FLUX.2 Dev image tests",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET",
-    routePath: "/api/admin/ai/video-jobs",
-    operationIds: ["admin.video.job.create"],
-    domain: "admin async video jobs",
-  },
-  {
-    flagName: "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
-    routePath: "/api/openclaw/news-pulse/ingest and scheduled News Pulse visual backfill",
-    operationIds: [...NEWS_PULSE_VISUAL_OPERATION_IDS],
-    domain: "OpenClaw / News Pulse visual generation",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_TEXT_BUDGET",
-    routePath: "/api/admin/ai/test-text",
-    operationIds: ["admin.text.test"],
-    domain: "Admin Text test route",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET",
-    routePath: "/api/admin/ai/test-embeddings",
-    operationIds: ["admin.embeddings.test"],
-    domain: "Admin Embeddings test route",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_MUSIC_BUDGET",
-    routePath: "/api/admin/ai/test-music",
-    operationIds: ["admin.music.test"],
-    domain: "Admin Music test route",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_COMPARE_BUDGET",
-    routePath: "/api/admin/ai/compare",
-    operationIds: ["admin.compare"],
-    domain: "Admin Compare route",
-  },
-  {
-    flagName: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET",
-    routePath: "/api/admin/ai/live-agent",
-    operationIds: ["admin.live_agent"],
-    domain: "Admin Live-Agent route",
-  },
-]);
+const RUNTIME_BUDGET_SWITCH_TARGETS = Object.freeze(
+  listAdminPlatformBudgetSwitchDefinitions().map((definition) => Object.freeze({
+    flagName: definition.flagName,
+    switchKey: definition.switchKey,
+    routePath: definition.relatedRoutes
+      .map((route) => String(route || "").replace(/^(GET|POST|PATCH|DELETE|PUT)\s+/i, ""))
+      .join(" and "),
+    operationIds: definition.operationIds,
+    domain: definition.label,
+    budgetScope: definition.budgetScope,
+    liveCapStatus: definition.liveCapStatus,
+    liveCapFuturePhase: definition.liveCapFuturePhase,
+  }))
+);
+
+const LIVE_PLATFORM_BUDGET_CAP_SCOPE_DESIGN = Object.freeze({
+  [AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET]: Object.freeze({
+    capRequired: true,
+    owner: "platform admin lab",
+    capGranularityTarget: ["daily", "monthly", "operation", "admin_user", "provider_model"],
+    countability: "partially_countable",
+    currentDataSources: ["admin_ai_usage_attempts", "ai_video_jobs"],
+    existingDataSufficient: false,
+    migrationLikelyRequired: true,
+    defaultCapPosture: "not_implemented_operator_review",
+    futurePhase: "Phase 4.17",
+  }),
+  [AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET]: Object.freeze({
+    capRequired: true,
+    owner: "OpenClaw / News Pulse platform budget",
+    capGranularityTarget: ["daily", "monthly", "source_domain", "provider_model"],
+    countability: "partially_countable",
+    currentDataSources: ["news_pulse_items"],
+    existingDataSufficient: false,
+    migrationLikelyRequired: true,
+    defaultCapPosture: "not_implemented_warn_only_target",
+    futurePhase: "Phase 4.18",
+  }),
+  [AI_COST_BUDGET_SCOPES.PLATFORM_BACKGROUND_BUDGET]: Object.freeze({
+    capRequired: true,
+    owner: "platform background jobs",
+    capGranularityTarget: ["daily", "monthly", "operation", "source_domain"],
+    countability: "requires_schema",
+    currentDataSources: [],
+    existingDataSufficient: false,
+    migrationLikelyRequired: true,
+    defaultCapPosture: "not_implemented",
+    futurePhase: "future platform/background cap migration",
+  }),
+  [AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT]: Object.freeze({
+    capRequired: "secondary",
+    owner: "selected organization credit account plus platform operator review",
+    capGranularityTarget: ["daily", "monthly", "organization", "admin_user", "provider_model"],
+    countability: "countable_now",
+    currentDataSources: ["usage_events", "ai_usage_attempts"],
+    existingDataSufficient: true,
+    migrationLikelyRequired: false,
+    defaultCapPosture: "operator_review",
+    futurePhase: "Phase 4.17 evidence alignment",
+  }),
+  [AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN]: Object.freeze({
+    capRequired: true,
+    owner: "platform admin lab explicit exception owner",
+    capGranularityTarget: ["daily", "monthly", "operation", "admin_user", "provider_model"],
+    countability: "metadata_only",
+    currentDataSources: ["budget_policy_metadata", "caller_policy_metadata"],
+    existingDataSufficient: false,
+    migrationLikelyRequired: true,
+    defaultCapPosture: "keep_switch_disabled_until_operator_review",
+    futurePhase: "Phase 4.17 explicit-unmetered cap decision",
+  }),
+  [AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED]: Object.freeze({
+    capRequired: "inherited_from_caller",
+    owner: "calling route budget scope",
+    capGranularityTarget: ["caller_budget_scope", "operation", "provider_model"],
+    countability: "requires_schema",
+    currentDataSources: ["caller_policy_metadata"],
+    existingDataSufficient: false,
+    migrationLikelyRequired: true,
+    defaultCapPosture: "caller_enforced_only",
+    futurePhase: "future internal caller hardening after cap ledger",
+  }),
+});
 
 const DEFAULT_LIMITS = Object.freeze({
   maxBudgetScopeOperationIds: 40,
@@ -226,6 +250,21 @@ function operationBudgetScopes(entry) {
   ].filter((scope) => ADMIN_PLATFORM_BUDGET_EVIDENCE_SCOPES.includes(scope)));
 }
 
+function operationLiveBudgetCapEvidence(entry) {
+  const policy = operationBudgetPolicy(entry);
+  if (!policy) return null;
+  return {
+    status: policy.liveBudgetCapStatus || "not_implemented",
+    readiness: policy.liveBudgetCapReadiness || "requires_schema",
+    scope: policy.liveBudgetCapScope || policy.targetBudgetScope || null,
+    futurePhase: policy.liveBudgetCapFuturePhase || "Phase 4.17 live platform budget cap foundation",
+    dataSources: asList(policy.liveBudgetCapEvidence?.dataSources),
+    durableCompletionTimestamp: policy.liveBudgetCapEvidence?.durableCompletionTimestamp === true,
+    estimatedCostUnitsAvailable: policy.liveBudgetCapEvidence?.estimatedCostUnitsAvailable === true,
+    requiresCentralUsageLedger: policy.liveBudgetCapEvidence?.requiresCentralUsageLedger !== false,
+  };
+}
+
 function operationRuntimeStatus(entry) {
   const policy = operationBudgetPolicy(entry);
   if (
@@ -279,6 +318,7 @@ function routePolicyEvidenceForOperation(entry, index) {
 function basicOperationEvidence(entry, routeIndex) {
   const config = entry?.operationConfig || {};
   const policy = operationBudgetPolicy(entry);
+  const liveBudgetCap = operationLiveBudgetCapEvidence(entry);
   return {
     operationId: config.operationId,
     routeId: config.routeId || null,
@@ -302,6 +342,7 @@ function basicOperationEvidence(entry, routeIndex) {
       providerSuppression: entry?.currentEnforcement?.providerSuppression || null,
     },
     routePolicy: routePolicyEvidenceForOperation(entry, routeIndex),
+    liveBudgetCap,
   };
 }
 
@@ -722,6 +763,14 @@ function scopeEvidence(scope, { entries, knownGaps, entriesById, limits, warning
   const implementedCount = operations.filter((entry) =>
     operationRuntimeStatus(entry) === "implemented"
   ).length;
+  const capDesign = LIVE_PLATFORM_BUDGET_CAP_SCOPE_DESIGN[scope] || {
+    countability: "not_applicable",
+    currentDataSources: [],
+    futurePhase: "not_applicable",
+  };
+  const capEvidence = operations
+    .map(operationLiveBudgetCapEvidence)
+    .filter(Boolean);
   return {
     scope,
     operationCount: operations.length,
@@ -736,6 +785,15 @@ function scopeEvidence(scope, { entries, knownGaps, entriesById, limits, warning
     runtimeEnforcementStatus: runtimeStatus,
     killSwitchTargetDefined: killSwitchTargets.length > 0,
     killSwitchTargets,
+    liveBudgetCapStatus: "not_implemented",
+    liveBudgetCapEnforced: false,
+    liveBudgetCapCountability: capDesign.countability,
+    liveBudgetCapFuturePhase: capDesign.futurePhase,
+    liveBudgetCapDataSources: sortedUnique([
+      ...(capDesign.currentDataSources || []),
+      ...capEvidence.flatMap((item) => item.dataSources || []),
+    ]),
+    liveBudgetCapOperationReadiness: sortedUnique(capEvidence.map((item) => item.readiness)),
     operationIds: limitList(operations.map(operationId), limits.maxBudgetScopeOperationIds, warnings, `${scope} operationIds`),
     baselineGapIds: gaps.map((gap) => gap.id),
   };
@@ -779,13 +837,17 @@ function adminAiUsageAttemptOperationalEvidence(summary = null, routeIndex) {
   };
 }
 
-function runtimeBudgetSwitchEvidence(env = null) {
+function runtimeBudgetSwitchEvidence(env = null, runtimeBudgetSwitchState = null) {
   const hasEnv = env && typeof env === "object";
+  const appStates = new Map((runtimeBudgetSwitchState?.switches || [])
+    .map((entry) => [entry.switchKey || entry.flagName, entry]));
   const targets = RUNTIME_BUDGET_SWITCH_TARGETS.map((target) => {
+    const appState = appStates.get(target.switchKey) || null;
     const state = hasEnv ? getBudgetSwitchState(env, target.flagName) : {
       flagName: target.flagName,
       configured: null,
       enabled: null,
+      status: "unknown",
     };
     return {
       ...target,
@@ -793,22 +855,119 @@ function runtimeBudgetSwitchEvidence(env = null) {
       requiredForProviderCall: true,
       configured: state.configured,
       enabled: state.enabled,
+      masterFlagStatus: appState?.masterFlagStatus || state.status || "unknown",
+      appSwitchStatus: appState?.appSwitchStatus || (runtimeBudgetSwitchState ? "missing" : "unknown"),
+      appSwitchEnabled: appState ? appState.appSwitchEnabled === true : null,
+      appSwitchAvailable: appState ? appState.appSwitchAvailable === true : (runtimeBudgetSwitchState ? false : null),
+      effectiveEnabled: appState ? appState.effectiveEnabled === true : null,
+      disabledReason: appState?.disabledReason || null,
+      liveCapStatus: target.liveCapStatus,
       exposesSecretValue: false,
     };
   });
+  const effectiveEnabledCount = targets.filter((target) => target.effectiveEnabled === true).length;
+  const appEnabledCount = targets.filter((target) => target.appSwitchEnabled === true).length;
   return {
     type: "runtime_budget_kill_switch_enforcement",
-    phase: "Phase 4.15",
+    phase: "Phase 4.15.1",
     defaultDisabled: true,
+    effectiveRule: "cloudflare_master_enabled_and_admin_d1_switch_enabled",
     acceptedTrueValues: ["1", "true", "yes", "on"],
     acceptedFalseValues: ["absent", "empty", "0", "false", "no", "off", "unrecognized"],
     providerCostWorkBlockedWhenDisabled: true,
     liveBudgetCapsEnforced: false,
     envStateAvailable: hasEnv,
+    d1SwitchStateAvailable: runtimeBudgetSwitchState?.summary?.d1SwitchStoreAvailable === true,
     targetCount: targets.length,
     enabledCount: hasEnv ? targets.filter((target) => target.enabled === true).length : null,
     disabledCount: hasEnv ? targets.filter((target) => target.enabled !== true).length : null,
+    appEnabledCount: runtimeBudgetSwitchState ? appEnabledCount : null,
+    effectiveEnabledCount: runtimeBudgetSwitchState ? effectiveEnabledCount : null,
+    disabledByMasterCount: runtimeBudgetSwitchState?.summary?.disabledByMasterCount ?? null,
+    disabledByAppCount: runtimeBudgetSwitchState?.summary?.disabledByAppCount ?? null,
+    unknownOrUnavailableCount: runtimeBudgetSwitchState?.summary?.unknownOrUnavailableCount ?? null,
     targets,
+  };
+}
+
+function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches) {
+  const providerCostBudgetedEntries = registryEntries.filter((entry) =>
+    entry?.operationConfig?.providerCost !== false &&
+    entry?.budgetPolicy &&
+    !String(entry?.operationConfig?.operationId || "").startsWith("member.")
+  );
+  const switchEnforcedOperationIds = sortedUnique((runtimeSwitches?.targets || [])
+    .flatMap((target) => target.operationIds || []));
+  const capEvidenceByOperation = providerCostBudgetedEntries.map((entry) => ({
+    operationId: operationId(entry),
+    routePath: entry.operationConfig?.routePath || null,
+    actorType: entry.operationConfig?.actorType || null,
+    budgetScope: entry.budgetPolicy?.targetBudgetScope || null,
+    liveBudgetCapStatus: entry.budgetPolicy?.liveBudgetCapStatus || "not_implemented",
+    liveBudgetCapReadiness: entry.budgetPolicy?.liveBudgetCapReadiness || "requires_schema",
+    liveBudgetCapFuturePhase: entry.budgetPolicy?.liveBudgetCapFuturePhase || null,
+    dataSources: asList(entry.budgetPolicy?.liveBudgetCapEvidence?.dataSources),
+    durableCompletionTimestamp: entry.budgetPolicy?.liveBudgetCapEvidence?.durableCompletionTimestamp === true,
+    estimatedCostUnitsAvailable: entry.budgetPolicy?.liveBudgetCapEvidence?.estimatedCostUnitsAvailable === true,
+    switchEnforced: switchEnforcedOperationIds.includes(operationId(entry)),
+  })).sort((left, right) => left.operationId.localeCompare(right.operationId));
+  const countabilityByBudgetScope = Object.entries(LIVE_PLATFORM_BUDGET_CAP_SCOPE_DESIGN)
+    .map(([scope, design]) => {
+      const operations = capEvidenceByOperation.filter((entry) => entry.budgetScope === scope);
+      return {
+        scope,
+        status: "not_implemented",
+        countability: design.countability,
+        capRequired: design.capRequired,
+        owner: design.owner,
+        capGranularityTarget: design.capGranularityTarget,
+        currentDataSources: sortedUnique([
+          ...(design.currentDataSources || []),
+          ...operations.flatMap((entry) => entry.dataSources || []),
+        ]),
+        existingDataSufficient: design.existingDataSufficient,
+        migrationLikelyRequired: design.migrationLikelyRequired,
+        defaultCapPosture: design.defaultCapPosture,
+        futurePhase: design.futurePhase,
+        operationIds: operations.map((entry) => entry.operationId),
+      };
+    });
+
+  return {
+    type: "live_platform_budget_cap_design_evidence",
+    phase: "Phase 4.16",
+    liveBudgetCapsStatus: "not_implemented",
+    liveBudgetCapsEnforced: false,
+    runtimeRouteBehaviorChanged: false,
+    recommendedFirstCapScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    recommendedFirstCapPhase: "Phase 4.17",
+    memberRoutesSeparate: true,
+    switchEnforcedButNotCapEnforced: true,
+    capEnforcedOperationIds: [],
+    switchEnforcedNotCapEnforcedOperationIds: switchEnforcedOperationIds,
+    countabilityByBudgetScope,
+    operations: capEvidenceByOperation,
+    pathsWithEstimatedCostUnits: capEvidenceByOperation
+      .filter((entry) => entry.estimatedCostUnitsAvailable)
+      .map((entry) => entry.operationId),
+    pathsWithDurableCompletionTimestamps: capEvidenceByOperation
+      .filter((entry) => entry.durableCompletionTimestamp)
+      .map((entry) => entry.operationId),
+    requiresSchemaOperationIds: capEvidenceByOperation
+      .filter((entry) =>
+        entry.liveBudgetCapReadiness === "requires_schema" ||
+        entry.dataSources.length === 0 ||
+        LIVE_PLATFORM_BUDGET_CAP_SCOPE_DESIGN[entry.budgetScope]?.migrationLikelyRequired === true
+      )
+      .map((entry) => entry.operationId),
+    metadataOnlyOperationIds: capEvidenceByOperation
+      .filter((entry) => entry.liveBudgetCapReadiness === "metadata_only")
+      .map((entry) => entry.operationId),
+    notes: [
+      "Phase 4.16 is design/evidence only; no live daily/monthly platform budget caps are enforced.",
+      "Phase 4.15 runtime kill-switches remain the active runtime safety control for already budget-classified admin/platform provider-cost paths.",
+      "Future cap enforcement needs a central platform budget usage ledger before fail-closed aggregate caps can be trusted across tables.",
+    ],
   };
 }
 
@@ -885,11 +1044,14 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     }),
   ].sort((left, right) => left.operationId.localeCompare(right.operationId));
 
+  const runtimeSwitches = runtimeBudgetSwitchEvidence(options.env, options.runtimeBudgetSwitchState);
+  const liveBudgetCaps = livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches);
   const evidenceItems = [
     ...implementedOperations,
     ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
     adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
-    runtimeBudgetSwitchEvidence(options.env),
+    runtimeSwitches,
+    liveBudgetCaps,
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
       ...gap,
@@ -899,7 +1061,6 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     entriesById.get(UNMETERED_ADMIN_IMAGE_OPERATION_ID) || entriesById.get(HARDENED_ADMIN_OPERATION_ID),
     routeIndex
   );
-  const runtimeSwitches = runtimeBudgetSwitchEvidence(options.env);
 
   const report = {
     ok: true,
@@ -927,6 +1088,15 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       runtimeBudgetSwitchTargets: runtimeSwitches.targetCount,
       runtimeBudgetSwitchesEnabled: runtimeSwitches.enabledCount,
       runtimeBudgetSwitchesDisabled: runtimeSwitches.disabledCount,
+      runtimeBudgetSwitchesAppEnabled: runtimeSwitches.appEnabledCount,
+      runtimeBudgetSwitchesEffectiveEnabled: runtimeSwitches.effectiveEnabledCount,
+      runtimeBudgetSwitchesDisabledByMaster: runtimeSwitches.disabledByMasterCount,
+      runtimeBudgetSwitchesDisabledByApp: runtimeSwitches.disabledByAppCount,
+      runtimeBudgetSwitchesUnknownOrUnavailable: runtimeSwitches.unknownOrUnavailableCount,
+      liveBudgetCapsStatus: liveBudgetCaps.liveBudgetCapsStatus,
+      liveBudgetCapsEnforced: liveBudgetCaps.liveBudgetCapsEnforced,
+      recommendedFirstCapScope: liveBudgetCaps.recommendedFirstCapScope,
+      switchEnforcedNotCapEnforcedOperations: liveBudgetCaps.switchEnforcedNotCapEnforcedOperationIds.length,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
@@ -934,6 +1104,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     adminImageBranches,
     adminAiUsageAttempts: adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
     runtimeBudgetSwitches: runtimeSwitches,
+    livePlatformBudgetCaps: liveBudgetCaps,
     retiredDebugPaths: limitList(
       retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
       limits.maxImplementedOperations,
@@ -974,7 +1145,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
       "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music/compare/live-agent now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
       "Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost routes. Missing or false switch values block provider-cost work before provider, queue, credit, or durable-attempt execution where applicable.",
-      "Phase 4.15 is not live platform budget cap enforcement and does not enable production or live billing readiness.",
+      "Phase 4.16 adds live platform budget cap design/evidence only. It does not enforce daily/monthly caps, change runtime route behavior, or enable production/live billing readiness.",
+      "Runtime budget kill-switches remain the active safety control until a future platform budget usage ledger and cap enforcement phase are implemented.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
       "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
       "Platform/background AI outside News Pulse visuals and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
@@ -988,7 +1160,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
 
 export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
   const scopeLines = (report.budgetScopes || []).map((scope) =>
-    `- ${scope.scope}: operations=${scope.operationCount}; implemented=${scope.implementedCount}; baselineGaps=${scope.baselineGapCount}; runtime=${scope.runtimeEnforcementStatus}; killSwitchTargetDefined=${scope.killSwitchTargetDefined ? "yes" : "no"}`
+    `- ${scope.scope}: operations=${scope.operationCount}; implemented=${scope.implementedCount}; baselineGaps=${scope.baselineGapCount}; runtime=${scope.runtimeEnforcementStatus}; killSwitchTargetDefined=${scope.killSwitchTargetDefined ? "yes" : "no"}; liveCaps=${scope.liveBudgetCapStatus || "not_implemented"}; countability=${scope.liveBudgetCapCountability || "n/a"}`
   );
   const implementedLines = (report.implementedOperations || []).map((operation) =>
     `- ${operation.operationId}: ${operation.runtimeStatus || operation.runtimeEnforcementStatus}; scope=${operation.budgetScope || "n/a"}; route=${operation.routePath || "n/a"}`
@@ -1004,6 +1176,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
   const switchLines = (report.runtimeBudgetSwitches?.targets || []).map((target) =>
     `- ${target.flagName}: ${target.enabled === true ? "enabled" : target.enabled === false ? "disabled" : "not evaluated"}; domain=${target.domain}`
   );
+  const capScopeLines = (report.livePlatformBudgetCaps?.countabilityByBudgetScope || []).map((scope) =>
+    `- ${scope.scope}: status=${scope.status}; countability=${scope.countability}; future=${scope.futurePhase}; sources=${(scope.currentDataSources || []).join(", ") || "none"}`
+  );
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
   );
@@ -1018,6 +1193,8 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     "## Summary",
     `- Member gateway migrated: ${report.summary?.memberGatewayMigrated ?? 0}`,
     `- Admin/platform implemented: ${report.summary?.adminPlatformImplemented ?? 0}`,
+    `- Live platform budget caps: ${report.summary?.liveBudgetCapsStatus || "not_implemented"}`,
+    `- Recommended first cap scope: ${report.summary?.recommendedFirstCapScope || "n/a"}`,
     `- Baseline gaps: ${report.summary?.baselineGaps ?? 0}`,
     `- Blocked critical gaps: ${report.summary?.blockedCriticalGaps ?? 0}`,
     "",
@@ -1035,6 +1212,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     "",
     "## Runtime Budget Switches",
     switchLines.length ? switchLines.join("\n") : "- None",
+    "",
+    "## Live Platform Budget Caps",
+    capScopeLines.length ? capScopeLines.join("\n") : "- None",
     "",
     "## Baselined Gaps",
     gapLines.length ? gapLines.join("\n") : "- None",

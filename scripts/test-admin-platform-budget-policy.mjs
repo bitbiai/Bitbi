@@ -13,10 +13,13 @@ import {
 } from "../workers/auth/src/lib/admin-platform-budget-policy.js";
 import {
   AdminPlatformBudgetSwitchError,
+  assertBudgetSwitchEffectiveEnabled,
   assertBudgetSwitchEnabled,
   budgetSwitchDisabledResponse,
   budgetSwitchLogFields,
   getBudgetSwitchState,
+  listAdminPlatformBudgetSwitchDefinitions,
+  listAdminRuntimeBudgetSwitchStates,
   isBudgetSwitchEnabled,
   normalizeBudgetSwitchValue,
 } from "../workers/auth/src/lib/admin-platform-budget-switches.js";
@@ -332,6 +335,67 @@ assert.throws(
   assert.equal(body.code, "admin_ai_budget_disabled");
   assert.equal(body.flag, "ENABLE_ADMIN_AI_TEXT_BUDGET");
   assert(!JSON.stringify(body).includes("secret"));
+}
+
+{
+  const plan = classifyAdminPlatformBudgetPlan(operation({
+    killSwitchPolicy: killSwitch(ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+      flagName: "ENABLE_ADMIN_AI_TEXT_BUDGET",
+    }),
+  }));
+  const rows = [{
+    switch_key: "ENABLE_ADMIN_AI_TEXT_BUDGET",
+    enabled: 1,
+    reason: "script test enabled",
+    metadata_json: "{}",
+    created_at: "2026-05-16T00:00:00.000Z",
+    updated_at: "2026-05-16T00:00:00.000Z",
+    updated_by_user_id: "tester",
+    updated_by_email: "tester@example.com",
+  }];
+  const fakeDb = {
+    prepare(query) {
+      return {
+        async all() {
+          assert(String(query).includes("admin_runtime_budget_switches"));
+          return { results: rows };
+        },
+        bind(...bindings) {
+          return {
+            async first() {
+              assert(String(query).includes("admin_runtime_budget_switches"));
+              return rows.find((row) => row.switch_key === bindings[0]) || null;
+            },
+            async all() {
+              return { results: rows };
+            },
+          };
+        },
+      };
+    },
+  };
+  const definitions = listAdminPlatformBudgetSwitchDefinitions();
+  assert.equal(definitions.length, 10);
+  const enabledEnv = { ENABLE_ADMIN_AI_TEXT_BUDGET: "true", DB: fakeDb };
+  await assertBudgetSwitchEffectiveEnabled(enabledEnv, plan);
+  const listed = await listAdminRuntimeBudgetSwitchStates(enabledEnv);
+  assert.equal(listed.switches.find((entry) => entry.switchKey === "ENABLE_ADMIN_AI_TEXT_BUDGET").effectiveEnabled, true);
+  await assert.rejects(
+    () => assertBudgetSwitchEffectiveEnabled({ ENABLE_ADMIN_AI_TEXT_BUDGET: "true", DB: {
+      prepare() {
+        return { bind: () => ({ first: async () => null }) };
+      },
+    } }, plan),
+    AdminPlatformBudgetSwitchError
+  );
+  await assert.rejects(
+    () => assertBudgetSwitchEffectiveEnabled({ ENABLE_ADMIN_AI_TEXT_BUDGET: "false", DB: fakeDb }, plan),
+    AdminPlatformBudgetSwitchError
+  );
+  await assert.rejects(
+    () => assertBudgetSwitchEffectiveEnabled({ ENABLE_ADMIN_AI_TEXT_BUDGET: "true" }, plan),
+    AdminPlatformBudgetSwitchError
+  );
 }
 
 console.log("Admin/platform budget policy tests passed.");

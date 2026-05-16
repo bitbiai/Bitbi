@@ -12596,6 +12596,69 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(publicBody)).not.toContain('ENABLE_NEWS_PULSE_VISUAL_BUDGET');
     });
 
+    test('News Pulse visual generation requires D1 app switch in addition to Cloudflare master', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        adminRuntimeBudgetSwitches: [],
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        newsPulseItems: [{
+          id: 'd1-disabled-switch-visual-item',
+          locale: 'en',
+          title: 'D1 disabled switch visual item',
+          summary: 'A disabled D1 app switch should skip generated thumbnails.',
+          source: 'Source Example',
+          url: 'https://example.com/d1-disabled-switch-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'd1-disabled-switch-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      const result = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 1,
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        scannedCount: 1,
+        readyCount: 0,
+        skippedCount: 1,
+      }));
+      expect(aiCalls).toBe(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'skipped',
+        visual_error: 'budget_switch_disabled',
+      }));
+
+      const publicRes = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(publicRes.status).toBe(200);
+      const publicBody = await publicRes.json();
+      expect(publicBody.items[0]).toEqual(expect.objectContaining({
+        id: 'd1-disabled-switch-visual-item',
+        visual_type: 'icon',
+      }));
+      expect(JSON.stringify(publicBody)).not.toContain('budget_switch_disabled');
+    });
+
     test('News Pulse thumbnail backfill generates one ready WebP and skips pending ready or exhausted rows', async () => {
       const { processNewsPulseVisualBackfill, NEWS_PULSE_VISUAL_MODEL_ID } = await loadNewsPulseVisualsModule();
       let aiCalls = 0;
@@ -14996,6 +15059,139 @@ test.describe('Worker routes', () => {
       const body = await res.json();
       expect(body.ok).toBe(false);
       expect(aiLabRequests).toHaveLength(0);
+    });
+
+    test('Admin AI budget switch API lists and updates D1 app switches without mutating Cloudflare state', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const list = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-switches', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(list.status).toBe(200);
+      const listBody = await list.json();
+      expect(listBody.summary).toEqual(expect.objectContaining({
+        totalSwitches: 10,
+        masterEnabledCount: 10,
+        appEnabledCount: 10,
+        effectiveEnabledCount: 10,
+        liveBudgetCapsStatus: 'not_implemented',
+      }));
+      expect(listBody.switches).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+          masterFlagStatus: 'enabled',
+          appSwitchEnabled: true,
+          effectiveEnabled: true,
+          liveCapStatus: 'not_implemented',
+        }),
+      ]));
+      expect(JSON.stringify(listBody)).not.toContain('test-session-secret');
+      expect(JSON.stringify(listBody)).not.toContain('sk_live_');
+
+      const beforeMaster = env.ENABLE_ADMIN_AI_TEXT_BUDGET;
+      const update = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-switches/ENABLE_ADMIN_AI_TEXT_BUDGET', 'PATCH', {
+          enabled: false,
+          reason: 'Disable Admin Text during control-plane test.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'budget-switch-update-text-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(update.status).toBe(200);
+      const updateBody = await update.json();
+      expect(updateBody.switch).toEqual(expect.objectContaining({
+        switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+        appSwitchEnabled: false,
+        effectiveEnabled: false,
+        disabledReason: 'admin_switch_disabled',
+      }));
+      expect(env.ENABLE_ADMIN_AI_TEXT_BUDGET).toBe(beforeMaster);
+      expect(env.DB.state.adminRuntimeBudgetSwitches.find((row) =>
+        row.switch_key === 'ENABLE_ADMIN_AI_TEXT_BUDGET'
+      )).toEqual(expect.objectContaining({
+        enabled: 0,
+        reason: 'Disable Admin Text during control-plane test.',
+      }));
+      expect(env.DB.state.adminRuntimeBudgetSwitchEvents).toHaveLength(1);
+
+      const replay = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-switches/ENABLE_ADMIN_AI_TEXT_BUDGET', 'PATCH', {
+          enabled: false,
+          reason: 'Disable Admin Text during control-plane test.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'budget-switch-update-text-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(replay.status).toBe(200);
+      await expect(replay.json()).resolves.toMatchObject({
+        ok: true,
+        event: { replayed: true },
+      });
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-switches/ENABLE_ADMIN_AI_TEXT_BUDGET', 'PATCH', {
+          enabled: true,
+          reason: 'Different request with same idempotency key.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'budget-switch-update-text-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_conflict',
+      });
+    });
+
+    test('Admin AI budget switch API rejects non-admin, unknown switches, and missing idempotency', async () => {
+      const nonAdmin = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'budget-switch-member', role: 'user' }),
+      });
+      const denied = await nonAdmin.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-switches', 'GET', undefined, nonAdmin.authHeaders),
+        nonAdmin.env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const missingKey = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-switches/ENABLE_ADMIN_AI_TEXT_BUDGET', 'PATCH', {
+          enabled: true,
+          reason: 'Missing idempotency key should fail.',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingKey.status).toBe(428);
+
+      const unknown = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-switches/ENABLE_ADMIN_AI_UNKNOWN_BUDGET', 'PATCH', {
+          enabled: true,
+          reason: 'Unknown switch should fail.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'budget-switch-unknown-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(unknown.status).toBe(404);
+      await expect(unknown.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_budget_switch_not_found',
+      });
     });
 
     test('GET /api/admin/ai/models propagates the correlation id through the auth to AI wrapper path', async () => {
@@ -18730,6 +18926,65 @@ test.describe('Worker routes', () => {
         expect(aiLabRequests).toHaveLength(0);
         expect(env.DB.state.adminAiUsageAttempts).toHaveLength(0);
       }
+    });
+
+    test('runtime admin AI budget switches require both Cloudflare master and D1 app switch before provider work', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        authEnv: {
+          adminRuntimeBudgetSwitches: [],
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          preset: 'balanced',
+          prompt: 'Cloudflare true but missing D1 switch must block before provider.',
+          maxTokens: 80,
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-text-d1-switch-missing-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_budget_disabled',
+        flag: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+        master_flag_status: 'enabled',
+        app_switch_enabled: false,
+        effective_enabled: false,
+        disabled_reason: 'admin_switch_missing',
+      });
+      expect(aiLabRequests).toHaveLength(0);
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(0);
+    });
+
+    test('runtime admin AI budget switches fail closed when D1 switch store is unavailable', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        authEnv: {
+          missingTables: ['admin_runtime_budget_switches'],
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          preset: 'balanced',
+          prompt: 'Unavailable D1 switch store must block before provider.',
+          maxTokens: 80,
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-text-d1-switch-unavailable-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_budget_disabled',
+        flag: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+        disabled_reason: 'admin_ai_budget_switch_store_unavailable',
+      });
+      expect(aiLabRequests).toHaveLength(0);
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(0);
     });
 
     test('runtime admin image budget switches block charged and explicit-unmetered branches before provider or credit work', async () => {

@@ -22,11 +22,11 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     reason: "Known internal service routes rely on caller-side gateway or admin policy controls; sync video debug is retired at the Auth Worker caller but the internal video route remains service-only baseline-compatible for any legacy caller.",
     temporaryAllowanceReason: "Internal service routes remain accepted only while remaining callers migrate after the Phase 4.7 caller-policy guard.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
-    targetFuturePhase: "Phase 4.16 targeted internal caller-policy hardening",
+    targetFuturePhase: "Future targeted internal caller-policy hardening after live cap foundation",
     severity: "P2",
     ownerDomain: "ai-worker",
     killSwitchTarget: "caller route budget kill switch required",
-    futureEnforcementPath: "Phase 4.16 should cover remaining broad internal routes after Admin Image branch classification, sync debug retirement, and runtime budget switch enforcement.",
+    futureEnforcementPath: "A later phase should cover remaining broad internal routes after Admin Image branch classification, sync debug retirement, runtime budget switch enforcement, and live platform cap foundation work.",
     providerCostBearing: true,
     registryOperationIds: [
       "internal.text.generate",
@@ -202,6 +202,12 @@ ${inventoryExtra}
   assert(output.includes("Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection"));
   assert(output.includes("Phase 4.12 implements Admin Live-Agent budget metadata"));
   assert(output.includes("Phase 4.15 enforces runtime budget kill-switches"));
+  assert(output.includes("Live platform budget cap status:"));
+  assert(output.includes("Phase 4.16 is design/evidence only"));
+  assert(output.includes("Recommended first cap scope: platform_admin_lab_budget"));
+  assert(output.includes("admin.text.test: cap=not_implemented; readiness=partially_countable"));
+  assert(output.includes("admin.image.test.unmetered: cap=not_implemented; readiness=metadata_only"));
+  assert(output.includes("internal.text.generate: cap=not_implemented; readiness=requires_schema"));
   assert(output.includes("Retired/disabled debug paths:"));
   assert(output.includes("admin.ai.test-video-debug"));
   assert(output.includes("Phase 4.14 classifies Admin Image branches"));
@@ -219,7 +225,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.16 should address live platform budget cap design/enforcement"));
+  assert(output.includes("Phase 4.17 should implement the first narrow live cap foundation"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
@@ -389,6 +395,42 @@ ${inventoryExtra}
   assert.equal(result.ok, false);
   assert(result.fatalIssues.some((issue) => issue.includes("admin.text.test")));
   assert(result.fatalIssues.some((issue) => issue.includes("runtime kill-switch enforcement")));
+}
+
+{
+  const repoRoot = makeRepo();
+  const regressedRegistry = AI_COST_OPERATION_REGISTRY.map((entry) =>
+    entry.operationConfig?.operationId === "admin.text.test"
+      ? {
+        ...entry,
+        budgetPolicy: {
+          ...entry.budgetPolicy,
+          liveBudgetCapStatus: "cap_enforced",
+        },
+      }
+      : entry
+  );
+  const result = analyzeAiCostPolicy(repoRoot, { registryEntries: regressedRegistry });
+  assert.equal(result.ok, false);
+  assert(result.fatalIssues.some((issue) => issue.includes("live budget cap status")));
+}
+
+{
+  const repoRoot = makeRepo();
+  const regressedRegistry = AI_COST_OPERATION_REGISTRY.map((entry) =>
+    entry.operationConfig?.operationId === "admin.music.test"
+      ? {
+        ...entry,
+        budgetPolicy: {
+          ...entry.budgetPolicy,
+          liveBudgetCapFuturePhase: "",
+        },
+      }
+      : entry
+  );
+  const result = analyzeAiCostPolicy(repoRoot, { registryEntries: regressedRegistry });
+  assert.equal(result.ok, false);
+  assert(result.fatalIssues.some((issue) => issue.includes("live budget cap future phase")));
 }
 
 {

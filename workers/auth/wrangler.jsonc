@@ -6,7 +6,17 @@
 		"APP_NAME": "bitbi",
 		"APP_BASE_URL": "https://bitbi.ai",
 		"RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
-		"BITBI_ENV": "production"
+		"BITBI_ENV": "production",
+"ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET": "true",
+"ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET": "true",
+"ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS": "true",
+"ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET": "true",
+"ENABLE_NEWS_PULSE_VISUAL_BUDGET": "true",
+"ENABLE_ADMIN_AI_TEXT_BUDGET": "true",
+"ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET": "true",
+"ENABLE_ADMIN_AI_MUSIC_BUDGET": "true",
+"ENABLE_ADMIN_AI_COMPARE_BUDGET": "true",
+"ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET": "true"
 	},
 	"triggers": {
 		"crons": ["0 3 * * *"]
@@ -71,7 +81,8 @@
 	"services": [
 		{
 			"binding": "AI_LAB",
-			"service": "bitbi-ai"
+			"service": "bitbi-ai",
+			"environment": "production"
 		}
 	],
 	"durable_objects": {

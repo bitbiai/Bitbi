@@ -375,6 +375,20 @@ export function apiAdminAiCleanupUsageAttempts({ limit, dryRun, idempotencyKey }
     });
 }
 
+export function apiAdminAiBudgetSwitches(options) {
+    return request('GET', '/admin/ai/budget-switches', undefined, options);
+}
+
+export function apiAdminAiUpdateBudgetSwitch(switchKey, { enabled, reason, idempotencyKey, metadata } = {}) {
+    return request('PATCH', `/admin/ai/budget-switches/${encodeURIComponent(switchKey)}`, {
+        enabled: enabled === true,
+        reason,
+        metadata,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminDataLifecycleRequests({ limit } = {}) {
     const params = new URLSearchParams();
     if (limit) params.set('limit', String(limit));

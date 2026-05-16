@@ -146,6 +146,32 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const DEFAULT_ADMIN_RUNTIME_BUDGET_SWITCH_KEYS = [
+  'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+  'ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET',
+  'ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS',
+  'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+  'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+  'ENABLE_ADMIN_AI_TEXT_BUDGET',
+  'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
+  'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+  'ENABLE_ADMIN_AI_COMPARE_BUDGET',
+  'ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET',
+];
+
+function defaultAdminRuntimeBudgetSwitchRows() {
+  return DEFAULT_ADMIN_RUNTIME_BUDGET_SWITCH_KEYS.map((switchKey) => ({
+    switch_key: switchKey,
+    enabled: 1,
+    reason: 'test harness default enabled app-level switch',
+    metadata_json: '{"source":"test_harness"}',
+    created_at: '2026-05-16T00:00:00.000Z',
+    updated_at: '2026-05-16T00:00:00.000Z',
+    updated_by_user_id: 'test-harness',
+    updated_by_email: 'test-harness@bitbi.test',
+  }));
+}
+
 function normalizeAiImageRow(row = {}) {
   return {
     visibility: 'private',
@@ -722,6 +748,8 @@ class MockD1 {
       billingMemberSubscriptionCheckoutSessions: [],
       newsPulseItems: [],
       openClawIngestNonces: [],
+      adminRuntimeBudgetSwitches: defaultAdminRuntimeBudgetSwitchRows(),
+      adminRuntimeBudgetSwitchEvents: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -877,6 +905,9 @@ class MockD1 {
     }
     if (this.missingTables.has('admin_ai_usage_attempts') && query.includes('admin_ai_usage_attempts')) {
       throw new Error('no such table: admin_ai_usage_attempts');
+    }
+    if (this.missingTables.has('admin_runtime_budget_switches') && query.includes('admin_runtime_budget_switch')) {
+      throw new Error('no such table: admin_runtime_budget_switches');
     }
     if (this.missingTables.has('user_asset_storage_usage') && query.includes('user_asset_storage_usage')) {
       throw new Error('no such table: user_asset_storage_usage');
@@ -7489,6 +7520,96 @@ class MockD1 {
         }
       }
       return { success: true, meta: { changes } };
+    }
+
+    if (
+      query === 'SELECT switch_key, enabled, reason, metadata_json, created_at, updated_at, updated_by_user_id, updated_by_email FROM admin_runtime_budget_switches'
+    ) {
+      return { results: this.state.adminRuntimeBudgetSwitches || [] };
+    }
+
+    if (
+      query === 'SELECT switch_key, enabled, reason, metadata_json, created_at, updated_at, updated_by_user_id, updated_by_email FROM admin_runtime_budget_switches WHERE switch_key = ? LIMIT 1'
+    ) {
+      const [switchKey] = bindings;
+      return (this.state.adminRuntimeBudgetSwitches || []).find((row) => row.switch_key === switchKey) || null;
+    }
+
+    if (
+      query === 'SELECT id, switch_key, old_enabled, new_enabled, reason, changed_by_user_id, changed_by_email, idempotency_key, request_hash, created_at FROM admin_runtime_budget_switch_events WHERE switch_key = ? AND idempotency_key = ? LIMIT 1'
+    ) {
+      const [switchKey, idempotencyKey] = bindings;
+      return (this.state.adminRuntimeBudgetSwitchEvents || []).find((row) =>
+        row.switch_key === switchKey && row.idempotency_key === idempotencyKey
+      ) || null;
+    }
+
+    if (query.startsWith('INSERT INTO admin_runtime_budget_switches (')) {
+      const [
+        switch_key,
+        enabled,
+        reason,
+        metadata_json,
+        created_at,
+        updated_at,
+        updated_by_user_id,
+        updated_by_email,
+      ] = bindings;
+      let row = (this.state.adminRuntimeBudgetSwitches || []).find((item) => item.switch_key === switch_key);
+      if (!row) {
+        row = {
+          switch_key,
+          enabled,
+          reason,
+          metadata_json,
+          created_at,
+          updated_at,
+          updated_by_user_id,
+          updated_by_email,
+        };
+        this.state.adminRuntimeBudgetSwitches.push(row);
+      } else {
+        row.enabled = enabled;
+        row.reason = reason;
+        row.metadata_json = metadata_json;
+        row.updated_at = updated_at;
+        row.updated_by_user_id = updated_by_user_id;
+        row.updated_by_email = updated_by_email;
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO admin_runtime_budget_switch_events (')) {
+      const [
+        id,
+        switch_key,
+        old_enabled,
+        new_enabled,
+        reason,
+        changed_by_user_id,
+        changed_by_email,
+        idempotency_key,
+        request_hash,
+        created_at,
+      ] = bindings;
+      if ((this.state.adminRuntimeBudgetSwitchEvents || []).some((row) =>
+        row.switch_key === switch_key && row.idempotency_key === idempotency_key
+      )) {
+        throw new Error('UNIQUE constraint failed: admin_runtime_budget_switch_events.switch_key, admin_runtime_budget_switch_events.idempotency_key');
+      }
+      this.state.adminRuntimeBudgetSwitchEvents.push({
+        id,
+        switch_key,
+        old_enabled,
+        new_enabled,
+        reason,
+        changed_by_user_id,
+        changed_by_email,
+        idempotency_key,
+        request_hash,
+        created_at,
+      });
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (

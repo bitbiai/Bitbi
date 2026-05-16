@@ -6,7 +6,7 @@ import {
 } from "./admin-platform-budget-policy.js";
 import {
   AdminPlatformBudgetSwitchError,
-  assertBudgetSwitchEnabled,
+  assertBudgetSwitchEffectiveEnabled,
   budgetSwitchLogFields,
 } from "./admin-platform-budget-switches.js";
 import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
@@ -682,7 +682,7 @@ async function generateNewsPulseVisualForItem(env, item, {
       return { status: "failed", reason: "budget_policy_invalid" };
     }
     try {
-      assertBudgetSwitchEnabled(env, budgetContext.plan);
+      await assertBudgetSwitchEffectiveEnabled(env, budgetContext.plan);
     } catch (error) {
       if (!(error instanceof AdminPlatformBudgetSwitchError)) throw error;
       const skippedPolicy = withBudgetRuntimeStatus(budgetPolicy, {

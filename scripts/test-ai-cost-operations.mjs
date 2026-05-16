@@ -371,6 +371,27 @@ for (const operationId of [
     String(entry.budgetPolicy.targetEnforcement.killSwitch || "").includes("runtime_enforced"),
     `${operationId} should use a runtime-enforced kill-switch target`
   );
+  assert.equal(
+    entry.budgetPolicy.liveBudgetCapStatus,
+    "not_implemented",
+    `${operationId} should not claim live platform cap enforcement`
+  );
+  assert(entry.budgetPolicy.liveBudgetCapFuturePhase, `${operationId} should declare a future cap phase`);
+}
+
+for (const [operationId, readiness] of Object.entries({
+  "admin.image.test.charged": "countable_now",
+  "admin.image.test.unmetered": "metadata_only",
+  "admin.video.job.create": "partially_countable",
+  "platform.news_pulse.visual.ingest": "partially_countable",
+  "admin.text.test": "partially_countable",
+  "admin.embeddings.test": "partially_countable",
+  "admin.music.test": "partially_countable",
+  "admin.compare": "partially_countable",
+  "admin.live_agent": "partially_countable",
+})) {
+  const entry = AI_COST_OPERATION_REGISTRY.find((item) => item.operationConfig.operationId === operationId);
+  assert.equal(entry.budgetPolicy.liveBudgetCapReadiness, readiness, `${operationId} cap readiness`);
 }
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();

@@ -1075,12 +1075,54 @@ Migration risk:
 
 - No Phase 4.15 migration.
 
-## Phase 4.16: Live Platform Budget Caps / Remaining Internal Caller Hardening
+## Phase 4.15.1: Admin AI Budget Switch Control Plane
+
+Status: completed for D1/Admin UI app-level switch control only, on top of Phase 4.15 Cloudflare master flags and preserved Phase 4.16 cap design/evidence. No new provider-cost route migration, live platform budget cap, member/org billing behavior change, public billing change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, Cloudflare API call, Worker variable edit, Cloudflare API token storage, or live billing readiness claim occurred.
 
 Scope:
 
-- Choose one remaining narrow budget-control domain after runtime switch enforcement, likely live platform budget cap design/enforcement or remaining internal caller-policy hardening.
-- Keep already migrated admin/member/org/OpenClaw paths unchanged unless the chosen phase explicitly targets them.
+- Add additive migration `0052_add_admin_runtime_budget_switches.sql` for `admin_runtime_budget_switches` and `admin_runtime_budget_switch_events`.
+- Add an allowlisted switch definition map for charged Admin Image, GPT image, explicit-unmetered image tests, admin async video jobs, News Pulse visuals, admin text, admin embeddings, Admin Music, Admin Compare, and Admin Live-Agent.
+- Add admin-only list/update APIs and an Admin Control Plane panel that show safe Cloudflare master status, D1 app switch status, effective status, related budget scope, risk, routes, reason, and Phase 4.16 live cap status.
+- Enforce effective runtime rule: Cloudflare master flag enabled and D1 app switch enabled. Missing app rows, disabled app switches, unavailable D1, or disabled/missing Cloudflare masters fail closed before provider/internal AI/queue/credit/durable-attempt work.
+- Keep public News Pulse reads, member image/music/video, org-scoped member routes, public pricing, Stripe, and unrelated internal AI Worker routes unchanged. The app does not call Cloudflare APIs, edit Worker variables, or store Cloudflare API tokens.
+
+Deploy units:
+
+- Auth schema migration `0052`, Auth Worker, and static/Admin UI. No AI Worker source change expected unless unrelated AI Worker files change.
+
+Migration risk:
+
+- Additive migration only. Operators must apply and verify `0052_add_admin_runtime_budget_switches.sql` before deploying auth Worker code that evaluates D1 app switches.
+
+## Phase 4.16: Live Platform Budget Caps Design And Evidence
+
+Status: completed for design/evidence/check metadata only. No runtime cap enforcement, route behavior change, new provider-cost migration, schema migration, member/org behavior change, public billing change, Stripe work, real provider call, deployment, remote migration, credit mutation, credit clawback, or live billing readiness claim occurred.
+
+Scope:
+
+- Create `docs/ai-cost-gateway/LIVE_PLATFORM_BUDGET_CAPS_DESIGN.md`.
+- Define cap scopes, candidate daily/monthly dimensions, future data model, cap-exceeded behavior, operator override behavior, testing strategy, rollback, and production-readiness implications.
+- Add registry cap-readiness metadata and local policy-check assertions so runtime kill-switch enforcement is not misreported as cap enforcement.
+- Add read-only budget evidence fields showing `liveBudgetCapsStatus: not_implemented`, recommended first cap scope `platform_admin_lab_budget`, countability by budget scope, switch-enforced-but-not-cap-enforced operation ids, estimated-cost-unit availability, and durable completion timestamp availability.
+- Keep member image/music/video, org-scoped routes, OpenClaw/News Pulse runtime behavior, Admin Text/Embeddings/Music/Compare/Live-Agent runtime behavior, Admin Video Jobs, Admin Image branches, public pricing, Stripe, credits, and live billing unchanged.
+
+Deploy units:
+
+- Validation-only or Auth Worker impacted if registry/evidence source changes are deployed. No schema apply. No AI Worker source change expected.
+
+Migration risk:
+
+- No Phase 4.16 migration.
+
+## Phase 4.17: First Live Platform Budget Cap Foundation
+
+Recommended scope:
+
+- Start with `platform_admin_lab_budget` for Admin Text, Embeddings, Music, Compare, Live-Agent, and Admin async video jobs.
+- Add only the minimal additive usage-ledger/window schema needed to count completed provider-cost operations.
+- Fail closed before provider work when configured caps are exceeded.
+- Do not change member/org billing behavior, public pricing, Stripe, OpenClaw/News Pulse runtime behavior, or broad internal AI Worker routes.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 

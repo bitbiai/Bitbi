@@ -119,6 +119,15 @@ const ENFORCEMENT_DETAIL_STATUSES = new Set([
 
 const GAP_SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
 const BUDGET_SCOPE_VALUES = new Set(Object.values(AI_COST_BUDGET_SCOPES));
+export const AI_COST_LIVE_BUDGET_CAP_STATUSES = Object.freeze([
+  "not_implemented",
+  "metadata_only",
+  "countable_now",
+  "partially_countable",
+  "requires_schema",
+  "future",
+]);
+const LIVE_BUDGET_CAP_STATUS_VALUES = new Set(AI_COST_LIVE_BUDGET_CAP_STATUSES);
 
 function freezeList(value = []) {
   return Object.freeze([...value]);
@@ -134,6 +143,11 @@ function budgetPolicy(targetBudgetScope, {
   dailyLimitTarget = "required_before_runtime_enforcement",
   monthlyLimitTarget = "required_before_runtime_enforcement",
   killSwitchTarget = "required_before_runtime_enforcement",
+  liveBudgetCapStatus = "not_implemented",
+  liveBudgetCapReadiness = "requires_schema",
+  liveBudgetCapScope = targetBudgetScope,
+  liveBudgetCapFuturePhase = "Phase 4.17 live platform budget cap foundation",
+  liveBudgetCapEvidence = {},
 } = {}) {
   return Object.freeze({
     targetBudgetScope,
@@ -146,6 +160,11 @@ function budgetPolicy(targetBudgetScope, {
     dailyLimitTarget,
     monthlyLimitTarget,
     killSwitchTarget,
+    liveBudgetCapStatus,
+    liveBudgetCapReadiness,
+    liveBudgetCapScope,
+    liveBudgetCapFuturePhase,
+    liveBudgetCapEvidence: Object.freeze({ ...liveBudgetCapEvidence }),
   });
 }
 
@@ -158,6 +177,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     notes: "Phase 4.15 enforces ENABLE_ADMIN_AI_TEXT_BUDGET before durable admin_ai_usage_attempts rows or provider execution. Phase 4.8.1/4.8.2 still provide metadata-only duplicate suppression, conflict detection, cleanup, and admin-only sanitized inspection without credits or live budget caps.",
     temporaryBaselineAllowed: false,
     killSwitchTarget: "ENABLE_ADMIN_AI_TEXT_BUDGET",
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
+    liveBudgetCapEvidence: {
+      dataSources: ["admin_ai_usage_attempts"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
   "admin.image.test.charged": budgetPolicy(AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT, {
     targetFuturePhase: "Phase 4.3 admin BFL image test budget enforcement hardening",
@@ -165,6 +192,15 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     targetEnforcement: { idempotency: "required", budgetLedger: "selected_org_credit_account", replay: "metadata_only", killSwitch: "model-specific charged image budget runtime_enforced", runtimeKillSwitch: "implemented" },
     notes: "Phase 4.15 enforces the model-specific charged Admin Image budget switch before provider execution or selected-organization credit debits. Phase 4.3/4.14 preserve selected organization credit debits, no provider replay, and branch classification.",
     killSwitchTarget: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET",
+    liveBudgetCapReadiness: "countable_now",
+    liveBudgetCapFuturePhase: "Phase 4.17 platform budget cap evidence foundation",
+    liveBudgetCapEvidence: {
+      dataSources: ["usage_events", "ai_usage_attempts"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      existingCreditLedger: true,
+      requiresCentralUsageLedger: false,
+    },
   }),
   "admin.image.test.unmetered": budgetPolicy(AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
@@ -176,6 +212,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     dailyLimitTarget: "explicit_exception_review_before_live_budget_caps",
     monthlyLimitTarget: "explicit_exception_review_before_live_budget_caps",
     killSwitchTarget: "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS",
+    liveBudgetCapReadiness: "metadata_only",
+    liveBudgetCapFuturePhase: "Phase 4.17 explicit unmetered admin cap decision",
+    liveBudgetCapEvidence: {
+      dataSources: ["response_budget_policy_metadata", "caller_policy_metadata"],
+      durableCompletionTimestamp: false,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
   "admin.embeddings.test": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
@@ -185,6 +229,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     notes: "Phase 4.15 enforces ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET before durable admin_ai_usage_attempts rows or provider execution. Phase 4.8.1/4.8.2 still provide metadata-only duplicate suppression, conflict detection, cleanup, and admin-only sanitized inspection without raw embedding input, vectors, credits, or live budget caps.",
     temporaryBaselineAllowed: false,
     killSwitchTarget: "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET",
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
+    liveBudgetCapEvidence: {
+      dataSources: ["admin_ai_usage_attempts"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
   "admin.music.test": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
@@ -194,6 +246,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     notes: "Phase 4.15 enforces ENABLE_ADMIN_AI_MUSIC_BUDGET before durable admin_ai_usage_attempts rows or provider execution. Phase 4.9/4.8.2 still provide metadata-only duplicate suppression, conflict detection, cleanup, and admin-only sanitized inspection without raw prompts, lyrics, audio, credits, or live budget caps.",
     temporaryBaselineAllowed: false,
     killSwitchTarget: "ENABLE_ADMIN_AI_MUSIC_BUDGET",
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
+    liveBudgetCapEvidence: {
+      dataSources: ["admin_ai_usage_attempts"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
   "admin.video.sync_debug": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
@@ -210,6 +270,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     targetEnforcement: { idempotency: "required", budgetLedger: "platform_admin_lab_budget_metadata", replay: "job_metadata", killSwitch: "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET runtime_enforced", runtimeKillSwitch: "implemented" },
     notes: "Phase 4.15 enforces ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET before admin async video job rows are created or provider-cost queue work is enqueued. Phase 4.5 still provides sanitized platform_admin_lab_budget job/queue metadata; no credits are debited.",
     temporaryBaselineAllowed: false,
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
+    liveBudgetCapEvidence: {
+      dataSources: ["ai_video_jobs"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
   "admin.video.task.create": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
     targetFuturePhase: "Phase 4.5 admin async video job budget enforcement",
@@ -233,6 +301,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     notes: "Phase 4.15 enforces ENABLE_ADMIN_AI_COMPARE_BUDGET before durable admin_ai_usage_attempts rows or provider fanout. Phase 4.10/4.8.2 still provide metadata-only duplicate suppression, conflict detection, cleanup, and admin-only sanitized inspection without raw prompts, compare outputs, credits, or live budget caps.",
     temporaryBaselineAllowed: false,
     killSwitchTarget: "ENABLE_ADMIN_AI_COMPARE_BUDGET",
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
+    liveBudgetCapEvidence: {
+      dataSources: ["admin_ai_usage_attempts"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
   "admin.live_agent": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
@@ -248,6 +324,15 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     notes: "Phase 4.15 enforces ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET before durable stream-session attempts or provider streams. Phase 4.12 still requires Idempotency-Key, suppresses same-key duplicate streams, propagates signed caller-policy metadata, and finalizes metadata-only stream status without raw messages, streamed output, provider bodies, credits, or live platform caps.",
     temporaryBaselineAllowed: false,
     killSwitchTarget: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET",
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
+    liveBudgetCapEvidence: {
+      dataSources: ["admin_ai_usage_attempts"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+      streamCompletionTracking: "metadata_only",
+    },
   }),
   "internal.text.generate": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
     targetFuturePhase: "Phase 4.7 internal AI Worker route caller-policy guard",
@@ -319,6 +404,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     notes: "Phase 4.15 enforces ENABLE_NEWS_PULSE_VISUAL_BUDGET before ingest-triggered visual provider calls. Phase 4.6 still records openclaw_news_pulse_budget metadata and keeps duplicate suppression on deterministic item/status rows.",
     temporaryBaselineAllowed: false,
     killSwitchTarget: "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.18 openclaw_news_pulse_budget cap enforcement",
+    liveBudgetCapEvidence: {
+      dataSources: ["news_pulse_items"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
   "platform.news_pulse.visual.scheduled": budgetPolicy(AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET, {
     targetFuturePhase: "Phase 4.6 OpenClaw/News Pulse visual budget controls",
@@ -327,6 +420,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
     notes: "Phase 4.15 enforces ENABLE_NEWS_PULSE_VISUAL_BUDGET before scheduled/backfill visual provider calls. Phase 4.6 still records openclaw_news_pulse_budget metadata and preserves bounded batch/status guards.",
     temporaryBaselineAllowed: false,
     killSwitchTarget: "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
+    liveBudgetCapReadiness: "partially_countable",
+    liveBudgetCapFuturePhase: "Phase 4.18 openclaw_news_pulse_budget cap enforcement",
+    liveBudgetCapEvidence: {
+      dataSources: ["news_pulse_items"],
+      durableCompletionTimestamp: true,
+      estimatedCostUnitsAvailable: true,
+      requiresCentralUsageLedger: true,
+    },
   }),
 });
 
@@ -344,6 +445,7 @@ function operation(entry) {
     budgetPolicy: entryBudgetPolicy ? Object.freeze({
       ...entryBudgetPolicy,
       targetEnforcement: Object.freeze({ ...entryBudgetPolicy.targetEnforcement }),
+      liveBudgetCapEvidence: Object.freeze({ ...entryBudgetPolicy.liveBudgetCapEvidence }),
     }) : null,
     routePolicy: entry.routePolicy ? Object.freeze({ ...entry.routePolicy }) : null,
     currentGaps: freezeList(entry.currentGaps),
@@ -747,7 +849,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Live platform budget caps remain future work.",
     ],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.17 live platform budget cap foundation",
   }),
   operation({
     operationConfig: {
@@ -786,7 +888,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Completed same-key result replay returns billing metadata and budget-policy metadata but not the generated image result."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Future admin_org_credit_account cap integration after Phase 4.17 foundation",
   }),
   operation({
     operationConfig: {
@@ -828,7 +930,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Full result replay is intentionally unavailable and no durable duplicate suppression is claimed for the unmetered exception.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Future explicit-unmetered admin cap decision after Phase 4.17 foundation",
   }),
   operation({
     operationConfig: {
@@ -870,7 +972,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Live platform budget caps remain future work.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.17 live platform budget cap foundation",
   }),
   operation({
     operationConfig: {
@@ -912,7 +1014,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Live platform budget caps remain future work.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.17 live platform budget cap foundation",
   }),
   operation({
     operationConfig: {
@@ -993,7 +1095,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Live platform budget caps remain future work; Phase 4.5 metadata remains local/job scoped."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.17 live platform budget cap foundation",
   }),
   operation({
     operationConfig: {
@@ -1102,7 +1204,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Live platform budget caps remain future work; full compare result replay is intentionally unavailable."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.17 live platform budget cap foundation",
   }),
   operation({
     operationConfig: {
@@ -1141,7 +1243,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Explicit output-token/duration caps and live platform budget caps remain future work; full stream result replay is intentionally unavailable."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.17 live platform budget cap foundation",
   }),
   operation({
     operationConfig: {
@@ -1495,7 +1597,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Live daily/monthly platform caps remain future work."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.18 openclaw_news_pulse_budget cap foundation",
   }),
   operation({
     operationConfig: {
@@ -1530,7 +1632,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Live daily/monthly platform caps remain future work."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 4.16 live platform budget cap design/enforcement",
+    nextMigrationPhase: "Phase 4.18 openclaw_news_pulse_budget cap foundation",
   }),
 ]);
 
@@ -1602,6 +1704,21 @@ export function validateAiCostOperationRegistry(entries = AI_COST_OPERATION_REGI
         }
         if (typeof entryBudgetPolicy.temporaryBaselineAllowed !== "boolean") {
           issues.push(`${normalized.operationId}: budgetPolicy.temporaryBaselineAllowed must be boolean.`);
+        }
+        if (!LIVE_BUDGET_CAP_STATUS_VALUES.has(entryBudgetPolicy.liveBudgetCapStatus)) {
+          issues.push(`${normalized.operationId}: invalid budgetPolicy.liveBudgetCapStatus "${entryBudgetPolicy.liveBudgetCapStatus}".`);
+        }
+        if (!LIVE_BUDGET_CAP_STATUS_VALUES.has(entryBudgetPolicy.liveBudgetCapReadiness)) {
+          issues.push(`${normalized.operationId}: invalid budgetPolicy.liveBudgetCapReadiness "${entryBudgetPolicy.liveBudgetCapReadiness}".`);
+        }
+        if (!BUDGET_SCOPE_VALUES.has(entryBudgetPolicy.liveBudgetCapScope)) {
+          issues.push(`${normalized.operationId}: invalid budgetPolicy.liveBudgetCapScope "${entryBudgetPolicy.liveBudgetCapScope}".`);
+        }
+        if (!entryBudgetPolicy.liveBudgetCapFuturePhase || typeof entryBudgetPolicy.liveBudgetCapFuturePhase !== "string") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.liveBudgetCapFuturePhase.`);
+        }
+        if (!entryBudgetPolicy.liveBudgetCapEvidence || typeof entryBudgetPolicy.liveBudgetCapEvidence !== "object") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.liveBudgetCapEvidence.`);
         }
       }
     }

@@ -4,9 +4,11 @@
    ============================================================ */
 
 import {
+    apiAdminAiBudgetSwitches,
     apiAdminAiCleanupUsageAttempts,
     apiAdminAiListFailedVideoJobs,
     apiAdminAiListVideoJobPoisonMessages,
+    apiAdminAiUpdateBudgetSwitch,
     apiAdminAiUsageAttempt,
     apiAdminAiUsageAttempts,
     apiAdminBillingEvent,
@@ -34,6 +36,7 @@ const CONTROL_SECTIONS = new Set([
     'billing',
     'billing-events',
     'ai-usage',
+    'ai-budget-switches',
     'lifecycle',
     'operations',
     'readiness',
@@ -118,6 +121,12 @@ function safeSummaryValue(value) {
     const text = String(value);
     if (SENSITIVE_VALUE_PATTERN.test(text)) return '[redacted]';
     return text;
+}
+
+function effectiveSwitchVariant(value) {
+    if (value === true || value === 'enabled') return 'active';
+    if (value === false || value === 'disabled' || value === 'missing' || value === 'unavailable') return 'disabled';
+    return 'legacy';
 }
 
 function createIdempotencyKey(prefix) {
@@ -1213,6 +1222,101 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         list.appendChild(wrap);
     }
 
+    async function loadAiBudgetSwitches() {
+        const list = byId('aiBudgetSwitchesList');
+        const summaryNode = byId('aiBudgetSwitchesSummary');
+        setState('aiBudgetSwitchesState', 'Loading AI budget switches...');
+        clear(list);
+        clear(summaryNode);
+        const res = await apiAdminAiBudgetSwitches();
+        if (!res.ok) {
+            setState('aiBudgetSwitchesState', '');
+            renderUnavailable(list, res, 'AI budget switches unavailable.');
+            return;
+        }
+        const summary = res.data?.summary || {};
+        if (summaryNode) {
+            summaryNode.appendChild(detailRows([
+                ['Effective rule', 'Cloudflare master flag enabled AND app switch enabled'],
+                ['Total switches', summary.totalSwitches ?? '-'],
+                ['Master enabled', summary.masterEnabledCount ?? '-'],
+                ['App enabled', summary.appEnabledCount ?? '-'],
+                ['Effective enabled', summary.effectiveEnabledCount ?? '-'],
+                ['Disabled by master', summary.disabledByMasterCount ?? '-'],
+                ['Disabled by app', summary.disabledByAppCount ?? '-'],
+                ['Live platform caps', summary.liveBudgetCapsStatus || 'not_implemented'],
+            ]));
+        }
+        const switches = Array.isArray(res.data?.switches) ? res.data.switches : [];
+        if (switches.length === 0) {
+            setState('aiBudgetSwitchesState', 'No allowed AI budget switches returned.');
+            return;
+        }
+        setState('aiBudgetSwitchesState', `Showing ${switches.length} allowed switches. Cloudflare values are not displayed.`);
+        const { wrap, tbody } = table(['Switch', 'Scope', 'Master', 'App', 'Effective', 'Cap Status', 'Updated', 'Action']);
+        for (const item of switches) {
+            const tr = document.createElement('tr');
+            const title = el('div', null);
+            title.appendChild(el('strong', null, item.label || item.switchKey));
+            title.appendChild(el('br'));
+            title.appendChild(el('span', 'admin-inventory__meta', item.description || item.switchKey));
+            title.appendChild(el('br'));
+            title.appendChild(el('span', 'admin-inventory__meta', item.recommendedOperatorNote || 'Cloudflare master flag must also be enabled.'));
+            addCell(tr, title);
+            addCell(tr, item.budgetScope || '-');
+            addCell(tr, badge(item.masterFlagStatus || 'unknown', effectiveSwitchVariant(item.masterFlagStatus)));
+            addCell(tr, badge(item.appSwitchEnabled ? 'enabled' : (item.appSwitchStatus || 'disabled'), item.appSwitchEnabled ? 'active' : 'disabled'));
+            addCell(tr, badge(item.effectiveEnabled ? 'enabled' : 'disabled', item.effectiveEnabled ? 'active' : 'disabled'));
+            addCell(tr, `${item.liveCapStatus || 'not_implemented'} (${item.liveCapFuturePhase || 'future'})`);
+            addCell(tr, item.updatedAt ? formatDate(item.updatedAt) : '-');
+            const action = el('button', 'btn-action', item.appSwitchEnabled ? 'Disable' : 'Enable');
+            action.type = 'button';
+            action.dataset.switchKey = item.switchKey;
+            action.dataset.enabled = item.appSwitchEnabled ? 'false' : 'true';
+            action.disabled = item.appSwitchAvailable === false;
+            action.title = item.masterEnabled
+                ? 'Update the app-level switch. Cloudflare master must also remain enabled.'
+                : 'Cloudflare master flag is disabled or missing; the app switch cannot make this effective.';
+            action.addEventListener('click', () => handleAiBudgetSwitchUpdate(item, action));
+            addCell(tr, action);
+            tbody.appendChild(tr);
+        }
+        list.appendChild(wrap);
+    }
+
+    async function handleAiBudgetSwitchUpdate(item, button) {
+        const nextEnabled = !item.appSwitchEnabled;
+        const promptMessage = `${nextEnabled ? 'Enable' : 'Disable'} ${item.label || item.switchKey}. Enter an operator reason. Cloudflare master flag must also be enabled and live platform budget caps are not enforced yet.`;
+        const reason = window.prompt(promptMessage, '');
+        if (!reason || !reason.trim()) {
+            setState('aiBudgetSwitchesState', 'Switch update cancelled: reason is required.', 'error');
+            return;
+        }
+        const confirmed = window.confirm(`Confirm app-level ${nextEnabled ? 'enable' : 'disable'} for ${item.switchKey}? This does not change Cloudflare variables.`);
+        if (!confirmed) {
+            setState('aiBudgetSwitchesState', 'Switch update cancelled.', 'neutral');
+            return;
+        }
+        setSubmitting(button, true);
+        setState('aiBudgetSwitchesState', 'Updating AI budget switch...');
+        try {
+            const res = await apiAdminAiUpdateBudgetSwitch(item.switchKey, {
+                enabled: nextEnabled,
+                reason: reason.trim(),
+                idempotencyKey: createIdempotencyKey('ai-budget-switch'),
+            });
+            if (!res.ok) {
+                setState('aiBudgetSwitchesState', apiUnavailableMessage(res, 'AI budget switch update failed.'), 'error');
+                notify('AI budget switch update failed.', 'error');
+                return;
+            }
+            notify('AI budget switch updated.', 'success');
+            await loadAiBudgetSwitches();
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
     async function loadAiAttemptDetail(attemptId) {
         const detail = byId('aiAttemptDetail');
         detail.hidden = false;
@@ -1490,6 +1594,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             loadAiAttempts();
         });
         byId('aiCleanupForm')?.addEventListener('submit', handleAiCleanup);
+        byId('aiBudgetSwitchesRefresh')?.addEventListener('click', loadAiBudgetSwitches);
         byId('lifecycleRequestsRefresh')?.addEventListener('click', loadLifecycleRequests);
         byId('lifecycleArchivesRefresh')?.addEventListener('click', loadLifecycleArchives);
         byId('operationsRefresh')?.addEventListener('click', loadOperations);
@@ -1519,6 +1624,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         if (sectionName === 'billing') await loadBillingPlans();
         if (sectionName === 'billing-events') await Promise.all([loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
         if (sectionName === 'ai-usage') await loadAiAttempts();
+        if (sectionName === 'ai-budget-switches') await loadAiBudgetSwitches();
         if (sectionName === 'lifecycle') await loadLifecycle();
         if (sectionName === 'operations') await loadOperations();
     }
