@@ -85,7 +85,10 @@ import {
   summarizeAdminAiUsageAttempts,
 } from "../lib/admin-ai-idempotency.js";
 import {
+  ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
+  ADMIN_IMAGE_TEST_UNMETERED_KILL_SWITCH,
   calculateAdminImageTestCreditCost,
+  getAdminImageTestBranchClassification,
   isChargeableAdminImageTestModel,
 } from "../lib/admin-ai-image-credit-pricing.js";
 import {
@@ -123,6 +126,7 @@ const DEFAULT_ADMIN_LAB_USAGE_ATTEMPT_LIMIT = 25;
 const MAX_ADMIN_LAB_USAGE_ATTEMPT_LIMIT = 100;
 const MAX_ADMIN_LAB_USAGE_ATTEMPT_CLEANUP_LIMIT = 50;
 const CHARGED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.charged";
+const UNMETERED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.unmetered";
 const ADMIN_TEXT_OPERATION_ID = "admin.text.test";
 const ADMIN_EMBEDDINGS_OPERATION_ID = "admin.embeddings.test";
 const ADMIN_MUSIC_OPERATION_ID = "admin.music.test";
@@ -1054,6 +1058,115 @@ async function buildAdminImageBudgetPolicyContext({
   };
 }
 
+function adminImageUnmeteredBudgetOperation({ modelId, branch }) {
+  const registryEntry = getAiCostOperationRegistryEntry(UNMETERED_ADMIN_IMAGE_OPERATION_ID);
+  const registryConfig = registryEntry?.operationConfig || {};
+  const killSwitchTarget = branch?.killSwitchTarget || ADMIN_IMAGE_TEST_UNMETERED_KILL_SWITCH;
+  return {
+    operationId: UNMETERED_ADMIN_IMAGE_OPERATION_ID,
+    featureKey: registryConfig.featureKey || "admin.ai.test_image",
+    actorType: "admin",
+    actorRole: "admin",
+    budgetScope: ADMIN_PLATFORM_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    ownerDomain: "admin-ai",
+    providerFamily: branch?.providerFamily || registryConfig.providerFamily || "ai_worker",
+    modelId,
+    modelResolverKey: branch?.modelResolverKey || registryConfig.modelResolverKey || "admin.image.explicit_unmetered_model_registry",
+    providerCost: true,
+    estimatedCostUnits: 0,
+    estimatedCredits: 0,
+    idempotencyPolicy: branch?.idempotencyPolicy || "optional",
+    killSwitchPolicy: {
+      flagName: killSwitchTarget,
+      defaultState: "disabled",
+      requiredForProviderCall: true,
+      disabledBehavior: "manual_only",
+      operatorCanOverride: false,
+      scope: ADMIN_PLATFORM_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+      notes: "Phase 4.14 records an explicit unmetered Admin Image branch metadata target only; runtime env enforcement remains future work.",
+    },
+    unmeteredJustification: branch?.unmeteredJustification
+      || "Explicitly reviewed admin-only image lab exception.",
+    routeId: registryConfig.routeId || "admin.ai.test-image",
+    routePath: registryConfig.routePath || "/api/admin/ai/test-image",
+    auditEventPrefix: registryConfig.observabilityEventPrefix || UNMETERED_ADMIN_IMAGE_OPERATION_ID,
+    notes: branch?.notes || "Explicit unmetered admin image test branch; no credits are debited.",
+  };
+}
+
+function compactAdminImageUnmeteredBudgetPolicy(plan, fingerprint, branch) {
+  return {
+    budget_policy_version: plan.policyVersion,
+    operation_id: plan.operationId,
+    budget_scope: plan.budgetScope,
+    owner_domain: plan.ownerDomain,
+    provider_family: plan.providerFamily,
+    model_id: plan.auditFields?.model_id || null,
+    model_resolver_key: branch?.modelResolverKey || null,
+    estimated_cost_units: plan.estimatedCostUnits,
+    estimated_credits: plan.estimatedCredits,
+    idempotency_policy: plan.idempotencyPolicy,
+    branch_classification: branch?.budgetClassification || ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.EXPLICIT_UNMETERED_ADMIN,
+    explicit_unmetered_admin: true,
+    unmetered_justification: branch?.unmeteredJustification || null,
+    replay_policy: "metadata_only_no_result_replay",
+    runtime_enforcement_status: "explicit_unmetered_admin_metadata",
+    plan_status: plan.status,
+    required_next_action: plan.requiredNextAction,
+    kill_switch_flag_name: plan.killSwitchPolicy?.flagName || null,
+    kill_switch_default_state: plan.killSwitchPolicy?.defaultState || null,
+    kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? null,
+    fingerprint,
+    audit_fields: plan.auditFields,
+  };
+}
+
+async function buildAdminImageUnmeteredBudgetPolicyContext({
+  user,
+  modelId,
+  payload,
+  branch,
+  correlationId,
+}) {
+  const operation = adminImageUnmeteredBudgetOperation({ modelId, branch });
+  const plan = classifyAdminPlatformBudgetPlan({
+    operation,
+    actorUserId: user?.id || null,
+    actorRole: "admin",
+    modelId,
+    reason: "phase_4_14_explicit_unmetered_admin_image_branch",
+    correlationId,
+  });
+  if (!plan.ok) {
+    throw new InputError("Admin image test budget policy is unavailable.", 503, "admin_image_budget_policy_unavailable");
+  }
+  const fingerprint = await buildAdminPlatformBudgetFingerprint({
+    operation,
+    actorId: user?.id || null,
+    budgetScopeId: ADMIN_PLATFORM_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    modelId,
+    routeId: "admin.ai.test-image",
+    routePath: "/api/admin/ai/test-image",
+    body: payload,
+    hashFields: ["prompt", "structuredPrompt", "referenceImages"],
+  });
+  return {
+    plan,
+    fingerprint,
+    summary: compactAdminImageUnmeteredBudgetPolicy(plan, fingerprint, branch),
+  };
+}
+
+function adminImageModelNotBudgetedResponse(branch, correlationId) {
+  return withCorrelationId(json({
+    ok: false,
+    error: "Admin image model is not budget-classified for provider execution.",
+    code: "admin_image_model_not_budgeted",
+    model_id: branch?.modelId || null,
+    branch_classification: branch?.budgetClassification || ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.BLOCKED_UNSUPPORTED,
+  }, { status: 400 }), correlationId);
+}
+
 function adminImageBillingErrorResponse(error, correlationId) {
   if (error instanceof BillingError) {
     return withCorrelationId(json(billingErrorResponse(error), { status: error.status }), correlationId);
@@ -1620,30 +1733,58 @@ export async function handleAdminAI(ctx) {
       await validateFlux2DevReferenceImageDimensions(env, payload);
       const selection = resolveAdminAiModelSelection("image", payload);
       const modelId = selection.model.id;
+      const branch = getAdminImageTestBranchClassification(modelId);
+      if (branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.BLOCKED_UNSUPPORTED) {
+        return adminImageModelNotBudgetedResponse(branch, correlationId);
+      }
       const pricing = isChargeableAdminImageTestModel(modelId)
         ? calculateAdminImageTestCreditCost(modelId, payload)
         : null;
       if (!pricing) {
+        if (branch.budgetClassification !== ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.EXPLICIT_UNMETERED_ADMIN) {
+          return adminImageModelNotBudgetedResponse(branch, correlationId);
+        }
+        const budgetPolicy = await buildAdminImageUnmeteredBudgetPolicyContext({
+          user: result.user,
+          modelId,
+          payload,
+          branch,
+          correlationId,
+        });
+        const callerPolicy = buildAdminAiCallerPolicy({
+          operationId: UNMETERED_ADMIN_IMAGE_OPERATION_ID,
+          budgetScope: AI_CALLER_POLICY_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+          enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.EXPLICIT_UNMETERED,
+          callerClass: AI_CALLER_POLICY_CALLER_CLASSES.ADMIN,
+          providerFamily: branch.providerFamily || "ai_worker",
+          modelId,
+          modelResolverKey: branch.modelResolverKey || "admin.image.explicit_unmetered_model_registry",
+          idempotencyPolicy: branch.idempotencyPolicy || "optional",
+          sourceRoute: "/api/admin/ai/test-image",
+          budgetFingerprint: budgetPolicy.summary?.fingerprint || null,
+          requestFingerprint: budgetPolicy.summary?.fingerprint || null,
+          killSwitchTarget: branch.killSwitchTarget || ADMIN_IMAGE_TEST_UNMETERED_KILL_SWITCH,
+          correlationId,
+          reason: "phase_4_14_explicit_unmetered_admin_image_branch",
+          notes: branch.unmeteredJustification || null,
+        });
         const response = await proxyToAiLab(
           env,
           "/internal/ai/test-image",
           {
             method: "POST",
             body: payload,
-            callerPolicy: buildAdminAiCallerPolicy({
-              operationId: "admin.image.test.unmetered",
-              modelId,
-              modelResolverKey: "admin.image.model_registry",
-              sourceRoute: "/api/admin/ai/test-image",
-              killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_IMAGE_TESTS",
-              correlationId,
-            }),
+            callerPolicy,
           },
           result.user,
           correlationId,
           requestInfo
         );
-        return attachAdminImageSaveReference(response, env, result.user, correlationId, requestInfo);
+        const metadataResponse = await appendAdminLabBudgetMetadata(response, {
+          budgetPolicy: budgetPolicy.summary,
+          callerPolicy,
+        }, correlationId);
+        return attachAdminImageSaveReference(metadataResponse, env, result.user, correlationId, requestInfo);
       }
 
       const organizationId = adminImageOrganizationId(body);

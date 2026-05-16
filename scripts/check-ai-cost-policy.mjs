@@ -637,6 +637,7 @@ function renderHardenedAdminBudgetOperations(entries = AI_COST_OPERATION_REGISTR
     .filter((entry) =>
       ["implemented", "partial"].includes(entry.budgetPolicy?.targetEnforcementStatus)
       && ["admin", "platform"].includes(entry.operationConfig?.actorType)
+      && entry.budgetPolicy?.targetBudgetScope !== AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN
       && entry.routePolicy?.expectedIdempotency !== "disabled-by-default"
     )
     .map((entry) => ({
@@ -658,6 +659,30 @@ function renderHardenedAdminBudgetOperations(entries = AI_COST_OPERATION_REGISTR
           : "budget-metadata";
       return `- ${entry.operationId}: ${entry.status}/${label}; scope=${entry.scope}; route=${entry.route}`;
     })
+    .join("\n");
+}
+
+function renderExplicitUnmeteredAdminOperations(entries = AI_COST_OPERATION_REGISTRY) {
+  const explicit = entries
+    .filter((entry) =>
+      entry.budgetPolicy?.currentBudgetScope === AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN
+      || entry.budgetPolicy?.targetBudgetScope === AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN
+    )
+    .filter((entry) => entry.routePolicy?.expectedIdempotency !== "disabled-by-default")
+    .map((entry) => ({
+      operationId: entry.operationConfig.operationId,
+      scope: entry.budgetPolicy.targetBudgetScope,
+      status: entry.currentStatus,
+      route: entry.operationConfig.routePath,
+      killSwitch: entry.budgetPolicy.killSwitchTarget || entry.budgetPolicy.targetEnforcement?.killSwitch || "missing",
+      notes: entry.budgetPolicy.notes || entry.operationConfig.notes || "",
+    }))
+    .sort((left, right) => left.operationId.localeCompare(right.operationId));
+  if (!explicit.length) return "- None";
+  return explicit
+    .map((entry) =>
+      `- ${entry.operationId}: ${entry.status}/explicit-unmetered; scope=${entry.scope}; route=${entry.route}; killSwitch=${entry.killSwitch}`
+    )
     .join("\n");
 }
 
@@ -704,6 +729,9 @@ export function renderAiCostPolicyReport(result) {
     "Hardened admin/platform budget operations:",
     renderHardenedAdminBudgetOperations(),
     "",
+    "Explicit unmetered admin operations:",
+    renderExplicitUnmeteredAdminOperations(),
+    "",
     "Read-only admin/platform budget evidence:",
     "- Phase 4.4 evidence collector: `npm run report:ai-budget-evidence` and `GET /api/admin/ai/budget-evidence` expose sanitized local registry/baseline/route-policy coverage.",
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
@@ -712,6 +740,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay/live budget caps remain future work.",
     "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; explicit output-token/duration caps, runtime env kill-switch enforcement, and live platform budget caps remain future work.",
     "- Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path.",
+    "- Phase 4.14 classifies Admin Image branches: charged priced models remain admin_org_credit_account-covered, FLUX.2 Dev is explicit_unmetered_admin with safe budget/caller-policy metadata, and unclassified Admin Image models are blocked before provider calls.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -780,7 +809,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.14 should address the next remaining narrow admin/platform gap, such as unmetered admin image branch handling, runtime budget kill-switch enforcement, or live platform budget caps, without changing member/org billing behavior or broad platform/background AI.",
+    "- Phase 4.15 should address runtime budget kill-switch enforcement and live platform budget caps without changing member/org billing behavior or broad platform/background AI.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

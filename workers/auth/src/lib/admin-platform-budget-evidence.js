@@ -4,6 +4,10 @@ import {
   AI_COST_BUDGET_SCOPES,
   AI_COST_OPERATION_REGISTRY,
 } from "./ai-cost-operations.js";
+import {
+  ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
+  listAdminImageTestBranchClassifications,
+} from "./admin-ai-image-credit-pricing.js";
 import { AI_CALLER_POLICY_BODY_KEY } from "../../../shared/ai-caller-policy.mjs";
 
 export const ADMIN_PLATFORM_BUDGET_EVIDENCE_VERSION = "admin-platform-budget-evidence-v1";
@@ -26,6 +30,7 @@ const MEMBER_GATEWAY_OPERATION_IDS = Object.freeze([
   "member.video.generate",
 ]);
 const HARDENED_ADMIN_OPERATION_ID = "admin.image.test.charged";
+const UNMETERED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.unmetered";
 const ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS = Object.freeze([
   "admin.text.test",
   "admin.embeddings.test",
@@ -244,8 +249,8 @@ function implementedAdminImageEvidence(entry, routeIndex) {
     type: "implemented_admin_budget_operation",
     runtimeStatus: "implemented_hardened",
     idempotencyTarget: "required selected-organization scoped idempotency key",
-    killSwitchTarget: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET",
-    modelClass: "priced Black Forest Labs admin image tests",
+    killSwitchTarget: "model-specific charged image metadata target",
+    modelClass: "priced Admin image tests (BFL FLUX and GPT Image 2)",
     metadataFieldsExpected: [
       "budget_policy_version",
       "operation_id",
@@ -265,9 +270,59 @@ function implementedAdminImageEvidence(entry, routeIndex) {
       "audit_fields",
     ],
     remainingLimitations: [
-      "Runtime kill-switch target is metadata only in Phase 4.4.",
+      "Runtime kill-switch target is metadata only for charged Admin Image tests.",
       "Generated image result is not replayed for completed same-key admin image tests.",
-      "Unpriced Admin image models remain a separate platform_admin_lab_budget baseline gap.",
+      "FLUX.2 Dev remains a separate explicit_unmetered_admin exception rather than a charged provider-cost path.",
+    ],
+  };
+}
+
+function adminImageBranchClassificationEvidence(entry, routeIndex) {
+  const base = basicOperationEvidence(entry, routeIndex);
+  const branches = listAdminImageTestBranchClassifications();
+  const charged = branches.filter((branch) =>
+    branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.CHARGED_ADMIN_ORG_CREDIT
+  );
+  const explicitUnmetered = branches.filter((branch) =>
+    branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.EXPLICIT_UNMETERED_ADMIN
+  );
+  return {
+    ...base,
+    type: "admin_image_branch_classification",
+    runtimeStatus: "explicit_unmetered_admin_metadata",
+    chargedAdminOrgCredit: charged.map((branch) => ({
+      modelId: branch.modelId,
+      providerFamily: branch.providerFamily,
+      budgetScope: branch.budgetScope,
+      killSwitchTarget: branch.killSwitchTarget,
+      idempotencyPolicy: branch.idempotencyPolicy,
+      callerPolicyStatus: branch.callerPolicyStatus,
+    })),
+    explicitUnmeteredAdmin: explicitUnmetered.map((branch) => ({
+      modelId: branch.modelId,
+      providerFamily: branch.providerFamily,
+      budgetScope: branch.budgetScope,
+      killSwitchTarget: branch.killSwitchTarget,
+      idempotencyPolicy: branch.idempotencyPolicy,
+      callerPolicyStatus: branch.callerPolicyStatus,
+      justification: branch.unmeteredJustification,
+      providerCostBearing: branch.providerCostBearing,
+    })),
+    blockedUnsupported: [{
+      modelId: "unknown_or_unclassified_admin_image_model",
+      budgetClassification: ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.BLOCKED_UNSUPPORTED,
+      behavior: "blocked before AI_LAB/provider execution by model allowlist plus Phase 4.14 branch-classification guard",
+      providerCalls: false,
+      creditDebit: false,
+    }],
+    counts: {
+      chargedAdminOrgCredit: charged.length,
+      explicitUnmeteredAdmin: explicitUnmetered.length,
+      blockedUnsupportedGuard: 1,
+    },
+    remainingLimitations: [
+      "Explicit unmetered FLUX.2 Dev remains an admin lab exception with metadata only, no durable idempotency, no credit debit, and no live platform budget cap.",
+      "Runtime env kill-switch enforcement for explicit unmetered admin image tests remains future work.",
     ],
   };
 }
@@ -522,7 +577,7 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
     ],
     remainingLimitations: [
       "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll; Phase 4.8.1 supplies admin text/embeddings caller metadata plus durable caller-side idempotency, Phase 4.9 extends that pattern to admin music, Phase 4.10 extends it to admin compare, and Phase 4.12 requires it for Admin Live-Agent.",
-      "Phase 4.13 retires the Auth Worker sync video debug caller as disabled-by-default; unmetered image and broader internal routes remain baseline-allowed until targeted caller migrations.",
+      "Phase 4.13 retires the Auth Worker sync video debug caller as disabled-by-default; Phase 4.14 classifies Admin Image branches as charged, explicit-unmetered, or blocked. Broader internal routes remain baseline-allowed until targeted caller migrations.",
       isPoll
         ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
         : "Duplicate provider task creation is still suppressed by the auth job budget state and queue lease.",
@@ -715,6 +770,9 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       if (operationId(entry) === HARDENED_ADMIN_OPERATION_ID) {
         return implementedAdminImageEvidence(entry, routeIndex);
       }
+      if (operationId(entry) === UNMETERED_ADMIN_IMAGE_OPERATION_ID) {
+        return adminImageBranchClassificationEvidence(entry, routeIndex);
+      }
       if (ADMIN_LAB_DURABLE_OPERATION_IDS.includes(operationId(entry))) {
         return implementedAdminLabDurableEvidence(entry, routeIndex);
       }
@@ -740,6 +798,10 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       ...gap,
     })),
   ];
+  const adminImageBranches = adminImageBranchClassificationEvidence(
+    entriesById.get(UNMETERED_ADMIN_IMAGE_OPERATION_ID) || entriesById.get(HARDENED_ADMIN_OPERATION_ID),
+    routeIndex
+  );
 
   const report = {
     ok: true,
@@ -761,10 +823,14 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       retiredDebugPaths: retiredDebugOperations.length,
       adminTextEmbeddingsAttemptsOperable: true,
       adminLabAttemptsOperable: true,
+      adminImageChargedBranches: adminImageBranches.counts.chargedAdminOrgCredit,
+      adminImageExplicitUnmeteredBranches: adminImageBranches.counts.explicitUnmeteredAdmin,
+      adminImageBlockedUnsupportedGuards: adminImageBranches.counts.blockedUnsupportedGuard,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
     },
+    adminImageBranches,
     adminAiUsageAttempts: adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
     retiredDebugPaths: limitList(
       retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
@@ -807,7 +873,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music/compare/live-agent now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
       "Phase 4.12 covers Admin Live-Agent only with required idempotency, metadata-only stream-session attempts, caller-policy propagation, and safe stream completion/failure tracking; runtime env kill-switch enforcement and live platform budget caps remain future work.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
-      "Unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
+      "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
+      "Platform/background AI outside News Pulse visuals and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,
@@ -826,6 +893,11 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
   const retiredDebugLines = (report.retiredDebugPaths || []).map((operation) =>
     `- ${operation.operationId}: ${operation.runtimeStatus || operation.runtimeEnforcementStatus}; replacement=${operation.supportedReplacement || "n/a"}; flag=${operation.killSwitchTarget || "n/a"}`
   );
+  const imageBranchLines = [
+    `- Charged admin-org-credit branches: ${report.adminImageBranches?.counts?.chargedAdminOrgCredit ?? 0}`,
+    `- Explicit unmetered admin branches: ${report.adminImageBranches?.counts?.explicitUnmeteredAdmin ?? 0}`,
+    `- Blocked unsupported guard: ${report.adminImageBranches?.counts?.blockedUnsupportedGuard ?? 0}`,
+  ];
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
   );
@@ -851,6 +923,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     "",
     "## Retired Debug Paths",
     retiredDebugLines.length ? retiredDebugLines.join("\n") : "- None",
+    "",
+    "## Admin Image Branches",
+    imageBranchLines.join("\n"),
     "",
     "## Baselined Gaps",
     gapLines.length ? gapLines.join("\n") : "- None",

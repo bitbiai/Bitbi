@@ -150,7 +150,7 @@ Phase 4.12 tests cover:
 - No raw message, prompt, provider request body, or provider response body storage.
 - No runtime env kill-switch enforcement or live platform budget cap.
 - No sync video debug migration.
-- No unmetered admin image branch migration.
+- No Admin Image branch migration in Phase 4.12; Phase 4.14 later classifies Admin Image branches separately.
 - No Admin Text/Embeddings, Admin Music, Admin Compare, Admin Video Jobs, OpenClaw/News Pulse, member route, org-scoped route, public pricing, credit debit, or billing behavior change.
 - No real provider calls by Codex/tests.
 - No Stripe calls.

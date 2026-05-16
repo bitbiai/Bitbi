@@ -14772,7 +14772,8 @@ test.describe('Worker routes', () => {
         billingMutation: false,
         summary: expect.objectContaining({
           memberGatewayMigrated: 3,
-          adminPlatformImplemented: 8,
+          adminPlatformImplemented: 9,
+          adminImageExplicitUnmeteredBranches: 1,
           baselineGaps: expect.any(Number),
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
@@ -14802,7 +14803,12 @@ test.describe('Worker routes', () => {
           operationId: 'admin.image.test.charged',
           budgetScope: 'admin_org_credit_account',
           runtimeStatus: 'implemented_hardened',
-          killSwitchTarget: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+          killSwitchTarget: 'model-specific charged image metadata target',
+        }),
+        expect.objectContaining({
+          operationId: 'admin.image.test.unmetered',
+          budgetScope: 'explicit_unmetered_admin',
+          runtimeStatus: 'explicit_unmetered_admin_metadata',
         }),
         expect.objectContaining({
           operationId: 'member.image.generate',
@@ -14848,6 +14854,20 @@ test.describe('Worker routes', () => {
         expect.objectContaining({ id: 'admin-ai-video-task-create-poll' }),
         expect.objectContaining({ id: 'openclaw-news-pulse-visual-generation' }),
       ]));
+      expect(body.adminImageBranches).toEqual(expect.objectContaining({
+        counts: expect.objectContaining({
+          explicitUnmeteredAdmin: 1,
+          blockedUnsupportedGuard: 1,
+        }),
+        explicitUnmeteredAdmin: expect.arrayContaining([
+          expect.objectContaining({
+            modelId: '@cf/black-forest-labs/flux-2-dev',
+            budgetScope: 'explicit_unmetered_admin',
+            killSwitchTarget: 'ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS',
+            callerPolicyStatus: 'explicit_unmetered',
+          }),
+        ]),
+      }));
       const serialized = JSON.stringify(body);
       expect(serialized).not.toContain('raw prompt');
       expect(serialized).not.toContain('sk_live_');
@@ -17861,10 +17881,10 @@ test.describe('Worker routes', () => {
       }));
     });
 
-    test('POST /api/admin/ai/test-image allows FLUX.2 Dev and uses the multipart AI path', async () => {
+    test('POST /api/admin/ai/test-image allows explicit-unmetered FLUX.2 Dev and uses safe budget metadata', async () => {
       let capturedModelId = null;
       let capturedPayload = null;
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
         aiRun: async (modelId, payload) => {
           capturedModelId = modelId;
           capturedPayload = payload;
@@ -17908,7 +17928,49 @@ test.describe('Worker routes', () => {
           appliedSize: { width: 768, height: 768 },
           referenceImageCount: 0,
         }),
+        budget_policy: expect.objectContaining({
+          budget_policy_version: 'admin-platform-budget-policy-v1',
+          operation_id: 'admin.image.test.unmetered',
+          budget_scope: 'explicit_unmetered_admin',
+          provider_family: 'bfl',
+          model_id: '@cf/black-forest-labs/flux-2-dev',
+          idempotency_policy: 'optional',
+          branch_classification: 'explicit_unmetered_admin',
+          explicit_unmetered_admin: true,
+          plan_status: 'explicit_unmetered',
+          required_next_action: 'record_explicit_unmetered_audit',
+          runtime_enforcement_status: 'explicit_unmetered_admin_metadata',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS',
+          fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        caller_policy: expect.objectContaining({
+          operation_id: 'admin.image.test.unmetered',
+          budget_scope: 'explicit_unmetered_admin',
+          enforcement_status: 'explicit_unmetered',
+          caller_class: 'admin',
+          idempotency_policy: 'optional',
+          kill_switch_target: 'ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS',
+          source_route: '/api/admin/ai/test-image',
+        }),
       }));
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.image.test.unmetered',
+        budget_scope: 'explicit_unmetered_admin',
+        enforcement_status: 'explicit_unmetered',
+        caller_class: 'admin',
+        kill_switch_target: 'ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS',
+      }));
+      const serializedMetadata = JSON.stringify({
+        budget_policy: body.budget_policy,
+        caller_policy: body.caller_policy,
+        internal_caller_policy: aiLabRequests[0].body.__bitbi_ai_caller_policy,
+      });
+      expect(serializedMetadata).not.toContain('Admin Dev image experiment');
+      expect(serializedMetadata).not.toContain('Cookie');
+      expect(serializedMetadata).not.toContain('Authorization');
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
       expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-dev');
       expect(capturedPayload).toEqual(expect.objectContaining({
         multipart: expect.objectContaining({
@@ -17916,6 +17978,7 @@ test.describe('Worker routes', () => {
           body: expect.anything(),
         }),
       }));
+      expect(capturedPayload).not.toHaveProperty('__bitbi_ai_caller_policy');
       const entries = await readMultipartEntries(capturedPayload.multipart);
       expect(entries.map(([key]) => key)).toEqual(['prompt', 'width', 'height', 'steps', 'seed', 'guidance']);
       const fields = Object.fromEntries(
@@ -17929,6 +17992,36 @@ test.describe('Worker routes', () => {
         seed: '9876',
         guidance: '7.5',
       });
+    });
+
+    test('POST /api/admin/ai/test-image rejects unsupported admin image models before AI Worker calls', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: 'vendor/unbudgeted-image-model',
+          prompt: 'This should never reach a provider.',
+          width: 1024,
+          height: 1024,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'model_not_allowed',
+      }));
+      expect(aiLabRequests).toHaveLength(0);
+      expect(providerCalls).toBe(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
     });
 
     test('POST /api/admin/ai/test-image accepts structuredPrompt for FLUX.2 Dev', async () => {

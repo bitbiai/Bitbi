@@ -27,7 +27,7 @@ assert.equal(report.runtimeMutation, false);
 assert.equal(report.providerCalls, false);
 assert.equal(report.billingMutation, false);
 assert.equal(report.summary.memberGatewayMigrated, 3);
-assert.equal(report.summary.adminPlatformImplemented, 8);
+assert.equal(report.summary.adminPlatformImplemented, 9);
 assert.equal(report.summary.adminTextEmbeddingsDurableIdempotency, 2);
 assert.equal(report.summary.adminMusicDurableIdempotency, 1);
 assert.equal(report.summary.adminCompareDurableIdempotency, 1);
@@ -36,6 +36,9 @@ assert.equal(report.summary.adminLabDurableIdempotency, 5);
 assert.equal(report.summary.retiredDebugPaths, 1);
 assert.equal(report.summary.adminTextEmbeddingsAttemptsOperable, true);
 assert.equal(report.summary.adminLabAttemptsOperable, true);
+assert.equal(report.summary.adminImageChargedBranches, 4);
+assert.equal(report.summary.adminImageExplicitUnmeteredBranches, 1);
+assert.equal(report.summary.adminImageBlockedUnsupportedGuards, 1);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 assert.equal(report.adminAiUsageAttempts.cleanup.registered, true);
@@ -61,13 +64,18 @@ const adminOrgScope = report.budgetScopes.find((entry) => entry.scope === "admin
 assert.equal(adminOrgScope.implementedCount, 1);
 assert.equal(adminOrgScope.runtimeEnforcementExists, true);
 assert.equal(adminOrgScope.runtimeEnforcementStatus, "implemented");
-assert(adminOrgScope.killSwitchTargets.includes("ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET metadata target"));
+assert(adminOrgScope.killSwitchTargets.includes("model-specific charged image budget metadata target"));
 
 const platformLabScope = report.budgetScopes.find((entry) => entry.scope === "platform_admin_lab_budget");
-assert(platformLabScope.operationCount >= 8);
-assert(platformLabScope.baselineGapCount >= 1);
+assert(platformLabScope.operationCount >= 7);
+assert.equal(platformLabScope.baselineGapCount, 0);
 assert.equal(platformLabScope.runtimeEnforcementExists, false);
-assert(["missing", "partial"].includes(platformLabScope.runtimeEnforcementStatus));
+assert(["partial", "implemented"].includes(platformLabScope.runtimeEnforcementStatus));
+
+const explicitUnmeteredScope = report.budgetScopes.find((entry) => entry.scope === "explicit_unmetered_admin");
+assert(explicitUnmeteredScope.operationIds.includes("admin.image.test.unmetered"));
+assert.equal(explicitUnmeteredScope.baselineGapCount, 0);
+assert.equal(explicitUnmeteredScope.implementedCount, 1);
 
 const openClawScope = report.budgetScopes.find((entry) => entry.scope === "openclaw_news_pulse_budget");
 assert.equal(openClawScope.operationCount, 2);
@@ -93,6 +101,7 @@ assert(implementedIds.includes("admin.music.test"));
 assert(implementedIds.includes("admin.compare"));
 assert(implementedIds.includes("admin.live_agent"));
 assert(implementedIds.includes("admin.image.test.charged"));
+assert(implementedIds.includes("admin.image.test.unmetered"));
 assert(implementedIds.includes("admin.video.job.create"));
 assert(implementedIds.includes("internal.video_task.create"));
 assert(implementedIds.includes("internal.video_task.poll"));
@@ -102,11 +111,24 @@ assert(implementedIds.includes("platform.news_pulse.visual.scheduled"));
 const adminBfl = report.implementedOperations.find((entry) => entry.operationId === "admin.image.test.charged");
 assert.equal(adminBfl.budgetScope, "admin_org_credit_account");
 assert.equal(adminBfl.runtimeStatus, "implemented_hardened");
-assert.equal(adminBfl.killSwitchTarget, "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET");
-assert.equal(adminBfl.modelClass, "priced Black Forest Labs admin image tests");
+assert.equal(adminBfl.killSwitchTarget, "model-specific charged image metadata target");
+assert.equal(adminBfl.modelClass, "priced Admin image tests (BFL FLUX and GPT Image 2)");
 assert(adminBfl.metadataFieldsExpected.includes("budget_policy_version"));
 assert(adminBfl.metadataFieldsExpected.includes("fingerprint"));
 assert(adminBfl.remainingLimitations.some((entry) => entry.includes("metadata only")));
+
+const adminImageUnmetered = report.implementedOperations.find((entry) => entry.operationId === "admin.image.test.unmetered");
+assert.equal(adminImageUnmetered.budgetScope, "explicit_unmetered_admin");
+assert.equal(adminImageUnmetered.runtimeStatus, "explicit_unmetered_admin_metadata");
+assert.equal(adminImageUnmetered.counts.explicitUnmeteredAdmin, 1);
+assert(adminImageUnmetered.explicitUnmeteredAdmin.some((entry) =>
+  entry.modelId === "@cf/black-forest-labs/flux-2-dev"
+  && entry.killSwitchTarget === "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS"
+));
+assert(adminImageUnmetered.blockedUnsupported.some((entry) => entry.providerCalls === false));
+assert.equal(report.adminImageBranches.counts.chargedAdminOrgCredit, 4);
+assert.equal(report.adminImageBranches.counts.explicitUnmeteredAdmin, 1);
+assert.equal(report.adminImageBranches.counts.blockedUnsupportedGuard, 1);
 
 const memberImage = report.implementedOperations.find((entry) => entry.operationId === "member.image.generate");
 assert.equal(memberImage.runtimeStatus, "gateway_migrated");
@@ -183,6 +205,7 @@ assert(liveAgent.metadataFieldsExpected.includes("stream_session_caps"));
 assert(liveAgent.remainingLimitations.some((entry) => entry.includes("Full stream replay")));
 assert(!baselineIds.includes("admin-ai-live-agent-unmetered"));
 assert(!baselineIds.includes("admin-ai-sync-video-debug"));
+assert(!baselineIds.includes("admin-ai-image-unmetered-branch"));
 assert(!baselineIds.includes("admin-ai-video-job-create"));
 assert(!baselineIds.includes("admin-ai-video-task-create-poll"));
 assert(!baselineIds.includes("openclaw-news-pulse-visual-generation"));
@@ -277,7 +300,7 @@ assert(retiredDebug.emergencyCompatibility.some((entry) => entry.includes("not t
     },
   });
   assert.equal(bounded.evidenceItems.length, 2);
-  assert.equal(bounded.baselinedGaps.length, 3);
+  assert.equal(bounded.baselinedGaps.length, 2);
   assert.equal(bounded.implementedOperations.length, 2);
   assert(bounded.budgetScopes.some((scope) => scope.operationIds.length <= 1));
   assert(bounded.warnings.some((warning) => warning.includes("truncated")));
@@ -342,6 +365,7 @@ assert(retiredDebug.emergencyCompatibility.some((entry) => entry.includes("not t
   assert(result.stdout.includes("# Admin/Platform AI Budget Evidence"));
   assert(result.stdout.includes("Verdict: blocked"));
   assert(result.stdout.includes("admin.image.test.charged"));
+  assert(result.stdout.includes("Admin Image Branches"));
   assert(result.stdout.includes("admin.video.sync_debug"));
   assert(result.stdout.includes("platform.news_pulse.visual.ingest"));
   assert(!result.stdout.includes("openclaw-news-pulse-visual-generation"));

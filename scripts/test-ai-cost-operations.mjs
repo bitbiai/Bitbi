@@ -10,6 +10,12 @@ import {
   validateAiCostOperationRegistry,
 } from "../workers/auth/src/lib/ai-cost-operations.js";
 import { normalizeAiCostOperationConfig } from "../workers/auth/src/lib/ai-cost-gateway.js";
+import {
+  ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
+  ADMIN_IMAGE_TEST_FLUX_2_DEV_MODEL_ID,
+  getAdminImageTestBranchClassification,
+  listAdminImageTestBranchClassifications,
+} from "../workers/auth/src/lib/admin-ai-image-credit-pricing.js";
 
 const issues = validateAiCostOperationRegistry();
 assert.deepEqual(issues, []);
@@ -50,6 +56,7 @@ for (const requiredId of [
   "member.video.generate",
   "admin.text.test",
   "admin.image.test.charged",
+  "admin.image.test.unmetered",
   "admin.music.test",
   "admin.compare",
   "internal.text.generate",
@@ -111,17 +118,17 @@ assert.deepEqual(summary, {
   adminPlatformOperations: 22,
   currentMissingMandatoryIdempotency: 0,
   currentMissingReservation: 0,
-  currentNoReplay: 1,
+  currentNoReplay: 0,
   platformBudgetReviewOperations: 2,
   budgetScopeCounts: {
     member_credit_account: 0,
     organization_credit_account: 0,
     admin_org_credit_account: 1,
-    platform_admin_lab_budget: 8,
+    platform_admin_lab_budget: 7,
     platform_background_budget: 0,
     openclaw_news_pulse_budget: 2,
     internal_ai_worker_caller_enforced: 11,
-    explicit_unmetered_admin: 0,
+    explicit_unmetered_admin: 1,
     external_provider_only: 0,
   },
   highRiskOperations: [],
@@ -211,6 +218,39 @@ assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.charged").budgetPolicy.targetEnforcementStatus,
   "implemented"
 );
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.unmetered").budgetPolicy.targetBudgetScope,
+  AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.unmetered").currentStatus,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.unmetered").budgetPolicy.temporaryBaselineAllowed,
+  false
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.unmetered").budgetPolicy.killSwitchTarget,
+  "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.unmetered").routePolicy.expectedIdempotency,
+  "explicit-admin-unmetered"
+);
+assert(!policyBaseline.knownGaps.some((gap) => gap.id === "admin-ai-image-unmetered-branch"));
+{
+  const classifications = listAdminImageTestBranchClassifications();
+  assert(classifications.some((branch) =>
+    branch.modelId === ADMIN_IMAGE_TEST_FLUX_2_DEV_MODEL_ID
+    && branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.EXPLICIT_UNMETERED_ADMIN
+    && branch.killSwitchTarget === "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS"
+  ));
+  assert.equal(
+    getAdminImageTestBranchClassification("not-a-real-model").budgetClassification,
+    ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.BLOCKED_UNSUPPORTED
+  );
+}
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "platform.news_pulse.visual.ingest").budgetPolicy.targetBudgetScope,
   AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET

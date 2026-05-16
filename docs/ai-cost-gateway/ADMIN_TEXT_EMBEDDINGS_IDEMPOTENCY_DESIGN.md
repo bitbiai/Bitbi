@@ -4,7 +4,7 @@ Status: Phase 4.8.1 implemented the narrow Path A foundation for `POST /api/admi
 
 ## Scope
 
-Phase 4.8.1 adds only durable idempotency and metadata-only replay for admin text and embeddings tests. Phase 4.8.2 adds only admin-only sanitized inspection and bounded non-destructive cleanup for those attempts. Neither phase migrates Admin music, compare, live-agent, sync video debug, unmetered admin image branches, Admin video beyond Phase 4.5, OpenClaw/News Pulse beyond Phase 4.6, member routes, org-scoped member routes, public billing, Stripe, or live billing.
+Phase 4.8.1 adds only durable idempotency and metadata-only replay for admin text and embeddings tests. Phase 4.8.2 adds only admin-only sanitized inspection and bounded non-destructive cleanup for those attempts. Neither phase migrates Admin music, compare, live-agent, sync video debug, Admin image branches, Admin video beyond Phase 4.5, OpenClaw/News Pulse beyond Phase 4.6, member routes, org-scoped member routes, public billing, Stripe, or live billing. Phase 4.14 later classifies Admin Image branches separately without changing admin text/embeddings behavior.
 
 ## Storage
 

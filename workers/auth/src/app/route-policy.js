@@ -533,7 +533,13 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
     config: REQUIRED_CONFIG.adminAi,
     sensitivity: "high",
-    notes: "Admin area only. Platform admin required. Charged BFL image-test subset uses admin_org_credit_account budget-policy metadata and now propagates signed internal AI caller-policy metadata; it requires organization_id, Idempotency-Key, server-side credit calculation, sufficient selected organization credits, and no charge on provider failure. Unpriced admin image models and other admin AI routes remain separately baselined/unmigrated. No public/member/owner route exposure.",
+    billing: {
+      chargedSubset: "Priced Admin Image models use admin_org_credit_account budget-policy metadata, selected organization credits, required Idempotency-Key, server-side pricing, insufficient-credit fail-closed behavior, no charge on provider failure, and signed caller-policy metadata.",
+      explicitUnmeteredSubset: "FLUX.2 Dev is the only Phase 4.14 explicit_unmetered_admin exception. It remains admin-only, emits safe explicit-unmetered budget/caller-policy metadata, does not debit credits, and does not claim durable replay/idempotency.",
+      blockedUnsupported: "Unknown or newly allowlisted but unclassified Admin Image models must be blocked before AI_LAB/provider execution with no credit or billing mutation.",
+      killSwitchTargets: ["ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET", "ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET", "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS"],
+    },
+    notes: "Admin area only. Platform admin required. Charged BFL/GPT image-test subset remains the existing selected-organization credit path; FLUX.2 Dev is explicitly unmetered admin lab behavior with safe metadata; unsupported/unbudgeted Admin Image branches are not normal provider-cost paths. No public/member/owner route exposure.",
   }),
   adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", {
     config: REQUIRED_CONFIG.adminAi,
@@ -655,7 +661,7 @@ export const ROUTE_POLICIES = Object.freeze([
       runtimeEnforcement: "Builds a platform_admin_lab_budget plan and durable metadata-only idempotency attempt before proxying to the multi-model compare route. Runtime env kill-switch enforcement and live platform budget caps remain future work.",
       replay: "Metadata-only: completed duplicate requests return no compare results and do not re-run provider fanout.",
     },
-    notes: "Admin Compare is Phase 4.10-covered only for this auth route. Admin Live-Agent remains covered separately by Phase 4.12; Phase 4.13 retires sync video debug as disabled-by-default/emergency-only, and unmetered admin image branches remain separate unmigrated gaps.",
+    notes: "Admin Compare is Phase 4.10-covered only for this auth route. Admin Live-Agent remains covered separately by Phase 4.12; Phase 4.13 retires sync video debug as disabled-by-default/emergency-only, and Phase 4.14 classifies Admin Image branches as charged, explicit-unmetered, or blocked.",
   }),
   adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {
     config: REQUIRED_CONFIG.adminAi,
@@ -668,7 +674,7 @@ export const ROUTE_POLICIES = Object.freeze([
       replay: "Metadata-only: completed duplicate requests return no streamed output and do not re-run the provider stream.",
       streamFinalization: "Auth Worker wraps the upstream SSE body and marks the attempt succeeded only after stream completion, or failed on setup/stream errors observable by the wrapper.",
     },
-    notes: "Admin Live-Agent is Phase 4.12-covered only for this auth route. Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; unmetered admin image branches remain separate unmigrated gaps.",
+    notes: "Admin Live-Agent is Phase 4.12-covered only for this auth route. Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; Phase 4.14 classifies Admin Image branches as charged, explicit-unmetered, or blocked.",
   }),
   adminJsonWrite("admin.ai.derivatives.backfill", "POST", "/api/admin/ai/image-derivatives/backfill", "admin-ai", "adminJson", "admin-ai-derivative-backfill-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI_IMAGE_DERIVATIVES_QUEUE"],

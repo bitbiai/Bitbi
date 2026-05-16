@@ -924,7 +924,7 @@ Non-goals:
 
 ## Phase 4.9: Admin Music Budget Enforcement
 
-Status: completed for `POST /api/admin/ai/test-music` only. No Admin Compare migration, Admin Live-Agent migration, sync video debug migration, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, unmetered Admin Image migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
+Status: completed for `POST /api/admin/ai/test-music` only. No Admin Compare migration, Admin Live-Agent migration, sync video debug migration, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, Admin Image migration beyond existing charged branch compatibility, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
@@ -949,7 +949,7 @@ Migration risk:
 
 ## Phase 4.10: Admin Compare Budget Enforcement
 
-Status: completed for `POST /api/admin/ai/compare` only. No Admin Live-Agent migration, sync video debug migration, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, Admin Music change beyond Phase 4.9 compatibility, unmetered Admin Image migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
+Status: completed for `POST /api/admin/ai/compare` only. No Admin Live-Agent migration, sync video debug migration, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, Admin Music change beyond Phase 4.9 compatibility, Admin Image migration beyond existing charged branch compatibility, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
@@ -994,7 +994,7 @@ Migration risk:
 
 ## Phase 4.12: Admin Live-Agent Budget Enforcement
 
-Status: completed for `POST /api/admin/ai/live-agent` only. No sync video debug migration, unmetered Admin Image migration, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, Admin Music change beyond Phase 4.9 compatibility, Admin Compare change beyond Phase 4.10 compatibility, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
+Status: completed for `POST /api/admin/ai/live-agent` only. No sync video debug migration, Admin Image migration beyond existing charged branch compatibility, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, Admin Music change beyond Phase 4.9 compatibility, Admin Compare change beyond Phase 4.10 compatibility, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
@@ -1018,7 +1018,7 @@ Migration risk:
 
 ## Phase 4.13: Sync Video Debug Retirement Decision
 
-Status: completed for sync video debug audit/classification only. Path A was chosen: `POST /api/admin/ai/test-video` is retired from normal provider-cost operations and remains disabled-by-default. No Admin Async Video Job behavior, Admin Text/Embeddings/Music/Compare/Live-Agent behavior, unmetered Admin Image behavior, OpenClaw/News Pulse behavior, member/org route behavior, public pricing, Stripe work, real provider call, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
+Status: completed for sync video debug audit/classification only. Path A was chosen: `POST /api/admin/ai/test-video` is retired from normal provider-cost operations and remains disabled-by-default. No Admin Async Video Job behavior, Admin Text/Embeddings/Music/Compare/Live-Agent behavior, Admin Image behavior, OpenClaw/News Pulse behavior, member/org route behavior, public pricing, Stripe work, real provider call, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
@@ -1038,11 +1038,29 @@ Migration risk:
 
 - No Phase 4.13 migration.
 
-## Phase 4.14: Unmetered Admin Image Or Runtime Budget Kill Switches
+## Phase 4.14: Unmetered / Unsupported Admin Image Branch Handling
+
+Status: completed for `POST /api/admin/ai/test-image` branch classification only. No Admin Text/Embeddings/Music/Compare/Live-Agent behavior change, Admin Video change beyond prior Phase 4.5/4.13 behavior, OpenClaw/News Pulse change, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, migration file, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
-- Choose the next remaining narrow admin/platform gap after sync video debug retirement, likely unmetered Admin Image branch handling, runtime env kill-switch enforcement, live platform budget caps, or remaining internal caller migrations.
+- Preserve the charged priced Admin Image branch as the existing selected-organization `admin_org_credit_account` path with required organization context, required `Idempotency-Key`, org credit check/debit, no-charge-on-provider-failure behavior, and safe budget/caller metadata.
+- Classify `@cf/black-forest-labs/flux-2-dev` as an intentional `explicit_unmetered_admin` exception with sanitized budget/caller metadata and future kill-switch target `ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS`.
+- Block unknown or unclassified Admin Image models before AI Worker/provider execution.
+
+Deploy units:
+
+- Auth Worker. No schema apply. No AI Worker source change expected.
+
+Migration risk:
+
+- No Phase 4.14 migration.
+
+## Phase 4.15: Runtime Budget Kill Switches / Live Platform Caps
+
+Scope:
+
+- Choose the next remaining narrow admin/platform gap after Admin Image branch classification, likely runtime env kill-switch enforcement, live platform budget caps, or remaining internal caller migrations.
 - Keep already migrated admin/member/org/OpenClaw paths unchanged unless the chosen phase explicitly targets them.
 
 ## Historical Superseded Item: Policy Enforcement Guard

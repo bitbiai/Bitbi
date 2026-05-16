@@ -15,30 +15,6 @@ import { AI_COST_BUDGET_SCOPES } from "../workers/auth/src/lib/ai-cost-operation
 
 const DEFAULT_BASELINE_GAPS = Object.freeze([
   {
-    id: "admin-ai-baseline",
-    route: "/api/admin/ai/test-image",
-    routePolicyIds: [
-      "admin.ai.test-image",
-    ],
-    functions: ["proxyToAiLab"],
-    category: "admin",
-    reason: "Known unmetered admin image branch remains partially covered pending targeted platform budget policy migration.",
-    temporaryAllowanceReason: "Only the unmetered admin image branch remains accepted while a targeted admin image provider-cost migration is completed.",
-    targetBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    targetFuturePhase: "Phase 4.14 remaining admin provider-cost budget migrations",
-    severity: "P2",
-    ownerDomain: "admin-ai",
-    killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_TESTS",
-    futureEnforcementPath: "Phase 4.14 should cover the remaining unmetered-image gap after sync video debug was retired/disabled-by-default.",
-    providerCostBearing: true,
-    registryOperationIds: [
-      "admin.image.test.unmetered",
-    ],
-    coveredByRegistryMetadata: true,
-    allowedUnmigratedForNow: true,
-    external_or_internal_only: true,
-  },
-  {
     id: "internal-ai-worker-baseline",
     route: "/internal/ai/*",
     functions: ["invokeAi", "invokeAiVideo", "createVideoProviderTask", "pollVideoProviderTask"],
@@ -46,11 +22,11 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     reason: "Known internal service routes rely on caller-side gateway or admin policy controls; sync video debug is retired at the Auth Worker caller but the internal video route remains service-only baseline-compatible for any legacy caller.",
     temporaryAllowanceReason: "Internal service routes remain accepted only while remaining callers migrate after the Phase 4.7 caller-policy guard.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
-    targetFuturePhase: "Phase 4.14 targeted remaining caller migrations",
+    targetFuturePhase: "Phase 4.15 targeted remaining caller migrations",
     severity: "P2",
     ownerDomain: "ai-worker",
     killSwitchTarget: "caller route budget kill switch required",
-    futureEnforcementPath: "Phase 4.14 should cover remaining broad internal routes after Admin Live-Agent caller-policy metadata is required for the covered admin caller and sync debug is retired/disabled-by-default.",
+    futureEnforcementPath: "Phase 4.15 should cover remaining broad internal routes after Admin Image branch classification and sync debug retirement.",
     providerCostBearing: true,
     registryOperationIds: [
       "internal.text.generate",
@@ -100,7 +76,8 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: { idempotency: "required; member video generation is guarded by one bundled member_ai_usage_attempts parent reservation before provider-cost work" },
   }),
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
-    notes: "Charged admin image tests require organization_id, Idempotency-Key, server-side credit calculation, sufficient organization credits, and no charge on provider failure.",
+    billing: { idempotency: "required for charged Admin Image tests; explicit-admin-unmetered branch is intentional and metadata-tagged" },
+    notes: "Charged admin image tests require organization_id, Idempotency-Key, server-side credit calculation, sufficient organization credits, and no charge on provider failure. FLUX.2 Dev is explicit_unmetered_admin with metadata; unknown admin image models are blocked before provider work.",
   }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
     billing: { idempotency: "Idempotency-Key header is required and backed by admin_ai_usage_attempts metadata-only duplicate suppression." },
@@ -192,7 +169,7 @@ ${inventoryExtra}
   const repoRoot = makeRepo();
   const strict = analyzeAiCostPolicy(repoRoot, { strict: true });
   assert.equal(strict.ok, false);
-  assert(strict.policyGaps.length > 0);
+  assert(strict.strictIssues.length > 0);
   assert(strict.strictIssues.some((issue) => issue.includes("Strict mode rejects allowed baseline gap")));
 }
 
@@ -206,9 +183,11 @@ ${inventoryExtra}
   assert(output.includes("Mode: baseline-enforced"));
   assert(output.includes("Migrated member gateway routes:"));
   assert(output.includes("Hardened admin/platform budget operations:"));
+  assert(output.includes("Explicit unmetered admin operations:"));
   assert(output.includes("Read-only admin/platform budget evidence:"));
   assert(output.includes("npm run report:ai-budget-evidence"));
   assert(output.includes("admin.image.test.charged: implemented/hardened; scope=admin_org_credit_account"));
+  assert(output.includes("admin.image.test.unmetered: implemented/explicit-unmetered; scope=explicit_unmetered_admin"));
   assert(output.includes("admin.text.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.embeddings.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.music.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
@@ -224,6 +203,7 @@ ${inventoryExtra}
   assert(output.includes("Phase 4.12 implements Admin Live-Agent budget metadata"));
   assert(output.includes("Retired/disabled debug paths:"));
   assert(output.includes("admin.ai.test-video-debug"));
+  assert(output.includes("Phase 4.14 classifies Admin Image branches"));
   assert(output.includes("internal.video_task.create: implemented/hardened; scope=internal_ai_worker_caller_enforced"));
   assert(output.includes("Known baseline gaps:"));
   assert(output.includes("killSwitch="));
@@ -238,7 +218,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.14 should address the next remaining narrow admin/platform gap"));
+  assert(output.includes("Phase 4.15 should address runtime budget kill-switch enforcement"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
@@ -251,9 +231,12 @@ ${inventoryExtra}
   assert(!actual.policyGaps.some((gap) => gap.route === "admin.ai.test-video-debug"));
   assert(!actual.knownPolicyGaps.some((gap) => gap.baselineId === "admin-ai-live-agent-unmetered"));
   assert(!actual.knownPolicyGaps.some((gap) => gap.baselineId === "admin-ai-sync-video-debug"));
+  assert(!actual.knownPolicyGaps.some((gap) => gap.baselineId === "admin-ai-image-unmetered-branch"));
   assert(!output.includes("admin-ai-live-agent-unmetered"));
   assert(!output.includes("admin-ai-sync-video-debug"));
+  assert(!output.includes("admin-ai-image-unmetered-branch"));
   assert(output.includes("admin.live_agent: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
+  assert(output.includes("admin.image.test.unmetered: implemented/explicit-unmetered; scope=explicit_unmetered_admin"));
   assert(output.includes("admin.ai.test-video-debug: /api/admin/ai/test-video; status=disabled-by-default"));
 }
 
