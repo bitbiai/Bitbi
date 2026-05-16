@@ -16,7 +16,12 @@ const VISIBLE_STATUSES = new Set([
   "terminal_failure",
   "expired",
 ]);
-const VISIBLE_OPERATIONS = new Set(["admin.text.test", "admin.embeddings.test", "admin.music.test"]);
+const VISIBLE_OPERATIONS = new Set([
+  "admin.text.test",
+  "admin.embeddings.test",
+  "admin.music.test",
+  "admin.compare",
+]);
 const DANGEROUS_METADATA_KEY_PATTERN =
   /(?:authorization|cookie|secret|token|password|api[_-]?key|idempotency[_-]?key|stripe|cloudflare|private[_-]?key|r2[_-]?key|provider[_-]?(?:request|body)|request[_-]?body|raw[_-]?(?:prompt|input|output)|prompt|generated[_-]?text|embedding[_-]?(?:input|vectors?)|vectors?|lyrics|messages?)/i;
 const SAFE_LENGTH_KEY_PATTERN =
@@ -188,17 +193,24 @@ export function serializeAdminAiUsageAttempt(row, { detail = false } = {}) {
       embeddingVectorsReturned: false,
       audioReturned: false,
       providerRequestBodyReturned: false,
+      providerResponseBodyReturned: false,
+      compareResultsReturned: false,
     };
   } else {
     out.resultMetadata = {
       resultKind: resultMetadata?.result_kind || null,
       textLength: resultMetadata?.text_length == null ? null : Number(resultMetadata.text_length),
       count: resultMetadata?.count == null ? null : Number(resultMetadata.count),
+      modelCount: resultMetadata?.model_count == null ? null : Number(resultMetadata.model_count),
+      successfulCount: resultMetadata?.successful_count == null ? null : Number(resultMetadata.successful_count),
+      failedCount: resultMetadata?.failed_count == null ? null : Number(resultMetadata.failed_count),
+      totalTokens: resultMetadata?.usage?.total_tokens == null ? null : Number(resultMetadata.usage.total_tokens),
       dimensions: resultMetadata?.dimensions == null ? null : Number(resultMetadata.dimensions),
       vectorsStored: resultMetadata?.vectors_stored === true,
       durationMs: resultMetadata?.duration_ms == null ? null : Number(resultMetadata.duration_ms),
       sizeBytes: resultMetadata?.size_bytes == null ? null : Number(resultMetadata.size_bytes),
       audioStored: resultMetadata?.audio_stored === true,
+      resultsStored: resultMetadata?.results_stored === true,
     };
   }
   return out;
@@ -231,7 +243,7 @@ function normalizeOptionalOperationKey(value) {
 function normalizeOptionalRoute(value) {
   const text = safeShortText(value, null, 160);
   if (!text) return null;
-  if (!/^\/api\/admin\/ai\/test-(?:text|embeddings|music)$/.test(text)) {
+  if (!/^(?:\/api\/admin\/ai\/test-(?:text|embeddings|music)|\/api\/admin\/ai\/compare)$/.test(text)) {
     throw new AdminAiIdempotencyError("Invalid route filter.", {
       code: "validation_error",
       status: 400,

@@ -51,6 +51,7 @@ for (const requiredId of [
   "admin.text.test",
   "admin.image.test.charged",
   "admin.music.test",
+  "admin.compare",
   "internal.text.generate",
   "internal.image.generate",
   "internal.music.generate",
@@ -236,6 +237,26 @@ assert.equal(
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "internal.video_task.create").budgetPolicy.targetEnforcementStatus,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.compare").budgetPolicy.targetBudgetScope,
+  AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.compare").currentStatus,
+  "partial"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.compare").operationConfig.idempotencyPolicy,
+  "required"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.compare").budgetPolicy.killSwitchTarget,
+  "ENABLE_ADMIN_AI_COMPARE_BUDGET"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.compare").currentEnforcement.providerSuppression,
   "implemented"
 );
 

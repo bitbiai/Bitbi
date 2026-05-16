@@ -947,12 +947,37 @@ Migration risk:
 
 - No Phase 4.9 migration.
 
-## Phase 4.10: Remaining Admin/Internal Caller Migration
+## Phase 4.10: Admin Compare Budget Enforcement
+
+Status: completed for `POST /api/admin/ai/compare` only. No Admin Live-Agent migration, sync video debug migration, Admin Video change beyond Phase 4.5 compatibility, Admin Text/Embeddings change beyond Phase 4.8/4.8.1/4.8.2 compatibility, Admin Music change beyond Phase 4.9 compatibility, unmetered Admin Image migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
-- Choose one remaining narrow gap, preferably Admin Compare or Admin Live-Agent, and migrate it without broad Admin AI or internal route refactors.
-- Keep Admin Music covered only by Phase 4.9 behavior.
+- Migrate exactly Admin Compare from baseline gap to metadata-only admin/platform budget enforcement.
+- Require valid `Idempotency-Key` before internal AI Worker calls.
+- Build `platform_admin_lab_budget` metadata using the Phase 4.2 helper.
+- Use future kill-switch metadata target `ENABLE_ADMIN_AI_COMPARE_BUDGET` without enforcing a new runtime env flag.
+- Reuse `admin_ai_usage_attempts` for durable metadata-only duplicate provider-fanout suppression, in-progress suppression, terminal failure behavior, and same-key/different-request conflict detection.
+- Propagate signed `budget_metadata_only` caller-policy metadata under `__bitbi_ai_caller_policy` to `/internal/ai/compare`.
+- Store and return only sanitized budget/caller/idempotency metadata; no raw prompts, compare outputs, provider request bodies, provider response bodies, raw idempotency keys, cookies, auth headers, Stripe data, Cloudflare tokens, secrets, private keys, or private R2 keys.
+- Preserve Phase 4.5 admin video, Phase 4.6 News Pulse, Phase 4.7 caller-policy guard, Phase 4.8/4.8.1/4.8.2 admin text/embeddings behavior, and Phase 4.9 Admin Music behavior.
+- Do not change member/org billing behavior, public pricing, Stripe, OpenClaw/News Pulse outside Phase 4.6, platform/background AI globally, or live billing readiness.
+
+Deploy units:
+
+- Auth Worker. No new schema apply from Phase 4.10; existing Phase 4.8.1 additive migration `0051_add_admin_ai_usage_attempts.sql` is still required before deploying auth Worker code that uses the table.
+- AI Worker deploy is not expected unless unrelated AI Worker files change; the Phase 4.7 caller-policy guard already validates and strips supplied compare caller-policy metadata.
+
+Migration risk:
+
+- No Phase 4.10 migration.
+
+## Phase 4.11: Remaining Admin/Internal Caller Migration
+
+Scope:
+
+- Choose one remaining narrow gap, such as Admin Live-Agent, sync video debug, the unmetered admin image branch, or another internal caller path, and migrate it without broad Admin AI or internal route refactors.
+- Keep Admin Music covered only by Phase 4.9 behavior and Admin Compare covered only by Phase 4.10 behavior.
 - Keep production/live billing blocked until operator evidence is complete and reviewed.
 
 ## Historical Superseded Item: Policy Enforcement Guard

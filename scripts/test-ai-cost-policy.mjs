@@ -20,7 +20,6 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     routePolicyIds: [
       "admin.ai.test-image",
       "admin.ai.test-video-debug",
-      "admin.ai.compare",
       "admin.ai.live-agent",
     ],
     functions: ["proxyToAiLab", "proxyLiveAgentToAiLab"],
@@ -32,12 +31,11 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     severity: "P2",
     ownerDomain: "admin-ai",
     killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_TESTS",
-    futureEnforcementPath: "Later narrow admin route migrations should cover the remaining compare/live-agent/sync-video/unmetered-image gaps.",
+    futureEnforcementPath: "Later narrow admin route migrations should cover the remaining live-agent/sync-video/unmetered-image gaps.",
     providerCostBearing: true,
     registryOperationIds: [
       "admin.image.test.unmetered",
       "admin.video.sync_debug",
-      "admin.compare",
       "admin.live_agent",
     ],
     coveredByRegistryMetadata: true,
@@ -122,7 +120,9 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.video-jobs.create", "POST", "/api/admin/ai/video-jobs", "admin-ai", "adminVideoJobJson", "admin-ai-video-job-create-ip", {
     notes: "Idempotency-Key header is required by the handler.",
   }),
-  adminJsonWrite("admin.ai.compare", "POST", "/api/admin/ai/compare", "admin-ai", "adminJson", "admin-ai-compare-ip", {}),
+  adminJsonWrite("admin.ai.compare", "POST", "/api/admin/ai/compare", "admin-ai", "adminJson", "admin-ai-compare-ip", {
+    billing: { idempotency: "Idempotency-Key header is required and backed by admin_ai_usage_attempts metadata-only duplicate suppression." },
+  }),
   adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {}),
   policy({ id: "openclaw.news_pulse.ingest", method: "POST", path: "/api/openclaw/news-pulse/ingest", billing: { idempotency: "deterministic OpenClaw item id/content hash plus visual status guards suppress duplicate provider calls" }, notes: "OpenClaw HMAC ingest." }),
   ${routePolicyExtra}
@@ -176,6 +176,7 @@ ${inventoryExtra}
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-image"));
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-text"));
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
+  assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.compare"));
   assert(!result.knownPolicyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert.equal(result.unknownPolicyGaps.length, 0);
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-text"));
@@ -205,10 +206,12 @@ ${inventoryExtra}
   assert(output.includes("admin.text.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.embeddings.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.music.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
+  assert(output.includes("admin.compare: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.video.job.create: implemented/hardened; scope=platform_admin_lab_budget"));
   assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
   assert(output.includes("Phase 4.6 OpenClaw/News Pulse visual budget controls are represented"));
   assert(output.includes("Phase 4.7 internal AI Worker caller-policy guard is represented"));
+  assert(output.includes("Phase 4.10 admin compare use admin_ai_usage_attempts"));
   assert(output.includes("Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection"));
   assert(output.includes("internal.video_task.create: implemented/hardened; scope=internal_ai_worker_caller_enforced"));
   assert(output.includes("Known baseline gaps:"));
@@ -224,7 +227,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.10 should target one remaining Admin AI gap"));
+  assert(output.includes("Phase 4.11 should target one remaining Admin AI gap"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;

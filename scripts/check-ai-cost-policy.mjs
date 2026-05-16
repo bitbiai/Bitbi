@@ -695,7 +695,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
     "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
     "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
-    "- Phase 4.8.1 admin text/embeddings and Phase 4.9 admin music use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay/live budget caps remain future work.",
+    "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, and Phase 4.10 admin compare use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay/live budget caps remain future work.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -759,7 +759,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.10 should target one remaining Admin AI gap such as compare, live-agent, sync video debug, the unmetered image branch, or an internal caller path without changing member/org billing behavior or broad platform/background AI.",
+    "- Phase 4.11 should target one remaining Admin AI gap such as live-agent, sync video debug, the unmetered image branch, or an internal caller path without changing member/org billing behavior or broad platform/background AI.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

@@ -30,7 +30,8 @@ assert.equal(report.summary.memberGatewayMigrated, 3);
 assert.equal(report.summary.adminPlatformImplemented, 8);
 assert.equal(report.summary.adminTextEmbeddingsDurableIdempotency, 2);
 assert.equal(report.summary.adminMusicDurableIdempotency, 1);
-assert.equal(report.summary.adminLabDurableIdempotency, 3);
+assert.equal(report.summary.adminCompareDurableIdempotency, 1);
+assert.equal(report.summary.adminLabDurableIdempotency, 4);
 assert.equal(report.summary.adminTextEmbeddingsAttemptsOperable, true);
 assert.equal(report.summary.adminLabAttemptsOperable, true);
 assert.equal(report.summary.blockedCriticalGaps, 0);
@@ -62,7 +63,7 @@ assert(adminOrgScope.killSwitchTargets.includes("ENABLE_ADMIN_AI_BFL_IMAGE_BUDGE
 
 const platformLabScope = report.budgetScopes.find((entry) => entry.scope === "platform_admin_lab_budget");
 assert(platformLabScope.operationCount >= 8);
-assert(platformLabScope.baselineGapCount >= 4);
+assert(platformLabScope.baselineGapCount >= 3);
 assert.equal(platformLabScope.runtimeEnforcementExists, false);
 assert(["missing", "partial"].includes(platformLabScope.runtimeEnforcementStatus));
 
@@ -87,6 +88,7 @@ assert(implementedIds.includes("member.video.generate"));
 assert(implementedIds.includes("admin.text.test"));
 assert(implementedIds.includes("admin.embeddings.test"));
 assert(implementedIds.includes("admin.music.test"));
+assert(implementedIds.includes("admin.compare"));
 assert(implementedIds.includes("admin.image.test.charged"));
 assert(implementedIds.includes("admin.video.job.create"));
 assert(implementedIds.includes("internal.video_task.create"));
@@ -137,6 +139,14 @@ assert.equal(adminMusic.killSwitchTarget, "ENABLE_ADMIN_AI_MUSIC_BUDGET");
 assert(adminMusic.metadataFieldsExpected.includes("caller_policy"));
 assert(adminMusic.remainingLimitations.some((entry) => entry.includes("audio")));
 
+const adminCompare = report.implementedOperations.find((entry) => entry.operationId === "admin.compare");
+assert.equal(adminCompare.budgetScope, "platform_admin_lab_budget");
+assert.equal(adminCompare.runtimeStatus, "budget_metadata_with_durable_idempotency");
+assert.equal(adminCompare.killSwitchTarget, "ENABLE_ADMIN_AI_COMPARE_BUDGET");
+assert.equal(adminCompare.modelClass, "admin compare multi-model text fanout");
+assert(adminCompare.metadataFieldsExpected.includes("caller_policy"));
+assert(adminCompare.remainingLimitations.some((entry) => entry.includes("compare results")));
+
 const newsPulseVisual = report.implementedOperations.find((entry) => entry.operationId === "platform.news_pulse.visual.ingest");
 assert.equal(newsPulseVisual.budgetScope, "openclaw_news_pulse_budget");
 assert.equal(newsPulseVisual.runtimeStatus, "implemented_visual_budget_metadata");
@@ -154,6 +164,7 @@ assert(internalGuard.requiredForInternalRoutes.includes("/internal/ai/video-task
 assert(internalGuard.coveredCallerPaths.includes("admin text test"));
 assert(internalGuard.coveredCallerPaths.includes("admin embeddings test"));
 assert(internalGuard.coveredCallerPaths.includes("admin music test"));
+assert(internalGuard.coveredCallerPaths.includes("admin compare"));
 assert(internalGuard.baselineAllowedInternalRoutes.includes("/internal/ai/test-text"));
 assert(internalGuard.remainingLimitations.some((entry) => entry.includes("baseline-allowed")));
 
@@ -164,6 +175,7 @@ assert(!baselineIds.includes("openclaw-news-pulse-visual-generation"));
 assert(!baselineIds.includes("admin-ai-text-test-unmetered"));
 assert(!baselineIds.includes("admin-ai-embeddings-test-unmetered"));
 assert(!baselineIds.includes("admin-ai-music-test-unmetered"));
+assert(!baselineIds.includes("admin-ai-compare-unmetered"));
 assert(baselineIds.includes("internal-ai-worker-text-image-embeddings"));
 assert(baselineIds.includes("internal-ai-worker-music-video-compare-live-agent"));
 

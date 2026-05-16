@@ -124,9 +124,11 @@ const CHARGED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.charged";
 const ADMIN_TEXT_OPERATION_ID = "admin.text.test";
 const ADMIN_EMBEDDINGS_OPERATION_ID = "admin.embeddings.test";
 const ADMIN_MUSIC_OPERATION_ID = "admin.music.test";
+const ADMIN_COMPARE_OPERATION_ID = "admin.compare";
 const ADMIN_TEXT_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_TEXT_BUDGET";
 const ADMIN_EMBEDDINGS_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET";
 const ADMIN_MUSIC_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_MUSIC_BUDGET";
+const ADMIN_COMPARE_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_COMPARE_BUDGET";
 const ADMIN_LAB_IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const ADMIN_LAB_IDEMPOTENCY_KEY_MIN_LENGTH = 8;
 const ADMIN_LAB_IDEMPOTENCY_KEY_MAX_LENGTH = 128;
@@ -531,6 +533,18 @@ function adminMusicRequestMetadata(payload) {
   };
 }
 
+function adminCompareRequestMetadata(payload) {
+  const modelIds = Array.isArray(payload?.models) ? payload.models : [];
+  return {
+    prompt_length: payload?.prompt ? String(payload.prompt).length : 0,
+    system_length: payload?.system ? String(payload.system).length : 0,
+    model_count: modelIds.length,
+    compared_model_ids: modelIds.map((modelId) => String(modelId || "").slice(0, 120)),
+    max_tokens: payload?.maxTokens ?? null,
+    temperature: payload?.temperature ?? null,
+  };
+}
+
 function adminTextResultMetadata(providerBody) {
   const text = providerBody?.result?.text == null ? "" : String(providerBody.result.text);
   return {
@@ -559,6 +573,38 @@ function adminEmbeddingsResultMetadata(providerBody) {
       : null,
     pooling: typeof result.pooling === "string" ? result.pooling.slice(0, 80) : null,
     vectors_stored: false,
+  };
+}
+
+function adminCompareResultMetadata(providerBody) {
+  const results = Array.isArray(providerBody?.result?.results) ? providerBody.result.results : [];
+  const usageTotals = results.reduce((totals, result) => {
+    const usage = result?.usage && typeof result.usage === "object" ? result.usage : {};
+    return {
+      prompt_tokens: totals.prompt_tokens + Number(usage.prompt_tokens || 0),
+      completion_tokens: totals.completion_tokens + Number(usage.completion_tokens || 0),
+      total_tokens: totals.total_tokens + Number(usage.total_tokens || 0),
+    };
+  }, {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+  });
+  return {
+    result_kind: "compare",
+    model_count: Array.isArray(providerBody?.models) ? providerBody.models.length : results.length,
+    successful_count: results.filter((entry) => entry?.ok === true).length,
+    failed_count: results.filter((entry) => entry?.ok === false).length,
+    partial_success: providerBody?.code === "partial_success",
+    failed_codes: results
+      .filter((entry) => entry?.ok === false && entry?.code)
+      .map((entry) => String(entry.code).slice(0, 80))
+      .slice(0, 5),
+    usage: usageTotals.total_tokens > 0 ? usageTotals : null,
+    max_tokens: providerBody?.result?.maxTokens ?? null,
+    temperature: providerBody?.result?.temperature ?? null,
+    results_stored: false,
+    full_result_stored: false,
   };
 }
 
@@ -2092,27 +2138,106 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const idempotencyKey = normalizeAdminLabIdempotencyKey(request.headers.get("Idempotency-Key"));
       const validated = validateComparePayload(body);
-      return proxyToAiLab(
+      const modelId = "admin.compare.multi_model";
+      const budgetPolicy = await buildAdminLabBudgetPolicyContext({
+        user: result.user,
+        operationId: ADMIN_COMPARE_OPERATION_ID,
+        modelId,
+        modelResolverKey: "admin.compare.model_registry",
+        routeId: "admin.ai.compare",
+        routePath: "/api/admin/ai/compare",
+        payload: validated,
+        hashFields: ["prompt", "system"],
+        idempotencyKey,
+        killSwitchTarget: ADMIN_COMPARE_BUDGET_KILL_SWITCH,
+        correlationId,
+      });
+      const callerPolicy = buildAdminAiCallerPolicy({
+        operationId: ADMIN_COMPARE_OPERATION_ID,
+        enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
+        callerClass: AI_CALLER_POLICY_CALLER_CLASSES.ADMIN,
+        modelId,
+        modelResolverKey: "admin.compare.model_registry",
+        idempotencyPolicy: "required",
+        sourceRoute: "/api/admin/ai/compare",
+        budgetFingerprint: budgetPolicy.summary.fingerprint,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        killSwitchTarget: ADMIN_COMPARE_BUDGET_KILL_SWITCH,
+        correlationId,
+        reason: "phase_4_10_admin_compare_durable_idempotency_metadata_only",
+        notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression for multi-model compare fanout.",
+      });
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const attemptState = await beginAdminAiIdempotencyAttempt({
+        env,
+        operationKey: ADMIN_COMPARE_OPERATION_ID,
+        route: "/api/admin/ai/compare",
+        adminUserId: result.user.id,
+        idempotencyKey,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        providerFamily: budgetPolicy.summary.provider_family,
+        modelKey: modelId,
+        budgetScope: budgetPolicy.summary.budget_scope,
+        budgetPolicy: initialBudgetPolicy,
+        callerPolicy: compactAdminCallerPolicy(callerPolicy),
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminCompareRequestMetadata(validated),
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+          state: "pending",
+        }),
+      });
+      if (attemptState.kind !== "created") {
+        return adminLabAttemptResponse({
+          task: "compare",
+          modelId,
+          kind: attemptState.kind,
+          attempt: attemptState.attempt,
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+        }, correlationId);
+      }
+      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const response = await proxyToAiLab(
         env,
         "/internal/ai/compare",
         {
           method: "POST",
           body: validated,
-          callerPolicy: buildAdminAiCallerPolicy({
-            operationId: "admin.compare",
-            modelResolverKey: "admin.compare.model_registry",
-            sourceRoute: "/api/admin/ai/compare",
-            killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_COMPARE",
-            correlationId,
-          }),
+          callerPolicy,
         },
         result.user,
         correlationId,
         requestInfo
       );
+      const providerBody = await parseJsonResponseBody(response);
+      if (!response.ok || !providerBody?.ok) {
+        await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          code: providerBody?.code || "provider_failed",
+          message: "Admin compare provider call failed.",
+        });
+        return response;
+      }
+      const resultMetadata = adminCompareResultMetadata(providerBody);
+      const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        resultMetadata,
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminCompareRequestMetadata(validated),
+          resultMetadata,
+          budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, attemptState.attempt, "succeeded"),
+          callerPolicy,
+          state: "succeeded",
+        }),
+      });
+      return appendAdminLabBudgetMetadata(response, {
+        budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
+        callerPolicy,
+      }, correlationId);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
       throw error;
     }
   }

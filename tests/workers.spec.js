@@ -14683,7 +14683,7 @@ test.describe('Worker routes', () => {
     });
 
     test('GET /api/admin/ai/models returns the catalog shape used by the UI', async () => {
-      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/models', 'GET', undefined, authHeaders),
@@ -16649,6 +16649,37 @@ test.describe('Worker routes', () => {
       });
       expect(aiRunCalls).toHaveLength(0);
 
+      const invalidComparePolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/compare', {
+          models: [
+            '@cf/meta/llama-3.1-8b-instruct-fast',
+            '@cf/openai/gpt-oss-20b',
+          ],
+          prompt: 'invalid compare caller policy should not run',
+          maxTokens: 80,
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'admin.compare',
+            budget_scope: 'platform_admin_lab_budget',
+            enforcement_status: 'budget_metadata_only',
+            caller_class: 'admin',
+            owner_domain: 'admin-ai',
+            provider_family: 'ai_worker',
+            source_route: '/api/admin/ai/compare',
+            source_component: 'test',
+            raw_prompt: 'must not pass',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidComparePolicy.status).toBe(400);
+      await expect(invalidComparePolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_invalid',
+      });
+      expect(aiRunCalls).toHaveLength(0);
+
       const valid = await aiWorker.fetch(
         await signedInternalAiJsonRequest('/internal/ai/test-text', {
           preset: 'balanced',
@@ -17039,7 +17070,7 @@ test.describe('Worker routes', () => {
     });
 
     test('admin AI image save references can be consumed by the existing save endpoint without re-uploading imageData', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
       seedAdminImageChargeOrg(env);
 
       const generateRes = await authWorker.fetch(
@@ -18274,7 +18305,7 @@ test.describe('Worker routes', () => {
       expect(serializedAttempt).not.toContain('Authorization');
     });
 
-    test('POST /api/admin/ai/test-text, test-embeddings, and test-music require valid idempotency before internal AI calls', async () => {
+    test('POST /api/admin/ai/test-text, test-embeddings, test-music, and compare require valid idempotency before internal AI calls', async () => {
       const cases = [
         {
           route: '/api/admin/ai/test-text',
@@ -18297,6 +18328,17 @@ test.describe('Worker routes', () => {
             prompt: 'This music prompt should not reach the AI worker.',
             mode: 'instrumental',
             lyricsMode: 'auto',
+          },
+        },
+        {
+          route: '/api/admin/ai/compare',
+          payload: {
+            models: [
+              '@cf/meta/llama-3.1-8b-instruct-fast',
+              '@cf/openai/gpt-oss-20b',
+            ],
+            prompt: 'This compare prompt should not reach the AI worker.',
+            maxTokens: 80,
           },
         },
       ];
@@ -18582,7 +18624,7 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(attempt)).not.toContain('failing embedding request');
     });
 
-    test('admin text and embeddings fail closed before provider calls when durable idempotency table is unavailable', async () => {
+    test('admin text, embeddings, and compare fail closed before provider calls when durable idempotency table is unavailable', async () => {
       const cases = [
         {
           route: '/api/admin/ai/test-text',
@@ -18600,6 +18642,18 @@ test.describe('Worker routes', () => {
             input: ['missing table should fail before provider'],
           },
           key: 'admin-embeddings-missing-table-1',
+        },
+        {
+          route: '/api/admin/ai/compare',
+          payload: {
+            models: [
+              '@cf/meta/llama-3.1-8b-instruct-fast',
+              '@cf/openai/gpt-oss-20b',
+            ],
+            prompt: 'Missing table should fail before compare provider fanout.',
+            maxTokens: 80,
+          },
+          key: 'admin-compare-missing-table-1',
         },
       ];
 
@@ -18870,6 +18924,211 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_MUSIC_BUDGET');
       expect(aiRunCalls[0].payload.prompt).toContain('Provider should see music prompt');
       expect(aiRunCalls[0].payload.lyrics).toBe('[Verse]\nProvider should see lyrics only in provider payload.');
+    });
+
+    test('admin compare durable idempotency suppresses completed duplicates, in-progress duplicates, and conflicts different requests', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+      const payload = {
+        models: [
+          '@cf/meta/llama-3.1-8b-instruct-fast',
+          '@cf/openai/gpt-oss-20b',
+        ],
+        prompt: 'Same idempotency key should not run compare provider fanout twice.',
+        system: 'You are concise.',
+        maxTokens: 120,
+        temperature: 0.4,
+      };
+      const headers = adminAiIdempotencyHeaders(authHeaders, 'admin-compare-durable-1');
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      const second = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      const secondBody = await second.json();
+      expect(aiLabRequests).toHaveLength(1);
+      expect(secondBody).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'compare',
+        code: 'admin_ai_idempotency_metadata_replay',
+        result: null,
+      }));
+      expect(secondBody.idempotency).toEqual(expect.objectContaining({
+        idempotent_replay: true,
+        replay_available: false,
+        replay_policy: 'metadata_only_no_result_replay',
+      }));
+      expect(secondBody.budget_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.compare',
+        duplicate_suppression: 'durable_idempotency_metadata_only',
+        idempotency_attempt_status: 'succeeded',
+        kill_switch_flag_name: 'ENABLE_ADMIN_AI_COMPARE_BUDGET',
+      }));
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('Same idempotency key should not run compare');
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('Stubbed output');
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', {
+          ...payload,
+          prompt: 'Different compare request with the same key must conflict.',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_conflict',
+      });
+      expect(aiLabRequests).toHaveLength(1);
+
+      let releaseProvider;
+      let providerStarted;
+      const providerStartedPromise = new Promise((resolve) => {
+        providerStarted = resolve;
+      });
+      const releaseProviderPromise = new Promise((resolve) => {
+        releaseProvider = resolve;
+      });
+      const aiRunStub = createAiLabRunStub();
+      const pendingHarness = await createAdminAiContractHarness({
+        aiRun: async (...args) => {
+          providerStarted();
+          await releaseProviderPromise;
+          return aiRunStub(...args);
+        },
+      });
+      const pendingHeaders = adminAiIdempotencyHeaders(pendingHarness.authHeaders, 'admin-compare-in-progress-1');
+      const firstPending = pendingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', payload, pendingHeaders),
+        pendingHarness.env,
+        createExecutionContext().execCtx
+      );
+      await providerStartedPromise;
+      const duplicatePending = await pendingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', payload, pendingHeaders),
+        pendingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(duplicatePending.status).toBe(409);
+      await expect(duplicatePending.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_in_progress',
+      });
+      expect(pendingHarness.aiLabRequests).toHaveLength(1);
+      releaseProvider();
+      const completedPending = await firstPending;
+      expect(completedPending.status).toBe(200);
+      expect(pendingHarness.aiLabRequests).toHaveLength(1);
+    });
+
+    test('admin compare provider failures and missing idempotency table fail safely before duplicate provider work', async () => {
+      const payload = {
+        models: [
+          '@cf/meta/llama-3.1-8b-instruct-fast',
+          '@cf/openai/gpt-oss-20b',
+        ],
+        prompt: 'Failing compare request should become terminal.',
+        maxTokens: 80,
+      };
+      const failingHarness = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('simulated compare provider failure');
+        },
+      });
+      const headers = adminAiIdempotencyHeaders(failingHarness.authHeaders, 'admin-compare-failure-1');
+
+      const first = await failingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', payload, headers),
+        failingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(502);
+      const attempt = failingHarness.env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.compare',
+        status: 'provider_failed',
+        provider_status: 'failed',
+        result_status: 'none',
+        error_code: 'upstream_error',
+      }));
+      expect(JSON.stringify(attempt)).not.toContain('Failing compare request');
+
+      const second = await failingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', payload, headers),
+        failingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(second.status).toBe(409);
+      await expect(second.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_terminal',
+      });
+      expect(failingHarness.aiLabRequests).toHaveLength(1);
+
+      const missingHarness = await createAdminAiContractHarness();
+      missingHarness.env.DB.missingTables.add('admin_ai_usage_attempts');
+      const missing = await missingHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', payload, adminAiIdempotencyHeaders(
+          missingHarness.authHeaders,
+          'admin-compare-missing-table-2'
+        )),
+        missingHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(missing.status).toBe(503);
+      await expect(missing.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_unavailable',
+      });
+      expect(missingHarness.aiLabRequests).toHaveLength(0);
+    });
+
+    test('admin compare caller-policy metadata is stripped before provider payloads', async () => {
+      const aiRunCalls = [];
+      const aiRunStub = createAiLabRunStub();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return aiRunStub(modelId, payload, options);
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', {
+          models: [
+            '@cf/meta/llama-3.1-8b-instruct-fast',
+            '@cf/openai/gpt-oss-20b',
+          ],
+          prompt: 'Provider should see compare prompt, not caller metadata.',
+          system: 'You are concise.',
+          maxTokens: 120,
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-compare-strip-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.compare',
+        enforcement_status: 'budget_metadata_only',
+        kill_switch_target: 'ENABLE_ADMIN_AI_COMPARE_BUDGET',
+      }));
+      expect(aiRunCalls).toHaveLength(2);
+      for (const call of aiRunCalls) {
+        expect(JSON.stringify(call.payload)).not.toContain('__bitbi_ai_caller_policy');
+        expect(JSON.stringify(call.payload)).not.toContain('ENABLE_ADMIN_AI_COMPARE_BUDGET');
+        expect(JSON.stringify(call.payload.messages)).toContain('Provider should see compare prompt, not caller metadata.');
+      }
     });
 
     test('admin AI usage attempt inspection is admin-only, bounded, and sanitized', async () => {
@@ -20988,7 +21247,7 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/compare returns the compare response contract used by the UI', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
 
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/compare', 'POST', {
@@ -21000,7 +21259,7 @@ test.describe('Worker routes', () => {
           system: 'You are concise.',
           maxTokens: 250,
           temperature: 0.7,
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-compare-contract-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -21017,6 +21276,33 @@ test.describe('Worker routes', () => {
           temperature: 0.7,
         }),
         elapsedMs: expect.any(Number),
+        budget_policy: expect.objectContaining({
+          budget_policy_version: 'admin-platform-budget-policy-v1',
+          operation_id: 'admin.compare',
+          budget_scope: 'platform_admin_lab_budget',
+          owner_domain: 'admin-ai',
+          provider_family: 'ai_worker',
+          model_id: 'admin.compare.multi_model',
+          idempotency_policy: 'required',
+          idempotency_key_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          duplicate_suppression: 'durable_idempotency_metadata_only',
+          durable_idempotency: true,
+          replay_policy: 'metadata_only_no_result_replay',
+          idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
+          idempotency_attempt_status: 'succeeded',
+          runtime_enforcement_status: 'budget_metadata_only',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_COMPARE_BUDGET',
+          fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        caller_policy: expect.objectContaining({
+          operation_id: 'admin.compare',
+          budget_scope: 'platform_admin_lab_budget',
+          enforcement_status: 'budget_metadata_only',
+          caller_class: 'admin',
+          idempotency_policy: 'required',
+          kill_switch_target: 'ENABLE_ADMIN_AI_COMPARE_BUDGET',
+          source_route: '/api/admin/ai/compare',
+        }),
       }));
       expect(body.result.results).toHaveLength(2);
       expect(body.result.results[0]).toEqual(expect.objectContaining({
@@ -21028,6 +21314,51 @@ test.describe('Worker routes', () => {
           vendor: expect.any(String),
         }),
       }));
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.compare',
+        budget_scope: 'platform_admin_lab_budget',
+        enforcement_status: 'budget_metadata_only',
+        caller_class: 'admin',
+        kill_switch_target: 'ENABLE_ADMIN_AI_COMPARE_BUDGET',
+        idempotency_policy: 'required',
+      }));
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      const attempt = env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.compare',
+        route: '/api/admin/ai/compare',
+        admin_user_id: 'admin-ai-user',
+        status: 'succeeded',
+        provider_status: 'succeeded',
+        result_status: 'metadata_only',
+        budget_scope: 'platform_admin_lab_budget',
+      }));
+      const attemptMetadata = JSON.parse(attempt.metadata_json);
+      const resultMetadata = JSON.parse(attempt.result_metadata_json);
+      expect(attemptMetadata.request).toEqual(expect.objectContaining({
+        prompt_length: 'Compare these models.'.length,
+        system_length: 'You are concise.'.length,
+        model_count: 2,
+      }));
+      expect(resultMetadata).toEqual(expect.objectContaining({
+        result_kind: 'compare',
+        model_count: 2,
+        successful_count: 2,
+        failed_count: 0,
+        results_stored: false,
+        full_result_stored: false,
+      }));
+      const serialized = JSON.stringify({
+        budget_policy: body.budget_policy,
+        caller_policy: body.caller_policy,
+        attempt,
+      });
+      expect(serialized).not.toContain('Compare these models.');
+      expect(serialized).not.toContain('Stubbed output');
+      expect(serialized).not.toContain('Cookie');
+      expect(serialized).not.toContain('Authorization');
     });
 
     test('GET /api/admin/ai/models rejects unauthenticated requests with the error shape used by the UI', async () => {
@@ -21266,7 +21597,7 @@ test.describe('Worker routes', () => {
           system: 'You are concise.',
           maxTokens: 250,
           temperature: 0.7,
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-compare-validation-1')),
         env,
         createExecutionContext().execCtx
       );
@@ -21300,7 +21631,7 @@ test.describe('Worker routes', () => {
           system: 'You are concise.',
           maxTokens: 250,
           temperature: 0.7,
-        }, authHeaders),
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-compare-partial-1')),
         env,
         createExecutionContext().execCtx
       );
