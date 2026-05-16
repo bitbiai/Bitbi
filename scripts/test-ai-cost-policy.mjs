@@ -53,32 +53,12 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     external_or_internal_only: true,
   },
   {
-    id: "openclaw-baseline",
-    route: "/api/openclaw/news-pulse/ingest",
-    routePolicyIds: ["openclaw.news_pulse.ingest"],
-    functions: ["generateNewsPulseVisual"],
-    category: "background",
-    reason: "Known platform visual generation remains outside member/org billing pending platform budget policy.",
-    temporaryAllowanceReason: "OpenClaw visuals remain accepted only while Phase 4.5 defines visual budget controls.",
-    targetBudgetScope: AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
-    targetFuturePhase: "Phase 4.6 OpenClaw/News Pulse visual budget controls",
-    severity: "P2",
-    ownerDomain: "openclaw-news-pulse",
-    killSwitchTarget: "ENABLE_OPENCLAW_NEWS_PULSE_AI_BUDGET",
-    futureEnforcementPath: "Phase 4.6 OpenClaw/News Pulse visual budget controls.",
-    providerCostBearing: true,
-    registryOperationIds: ["platform.news_pulse.visual.ingest", "platform.news_pulse.visual.scheduled"],
-    coveredByRegistryMetadata: true,
-    allowedUnmigratedForNow: true,
-    external_or_internal_only: true,
-  },
-  {
     id: "internal-ai-worker-baseline",
     route: "/internal/ai/*",
     functions: ["invokeAi", "invokeAiVideo", "createVideoProviderTask", "pollVideoProviderTask"],
     category: "internal",
     reason: "Known internal service routes rely on caller-side gateway or admin policy controls.",
-    temporaryAllowanceReason: "Internal service routes remain accepted only while Phase 4.6 defines caller-policy guards.",
+    temporaryAllowanceReason: "Internal service routes remain accepted only while Phase 4.7 defines caller-policy guards.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
     targetFuturePhase: "Phase 4.7 internal AI Worker route caller-policy guard",
     severity: "P2",
@@ -148,7 +128,7 @@ export const ROUTE_POLICIES = Object.freeze([
   }),
   adminJsonWrite("admin.ai.compare", "POST", "/api/admin/ai/compare", "admin-ai", "adminJson", "admin-ai-compare-ip", {}),
   adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {}),
-  policy({ id: "openclaw.news_pulse.ingest", method: "POST", path: "/api/openclaw/news-pulse/ingest", notes: "OpenClaw HMAC ingest." }),
+  policy({ id: "openclaw.news_pulse.ingest", method: "POST", path: "/api/openclaw/news-pulse/ingest", billing: { idempotency: "deterministic OpenClaw item id/content hash plus visual status guards suppress duplicate provider calls" }, notes: "OpenClaw HMAC ingest." }),
   ${routePolicyExtra}
 ]);
 `);
@@ -226,6 +206,8 @@ ${inventoryExtra}
   assert(output.includes("npm run report:ai-budget-evidence"));
   assert(output.includes("admin.image.test.charged: implemented/hardened; scope=admin_org_credit_account"));
   assert(output.includes("admin.video.job.create: implemented/hardened; scope=platform_admin_lab_budget"));
+  assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
+  assert(output.includes("Phase 4.6 OpenClaw/News Pulse visual budget controls are represented"));
   assert(output.includes("Known baseline gaps:"));
   assert(output.includes("killSwitch="));
   assert(output.includes("Admin gaps by budget scope:"));
@@ -239,8 +221,8 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.5 covers only admin async video job budget metadata/enforcement"));
-  assert(output.includes("Phase 4.6 should migrate OpenClaw/News Pulse visual budget controls"));
+  assert(output.includes("Phase 4.6 covers only OpenClaw/News Pulse visual budget controls"));
+  assert(output.includes("Phase 4.7 should add the internal AI Worker caller-policy guard"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;

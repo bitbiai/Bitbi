@@ -417,6 +417,8 @@ function scheduleOpenClawNewsPulseVisualBackfill(ctx, {
       now: new Date().toISOString(),
       limit,
       correlationId: ctx.correlationId,
+      actorId: agent,
+      actorRole: "openclaw-agent",
     }))
     .then((backfill) => {
       logOpenClawEvent(ctx, {

@@ -12037,7 +12037,34 @@ test.describe('Worker routes', () => {
         visual_object_key: expect.stringMatching(/^news-pulse\/thumbs\/.+\.webp$/),
         visual_thumb_url: `/api/public/news-pulse/thumbs/${env.DB.state.newsPulseItems[0].id}`,
         visual_error: null,
+        visual_budget_policy_status: 'ready',
+        visual_budget_policy_version: 'admin-platform-budget-policy-v1',
       }));
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems[0].visual_budget_policy_json);
+      expect(budgetPolicy).toEqual(expect.objectContaining({
+        operation_id: 'platform.news_pulse.visual.ingest',
+        budget_scope: 'openclaw_news_pulse_budget',
+        provider_family: 'workers_ai',
+        model_id: '@cf/black-forest-labs/flux-1-schnell',
+        idempotency_policy: 'inherited',
+        kill_switch_flag_name: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+        runtime_budget_limit_enforced: false,
+        runtime_env_kill_switch_enforced: false,
+      }));
+      expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
+        status: 'ready',
+        duplicate_provider_suppression: 'visual_status_and_attempt_guard',
+      }));
+      expect(budgetPolicy.visual).toEqual(expect.objectContaining({
+        item_id: env.DB.state.newsPulseItems[0].id,
+        content_hash: expect.any(String),
+      }));
+      const serializedBudgetPolicy = JSON.stringify(budgetPolicy);
+      expect(serializedBudgetPolicy).not.toContain('abstract futuristic AI editorial thumbnail');
+      expect(serializedBudgetPolicy).not.toContain(OPENCLAW_TEST_SECRET);
+      expect(serializedBudgetPolicy).not.toContain('Authorization');
+      expect(serializedBudgetPolicy).not.toContain('Cookie');
+      expect(serializedBudgetPolicy).not.toContain('news-pulse/thumbs/');
       expect(env.USER_IMAGES.objects.has(env.DB.state.newsPulseItems[0].visual_object_key)).toBe(true);
     });
 
@@ -12063,8 +12090,14 @@ test.describe('Worker routes', () => {
         visual_status: 'failed',
         visual_attempts: 1,
         visual_thumb_url: null,
+        visual_budget_policy_status: 'failed',
       }));
       expect(env.DB.state.newsPulseItems[0].visual_error).toBe('News Pulse thumbnail generation failed.');
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems[0].visual_budget_policy_json);
+      expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
+        status: 'failed',
+        reason: 'generation_failed',
+      }));
     });
 
     test('POST /api/openclaw/news-pulse/ingest skips immediate visual backfill without required bindings', async () => {
@@ -12310,6 +12343,69 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.newsPulseItems[1].visual_status).toBe('ready');
     });
 
+    test('News Pulse visual budget policy failure blocks provider calls before generation', async () => {
+      const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        newsPulseItems: [{
+          id: 'invalid-budget-visual-item',
+          locale: 'en',
+          title: 'Invalid budget visual item',
+          summary: 'A budget policy failure must not call the provider.',
+          source: 'Source Example',
+          url: 'https://example.com/invalid-budget-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'invalid-budget-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      const result = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 1,
+        operationOverride: {
+          budgetScope: 'invalid_news_pulse_budget_scope',
+        },
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        skipped: false,
+        scannedCount: 1,
+        readyCount: 0,
+        failedCount: 1,
+      }));
+      expect(aiCalls).toBe(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'failed',
+        visual_attempts: 1,
+        visual_error: 'News Pulse visual budget policy failed.',
+        visual_budget_policy_status: 'blocked_by_invalid_policy',
+      }));
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems[0].visual_budget_policy_json);
+      expect(budgetPolicy).toEqual(expect.objectContaining({
+        operation_id: 'platform.news_pulse.visual.scheduled',
+        plan_status: 'invalid_config',
+        kill_switch_flag_name: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+      }));
+      expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
+        status: 'blocked_by_invalid_policy',
+      }));
+    });
+
     test('News Pulse thumbnail backfill generates one ready WebP and skips pending ready or exhausted rows', async () => {
       const { processNewsPulseVisualBackfill, NEWS_PULSE_VISUAL_MODEL_ID } = await loadNewsPulseVisualsModule();
       let aiCalls = 0;
@@ -12431,6 +12527,13 @@ test.describe('Worker routes', () => {
         visual_object_key: 'news-pulse/thumbs/missing-visual-item.webp',
         visual_thumb_url: '/api/public/news-pulse/thumbs/missing-visual-item',
         visual_error: null,
+        visual_budget_policy_status: 'ready',
+      }));
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems.find((row) => row.id === 'missing-visual-item').visual_budget_policy_json);
+      expect(budgetPolicy).toEqual(expect.objectContaining({
+        operation_id: 'platform.news_pulse.visual.scheduled',
+        budget_scope: 'openclaw_news_pulse_budget',
+        kill_switch_flag_name: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
       }));
       expect(env.USER_IMAGES.objects.has('news-pulse/thumbs/missing-visual-item.webp')).toBe(true);
       expect(env.IMAGES.transformCalls[0]).toEqual(expect.objectContaining({
@@ -12440,6 +12543,38 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.newsPulseItems.find((row) => row.id === 'pending-visual-item').visual_status).toBe('pending');
       expect(env.DB.state.newsPulseItems.find((row) => row.id === 'ready-visual-item').visual_status).toBe('ready');
       expect(env.DB.state.newsPulseItems.find((row) => row.id === 'exhausted-visual-item').visual_attempts).toBe(3);
+    });
+
+    test('OpenClaw visual backfill does not call provider again for the same ready deterministic item', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET,
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      const payload = validOpenClawNewsPulsePayload();
+
+      const first = buildOpenClawSignedRequest(payload, { nonce: 'openclaw-duplicate-ready-1' });
+      const firstExec = createExecutionContext();
+      const firstRes = await authWorker.fetch(first.request, env, firstExec.execCtx);
+      expect(firstRes.status).toBe(200);
+      await firstExec.flush();
+      expect(aiCalls).toBe(1);
+      expect(env.DB.state.newsPulseItems[0].visual_status).toBe('ready');
+
+      const second = buildOpenClawSignedRequest(payload, { nonce: 'openclaw-duplicate-ready-2' });
+      const secondExec = createExecutionContext();
+      const secondRes = await authWorker.fetch(second.request, env, secondExec.execCtx);
+      expect(secondRes.status).toBe(200);
+      await secondExec.flush();
+
+      expect(aiCalls).toBe(1);
+      expect(env.DB.state.newsPulseItems).toHaveLength(1);
+      expect(env.DB.state.newsPulseItems[0].visual_status).toBe('ready');
+      expect(env.DB.state.newsPulseItems[0].visual_attempts).toBe(1);
     });
 
     test('News Pulse thumbnail generation failure records failed status without breaking public news serving', async () => {
@@ -12499,6 +12634,57 @@ test.describe('Worker routes', () => {
       }));
       expect(body.items[0]).not.toHaveProperty('visual_thumb_url');
       expect(JSON.stringify(body)).not.toContain('sensitive backend details');
+    });
+
+    test('News Pulse thumbnail storage failure does not mark the visual ready', async () => {
+      const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
+      const env = createAuthTestEnv({
+        aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+        newsPulseItems: [{
+          id: 'storage-failing-visual-item',
+          locale: 'en',
+          title: 'Storage failing AI visual update',
+          summary: 'A short source-attributed update with storage failure.',
+          source: 'Source Example',
+          url: 'https://example.com/storage-failing-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'storage-failing-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+      env.USER_IMAGES.failPutWith = new Error('Storage backend unavailable.');
+
+      const backfill = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 1,
+      });
+
+      expect(backfill).toEqual(expect.objectContaining({
+        readyCount: 0,
+        failedCount: 1,
+      }));
+      expect(env.USER_IMAGES.putCalls).toHaveLength(1);
+      expect(env.USER_IMAGES.objects.has('news-pulse/thumbs/storage-failing-visual-item.webp')).toBe(false);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'failed',
+        visual_budget_policy_status: 'failed',
+      }));
+      expect(env.DB.state.newsPulseItems[0].visual_object_key ?? null).toBe(null);
+      expect(env.DB.state.newsPulseItems[0].visual_thumb_url ?? null).toBe(null);
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems[0].visual_budget_policy_json);
+      expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
+        status: 'failed',
+        reason: 'store_failed',
+      }));
     });
 
     test('scheduled handler still runs News Pulse thumbnail backfill as a fallback', async () => {
@@ -14477,7 +14663,7 @@ test.describe('Worker routes', () => {
         billingMutation: false,
         summary: expect.objectContaining({
           memberGatewayMigrated: 3,
-          adminPlatformImplemented: 4,
+          adminPlatformImplemented: 6,
           baselineGaps: expect.any(Number),
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
@@ -14492,7 +14678,10 @@ test.describe('Worker routes', () => {
         }),
         expect.objectContaining({
           scope: 'openclaw_news_pulse_budget',
-          baselineGapIds: expect.arrayContaining(['openclaw-news-pulse-visual-generation']),
+          operationCount: 2,
+          implementedCount: 2,
+          baselineGapCount: 0,
+          runtimeEnforcementStatus: 'implemented',
         }),
         expect.objectContaining({
           scope: 'internal_ai_worker_caller_enforced',
@@ -14524,14 +14713,26 @@ test.describe('Worker routes', () => {
           runtimeStatus: 'implemented_job_budget_metadata',
           killSwitchTarget: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
         }),
+        expect.objectContaining({
+          operationId: 'platform.news_pulse.visual.ingest',
+          budgetScope: 'openclaw_news_pulse_budget',
+          runtimeStatus: 'implemented_visual_budget_metadata',
+          killSwitchTarget: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+        }),
+        expect.objectContaining({
+          operationId: 'platform.news_pulse.visual.scheduled',
+          budgetScope: 'openclaw_news_pulse_budget',
+          runtimeStatus: 'implemented_visual_budget_metadata',
+          killSwitchTarget: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+        }),
       ]));
       expect(body.baselinedGaps).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: 'openclaw-news-pulse-visual-generation' }),
         expect.objectContaining({ id: 'internal-ai-worker-text-image-embeddings' }),
       ]));
       expect(body.baselinedGaps).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ id: 'admin-ai-video-job-create' }),
         expect.objectContaining({ id: 'admin-ai-video-task-create-poll' }),
+        expect.objectContaining({ id: 'openclaw-news-pulse-visual-generation' }),
       ]));
       const serialized = JSON.stringify(body);
       expect(serialized).not.toContain('raw prompt');

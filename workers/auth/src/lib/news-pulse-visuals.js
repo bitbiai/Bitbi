@@ -1,6 +1,15 @@
 import { logDiagnostic } from "../../../../js/shared/worker-observability.mjs";
+import {
+  ADMIN_PLATFORM_BUDGET_SCOPES,
+  buildAdminPlatformBudgetFingerprint,
+  classifyAdminPlatformBudgetPlan,
+} from "./admin-platform-budget-policy.js";
+import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 
 export const NEWS_PULSE_VISUAL_MODEL_ID = "@cf/black-forest-labs/flux-1-schnell";
+export const NEWS_PULSE_VISUAL_INGEST_OPERATION_ID = "platform.news_pulse.visual.ingest";
+export const NEWS_PULSE_VISUAL_SCHEDULED_OPERATION_ID = "platform.news_pulse.visual.scheduled";
+export const NEWS_PULSE_VISUAL_BUDGET_KILL_SWITCH = "ENABLE_NEWS_PULSE_VISUAL_BUDGET";
 export const NEWS_PULSE_VISUAL_OBJECT_PREFIX = "news-pulse/thumbs/";
 export const NEWS_PULSE_VISUAL_ROUTE_PREFIX = "/api/public/news-pulse/thumbs/";
 export const NEWS_PULSE_VISUAL_MAX_ATTEMPTS = 3;
@@ -14,6 +23,7 @@ const DEFAULT_GENERATED_IMAGE_MIME_TYPE = "image/png";
 const THUMB_MIME_TYPE = "image/webp";
 const MAX_ERROR_LENGTH = 240;
 const MAX_PROMPT_LENGTH = 420;
+const MAX_BUDGET_POLICY_JSON_BYTES = 8 * 1024;
 
 const DISALLOWED_PROMPT_PATTERN = /\b(logo|logos|trademark|brand mark|wordmark|watermark|readable text|letters?|words?|typography|headline|caption|copyrighted|copyright|character|celebrity|portrait|likeness|face|person|people|human|politician|candidate|campaign|election|vote|propaganda|persuasion|sexual|explicit|nude|nudity|porn|gore|disney|marvel|pokemon|nintendo|star wars|mickey|batman|superman)\b/i;
 
@@ -43,6 +53,18 @@ function cleanText(value, maxLength = 240) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+}
+
+function safeIdentifier(value, maxLength = 160) {
+  const text = cleanText(value, maxLength);
+  if (!text || /\b(secret|token|cookie|authorization|bearer|private key|stripe|r2 key)\b/i.test(text)) return null;
+  return text;
 }
 
 function stripBrandTerms(value, source = "") {
@@ -272,6 +294,238 @@ function hasNewsPulseVisualBindings(env) {
   );
 }
 
+function newsPulseBudgetOperation({
+  operationId = NEWS_PULSE_VISUAL_SCHEDULED_OPERATION_ID,
+  trigger = "scheduled",
+  actorType = trigger === "openclaw_ingest" ? "platform" : "background",
+  actorRole = trigger === "openclaw_ingest" ? "openclaw-agent" : "scheduled-job",
+  operationOverride = null,
+} = {}) {
+  const registryEntry = getAiCostOperationRegistryEntry(operationId);
+  const registryConfig = registryEntry?.operationConfig || {};
+  const budgetScope = registryEntry?.budgetPolicy?.targetBudgetScope
+    || ADMIN_PLATFORM_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET;
+  return {
+    operationId,
+    featureKey: registryConfig.featureKey || "platform.news_pulse.visual",
+    actorType,
+    actorRole,
+    budgetScope,
+    ownerDomain: "openclaw-news-pulse",
+    providerFamily: registryConfig.providerFamily || "workers_ai",
+    modelId: NEWS_PULSE_VISUAL_MODEL_ID,
+    modelResolverKey: registryConfig.modelResolverKey || "platform.news_pulse.visual_model",
+    providerCost: true,
+    estimatedCostUnits: 1,
+    estimatedCredits: 0,
+    idempotencyPolicy: registryConfig.idempotencyPolicy || "inherited",
+    killSwitchPolicy: {
+      flagName: NEWS_PULSE_VISUAL_BUDGET_KILL_SWITCH,
+      defaultState: "disabled",
+      requiredForProviderCall: true,
+      disabledBehavior: "skip_provider_call",
+      operatorCanOverride: false,
+      scope: ADMIN_PLATFORM_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
+      notes: "Future runtime kill-switch target only in Phase 4.6; row metadata and visual status guards are the active controls.",
+    },
+    budgetLimitPolicy: {
+      mode: "metadata_only",
+      reservation: "news_pulse_visual_row",
+      runtimeLimitEnforced: false,
+    },
+    routeId: registryConfig.routeId || (trigger === "openclaw_ingest"
+      ? "openclaw.news_pulse.ingest"
+      : "scheduled.news_pulse.visuals"),
+    routePath: registryConfig.routePath || (trigger === "openclaw_ingest"
+      ? "/api/openclaw/news-pulse/ingest"
+      : "/scheduled/news-pulse-visuals"),
+    auditEventPrefix: registryConfig.observabilityEventPrefix || operationId,
+    notes: "Phase 4.6 records openclaw_news_pulse_budget metadata before News Pulse visual provider calls; no credits are debited.",
+    ...(operationOverride || {}),
+  };
+}
+
+function compactNewsPulseVisualBudgetPolicy(plan, fingerprint, {
+  item,
+  now,
+  trigger,
+  actorId = null,
+  runtimeStatus = "metadata_recorded",
+  reason = null,
+} = {}) {
+  return {
+    budget_policy_version: plan.policyVersion,
+    operation_id: plan.operationId || null,
+    actor_class: plan.actorType || null,
+    actor_id: safeIdentifier(actorId, 120),
+    budget_scope: plan.budgetScope || null,
+    owner_domain: plan.ownerDomain || "openclaw-news-pulse",
+    provider_family: plan.providerFamily || "workers_ai",
+    model_id: plan.auditFields?.model_id || NEWS_PULSE_VISUAL_MODEL_ID,
+    model_resolver_key: plan.auditFields?.model_resolver_key || "platform.news_pulse.visual_model",
+    estimated_cost_units: plan.estimatedCostUnits ?? 1,
+    estimated_credits: plan.estimatedCredits ?? 0,
+    idempotency_policy: plan.idempotencyPolicy || "inherited",
+    plan_status: plan.status,
+    required_next_action: plan.requiredNextAction || "block_provider_call",
+    kill_switch_flag_name: plan.killSwitchPolicy?.flagName || NEWS_PULSE_VISUAL_BUDGET_KILL_SWITCH,
+    kill_switch_default_state: plan.killSwitchPolicy?.defaultState || "disabled",
+    kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? true,
+    runtime_budget_limit_enforced: false,
+    runtime_env_kill_switch_enforced: false,
+    credit_debit: false,
+    trigger,
+    visual: {
+      item_id: safeIdentifier(item?.id, 128),
+      locale: safeIdentifier(item?.locale, 16),
+      content_hash: safeIdentifier(item?.content_hash, 160),
+      visual_attempts: Math.max(Number(item?.visual_attempts || 0), 0) + 1,
+    },
+    runtime: {
+      status: runtimeStatus,
+      reason: safeIdentifier(reason, 120),
+      updated_at: now,
+      duplicate_provider_suppression: "visual_status_and_attempt_guard",
+    },
+    fingerprint,
+    audit_fields: plan.auditFields || null,
+    limitations: [
+      "Phase 4.6 records caller-side metadata and validates policy before provider calls.",
+      "Runtime env kill-switch enforcement and live platform budget caps remain future work.",
+    ],
+  };
+}
+
+function withBudgetRuntimeStatus(policy, { status, reason = null, now } = {}) {
+  if (!policy) return null;
+  return {
+    ...policy,
+    runtime: {
+      ...(policy.runtime || {}),
+      status,
+      reason: safeIdentifier(reason, 120),
+      updated_at: now,
+    },
+  };
+}
+
+function serializeBudgetPolicy(policy) {
+  const json = stableStringify(policy);
+  if (new TextEncoder().encode(json).byteLength <= MAX_BUDGET_POLICY_JSON_BYTES) return json;
+  const compact = {
+    ...policy,
+    audit_fields: null,
+    limitations: ["Budget policy metadata was compacted to stay within the row metadata bound."],
+  };
+  const compactJson = stableStringify(compact);
+  if (new TextEncoder().encode(compactJson).byteLength <= MAX_BUDGET_POLICY_JSON_BYTES) return compactJson;
+  return stableStringify({
+    budget_policy_version: policy?.budget_policy_version || null,
+    operation_id: policy?.operation_id || null,
+    budget_scope: policy?.budget_scope || null,
+    plan_status: policy?.plan_status || null,
+    kill_switch_flag_name: policy?.kill_switch_flag_name || null,
+    runtime: policy?.runtime || null,
+    fingerprint: policy?.fingerprint || null,
+    compacted: true,
+  });
+}
+
+async function buildNewsPulseVisualBudgetContext({
+  item,
+  now,
+  correlationId = null,
+  trigger = "scheduled",
+  actorId = null,
+  actorRole = null,
+  operationId = trigger === "openclaw_ingest"
+    ? NEWS_PULSE_VISUAL_INGEST_OPERATION_ID
+    : NEWS_PULSE_VISUAL_SCHEDULED_OPERATION_ID,
+  operationOverride = null,
+} = {}) {
+  const operation = newsPulseBudgetOperation({
+    operationId,
+    trigger,
+    actorType: trigger === "openclaw_ingest" ? "platform" : "background",
+    actorRole: actorRole || (trigger === "openclaw_ingest" ? "openclaw-agent" : "scheduled-job"),
+    operationOverride,
+  });
+  const plan = classifyAdminPlatformBudgetPlan({
+    operation,
+    actorUserId: actorId || null,
+    actorRole: actorRole || operation.actorRole,
+    modelId: NEWS_PULSE_VISUAL_MODEL_ID,
+    reason: `news_pulse_visual_${trigger}`,
+    correlationId,
+  });
+  let fingerprint = null;
+  if (plan.ok) {
+    fingerprint = await buildAdminPlatformBudgetFingerprint({
+      operation,
+      actorId: actorId || null,
+      modelId: NEWS_PULSE_VISUAL_MODEL_ID,
+      routeId: operation.routeId,
+      routePath: operation.routePath,
+      body: {
+        item_id: item?.id || null,
+        locale: item?.locale || null,
+        content_hash: item?.content_hash || null,
+        trigger,
+        visual_attempts: Math.max(Number(item?.visual_attempts || 0), 0) + 1,
+      },
+    });
+  }
+  const planForPolicy = plan.ok ? plan : {
+    ...plan,
+    operationId: operation.operationId,
+    actorType: operation.actorType,
+    budgetScope: operation.budgetScope,
+    ownerDomain: operation.ownerDomain,
+    providerFamily: operation.providerFamily,
+    idempotencyPolicy: operation.idempotencyPolicy,
+    killSwitchPolicy: operation.killSwitchPolicy,
+    estimatedCostUnits: operation.estimatedCostUnits,
+    estimatedCredits: operation.estimatedCredits,
+  };
+  const policy = compactNewsPulseVisualBudgetPolicy(planForPolicy, fingerprint, {
+    item,
+    now,
+    trigger,
+    actorId,
+    runtimeStatus: plan.ok ? "metadata_recorded" : "blocked_by_invalid_policy",
+    reason: plan.ok ? "budget_policy_validated" : plan.error?.code || "budget_policy_invalid",
+  });
+  return { plan, policy };
+}
+
+async function recordNewsPulseVisualBudgetPolicy(env, item, { policy, now }) {
+  const policyJson = serializeBudgetPolicy(policy);
+  await env.DB.prepare(
+    `UPDATE news_pulse_items
+     SET visual_budget_policy_json = ?,
+         visual_budget_policy_status = ?,
+         visual_budget_policy_fingerprint = ?,
+         visual_budget_policy_version = ?,
+         visual_updated_at = ?
+     WHERE id = ?`
+  ).bind(
+    policyJson,
+    policy?.runtime?.status || policy?.plan_status || null,
+    policy?.fingerprint || null,
+    policy?.budget_policy_version || null,
+    now,
+    item.id
+  ).run();
+}
+
+async function recordNewsPulseVisualBudgetPolicyBestEffort(env, item, { policy, now }) {
+  try {
+    await recordNewsPulseVisualBudgetPolicy(env, item, { policy, now });
+  } catch {
+    // Budget metadata is recorded before provider execution; final status updates are best effort.
+  }
+}
+
 async function listNewsPulseVisualCandidates(env, {
   now,
   limit = NEWS_PULSE_VISUAL_BATCH_LIMIT,
@@ -361,7 +615,17 @@ async function markNewsPulseVisualSkipped(env, item, { reason, now }) {
   ).bind(cleanText(reason, MAX_ERROR_LENGTH), now, item.id).run();
 }
 
-async function generateNewsPulseVisualForItem(env, item, { now, correlationId = null } = {}) {
+async function generateNewsPulseVisualForItem(env, item, {
+  now,
+  correlationId = null,
+  trigger = "scheduled",
+  actorId = null,
+  actorRole = null,
+  operationId = trigger === "openclaw_ingest"
+    ? NEWS_PULSE_VISUAL_INGEST_OPERATION_ID
+    : NEWS_PULSE_VISUAL_SCHEDULED_OPERATION_ID,
+  operationOverride = null,
+} = {}) {
   if (!item?.id || !cleanText(item.title, 160) || !isValidSourceUrl(item.url)) {
     await markNewsPulseVisualSkipped(env, item, { reason: "missing_valid_title_or_source_url", now });
     return { status: "skipped", reason: "invalid_item" };
@@ -374,6 +638,61 @@ async function generateNewsPulseVisualForItem(env, item, { now, correlationId = 
   }
 
   const prompt = buildSafeNewsPulseVisualPrompt(item);
+  let budgetPolicy = null;
+  try {
+    const budgetContext = await buildNewsPulseVisualBudgetContext({
+      item,
+      now,
+      correlationId,
+      trigger,
+      actorId,
+      actorRole,
+      operationId,
+      operationOverride,
+    });
+    budgetPolicy = budgetContext.policy;
+    await recordNewsPulseVisualBudgetPolicy(env, item, { policy: budgetPolicy, now });
+    if (!budgetContext.plan.ok) {
+      const blockedPolicy = withBudgetRuntimeStatus(budgetPolicy, {
+        status: "blocked_by_invalid_policy",
+        reason: budgetContext.plan.error?.code || "budget_policy_invalid",
+        now,
+      });
+      await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, { policy: blockedPolicy, now });
+      await markNewsPulseVisualFailed(env, item, {
+        error: new Error("News Pulse visual budget policy failed."),
+        now,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: COMPONENT,
+        event: "news_pulse_visual_budget_policy_blocked",
+        level: "warn",
+        correlationId,
+        item_id: item.id,
+        operation_id: budgetPolicy.operation_id,
+        budget_scope: budgetPolicy.budget_scope,
+        plan_status: budgetPolicy.plan_status,
+      });
+      return { status: "failed", reason: "budget_policy_invalid" };
+    }
+  } catch (error) {
+    await markNewsPulseVisualFailed(env, item, {
+      error: new Error("News Pulse visual budget policy failed."),
+      now,
+    });
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: COMPONENT,
+      event: "news_pulse_visual_budget_policy_record_failed",
+      level: "warn",
+      correlationId,
+      item_id: item.id,
+      error: sanitizeVisualError(error),
+    });
+    return { status: "failed", reason: "budget_policy_record_failed" };
+  }
+
   let thumb;
   try {
     const result = await env.AI.run(NEWS_PULSE_VISUAL_MODEL_ID, { prompt, num_steps: 4 });
@@ -381,6 +700,14 @@ async function generateNewsPulseVisualForItem(env, item, { now, correlationId = 
     if (!generated?.bytes?.byteLength) throw new Error("Image generation returned no bytes.");
     thumb = await renderNewsPulseThumb(env, generated.bytes);
   } catch (error) {
+    await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, {
+      policy: withBudgetRuntimeStatus(budgetPolicy, {
+        status: "failed",
+        reason: "generation_failed",
+        now,
+      }),
+      now,
+    });
     await markNewsPulseVisualFailed(env, item, { error, now });
     logDiagnostic({
       service: "bitbi-auth",
@@ -406,6 +733,14 @@ async function generateNewsPulseVisualForItem(env, item, { now, correlationId = 
       },
     });
   } catch (error) {
+    await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, {
+      policy: withBudgetRuntimeStatus(budgetPolicy, {
+        status: "failed",
+        reason: "store_failed",
+        now,
+      }),
+      now,
+    });
     await markNewsPulseVisualFailed(env, item, { error, now });
     logDiagnostic({
       service: "bitbi-auth",
@@ -432,9 +767,26 @@ async function generateNewsPulseVisualForItem(env, item, { now, correlationId = 
     } catch {
       // Best effort only; a later successful generation overwrites the deterministic key.
     }
+    await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, {
+      policy: withBudgetRuntimeStatus(budgetPolicy, {
+        status: "failed",
+        reason: "ready_record_failed",
+        now,
+      }),
+      now,
+    });
     await markNewsPulseVisualFailed(env, item, { error, now });
     throw error;
   }
+
+  await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, {
+    policy: withBudgetRuntimeStatus(budgetPolicy, {
+      status: "ready",
+      reason: "stored",
+      now,
+    }),
+    now,
+  });
 
   logDiagnostic({
     service: "bitbi-auth",
@@ -447,7 +799,17 @@ async function generateNewsPulseVisualForItem(env, item, { now, correlationId = 
   return { status: "ready", objectKey };
 }
 
-async function processNewsPulseVisualRows(env, rows, { now, correlationId = null } = {}) {
+async function processNewsPulseVisualRows(env, rows, {
+  now,
+  correlationId = null,
+  trigger = "scheduled",
+  actorId = null,
+  actorRole = null,
+  operationId = trigger === "openclaw_ingest"
+    ? NEWS_PULSE_VISUAL_INGEST_OPERATION_ID
+    : NEWS_PULSE_VISUAL_SCHEDULED_OPERATION_ID,
+  operationOverride = null,
+} = {}) {
   let readyCount = 0;
   let failedCount = 0;
   let skippedCount = 0;
@@ -459,7 +821,15 @@ async function processNewsPulseVisualRows(env, rows, { now, correlationId = null
         skippedCount += 1;
         continue;
       }
-      const result = await generateNewsPulseVisualForItem(env, row, { now, correlationId });
+      const result = await generateNewsPulseVisualForItem(env, row, {
+        now,
+        correlationId,
+        trigger,
+        actorId,
+        actorRole,
+        operationId,
+        operationOverride,
+      });
       if (result.status === "ready") readyCount += 1;
       else if (result.status === "failed") failedCount += 1;
       else skippedCount += 1;
@@ -491,6 +861,7 @@ export async function processNewsPulseVisualBackfill({
   now = new Date().toISOString(),
   limit = NEWS_PULSE_VISUAL_BATCH_LIMIT,
   correlationId = null,
+  operationOverride = null,
 } = {}) {
   if (!hasNewsPulseVisualBindings(env)) {
     return {
@@ -520,7 +891,14 @@ export async function processNewsPulseVisualBackfill({
     throw error;
   }
 
-  const processed = await processNewsPulseVisualRows(env, rows, { now, correlationId });
+  const processed = await processNewsPulseVisualRows(env, rows, {
+    now,
+    correlationId,
+    trigger: "scheduled",
+    actorRole: "scheduled-job",
+    operationId: NEWS_PULSE_VISUAL_SCHEDULED_OPERATION_ID,
+    operationOverride,
+  });
 
   return {
     skipped: false,
@@ -537,6 +915,9 @@ export async function processNewsPulseVisualBackfillForItemIds({
   now = new Date().toISOString(),
   limit = NEWS_PULSE_VISUAL_INGEST_BATCH_LIMIT,
   correlationId = null,
+  actorId = null,
+  actorRole = "openclaw-agent",
+  operationOverride = null,
 } = {}) {
   if (!hasNewsPulseVisualBindings(env)) {
     return {
@@ -583,7 +964,15 @@ export async function processNewsPulseVisualBackfillForItemIds({
     throw error;
   }
 
-  const processed = await processNewsPulseVisualRows(env, rows, { now, correlationId });
+  const processed = await processNewsPulseVisualRows(env, rows, {
+    now,
+    correlationId,
+    trigger: "openclaw_ingest",
+    actorId,
+    actorRole,
+    operationId: NEWS_PULSE_VISUAL_INGEST_OPERATION_ID,
+    operationOverride,
+  });
   return {
     skipped: false,
     scannedCount: rows.length,

@@ -4,7 +4,7 @@ Last updated: 2026-05-16
 
 Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
 
-The latest auth D1 migration declared by `config/release-compat.json` is `0049_add_admin_video_job_budget_metadata.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
+The latest auth D1 migration declared by `config/release-compat.json` is `0050_add_news_pulse_visual_budget_metadata.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
 ## Evidence Rule
 
@@ -20,7 +20,7 @@ Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The 
 | --- | --- | --- | --- | --- |
 | Repo baseline: branch, commit, worktree, release latest migration | Repo maintainer | Local repo | None | No secrets involved. |
 | Local release checks | Repo maintainer | Local repo / CI | None | Commands must not print secrets. |
-| Auth D1 migration status through `0049_add_admin_video_job_budget_metadata.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
+| Auth D1 migration status through `0050_add_news_pulse_visual_budget_metadata.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
 | Auth Worker bindings: D1, R2, Queues, Durable Object, AI, Images, service bindings | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names and present/missing only. |
 | AI Worker bindings and Durable Object migration | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding/migration names and present/missing only. |
 | Contact Worker Durable Object binding | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names only. |
@@ -111,7 +111,7 @@ npm run readiness:evidence
 npm run readiness:evidence -- --markdown
 ```
 
-Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0049_add_admin_video_job_budget_metadata.sql` before deploying current auth Worker code or running API smoke checks.
+Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0050_add_news_pulse_visual_budget_metadata.sql` before deploying current auth Worker code or running API smoke checks.
 
 Staging read-only evidence example with explicit URLs:
 
@@ -173,7 +173,7 @@ Local main-release gate:
 npm run check:main-release-readiness
 ```
 
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0049_add_admin_video_job_budget_metadata.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0049` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0050_add_news_pulse_visual_budget_metadata.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0050` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
 
 For local planning evidence only:
 
@@ -203,13 +203,13 @@ Phase 3.4 adds the member personal image gateway pilot and additive auth migrati
 
 The mandatory operator order is migration `0048` first, then auth Worker deploy from the reviewed commit. Do not deploy auth Worker code that depends on `member_ai_usage_attempts` before remote migration `0048` is applied and verified. Use `PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` to record member personal image smoke evidence, including missing/malformed idempotency rejection, same-key duplicate behavior, conflict behavior, and no-charge failure evidence when safely testable.
 
-This evidence does not prove that admin video jobs, admin AI, platform/background AI, internal AI Worker routes, OpenClaw/News Pulse visuals, or all provider-result replay paths are migrated. Production readiness and live billing readiness remain `BLOCKED`.
+This evidence does not prove later admin video job controls, OpenClaw/News Pulse visual controls, broad admin AI, platform/background AI outside News Pulse visuals, internal AI Worker routes, or all provider-result replay paths are migrated. Production readiness and live billing readiness remain `BLOCKED`.
 
 ## Live/Staging Credential Checks
 
 These are not run automatically by this framework:
 
-- Remote D1 migration status in staging/production through `0049_add_admin_video_job_budget_metadata.sql`.
+- Remote D1 migration status in staging/production through `0050_add_news_pulse_visual_budget_metadata.sql`.
 - Cloudflare Worker binding/resource presence in staging/production.
 - Cloudflare secret presence in staging/production.
 - Live health/security-header checks against staging/production URLs.
@@ -281,7 +281,7 @@ Unacceptable evidence includes:
 Until filled evidence proves otherwise, these remain unproven:
 
 - Production Cloudflare resource, binding, secret, route, WAF, header, RUM, and alert state.
-- Remote D1 migration status through `0049_add_admin_video_job_budget_metadata.sql`.
+- Remote D1 migration status through `0050_add_news_pulse_visual_budget_metadata.sql`.
 - Stripe Testmode checkout/webhook behavior in staging.
 - Live credit-pack canary behavior.
 - BITBI Pro subscription lifecycle behavior.

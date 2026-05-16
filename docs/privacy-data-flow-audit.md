@@ -2,7 +2,7 @@
 
 Audit date: 2026-05-03
 
-Last reconciled: 2026-05-15
+Last reconciled: 2026-05-16
 
 Scope: repository-level audit for the public privacy policy and German
 Datenschutzerklaerung. This report is an engineering/privacy inventory, not
@@ -11,7 +11,7 @@ German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1
-migration as `0049_add_admin_video_job_budget_metadata.sql`. This audit
+migration as `0050_add_news_pulse_visual_budget_metadata.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
@@ -37,12 +37,17 @@ in the admin response, `usage_events`, and `ai_usage_attempts` metadata. Phase
 4.4 adds read-only Admin/Platform AI budget evidence reporting. Phase 4.5 uses
 the helper only for admin async video jobs, adding sanitized
 `platform_admin_lab_budget` job metadata and bounded queue budget summaries
-before internal video task create/poll. These phases do not call providers in
-tests, change public billing, add Admin UI, migrate broad admin/platform/
-OpenClaw AI routes, globally enforce internal AI Worker routes, or make
-admin/platform/internal/OpenClaw AI cost flows production-ready. Phase 4.3 and
-Phase 4.5 metadata must not include raw prompts, provider request bodies, auth
-headers, cookies, Stripe data, Cloudflare tokens, private R2 keys, or secrets.
+before internal video task create/poll. Phase 4.6 uses the helper only for
+OpenClaw/News Pulse visual generation, adding sanitized
+`openclaw_news_pulse_budget` visual metadata before generated-thumbnail provider
+calls and preserving status/attempt duplicate suppression. These phases do not
+call real providers in tests, change public billing, add Admin UI, migrate broad
+admin/platform routes, migrate Admin video beyond Phase 4.5, globally enforce
+internal AI Worker routes, or make admin/platform/internal AI cost flows
+production-ready. Phase 4.3, Phase 4.5, and Phase 4.6 metadata must not include
+raw prompts, raw provider request bodies, auth headers, cookies, Stripe data,
+Cloudflare tokens, private R2 keys, secrets, or sensitive raw article/source
+payloads beyond already public-safe text.
 
 The existing public privacy pages were materially stale. They described a
 lighter site, made broad third-party/no-sharing statements that are no longer

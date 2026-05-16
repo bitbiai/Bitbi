@@ -4,10 +4,10 @@
 
 BITBI is a static vanilla HTML/CSS/ES module site backed by Cloudflare Workers. It started as a creative portfolio and now includes authenticated account flows, generated media storage, member credits, organization and billing foundations, guarded Stripe checkout/webhook flows, admin operations tooling, and AI generation surfaces.
 
-This repository is not a production-deploy approval, full SaaS maturity claim, full tenant-isolation claim, legal compliance certification, or live billing readiness claim. The release contract in `config/release-compat.json` is the current deploy/schema source of truth. As of the Phase 4.5 admin async video job budget enforcement update on 2026-05-16, the latest auth D1 migration is:
+This repository is not a production-deploy approval, full SaaS maturity claim, full tenant-isolation claim, legal compliance certification, or live billing readiness claim. The release contract in `config/release-compat.json` is the current deploy/schema source of truth. As of the Phase 4.6 OpenClaw/News Pulse visual budget controls update on 2026-05-16, the latest auth D1 migration is:
 
 ```text
-0049_add_admin_video_job_budget_metadata.sql
+0050_add_news_pulse_visual_budget_metadata.sql
 ```
 
 Production remains blocked until staging/live migrations, Worker secrets, bindings, Cloudflare resources, Stripe webhooks, health checks, security headers, and operational evidence are verified without exposing secret values.

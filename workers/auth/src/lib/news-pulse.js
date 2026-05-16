@@ -675,6 +675,22 @@ async function storeNewsPulseItem(env, item) {
          WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN excluded.updated_at
          ELSE news_pulse_items.visual_updated_at
        END,
+       visual_budget_policy_json = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_budget_policy_json
+       END,
+       visual_budget_policy_status = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_budget_policy_status
+       END,
+       visual_budget_policy_fingerprint = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_budget_policy_fingerprint
+       END,
+       visual_budget_policy_version = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_budget_policy_version
+       END,
        status = 'active',
        source_key = excluded.source_key,
        content_hash = excluded.content_hash,

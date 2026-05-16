@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { scanDocCurrentness } from "./lib/doc-currentness.mjs";
 
-const latest = "0049_add_admin_video_job_budget_metadata.sql";
+const latest = "0050_add_news_pulse_visual_budget_metadata.sql";
 
 function makeRepo() {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-doc-currentness-"));

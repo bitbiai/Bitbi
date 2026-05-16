@@ -82,7 +82,7 @@ function operation(overrides = {}) {
     modelResolverKey: "platform.news_pulse.visual_model",
     idempotencyPolicy: "inherited",
     killSwitchPolicy: killSwitch(ADMIN_PLATFORM_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET, {
-      flagName: "ENABLE_OPENCLAW_NEWS_PULSE_AI_BUDGET",
+      flagName: "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
       disabledBehavior: "skip_provider_call",
     }),
   }));

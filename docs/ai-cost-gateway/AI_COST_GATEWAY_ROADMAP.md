@@ -1,6 +1,6 @@
 # AI Cost Gateway Roadmap
 
-Date: 2026-05-15
+Date: 2026-05-16
 
 Status: phased implementation plan only. Production/live billing remains BLOCKED.
 
@@ -668,10 +668,12 @@ Non-goals:
 
 ## Phase 4.6: OpenClaw/News Pulse Visual Budget Controls
 
+Status: completed for OpenClaw/News Pulse visual generation only. No broad Admin AI migration, Admin video change beyond Phase 4.5 compatibility, platform/background AI global migration, internal AI Worker global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, public billing change, or live billing readiness claim occurred.
+
 Scope:
 
-- Add `openclaw_news_pulse_budget` controls around ingest-triggered and scheduled visual generation.
-- Use deterministic item/job budget keys, batch/window caps, attempt caps, and a visual-generation kill switch.
+- Add `openclaw_news_pulse_budget` metadata/status controls around ingest-triggered and scheduled visual generation.
+- Use deterministic item/content budget fingerprints, status/attempt duplicate suppression, and future visual-generation kill-switch metadata.
 - Preserve current public News Pulse read behavior and existing visual status rows.
 
 Likely files:
@@ -680,15 +682,18 @@ Likely files:
 - `workers/auth/src/routes/openclaw-news-pulse.js`
 - `workers/auth/src/index.js` scheduled handler
 - `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/migrations/0050_add_news_pulse_visual_budget_metadata.sql`
 - route-policy/check docs and Worker tests
 
 Tests:
 
-- cap/kill-switch blocks provider before execution
+- invalid budget policy blocks provider before execution
 - item-level status suppresses duplicate visual work
-- scheduled batch respects budget window
+- scheduled batch records budget metadata and remains bounded
 - ready thumbnail prevents regeneration
 - failed rows retry only within attempt/budget caps
+- provider/storage failures do not mark visuals ready
+- metadata is sanitized and omits raw prompts, provider request bodies, auth headers, cookies, Stripe data, Cloudflare tokens, private R2 keys, and secrets
 - no member/org/admin credit mutation
 
 Rollback:
@@ -697,15 +702,15 @@ Rollback:
 
 Deploy units:
 
-- Auth Worker.
+- Auth Worker plus auth D1 schema checkpoint `0050`. AI Worker/contact Worker/static deploy are not expected from Phase 4.6 runtime scope.
 
 Migration risk:
 
-- Possible additive budget/status metadata only if existing News Pulse visual columns are insufficient.
+- Additive migration `0050_add_news_pulse_visual_budget_metadata.sql` adds nullable `news_pulse_items` visual budget metadata columns. Do not apply remotely until an operator runs the release plan.
 
 Non-goals:
 
-- No public News Pulse UI redesign, no member billing, no OpenClaw ingest auth changes.
+- No public News Pulse UI redesign, no member billing, no OpenClaw ingest auth changes, no runtime env kill-switch enforcement, no live platform budget caps, no broad platform/background migration.
 
 ## Phase 4.7: Internal AI Worker Caller-Policy Guard
 

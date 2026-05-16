@@ -8010,6 +8010,18 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query === "UPDATE news_pulse_items SET visual_budget_policy_json = ?, visual_budget_policy_status = ?, visual_budget_policy_fingerprint = ?, visual_budget_policy_version = ?, visual_updated_at = ? WHERE id = ?") {
+      const [policyJson, policyStatus, fingerprint, policyVersion, updatedAt, id] = bindings;
+      const row = this.state.newsPulseItems.find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.visual_budget_policy_json = policyJson;
+      row.visual_budget_policy_status = policyStatus;
+      row.visual_budget_policy_fingerprint = fingerprint;
+      row.visual_budget_policy_version = policyVersion;
+      row.visual_updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === "UPDATE news_pulse_items SET visual_type = 'generated', visual_url = ?, visual_prompt = ?, visual_status = 'ready', visual_object_key = ?, visual_thumb_url = ?, visual_generated_at = ?, visual_error = NULL, visual_updated_at = ? WHERE id = ? AND visual_status = 'pending'") {
       const [visualUrl, visualPrompt, objectKey, thumbUrl, generatedAt, updatedAt, id] = bindings;
       const row = this.state.newsPulseItems.find((item) => item.id === id && item.visual_status === 'pending');
@@ -8106,6 +8118,10 @@ class MockD1 {
         visual_error: hasVisualColumns && contentChanged ? null : existing?.visual_error ?? null,
         visual_attempts: hasVisualColumns && contentChanged ? 0 : Number(existing?.visual_attempts || 0),
         visual_updated_at: hasVisualColumns && contentChanged ? visualUpdatedAt : existing?.visual_updated_at ?? visualUpdatedAt ?? null,
+        visual_budget_policy_json: hasVisualColumns && contentChanged ? null : existing?.visual_budget_policy_json ?? null,
+        visual_budget_policy_status: hasVisualColumns && contentChanged ? null : existing?.visual_budget_policy_status ?? null,
+        visual_budget_policy_fingerprint: hasVisualColumns && contentChanged ? null : existing?.visual_budget_policy_fingerprint ?? null,
+        visual_budget_policy_version: hasVisualColumns && contentChanged ? null : existing?.visual_budget_policy_version ?? null,
         status: 'active',
         source_key: sourceKey,
         content_hash: contentHash,

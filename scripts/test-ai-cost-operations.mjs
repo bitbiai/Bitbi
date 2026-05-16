@@ -175,6 +175,18 @@ assert.equal(
   AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET
 );
 assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "platform.news_pulse.visual.ingest").currentStatus,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "platform.news_pulse.visual.ingest").budgetPolicy.targetEnforcementStatus,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "platform.news_pulse.visual.ingest").budgetPolicy.killSwitchTarget,
+  "ENABLE_NEWS_PULSE_VISUAL_BUDGET"
+);
+assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "internal.text.generate").budgetPolicy.targetBudgetScope,
   AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED
 );

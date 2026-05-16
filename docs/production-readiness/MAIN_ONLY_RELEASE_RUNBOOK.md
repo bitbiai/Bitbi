@@ -8,7 +8,7 @@ Status: **operator-run release discipline only**. This runbook does not deploy, 
 
 The project owner deploys directly from `main` and does not use a separate staging environment. That is riskier than a staging-first release model because the first deployed environment is live. Direct-main deployment is allowed only with strict preflight, clean-commit discipline, migration evidence, live smoke evidence, and rollback readiness.
 
-Production readiness remains **BLOCKED** unless all evidence gates are satisfied and reviewed by a human operator. Live billing readiness remains **BLOCKED**. Phase 2.1-2.4 billing lifecycle review/reconciliation work is review/reporting infrastructure only; it does not automate refunds, disputes, chargebacks, credit clawbacks, reconciliation, subscription cancellation, or Stripe remediation. Phase 3.4 adds only the member personal image AI Cost Gateway pilot plus additive auth migration `0048_add_member_ai_usage_attempts.sql`. Phase 4.5 adds only admin async video job budget metadata/enforcement plus additive auth migration `0049_add_admin_video_job_budget_metadata.sql`; it does not migrate broad Admin AI, OpenClaw/News Pulse, platform/background AI, global internal AI Worker routes, pricing, Stripe, or public billing.
+Production readiness remains **BLOCKED** unless all evidence gates are satisfied and reviewed by a human operator. Live billing readiness remains **BLOCKED**. Phase 2.1-2.4 billing lifecycle review/reconciliation work is review/reporting infrastructure only; it does not automate refunds, disputes, chargebacks, credit clawbacks, reconciliation, subscription cancellation, or Stripe remediation. Phase 3.4 adds only the member personal image AI Cost Gateway pilot plus additive auth migration `0048_add_member_ai_usage_attempts.sql`. Phase 4.5 adds only admin async video job budget metadata/enforcement plus additive auth migration `0049_add_admin_video_job_budget_metadata.sql`. Phase 4.6 adds only OpenClaw/News Pulse visual budget metadata/status controls plus additive auth migration `0050_add_news_pulse_visual_budget_metadata.sql`; it does not migrate broad Admin AI, Admin music/text/compare/live-agent, Admin video beyond Phase 4.5, platform/background AI globally, global internal AI Worker routes, pricing, Stripe, or public billing.
 
 ## Scope
 
@@ -20,6 +20,7 @@ This runbook covers direct-main release evidence for:
 - Phase 2.4 read-only local Billing Reconciliation API and UI.
 - Phase 3.4 member personal image AI Cost Gateway pilot.
 - Phase 4.5 admin async video job budget metadata/enforcement.
+- Phase 4.6 OpenClaw/News Pulse visual budget metadata/status controls.
 
 For the Phase 2.1-2.4 runtime changes to be visible live, the expected deploy units are:
 
@@ -40,10 +41,17 @@ For Phase 4.5 admin async video job budget metadata to be visible live, the expe
 
 Static/pages, AI Worker, and contact Worker are not expected for Phase 4.5 unless `npm run release:plan` reports other reviewed changes.
 
-Phase 2.1-2.5 added no new D1 migration, Phase 3.4 added `0048_add_member_ai_usage_attempts.sql`, and Phase 4.5 added the additive auth D1 migration:
+For Phase 4.6 OpenClaw/News Pulse visual budget metadata/status controls to be visible live, the expected deploy units are:
+
+1. auth schema checkpoint `0050_add_news_pulse_visual_budget_metadata.sql`
+2. auth Worker
+
+Static/pages, AI Worker, and contact Worker are not expected for Phase 4.6 unless `npm run release:plan` reports other reviewed changes.
+
+Phase 2.1-2.5 added no new D1 migration, Phase 3.4 added `0048_add_member_ai_usage_attempts.sql`, Phase 4.5 added `0049_add_admin_video_job_budget_metadata.sql`, and Phase 4.6 added the additive auth D1 migration:
 
 ```text
-0049_add_admin_video_job_budget_metadata.sql
+0050_add_news_pulse_visual_budget_metadata.sql
 ```
 
 ## Non-Negotiable Safety Rules
@@ -59,7 +67,7 @@ Phase 2.1-2.5 added no new D1 migration, Phase 3.4 added `0048_add_member_ai_usa
 
 1. Verify clean commit/worktree.
 2. Run local preflight.
-3. Apply and verify production D1 migration status through `0049_add_admin_video_job_budget_metadata.sql` when the reviewed release plan includes auth schema checkpoint `0049`.
+3. Apply and verify production D1 migration status through `0050_add_news_pulse_visual_budget_metadata.sql` when the reviewed release plan includes auth schema checkpoint `0050`.
 4. Deploy auth Worker by the approved operator process.
 5. Deploy static/pages by the approved operator process only when the reviewed release plan requires it.
 6. Run the live readiness evidence collector against explicit live URLs.
@@ -103,9 +111,9 @@ Record pass/fail output with branch, commit, operator, and date. Do not paste se
 
 ## 3. Verify Production D1 Migration Status
 
-The production auth D1 database must be verified through `0049_add_admin_video_job_budget_metadata.sql` before deploying Phase 4.5 auth Worker code and before live smoke checks. Record migration names/status only.
+The production auth D1 database must be verified through `0050_add_news_pulse_visual_budget_metadata.sql` before deploying current Phase 4.6 auth Worker code and before live smoke checks. Record migration names/status only.
 
-This runbook does not provide or authorize a remote migration command. If production is not verified through `0049`, stop and record final verdict `BLOCKED`.
+This runbook does not provide or authorize a remote migration command. If production is not verified through `0050`, stop and record final verdict `BLOCKED`.
 
 ## 4. Deploy Auth Worker
 

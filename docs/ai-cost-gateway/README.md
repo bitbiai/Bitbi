@@ -2,7 +2,7 @@
 
 Date: 2026-05-16
 
-Status: Phase 4.5 admin async video job budget enforcement. Phase 3.1 added design and inventory. Phase 3.2 added the member AI Cost Gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the policy check. Phase 3.4 uses that foundation for member personal image generation. Phase 3.5/3.6 migrated member music, Phase 3.7 hardened migrated member image/music replay/finalization/cleanup, Phase 3.8 migrated member video, and Phase 3.9 added the known-gap baseline guard. Phase 4.1 added the budget policy design and taxonomy. Phase 4.2 added `workers/auth/src/lib/admin-platform-budget-policy.js`. Phase 4.3 hardened only the existing charged Admin BFL image-test branch with safe `admin_org_credit_account` metadata. Phase 4.4 added read-only evidence reporting. Phase 4.5 covers only admin async video jobs with sanitized `platform_admin_lab_budget` job/queue metadata and queue consumer budget-state checks. It does not migrate admin text/music/compare/live-agent, sync video debug, OpenClaw/News Pulse, platform/background AI, internal AI Worker routes globally, org-scoped/member routes, Stripe/providers, deployments, live billing, public pricing, or credit debit behavior.
+Status: Phase 4.6 OpenClaw/News Pulse visual generation budget controls. Phase 3.1 added design and inventory. Phase 3.2 added the member AI Cost Gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the policy check. Phase 3.4 uses that foundation for member personal image generation. Phase 3.5/3.6 migrated member music, Phase 3.7 hardened migrated member image/music replay/finalization/cleanup, Phase 3.8 migrated member video, and Phase 3.9 added the known-gap baseline guard. Phase 4.1 added the budget policy design and taxonomy. Phase 4.2 added `workers/auth/src/lib/admin-platform-budget-policy.js`. Phase 4.3 hardened only the existing charged Admin BFL image-test branch with safe `admin_org_credit_account` metadata. Phase 4.4 added read-only evidence reporting. Phase 4.5 covers only admin async video jobs with sanitized `platform_admin_lab_budget` job/queue metadata and queue consumer budget-state checks. Phase 4.6 covers only OpenClaw/News Pulse visual generation with sanitized `openclaw_news_pulse_budget` visual metadata, invalid-policy provider blocking, and existing status/attempt duplicate suppression. It does not migrate admin text/music/compare/live-agent, sync video debug, Admin video beyond the Phase 4.5 path, platform/background AI outside News Pulse visuals, internal AI Worker routes globally, org-scoped/member routes, Stripe/providers, deployments, live billing, public pricing, or credit debit behavior.
 
 Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 
@@ -34,13 +34,14 @@ The current code already has important foundations:
 - Member music generation now requires `Idempotency-Key`, reserves one parent `member_ai_usage_attempts` row before lyrics/audio/cover provider-cost work, suppresses same-key duplicate provider execution, debits exactly once after audio persistence, returns safe replay metadata for duplicate completed requests, records pending/succeeded/failed/skipped cover status, and releases/no-charges on lyrics/audio provider failure.
 - Member video generation now requires `Idempotency-Key`, reserves one parent `member_ai_usage_attempts` row before PixVerse/HappyHorse provider work, suppresses same-key duplicate provider execution, debits exactly once after durable video asset persistence, returns safe durable-asset replay metadata when available, and returns replay-unavailable without provider re-execution or double debit when the saved result is missing.
 - Admin AI Lab text/music/video/compare/live-agent routes are admin-only but generally uncharged and do not use a shared cost lifecycle.
-- News Pulse visual generation and generated music cover creation can call AI providers outside the member billing lifecycle.
-- `config/ai-cost-policy-baseline.json` explicitly lists the remaining accepted-for-now admin, platform/background, OpenClaw, and internal AI Worker provider-cost gaps. New provider-cost source files, unregistered operations, duplicate registry/baseline ids, and member image/music/video regressions now fail the local policy check by default.
+- News Pulse visual generation now records Phase 4.6 `openclaw_news_pulse_budget` metadata and blocks invalid budget policy before provider execution, while generated music cover creation remains inside the member music bundle.
+- `config/ai-cost-policy-baseline.json` explicitly lists the remaining accepted-for-now admin, platform/background outside News Pulse visuals, and internal AI Worker provider-cost gaps. New provider-cost source files, unregistered operations, duplicate registry/baseline ids, and member image/music/video regressions now fail the local policy check by default.
 - Phase 4.1 defines budget scopes for admin/org-charged admin tests, platform admin lab budget, platform background budget, OpenClaw/News Pulse budget, internal caller-enforced AI Worker routes, explicit unmetered admin exceptions, and external-provider-only cases.
 - Phase 4.2 adds pure helper contracts for those scopes: budget operation normalization, deterministic fingerprinting, safe audit field construction, kill-switch metadata validation, and plan classification.
 - Phase 4.3 uses that helper only for the existing charged Admin image-test branch and records safe budget metadata in the admin response, usage event metadata, and admin AI usage attempt metadata. It does not enforce a new runtime env kill switch; the recorded kill-switch field is a future target.
 - Phase 4.4 adds read-only Admin/Platform AI budget evidence reporting. The local script and admin-only endpoint summarize covered, baselined, unmetered, caller-enforced, and missing-runtime-enforcement flows from registry, baseline, route-policy, and Phase 4.3 metadata. The verdict remains blocked while baselined gaps remain.
 - Phase 4.5 covers only admin async video jobs. Job creation builds a Phase 4.2 budget plan before queueing, stores sanitized budget metadata in `ai_video_jobs`, includes a bounded queue summary, verifies job budget state before internal video task create/poll calls, suppresses duplicate same-key queueing, and fails closed rather than creating a second provider task after an unresolved create attempt. The kill-switch target is `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` metadata only; runtime env enforcement and live platform budget caps remain future work.
+- Phase 4.6 covers only OpenClaw/News Pulse visual generation. Visual backfill builds a Phase 4.2 budget plan before `env.AI.run`, stores sanitized visual budget metadata in `news_pulse_items`, blocks invalid policy before provider execution, preserves ready/pending/status/attempt duplicate suppression, and records future kill-switch target `ENABLE_NEWS_PULSE_VISUAL_BUDGET` as metadata only. Runtime env enforcement and live platform budget caps remain future work.
 
 Phase 3.2 adds:
 
@@ -180,7 +181,7 @@ Phase 4.4 adds:
 - `scripts/test-admin-platform-budget-evidence.mjs`
 - `npm run test:admin-platform-budget-evidence`
 
-It is read-only evidence/reporting only. It reports member image/music/video as gateway-migrated, reports charged Admin BFL image-test as implemented/hardened, and after Phase 4.5 reports admin async video jobs as `platform_admin_lab_budget` metadata-covered. Broad Admin AI, OpenClaw/News Pulse, platform/background AI, and internal AI Worker routes beyond the admin video caller path remain baselined gaps. The report itself does not call real providers, call Stripe, mutate billing/credits/D1/R2, deploy, enable live billing, change member/org route behavior, change credit debit behavior, add public billing changes, add Admin UI, or prove production/live billing readiness.
+It is read-only evidence/reporting only. It reports member image/music/video as gateway-migrated, reports charged Admin BFL image-test as implemented/hardened, after Phase 4.5 reports admin async video jobs as `platform_admin_lab_budget` metadata-covered, and after Phase 4.6 reports OpenClaw/News Pulse visuals as `openclaw_news_pulse_budget` metadata-covered. Broad Admin AI, platform/background AI outside News Pulse visuals, and internal AI Worker routes beyond the admin video caller path remain baselined gaps. The report itself does not call real providers, call Stripe, mutate billing/credits/D1/R2, deploy, enable live billing, change member/org route behavior, change credit debit behavior, add public billing changes, add Admin UI, or prove production/live billing readiness.
 
 Phase 4.5 adds:
 
@@ -193,14 +194,25 @@ Phase 4.5 adds:
 
 It changes only admin async video job behavior. It does not call real providers in tests, call Stripe, deploy, run remote migrations, enable live billing, change public pricing, mutate credits, add Admin UI, migrate broad Admin AI, migrate OpenClaw/News Pulse, migrate platform/background AI, migrate internal AI Worker routes globally, or change member/org route behavior.
 
+Phase 4.6 adds:
+
+- `workers/auth/migrations/0050_add_news_pulse_visual_budget_metadata.sql`
+- sanitized OpenClaw/News Pulse visual budget metadata in `workers/auth/src/lib/news-pulse-visuals.js`
+- caller-side budget plan validation before generated thumbnail provider execution
+- registry/baseline updates that remove the specific OpenClaw/News Pulse visual gap while leaving broad Admin AI, Admin music/text/compare/live-agent, platform/background outside News Pulse visuals, and internal global gaps blocked
+- evidence report updates that mark News Pulse visual operations as implemented for metadata/status controls
+- focused Worker tests for invalid budget policy blocking, ready/pending duplicate suppression, provider/storage failures, sanitized metadata, OpenClaw ingest compatibility, public read fallback, and no credit mutation
+
+It changes only OpenClaw/News Pulse generated visual behavior. It does not call real providers in tests, call Stripe, deploy, run remote migrations, enable live billing, change public pricing, mutate credits, add Admin UI, migrate broad Admin AI, migrate Admin video beyond Phase 4.5, migrate platform/background AI globally, migrate internal AI Worker routes globally, or change member/org route behavior.
+
 ## Current Non-Goals
 
-Current Phase 4.5 non-goals:
+Current Phase 4.6 non-goals:
 
 - migrate broad admin AI routes beyond the already charged Admin image-test branch
 - migrate admin music/text/compare/live-agent or sync video debug
-- migrate platform/background AI routes
-- migrate OpenClaw/News Pulse
+- migrate admin video beyond the Phase 4.5 job-budget path
+- migrate platform/background AI routes outside News Pulse visuals
 - migrate internal AI Worker routes directly or globally
 - change org-scoped image/text behavior
 - change member image/music/video behavior

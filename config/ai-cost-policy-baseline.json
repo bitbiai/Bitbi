@@ -143,26 +143,6 @@
       "allowedUnmigratedForNow": true
     },
     {
-      "id": "openclaw-news-pulse-visual-generation",
-      "route": "/api/openclaw/news-pulse/ingest",
-      "routePolicyIds": ["openclaw.news_pulse.ingest"],
-      "files": ["workers/auth/src/lib/news-pulse-visuals.js"],
-      "functions": ["generateNewsPulseVisual"],
-      "category": "background",
-      "reason": "OpenClaw/News Pulse visual generation spends platform AI budget outside member/org billing and needs explicit budget policy.",
-      "temporaryAllowanceReason": "News Pulse visuals are bounded by existing status/attempt rows but lack explicit budget caps until Phase 4.6.",
-      "targetBudgetScope": "openclaw_news_pulse_budget",
-      "targetFuturePhase": "Phase 4.6 OpenClaw/News Pulse visual budget controls",
-      "severity": "P2",
-      "ownerDomain": "openclaw-news-pulse",
-      "killSwitchTarget": "ENABLE_OPENCLAW_NEWS_PULSE_AI_BUDGET",
-      "futureEnforcementPath": "Phase 4.6 should add OpenClaw/News Pulse visual budget caps and a provider-call kill switch around existing visual status rows.",
-      "providerCostBearing": true,
-      "registryOperationIds": ["platform.news_pulse.visual.ingest", "platform.news_pulse.visual.scheduled"],
-      "coveredByRegistryMetadata": true,
-      "allowedUnmigratedForNow": true
-    },
-    {
       "id": "internal-ai-worker-text-image-embeddings",
       "route": "/internal/ai/*",
       "files": ["workers/ai/src/routes/text.js", "workers/ai/src/routes/image.js", "workers/ai/src/routes/embeddings.js"],

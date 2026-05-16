@@ -26,6 +26,10 @@ const MEMBER_GATEWAY_OPERATION_IDS = Object.freeze([
 ]);
 const HARDENED_ADMIN_OPERATION_ID = "admin.image.test.charged";
 const ADMIN_VIDEO_JOB_OPERATION_ID = "admin.video.job.create";
+const NEWS_PULSE_VISUAL_OPERATION_IDS = Object.freeze([
+  "platform.news_pulse.visual.ingest",
+  "platform.news_pulse.visual.scheduled",
+]);
 
 const DEFAULT_LIMITS = Object.freeze({
   maxBudgetScopeOperationIds: 40,
@@ -290,6 +294,50 @@ function implementedAdminVideoJobEvidence(entry, routeIndex) {
   };
 }
 
+function implementedNewsPulseVisualEvidence(entry, routeIndex) {
+  const base = basicOperationEvidence(entry, routeIndex);
+  const operation = operationId(entry);
+  return {
+    ...base,
+    type: "implemented_platform_budget_operation",
+    runtimeStatus: "implemented_visual_budget_metadata",
+    budgetScope: AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
+    idempotencyTarget: "deterministic OpenClaw item id/content hash with visual status and attempt guards",
+    killSwitchTarget: "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
+    modelClass: "Workers AI Flux News Pulse generated thumbnail",
+    metadataFieldsExpected: [
+      "visual_budget_policy_json",
+      "visual_budget_policy_status",
+      "visual_budget_policy_fingerprint",
+      "visual_budget_policy_version",
+      "budget_policy_version",
+      "operation_id",
+      "budget_scope",
+      "owner_domain",
+      "provider_family",
+      "model_id",
+      "idempotency_policy",
+      "plan_status",
+      "kill_switch_flag_name",
+      "fingerprint",
+      "runtime",
+    ],
+    duplicateProviderSuppression: [
+      "ready visual rows are skipped",
+      "pending visual rows are skipped",
+      "failed rows are retried only below the bounded attempt limit",
+      "same deterministic item/content hash preserves ready visuals on duplicate ingest",
+    ],
+    remainingLimitations: [
+      "Runtime env kill-switch enforcement is metadata only in Phase 4.6.",
+      "Live daily/monthly platform budget caps remain future work.",
+      operation === "platform.news_pulse.visual.ingest"
+        ? "Signed OpenClaw ingest remains separate from public read routes."
+        : "Scheduled visual backfill remains bounded by batch size and row attempts.",
+    ],
+  };
+}
+
 function memberGatewayEvidence(entry, routeIndex) {
   return {
     ...basicOperationEvidence(entry, routeIndex),
@@ -422,6 +470,9 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       if (operationId(entry) === ADMIN_VIDEO_JOB_OPERATION_ID) {
         return implementedAdminVideoJobEvidence(entry, routeIndex);
       }
+      if (NEWS_PULSE_VISUAL_OPERATION_IDS.includes(operationId(entry))) {
+        return implementedNewsPulseVisualEvidence(entry, routeIndex);
+      }
       return basicOperationEvidence(entry, routeIndex);
     }),
   ].sort((left, right) => left.operationId.localeCompare(right.operationId));
@@ -479,11 +530,11 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     ),
     warnings,
     notes: [
-      "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement outside this report.",
+      "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement and Phase 4.6 adds OpenClaw/News Pulse visual budget metadata/control evidence.",
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
-      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata.",
-      "Broad Admin AI, OpenClaw/News Pulse visuals, platform/background AI, and internal AI Worker routes beyond the admin video job caller path remain baselined gaps.",
+      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata; News Pulse visuals use openclaw_news_pulse_budget metadata.",
+      "Broad Admin AI, Admin music/text/compare/live-agent, platform/background AI outside News Pulse visuals, and internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,

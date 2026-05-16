@@ -74,23 +74,34 @@ For the Phase 4.5 admin async video job budget metadata/enforcement change:
 | Stripe dashboard/API change | no |  |
 | Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
 
+For the Phase 4.6 OpenClaw/News Pulse visual budget metadata/status controls:
+
+| Deploy Unit | Required? | Evidence |
+| --- | --- | --- |
+| Auth schema checkpoint `0050_add_news_pulse_visual_budget_metadata.sql` | yes |  |
+| Auth Worker | yes |  |
+| Static/pages | no, unless `release:plan` reports other reviewed static changes |  |
+| AI Worker/contact Worker | no |  |
+| Stripe dashboard/API change | no |  |
+| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
+
 If `npm run release:plan` for the reviewed runtime diff reports unexpected deploy units, stop and reconcile before deploying.
 
-## 4. Required Production D1 Migration Evidence Through 0049
+## 4. Required Production D1 Migration Evidence Through 0050
 
 Required latest auth migration:
 
 ```text
-0049_add_admin_video_job_budget_metadata.sql
+0050_add_news_pulse_visual_budget_metadata.sql
 ```
 
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Production auth D1 migration status checked by operator |  | BLOCKED |
-| `0049_add_admin_video_job_budget_metadata.sql` present/applied |  | BLOCKED |
+| `0050_add_news_pulse_visual_budget_metadata.sql` present/applied |  | BLOCKED |
 | Evidence records migration names/status only |  | BLOCKED |
 | No remote migration was run by Codex or automation from this checklist |  | BLOCKED |
-| Migration `0049` verified before auth Worker deploy |  | BLOCKED |
+| Migration `0050` verified before auth Worker deploy |  | BLOCKED |
 
 ## 5. Auth Worker Deploy Verification
 
@@ -102,6 +113,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | Auth Worker deployment id/version recorded if available |  | BLOCKED |
 | Phase 3.4 member personal image route sees migration `0048` table before Worker deploy |  | BLOCKED |
 | Phase 4.5 admin async video job route sees migration `0049` columns before Worker deploy |  | BLOCKED |
+| Phase 4.6 News Pulse visual generation sees migration `0050` columns before Worker deploy |  | BLOCKED |
 | `/api/admin/billing/reviews` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id/resolution` write route remains admin/MFA/same-origin/idempotency guarded |  | BLOCKED |

@@ -27,7 +27,7 @@ assert.equal(report.runtimeMutation, false);
 assert.equal(report.providerCalls, false);
 assert.equal(report.billingMutation, false);
 assert.equal(report.summary.memberGatewayMigrated, 3);
-assert.equal(report.summary.adminPlatformImplemented, 4);
+assert.equal(report.summary.adminPlatformImplemented, 6);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 
@@ -57,8 +57,10 @@ assert(["missing", "partial"].includes(platformLabScope.runtimeEnforcementStatus
 
 const openClawScope = report.budgetScopes.find((entry) => entry.scope === "openclaw_news_pulse_budget");
 assert.equal(openClawScope.operationCount, 2);
-assert(openClawScope.baselineGapIds.includes("openclaw-news-pulse-visual-generation"));
-assert.equal(openClawScope.runtimeEnforcementStatus, "partial");
+assert.equal(openClawScope.implementedCount, 2);
+assert.equal(openClawScope.baselineGapCount, 0);
+assert.equal(openClawScope.runtimeEnforcementStatus, "implemented");
+assert(openClawScope.killSwitchTargets.includes("ENABLE_NEWS_PULSE_VISUAL_BUDGET metadata target"));
 
 const internalScope = report.budgetScopes.find((entry) => entry.scope === "internal_ai_worker_caller_enforced");
 assert(internalScope.operationCount >= 9);
@@ -72,6 +74,8 @@ assert(implementedIds.includes("member.music.generate"));
 assert(implementedIds.includes("member.video.generate"));
 assert(implementedIds.includes("admin.image.test.charged"));
 assert(implementedIds.includes("admin.video.job.create"));
+assert(implementedIds.includes("platform.news_pulse.visual.ingest"));
+assert(implementedIds.includes("platform.news_pulse.visual.scheduled"));
 
 const adminBfl = report.implementedOperations.find((entry) => entry.operationId === "admin.image.test.charged");
 assert.equal(adminBfl.budgetScope, "admin_org_credit_account");
@@ -93,16 +97,20 @@ assert.equal(adminVideoJob.killSwitchTarget, "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET")
 assert(adminVideoJob.metadataFieldsExpected.includes("provider_task_create"));
 assert(adminVideoJob.remainingLimitations.some((entry) => entry.includes("kill-switch")));
 
+const newsPulseVisual = report.implementedOperations.find((entry) => entry.operationId === "platform.news_pulse.visual.ingest");
+assert.equal(newsPulseVisual.budgetScope, "openclaw_news_pulse_budget");
+assert.equal(newsPulseVisual.runtimeStatus, "implemented_visual_budget_metadata");
+assert.equal(newsPulseVisual.killSwitchTarget, "ENABLE_NEWS_PULSE_VISUAL_BUDGET");
+assert(newsPulseVisual.metadataFieldsExpected.includes("visual_budget_policy_json"));
+assert(newsPulseVisual.duplicateProviderSuppression.some((entry) => entry.includes("ready visual")));
+assert(newsPulseVisual.remainingLimitations.some((entry) => entry.includes("kill-switch")));
+
 const baselineIds = gapIds(report.baselinedGaps);
 assert(!baselineIds.includes("admin-ai-video-job-create"));
 assert(!baselineIds.includes("admin-ai-video-task-create-poll"));
-assert(baselineIds.includes("openclaw-news-pulse-visual-generation"));
+assert(!baselineIds.includes("openclaw-news-pulse-visual-generation"));
 assert(baselineIds.includes("internal-ai-worker-text-image-embeddings"));
 assert(baselineIds.includes("internal-ai-worker-music-video-compare-live-agent"));
-assert.equal(
-  report.baselinedGaps.find((entry) => entry.id === "openclaw-news-pulse-visual-generation").budgetScope,
-  "openclaw_news_pulse_budget"
-);
 
 {
   const serialized = JSON.stringify(report);
@@ -224,7 +232,8 @@ assert.equal(
   assert(result.stdout.includes("# Admin/Platform AI Budget Evidence"));
   assert(result.stdout.includes("Verdict: blocked"));
   assert(result.stdout.includes("admin.image.test.charged"));
-  assert(result.stdout.includes("openclaw-news-pulse-visual-generation"));
+  assert(result.stdout.includes("platform.news_pulse.visual.ingest"));
+  assert(!result.stdout.includes("openclaw-news-pulse-visual-generation"));
 }
 
 assert.equal(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT, "/api/admin/ai/budget-evidence");

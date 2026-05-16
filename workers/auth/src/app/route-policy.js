@@ -114,7 +114,13 @@ export const ROUTE_POLICIES = Object.freeze([
     owner: "homepage",
     sensitivity: "high",
     providerSignature: "openclaw-hmac-sha256",
-    notes: "Machine-to-machine OpenClaw ingest only. Raw body is HMAC signed with OPENCLAW_INGEST_SECRET, nonces are stored in D1 for replay protection, and accepted items populate the existing public News Pulse cache.",
+    billing: {
+      budgetScope: "openclaw_news_pulse_budget",
+      idempotency: "deterministic OpenClaw item id/content hash plus News Pulse visual status and attempt guards; ready, pending, and exhausted rows suppress duplicate visual provider calls",
+      killSwitchTarget: "ENABLE_NEWS_PULSE_VISUAL_BUDGET metadata target",
+      runtime: "Phase 4.6 records caller-side budget metadata before OpenClaw-triggered visual provider calls; public News Pulse read routes remain read-only and not provider-cost-bearing",
+    },
+    notes: "Machine-to-machine OpenClaw ingest only. Raw body is HMAC signed with OPENCLAW_INGEST_SECRET, nonces are stored in D1 for replay protection, accepted items populate the existing public News Pulse cache, and any immediate visual backfill records openclaw_news_pulse_budget metadata before provider execution.",
   }),
   safeRead("auth.me.read", "GET", "/api/me", "auth", {
     auth: "optional-user",

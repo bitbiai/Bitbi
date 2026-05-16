@@ -78,7 +78,11 @@ function findPolicySnippet(routePolicyText, policyId) {
   const needle = `"${policyId}"`;
   const index = routePolicyText.indexOf(needle);
   if (index === -1) return null;
-  const start = routePolicyText.lastIndexOf("\n  ", index);
+  const policyObjectStart = routePolicyText.lastIndexOf("policy({", index);
+  const policyObjectClosedBefore = routePolicyText.lastIndexOf("\n  }),", index);
+  const start = policyObjectStart !== -1 && policyObjectStart > policyObjectClosedBefore
+    ? routePolicyText.lastIndexOf("\n", policyObjectStart)
+    : routePolicyText.lastIndexOf("\n  ", index);
   const snippetStart = start === -1 ? index : start + 1;
   const openParen = routePolicyText.indexOf("(", snippetStart);
   if (openParen === -1 || openParen > index) {
@@ -123,6 +127,8 @@ function classifyIdempotency(snippet) {
   if (lower.includes("required when")) return "partial";
   if (lower.includes("idempotency-key") && lower.includes("required")) return "required";
   if (lower.includes("idempotency") && lower.includes("required")) return "required";
+  if (lower.includes("idempotency") && lower.includes("deterministic")) return "deterministic-key";
+  if (lower.includes("deterministic") && lower.includes("provider call")) return "deterministic-key";
   if (lower.includes("idempotency") && lower.includes("recommended")) return "recommended";
   if (lower.includes("idempotency") && lower.includes("optional")) return "optional";
   return "absent";
@@ -678,6 +684,7 @@ export function renderAiCostPolicyReport(result) {
     "Read-only admin/platform budget evidence:",
     "- Phase 4.4 evidence collector: `npm run report:ai-budget-evidence` and `GET /api/admin/ai/budget-evidence` expose sanitized local registry/baseline/route-policy coverage.",
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
+    "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -741,7 +748,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.5 covers only admin async video job budget metadata/enforcement. Phase 4.6 should migrate OpenClaw/News Pulse visual budget controls before any broader admin/provider-cost migration.",
+    "- Phase 4.6 covers only OpenClaw/News Pulse visual budget controls. Phase 4.7 should add the internal AI Worker caller-policy guard before any broader admin/provider-cost migration.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

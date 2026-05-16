@@ -2,7 +2,7 @@
 
 Last reconciled: 2026-05-16
 
-Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0049_add_admin_video_job_budget_metadata.sql`.
+Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0050_add_news_pulse_visual_budget_metadata.sql`.
 
 This index classifies first-party audit, report, policy, runbook, and handoff Markdown files. No first-party Markdown is deleted in this phase. Historical reports remain historical evidence and should not be rewritten to pretend they were originally about later migrations.
 
