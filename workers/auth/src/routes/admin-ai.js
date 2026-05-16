@@ -106,6 +106,16 @@ import {
   updateAdminRuntimeBudgetSwitch,
 } from "../lib/admin-platform-budget-switches.js";
 import { buildAdminPlatformBudgetEvidenceReport } from "../lib/admin-platform-budget-evidence.js";
+import {
+  PlatformBudgetCapError,
+  checkPlatformBudgetCap,
+  getPlatformBudgetUsageSummary,
+  platformBudgetCapErrorResponse,
+  platformBudgetUnitsFromBudgetPolicy,
+  recordPlatformBudgetUsageEvent,
+  upsertPlatformBudgetLimit,
+  withPlatformBudgetCapMetadata,
+} from "../lib/platform-budget-caps.js";
 import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
 import { normalizeOrgId } from "../lib/orgs.js";
 import { sha256Hex } from "../lib/tokens.js";
@@ -239,6 +249,76 @@ function runtimeBudgetSwitchErrorResponse(error, correlationId = null) {
     }, { status: error.status || 400 }), correlationId);
   }
   throw error;
+}
+
+function platformBudgetCapResponse(error, correlationId = null) {
+  if (error instanceof PlatformBudgetCapError) {
+    return withCorrelationId(platformBudgetCapErrorResponse(error), correlationId);
+  }
+  throw error;
+}
+
+async function adminLabPlatformBudgetCapResponseOrCheck({
+  env,
+  budgetPolicy,
+  operationId,
+  sourceRoute,
+  correlationId,
+  component = "admin-ai-platform-budget-cap",
+  adminUserId = null,
+  requestInfo = null,
+}) {
+  try {
+    const capCheck = await checkPlatformBudgetCap(env, {
+      budgetScope: budgetPolicy.summary?.budget_scope,
+      operationKey: operationId,
+      sourceRoute,
+      actorUserId: adminUserId,
+      actorRole: "admin",
+      units: platformBudgetUnitsFromBudgetPolicy(budgetPolicy.summary),
+    });
+    return { capCheck, response: null };
+  } catch (error) {
+    if (!(error instanceof PlatformBudgetCapError)) throw error;
+    logDiagnostic({
+      service: "bitbi-auth",
+      component,
+      event: "admin_ai_platform_budget_cap_blocked",
+      level: "warn",
+      correlationId,
+      admin_user_id: adminUserId,
+      operation_id: operationId,
+      budget_scope: error.fields?.budgetScope || budgetPolicy.summary?.budget_scope || null,
+      window_type: error.fields?.windowType || null,
+      requested_units: error.fields?.requestedUnits ?? null,
+      ...getRequestLogFields(requestInfo),
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    return { capCheck: null, response: platformBudgetCapResponse(error, correlationId) };
+  }
+}
+
+async function recordAdminLabPlatformBudgetUsage({
+  env,
+  budgetPolicy,
+  operationId,
+  sourceRoute,
+  adminUserId,
+  sourceAttemptId = null,
+  metadata = null,
+}) {
+  return recordPlatformBudgetUsageEvent(env, {
+    budgetScope: budgetPolicy?.budget_scope,
+    operationKey: operationId,
+    sourceRoute,
+    actorUserId: adminUserId,
+    actorRole: "admin",
+    units: platformBudgetUnitsFromBudgetPolicy(budgetPolicy),
+    idempotencyKeyHash: budgetPolicy?.idempotency_key_hash || null,
+    requestFingerprint: budgetPolicy?.fingerprint || null,
+    sourceAttemptId,
+    metadata,
+  });
 }
 
 function badJsonResponse(correlationId) {
@@ -900,6 +980,7 @@ function wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
   requestMetadata,
   budgetPolicy,
   callerPolicy,
+  platformBudgetUsage = null,
   correlationId,
   requestInfo,
   adminUserId,
@@ -937,6 +1018,22 @@ function wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
           state: "succeeded",
         }),
       });
+      if (platformBudgetUsage) {
+        await recordAdminLabPlatformBudgetUsage({
+          env,
+          budgetPolicy: platformBudgetUsage.budgetPolicy,
+          operationId: platformBudgetUsage.operationId,
+          sourceRoute: platformBudgetUsage.sourceRoute,
+          adminUserId,
+          sourceAttemptId: attemptId,
+          metadata: {
+            model_id: platformBudgetUsage.modelId,
+            provider_family: platformBudgetUsage.providerFamily,
+            result_status: "succeeded",
+            stream_completed: true,
+          },
+        });
+      }
     } catch (error) {
       logDiagnostic({
         service: "bitbi-auth",
@@ -1423,10 +1520,20 @@ export async function handleAdminAI(ctx) {
     if (limited) return limited;
     const adminAiUsageAttemptSummary = await summarizeAdminAiUsageAttempts(env);
     const runtimeBudgetSwitchState = await listAdminRuntimeBudgetSwitchStates(env, { tolerateUnavailable: true });
+    let platformBudgetCapUsageSummary = null;
+    try {
+      platformBudgetCapUsageSummary = await getPlatformBudgetUsageSummary(env);
+    } catch (error) {
+      platformBudgetCapUsageSummary = {
+        available: false,
+        code: error?.code || "platform_budget_cap_usage_unavailable",
+      };
+    }
     return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport({
       env,
       adminAiUsageAttemptSummary,
       runtimeBudgetSwitchState,
+      platformBudgetCapUsageSummary,
     })), correlationId);
   }
 
@@ -1506,6 +1613,99 @@ export async function handleAdminAI(ctx) {
     } catch (error) {
       if (error instanceof AdminRuntimeBudgetSwitchError) return runtimeBudgetSwitchErrorResponse(error, correlationId);
       return billingAdminErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === "/api/admin/ai/platform-budget-caps" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-caps-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const usage = await getPlatformBudgetUsageSummary(env);
+      return withCorrelationId(json({
+        ok: true,
+        budgetScope: usage.budgetScope,
+        liveBudgetCapsStatus: usage.liveBudgetCapsStatus,
+        capEnforced: usage.capEnforced,
+        windows: usage.windows,
+        operationUsage: usage.operationUsage,
+        generatedAt: usage.generatedAt,
+      }), correlationId);
+    } catch (error) {
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
+      throw error;
+    }
+  }
+
+  const platformBudgetCapMatch = pathname.match(/^\/api\/admin\/ai\/platform-budget-caps\/([^/]+)$/);
+  // route-policy: admin.ai.platform-budget-caps.update
+  if (platformBudgetCapMatch && method === "PATCH") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-caps-write-ip", 20, 600_000, correlationId);
+    if (limited) return limited;
+
+    try {
+      const idempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const budgetScope = decodePathSegment(platformBudgetCapMatch[1]);
+      if (!budgetScope || budgetScope.includes("/")) return notFoundResponse(correlationId);
+      const updated = await upsertPlatformBudgetLimit(env, {
+        budgetScope,
+        windowType: parsed.body?.window_type || parsed.body?.windowType,
+        limitUnits: parsed.body?.limit_units ?? parsed.body?.limitUnits,
+        reason: parsed.body?.reason,
+        metadata: parsed.body?.metadata,
+        adminUser: result.user,
+        idempotencyKey,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-platform-budget-caps",
+        event: "admin_ai_platform_budget_cap_updated",
+        level: "warn",
+        correlationId,
+        admin_user_id: result.user.id,
+        budget_scope: updated.limit?.budgetScope || budgetScope,
+        window_type: updated.limit?.windowType || null,
+        limit_units: updated.limit?.limitUnits || null,
+        idempotency_replayed: updated.event.replayed,
+        ...getRequestLogFields(requestInfo),
+      });
+      if (!updated.event.replayed) {
+        await auditAdminAiMaintenanceEvent(
+          ctx,
+          result.user,
+          "admin_ai_platform_budget_cap_updated",
+          {
+            budget_scope: updated.limit?.budgetScope || budgetScope,
+            window_type: updated.limit?.windowType || null,
+            limit_units: updated.limit?.limitUnits || null,
+          }
+        );
+      }
+      return withCorrelationId(json({
+        ok: true,
+        limit: updated.limit,
+        event: updated.event,
+      }), correlationId);
+    } catch (error) {
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
+      return billingAdminErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === "/api/admin/ai/platform-budget-usage" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-usage-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const usage = await getPlatformBudgetUsageSummary(env, {
+        recentLimit: Number(url.searchParams.get("limit") || 20),
+      });
+      return withCorrelationId(json({ ok: true, usage }), correlationId);
+    } catch (error) {
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
+      throw error;
     }
   }
 
@@ -1758,6 +1958,18 @@ export async function handleAdminAI(ctx) {
         requestInfo,
       });
       if (switchResponse) return switchResponse;
+      const capState = await adminLabPlatformBudgetCapResponseOrCheck({
+        env,
+        budgetPolicy,
+        operationId: ADMIN_TEXT_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/test-text",
+        correlationId,
+        component: "admin-ai-text",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (capState.response) return capState.response;
+      const budgetPolicySummary = withPlatformBudgetCapMetadata(budgetPolicy.summary, capState.capCheck);
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_TEXT_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -1773,7 +1985,7 @@ export async function handleAdminAI(ctx) {
         reason: "phase_4_8_1_admin_text_durable_idempotency_metadata_only",
         notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression.",
       });
-      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicySummary, null, "pending");
       const attemptState = await beginAdminAiIdempotencyAttempt({
         env,
         operationKey: ADMIN_TEXT_OPERATION_ID,
@@ -1834,6 +2046,19 @@ export async function handleAdminAI(ctx) {
           state: "succeeded",
         }),
       });
+      await recordAdminLabPlatformBudgetUsage({
+        env,
+        budgetPolicy: initialBudgetPolicy,
+        operationId: ADMIN_TEXT_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/test-text",
+        adminUserId: result.user.id,
+        sourceAttemptId: completedAttempt.id,
+        metadata: {
+          model_id: modelId,
+          provider_family: initialBudgetPolicy.provider_family,
+          result_status: "succeeded",
+        },
+      });
       return appendAdminLabBudgetMetadata(response, {
         budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
         callerPolicy,
@@ -1856,6 +2081,7 @@ export async function handleAdminAI(ctx) {
       if (error instanceof AdminAiIdempotencyError) {
         return inputErrorResponse(error, correlationId);
       }
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       throw error;
     }
   }
@@ -2173,6 +2399,18 @@ export async function handleAdminAI(ctx) {
         requestInfo,
       });
       if (switchResponse) return switchResponse;
+      const capState = await adminLabPlatformBudgetCapResponseOrCheck({
+        env,
+        budgetPolicy,
+        operationId: ADMIN_EMBEDDINGS_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/test-embeddings",
+        correlationId,
+        component: "admin-ai-embeddings",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (capState.response) return capState.response;
+      const budgetPolicySummary = withPlatformBudgetCapMetadata(budgetPolicy.summary, capState.capCheck);
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_EMBEDDINGS_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -2188,7 +2426,7 @@ export async function handleAdminAI(ctx) {
         reason: "phase_4_8_1_admin_embeddings_durable_idempotency_metadata_only",
         notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression.",
       });
-      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicySummary, null, "pending");
       const attemptState = await beginAdminAiIdempotencyAttempt({
         env,
         operationKey: ADMIN_EMBEDDINGS_OPERATION_ID,
@@ -2250,6 +2488,19 @@ export async function handleAdminAI(ctx) {
           state: "succeeded",
         }),
       });
+      await recordAdminLabPlatformBudgetUsage({
+        env,
+        budgetPolicy: initialBudgetPolicy,
+        operationId: ADMIN_EMBEDDINGS_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/test-embeddings",
+        adminUserId: result.user.id,
+        sourceAttemptId: completedAttempt.id,
+        metadata: {
+          model_id: modelId,
+          provider_family: initialBudgetPolicy.provider_family,
+          result_status: "succeeded",
+        },
+      });
       return appendAdminLabBudgetMetadata(response, {
         budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
         callerPolicy,
@@ -2257,6 +2508,7 @@ export async function handleAdminAI(ctx) {
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       throw error;
     }
   }
@@ -2298,6 +2550,18 @@ export async function handleAdminAI(ctx) {
         requestInfo,
       });
       if (switchResponse) return switchResponse;
+      const capState = await adminLabPlatformBudgetCapResponseOrCheck({
+        env,
+        budgetPolicy,
+        operationId: ADMIN_MUSIC_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/test-music",
+        correlationId,
+        component: "admin-ai-music",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (capState.response) return capState.response;
+      const budgetPolicySummary = withPlatformBudgetCapMetadata(budgetPolicy.summary, capState.capCheck);
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_MUSIC_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -2313,7 +2577,7 @@ export async function handleAdminAI(ctx) {
         reason: "phase_4_9_admin_music_durable_idempotency_metadata_only",
         notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression.",
       });
-      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicySummary, null, "pending");
       const attemptState = await beginAdminAiIdempotencyAttempt({
         env,
         operationKey: ADMIN_MUSIC_OPERATION_ID,
@@ -2375,6 +2639,19 @@ export async function handleAdminAI(ctx) {
           state: "succeeded",
         }),
       });
+      await recordAdminLabPlatformBudgetUsage({
+        env,
+        budgetPolicy: initialBudgetPolicy,
+        operationId: ADMIN_MUSIC_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/test-music",
+        adminUserId: result.user.id,
+        sourceAttemptId: completedAttempt.id,
+        metadata: {
+          model_id: modelId,
+          provider_family: initialBudgetPolicy.provider_family,
+          result_status: "succeeded",
+        },
+      });
       return appendAdminLabBudgetMetadata(response, {
         budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
         callerPolicy,
@@ -2382,6 +2659,7 @@ export async function handleAdminAI(ctx) {
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       throw error;
     }
   }
@@ -2601,6 +2879,7 @@ export async function handleAdminAI(ctx) {
         });
         return withCorrelationId(budgetSwitchDisabledResponse(error), correlationId);
       }
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       if (error instanceof WorkerConfigError) {
         logWorkerConfigFailure({
           env,
@@ -2705,6 +2984,18 @@ export async function handleAdminAI(ctx) {
         requestInfo,
       });
       if (switchResponse) return switchResponse;
+      const capState = await adminLabPlatformBudgetCapResponseOrCheck({
+        env,
+        budgetPolicy,
+        operationId: ADMIN_COMPARE_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/compare",
+        correlationId,
+        component: "admin-ai-compare",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (capState.response) return capState.response;
+      const budgetPolicySummary = withPlatformBudgetCapMetadata(budgetPolicy.summary, capState.capCheck);
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_COMPARE_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -2720,7 +3011,7 @@ export async function handleAdminAI(ctx) {
         reason: "phase_4_10_admin_compare_durable_idempotency_metadata_only",
         notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression for multi-model compare fanout.",
       });
-      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicySummary, null, "pending");
       const attemptState = await beginAdminAiIdempotencyAttempt({
         env,
         operationKey: ADMIN_COMPARE_OPERATION_ID,
@@ -2782,6 +3073,19 @@ export async function handleAdminAI(ctx) {
           state: "succeeded",
         }),
       });
+      await recordAdminLabPlatformBudgetUsage({
+        env,
+        budgetPolicy: initialBudgetPolicy,
+        operationId: ADMIN_COMPARE_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/compare",
+        adminUserId: result.user.id,
+        sourceAttemptId: completedAttempt.id,
+        metadata: {
+          model_id: modelId,
+          provider_family: initialBudgetPolicy.provider_family,
+          result_status: "succeeded",
+        },
+      });
       return appendAdminLabBudgetMetadata(response, {
         budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
         callerPolicy,
@@ -2789,6 +3093,7 @@ export async function handleAdminAI(ctx) {
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       throw error;
     }
   }
@@ -2829,6 +3134,18 @@ export async function handleAdminAI(ctx) {
         requestInfo,
       });
       if (switchResponse) return switchResponse;
+      const capState = await adminLabPlatformBudgetCapResponseOrCheck({
+        env,
+        budgetPolicy,
+        operationId: ADMIN_LIVE_AGENT_OPERATION_ID,
+        sourceRoute: "/api/admin/ai/live-agent",
+        correlationId,
+        component: "admin-ai-live-agent",
+        adminUserId: result.user.id,
+        requestInfo,
+      });
+      if (capState.response) return capState.response;
+      const budgetPolicySummary = withPlatformBudgetCapMetadata(budgetPolicy.summary, capState.capCheck);
       const callerPolicy = buildAdminAiCallerPolicy({
         operationId: ADMIN_LIVE_AGENT_OPERATION_ID,
         enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
@@ -2846,7 +3163,7 @@ export async function handleAdminAI(ctx) {
       });
       const requestMetadata = adminLiveAgentRequestMetadata(validated);
       const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata({
-        ...budgetPolicy.summary,
+        ...budgetPolicySummary,
         stream_session_caps: {
           max_turns: ADMIN_AI_LIVE_AGENT_LIMITS.maxMessages,
           max_system_chars: ADMIN_AI_LIVE_AGENT_LIMITS.maxSystemLength,
@@ -2912,6 +3229,13 @@ export async function handleAdminAI(ctx) {
         requestMetadata,
         budgetPolicy: initialBudgetPolicy,
         callerPolicy,
+        platformBudgetUsage: {
+          budgetPolicy: initialBudgetPolicy,
+          operationId: ADMIN_LIVE_AGENT_OPERATION_ID,
+          sourceRoute: "/api/admin/ai/live-agent",
+          modelId,
+          providerFamily: initialBudgetPolicy.provider_family,
+        },
         correlationId,
         requestInfo,
         adminUserId: result.user.id,
@@ -2920,6 +3244,7 @@ export async function handleAdminAI(ctx) {
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       throw error;
     }
   }

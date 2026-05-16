@@ -8,6 +8,9 @@ import {
     apiAdminAiCleanupUsageAttempts,
     apiAdminAiListFailedVideoJobs,
     apiAdminAiListVideoJobPoisonMessages,
+    apiAdminAiPlatformBudgetCaps,
+    apiAdminAiPlatformBudgetUsage,
+    apiAdminAiUpdatePlatformBudgetCap,
     apiAdminAiUpdateBudgetSwitch,
     apiAdminAiUsageAttempt,
     apiAdminAiUsageAttempts,
@@ -1286,7 +1289,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
 
     async function handleAiBudgetSwitchUpdate(item, button) {
         const nextEnabled = !item.appSwitchEnabled;
-        const promptMessage = `${nextEnabled ? 'Enable' : 'Disable'} ${item.label || item.switchKey}. Enter an operator reason. Cloudflare master flag must also be enabled and live platform budget caps are not enforced yet.`;
+        const promptMessage = `${nextEnabled ? 'Enable' : 'Disable'} ${item.label || item.switchKey}. Enter an operator reason. Cloudflare master flag must also be enabled; platform_admin_lab_budget paths also require daily/monthly cap allowance.`;
         const reason = window.prompt(promptMessage, '');
         if (!reason || !reason.trim()) {
             setState('aiBudgetSwitchesState', 'Switch update cancelled: reason is required.', 'error');
@@ -1312,6 +1315,112 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             }
             notify('AI budget switch updated.', 'success');
             await loadAiBudgetSwitches();
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    async function loadPlatformBudgetCaps() {
+        const list = byId('platformBudgetCapsList');
+        const summaryNode = byId('platformBudgetCapsSummary');
+        setState('platformBudgetCapsState', 'Loading platform budget caps...');
+        clear(list);
+        clear(summaryNode);
+        const res = await apiAdminAiPlatformBudgetCaps();
+        if (!res.ok) {
+            setState('platformBudgetCapsState', '');
+            renderUnavailable(list, res, 'Platform budget caps unavailable.');
+            return;
+        }
+        const data = res.data || {};
+        const windows = Array.isArray(data.windows) ? data.windows : [];
+        if (summaryNode) {
+            summaryNode.appendChild(detailRows([
+                ['Scope', data.budgetScope || 'platform_admin_lab_budget'],
+                ['Status', data.liveBudgetCapsStatus || 'platform_admin_lab_budget_foundation'],
+                ['Cap enforced', data.capEnforced ? 'Yes' : 'No'],
+                ['Customer billing', 'No'],
+                ['Generated', formatDate(data.generatedAt)],
+            ]));
+        }
+        if (windows.length === 0) {
+            setState('platformBudgetCapsState', 'No platform budget cap windows returned.');
+            return;
+        }
+        setState('platformBudgetCapsState', 'Platform admin lab caps are enforced after Cloudflare master and D1 app switches.');
+        const { wrap, tbody } = table(['Window', 'Limit', 'Used', 'Remaining', 'Status', 'Updated', 'Action']);
+        for (const item of windows) {
+            const tr = document.createElement('tr');
+            const limit = item.limit || {};
+            addCell(tr, item.windowType || '-');
+            addCell(tr, limit.limitUnits ?? '-');
+            addCell(tr, item.usedUnits ?? 0);
+            addCell(tr, item.remainingUnits ?? '-');
+            addCell(tr, badge(item.capStatus || 'missing', item.capStatus === 'available' ? 'active' : 'disabled'));
+            addCell(tr, limit.updatedAt ? formatDate(limit.updatedAt) : '-');
+            const action = el('button', 'btn-action', limit.limitUnits ? 'Update' : 'Set');
+            action.type = 'button';
+            action.addEventListener('click', () => handlePlatformBudgetCapUpdate(data.budgetScope || 'platform_admin_lab_budget', item, action));
+            addCell(tr, action);
+            tbody.appendChild(tr);
+        }
+        list.appendChild(wrap);
+
+        const usageRes = await apiAdminAiPlatformBudgetUsage();
+        if (usageRes.ok && Array.isArray(usageRes.data?.usage?.operationUsage) && usageRes.data.usage.operationUsage.length) {
+            const usageTitle = el('h4', 'admin-section-title', 'Current Month Usage');
+            list.appendChild(usageTitle);
+            const usageTable = table(['Operation', 'Units', 'Events']);
+            for (const row of usageRes.data.usage.operationUsage) {
+                const tr = document.createElement('tr');
+                addCell(tr, row.operationKey || '-');
+                addCell(tr, row.usedUnits ?? 0);
+                addCell(tr, row.eventCount ?? 0);
+                usageTable.tbody.appendChild(tr);
+            }
+            list.appendChild(usageTable.wrap);
+        }
+    }
+
+    async function handlePlatformBudgetCapUpdate(budgetScope, item, button) {
+        const windowType = item.windowType;
+        const current = item.limit?.limitUnits || '';
+        const rawLimit = window.prompt(`Set ${windowType} cap units for ${budgetScope}. This is not customer billing.`, String(current));
+        if (!rawLimit || !rawLimit.trim()) {
+            setState('platformBudgetCapsState', 'Cap update cancelled: limit is required.', 'error');
+            return;
+        }
+        const limitUnits = Number(rawLimit);
+        if (!Number.isInteger(limitUnits) || limitUnits <= 0) {
+            setState('platformBudgetCapsState', 'Cap update cancelled: limit must be a positive integer.', 'error');
+            return;
+        }
+        const reason = window.prompt('Enter an operator reason for this budget cap update.', '');
+        if (!reason || !reason.trim()) {
+            setState('platformBudgetCapsState', 'Cap update cancelled: reason is required.', 'error');
+            return;
+        }
+        const confirmed = window.confirm(`Confirm ${windowType} cap ${limitUnits} for ${budgetScope}? This does not change Stripe, Cloudflare, or customer billing.`);
+        if (!confirmed) {
+            setState('platformBudgetCapsState', 'Cap update cancelled.', 'neutral');
+            return;
+        }
+        setSubmitting(button, true);
+        setState('platformBudgetCapsState', 'Updating platform budget cap...');
+        try {
+            const res = await apiAdminAiUpdatePlatformBudgetCap(budgetScope, {
+                windowType,
+                limitUnits,
+                reason: reason.trim(),
+                idempotencyKey: createIdempotencyKey('platform-budget-cap'),
+            });
+            if (!res.ok) {
+                setState('platformBudgetCapsState', apiUnavailableMessage(res, 'Platform budget cap update failed.'), 'error');
+                notify('Platform budget cap update failed.', 'error');
+                return;
+            }
+            notify('Platform budget cap updated.', 'success');
+            await loadPlatformBudgetCaps();
         } finally {
             setSubmitting(button, false);
         }
@@ -1595,6 +1704,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         });
         byId('aiCleanupForm')?.addEventListener('submit', handleAiCleanup);
         byId('aiBudgetSwitchesRefresh')?.addEventListener('click', loadAiBudgetSwitches);
+        byId('platformBudgetCapsRefresh')?.addEventListener('click', loadPlatformBudgetCaps);
         byId('lifecycleRequestsRefresh')?.addEventListener('click', loadLifecycleRequests);
         byId('lifecycleArchivesRefresh')?.addEventListener('click', loadLifecycleArchives);
         byId('operationsRefresh')?.addEventListener('click', loadOperations);
@@ -1624,7 +1734,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         if (sectionName === 'billing') await loadBillingPlans();
         if (sectionName === 'billing-events') await Promise.all([loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
         if (sectionName === 'ai-usage') await loadAiAttempts();
-        if (sectionName === 'ai-budget-switches') await loadAiBudgetSwitches();
+        if (sectionName === 'ai-budget-switches') await Promise.all([loadAiBudgetSwitches(), loadPlatformBudgetCaps()]);
         if (sectionName === 'lifecycle') await loadLifecycle();
         if (sectionName === 'operations') await loadOperations();
     }

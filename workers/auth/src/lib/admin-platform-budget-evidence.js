@@ -77,12 +77,12 @@ const LIVE_PLATFORM_BUDGET_CAP_SCOPE_DESIGN = Object.freeze({
     capRequired: true,
     owner: "platform admin lab",
     capGranularityTarget: ["daily", "monthly", "operation", "admin_user", "provider_model"],
-    countability: "partially_countable",
-    currentDataSources: ["admin_ai_usage_attempts", "ai_video_jobs"],
-    existingDataSufficient: false,
-    migrationLikelyRequired: true,
-    defaultCapPosture: "not_implemented_operator_review",
-    futurePhase: "Phase 4.17",
+    countability: "countable_now",
+    currentDataSources: ["admin_ai_usage_attempts", "ai_video_jobs", "platform_budget_limits", "platform_budget_usage_events"],
+    existingDataSufficient: true,
+    migrationLikelyRequired: false,
+    defaultCapPosture: "fail_closed_when_missing_limit",
+    futurePhase: "Phase 4.17 implemented foundation",
   }),
   [AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET]: Object.freeze({
     capRequired: true,
@@ -771,6 +771,7 @@ function scopeEvidence(scope, { entries, knownGaps, entriesById, limits, warning
   const capEvidence = operations
     .map(operationLiveBudgetCapEvidence)
     .filter(Boolean);
+  const capEnforced = capEvidence.some((item) => item.status === "cap_enforced");
   return {
     scope,
     operationCount: operations.length,
@@ -785,8 +786,8 @@ function scopeEvidence(scope, { entries, knownGaps, entriesById, limits, warning
     runtimeEnforcementStatus: runtimeStatus,
     killSwitchTargetDefined: killSwitchTargets.length > 0,
     killSwitchTargets,
-    liveBudgetCapStatus: "not_implemented",
-    liveBudgetCapEnforced: false,
+    liveBudgetCapStatus: capEnforced ? "cap_enforced" : "not_implemented",
+    liveBudgetCapEnforced: capEnforced,
     liveBudgetCapCountability: capDesign.countability,
     liveBudgetCapFuturePhase: capDesign.futurePhase,
     liveBudgetCapDataSources: sortedUnique([
@@ -890,7 +891,7 @@ function runtimeBudgetSwitchEvidence(env = null, runtimeBudgetSwitchState = null
   };
 }
 
-function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches) {
+function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches, platformBudgetCapUsageSummary = null) {
   const providerCostBudgetedEntries = registryEntries.filter((entry) =>
     entry?.operationConfig?.providerCost !== false &&
     entry?.budgetPolicy &&
@@ -898,6 +899,9 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches) {
   );
   const switchEnforcedOperationIds = sortedUnique((runtimeSwitches?.targets || [])
     .flatMap((target) => target.operationIds || []));
+  const capEnforcedOperationIds = sortedUnique(providerCostBudgetedEntries
+    .filter((entry) => entry.budgetPolicy?.liveBudgetCapStatus === "cap_enforced")
+    .map(operationId));
   const capEvidenceByOperation = providerCostBudgetedEntries.map((entry) => ({
     operationId: operationId(entry),
     routePath: entry.operationConfig?.routePath || null,
@@ -916,7 +920,10 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches) {
       const operations = capEvidenceByOperation.filter((entry) => entry.budgetScope === scope);
       return {
         scope,
-        status: "not_implemented",
+        status: scope === AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+          && operations.some((entry) => entry.liveBudgetCapStatus === "cap_enforced")
+          ? "cap_enforced"
+          : "not_implemented",
         countability: design.countability,
         capRequired: design.capRequired,
         owner: design.owner,
@@ -935,16 +942,19 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches) {
 
   return {
     type: "live_platform_budget_cap_design_evidence",
-    phase: "Phase 4.16",
-    liveBudgetCapsStatus: "not_implemented",
-    liveBudgetCapsEnforced: false,
-    runtimeRouteBehaviorChanged: false,
+    phase: "Phase 4.17",
+    liveBudgetCapsStatus: capEnforcedOperationIds.length > 0
+      ? "platform_admin_lab_budget_foundation"
+      : "not_implemented",
+    liveBudgetCapsEnforced: capEnforcedOperationIds.length > 0,
+    runtimeRouteBehaviorChanged: capEnforcedOperationIds.length > 0,
     recommendedFirstCapScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
     recommendedFirstCapPhase: "Phase 4.17",
     memberRoutesSeparate: true,
-    switchEnforcedButNotCapEnforced: true,
-    capEnforcedOperationIds: [],
-    switchEnforcedNotCapEnforcedOperationIds: switchEnforcedOperationIds,
+    switchEnforcedButNotCapEnforced: switchEnforcedOperationIds.some((id) => !capEnforcedOperationIds.includes(id)),
+    capEnforcedOperationIds,
+    switchEnforcedNotCapEnforcedOperationIds: switchEnforcedOperationIds.filter((id) => !capEnforcedOperationIds.includes(id)),
+    platformAdminLabUsageSummary: platformBudgetCapUsageSummary || null,
     countabilityByBudgetScope,
     operations: capEvidenceByOperation,
     pathsWithEstimatedCostUnits: capEvidenceByOperation
@@ -964,9 +974,9 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches) {
       .filter((entry) => entry.liveBudgetCapReadiness === "metadata_only")
       .map((entry) => entry.operationId),
     notes: [
-      "Phase 4.16 is design/evidence only; no live daily/monthly platform budget caps are enforced.",
-      "Phase 4.15 runtime kill-switches remain the active runtime safety control for already budget-classified admin/platform provider-cost paths.",
-      "Future cap enforcement needs a central platform budget usage ledger before fail-closed aggregate caps can be trusted across tables.",
+      "Phase 4.17 implements the first narrow daily/monthly cap foundation for platform_admin_lab_budget only.",
+      "Runtime route execution still requires Phase 4.15 Cloudflare master flags and Phase 4.15.1 D1 app switches before cap checks.",
+      "Other scopes remain future work; this is not customer billing, Stripe billing, or production readiness.",
     ],
   };
 }
@@ -1045,7 +1055,11 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   ].sort((left, right) => left.operationId.localeCompare(right.operationId));
 
   const runtimeSwitches = runtimeBudgetSwitchEvidence(options.env, options.runtimeBudgetSwitchState);
-  const liveBudgetCaps = livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches);
+  const liveBudgetCaps = livePlatformBudgetCapEvidence(
+    registryEntries,
+    runtimeSwitches,
+    options.platformBudgetCapUsageSummary || null
+  );
   const evidenceItems = [
     ...implementedOperations,
     ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),

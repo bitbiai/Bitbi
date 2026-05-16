@@ -4,13 +4,13 @@
 
 BITBI is a static vanilla HTML/CSS/ES module site backed by Cloudflare Workers. It started as a creative portfolio and now includes authenticated account flows, generated media storage, member credits, organization and billing foundations, guarded Stripe checkout/webhook flows, admin operations tooling, and AI generation surfaces.
 
-This repository is not a production-deploy approval, full SaaS maturity claim, full tenant-isolation claim, legal compliance certification, or live billing readiness claim. The release contract in `config/release-compat.json` is the current deploy/schema source of truth. As of Phase 4.15.1 Admin AI Budget Switch Control Plane on 2026-05-16, the latest auth D1 migration is:
+This repository is not a production-deploy approval, full SaaS maturity claim, full tenant-isolation claim, legal compliance certification, or live billing readiness claim. The release contract in `config/release-compat.json` is the current deploy/schema source of truth. As of Phase 4.17 first narrow platform budget cap foundation on 2026-05-16, the latest auth D1 migration is:
 
 ```text
-0052_add_admin_runtime_budget_switches.sql
+0053_add_platform_budget_caps.sql
 ```
 
-Phase 4.15.1 adds only a D1-backed app-level Admin AI budget switch layer on top of the Phase 4.15 Cloudflare master budget flags. A provider-cost admin/platform path is enabled only when the Cloudflare master flag is enabled and the D1/Admin UI app switch is enabled; missing or unavailable D1 state fails closed. The Admin UI does not edit Cloudflare variables, does not store Cloudflare API tokens, and cannot override a disabled or missing Cloudflare master flag. Phase 4.16 live platform budget cap design/evidence remains completed and unchanged; live caps are still not implemented or enforced. Production remains blocked until staging/live migrations, Worker secrets, bindings, Cloudflare resources, Stripe webhooks, health checks, security headers, and operational evidence are verified without exposing secret values.
+Phase 4.15.1 adds only a D1-backed app-level Admin AI budget switch layer on top of the Phase 4.15 Cloudflare master budget flags. A covered provider-cost admin/platform path is enabled only when the Cloudflare master flag is enabled, the D1/Admin UI app switch is enabled, and, for the Phase 4.17 `platform_admin_lab_budget` routes, a daily/monthly platform cap allows the request. The Admin UI does not edit Cloudflare variables, does not store Cloudflare API tokens, and cannot override a disabled or missing Cloudflare master flag. Phase 4.16 live platform budget cap design/evidence remains completed and preserved; Phase 4.17 implements only the first narrow admin-lab cap foundation and is not customer billing, Stripe billing, or production readiness. Production remains blocked until staging/live migrations, Worker secrets, bindings, Cloudflare resources, Stripe webhooks, health checks, security headers, and operational evidence are verified without exposing secret values.
 
 ## Live Site
 

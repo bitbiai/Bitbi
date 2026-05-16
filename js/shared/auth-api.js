@@ -389,6 +389,25 @@ export function apiAdminAiUpdateBudgetSwitch(switchKey, { enabled, reason, idemp
     });
 }
 
+export function apiAdminAiPlatformBudgetCaps(options) {
+    return request('GET', '/admin/ai/platform-budget-caps', undefined, options);
+}
+
+export function apiAdminAiUpdatePlatformBudgetCap(budgetScope, { windowType, limitUnits, reason, idempotencyKey, metadata } = {}) {
+    return request('PATCH', `/admin/ai/platform-budget-caps/${encodeURIComponent(budgetScope)}`, {
+        window_type: windowType,
+        limit_units: limitUnits,
+        reason,
+        metadata,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminAiPlatformBudgetUsage(options) {
+    return request('GET', '/admin/ai/platform-budget-usage', undefined, options);
+}
+
 export function apiAdminDataLifecycleRequests({ limit } = {}) {
     const params = new URLSearchParams();
     if (limit) params.set('limit', String(limit));

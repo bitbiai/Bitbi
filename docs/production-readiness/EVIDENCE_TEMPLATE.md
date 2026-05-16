@@ -35,9 +35,9 @@ Record the exact branch, commit, and whether the worktree was clean. If dirty, s
 
 ## 3. Migration Status Through Latest Auth Migration
 
-Latest auth D1 migration required by release config: `0052_add_admin_runtime_budget_switches.sql`.
+Latest auth D1 migration required by release config: `0053_add_platform_budget_caps.sql`.
 
-| Environment | Database | Evidence Through `0052` | Operator | Date | Result |
+| Environment | Database | Evidence Through `0053` | Operator | Date | Result |
 | --- | --- | --- | --- | --- | --- |
 | staging | `bitbi-auth-db` |  |  |  | BLOCKED |
 | production | `bitbi-auth-db` |  |  |  | BLOCKED |
@@ -218,7 +218,7 @@ Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` for t
 | Auth Worker deployed commit |  | BLOCKED |
 | Static deployed commit |  | BLOCKED |
 | Release plan attached and expected deploy units are auth Worker plus static/pages |  | BLOCKED |
-| Staging auth D1 migration evidence through `0052_add_admin_runtime_budget_switches.sql` |  | BLOCKED |
+| Staging auth D1 migration evidence through `0053_add_platform_budget_caps.sql` |  | BLOCKED |
 | Admin authentication and MFA prerequisites verified |  | BLOCKED |
 | Billing Review Queue API smoke: admin-only list/filter with sanitized fields |  | BLOCKED |
 | Billing Review Detail API smoke: safe identifiers, no raw payload/signature/secret/card data |  | BLOCKED |
@@ -245,7 +245,7 @@ Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/productio
 | Release plan output attached |  | BLOCKED |
 | Auth Worker deploy evidence and deployed commit/version |  | BLOCKED |
 | Static/pages deploy evidence and deployed commit/build |  | BLOCKED |
-| Production D1 migration evidence through `0052_add_admin_runtime_budget_switches.sql` |  | BLOCKED |
+| Production D1 migration evidence through `0053_add_platform_budget_caps.sql` |  | BLOCKED |
 | Live readiness evidence collector output with explicit URLs |  | BLOCKED |
 | Manual admin login/MFA smoke evidence |  | BLOCKED |
 | Manual billing review queue list/filter evidence |  | BLOCKED |
@@ -283,11 +283,11 @@ Use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` fo
 | No raw prompt, secret, cookie, token, provider payload, or unsafe R2 key in evidence |  | BLOCKED |
 | Operator verdict: `BLOCKED`, `MAIN DEPLOYED - EVIDENCE INCOMPLETE`, `MAIN DEPLOYED - OPERATOR VERIFIED`, or `ROLLBACK REQUIRED` |  | BLOCKED |
 
-Phase 3.4 evidence does not prove full AI Cost Gateway coverage. Member music/video and later admin/platform coverage must still be verified separately. Phase 4.12 covers Admin Live-Agent only with metadata-only stream-session attempts, caller-policy propagation, and duplicate stream suppression. Phase 4.13 retires sync video debug from normal provider-cost operations as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path. Phase 4.14 classifies Admin Image branches so charged priced models remain selected-organization charged, FLUX.2 Dev is explicit-unmetered with safe metadata, and unclassified image models block before provider execution. Phase 4.15 enforces Cloudflare master runtime budget kill switches for already budget-classified admin/platform provider-cost paths before provider/queue/credit/durable-attempt work. Phase 4.15.1 adds D1 app-level switch state and Admin Control Plane switch controls; effective execution requires master flag enabled and app switch enabled, and missing/unavailable app state fails closed. Phase 4.16 documents live platform budget cap design and reports cap status/countability only; it does not enforce live caps or change runtime routes. Live platform caps, broader internal AI Worker routes, and broader replay/provider-result cache work remain open. Live billing remains blocked.
+Phase 3.4 evidence does not prove full AI Cost Gateway coverage. Member music/video and later admin/platform coverage must still be verified separately. Phase 4.12 covers Admin Live-Agent only with metadata-only stream-session attempts, caller-policy propagation, and duplicate stream suppression. Phase 4.13 retires sync video debug from normal provider-cost operations as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path. Phase 4.14 classifies Admin Image branches so charged priced models remain selected-organization charged, FLUX.2 Dev is explicit-unmetered with safe metadata, and unclassified image models block before provider execution. Phase 4.15 enforces Cloudflare master runtime budget kill switches for already budget-classified admin/platform provider-cost paths before provider/queue/credit/durable-attempt work. Phase 4.15.1 adds D1 app-level switch state and Admin Control Plane switch controls; effective execution requires master flag enabled and app switch enabled, and missing/unavailable app state fails closed. Phase 4.16 documents live platform budget cap design and reports cap status/countability. Phase 4.17 adds the first `platform_admin_lab_budget` cap foundation for selected admin lab routes only; broader internal AI Worker routes, other budget scopes, and broader replay/provider-result cache work remain open. Live billing remains blocked.
 
 ## 18A. Admin Text/Embeddings Attempt Cleanup Evidence
 
-This section records Phase 4.8.2 API-first operator evidence, Phase 4.9 Admin Music reuse, Phase 4.10 Admin Compare reuse of the same attempt table, Phase 4.12 Admin Live-Agent metadata-only stream-session reuse, Phase 4.13 sync video debug disabled-by-default evidence, Phase 4.14 Admin Image branch classification evidence, Phase 4.15 Cloudflare master runtime budget-switch evidence, Phase 4.15.1 D1 app-switch evidence, and Phase 4.16 live cap not-implemented evidence. It does not approve sync video debug as a normal provider-cost path, public billing, provider calls, Stripe calls, live platform budget caps, or live billing.
+This section records Phase 4.8.2 API-first operator evidence, Phase 4.9 Admin Music reuse, Phase 4.10 Admin Compare reuse of the same attempt table, Phase 4.12 Admin Live-Agent metadata-only stream-session reuse, Phase 4.13 sync video debug disabled-by-default evidence, Phase 4.14 Admin Image branch classification evidence, Phase 4.15 Cloudflare master runtime budget-switch evidence, Phase 4.15.1 D1 app-switch evidence, Phase 4.16 cap design evidence, and Phase 4.17 `platform_admin_lab_budget` cap-foundation evidence. It does not approve sync video debug as a normal provider-cost path, public billing, provider calls, Stripe calls, customer billing, or live billing.
 
 | Evidence Item | Environment | Result | Evidence |
 | --- | --- | --- | --- |
@@ -301,7 +301,7 @@ This section records Phase 4.8.2 API-first operator evidence, Phase 4.9 Admin Mu
 | Disabled/missing Cloudflare master flag cannot be overridden by enabled D1 app switch |  | BLOCKED |  |
 | Missing D1 row or unavailable D1 switch store fails closed before provider/internal AI/queue/credit/durable-attempt work |  | BLOCKED |  |
 | Disabled runtime budget-switch evidence shows no provider/internal AI/queue/credit/durable-attempt work for the covered admin/platform path under test |  | BLOCKED |  |
-| Live platform budget cap evidence shows `liveBudgetCapsStatus: not_implemented`, `platform_admin_lab_budget` as recommended first cap scope, and switch-enforced paths separate from cap-enforced paths |  | BLOCKED |  |
+| Live platform budget cap evidence shows `liveBudgetCapsStatus: platform_admin_lab_budget_foundation`, configured daily/monthly `platform_admin_lab_budget` caps, bounded usage evidence, and other scopes still separated as future work |  | BLOCKED |  |
 | Operator decision recorded for admin/platform AI flags while live caps are absent: keep off, targeted bounded test only, or risk accepted by owner |  | BLOCKED |  |
 | Cleanup dry-run endpoint returns bounded counts and mutates no rows |  | BLOCKED |  |
 | Cleanup execution marks only expired pending/running rows and retains completed/succeeded/failed rows |  | BLOCKED |  |
@@ -360,7 +360,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 ## 23. Blockers
 
 - Production Cloudflare live validation:
-- Remote migration evidence through `0052_add_admin_runtime_budget_switches.sql`:
+- Remote migration evidence through `0053_add_platform_budget_caps.sql`:
 - Admin AI usage-attempt cleanup/inspection evidence:
 - Phase 3.4 member personal image gateway main-only evidence:
 - Stripe Testmode checkout/webhook evidence:
@@ -380,7 +380,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, Phase 4.9 Admin Music metadata-only idempotency, Phase 4.10 Admin Compare metadata-only idempotency, Phase 4.12 Admin Live-Agent metadata-only stream-session idempotency, Phase 4.13 sync video debug retirement classification, Phase 4.14 Admin Image branch classification, Phase 4.15 Cloudflare master runtime budget-switch enforcement, and Phase 4.15.1 D1 app-switch control are not live billing readiness, automated accounting reconciliation, automated remediation, live platform budget caps, or full AI budget enforcement. A human approver must verify migrations through `0052_add_admin_runtime_budget_switches.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection behavior, Admin Music duplicate-suppression/conflict behavior, Admin Compare duplicate-suppression/conflict behavior, Admin Live-Agent duplicate-suppression/conflict/finalization behavior, sync video debug disabled-by-default behavior, Admin Image charged/explicit-unmetered/blocked behavior, runtime budget-switch intended state, D1 app-switch effective-state behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, Phase 4.9 Admin Music metadata-only idempotency, Phase 4.10 Admin Compare metadata-only idempotency, Phase 4.12 Admin Live-Agent metadata-only stream-session idempotency, Phase 4.13 sync video debug retirement classification, Phase 4.14 Admin Image branch classification, Phase 4.15 Cloudflare master runtime budget-switch enforcement, Phase 4.15.1 D1 app-switch control, and Phase 4.17 platform cap foundation are not live billing readiness, automated accounting reconciliation, automated remediation, customer billing, or full AI budget enforcement. A human approver must verify migrations through `0053_add_platform_budget_caps.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata/cap behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection/cap behavior, Admin Music duplicate-suppression/conflict/cap behavior, Admin Compare duplicate-suppression/conflict/cap behavior, Admin Live-Agent duplicate-suppression/conflict/finalization/cap behavior, sync video debug disabled-by-default behavior, Admin Image charged/explicit-unmetered/blocked behavior, runtime budget-switch intended state, D1 app-switch effective-state behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

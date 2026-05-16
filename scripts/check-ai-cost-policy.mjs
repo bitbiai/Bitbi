@@ -41,6 +41,14 @@ const RUNTIME_BUDGET_SWITCH_OPERATION_IDS = Object.freeze([
   "admin.compare",
   "admin.live_agent",
 ]);
+const PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS = new Set([
+  "admin.video.job.create",
+  "admin.text.test",
+  "admin.embeddings.test",
+  "admin.music.test",
+  "admin.compare",
+  "admin.live_agent",
+]);
 
 const PROVIDER_CALL_PATTERNS = Object.freeze([
   "env.AI.run",
@@ -458,10 +466,21 @@ function validateLiveBudgetCapMetadata(registryEntries) {
       issues.push(`${operationId}: invalid live budget cap scope.`);
     }
     if (policy.liveBudgetCapStatus === "cap_enforced" || policy.targetEnforcement?.liveBudgetCap === "implemented") {
-      issues.push(`${operationId}: live budget caps must not be reported as enforced in Phase 4.16.`);
+      if (
+        !PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS.has(operationId)
+        || policy.targetBudgetScope !== AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+        || policy.liveBudgetCapStatus !== "cap_enforced"
+        || policy.targetEnforcement?.liveBudgetCap !== "implemented"
+      ) {
+        issues.push(`${operationId}: live budget cap enforcement is only allowed for Phase 4.17 platform_admin_lab_budget operations.`);
+      }
     }
-    if (policy.targetEnforcement?.runtimeKillSwitch === "implemented" && policy.liveBudgetCapStatus !== "not_implemented") {
-      issues.push(`${operationId}: runtime kill-switch enforcement must remain distinct from live budget cap enforcement.`);
+    if (
+      policy.targetEnforcement?.runtimeKillSwitch === "implemented"
+      && policy.liveBudgetCapStatus !== "not_implemented"
+      && policy.liveBudgetCapStatus !== "cap_enforced"
+    ) {
+      issues.push(`${operationId}: runtime kill-switch enforcement must remain distinct from non-enforced live budget cap metadata.`);
     }
   }
   return issues;
@@ -837,8 +856,8 @@ export function renderAiCostPolicyReport(result) {
     renderExplicitUnmeteredAdminOperations(),
     "",
     "Live platform budget cap status:",
-    "- Phase 4.16 is design/evidence only; live daily/monthly platform budget caps are not implemented or enforced.",
-    "- Recommended first cap scope: platform_admin_lab_budget (Phase 4.17).",
+    "- Phase 4.17 implements the first narrow daily/monthly cap foundation for platform_admin_lab_budget only.",
+    "- Other platform/admin budget scopes remain future work and are not cap-enforced.",
     "- Runtime budget kill-switches are separate from live budget caps.",
     renderLiveBudgetCapStatus(),
     "",
@@ -847,12 +866,12 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
     "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
     "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
-    "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay/live budget caps remain future work.",
-    "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; explicit output-token/duration caps and live platform budget caps remain future work.",
+    "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay remains future work.",
+    "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; Phase 4.17 adds the first platform_admin_lab_budget daily/monthly cap foundation for this route family, while explicit output-token/duration caps remain future work.",
     "- Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path.",
     "- Phase 4.14 classifies Admin Image branches: charged priced models remain admin_org_credit_account-covered, FLUX.2 Dev is explicit_unmetered_admin with safe budget/caller-policy metadata, and unclassified Admin Image models are blocked before provider calls.",
     "- Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost paths; missing or false switches block before provider, queue, credit, or durable-attempt work where applicable.",
-    "- Phase 4.16 adds live platform budget cap design/evidence only; no route behavior changes and no aggregate cap enforcement are implemented.",
+    "- Phase 4.16 adds live platform budget cap design/evidence only; Phase 4.17 adds the first platform_admin_lab_budget cap foundation without changing member/org billing behavior.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -921,7 +940,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.17 should implement the first narrow live cap foundation for platform_admin_lab_budget without changing member/org billing behavior or broad platform/background AI.",
+    "- Later phases should extend caps only after separate scope-specific designs; do not treat admin_org_credit_account, explicit_unmetered_admin, openclaw_news_pulse_budget, or internal_ai_worker_caller_enforced as covered by Phase 4.17.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

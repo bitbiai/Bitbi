@@ -28,7 +28,7 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     recommendedOperatorNote: "Enable only for bounded charged Admin Image testing with selected organization context.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/test-image"]),
     liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapFuturePhase: "Future admin_org_credit_account cap integration after Phase 4.17 foundation",
   }),
   Object.freeze({
     switchKey: "ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET",
@@ -45,7 +45,7 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     recommendedOperatorNote: "Enable only for bounded charged Admin Image testing with selected organization context.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/test-image"]),
     liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapFuturePhase: "Future admin_org_credit_account cap integration after Phase 4.17 foundation",
   }),
   Object.freeze({
     switchKey: "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS",
@@ -78,8 +78,8 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     requiresMasterFlag: true,
     recommendedOperatorNote: "Enable only when async video job queue and budget metadata evidence are verified.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/video-jobs"]),
-    liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapStatus: "cap_enforced",
+    liveCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
   }),
   Object.freeze({
     switchKey: "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
@@ -112,8 +112,8 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     requiresMasterFlag: true,
     recommendedOperatorNote: "Enable only for bounded Admin AI Lab text testing.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/test-text"]),
-    liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapStatus: "cap_enforced",
+    liveCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
   }),
   Object.freeze({
     switchKey: "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET",
@@ -129,8 +129,8 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     requiresMasterFlag: true,
     recommendedOperatorNote: "Enable only for bounded Admin AI Lab embeddings testing.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/test-embeddings"]),
-    liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapStatus: "cap_enforced",
+    liveCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
   }),
   Object.freeze({
     switchKey: "ENABLE_ADMIN_AI_MUSIC_BUDGET",
@@ -146,8 +146,8 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     requiresMasterFlag: true,
     recommendedOperatorNote: "Enable only for bounded Admin Music tests; no public/member music behavior changes.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/test-music"]),
-    liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapStatus: "cap_enforced",
+    liveCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
   }),
   Object.freeze({
     switchKey: "ENABLE_ADMIN_AI_COMPARE_BUDGET",
@@ -163,8 +163,8 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     requiresMasterFlag: true,
     recommendedOperatorNote: "Enable only for bounded Admin Compare tests; compare can fan out to multiple provider calls.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/compare"]),
-    liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapStatus: "cap_enforced",
+    liveCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
   }),
   Object.freeze({
     switchKey: "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET",
@@ -178,10 +178,10 @@ export const ADMIN_PLATFORM_BUDGET_SWITCH_DEFINITIONS = Object.freeze([
     defaultAppEnabled: false,
     riskLevel: "high",
     requiresMasterFlag: true,
-    recommendedOperatorNote: "Enable only for bounded Admin Live-Agent testing; live platform caps are not enforced yet.",
+    recommendedOperatorNote: "Enable only for bounded Admin Live-Agent testing after platform_admin_lab_budget daily/monthly caps are configured.",
     relatedRoutes: Object.freeze(["POST /api/admin/ai/live-agent"]),
-    liveCapStatus: "not_implemented",
-    liveCapFuturePhase: "Phase 4.17",
+    liveCapStatus: "cap_enforced",
+    liveCapFuturePhase: "Phase 4.17 platform_admin_lab_budget cap foundation",
   }),
 ]);
 
@@ -555,7 +555,7 @@ export async function listAdminRuntimeBudgetSwitchStates(env, { tolerateUnavaila
     disabledByAppCount: switches.filter((entry) => entry.masterEnabled === true && entry.appSwitchEnabled !== true).length,
     unknownOrUnavailableCount: switches.filter((entry) => entry.appSwitchAvailable !== true || entry.masterFlagStatus === "unknown").length,
     d1SwitchStoreAvailable: storeAvailable,
-    liveBudgetCapsStatus: "not_implemented",
+    liveBudgetCapsStatus: "platform_admin_lab_budget_foundation",
   });
   return Object.freeze({ switches, summary });
 }
@@ -684,7 +684,7 @@ export async function updateAdminRuntimeBudgetSwitch(env, {
   const metadataJson = JSON.stringify({
     phase: "4.15.1",
     source: "admin_control_plane",
-    live_budget_caps_status: "not_implemented",
+    live_budget_caps_status: "platform_admin_lab_budget_foundation",
     ...sanitizeMetadata(metadata),
   });
   const requestHash = await sha256Hex(JSON.stringify({

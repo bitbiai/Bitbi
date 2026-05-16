@@ -203,9 +203,9 @@ ${inventoryExtra}
   assert(output.includes("Phase 4.12 implements Admin Live-Agent budget metadata"));
   assert(output.includes("Phase 4.15 enforces runtime budget kill-switches"));
   assert(output.includes("Live platform budget cap status:"));
-  assert(output.includes("Phase 4.16 is design/evidence only"));
-  assert(output.includes("Recommended first cap scope: platform_admin_lab_budget"));
-  assert(output.includes("admin.text.test: cap=not_implemented; readiness=partially_countable"));
+  assert(output.includes("Phase 4.17 implements the first narrow daily/monthly cap foundation"));
+  assert(output.includes("Other platform/admin budget scopes remain future work"));
+  assert(output.includes("admin.text.test: cap=cap_enforced; readiness=countable_now"));
   assert(output.includes("admin.image.test.unmetered: cap=not_implemented; readiness=metadata_only"));
   assert(output.includes("internal.text.generate: cap=not_implemented; readiness=requires_schema"));
   assert(output.includes("Retired/disabled debug paths:"));
@@ -225,7 +225,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.17 should implement the first narrow live cap foundation"));
+  assert(output.includes("Later phases should extend caps only after separate scope-specific designs"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
@@ -400,19 +400,23 @@ ${inventoryExtra}
 {
   const repoRoot = makeRepo();
   const regressedRegistry = AI_COST_OPERATION_REGISTRY.map((entry) =>
-    entry.operationConfig?.operationId === "admin.text.test"
+    entry.operationConfig?.operationId === "admin.image.test.unmetered"
       ? {
         ...entry,
         budgetPolicy: {
           ...entry.budgetPolicy,
           liveBudgetCapStatus: "cap_enforced",
+          targetEnforcement: {
+            ...entry.budgetPolicy.targetEnforcement,
+            liveBudgetCap: "implemented",
+          },
         },
       }
       : entry
   );
   const result = analyzeAiCostPolicy(repoRoot, { registryEntries: regressedRegistry });
   assert.equal(result.ok, false);
-  assert(result.fatalIssues.some((issue) => issue.includes("live budget cap status")));
+  assert(result.fatalIssues.some((issue) => issue.includes("only allowed for Phase 4.17 platform_admin_lab_budget")));
 }
 
 {

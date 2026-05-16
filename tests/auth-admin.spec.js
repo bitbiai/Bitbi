@@ -1679,6 +1679,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.storageRequests = captures.storageRequests || [];
   captures.billingReviewResolutionRequests = captures.billingReviewResolutionRequests || [];
   captures.aiBudgetSwitchUpdateRequests = captures.aiBudgetSwitchUpdateRequests || [];
+  captures.platformBudgetCapUpdateRequests = captures.platformBudgetCapUpdateRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -1692,8 +1693,8 @@ async function mockAdminControlPlane(page, captures = {}) {
       riskLevel: 'medium',
       recommendedOperatorNote: 'Cloudflare master flag must also be enabled.',
       relatedRoutes: ['POST /api/admin/ai/test-text'],
-      liveCapStatus: 'not_implemented',
-      liveCapFuturePhase: 'Phase 4.17',
+      liveCapStatus: 'cap_enforced',
+      liveCapFuturePhase: 'Phase 4.17 platform_admin_lab_budget cap foundation',
       masterFlagStatus: 'enabled',
       masterConfigured: true,
       masterEnabled: true,
@@ -1716,10 +1717,10 @@ async function mockAdminControlPlane(page, captures = {}) {
       operationIds: ['admin.live_agent'],
       ownerDomain: 'admin-ai',
       riskLevel: 'high',
-      recommendedOperatorNote: 'Live platform budget caps are not enforced yet.',
+      recommendedOperatorNote: 'Platform admin lab budget caps must also allow the request.',
       relatedRoutes: ['POST /api/admin/ai/live-agent'],
-      liveCapStatus: 'not_implemented',
-      liveCapFuturePhase: 'Phase 4.17',
+      liveCapStatus: 'cap_enforced',
+      liveCapFuturePhase: 'Phase 4.17 platform_admin_lab_budget cap foundation',
       masterFlagStatus: 'missing',
       masterConfigured: false,
       masterEnabled: false,
@@ -1745,7 +1746,7 @@ async function mockAdminControlPlane(page, captures = {}) {
         disabledByAppCount: budgetSwitches.filter((entry) => entry.masterEnabled && !entry.appSwitchEnabled).length,
         unknownOrUnavailableCount: 0,
         d1SwitchStoreAvailable: true,
-        liveBudgetCapsStatus: 'not_implemented',
+        liveBudgetCapsStatus: 'platform_admin_lab_budget_foundation',
       },
       switches: budgetSwitches,
     };
@@ -2485,6 +2486,99 @@ async function mockAdminControlPlane(page, captures = {}) {
         id: 'budsw_static_1',
         replayed: false,
         createdAt: entry.updatedAt,
+      },
+    });
+  });
+
+  const platformBudgetCaps = captures.platformBudgetCaps || {
+    budgetScope: 'platform_admin_lab_budget',
+    liveBudgetCapsStatus: 'platform_admin_lab_budget_foundation',
+    capEnforced: true,
+    generatedAt: '2026-05-16T11:30:00.000Z',
+    windows: [
+      {
+        windowType: 'daily',
+        windowValue: '2026-05-16',
+        usedUnits: 12,
+        remainingUnits: 88,
+        capStatus: 'available',
+        limit: {
+          id: 'pbl_static_daily',
+          budgetScope: 'platform_admin_lab_budget',
+          windowType: 'daily',
+          limitUnits: 100,
+          mode: 'enforce',
+          status: 'active',
+          reason: 'Static test daily cap',
+          updatedAt: '2026-05-16T11:00:00.000Z',
+        },
+      },
+      {
+        windowType: 'monthly',
+        windowValue: '2026-05',
+        usedUnits: 30,
+        remainingUnits: 970,
+        capStatus: 'available',
+        limit: {
+          id: 'pbl_static_monthly',
+          budgetScope: 'platform_admin_lab_budget',
+          windowType: 'monthly',
+          limitUnits: 1000,
+          mode: 'enforce',
+          status: 'active',
+          reason: 'Static test monthly cap',
+          updatedAt: '2026-05-16T11:00:00.000Z',
+        },
+      },
+    ],
+    operationUsage: [
+      { operationKey: 'admin.text.test', usedUnits: 12, eventCount: 2 },
+    ],
+  };
+  await page.route('**/api/admin/ai/platform-budget-caps', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await fulfillJson(route, { ok: true, ...platformBudgetCaps });
+  });
+  await page.route('**/api/admin/ai/platform-budget-caps/*', async (route) => {
+    const request = route.request();
+    if (request.method() !== 'PATCH') {
+      await route.fallback();
+      return;
+    }
+    const budgetScope = decodeURIComponent(new URL(request.url()).pathname.split('/').pop() || '');
+    const body = request.postDataJSON();
+    captures.platformBudgetCapUpdateRequests.push({
+      idempotencyKey: request.headers()['idempotency-key'],
+      budgetScope,
+      body,
+    });
+    const item = platformBudgetCaps.windows.find((entry) => entry.windowType === body.window_type);
+    if (item) {
+      item.limit.limitUnits = body.limit_units;
+      item.limit.reason = body.reason;
+      item.limit.updatedAt = '2026-05-16T11:45:00.000Z';
+      item.remainingUnits = Math.max(0, body.limit_units - item.usedUnits);
+    }
+    await fulfillJson(route, {
+      ok: true,
+      limit: item?.limit || null,
+      event: {
+        id: 'pble_static_1',
+        replayed: false,
+        createdAt: '2026-05-16T11:45:00.000Z',
+      },
+    });
+  });
+  await page.route('**/api/admin/ai/platform-budget-usage', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      usage: {
+        budgetScope: platformBudgetCaps.budgetScope,
+        operationUsage: platformBudgetCaps.operationUsage,
+        recentEvents: [],
       },
     });
   });
@@ -8789,13 +8883,17 @@ test.describe('Admin Control Plane', () => {
     const switchSection = page.locator('#sectionAiBudgetSwitches');
     await expect(switchSection).toContainText('AI Budget Switches');
     await expect(switchSection).toContainText('Cloudflare master flag');
-    await expect(switchSection).toContainText('Live platform budget caps are not enforced');
+    await expect(switchSection).toContainText('Platform Budget Caps');
+    await expect(switchSection).toContainText('not customer billing');
     await expect(page.locator('#aiBudgetSwitchesSummary')).toContainText('Cloudflare master flag enabled AND app switch enabled');
-    await expect(page.locator('#aiBudgetSwitchesSummary')).toContainText('not_implemented');
+    await expect(page.locator('#aiBudgetSwitchesSummary')).toContainText('platform_admin_lab_budget_foundation');
     await expect(page.locator('#aiBudgetSwitchesList')).toContainText('Admin Text Budget');
     await expect(page.locator('#aiBudgetSwitchesList')).toContainText('Admin Live-Agent Budget');
     await expect(page.locator('#aiBudgetSwitchesList')).toContainText('missing');
     await expect(page.locator('#aiBudgetSwitchesList')).not.toContainText('sk_live_');
+    await expect(page.locator('#platformBudgetCapsSummary')).toContainText('platform_admin_lab_budget');
+    await expect(page.locator('#platformBudgetCapsList')).toContainText('daily');
+    await expect(page.locator('#platformBudgetCapsList')).toContainText('admin.text.test');
     let budgetSwitchDialogs = 0;
     const budgetSwitchDialogHandler = (dialog) => {
       budgetSwitchDialogs += 1;
@@ -8819,6 +8917,36 @@ test.describe('Admin Control Plane', () => {
     expect(captures.aiBudgetSwitchUpdateRequests[0].body).toEqual({
       enabled: true,
       reason: 'Enable admin text switch for static test',
+    });
+
+    let capDialogs = 0;
+    const capDialogHandler = (dialog) => {
+      capDialogs += 1;
+      if (capDialogs === 1) {
+        expect(dialog.message()).toContain('daily cap units');
+        dialog.accept('125');
+        return;
+      }
+      if (capDialogs === 2) {
+        expect(dialog.message()).toContain('operator reason');
+        dialog.accept('Raise daily platform admin lab cap for static test');
+        return;
+      }
+      expect(dialog.type()).toBe('confirm');
+      expect(dialog.message()).toContain('does not change Stripe, Cloudflare, or customer billing');
+      dialog.accept();
+    };
+    page.on('dialog', capDialogHandler);
+    await page.locator('#platformBudgetCapsList').getByRole('button', { name: 'Update' }).first().click();
+    page.off('dialog', capDialogHandler);
+    expect(capDialogs).toBe(3);
+    expect(captures.platformBudgetCapUpdateRequests).toHaveLength(1);
+    expect(captures.platformBudgetCapUpdateRequests[0].budgetScope).toBe('platform_admin_lab_budget');
+    expect(captures.platformBudgetCapUpdateRequests[0].idempotencyKey).toMatch(/^platform-budget-cap-/);
+    expect(captures.platformBudgetCapUpdateRequests[0].body).toEqual({
+      window_type: 'daily',
+      limit_units: 125,
+      reason: 'Raise daily platform admin lab cap for static test',
     });
 
     await clickAdminNavSection(page, 'lifecycle');

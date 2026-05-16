@@ -611,7 +611,7 @@
                 </div>
                 <div class="admin-shell glass glass-card reveal visible">
                     <h3 class="admin-section-title">Effective Rule</h3>
-                    <p class="admin-shell__desc">Provider-cost work runs only when the Cloudflare master flag and the D1 app switch are both enabled. This UI does not show Cloudflare values, does not edit Cloudflare variables, and live platform budget caps are not enforced yet.</p>
+                    <p class="admin-shell__desc">Provider-cost work runs only when the Cloudflare master flag and the D1 app switch are both enabled; platform_admin_lab_budget routes also require an allowing daily/monthly cap. This UI does not show Cloudflare values or edit Cloudflare variables.</p>
                     <div id="aiBudgetSwitchesSummary"></div>
                 </div>
                 <div class="admin-shell glass glass-card reveal visible">
@@ -623,6 +623,18 @@
                     </div>
                     <div id="aiBudgetSwitchesState" class="admin-state">Loading AI budget switches...</div>
                     <div id="aiBudgetSwitchesList"></div>
+                </div>
+                <div class="admin-shell glass glass-card reveal visible">
+                    <div class="admin-control-card-head">
+                        <div>
+                            <h3 class="admin-section-title">Platform Budget Caps</h3>
+                            <p class="admin-shell__desc">Daily and monthly caps for platform_admin_lab_budget only. These are not customer billing, do not edit Stripe or Cloudflare, and other scopes remain future work.</p>
+                        </div>
+                        <button type="button" id="platformBudgetCapsRefresh" class="btn-action">Refresh Caps</button>
+                    </div>
+                    <div id="platformBudgetCapsSummary"></div>
+                    <div id="platformBudgetCapsState" class="admin-state">Loading platform budget caps...</div>
+                    <div id="platformBudgetCapsList"></div>
                 </div>
             </div>
 

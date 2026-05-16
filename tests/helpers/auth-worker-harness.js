@@ -172,6 +172,43 @@ function defaultAdminRuntimeBudgetSwitchRows() {
   }));
 }
 
+function defaultPlatformBudgetLimitRows() {
+  return [
+    {
+      id: 'pbl_test_daily',
+      budget_scope: 'platform_admin_lab_budget',
+      window_type: 'daily',
+      limit_units: 1000000,
+      mode: 'enforce',
+      status: 'active',
+      starts_at: null,
+      ends_at: null,
+      reason: 'test harness default platform admin lab daily cap',
+      metadata_json: '{"source":"test_harness"}',
+      created_at: '2026-05-16T00:00:00.000Z',
+      updated_at: '2026-05-16T00:00:00.000Z',
+      created_by_user_id: 'test-harness',
+      updated_by_user_id: 'test-harness',
+    },
+    {
+      id: 'pbl_test_monthly',
+      budget_scope: 'platform_admin_lab_budget',
+      window_type: 'monthly',
+      limit_units: 10000000,
+      mode: 'enforce',
+      status: 'active',
+      starts_at: null,
+      ends_at: null,
+      reason: 'test harness default platform admin lab monthly cap',
+      metadata_json: '{"source":"test_harness"}',
+      created_at: '2026-05-16T00:00:00.000Z',
+      updated_at: '2026-05-16T00:00:00.000Z',
+      created_by_user_id: 'test-harness',
+      updated_by_user_id: 'test-harness',
+    },
+  ];
+}
+
 function normalizeAiImageRow(row = {}) {
   return {
     visibility: 'private',
@@ -750,6 +787,9 @@ class MockD1 {
       openClawIngestNonces: [],
       adminRuntimeBudgetSwitches: defaultAdminRuntimeBudgetSwitchRows(),
       adminRuntimeBudgetSwitchEvents: [],
+      platformBudgetLimits: defaultPlatformBudgetLimitRows(),
+      platformBudgetLimitEvents: [],
+      platformBudgetUsageEvents: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -908,6 +948,13 @@ class MockD1 {
     }
     if (this.missingTables.has('admin_runtime_budget_switches') && query.includes('admin_runtime_budget_switch')) {
       throw new Error('no such table: admin_runtime_budget_switches');
+    }
+    if (
+      (this.missingTables.has('platform_budget_limits') && query.includes('platform_budget_limits')) ||
+      (this.missingTables.has('platform_budget_limit_events') && query.includes('platform_budget_limit_events')) ||
+      (this.missingTables.has('platform_budget_usage_events') && query.includes('platform_budget_usage_events'))
+    ) {
+      throw new Error('no such table: platform_budget_caps');
     }
     if (this.missingTables.has('user_asset_storage_usage') && query.includes('user_asset_storage_usage')) {
       throw new Error('no such table: user_asset_storage_usage');
@@ -7607,6 +7654,209 @@ class MockD1 {
         changed_by_email,
         idempotency_key,
         request_hash,
+        created_at,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (
+      query === "SELECT id, budget_scope, window_type, limit_units, mode, status, starts_at, ends_at, reason, metadata_json, created_at, updated_at, created_by_user_id, updated_by_user_id FROM platform_budget_limits WHERE budget_scope = ? ORDER BY status ASC, window_type ASC, updated_at DESC, id DESC LIMIT 10"
+    ) {
+      const [budgetScope] = bindings;
+      return { results: (this.state.platformBudgetLimits || []).filter((row) => row.budget_scope === budgetScope) };
+    }
+
+    if (
+      query === "SELECT id, budget_scope, window_type, limit_units, mode, status, starts_at, ends_at, reason, metadata_json, created_at, updated_at, created_by_user_id, updated_by_user_id FROM platform_budget_limits WHERE budget_scope = ? AND window_type = ? AND status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1"
+    ) {
+      const [budgetScope, windowType] = bindings;
+      const rows = (this.state.platformBudgetLimits || [])
+        .filter((row) => row.budget_scope === budgetScope && row.window_type === windowType && row.status === 'active')
+        .sort((left, right) => {
+          const byUpdated = String(right.updated_at || '').localeCompare(String(left.updated_at || ''));
+          if (byUpdated !== 0) return byUpdated;
+          return String(right.id || '').localeCompare(String(left.id || ''));
+        });
+      return rows[0] || null;
+    }
+
+    if (
+      query === "SELECT id, budget_scope, window_type, old_limit_units, new_limit_units, reason, changed_by_user_id, idempotency_key, request_hash, created_at FROM platform_budget_limit_events WHERE budget_scope = ? AND window_type = ? AND idempotency_key = ? LIMIT 1"
+    ) {
+      const [budgetScope, windowType, idempotencyKey] = bindings;
+      return (this.state.platformBudgetLimitEvents || []).find((row) =>
+        row.budget_scope === budgetScope && row.window_type === windowType && row.idempotency_key === idempotencyKey
+      ) || null;
+    }
+
+    if (query.startsWith('UPDATE platform_budget_limits SET')) {
+      const [limit_units, reason, metadata_json, updated_at, updated_by_user_id, id] = bindings;
+      const row = (this.state.platformBudgetLimits || []).find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.limit_units = limit_units;
+      row.mode = 'enforce';
+      row.status = 'active';
+      row.reason = reason;
+      row.metadata_json = metadata_json;
+      row.updated_at = updated_at;
+      row.updated_by_user_id = updated_by_user_id;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO platform_budget_limits (')) {
+      const [
+        id,
+        budget_scope,
+        window_type,
+        limit_units,
+        reason,
+        metadata_json,
+        created_at,
+        updated_at,
+        created_by_user_id,
+        updated_by_user_id,
+      ] = bindings;
+      this.state.platformBudgetLimits.push({
+        id,
+        budget_scope,
+        window_type,
+        limit_units,
+        mode: 'enforce',
+        status: 'active',
+        starts_at: null,
+        ends_at: null,
+        reason,
+        metadata_json,
+        created_at,
+        updated_at,
+        created_by_user_id,
+        updated_by_user_id,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO platform_budget_limit_events (')) {
+      const [
+        id,
+        budget_scope,
+        window_type,
+        old_limit_units,
+        new_limit_units,
+        reason,
+        changed_by_user_id,
+        idempotency_key,
+        request_hash,
+        created_at,
+      ] = bindings;
+      if ((this.state.platformBudgetLimitEvents || []).some((row) =>
+        row.budget_scope === budget_scope && row.window_type === window_type && row.idempotency_key === idempotency_key
+      )) {
+        throw new Error('UNIQUE constraint failed: platform_budget_limit_events.budget_scope, platform_budget_limit_events.window_type, platform_budget_limit_events.idempotency_key');
+      }
+      this.state.platformBudgetLimitEvents.push({
+        id,
+        budget_scope,
+        window_type,
+        old_limit_units,
+        new_limit_units,
+        reason,
+        changed_by_user_id,
+        idempotency_key,
+        request_hash,
+        created_at,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "SELECT COALESCE(SUM(units), 0) AS used_units FROM platform_budget_usage_events WHERE budget_scope = ? AND window_day = ? AND status = 'recorded'") {
+      const [budgetScope, windowDay] = bindings;
+      const used = (this.state.platformBudgetUsageEvents || [])
+        .filter((row) => row.budget_scope === budgetScope && row.window_day === windowDay && row.status === 'recorded')
+        .reduce((sum, row) => sum + Number(row.units || 0), 0);
+      return { used_units: used };
+    }
+
+    if (query === "SELECT COALESCE(SUM(units), 0) AS used_units FROM platform_budget_usage_events WHERE budget_scope = ? AND window_month = ? AND status = 'recorded'") {
+      const [budgetScope, windowMonth] = bindings;
+      const used = (this.state.platformBudgetUsageEvents || [])
+        .filter((row) => row.budget_scope === budgetScope && row.window_month === windowMonth && row.status === 'recorded')
+        .reduce((sum, row) => sum + Number(row.units || 0), 0);
+      return { used_units: used };
+    }
+
+    if (query.startsWith('SELECT operation_key, COALESCE(SUM(units), 0) AS used_units, COUNT(*) AS event_count FROM platform_budget_usage_events')) {
+      const [budgetScope, windowMonth] = bindings;
+      const grouped = new Map();
+      for (const row of (this.state.platformBudgetUsageEvents || [])) {
+        if (row.budget_scope !== budgetScope || row.window_month !== windowMonth || row.status !== 'recorded') continue;
+        const existing = grouped.get(row.operation_key) || { operation_key: row.operation_key, used_units: 0, event_count: 0 };
+        existing.used_units += Number(row.units || 0);
+        existing.event_count += 1;
+        grouped.set(row.operation_key, existing);
+      }
+      return { results: [...grouped.values()].sort((left, right) => right.used_units - left.used_units || left.operation_key.localeCompare(right.operation_key)).slice(0, 20) };
+    }
+
+    if (query.startsWith('SELECT id, budget_scope, operation_key, source_route, actor_user_id, actor_role, units, window_day, window_month, source_attempt_id, source_job_id, status, metadata_json, created_at FROM platform_budget_usage_events')) {
+      const [budgetScope, limit] = bindings;
+      const rows = (this.state.platformBudgetUsageEvents || [])
+        .filter((row) => row.budget_scope === budgetScope)
+        .sort((left, right) => {
+          const byCreated = String(right.created_at || '').localeCompare(String(left.created_at || ''));
+          if (byCreated !== 0) return byCreated;
+          return String(right.id || '').localeCompare(String(left.id || ''));
+        })
+        .slice(0, Number(limit || 20));
+      return { results: rows };
+    }
+
+    if (query.startsWith('INSERT OR IGNORE INTO platform_budget_usage_events (')) {
+      const [
+        id,
+        budget_scope,
+        operation_key,
+        source_route,
+        actor_user_id,
+        actor_role,
+        units,
+        window_day,
+        window_month,
+        idempotency_key_hash,
+        request_fingerprint,
+        source_attempt_id,
+        source_job_id,
+        metadata_json,
+        created_at,
+      ] = bindings;
+      const duplicate = (this.state.platformBudgetUsageEvents || []).some((row) =>
+        (source_attempt_id && row.source_attempt_id === source_attempt_id) ||
+        (source_job_id && row.source_job_id === source_job_id) ||
+        (
+          idempotency_key_hash &&
+          request_fingerprint &&
+          row.budget_scope === budget_scope &&
+          row.operation_key === operation_key &&
+          row.idempotency_key_hash === idempotency_key_hash &&
+          row.request_fingerprint === request_fingerprint
+        )
+      );
+      if (duplicate) return { success: true, meta: { changes: 0 } };
+      this.state.platformBudgetUsageEvents.push({
+        id,
+        budget_scope,
+        operation_key,
+        source_route,
+        actor_user_id,
+        actor_role,
+        units,
+        window_day,
+        window_month,
+        idempotency_key_hash,
+        request_fingerprint,
+        source_attempt_id,
+        source_job_id,
+        status: 'recorded',
+        metadata_json,
         created_at,
       });
       return { success: true, meta: { changes: 1 } };

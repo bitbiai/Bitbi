@@ -1117,12 +1117,28 @@ Migration risk:
 
 ## Phase 4.17: First Live Platform Budget Cap Foundation
 
-Recommended scope:
+Status: completed for the first narrow `platform_admin_lab_budget` foundation only. This is not customer billing, not Stripe/live billing, not production readiness, and not cap enforcement for other scopes.
 
-- Start with `platform_admin_lab_budget` for Admin Text, Embeddings, Music, Compare, Live-Agent, and Admin async video jobs.
-- Add only the minimal additive usage-ledger/window schema needed to count completed provider-cost operations.
-- Fail closed before provider work when configured caps are exceeded.
-- Do not change member/org billing behavior, public pricing, Stripe, OpenClaw/News Pulse runtime behavior, or broad internal AI Worker routes.
+Implemented scope:
+
+- Covers `platform_admin_lab_budget` for Admin Text, Embeddings, Music, Compare, Live-Agent, and Admin async video jobs.
+- Adds local additive migration `0053_add_platform_budget_caps.sql` with `platform_budget_limits`, `platform_budget_limit_events`, and `platform_budget_usage_events`.
+- Adds admin-only cap list/update/usage APIs and a compact Admin Control Plane panel next to AI Budget Switches.
+- Enforces runtime sequence: Cloudflare master flag, D1 app switch, then daily/monthly cap allowance before provider/internal AI/queue/durable-attempt work.
+- Records bounded usage events only after successful covered provider-cost completion where completion is observed.
+- Keeps member/org billing behavior, public pricing, Stripe, OpenClaw/News Pulse runtime behavior, charged Admin Image/org-credit behavior, explicit-unmetered image behavior, and broad internal AI Worker routes unchanged.
+
+Deploy units:
+
+- Auth schema migration `0053`, Auth Worker, and static/Admin UI. No AI Worker source change expected.
+
+Migration risk:
+
+- Additive migration only. Operators must apply and verify `0053_add_platform_budget_caps.sql` before deploying auth Worker code that depends on platform budget cap tables.
+
+Recommended next scope:
+
+- Either harden/reconcile Phase 4.17 usage recording repair paths, or add a separate scoped design/implementation for `openclaw_news_pulse_budget`. Do not combine multiple remaining scopes in one phase.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 

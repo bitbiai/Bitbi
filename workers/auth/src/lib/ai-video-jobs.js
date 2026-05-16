@@ -26,6 +26,12 @@ import {
   assertBudgetSwitchEffectiveEnabled,
   budgetSwitchLogFields,
 } from "./admin-platform-budget-switches.js";
+import {
+  checkPlatformBudgetCap,
+  platformBudgetUnitsFromBudgetPolicy,
+  recordPlatformBudgetUsageEvent,
+  withPlatformBudgetCapMetadata,
+} from "./platform-budget-caps.js";
 import { proxyToAiLab } from "./admin-ai-proxy.js";
 import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
@@ -357,7 +363,11 @@ function safeBudgetPolicyForResponse(value) {
     kill_switch_default_state: policy.kill_switch_default_state || null,
     kill_switch_required_for_provider_call: policy.kill_switch_required_for_provider_call ?? null,
     runtime_env_kill_switch_enforced: policy.runtime_env_kill_switch_enforced === true,
-    runtime_budget_limit_enforced: policy.runtime_budget_limit_enforced === true,
+    runtime_budget_limit_enforced: policy.runtime_budget_limit_enforced === true || policy.runtime_budget_cap_enforced === true,
+    runtime_budget_cap_enforced: policy.runtime_budget_cap_enforced === true,
+    live_platform_budget_cap: policy.live_platform_budget_cap && typeof policy.live_platform_budget_cap === "object"
+      ? policy.live_platform_budget_cap
+      : null,
     credit_debit: policy.credit_debit === true,
     reservation: policy.reservation && typeof policy.reservation === "object" ? {
       status: policy.reservation.status || null,
@@ -386,7 +396,8 @@ function queueBudgetPolicySummary(job) {
     plan_status: policy.plan_status,
     kill_switch_flag_name: policy.kill_switch_flag_name,
     runtime_env_kill_switch_enforced: policy.runtime_env_kill_switch_enforced === true,
-    runtime_budget_limit_enforced: false,
+    runtime_budget_limit_enforced: policy.runtime_budget_limit_enforced === true || policy.runtime_budget_cap_enforced === true,
+    runtime_budget_cap_enforced: policy.runtime_budget_cap_enforced === true,
     credit_debit: false,
     fingerprint: policy.fingerprint,
   };
@@ -777,7 +788,15 @@ export async function createAdminAiVideoJob({
     operationOverride: budgetOperationOverride,
   });
   await assertBudgetSwitchEffectiveEnabled(env, budgetPolicy.plan);
-  const budgetPolicySummary = budgetPolicy.summary;
+  const capCheck = await checkPlatformBudgetCap(env, {
+    budgetScope: budgetPolicy.summary.budget_scope,
+    operationKey: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
+    sourceRoute: "/api/admin/ai/video-jobs",
+    actorUserId: adminUser.id,
+    actorRole: "admin",
+    units: platformBudgetUnitsFromBudgetPolicy(budgetPolicy.summary),
+  });
+  const budgetPolicySummary = withPlatformBudgetCapMetadata(budgetPolicy.summary, capCheck);
   const job = {
     id: `vidjob_${randomTokenHex(16)}`,
     user_id: adminUser.id,
@@ -1510,6 +1529,22 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
       providerTaskId: providerResult.providerTaskId || job.provider_task_id || null,
       providerState: providerResult.providerState || "success",
     }, nowIso());
+    await recordPlatformBudgetUsageEvent(env, {
+      budgetScope: budgetPolicy.budget_scope,
+      operationKey: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
+      sourceRoute: "/api/admin/ai/video-jobs",
+      actorUserId: job.user_id,
+      actorRole: "admin",
+      units: platformBudgetUnitsFromBudgetPolicy(budgetPolicy),
+      idempotencyKeyHash: job.idempotency_key ? await sha256Hex(job.idempotency_key) : null,
+      requestFingerprint: job.budget_policy_fingerprint || job.request_hash || null,
+      sourceJobId: job.id,
+      metadata: {
+        model_id: job.model,
+        provider_family: budgetPolicy.provider_family || job.provider,
+        result_status: "succeeded",
+      },
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",

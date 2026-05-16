@@ -44,10 +44,10 @@ assert.equal(report.summary.runtimeBudgetSwitchesEnabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesDisabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesAppEnabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesEffectiveEnabled, null);
-assert.equal(report.summary.liveBudgetCapsStatus, "not_implemented");
-assert.equal(report.summary.liveBudgetCapsEnforced, false);
+assert.equal(report.summary.liveBudgetCapsStatus, "platform_admin_lab_budget_foundation");
+assert.equal(report.summary.liveBudgetCapsEnforced, true);
 assert.equal(report.summary.recommendedFirstCapScope, "platform_admin_lab_budget");
-assert(report.summary.switchEnforcedNotCapEnforcedOperations >= 10);
+assert(report.summary.switchEnforcedNotCapEnforcedOperations >= 4);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 assert.equal(report.adminAiUsageAttempts.cleanup.registered, true);
@@ -67,30 +67,31 @@ assert(report.runtimeBudgetSwitches.targets.some((entry) =>
   && entry.enabled === null
   && entry.appSwitchEnabled === null
   && entry.effectiveEnabled === null
-  && entry.liveCapStatus === "not_implemented"
+  && entry.liveCapStatus === "cap_enforced"
 ));
 assert(report.runtimeBudgetSwitches.targets.some((entry) =>
   entry.flagName === "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET"
   && entry.routePath === "/api/admin/ai/test-image"
 ));
-assert.equal(report.livePlatformBudgetCaps.liveBudgetCapsStatus, "not_implemented");
-assert.equal(report.livePlatformBudgetCaps.liveBudgetCapsEnforced, false);
-assert.equal(report.livePlatformBudgetCaps.runtimeRouteBehaviorChanged, false);
+assert.equal(report.livePlatformBudgetCaps.liveBudgetCapsStatus, "platform_admin_lab_budget_foundation");
+assert.equal(report.livePlatformBudgetCaps.liveBudgetCapsEnforced, true);
+assert.equal(report.livePlatformBudgetCaps.runtimeRouteBehaviorChanged, true);
 assert.equal(report.livePlatformBudgetCaps.recommendedFirstCapScope, "platform_admin_lab_budget");
 assert.equal(report.livePlatformBudgetCaps.memberRoutesSeparate, true);
-assert(report.livePlatformBudgetCaps.switchEnforcedNotCapEnforcedOperationIds.includes("admin.text.test"));
-assert(report.livePlatformBudgetCaps.switchEnforcedNotCapEnforcedOperationIds.includes("admin.live_agent"));
+assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.text.test"));
+assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.live_agent"));
 assert(report.livePlatformBudgetCaps.pathsWithEstimatedCostUnits.includes("admin.video.job.create"));
 assert(report.livePlatformBudgetCaps.pathsWithDurableCompletionTimestamps.includes("admin.compare"));
 
 const platformCapScope = report.livePlatformBudgetCaps.countabilityByBudgetScope.find((entry) =>
   entry.scope === "platform_admin_lab_budget"
 );
-assert.equal(platformCapScope.status, "not_implemented");
-assert.equal(platformCapScope.countability, "partially_countable");
-assert.equal(platformCapScope.futurePhase, "Phase 4.17");
+assert.equal(platformCapScope.status, "cap_enforced");
+assert.equal(platformCapScope.countability, "countable_now");
+assert.equal(platformCapScope.futurePhase, "Phase 4.17 implemented foundation");
 assert(platformCapScope.currentDataSources.includes("admin_ai_usage_attempts"));
 assert(platformCapScope.currentDataSources.includes("ai_video_jobs"));
+assert(platformCapScope.currentDataSources.includes("platform_budget_usage_events"));
 
 const unmeteredCapScope = report.livePlatformBudgetCaps.countabilityByBudgetScope.find((entry) =>
   entry.scope === "explicit_unmetered_admin"

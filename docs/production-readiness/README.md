@@ -4,7 +4,7 @@ Last updated: 2026-05-16
 
 Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
 
-The latest auth D1 migration declared by `config/release-compat.json` is `0052_add_admin_runtime_budget_switches.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
+The latest auth D1 migration declared by `config/release-compat.json` is `0053_add_platform_budget_caps.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
 ## Evidence Rule
 
@@ -20,7 +20,7 @@ Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The 
 | --- | --- | --- | --- | --- |
 | Repo baseline: branch, commit, worktree, release latest migration | Repo maintainer | Local repo | None | No secrets involved. |
 | Local release checks | Repo maintainer | Local repo / CI | None | Commands must not print secrets. |
-| Auth D1 migration status through `0052_add_admin_runtime_budget_switches.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
+| Auth D1 migration status through `0053_add_platform_budget_caps.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
 | Auth Worker bindings: D1, R2, Queues, Durable Object, AI, Images, service bindings | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names and present/missing only. |
 | AI Worker bindings and Durable Object migration | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding/migration names and present/missing only. |
 | Contact Worker Durable Object binding | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names only. |
@@ -56,7 +56,7 @@ Phase 2.1 adds repository-local code for operator-review-only live Stripe event 
 
 Live billing remains blocked until failure, refund, dispute, chargeback, expired-session, review queue/resolution, read-only reconciliation, approved remediation, invoice/customer-portal/tax/legal, and support workflow evidence is complete or explicitly scoped out by product/legal with documented risk acceptance.
 
-Phase 4.8.2 adds admin-only sanitized inspection and bounded non-destructive cleanup for `admin_ai_usage_attempts` created by admin text/embeddings idempotency. Phase 4.9 adds no migration and extends that metadata-only idempotency foundation only to Admin Music test generation. Phase 4.10 adds no migration and extends it only to Admin Compare. Phase 4.11 adds no migration and audits/designs Admin Live-Agent budget enforcement only. Phase 4.12 adds no migration and extends the metadata-only attempt foundation only to Admin Live-Agent stream sessions with required `Idempotency-Key`, caller-policy propagation, duplicate stream suppression, and observable stream completion/failure tracking. Phase 4.13 adds no migration and retires the synchronous Admin Video Debug route from normal provider-cost operations as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path. Phase 4.14 adds no migration and classifies Admin Image branches: charged priced models remain on the existing selected-organization credit path, FLUX.2 Dev is an explicit unmetered admin exception with sanitized metadata, and unknown/unclassified Admin Image models block before AI Worker/provider execution. Phase 4.15 adds no migration and enforces Cloudflare master runtime budget kill switches for already budget-classified admin/platform provider-cost paths before provider/queue/credit/durable-attempt work. Phase 4.15.1 adds additive migration `0052`, D1 app-level switch state/history, admin-only switch list/update APIs, and an Admin Control Plane UI panel. Effective provider-cost execution requires both the Cloudflare master flag and the D1 app switch; missing D1 rows, disabled app switches, unavailable D1, or disabled/missing Cloudflare flags fail closed. The Admin UI cannot mutate Cloudflare variables, does not call Cloudflare APIs, and stores no Cloudflare API tokens. Phase 4.16 remains completed and only documents/reports live platform budget cap design and countability; it does not enforce caps or change runtime routes. These phases do not call providers in tests, call Stripe, enable live billing, add live platform budget caps, or make production/live billing ready. Operators should verify list/detail redaction, dry-run cleanup, execution of expired pending/running rows only, scheduled count-only cleanup logs, Admin Music duplicate-suppression/conflict behavior, Admin Compare duplicate-suppression/conflict behavior, Admin Live-Agent duplicate-suppression/conflict/finalization behavior, sync video debug disabled-by-default evidence, Admin Image branch classification evidence, Cloudflare master budget-switch intended state, D1 app-switch intended/effective state, live cap not-implemented warning evidence, and no credit/billing/provider side effects before using those endpoints operationally.
+Phase 4.8.2 adds admin-only sanitized inspection and bounded non-destructive cleanup for `admin_ai_usage_attempts` created by admin text/embeddings idempotency. Phase 4.9 adds no migration and extends that metadata-only idempotency foundation only to Admin Music test generation. Phase 4.10 adds no migration and extends it only to Admin Compare. Phase 4.11 adds no migration and audits/designs Admin Live-Agent budget enforcement only. Phase 4.12 adds no migration and extends the metadata-only attempt foundation only to Admin Live-Agent stream sessions with required `Idempotency-Key`, caller-policy propagation, duplicate stream suppression, and observable stream completion/failure tracking. Phase 4.13 adds no migration and retires the synchronous Admin Video Debug route from normal provider-cost operations as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path. Phase 4.14 adds no migration and classifies Admin Image branches: charged priced models remain on the existing selected-organization credit path, FLUX.2 Dev is an explicit unmetered admin exception with sanitized metadata, and unknown/unclassified Admin Image models block before AI Worker/provider execution. Phase 4.15 adds no migration and enforces Cloudflare master runtime budget kill switches for already budget-classified admin/platform provider-cost paths before provider/queue/credit/durable-attempt work. Phase 4.15.1 adds additive migration `0052`, D1 app-level switch state/history, admin-only switch list/update APIs, and an Admin Control Plane UI panel. Effective provider-cost execution requires both the Cloudflare master flag and the D1 app switch; missing D1 rows, disabled app switches, unavailable D1, or disabled/missing Cloudflare flags fail closed. The Admin UI cannot mutate Cloudflare variables, does not call Cloudflare APIs, and stores no Cloudflare API tokens. Phase 4.16 remains completed and documents/reports live platform budget cap design and countability. Phase 4.17 adds additive migration `0053`, D1 daily/monthly cap limits and usage events, admin-only cap APIs, and a compact Admin Control Plane cap panel for `platform_admin_lab_budget` only. These phases do not call providers in tests, call Stripe, enable live billing, implement customer billing, or make production/live billing ready. Operators should verify list/detail redaction, dry-run cleanup, execution of expired pending/running rows only, scheduled count-only cleanup logs, Admin Music duplicate-suppression/conflict behavior, Admin Compare duplicate-suppression/conflict behavior, Admin Live-Agent duplicate-suppression/conflict/finalization behavior, sync video debug disabled-by-default evidence, Admin Image branch classification evidence, Cloudflare master budget-switch intended state, D1 app-switch intended/effective state, Phase 4.17 cap limit/usage evidence, and no member/org billing side effects before using those endpoints operationally.
 
 Phase 4.15 budget-switch operator checklist records intended state only; do not paste values or secrets:
 
@@ -73,21 +73,22 @@ Phase 4.15 budget-switch operator checklist records intended state only; do not 
 
 Phase 4.15.1 Admin AI Budget Switch Control Plane checklist records app-level D1 state only:
 
-- Remote migration `0052_add_admin_runtime_budget_switches.sql` is applied before auth Worker deploy.
+- Remote migration `0052_add_admin_runtime_budget_switches.sql` is applied before the Phase 4.15.1 switch-control auth Worker deploy.
 - `GET /api/admin/ai/budget-switches` shows safe master/app/effective status without Cloudflare values.
 - `PATCH /api/admin/ai/budget-switches/:switchKey` requires admin MFA, same-origin, bounded reason, and `Idempotency-Key`.
 - Disabled or missing Cloudflare master flags cannot be overridden by the Admin UI.
 - Missing D1 app rows and D1-unavailable states fail closed before provider/internal AI/queue/credit/durable-attempt work.
 - No Cloudflare API token is stored and no Cloudflare variable is mutated from the app.
-- Live platform budget caps remain `not_implemented` in Phase 4.16 evidence.
+- Phase 4.17 cap migration `0053_add_platform_budget_caps.sql` is applied before auth Worker deploys that depend on cap tables.
 
-Phase 4.16 live platform budget-cap evidence checklist records status only; do not paste secret values:
+Phase 4.16 and Phase 4.17 live platform budget-cap evidence checklist records status only; do not paste secret values:
 
-- Evidence report shows `liveBudgetCapsStatus: not_implemented`.
-- Evidence report distinguishes runtime switch enforcement from live cap enforcement.
-- Recommended first cap scope is `platform_admin_lab_budget`.
+- Evidence report preserves Phase 4.16 design/countability fields and shows `liveBudgetCapsStatus: platform_admin_lab_budget_foundation`.
+- Evidence report distinguishes runtime switch enforcement, Phase 4.17 cap enforcement, and non-cap-enforced future scopes.
+- `platform_admin_lab_budget` daily/monthly caps are configured intentionally before enabling related provider-cost paths.
+- Cap usage evidence is bounded/sanitized and records only successful covered provider-cost completions.
 - Operator decision is recorded before enabling admin/platform AI flags: keep flags off, enable a targeted flag for bounded testing, or accept risk without live caps.
-- Production/live billing remains BLOCKED while live daily/monthly caps are absent.
+- Production/live billing remains BLOCKED while other scopes, live evidence, and customer-billing evidence remain incomplete.
 
 ## Repo-Local Checks
 
@@ -144,7 +145,7 @@ npm run readiness:evidence
 npm run readiness:evidence -- --markdown
 ```
 
-Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0052_add_admin_runtime_budget_switches.sql` before deploying current auth Worker code or running API smoke checks.
+Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0053_add_platform_budget_caps.sql` before deploying current auth Worker code or running API smoke checks.
 
 Staging read-only evidence example with explicit URLs:
 
@@ -206,7 +207,7 @@ Local main-release gate:
 npm run check:main-release-readiness
 ```
 
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0052_add_admin_runtime_budget_switches.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0052` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0053_add_platform_budget_caps.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0053` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
 
 For local planning evidence only:
 
@@ -242,7 +243,7 @@ This evidence does not prove later admin video job controls, OpenClaw/News Pulse
 
 These are not run automatically by this framework:
 
-- Remote D1 migration status in staging/production through `0052_add_admin_runtime_budget_switches.sql`.
+- Remote D1 migration status in staging/production through `0053_add_platform_budget_caps.sql`.
 - Cloudflare Worker binding/resource presence in staging/production.
 - Cloudflare secret presence in staging/production.
 - Live health/security-header checks against staging/production URLs.
@@ -314,7 +315,7 @@ Unacceptable evidence includes:
 Until filled evidence proves otherwise, these remain unproven:
 
 - Production Cloudflare resource, binding, secret, route, WAF, header, RUM, and alert state.
-- Remote D1 migration status through `0052_add_admin_runtime_budget_switches.sql`.
+- Remote D1 migration status through `0053_add_platform_budget_caps.sql`.
 - Stripe Testmode checkout/webhook behavior in staging.
 - Live credit-pack canary behavior.
 - BITBI Pro subscription lifecycle behavior.

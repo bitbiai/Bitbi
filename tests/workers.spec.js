@@ -15076,7 +15076,7 @@ test.describe('Worker routes', () => {
         masterEnabledCount: 10,
         appEnabledCount: 10,
         effectiveEnabledCount: 10,
-        liveBudgetCapsStatus: 'not_implemented',
+        liveBudgetCapsStatus: 'platform_admin_lab_budget_foundation',
       }));
       expect(listBody.switches).toEqual(expect.arrayContaining([
         expect.objectContaining({
@@ -15084,7 +15084,7 @@ test.describe('Worker routes', () => {
           masterFlagStatus: 'enabled',
           appSwitchEnabled: true,
           effectiveEnabled: true,
-          liveCapStatus: 'not_implemented',
+          liveCapStatus: 'cap_enforced',
         }),
       ]));
       expect(JSON.stringify(listBody)).not.toContain('test-session-secret');
@@ -15194,6 +15194,195 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('Admin platform budget cap API lists and updates platform_admin_lab_budget limits', async () => {
+      const nonAdmin = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'platform-cap-member', role: 'user' }),
+      });
+      const denied = await nonAdmin.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-caps', 'GET', undefined, nonAdmin.authHeaders),
+        nonAdmin.env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const list = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-caps', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(list.status).toBe(200);
+      const listBody = await list.json();
+      expect(listBody).toEqual(expect.objectContaining({
+        ok: true,
+        budgetScope: 'platform_admin_lab_budget',
+        liveBudgetCapsStatus: 'platform_admin_lab_budget_foundation',
+        capEnforced: true,
+      }));
+      expect(listBody.windows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ windowType: 'daily', configured: true }),
+        expect.objectContaining({ windowType: 'monthly', configured: true }),
+      ]));
+      expect(JSON.stringify(listBody)).not.toContain('sk_live_');
+      expect(JSON.stringify(listBody)).not.toContain('test-session-secret');
+
+      const update = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-caps/platform_admin_lab_budget', 'PATCH', {
+          window_type: 'daily',
+          limit_units: 1234,
+          reason: 'Set daily platform admin lab cap during test.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-cap-daily-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(update.status).toBe(200);
+      const updateBody = await update.json();
+      expect(updateBody.limit).toEqual(expect.objectContaining({
+        budgetScope: 'platform_admin_lab_budget',
+        windowType: 'daily',
+        limitUnits: 1234,
+      }));
+      expect(env.DB.state.platformBudgetLimitEvents).toHaveLength(1);
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-caps/platform_admin_lab_budget', 'PATCH', {
+          window_type: 'daily',
+          limit_units: 9999,
+          reason: 'Different cap request with same key.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-cap-daily-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_conflict',
+      });
+
+      const invalidScope = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-caps/openclaw_news_pulse_budget', 'PATCH', {
+          window_type: 'daily',
+          limit_units: 100,
+          reason: 'Invalid scope should fail.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-cap-invalid-scope-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidScope.status).toBe(400);
+    });
+
+    test('platform_admin_lab_budget caps block Admin Text before provider work and record successful usage once', async () => {
+      const exceededHarness = await createAdminAiContractHarness({
+        authEnv: {
+          platformBudgetLimits: [
+            {
+              id: 'pbl_daily_low',
+              budget_scope: 'platform_admin_lab_budget',
+              window_type: 'daily',
+              limit_units: 1,
+              mode: 'enforce',
+              status: 'active',
+              starts_at: null,
+              ends_at: null,
+              reason: 'low daily cap',
+              metadata_json: '{}',
+              created_at: '2026-05-16T00:00:00.000Z',
+              updated_at: '2026-05-16T00:00:00.000Z',
+              created_by_user_id: 'test',
+              updated_by_user_id: 'test',
+            },
+            {
+              id: 'pbl_monthly_low',
+              budget_scope: 'platform_admin_lab_budget',
+              window_type: 'monthly',
+              limit_units: 1,
+              mode: 'enforce',
+              status: 'active',
+              starts_at: null,
+              ends_at: null,
+              reason: 'low monthly cap',
+              metadata_json: '{}',
+              created_at: '2026-05-16T00:00:00.000Z',
+              updated_at: '2026-05-16T00:00:00.000Z',
+              created_by_user_id: 'test',
+              updated_by_user_id: 'test',
+            },
+          ],
+          platformBudgetUsageEvents: [{
+            id: 'pbu_existing',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.text.test',
+            source_route: '/api/admin/ai/test-text',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: null,
+            request_fingerprint: null,
+            source_attempt_id: 'existing-attempt',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T00:00:00.000Z',
+          }],
+        },
+      });
+      const blocked = await exceededHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          prompt: 'Cap exceeded request should not reach provider.',
+        }, adminAiIdempotencyHeaders(exceededHarness.authHeaders, 'admin-text-cap-exceeded-1')),
+        exceededHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(blocked.status).toBe(429);
+      await expect(blocked.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'platform_budget_cap_exceeded',
+        budget_scope: 'platform_admin_lab_budget',
+      });
+      expect(exceededHarness.aiLabRequests).toHaveLength(0);
+      expect(exceededHarness.env.DB.state.adminAiUsageAttempts).toHaveLength(0);
+
+      const allowedHarness = await createAdminAiContractHarness();
+      const headers = adminAiIdempotencyHeaders(allowedHarness.authHeaders, 'admin-text-cap-usage-1');
+      const first = await allowedHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          prompt: 'Allowed request records exactly one platform budget usage event.',
+        }, headers),
+        allowedHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(200);
+      expect(allowedHarness.env.DB.state.platformBudgetUsageEvents).toHaveLength(1);
+      expect(allowedHarness.env.DB.state.platformBudgetUsageEvents[0]).toEqual(expect.objectContaining({
+        budget_scope: 'platform_admin_lab_budget',
+        operation_key: 'admin.text.test',
+        source_route: '/api/admin/ai/test-text',
+        status: 'recorded',
+      }));
+      const replay = await allowedHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          prompt: 'Allowed request records exactly one platform budget usage event.',
+        }, headers),
+        allowedHarness.env,
+        createExecutionContext().execCtx
+      );
+      expect(replay.status).toBe(200);
+      expect(allowedHarness.aiLabRequests).toHaveLength(1);
+      expect(allowedHarness.env.DB.state.platformBudgetUsageEvents).toHaveLength(1);
+    });
+
     test('GET /api/admin/ai/models propagates the correlation id through the auth to AI wrapper path', async () => {
       const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
       const correlationId = 'admin-ai-models-corr-1234';
@@ -15257,16 +15446,23 @@ test.describe('Worker routes', () => {
           provider: 'workers-ai',
           model: 'pixverse/v6',
           statusUrl: expect.stringMatching(/^\/api\/admin\/ai\/video-jobs\/vidjob_/),
-          budgetPolicy: expect.objectContaining({
-            operation_id: 'admin.video.job.create',
-            budget_scope: 'platform_admin_lab_budget',
-            kill_switch_flag_name: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
-            idempotency_policy: 'required',
-            runtime_budget_limit_enforced: false,
-            credit_debit: false,
-          }),
-        },
-      });
+	          budgetPolicy: expect.objectContaining({
+	            operation_id: 'admin.video.job.create',
+	            budget_scope: 'platform_admin_lab_budget',
+	            kill_switch_flag_name: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+	            idempotency_policy: 'required',
+	            runtime_budget_limit_enforced: true,
+	            runtime_budget_cap_enforced: true,
+	            live_platform_budget_cap: expect.objectContaining({
+	              status: 'allowed',
+	              budget_scope: 'platform_admin_lab_budget',
+	              operation_key: 'admin.video.job.create',
+	              requested_units: 139,
+	            }),
+	            credit_debit: false,
+	          }),
+	        },
+	      });
       expect(env.DB.state.aiVideoJobs).toHaveLength(1);
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
         budget_policy_status: 'ready_for_budget_check',
@@ -15297,14 +15493,15 @@ test.describe('Worker routes', () => {
         job_id: body.job.jobId,
         user_id: admin.id,
         attempt: 1,
-        budget_policy: expect.objectContaining({
-          operation_id: 'admin.video.job.create',
-          budget_scope: 'platform_admin_lab_budget',
-          kill_switch_flag_name: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
-          runtime_budget_limit_enforced: false,
-          credit_debit: false,
-        }),
-      });
+	        budget_policy: expect.objectContaining({
+	          operation_id: 'admin.video.job.create',
+	          budget_scope: 'platform_admin_lab_budget',
+	          kill_switch_flag_name: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+	          runtime_budget_limit_enforced: true,
+	          runtime_budget_cap_enforced: true,
+	          credit_debit: false,
+	        }),
+	      });
       const serializedQueueMessage = JSON.stringify(env.AI_VIDEO_JOBS_QUEUE.messages[0]);
       expect(serializedQueueMessage).not.toContain('Launch animation');
       expect(serializedQueueMessage).not.toContain('Bearer ');
