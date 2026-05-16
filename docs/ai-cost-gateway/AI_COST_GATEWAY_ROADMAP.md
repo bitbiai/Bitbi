@@ -566,13 +566,67 @@ Non-goals:
 
 - No broad Admin AI Lab migration, no admin video jobs, no public billing/pricing changes.
 
-## Phase 4.4: Admin Async Video Job Budget Enforcement
+## Phase 4.4: Admin/Platform AI Budget Evidence Collector
+
+Status: completed for read-only evidence/reporting only. No runtime budget enforcement, admin video job migration, broad Admin AI migration, OpenClaw/News Pulse migration, platform/background migration, internal AI Worker migration, member/org route behavior change, credit mutation, Stripe work, provider call, deployment, remote migration, or live billing readiness claim occurred.
 
 Scope:
 
-- Add platform admin lab budget reservation/telemetry to admin async video job create and queue processing.
-- Tie internal video-task create/poll calls to a parent admin video job budget state.
-- Address response-loss and duplicate queue delivery around provider task creation without changing member video behavior.
+- Add a local evidence collector that summarizes admin/platform/provider-cost coverage from the operation registry, known-gap baseline, route-policy metadata, and known Phase 4.3 charged Admin BFL image-test metadata.
+- Add an admin-only read endpoint and local script for sanitized evidence output.
+- Keep the report bounded, deterministic under a supplied timestamp, and blocked while known gaps remain.
+- Show which flows are gateway-migrated, implemented/hardened, baselined, explicit-unmetered, caller-enforced, external-only, or missing runtime enforcement.
+
+Files:
+
+- `workers/auth/src/lib/admin-platform-budget-evidence.js`
+- `workers/auth/src/routes/admin-ai.js`
+- `workers/auth/src/app/route-policy.js`
+- `scripts/report-ai-budget-evidence.mjs`
+- `scripts/test-admin-platform-budget-evidence.mjs`
+- `tests/workers.spec.js`
+- `package.json`
+- docs under `docs/ai-cost-gateway/` and current-state reports
+
+Tests:
+
+- evidence helper groups operations by budget scope
+- charged Admin BFL image-test appears as implemented/hardened under `admin_org_credit_account`
+- member image/music/video appear as migrated/member gateway covered
+- admin video jobs remain baselined gaps
+- OpenClaw/News Pulse remains a baselined gap
+- internal AI Worker caller-enforced routes remain baselined gaps
+- report is bounded and sanitized
+- report verdict remains blocked
+- helper/script/endpoint make no provider calls and no billing/credit mutations
+- endpoint denies non-admin users and is route-policy registered
+
+Rollback:
+
+- Remove or hide `GET /api/admin/ai/budget-evidence` and keep the local helper/script for operator checks, or revert the helper/script entirely. No D1/R2/credit/provider state is created by this phase.
+
+Deploy units:
+
+- Auth Worker if the endpoint is deployed. Script/docs-only usage is validation-only.
+
+Migration risk:
+
+- None. No schema change.
+
+Non-goals:
+
+- No admin async video runtime budget enforcement.
+- No broad Admin AI, OpenClaw/News Pulse, platform/background, internal AI Worker, member, org-scoped, Stripe, billing, pricing, deployment, or live-readiness change.
+
+## Phase 4.5: Admin Async Video Job Budget Enforcement
+
+Status: completed for admin async video jobs only. No broad Admin AI migration, Admin music/text/compare/live-agent migration, OpenClaw/News Pulse migration, platform/background AI migration, internal AI Worker global migration, member/org route behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, public billing change, or live billing readiness claim occurred.
+
+Scope:
+
+- Add platform admin lab budget metadata/telemetry to admin async video job create and queue processing.
+- Tie internal video-task create/poll calls to a parent admin video job budget state for the auth Worker admin job caller only.
+- Address duplicate queue delivery and unresolved provider-create retry safety without changing member video behavior.
 
 Likely files:
 
@@ -580,15 +634,19 @@ Likely files:
 - `workers/auth/src/routes/admin-ai.js`
 - `workers/auth/src/lib/ai-cost-operations.js`
 - `workers/auth/src/app/route-policy.js`
-- `workers/ai/src/routes/video-task.js` only if caller-policy metadata must be passed through
+- `workers/auth/migrations/0049_add_admin_video_job_budget_metadata.sql`
+- `config/ai-cost-policy-baseline.json`
+- `scripts/check-ai-cost-policy.mjs`
 - Worker tests
 
 Tests:
 
-- job creation budget denied before provider task creation
-- duplicate job idempotency does not create duplicate provider tasks
-- queue retry after task create response loss is safe
+- invalid budget policy config is denied before queueing/provider task creation
+- duplicate job idempotency does not queue duplicate provider tasks
+- queue retry after task create response loss fails closed instead of creating a second provider task
 - poll only uses persisted provider task id
+- job/queue metadata is bounded and sanitized
+- missing budget metadata fails closed before provider task creation
 - no member video/image/music regression
 - no real provider calls in tests
 
@@ -598,17 +656,17 @@ Rollback:
 
 Deploy units:
 
-- Auth Worker. AI Worker only if service-route caller metadata contract changes.
+- Auth Worker plus auth D1 schema checkpoint `0049`. AI Worker is not expected because service-route auth/contract did not change.
 
 Migration risk:
 
-- Possible additive job/budget metadata if existing job table cannot represent reservation/finalization safely.
+- Additive migration `0049_add_admin_video_job_budget_metadata.sql` adds nullable `ai_video_jobs` budget metadata columns. Do not apply remotely until an operator runs the release plan.
 
 Non-goals:
 
-- No member video migration, no live provider testing, no public UI, no Stripe work.
+- No member video migration, no broad Admin AI migration, no Admin music/text/compare/live-agent migration, no OpenClaw/News Pulse migration, no internal AI Worker route global enforcement, no live provider testing, no public UI, no Stripe work, no live billing readiness claim.
 
-## Phase 4.5: OpenClaw/News Pulse Visual Budget Controls
+## Phase 4.6: OpenClaw/News Pulse Visual Budget Controls
 
 Scope:
 
@@ -649,7 +707,7 @@ Non-goals:
 
 - No public News Pulse UI redesign, no member billing, no OpenClaw ingest auth changes.
 
-## Phase 4.6: Internal AI Worker Caller-Policy Guard
+## Phase 4.7: Internal AI Worker Caller-Policy Guard
 
 Scope:
 
@@ -694,7 +752,7 @@ Non-goals:
 
 - No public route exposure, no member billing changes, no admin budget dashboard.
 
-## Phase 4.7: Admin/Platform Budget Observability Dashboard
+## Phase 4.8: Admin/Platform Budget Observability Dashboard
 
 Scope:
 

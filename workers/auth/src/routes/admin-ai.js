@@ -74,6 +74,7 @@ import {
   buildAdminPlatformBudgetFingerprint,
   classifyAdminPlatformBudgetPlan,
 } from "../lib/admin-platform-budget-policy.js";
+import { buildAdminPlatformBudgetEvidenceReport } from "../lib/admin-platform-budget-evidence.js";
 import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
 import { normalizeOrgId } from "../lib/orgs.js";
 import { sha256Hex } from "../lib/tokens.js";
@@ -534,6 +535,12 @@ export async function handleAdminAI(ctx) {
   const result = await requireAdmin(request, env, { isSecure, correlationId });
   if (result instanceof Response) {
     return withAdminAiCode(result);
+  }
+
+  if (pathname === "/api/admin/ai/budget-evidence" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-budget-evidence-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport()), correlationId);
   }
 
   if (pathname === "/api/admin/ai/models" && method === "GET") {

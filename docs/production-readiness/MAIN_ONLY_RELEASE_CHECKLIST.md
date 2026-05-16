@@ -1,6 +1,6 @@
 # Main-Only Release Checklist
 
-Last updated: 2026-05-15
+Last updated: 2026-05-16
 
 Default verdict: **BLOCKED**
 
@@ -63,23 +63,34 @@ For the Phase 3.4 member personal image gateway pilot:
 | Stripe dashboard/API change | no |  |
 | Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
 
+For the Phase 4.5 admin async video job budget metadata/enforcement change:
+
+| Deploy Unit | Required? | Evidence |
+| --- | --- | --- |
+| Auth schema checkpoint `0049_add_admin_video_job_budget_metadata.sql` | yes |  |
+| Auth Worker | yes |  |
+| Static/pages | no, unless `release:plan` reports other reviewed static changes |  |
+| AI Worker/contact Worker | no |  |
+| Stripe dashboard/API change | no |  |
+| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
+
 If `npm run release:plan` for the reviewed runtime diff reports unexpected deploy units, stop and reconcile before deploying.
 
-## 4. Required Production D1 Migration Evidence Through 0048
+## 4. Required Production D1 Migration Evidence Through 0049
 
 Required latest auth migration:
 
 ```text
-0048_add_member_ai_usage_attempts.sql
+0049_add_admin_video_job_budget_metadata.sql
 ```
 
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Production auth D1 migration status checked by operator |  | BLOCKED |
-| `0048_add_member_ai_usage_attempts.sql` present/applied |  | BLOCKED |
+| `0049_add_admin_video_job_budget_metadata.sql` present/applied |  | BLOCKED |
 | Evidence records migration names/status only |  | BLOCKED |
 | No remote migration was run by Codex or automation from this checklist |  | BLOCKED |
-| Migration `0048` verified before auth Worker deploy |  | BLOCKED |
+| Migration `0049` verified before auth Worker deploy |  | BLOCKED |
 
 ## 5. Auth Worker Deploy Verification
 
@@ -90,6 +101,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | Auth Worker deployed from reviewed main commit |  | BLOCKED |
 | Auth Worker deployment id/version recorded if available |  | BLOCKED |
 | Phase 3.4 member personal image route sees migration `0048` table before Worker deploy |  | BLOCKED |
+| Phase 4.5 admin async video job route sees migration `0049` columns before Worker deploy |  | BLOCKED |
 | `/api/admin/billing/reviews` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id/resolution` write route remains admin/MFA/same-origin/idempotency guarded |  | BLOCKED |

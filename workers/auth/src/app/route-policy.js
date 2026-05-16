@@ -508,6 +508,11 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.adminAi,
     rateLimit: { id: "admin-ai-models-ip", failClosed: true },
   }),
+  adminRead("admin.ai.budget-evidence.read", "/api/admin/ai/budget-evidence", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-budget-evidence-ip", failClosed: true },
+    notes: "Read-only Phase 4.4 Admin/Platform AI budget evidence report built from local registry, baseline, and route-policy metadata. No provider, Stripe, credit, D1 write, R2 write, or remediation action.",
+  }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", { config: REQUIRED_CONFIG.adminAi }),
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
     config: REQUIRED_CONFIG.adminAi,
@@ -524,6 +529,14 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.video-jobs.create", "POST", "/api/admin/ai/video-jobs", "admin-ai", "adminVideoJobJson", "admin-ai-video-job-create-ip", {
     config: REQUIRED_CONFIG.adminVideoJobs,
     audit: { event: "ai_video_job_created" },
+    billing: {
+      budgetScope: "platform_admin_lab_budget",
+      killSwitchTarget: "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET",
+      idempotency: "Idempotency-Key header is required; same-key same-request reuses the existing job and same-key different-request conflicts before queueing.",
+      queueBudgetMetadata: "Phase 4.5 stores sanitized job-row budget_policy_json and includes a bounded queue budget_policy summary before provider-cost processing.",
+      runtimeEnforcement: "Admin async video job queue processing verifies job budget metadata before internal video-task create/poll calls. Runtime env kill-switch enforcement remains future work for this route only.",
+    },
+    notes: "Phase 4.5 covers only admin async video jobs with platform_admin_lab_budget metadata and duplicate queue/provider-task guards. The sync video debug route and broader admin AI routes remain separate baseline gaps.",
   }),
   adminRead("admin.ai.video-jobs.poison.list", "/api/admin/ai/video-jobs/poison", "admin-ai", {
     config: REQUIRED_CONFIG.adminVideoJobs,

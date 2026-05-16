@@ -6,10 +6,10 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const EXPECTED_MAIN_RELEASE_AUTH_MIGRATION =
-  "0048_add_member_ai_usage_attempts.sql";
+  "0049_add_admin_video_job_budget_metadata.sql";
 
 const MAIN_RELEASE_DEPLOY_UNITS = Object.freeze([
-  "auth schema checkpoint 0048",
+  "auth schema checkpoint 0049",
   "auth Worker",
 ]);
 
@@ -111,7 +111,7 @@ export function collectMainReleaseReadiness(options = {}) {
       "Direct-main release is riskier than staging because no separate staging environment is used.",
       "Production readiness remains BLOCKED until operator evidence is complete and reviewed.",
       "Live billing readiness remains BLOCKED; this check does not enable billing or approve Stripe live use.",
-      "Phase 3.4 member personal image gateway visibility requires auth D1 migration 0048 before auth Worker deployment from the reviewed main commit.",
+      "Phase 4.5 admin async video job budget metadata requires auth D1 migration 0049 before auth Worker deployment from the reviewed main commit.",
       `Production D1 migration status through ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION} must be verified manually before auth Worker deploy and live smoke checks.`,
       "This check never deploys, runs remote migrations, calls Stripe APIs, changes secrets, or mutates Cloudflare/GitHub settings.",
     ],

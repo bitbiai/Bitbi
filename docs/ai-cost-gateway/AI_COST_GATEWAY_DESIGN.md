@@ -1,8 +1,8 @@
 # AI Cost Gateway Design
 
-Date: 2026-05-15
+Date: 2026-05-16
 
-Status: target design plus Phase 4.3 charged Admin BFL image-test hardening. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Admin video jobs, broad Admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker provider routes remain outside runtime budget enforcement.
+Status: target design plus Phase 4.5 admin async video job budget enforcement. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Phase 4.4 adds read-only evidence reporting. Phase 4.5 imports the helper into admin async video job creation and auth queue processing to add sanitized `platform_admin_lab_budget` job/queue metadata and budget-state checks before internal video task create/poll calls. Broad Admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker provider routes globally remain outside runtime budget enforcement.
 
 ## Goals
 
@@ -31,6 +31,7 @@ Primary goals:
    - Phase 4.1 adds a target budget-scope taxonomy for non-member-credit flows: `admin_org_credit_account`, `platform_admin_lab_budget`, `platform_background_budget`, `openclaw_news_pulse_budget`, `internal_ai_worker_caller_enforced`, `explicit_unmetered_admin`, and `external_provider_only`.
    - Phase 4.2 adds pure helper validation and plan classification for those scopes.
    - Phase 4.3 uses the helper only for charged Admin image-test metadata; it does not enforce a new env kill switch or migrate broad Admin AI.
+   - Phase 4.5 uses the helper only for admin async video jobs; it records `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` as a future kill-switch target but does not enforce a new env flag.
    - Platform/admin-unmetered operations still need explicit cost telemetry and a budget exception before runtime migration.
 
 3. Resolve model/provider/cost
@@ -341,7 +342,7 @@ Target behavior for future admin/platform migrations:
 - require deterministic idempotency or an explicit reviewed unmetered exception before provider execution
 - deny before provider execution when platform/admin budgets, daily/monthly caps, or kill switches block the operation
 - keep charged admin BFL image tests on selected organization credits while adding explicit admin budget metadata
-- bind admin async video task create/poll to a parent job budget reservation before provider task creation
+- bind admin async video task create/poll to a parent job budget state before provider task creation; Phase 4.5 implements this only for the auth Worker admin video queue caller
 - keep internal AI Worker routes service-only and reject unknown callers in a future caller-policy guard
 - use deterministic item/job keys for OpenClaw/News Pulse visuals
 - emit only safe telemetry: operation id, budget scope, actor id, provider/model id, estimate, status, replay status, and safe error codes
@@ -364,7 +365,27 @@ Helper contract:
 - Fingerprints are deterministic, omit sensitive fields, and hash prompt-like fields inside the fingerprint payload.
 - Plan statuses are `ready_for_budget_check`, `requires_kill_switch`, `blocked_by_policy`, `caller_enforced`, `explicit_unmetered`, `platform_budget_review`, `admin_org_credit_required`, and `invalid_config`.
 
-Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. The next implementation phase should migrate the admin async video job budget path or add a report-only budget evidence collector.
+Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. Phase 4.4 adds read-only evidence reporting only; it does not add runtime enforcement, migrate routes, call providers, mutate billing, or prove live readiness. Phase 4.5 adds additive migration `0049_add_admin_video_job_budget_metadata.sql` and changes only admin async video job budget metadata/queue checks; it does not migrate broad Admin AI, OpenClaw/News Pulse, platform/background AI, internal AI Worker routes globally, member/org routes, Stripe, public billing, or live billing.
+
+## Phase 4.5 Admin Async Video Job Budget Enforcement
+
+Phase 4.5 covers only `POST /api/admin/ai/video-jobs` and the auth Worker queue consumer for those jobs.
+
+Implemented behavior:
+
+- requires the existing `Idempotency-Key` for job creation and preserves same-key replay/conflict behavior
+- builds a Phase 4.2 budget plan with scope `platform_admin_lab_budget` before inserting or queueing a new job
+- stores sanitized budget metadata on the job row: operation id, actor/admin id, actor class, budget scope, owner domain, provider family, model resolver key, estimated credits when available, idempotency policy, plan status, future kill-switch target, and fingerprint
+- includes a bounded budget summary in `AI_VIDEO_JOBS_QUEUE` messages without prompts, provider request bodies, tokens, cookies, Stripe data, Cloudflare tokens, or raw R2 keys
+- verifies job budget metadata before the queue consumer calls `/internal/ai/video-task/create` or `/internal/ai/video-task/poll`
+- suppresses duplicate provider task creation after a prior unresolved create attempt with no provider task id
+- preserves output/poster persistence behavior and does not mark budget state successful when output persistence fails
+
+Limits:
+
+- `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` is metadata only in this phase; runtime env enforcement and live platform budget caps remain future work.
+- Internal AI Worker service-auth semantics and route behavior are unchanged. The admin video caller is budget-state checked, but internal routes are not globally migrated.
+- No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, and production/live billing remains blocked.
 
 ## Phase 4.3 Charged Admin BFL Image-Test Hardening
 

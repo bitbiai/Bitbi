@@ -1,8 +1,8 @@
 # Admin And Platform AI Budget Policy
 
-Date: 2026-05-15
+Date: 2026-05-16
 
-Status: Phase 4.3 charged Admin BFL image-test hardening on top of the Phase 4.2 contract/helper foundation. Phase 4.1 converted the Phase 3.9 known-gap baseline into a concrete budget policy model for provider-cost AI flows that are not normal member-credit routes. Phase 4.2 adds the pure helper contract in `workers/auth/src/lib/admin-platform-budget-policy.js` plus deterministic tests. Phase 4.3 imports that helper only from the existing charged Admin image-test branch that already debits selected organization credits. It does not migrate broad Admin AI, admin video jobs, OpenClaw/News Pulse, internal AI Worker routes, public billing, or live readiness.
+Status: Phase 4.5 admin async video job budget enforcement on top of the Phase 4.2 contract/helper foundation, Phase 4.3 charged Admin BFL image-test hardening, and Phase 4.4 read-only budget evidence reporting. Phase 4.5 covers only `POST /api/admin/ai/video-jobs` and its auth Worker queue processing: job creation now builds sanitized `platform_admin_lab_budget` metadata before queueing, queue messages carry a bounded budget summary, and provider task create/poll calls are tied to the job budget state. Broad Admin AI, Admin music/text/compare/live-agent, OpenClaw/News Pulse, platform/background AI, and internal AI Worker routes globally remain unmigrated. No real provider calls, Stripe calls, live billing enablement, public billing changes, credit mutations, deploys, or remote migrations were performed.
 
 ## Scope
 
@@ -16,11 +16,40 @@ Covered provider-cost classes:
 
 Non-goals:
 
-- No broad runtime budget enforcement.
-- No broad admin route migration beyond the charged Admin BFL image-test branch.
-- No D1 schema.
+- No broad runtime budget enforcement beyond the admin async video job caller path.
+- No broad admin route migration beyond the charged Admin BFL image-test branch and the admin async video job path.
+- No D1 schema except additive migration `0049_add_admin_video_job_budget_metadata.sql` for sanitized job budget metadata.
 - No Admin UI.
-- No provider, Stripe, Cloudflare, GitHub, DNS, WAF, secret, deployment, or live-billing action.
+- No provider, Stripe, Cloudflare, GitHub, DNS, WAF, secret, deployment, remote migration, or live-billing action.
+
+## Phase 4.4 Evidence Collector
+
+Phase 4.4 adds `workers/auth/src/lib/admin-platform-budget-evidence.js`, `scripts/report-ai-budget-evidence.mjs`, `npm run test:admin-platform-budget-evidence`, `npm run report:ai-budget-evidence`, and `GET /api/admin/ai/budget-evidence`.
+
+The report is read-only and bounded. It returns a blocked verdict while known admin/platform/internal/OpenClaw gaps remain, groups evidence by `admin_org_credit_account`, `platform_admin_lab_budget`, `platform_background_budget`, `openclaw_news_pulse_budget`, `internal_ai_worker_caller_enforced`, `explicit_unmetered_admin`, and `external_provider_only`, and includes sanitized evidence for:
+
+- member image, music, and video as migrated member AI Cost Gateway routes
+- charged Admin BFL image-test as implemented/hardened with `admin_org_credit_account` metadata
+- admin async video jobs as Phase 4.5 `platform_admin_lab_budget` job/queue metadata coverage
+- broad Admin AI, OpenClaw/News Pulse visuals, platform/background AI, and internal AI Worker routes beyond the admin video caller path as baselined gaps
+
+The report does not include raw prompts, provider request bodies, cookies, tokens, secrets, private keys, Stripe data, or raw R2 keys. The endpoint is admin-only, production-MFA-classified through route-policy, fail-closed rate limited, and returns the same sanitized local evidence. It performs no provider calls and no billing, credit, D1, R2, Stripe, Cloudflare, GitHub, DNS, WAF, secret, deployment, or remediation mutation.
+
+## Phase 4.5 Admin Async Video Jobs
+
+Phase 4.5 migrates exactly one remaining admin/platform provider-cost path: admin async video jobs. The route remains admin-only with production MFA classification through route policy, same-origin mutation protection, fail-closed rate limiting, and required `Idempotency-Key`.
+
+Runtime behavior changed only for admin async video jobs:
+
+- `POST /api/admin/ai/video-jobs` builds a Phase 4.2 budget plan before inserting or queueing a new job.
+- The job row stores sanitized `budget_policy_json`, `budget_policy_status`, `budget_policy_fingerprint`, and `budget_policy_version`.
+- The queue message includes only bounded budget summary fields: operation id, budget scope, plan status, kill-switch target, no live budget enforcement marker, no credit debit marker, and fingerprint.
+- The auth Worker queue consumer verifies valid job budget metadata before calling `/internal/ai/video-task/create` or `/internal/ai/video-task/poll`.
+- Duplicate same-key same-body requests return the existing job without queueing again; same-key different-body requests conflict before queueing.
+- Duplicate queue delivery does not create a second provider task after a provider task id is recorded.
+- If task creation was already attempted but no provider task id was recorded, a later retry fails closed with safe operator-review state instead of making another provider create call.
+
+The kill-switch target is recorded as `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET`, but Phase 4.5 does not enforce a new runtime env flag. Live platform budget caps and runtime env kill-switch enforcement remain future work. Internal AI Worker service-auth semantics were not changed; only the auth Worker caller/job state now gates the admin video task create/poll calls. No member image/music/video behavior, org-scoped member image/text behavior, public pricing, Stripe behavior, credit debit behavior, or Admin UI changed.
 
 ## Phase 4.2 Helper Contract
 
@@ -70,9 +99,9 @@ Policy rule: new provider-cost routes must use one of these scopes in the operat
 | Admin compare | `platform_admin_lab_budget` | Multi-provider text calls can fan out. | Not required. | One parent compare budget reservation with per-model child telemetry. | Partial model failure records partial provider spend; no member debit. | Per-request model count cap, daily/monthly cap, kill switch. | Fanout budget cap, partial failure telemetry. | Later narrow migration. |
 | Admin live-agent | `platform_admin_lab_budget` | Streaming provider spend until stream ends. | Not request-idempotent today. | Stream-session budget lease with max duration/token estimate and stop reason. | No replay; final telemetry records duration/token/provider status. | Stream duration cap, per-admin daily/monthly cap, kill switch. | Stream cap enforcement and sanitized logs. | Later narrow migration. |
 | Admin sync video debug | `platform_admin_lab_budget` | Default-disabled debug route can spend video provider budget if enabled. | Not required. | Keep disabled by default; require emergency budget flag, idempotency, and runbook if retained. | No replay unless persisted; no member debit. | `ALLOW_SYNC_VIDEO_DEBUG` plus explicit budget flag. | Disabled-by-default, no provider without both flags. | Later narrow migration or removal. |
-| Admin async video jobs | `platform_admin_lab_budget` with internal caller-enforced subroutes | Job rows provide idempotency and queue state but no explicit budget reservation. | Job create requires `Idempotency-Key`; internal tasks inherit. | Parent admin video budget reservation before provider task create; internal task create/poll tied to job budget state. | Task create response-loss must not create duplicate provider tasks; polling tied to persisted task id. | Per-admin job/day and platform monthly cap; queue kill switch. | Duplicate delivery, response-loss, provider task retry, no budget double-finalization. | Phase 4.4. |
-| News Pulse/OpenClaw visuals | `openclaw_news_pulse_budget` | Visual rows/status suppress duplicate active work, no budget cap. | HMAC ingest nonce plus item status; not budget idempotency. | Deterministic item-level budget key, status-based suppression, per-batch and daily/monthly platform cap. | Ready thumbnail is durable replay; failed rows retry only within attempt cap and budget. | Visual generation kill switch, batch cap, daily/monthly cap. | No provider when cap/kill switch blocks, no duplicate item spend. | Phase 4.5. |
-| Scheduled/backfill visual jobs | `openclaw_news_pulse_budget` or `platform_background_budget` | Scheduled handler can backfill missing/failed visuals. | Status/attempt caps only. | Scheduled budget window with deterministic item keys and bounded batch reservations. | Existing ready thumbnails prevent regeneration; failed rows bounded. | Scheduled kill switch and budget window. | Batch cap and budget-denial tests. | Phase 4.5. |
+| Admin async video jobs | `platform_admin_lab_budget` with internal caller-enforced subroutes | Phase 4.5 stores sanitized job/queue budget metadata before provider-cost processing; no credits are debited. | Job create requires `Idempotency-Key`; internal tasks inherit the job budget state. | Runtime env kill switch and live budget caps still future; current enforcement is job metadata, idempotency, and duplicate provider-create suppression. | Polling is tied to persisted task id; output/poster success is preserved; output persistence failure does not mark budget state successful. | Future target `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET`; metadata-only in Phase 4.5. | Missing/invalid metadata, duplicate delivery, response-loss retry suppression, provider/output failures, sanitized telemetry. | Phase 4.5 completed for admin async video jobs only. |
+| News Pulse/OpenClaw visuals | `openclaw_news_pulse_budget` | Visual rows/status suppress duplicate active work, no budget cap. | HMAC ingest nonce plus item status; not budget idempotency. | Deterministic item-level budget key, status-based suppression, per-batch and daily/monthly platform cap. | Ready thumbnail is durable replay; failed rows retry only within attempt cap and budget. | Visual generation kill switch, batch cap, daily/monthly cap. | No provider when cap/kill switch blocks, no duplicate item spend. | Phase 4.6. |
+| Scheduled/backfill visual jobs | `openclaw_news_pulse_budget` or `platform_background_budget` | Scheduled handler can backfill missing/failed visuals. | Status/attempt caps only. | Scheduled budget window with deterministic item keys and bounded batch reservations. | Existing ready thumbnails prevent regeneration; failed rows bounded. | Scheduled kill switch and budget window. | Batch cap and budget-denial tests. | Phase 4.6. |
 | Generated music cover/background cover | `member_credit_account` today; `platform_background_budget` only if future policy changes | Phase 3.7 includes cover in parent member music bundle. | Parent member music idempotency. | Keep inside parent member music bundle unless product explicitly changes it; if split, use platform/background or member sub-budget with separate evidence. | Cover failure after audio success must not double debit. | Parent music caps today. | Preserve no separate charge and safe cover status. | No Phase 4.2 runtime work. |
 | Internal AI Worker routes | `internal_ai_worker_caller_enforced` | Service-only routes call providers and rely on auth-worker callers. | Inherited/delegated. | Internal routes remain service-only; callers must pass operation id/budget metadata before internal worker executes provider work. | Replay/failure policy belongs to caller; internal route returns safe provider result/status only. | Service binding only, caller kill switch, no public exposure. | Unknown caller rejected in future, no public route, no secret leakage. | Phase 4.6. |
 | Derivative/backfill flows | Not AI provider-cost today unless future route calls provider | Current image derivatives use transforms/R2, not AI provider calls. | Queue/job leases. | Keep outside AI provider budget guard unless provider-call patterns appear; storage/transform cost should be tracked separately. | No AI provider replay needed. | Queue limits and transform/storage budgets. | Guard catches any future provider call. | Outside Phase 4.2. |
@@ -89,10 +118,10 @@ Admin and platform operation metadata is now explicit in `workers/auth/src/lib/a
 | `/api/admin/ai/test-embeddings` / `admin.embeddings.test` | `platform_admin_lab_budget` | implicit unmetered admin spend | future narrow migration or removal |
 | `/api/admin/ai/test-music` / `admin.music.test` | `platform_admin_lab_budget` | implicit unmetered admin spend | future narrow migration |
 | `/api/admin/ai/test-video` sync debug / `admin.video.sync_debug` | `platform_admin_lab_budget` | default-disabled debug spend path | future narrow migration or removal |
-| `/api/admin/ai/video-jobs` / `admin.video.job.create` | `platform_admin_lab_budget` | job idempotency exists; budget reservation missing | Phase 4.4 |
+| `/api/admin/ai/video-jobs` / `admin.video.job.create` | `platform_admin_lab_budget` | Phase 4.5 implemented sanitized job/queue budget metadata, required idempotency, and queue consumer budget-state checks | Completed for admin async video jobs only |
 | `/api/admin/ai/compare` / `admin.compare` | `platform_admin_lab_budget` | implicit fan-out admin spend | future narrow migration |
 | `/api/admin/ai/live-agent` / `admin.live_agent` | `platform_admin_lab_budget` | implicit streaming admin spend | future narrow migration |
-| OpenClaw/News Pulse ingest and scheduled visuals / `platform.news_pulse.visual.*` | `openclaw_news_pulse_budget` | row status suppresses duplicates; budget caps missing | Phase 4.5 |
+| OpenClaw/News Pulse ingest and scheduled visuals / `platform.news_pulse.visual.*` | `openclaw_news_pulse_budget` | row status suppresses duplicates; budget caps missing | Phase 4.6 |
 | Generated music cover/background cover | `member_credit_account` today; future `platform_background_budget` only if product changes | included in parent music bundle | No Phase 4.2 runtime work |
 | Future AI provider backfills | `platform_background_budget` | not currently baselined as AI provider-cost unless a provider call appears | future targeted phase |
 
@@ -105,8 +134,8 @@ Internal AI Worker routes remain service-bound provider execution surfaces. Phas
 | `/internal/ai/test-embeddings` | `internal.embeddings.generate` | `internal_ai_worker_caller_enforced` | Admin embeddings caller |
 | `/internal/ai/test-music` | `internal.music.generate` | `internal_ai_worker_caller_enforced` | Member music gateway or admin music caller |
 | `/internal/ai/test-video` | `internal.video.generate` | `internal_ai_worker_caller_enforced` | Member video gateway or default-disabled admin debug caller |
-| `/internal/ai/video-task/create` | `admin.video.task.create`, `internal.video_task.create` | `internal_ai_worker_caller_enforced` | Admin video job caller |
-| `/internal/ai/video-task/poll` | `admin.video.task.poll`, `internal.video_task.poll` | `internal_ai_worker_caller_enforced` | Admin video job caller |
+| `/internal/ai/video-task/create` | `admin.video.task.create`, `internal.video_task.create` | `internal_ai_worker_caller_enforced` | Phase 4.5 ties the admin video job caller to job budget metadata; the internal route is not globally migrated |
+| `/internal/ai/video-task/poll` | `admin.video.task.poll`, `internal.video_task.poll` | `internal_ai_worker_caller_enforced` | Phase 4.5 ties the admin video job caller to job budget metadata and persisted task id; the internal route is not globally migrated |
 | `/internal/ai/compare` | `internal.compare` | `internal_ai_worker_caller_enforced` | Admin compare caller |
 | `/internal/ai/live-agent` | `internal.live_agent` | `internal_ai_worker_caller_enforced` | Admin live-agent caller |
 
@@ -149,9 +178,10 @@ Do not store raw prompts, lyrics, auth headers, cookies, tokens, Stripe data, pr
 
 1. Phase 4.2: Add admin/platform budget policy contract/helpers and tests only; no route migration. Completed for helper/test scope.
 2. Phase 4.3: Harden charged admin BFL image test budget metadata while preserving current organization-credit debit behavior. Completed for the charged branch only; broad Admin AI remains unmigrated.
-3. Phase 4.4: Add admin async video job budget reservation and internal task create/poll caller linkage.
-4. Phase 4.5: Add OpenClaw/News Pulse visual budget controls, caps, and kill switch.
-5. Phase 4.6: Add internal AI Worker caller-policy guard for service-bound routes.
-6. Phase 4.7: Add read-only admin/platform AI budget observability dashboard after telemetry is reliable.
+3. Phase 4.4: Add read-only Admin/Platform AI budget evidence reporting. Completed for helper/script/admin endpoint/test scope only; no runtime enforcement changed.
+4. Phase 4.5: Add admin async video job budget reservation metadata and internal task create/poll caller linkage. Completed only for admin async video jobs; broad Admin AI remains unmigrated.
+5. Phase 4.6: Add OpenClaw/News Pulse visual budget controls, caps, and kill switch.
+6. Phase 4.7: Add internal AI Worker caller-policy guard for service-bound routes.
+7. Phase 4.8: Add read-only admin/platform AI budget observability dashboard after telemetry is reliable.
 
 Each phase must be small, tested, reversible, and independently deployable. None of these phases should claim production readiness or live billing readiness without operator evidence.

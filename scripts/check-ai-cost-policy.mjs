@@ -675,6 +675,10 @@ export function renderAiCostPolicyReport(result) {
     "Hardened admin/platform budget operations:",
     renderHardenedAdminBudgetOperations(),
     "",
+    "Read-only admin/platform budget evidence:",
+    "- Phase 4.4 evidence collector: `npm run report:ai-budget-evidence` and `GET /api/admin/ai/budget-evidence` expose sanitized local registry/baseline/route-policy coverage.",
+    "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
+    "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
       `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.targetBudgetScope || "missing"}; killSwitch=${gap.killSwitchTarget || gap.killSwitchExemptionReason || "missing"}; target ${gap.targetFuturePhase}; registry=${gap.coveredByRegistryMetadata ? "covered" : "missing"}; allowed=${gap.allowedUnmigratedForNow ? "yes" : "no"}`
@@ -737,7 +741,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.4 should migrate the admin async video job budget enforcement path or add a report-only budget evidence collector before any broader admin/provider-cost migration.",
+    "- Phase 4.5 covers only admin async video job budget metadata/enforcement. Phase 4.6 should migrate OpenClaw/News Pulse visual budget controls before any broader admin/provider-cost migration.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

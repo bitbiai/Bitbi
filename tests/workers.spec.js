@@ -83,6 +83,13 @@ async function loadInvokeAiVideoModule() {
   return import(modulePath);
 }
 
+async function loadAiVideoJobsModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/ai-video-jobs.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1291,6 +1298,11 @@ test.describe('Phase 1-E auth route policy registry', () => {
       id: 'admin.ai.video-jobs.create',
       auth: 'admin',
       csrf: 'same-origin-required',
+      billing: expect.objectContaining({
+        budgetScope: 'platform_admin_lab_budget',
+        killSwitchTarget: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+        idempotency: expect.stringContaining('Idempotency-Key'),
+      }),
     }));
     expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/poison')).toEqual(expect.objectContaining({
       id: 'admin.ai.video-jobs.poison.list',
@@ -1304,6 +1316,18 @@ test.describe('Phase 1-E auth route policy registry', () => {
       id: 'admin.ai.usage-attempts.list',
       auth: 'admin',
       rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/budget-evidence')).toEqual(expect.objectContaining({
+      id: 'admin.ai.budget-evidence.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-budget-evidence-ip',
+        failClosed: true,
+      }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.cleanup-expired',
@@ -14433,6 +14457,112 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('GET /api/admin/ai/budget-evidence returns sanitized blocked read-only evidence without provider calls', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+      const dbBefore = JSON.stringify(env.DB.state);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-evidence', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        ok: true,
+        verdict: 'blocked',
+        runtimeMutation: false,
+        providerCalls: false,
+        billingMutation: false,
+        summary: expect.objectContaining({
+          memberGatewayMigrated: 3,
+          adminPlatformImplemented: 4,
+          baselineGaps: expect.any(Number),
+          blockedCriticalGaps: 0,
+          routePolicyRegistered: true,
+        }),
+      });
+      expect(body.budgetScopes).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          scope: 'admin_org_credit_account',
+          implementedCount: 1,
+          runtimeEnforcementExists: true,
+          runtimeEnforcementStatus: 'implemented',
+        }),
+        expect.objectContaining({
+          scope: 'openclaw_news_pulse_budget',
+          baselineGapIds: expect.arrayContaining(['openclaw-news-pulse-visual-generation']),
+        }),
+        expect.objectContaining({
+          scope: 'internal_ai_worker_caller_enforced',
+          baselineGapIds: expect.arrayContaining(['internal-ai-worker-text-image-embeddings']),
+        }),
+      ]));
+      expect(body.implementedOperations).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          operationId: 'admin.image.test.charged',
+          budgetScope: 'admin_org_credit_account',
+          runtimeStatus: 'implemented_hardened',
+          killSwitchTarget: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+        }),
+        expect.objectContaining({
+          operationId: 'member.image.generate',
+          runtimeStatus: 'gateway_migrated',
+        }),
+        expect.objectContaining({
+          operationId: 'member.music.generate',
+          runtimeStatus: 'gateway_migrated',
+        }),
+        expect.objectContaining({
+          operationId: 'member.video.generate',
+          runtimeStatus: 'gateway_migrated',
+        }),
+        expect.objectContaining({
+          operationId: 'admin.video.job.create',
+          budgetScope: 'platform_admin_lab_budget',
+          runtimeStatus: 'implemented_job_budget_metadata',
+          killSwitchTarget: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+        }),
+      ]));
+      expect(body.baselinedGaps).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'openclaw-news-pulse-visual-generation' }),
+        expect.objectContaining({ id: 'internal-ai-worker-text-image-embeddings' }),
+      ]));
+      expect(body.baselinedGaps).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'admin-ai-video-job-create' }),
+        expect.objectContaining({ id: 'admin-ai-video-task-create-poll' }),
+      ]));
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('raw prompt');
+      expect(serialized).not.toContain('sk_live_');
+      expect(serialized).not.toContain('sk_test_');
+      expect(serialized).not.toContain('whsec_');
+      expect(serialized).not.toContain('Bearer ');
+      expect(serialized).not.toContain('bitbi_session=');
+      expect(serialized).not.toContain('__Host-bitbi_session');
+      expect(serialized).not.toContain(`-----BEGIN PRIVATE ${'KEY'}-----`);
+      expect(aiLabRequests).toHaveLength(0);
+      expect(JSON.stringify(env.DB.state)).toBe(dbBefore);
+    });
+
+    test('GET /api/admin/ai/budget-evidence denies non-admin users before evidence is returned', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'budget-evidence-member', role: 'user' }),
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/budget-evidence', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(aiLabRequests).toHaveLength(0);
+    });
+
     test('GET /api/admin/ai/models propagates the correlation id through the auth to AI wrapper path', async () => {
       const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
       const correlationId = 'admin-ai-models-corr-1234';
@@ -14496,9 +14626,39 @@ test.describe('Worker routes', () => {
           provider: 'workers-ai',
           model: 'pixverse/v6',
           statusUrl: expect.stringMatching(/^\/api\/admin\/ai\/video-jobs\/vidjob_/),
+          budgetPolicy: expect.objectContaining({
+            operation_id: 'admin.video.job.create',
+            budget_scope: 'platform_admin_lab_budget',
+            kill_switch_flag_name: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+            idempotency_policy: 'required',
+            runtime_budget_limit_enforced: false,
+            credit_debit: false,
+          }),
         },
       });
       expect(env.DB.state.aiVideoJobs).toHaveLength(1);
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        budget_policy_status: 'ready_for_budget_check',
+        budget_policy_version: 'admin-platform-budget-policy-v1',
+      });
+      const budgetPolicy = JSON.parse(env.DB.state.aiVideoJobs[0].budget_policy_json);
+      expect(budgetPolicy).toMatchObject({
+        operation_id: 'admin.video.job.create',
+        budget_scope: 'platform_admin_lab_budget',
+        owner_domain: 'admin-video-jobs',
+        kill_switch_flag_name: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+        reservation: {
+          status: 'metadata_reserved',
+          ledger: 'platform_admin_lab_budget',
+          queue_required: true,
+        },
+      });
+      const serializedBudgetPolicy = JSON.stringify(body.job.budgetPolicy);
+      expect(serializedBudgetPolicy).not.toContain('Launch animation');
+      expect(serializedBudgetPolicy).not.toContain('Bearer ');
+      expect(serializedBudgetPolicy).not.toContain('bitbi_session=');
+      expect(serializedBudgetPolicy).not.toContain('sk_live_');
+      expect(serializedBudgetPolicy).not.toContain(`-----BEGIN PRIVATE ${'KEY'}-----`);
       expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(1);
       expect(env.AI_VIDEO_JOBS_QUEUE.messages[0]).toMatchObject({
         schema_version: 1,
@@ -14506,7 +14666,18 @@ test.describe('Worker routes', () => {
         job_id: body.job.jobId,
         user_id: admin.id,
         attempt: 1,
+        budget_policy: expect.objectContaining({
+          operation_id: 'admin.video.job.create',
+          budget_scope: 'platform_admin_lab_budget',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+          runtime_budget_limit_enforced: false,
+          credit_debit: false,
+        }),
       });
+      const serializedQueueMessage = JSON.stringify(env.AI_VIDEO_JOBS_QUEUE.messages[0]);
+      expect(serializedQueueMessage).not.toContain('Launch animation');
+      expect(serializedQueueMessage).not.toContain('Bearer ');
+      expect(serializedQueueMessage).not.toContain('bitbi_session=');
       expect(service.calls).toHaveLength(0);
     });
 
@@ -14694,6 +14865,38 @@ test.describe('Worker routes', () => {
       });
       expect(env.DB.state.aiVideoJobs).toHaveLength(1);
       expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(1);
+      expect(service.calls).toHaveLength(0);
+    });
+
+    test('POST /api/admin/ai/video-jobs rejects invalid budget policy config before queueing', async () => {
+      const { createAdminAiVideoJob } = await loadAiVideoJobsModule();
+      const admin = createAdminUser('async-video-invalid-budget-admin');
+      const service = createAiVideoJobServiceBinding();
+      const env = createAuthTestEnv({ users: [admin] });
+      env.AI_LAB = service.binding;
+
+      await expect(createAdminAiVideoJob({
+        env,
+        adminUser: admin,
+        payload: {
+          model: 'pixverse/v6',
+          prompt: 'Invalid budget policy should not queue',
+          duration: 5,
+          aspect_ratio: '16:9',
+          quality: '720p',
+          generate_audio: true,
+        },
+        idempotencyKey: 'video-job-invalid-budget-1',
+        correlationId: 'invalid-budget-corr',
+        budgetOperationOverride: {
+          budgetScope: 'not_a_valid_budget_scope',
+        },
+      })).rejects.toMatchObject({
+        reason: 'admin_video_job_budget_policy_unavailable',
+      });
+
+      expect(env.DB.state.aiVideoJobs).toHaveLength(0);
+      expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
       expect(service.calls).toHaveLength(0);
     });
 
@@ -14958,6 +15161,48 @@ test.describe('Worker routes', () => {
       expect(outputRes.headers.get('content-type')).toBe('video/mp4');
     });
 
+    test('AI video job consumer fails closed before provider task creation when job budget metadata is missing', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-missing-budget-admin');
+      const service = createAiVideoJobServiceBinding();
+      const env = createAuthTestEnv({ users: [admin] });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+
+      const createRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'pixverse/v6',
+          prompt: 'Missing budget metadata should fail closed',
+          duration: 5,
+          aspect_ratio: '16:9',
+          quality: '720p',
+          generate_audio: true,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-missing-budget-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(createRes.status).toBe(202);
+      env.DB.state.aiVideoJobs[0].budget_policy_json = null;
+      env.DB.state.aiVideoJobs[0].budget_policy_status = null;
+      env.DB.state.aiVideoJobs[0].budget_policy_fingerprint = null;
+      env.DB.state.aiVideoJobs[0].budget_policy_version = null;
+
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+      const batch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(0);
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        status: 'failed',
+        error_code: 'budget_policy_missing',
+      });
+    });
+
     test('AI video job consumer rejects unsafe provider output URLs before fetch or R2 writes', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-unsafe-output-admin');
@@ -15007,6 +15252,13 @@ test.describe('Worker routes', () => {
         id: createBody.job.jobId,
         status: 'failed',
         error_code: 'video_output_url_not_allowed',
+      });
+      const budgetAfterFailure = JSON.parse(env.DB.state.aiVideoJobs[0].budget_policy_json);
+      expect(JSON.stringify(budgetAfterFailure)).not.toContain('succeeded');
+      expect(budgetAfterFailure.provider_task_create).toMatchObject({
+        status: 'provider_task_id_recorded',
+        attempted: true,
+        provider_task_id_recorded: true,
       });
     });
 
@@ -15076,6 +15328,15 @@ test.describe('Worker routes', () => {
         id: createBody.job.jobId,
         status: 'provider_pending',
         provider_task_id: 'provider-task-123',
+      });
+      expect(JSON.parse(env.DB.state.aiVideoJobs[0].budget_policy_json)).toMatchObject({
+        operation_id: 'admin.video.job.create',
+        budget_scope: 'platform_admin_lab_budget',
+        provider_task_create: {
+          status: 'provider_task_id_recorded',
+          attempted: true,
+          provider_task_id_recorded: true,
+        },
       });
       expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(1);
       expect(env.AI_VIDEO_JOBS_QUEUE.sendCalls.at(-1).options).toEqual({ delaySeconds: 30 });
@@ -15323,7 +15584,7 @@ test.describe('Worker routes', () => {
       expect(service.calls).toHaveLength(1);
     });
 
-    test('AI video job consumer retries transient failures and fails permanently after max attempts', async () => {
+    test('AI video job consumer retries transient failures without duplicating provider task creation', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-retry-admin');
       const service = createAiVideoJobServiceBinding(() => ({
@@ -15363,6 +15624,13 @@ test.describe('Worker routes', () => {
         error_code: 'upstream_error',
         attempt_count: 1,
       });
+      expect(JSON.parse(env.DB.state.aiVideoJobs[0].budget_policy_json)).toMatchObject({
+        provider_task_create: {
+          status: 'create_attempted',
+          attempted: true,
+          provider_task_id_recorded: false,
+        },
+      });
       expect(service.calls).toHaveLength(1);
 
       const earlyDuplicateBatch = createQueueBatch([queued[0]], { attempts: 2, queue: AI_VIDEO_JOBS_QUEUE_NAME });
@@ -15383,12 +15651,11 @@ test.describe('Worker routes', () => {
       expect(finalBatch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
         status: 'failed',
-        error_code: 'upstream_error',
+        error_code: 'provider_task_create_duplicate_suppressed',
         attempt_count: 3,
       });
-      expect(env.DB.state.aiVideoJobPoisonMessages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ reason_code: 'max_attempts_exhausted' }),
-      ]));
+      expect(service.calls).toHaveLength(1);
+      expect(env.DB.state.aiVideoJobPoisonMessages).toHaveLength(0);
     });
 
     test('AI video job consumer records malformed queue messages without storing raw bodies', async () => {

@@ -558,6 +558,7 @@ const baseManifest = {
       "/internal/ai/video-task/poll",
     ],
     authOnlyRoutes: [
+      "/api/admin/ai/budget-evidence",
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
       "/api/admin/ai/video-jobs",
@@ -964,6 +965,7 @@ function createValidContext() {
       if (pathname === "/api/admin/mfa/recovery-codes/regenerate" && method === "POST") return handleAdminMfaRegenerate();
     `,
     authAdminAiSource: `
+      if (pathname === "/api/admin/ai/budget-evidence" && method === "GET") return handleBudgetEvidence();
       if (pathname === "/api/admin/ai/models" && method === "GET") return proxyToAiLab("/internal/ai/models");
       if (pathname === "/api/admin/ai/test-text" && method === "POST") return proxyToAiLab("/internal/ai/test-text");
       if (pathname === "/api/admin/ai/test-image" && method === "POST") return proxyToAiLab("/internal/ai/test-image");

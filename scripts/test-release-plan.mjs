@@ -259,6 +259,7 @@ function createContext() {
       { command: "npm run test:ai-cost-gateway", cwd: null, execute: true },
       { command: "npm run test:ai-cost-operations", cwd: null, execute: true },
       { command: "npm run test:admin-platform-budget-policy", cwd: null, execute: true },
+      { command: "npm run test:admin-platform-budget-evidence", cwd: null, execute: true },
       { command: "npm run check:ai-cost-policy", cwd: null, execute: true },
       { command: "npm run test:workers", cwd: null, execute: true },
       {

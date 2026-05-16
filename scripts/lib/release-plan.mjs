@@ -64,6 +64,7 @@ const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run test:ai-cost-gateway",
   "npm run test:ai-cost-operations",
   "npm run test:admin-platform-budget-policy",
+  "npm run test:admin-platform-budget-evidence",
   "npm run check:ai-cost-policy",
 ]);
 

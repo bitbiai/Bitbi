@@ -11,7 +11,13 @@ import {
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
+import {
+  ADMIN_PLATFORM_BUDGET_SCOPES,
+  buildAdminPlatformBudgetFingerprint,
+  classifyAdminPlatformBudgetPlan,
+} from "./admin-platform-budget-policy.js";
 import { proxyToAiLab } from "./admin-ai-proxy.js";
+import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 
@@ -19,6 +25,10 @@ export const AI_VIDEO_JOBS_QUEUE_NAME = "bitbi-ai-video-jobs";
 export const AI_VIDEO_JOB_QUEUE_SCHEMA_VERSION = 1;
 export const AI_VIDEO_JOB_QUEUE_TYPE = "ai_video_job.process";
 export const AI_VIDEO_JOB_SCOPE_ADMIN = "admin";
+export const ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID = "admin.video.job.create";
+export const ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID = "admin.video.task.create";
+export const ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID = "admin.video.task.poll";
+export const ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET";
 
 const JOB_COLUMN_NAMES = [
   "id",
@@ -47,6 +57,10 @@ const JOB_COLUMN_NAMES = [
   "provider_state",
   "error_code",
   "error_message",
+  "budget_policy_json",
+  "budget_policy_status",
+  "budget_policy_fingerprint",
+  "budget_policy_version",
   "created_at",
   "updated_at",
   "completed_at",
@@ -54,12 +68,14 @@ const JOB_COLUMN_NAMES = [
 ];
 
 const JOB_COLUMNS = JOB_COLUMN_NAMES.join(", ");
+const JOB_INSERT_PLACEHOLDERS = JOB_COLUMN_NAMES.map(() => "?").join(", ");
 const JOB_WITH_USER_JOIN_COLUMNS = `${JOB_COLUMN_NAMES.map((column) => `ai_video_jobs.${column} AS ${column}`).join(", ")}, users.email AS user_email`;
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "expired"]);
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_MAX_ATTEMPTS = 3;
 const JOB_LEASE_MS = 2 * 60 * 1000;
 const MAX_SAFE_ERROR_LENGTH = 240;
+const MAX_BUDGET_POLICY_JSON_BYTES = 8 * 1024;
 export const VIDEO_OUTPUT_MAX_BYTES = 100 * 1024 * 1024;
 export const VIDEO_POSTER_MAX_BYTES = 5 * 1024 * 1024;
 export const VIDEO_OUTPUT_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
@@ -128,6 +144,215 @@ function resolveProvider(modelId) {
   return "unknown";
 }
 
+function adminVideoBudgetProviderFamily(modelId) {
+  const provider = resolveProvider(modelId);
+  if (provider === "workers-ai") return "workers_ai";
+  return provider || "external_video_provider";
+}
+
+function calculateAdminVideoBudgetPricing(modelId, payload = {}) {
+  return calculateAiVideoCreditCost(modelId, {
+    duration: payload.duration,
+    aspect_ratio: payload.aspect_ratio,
+    ratio: payload.ratio,
+    quality: payload.quality,
+    resolution: payload.resolution,
+    generate_audio: payload.generate_audio,
+    audio: payload.audio,
+    watermark: payload.watermark,
+  });
+}
+
+function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = null } = {}) {
+  const registryEntry = getAiCostOperationRegistryEntry(ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID);
+  const registryConfig = registryEntry?.operationConfig || {};
+  const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
+  return {
+    operationId: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
+    featureKey: registryConfig.featureKey || "admin.ai.video_job",
+    actorType: "admin",
+    actorRole: "admin",
+    budgetScope: registryEntry?.budgetPolicy?.targetBudgetScope
+      || ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    ownerDomain: "admin-video-jobs",
+    providerFamily: adminVideoBudgetProviderFamily(modelId),
+    modelId,
+    modelResolverKey: registryConfig.modelResolverKey || "admin.video.model_registry",
+    providerCost: true,
+    estimatedCostUnits: pricing?.credits || 0,
+    estimatedCredits: pricing?.credits || 0,
+    idempotencyPolicy: registryConfig.idempotencyPolicy || "required",
+    killSwitchPolicy: {
+      flagName: ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH,
+      defaultState: "disabled",
+      requiredForProviderCall: true,
+      disabledBehavior: "fail_closed",
+      operatorCanOverride: false,
+      scope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      notes: "Future runtime kill-switch target only in Phase 4.5; job metadata and idempotency are the active controls.",
+    },
+    budgetLimitPolicy: {
+      mode: "metadata_only",
+      reservation: "job_row_and_queue_telemetry",
+      runtimeLimitEnforced: false,
+    },
+    routeId: registryConfig.routeId || "admin.ai.video-jobs.create",
+    routePath: registryConfig.routePath || "/api/admin/ai/video-jobs",
+    auditEventPrefix: registryConfig.observabilityEventPrefix || ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
+    notes: "Phase 4.5 records platform_admin_lab_budget metadata for admin async video jobs before queueing; no credits are debited.",
+    ...(operationOverride || {}),
+  };
+}
+
+function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso() } = {}) {
+  return {
+    budget_policy_version: plan.policyVersion,
+    operation_id: plan.operationId,
+    budget_scope: plan.budgetScope,
+    owner_domain: plan.ownerDomain,
+    provider_family: plan.providerFamily,
+    model_id: plan.auditFields?.model_id || null,
+    model_resolver_key: plan.auditFields?.model_resolver_key || null,
+    estimated_cost_units: plan.estimatedCostUnits,
+    estimated_credits: plan.estimatedCredits,
+    idempotency_policy: plan.idempotencyPolicy,
+    plan_status: plan.status,
+    required_next_action: plan.requiredNextAction,
+    kill_switch_flag_name: plan.killSwitchPolicy?.flagName || null,
+    kill_switch_default_state: plan.killSwitchPolicy?.defaultState || null,
+    kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? null,
+    runtime_budget_limit_enforced: false,
+    credit_debit: false,
+    reservation: {
+      status: "metadata_reserved",
+      reserved_at: createdAt,
+      ledger: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      queue_required: true,
+    },
+    provider_task_create: {
+      status: "not_started",
+      attempted: false,
+      attempted_at: null,
+      provider_task_id_recorded: false,
+    },
+    fingerprint,
+    audit_fields: plan.auditFields,
+  };
+}
+
+export async function buildAdminVideoJobBudgetPolicyContext({
+  adminUser,
+  modelId,
+  payload,
+  correlationId,
+  createdAt,
+  operationOverride = null,
+}) {
+  const operation = adminVideoJobBudgetOperation({ modelId, payload, operationOverride });
+  const plan = classifyAdminPlatformBudgetPlan({
+    operation,
+    actorUserId: adminUser?.id || null,
+    actorRole: adminUser?.role || "admin",
+    modelId,
+    reason: "admin_async_video_job",
+    correlationId,
+  });
+  if (!plan.ok) {
+    throw new WorkerConfigError("Admin video job budget policy is unavailable.", {
+      reason: "admin_video_job_budget_policy_unavailable",
+    });
+  }
+  const fingerprint = await buildAdminPlatformBudgetFingerprint({
+    operation,
+    actorId: adminUser?.id || null,
+    budgetScopeId: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    modelId,
+    routeId: "admin.ai.video-jobs.create",
+    routePath: "/api/admin/ai/video-jobs",
+    body: payload,
+    hashFields: ["prompt", "negative_prompt"],
+    excludeFields: ["image_input", "start_image", "end_image"],
+  });
+  return {
+    plan,
+    fingerprint,
+    summary: compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt }),
+  };
+}
+
+function budgetPolicyJson(summary) {
+  const json = stableStringify(summary || {});
+  if (new TextEncoder().encode(json).byteLength > MAX_BUDGET_POLICY_JSON_BYTES) {
+    throw new WorkerConfigError("Admin video job budget policy metadata is too large.", {
+      reason: "admin_video_job_budget_policy_too_large",
+    });
+  }
+  return json;
+}
+
+function parseBudgetPolicyJson(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeBudgetPolicyForResponse(value) {
+  const policy = parseBudgetPolicyJson(value);
+  if (!policy) return null;
+  return {
+    budget_policy_version: policy.budget_policy_version || null,
+    operation_id: policy.operation_id || null,
+    budget_scope: policy.budget_scope || null,
+    owner_domain: policy.owner_domain || null,
+    provider_family: policy.provider_family || null,
+    model_id: policy.model_id || null,
+    model_resolver_key: policy.model_resolver_key || null,
+    estimated_cost_units: Number(policy.estimated_cost_units || 0),
+    estimated_credits: Number(policy.estimated_credits || 0),
+    idempotency_policy: policy.idempotency_policy || null,
+    plan_status: policy.plan_status || null,
+    required_next_action: policy.required_next_action || null,
+    kill_switch_flag_name: policy.kill_switch_flag_name || null,
+    kill_switch_default_state: policy.kill_switch_default_state || null,
+    kill_switch_required_for_provider_call: policy.kill_switch_required_for_provider_call ?? null,
+    runtime_budget_limit_enforced: policy.runtime_budget_limit_enforced === true,
+    credit_debit: policy.credit_debit === true,
+    reservation: policy.reservation && typeof policy.reservation === "object" ? {
+      status: policy.reservation.status || null,
+      ledger: policy.reservation.ledger || null,
+      queue_required: policy.reservation.queue_required === true,
+    } : null,
+    provider_task_create: policy.provider_task_create && typeof policy.provider_task_create === "object" ? {
+      status: policy.provider_task_create.status || null,
+      attempted: policy.provider_task_create.attempted === true,
+      provider_task_id_recorded: policy.provider_task_create.provider_task_id_recorded === true,
+    } : null,
+    fingerprint: policy.fingerprint || null,
+    audit_fields: policy.audit_fields && typeof policy.audit_fields === "object"
+      ? policy.audit_fields
+      : null,
+  };
+}
+
+function queueBudgetPolicySummary(job) {
+  const policy = safeBudgetPolicyForResponse(job?.budget_policy_json);
+  if (!policy) return null;
+  return {
+    budget_policy_version: policy.budget_policy_version,
+    operation_id: policy.operation_id,
+    budget_scope: policy.budget_scope,
+    plan_status: policy.plan_status,
+    kill_switch_flag_name: policy.kill_switch_flag_name,
+    runtime_budget_limit_enforced: false,
+    credit_debit: false,
+    fingerprint: policy.fingerprint,
+  };
+}
+
 function buildJobStoredInput(payload, modelId) {
   if (modelId !== ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
     return payload;
@@ -171,6 +396,10 @@ function addMillisecondsIso(ms, baseMs = Date.now()) {
 function normalizeJobRow(row) {
   if (!row) return null;
   return {
+    budget_policy_json: null,
+    budget_policy_status: null,
+    budget_policy_fingerprint: null,
+    budget_policy_version: null,
     ...row,
     attempt_count: Number(row.attempt_count || 0),
     max_attempts: Number(row.max_attempts || DEFAULT_MAX_ATTEMPTS),
@@ -186,6 +415,7 @@ function buildQueueMessage(job, correlationId, reason = "created") {
     attempt: Number(job.attempt_count || 0) + 1,
     correlation_id: correlationId || null,
     reason,
+    budget_policy: queueBudgetPolicySummary(job),
     enqueued_at: nowIso(),
   };
 }
@@ -214,6 +444,11 @@ export function serializeAiVideoJob(job) {
       code: job.error_code || "video_job_failed",
       message: sanitizePublicError(job.error_message),
     };
+  }
+
+  const budgetPolicy = safeBudgetPolicyForResponse(job.budget_policy_json);
+  if (budgetPolicy) {
+    serialized.budgetPolicy = budgetPolicy;
   }
 
   return serialized;
@@ -402,7 +637,7 @@ async function getQueueJob(env, jobId) {
 
 async function insertJob(env, job) {
   await env.DB.prepare(
-    `INSERT INTO ai_video_jobs (${JOB_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO ai_video_jobs (${JOB_COLUMNS}) VALUES (${JOB_INSERT_PLACEHOLDERS})`
   ).bind(
     job.id,
     job.user_id,
@@ -430,6 +665,10 @@ async function insertJob(env, job) {
     job.provider_state,
     job.error_code,
     job.error_message,
+    job.budget_policy_json,
+    job.budget_policy_status,
+    job.budget_policy_fingerprint,
+    job.budget_policy_version,
     job.created_at,
     job.updated_at,
     job.completed_at,
@@ -460,7 +699,14 @@ async function markJobFailedToEnqueue(env, jobId, error, correlationId) {
   });
 }
 
-export async function createAdminAiVideoJob({ env, adminUser, payload, idempotencyKey, correlationId }) {
+export async function createAdminAiVideoJob({
+  env,
+  adminUser,
+  payload,
+  idempotencyKey,
+  correlationId,
+  budgetOperationOverride = null,
+}) {
   assertVideoJobConfig(env);
 
   const selection = resolveAdminAiModelSelection("video", {
@@ -483,6 +729,15 @@ export async function createAdminAiVideoJob({ env, adminUser, payload, idempoten
   }
 
   const now = nowIso();
+  const budgetPolicy = await buildAdminVideoJobBudgetPolicyContext({
+    adminUser,
+    modelId,
+    payload,
+    correlationId,
+    createdAt: now,
+    operationOverride: budgetOperationOverride,
+  });
+  const budgetPolicySummary = budgetPolicy.summary;
   const job = {
     id: `vidjob_${randomTokenHex(16)}`,
     user_id: adminUser.id,
@@ -510,6 +765,10 @@ export async function createAdminAiVideoJob({ env, adminUser, payload, idempoten
     provider_state: null,
     error_code: null,
     error_message: null,
+    budget_policy_json: budgetPolicyJson(budgetPolicySummary),
+    budget_policy_status: budgetPolicySummary.plan_status,
+    budget_policy_fingerprint: budgetPolicySummary.fingerprint,
+    budget_policy_version: budgetPolicySummary.budget_policy_version,
     created_at: now,
     updated_at: now,
     completed_at: null,
@@ -538,6 +797,9 @@ export async function createAdminAiVideoJob({ env, adminUser, payload, idempoten
     provider: job.provider,
     model: job.model,
     status: job.status,
+    budget_scope: budgetPolicySummary.budget_scope,
+    budget_policy_status: budgetPolicySummary.plan_status,
+    budget_policy_fingerprint: budgetPolicySummary.fingerprint,
   });
 
   logDiagnostic({
@@ -551,6 +813,8 @@ export async function createAdminAiVideoJob({ env, adminUser, payload, idempoten
     model: job.model,
     status: job.status,
     attempt_count: 0,
+    budget_scope: budgetPolicySummary.budget_scope,
+    budget_policy_status: budgetPolicySummary.plan_status,
   });
 
   return { job, existing: false };
@@ -641,6 +905,95 @@ async function updateJobRetry(env, jobId, code, message, now, nextAttemptAt) {
   ).bind(code, sanitizePublicError(message), nextAttemptAt, now, jobId).run();
 }
 
+async function updateJobBudgetPolicyMetadata(env, jobId, budgetPolicy, status, now) {
+  await env.DB.prepare(
+    "UPDATE ai_video_jobs SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ?"
+  ).bind(
+    budgetPolicyJson(budgetPolicy),
+    status || budgetPolicy?.plan_status || null,
+    budgetPolicy?.fingerprint || null,
+    budgetPolicy?.budget_policy_version || null,
+    now,
+    jobId
+  ).run();
+}
+
+function budgetPolicyFailure(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  error.permanent = true;
+  return error;
+}
+
+function validateJobBudgetPolicy(job, expectedOperationId) {
+  const policy = parseBudgetPolicyJson(job?.budget_policy_json);
+  if (!policy) {
+    throw budgetPolicyFailure(
+      "Admin video job budget policy metadata is missing.",
+      "budget_policy_missing"
+    );
+  }
+  if (
+    policy.operation_id !== ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID
+    || policy.budget_scope !== ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+    || policy.kill_switch_flag_name !== ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH
+    || policy.idempotency_policy !== "required"
+    || !policy.fingerprint
+  ) {
+    throw budgetPolicyFailure(
+      "Admin video job budget policy metadata is invalid.",
+      "budget_policy_invalid"
+    );
+  }
+  if (
+    expectedOperationId === ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID
+    && policy.provider_task_create?.attempted === true
+    && !job.provider_task_id
+  ) {
+    throw budgetPolicyFailure(
+      "Duplicate provider task creation was suppressed for this admin video job.",
+      "provider_task_create_duplicate_suppressed"
+    );
+  }
+  return policy;
+}
+
+async function markProviderTaskCreateAttempted(env, job, budgetPolicy, now) {
+  const next = {
+    ...budgetPolicy,
+    provider_task_create: {
+      ...(budgetPolicy.provider_task_create && typeof budgetPolicy.provider_task_create === "object"
+        ? budgetPolicy.provider_task_create
+        : {}),
+      status: "create_attempted",
+      attempted: true,
+      attempted_at: now,
+      operation_id: ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID,
+      provider_task_id_recorded: false,
+    },
+  };
+  await updateJobBudgetPolicyMetadata(env, job.id, next, next.plan_status, now);
+  return next;
+}
+
+async function markProviderTaskIdRecorded(env, job, budgetPolicy, providerTaskId, now, operationId) {
+  const next = {
+    ...budgetPolicy,
+    provider_task_create: {
+      ...(budgetPolicy.provider_task_create && typeof budgetPolicy.provider_task_create === "object"
+        ? budgetPolicy.provider_task_create
+        : {}),
+      status: "provider_task_id_recorded",
+      provider_task_id_recorded: true,
+      operation_id: operationId,
+      recorded_at: now,
+      provider_task_id_fingerprint: providerTaskId ? await sha256Hex(providerTaskId) : null,
+    },
+  };
+  await updateJobBudgetPolicyMetadata(env, job.id, next, next.plan_status, now);
+  return next;
+}
+
 function getResponseCode(body, response) {
   return body?.code || body?.error_code || (response.status >= 500 ? "upstream_error" : "video_job_failed");
 }
@@ -665,6 +1018,7 @@ function safeQueueBodySummary(body) {
     type: typeof body.type === "string" ? body.type.slice(0, 80) : null,
     job_id_present: typeof body.job_id === "string" && !!body.job_id,
     correlation_id_present: typeof body.correlation_id === "string" && !!body.correlation_id,
+    budget_policy_present: !!body.budget_policy,
   });
 }
 
@@ -931,13 +1285,28 @@ async function ingestProviderVideoOutput(env, job, providerResult) {
   };
 }
 
-async function callVideoProviderTask(env, path, job, parsedInput, correlationId) {
+async function callVideoProviderTask(env, path, job, parsedInput, correlationId, budgetPolicy = null) {
   const body = {
     ...stripStoredInputMetadata(parsedInput),
   };
   if (job.provider_task_id) {
     body.providerTaskId = job.provider_task_id;
   }
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "ai-video-jobs-queue",
+    event: path.endsWith("/poll") ? "ai_video_job_provider_task_poll_budget_checked" : "ai_video_job_provider_task_create_budget_checked",
+    level: "info",
+    correlationId,
+    job_id: job.id,
+    provider: job.provider,
+    model: job.model,
+    budget_scope: budgetPolicy?.budget_scope || null,
+    budget_operation_id: path.endsWith("/poll")
+      ? ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID
+      : ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID,
+    budget_policy_fingerprint: budgetPolicy?.fingerprint || null,
+  });
   return proxyToAiLab(
     env,
     path,
@@ -1025,7 +1394,35 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   const providerPath = job.provider_task_id
     ? "/internal/ai/video-task/poll"
     : "/internal/ai/video-task/create";
-  const response = await callVideoProviderTask(env, providerPath, job, parsedInput, payload.correlationId);
+  const budgetOperationId = job.provider_task_id
+    ? ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID
+    : ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID;
+  let budgetPolicy;
+  try {
+    budgetPolicy = validateJobBudgetPolicy(job, budgetOperationId);
+    if (!job.provider_task_id) {
+      budgetPolicy = await markProviderTaskCreateAttempted(env, job, budgetPolicy, nowIso());
+    }
+  } catch (error) {
+    const failedAt = nowIso();
+    const code = error?.code || "budget_policy_invalid";
+    await updateJobFailed(env, job.id, code, "Admin video job budget policy is invalid.", failedAt);
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-video-jobs-queue",
+      event: "ai_video_job_budget_policy_failed",
+      level: "error",
+      correlationId: payload.correlationId,
+      job_id: job.id,
+      provider: job.provider,
+      model: job.model,
+      budget_operation_id: budgetOperationId,
+      error_code: code,
+      duration_ms: getDurationMs(startedAt),
+    });
+    return { status: "failed", jobId: job.id, reason: code };
+  }
+  const response = await callVideoProviderTask(env, providerPath, job, parsedInput, payload.correlationId, budgetPolicy);
 
   let responseBody = null;
   try {
@@ -1037,6 +1434,16 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   const completedAt = nowIso();
   const providerResult = getProviderTaskResult(responseBody);
   if (response.ok && responseBody?.ok && providerResult?.status === "succeeded" && providerResult?.videoUrl) {
+    if (!job.provider_task_id && providerResult.providerTaskId) {
+      await markProviderTaskIdRecorded(
+        env,
+        job,
+        budgetPolicy,
+        providerResult.providerTaskId,
+        completedAt,
+        ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID
+      );
+    }
     await updateJobIngesting(env, job.id, providerResult.providerState || "success", completedAt);
     let ingested;
     try {
@@ -1120,6 +1527,16 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         duration_ms: getDurationMs(startedAt),
       });
       return { status: "failed", jobId: job.id, reason: "max_attempts_exhausted" };
+    }
+    if (providerResult.providerTaskId) {
+      await markProviderTaskIdRecorded(
+        env,
+        job,
+        budgetPolicy,
+        providerResult.providerTaskId,
+        completedAt,
+        ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID
+      );
     }
     await updateJobProviderPending(env, job.id, providerResult, completedAt, nextAttemptAt);
     try {

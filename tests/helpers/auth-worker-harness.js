@@ -171,6 +171,16 @@ function normalizeAiImageRow(row = {}) {
   };
 }
 
+function normalizeAiVideoJobRow(row = {}) {
+  return {
+    budget_policy_json: null,
+    budget_policy_status: null,
+    budget_policy_fingerprint: null,
+    budget_policy_version: null,
+    ...row,
+  };
+}
+
 function latestCreditLedgerEntry(rows, organizationId) {
   let latest = null;
   let latestIndex = -1;
@@ -728,6 +738,7 @@ class MockD1 {
       ...row,
     }));
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
+    this.state.aiVideoJobs = (this.state.aiVideoJobs || []).map((row) => normalizeAiVideoJobRow(row));
     this.state.aiTextAssets = (this.state.aiTextAssets || []).map((row) => ({
       visibility: 'private',
       published_at: null,
@@ -7504,6 +7515,10 @@ class MockD1 {
         provider_state,
         error_code,
         error_message,
+        budget_policy_json,
+        budget_policy_status,
+        budget_policy_fingerprint,
+        budget_policy_version,
         created_at,
         updated_at,
         completed_at,
@@ -7542,6 +7557,10 @@ class MockD1 {
         provider_state,
         error_code,
         error_message,
+        budget_policy_json,
+        budget_policy_status,
+        budget_policy_fingerprint,
+        budget_policy_version,
         created_at,
         updated_at,
         completed_at,
@@ -7722,6 +7741,21 @@ class MockD1 {
         row.locked_until = null;
         row.updated_at = updatedAt;
         row.completed_at = completedAt;
+        changes += 1;
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === "UPDATE ai_video_jobs SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ?") {
+      const [budgetPolicyJson, budgetPolicyStatus, budgetPolicyFingerprint, budgetPolicyVersion, updatedAt, jobId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiVideoJobs) {
+        if (row.id !== jobId) continue;
+        row.budget_policy_json = budgetPolicyJson;
+        row.budget_policy_status = budgetPolicyStatus;
+        row.budget_policy_fingerprint = budgetPolicyFingerprint;
+        row.budget_policy_version = budgetPolicyVersion;
+        row.updated_at = updatedAt;
         changes += 1;
       }
       return { success: true, meta: { changes } };
