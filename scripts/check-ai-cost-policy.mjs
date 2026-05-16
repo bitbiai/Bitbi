@@ -124,6 +124,15 @@ function findPolicySnippet(routePolicyText, policyId) {
 function classifyIdempotency(snippet) {
   if (!snippet) return "missing";
   const lower = snippet.toLowerCase();
+  if (
+    lower.includes("retired_debug_path")
+    || lower.includes('debuggate: "disabled-by-default')
+    || lower.includes("debuggate: 'disabled-by-default")
+    || lower.includes('expectedidempotency: "disabled-by-default')
+    || lower.includes("expectedidempotency: 'disabled-by-default")
+  ) {
+    return "disabled-by-default";
+  }
   if (lower.includes("required when")) return "partial";
   if (lower.includes("idempotency-key") && lower.includes("required")) return "required";
   if (lower.includes("idempotency") && lower.includes("required")) return "required";
@@ -143,6 +152,9 @@ function isPolicyGap(route, actual) {
   }
   if (route.expected === "platform-budget-or-deterministic-key") {
     return actual === "absent" || actual === "missing";
+  }
+  if (route.expected === "disabled-by-default") {
+    return actual !== "disabled-by-default";
   }
   return false;
 }
@@ -625,6 +637,7 @@ function renderHardenedAdminBudgetOperations(entries = AI_COST_OPERATION_REGISTR
     .filter((entry) =>
       ["implemented", "partial"].includes(entry.budgetPolicy?.targetEnforcementStatus)
       && ["admin", "platform"].includes(entry.operationConfig?.actorType)
+      && entry.routePolicy?.expectedIdempotency !== "disabled-by-default"
     )
     .map((entry) => ({
       operationId: entry.operationConfig.operationId,
@@ -663,6 +676,7 @@ export function renderAiCostPolicyReport(result) {
     })
     .join("\n") || "- None";
   const knownBaselineGaps = result.baseline?.knownGaps || [];
+  const retiredDebugRoutes = (result.routes || []).filter((route) => route.expected === "disabled-by-default");
 
   return [
     "AI cost policy check",
@@ -697,10 +711,16 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
     "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay/live budget caps remain future work.",
     "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; explicit output-token/duration caps, runtime env kill-switch enforcement, and live platform budget caps remain future work.",
+    "- Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
       `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.targetBudgetScope || "missing"}; killSwitch=${gap.killSwitchTarget || gap.killSwitchExemptionReason || "missing"}; target ${gap.targetFuturePhase}; registry=${gap.coveredByRegistryMetadata ? "covered" : "missing"}; allowed=${gap.allowedUnmigratedForNow ? "yes" : "no"}`
+    ),
+    "",
+    "Retired/disabled debug paths:",
+    formatList(retiredDebugRoutes, (route) =>
+      `- ${route.route || route.id}: ${route.path}; status=${route.actualIdempotency}; ${route.notes || "disabled-by-default"}`
     ),
     "",
     renderBudgetScopeGroup("Admin gaps by budget scope:", knownBaselineGaps, [
@@ -760,7 +780,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.13 should address the next remaining narrow admin/platform gap, such as sync video debug retirement/budget controls or unmetered admin image branch handling, without changing member/org billing behavior or broad platform/background AI.",
+    "- Phase 4.14 should address the next remaining narrow admin/platform gap, such as unmetered admin image branch handling, runtime budget kill-switch enforcement, or live platform budget caps, without changing member/org billing behavior or broad platform/background AI.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

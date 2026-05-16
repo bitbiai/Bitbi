@@ -559,8 +559,22 @@ export const ROUTE_POLICIES = Object.freeze([
   }),
   adminJsonWrite("admin.ai.test-video-debug", "POST", "/api/admin/ai/test-video", "admin-ai", "adminJson", "admin-ai-video-ip", {
     config: REQUIRED_CONFIG.adminAi,
-    debugGate: "ALLOW_SYNC_VIDEO_DEBUG=true",
+    debugGate: "disabled-by-default; ALLOW_SYNC_VIDEO_DEBUG=true is retained only for emergency debug compatibility",
     audit: { event: "admin_ai_sync_video_debug_used" },
+    retirement: {
+      status: "retired_debug_path",
+      phase: "Phase 4.13",
+      supportedReplacement: "POST /api/admin/ai/video-jobs",
+      normalProviderCostPath: false,
+    },
+    billing: {
+      budgetScope: "platform_admin_lab_budget",
+      idempotency: "Not required while disabled; this sync debug path is not a normal supported provider-cost route. If emergency execution is retained long-term, a later phase must add Idempotency-Key plus durable budget controls before normal use.",
+      callerPolicy: "Emergency compatibility execution, when explicitly enabled by ALLOW_SYNC_VIDEO_DEBUG=true, sends baseline caller-policy metadata only. It is not budget-enforced and must not be treated as the supported admin video path.",
+      runtimeEnforcement: "Phase 4.13 classifies the route as retired/disabled-by-default. Disabled requests return before body parsing, rate limiting, internal AI Worker calls, queue calls, provider calls, credit mutation, or billing mutation.",
+      replacement: "Use Phase 4.5 admin async video jobs for supported budgeted admin video generation.",
+    },
+    notes: "Phase 4.13 keeps synchronous admin video debug disabled by default and classifies it as a retired emergency/debug compatibility path. Admin async video jobs are the supported budgeted admin video path.",
   }),
   adminJsonWrite("admin.ai.video-jobs.create", "POST", "/api/admin/ai/video-jobs", "admin-ai", "adminVideoJobJson", "admin-ai-video-job-create-ip", {
     config: REQUIRED_CONFIG.adminVideoJobs,
@@ -573,7 +587,7 @@ export const ROUTE_POLICIES = Object.freeze([
       callerPolicy: "Phase 4.7 signs internal AI Worker calls with __bitbi_ai_caller_policy metadata for video-task create/poll; the AI Worker rejects missing/invalid policy for those two covered routes.",
       runtimeEnforcement: "Admin async video job queue processing verifies job budget metadata before internal video-task create/poll calls. Runtime env kill-switch enforcement remains future work for this route only.",
     },
-    notes: "Phase 4.5 covers only admin async video jobs with platform_admin_lab_budget metadata and duplicate queue/provider-task guards; Phase 4.7 adds internal AI caller-policy propagation for task create/poll. The sync video debug route and broader admin AI routes remain separate baseline gaps.",
+    notes: "Phase 4.5 covers only admin async video jobs with platform_admin_lab_budget metadata and duplicate queue/provider-task guards; Phase 4.7 adds internal AI caller-policy propagation for task create/poll. Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; broader admin AI routes remain separate tracked gaps where not already migrated.",
   }),
   adminRead("admin.ai.video-jobs.poison.list", "/api/admin/ai/video-jobs/poison", "admin-ai", {
     config: REQUIRED_CONFIG.adminVideoJobs,
@@ -641,7 +655,7 @@ export const ROUTE_POLICIES = Object.freeze([
       runtimeEnforcement: "Builds a platform_admin_lab_budget plan and durable metadata-only idempotency attempt before proxying to the multi-model compare route. Runtime env kill-switch enforcement and live platform budget caps remain future work.",
       replay: "Metadata-only: completed duplicate requests return no compare results and do not re-run provider fanout.",
     },
-    notes: "Admin Compare is Phase 4.10-covered only for this auth route. Admin Live-Agent, sync video debug, and unmetered admin image branches remain separate unmigrated gaps.",
+    notes: "Admin Compare is Phase 4.10-covered only for this auth route. Admin Live-Agent remains covered separately by Phase 4.12; Phase 4.13 retires sync video debug as disabled-by-default/emergency-only, and unmetered admin image branches remain separate unmigrated gaps.",
   }),
   adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {
     config: REQUIRED_CONFIG.adminAi,
@@ -654,7 +668,7 @@ export const ROUTE_POLICIES = Object.freeze([
       replay: "Metadata-only: completed duplicate requests return no streamed output and do not re-run the provider stream.",
       streamFinalization: "Auth Worker wraps the upstream SSE body and marks the attempt succeeded only after stream completion, or failed on setup/stream errors observable by the wrapper.",
     },
-    notes: "Admin Live-Agent is Phase 4.12-covered only for this auth route. Sync video debug and unmetered admin image branches remain separate unmigrated gaps.",
+    notes: "Admin Live-Agent is Phase 4.12-covered only for this auth route. Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; unmetered admin image branches remain separate unmigrated gaps.",
   }),
   adminJsonWrite("admin.ai.derivatives.backfill", "POST", "/api/admin/ai/image-derivatives/backfill", "admin-ai", "adminJson", "admin-ai-derivative-backfill-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI_IMAGE_DERIVATIVES_QUEUE"],

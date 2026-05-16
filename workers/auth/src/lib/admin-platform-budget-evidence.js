@@ -36,6 +36,7 @@ const ADMIN_LAB_DURABLE_OPERATION_IDS = Object.freeze([
   "admin.compare",
   "admin.live_agent",
 ]);
+const SYNC_VIDEO_DEBUG_OPERATION_ID = "admin.video.sync_debug";
 const ADMIN_VIDEO_JOB_OPERATION_ID = "admin.video.job.create";
 const NEWS_PULSE_VISUAL_OPERATION_IDS = Object.freeze([
   "platform.news_pulse.visual.ingest",
@@ -438,6 +439,37 @@ function implementedNewsPulseVisualEvidence(entry, routeIndex) {
   };
 }
 
+function retiredSyncVideoDebugEvidence(entry, routeIndex) {
+  const base = basicOperationEvidence(entry, routeIndex);
+  return {
+    ...base,
+    type: "retired_debug_provider_path",
+    runtimeStatus: "retired_disabled_by_default",
+    budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    idempotencyTarget: "not required while disabled; future emergency retention would require Idempotency-Key plus durable budget controls",
+    killSwitchTarget: "ALLOW_SYNC_VIDEO_DEBUG",
+    modelClass: "synchronous admin video debug",
+    supportedReplacement: "/api/admin/ai/video-jobs",
+    normalProviderCostPath: false,
+    disabledBehavior: [
+      "returns before request body parsing",
+      "does not call AI_LAB or the AI Worker",
+      "does not enqueue provider work",
+      "does not call providers",
+      "does not mutate credits or billing",
+    ],
+    emergencyCompatibility: [
+      "ALLOW_SYNC_VIDEO_DEBUG=true is still retained only for controlled legacy/debug compatibility",
+      "the emergency path is not treated as supported budgeted admin video generation",
+      "admin async video jobs are the supported Phase 4.5 budgeted path",
+    ],
+    remainingLimitations: [
+      "Emergency compatibility execution remains a direct provider-cost path if explicitly enabled and should stay disabled outside controlled debugging.",
+      "If retained long-term, a future phase must add required idempotency, durable metadata, explicit budget policy, and kill-switch enforcement before normal use.",
+    ],
+  };
+}
+
 function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
   const base = basicOperationEvidence(entry, routeIndex);
   const operation = operationId(entry);
@@ -490,7 +522,7 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
     ],
     remainingLimitations: [
       "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll; Phase 4.8.1 supplies admin text/embeddings caller metadata plus durable caller-side idempotency, Phase 4.9 extends that pattern to admin music, Phase 4.10 extends it to admin compare, and Phase 4.12 requires it for Admin Live-Agent.",
-      "Sync video debug, unmetered image, and broader internal routes remain baseline-allowed until targeted caller migrations.",
+      "Phase 4.13 retires the Auth Worker sync video debug caller as disabled-by-default; unmetered image and broader internal routes remain baseline-allowed until targeted caller migrations.",
       isPoll
         ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
         : "Duplicate provider task creation is still suppressed by the auth job budget state and queue lease.",
@@ -667,6 +699,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     .filter((entry) => operationId(entry) === "admin.compare");
   const partialAdminLiveAgentOperations = partialAdminLabDurableOperations
     .filter((entry) => operationId(entry) === "admin.live_agent");
+  const retiredDebugOperations = [entriesById.get(SYNC_VIDEO_DEBUG_OPERATION_ID)]
+    .filter(Boolean);
   const reportedAdminBudgetOperations = [
     ...implementedAdminBudgetOperations,
     ...partialAdminLabDurableOperations,
@@ -699,6 +733,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
 
   const evidenceItems = [
     ...implementedOperations,
+    ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
     adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
@@ -723,6 +758,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       adminCompareDurableIdempotency: partialAdminCompareOperations.length,
       adminLiveAgentDurableIdempotency: partialAdminLiveAgentOperations.length,
       adminLabDurableIdempotency: partialAdminLabDurableOperations.length,
+      retiredDebugPaths: retiredDebugOperations.length,
       adminTextEmbeddingsAttemptsOperable: true,
       adminLabAttemptsOperable: true,
       baselineGaps: baselinedGaps.length,
@@ -730,6 +766,12 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
     },
     adminAiUsageAttempts: adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
+    retiredDebugPaths: limitList(
+      retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
+      limits.maxImplementedOperations,
+      warnings,
+      "retiredDebugPaths"
+    ),
     budgetScopes: ADMIN_PLATFORM_BUDGET_EVIDENCE_SCOPES.map((scope) =>
       scopeEvidence(scope, {
         entries: registryEntries,
@@ -764,7 +806,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
       "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music/compare/live-agent now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
       "Phase 4.12 covers Admin Live-Agent only with required idempotency, metadata-only stream-session attempts, caller-policy propagation, and safe stream completion/failure tracking; runtime env kill-switch enforcement and live platform budget caps remain future work.",
-      "Sync video debug, unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
+      "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
+      "Unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,
@@ -779,6 +822,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
   );
   const implementedLines = (report.implementedOperations || []).map((operation) =>
     `- ${operation.operationId}: ${operation.runtimeStatus || operation.runtimeEnforcementStatus}; scope=${operation.budgetScope || "n/a"}; route=${operation.routePath || "n/a"}`
+  );
+  const retiredDebugLines = (report.retiredDebugPaths || []).map((operation) =>
+    `- ${operation.operationId}: ${operation.runtimeStatus || operation.runtimeEnforcementStatus}; replacement=${operation.supportedReplacement || "n/a"}; flag=${operation.killSwitchTarget || "n/a"}`
   );
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
@@ -802,6 +848,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     "",
     "## Implemented Operations",
     implementedLines.length ? implementedLines.join("\n") : "- None",
+    "",
+    "## Retired Debug Paths",
+    retiredDebugLines.length ? retiredDebugLines.join("\n") : "- None",
     "",
     "## Baselined Gaps",
     gapLines.length ? gapLines.join("\n") : "- None",

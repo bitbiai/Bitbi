@@ -33,6 +33,7 @@ assert.equal(report.summary.adminMusicDurableIdempotency, 1);
 assert.equal(report.summary.adminCompareDurableIdempotency, 1);
 assert.equal(report.summary.adminLiveAgentDurableIdempotency, 1);
 assert.equal(report.summary.adminLabDurableIdempotency, 5);
+assert.equal(report.summary.retiredDebugPaths, 1);
 assert.equal(report.summary.adminTextEmbeddingsAttemptsOperable, true);
 assert.equal(report.summary.adminLabAttemptsOperable, true);
 assert.equal(report.summary.blockedCriticalGaps, 0);
@@ -64,7 +65,7 @@ assert(adminOrgScope.killSwitchTargets.includes("ENABLE_ADMIN_AI_BFL_IMAGE_BUDGE
 
 const platformLabScope = report.budgetScopes.find((entry) => entry.scope === "platform_admin_lab_budget");
 assert(platformLabScope.operationCount >= 8);
-assert(platformLabScope.baselineGapCount >= 2);
+assert(platformLabScope.baselineGapCount >= 1);
 assert.equal(platformLabScope.runtimeEnforcementExists, false);
 assert(["missing", "partial"].includes(platformLabScope.runtimeEnforcementStatus));
 
@@ -181,6 +182,7 @@ assert.equal(liveAgent.killSwitchTarget, "ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET");
 assert(liveAgent.metadataFieldsExpected.includes("stream_session_caps"));
 assert(liveAgent.remainingLimitations.some((entry) => entry.includes("Full stream replay")));
 assert(!baselineIds.includes("admin-ai-live-agent-unmetered"));
+assert(!baselineIds.includes("admin-ai-sync-video-debug"));
 assert(!baselineIds.includes("admin-ai-video-job-create"));
 assert(!baselineIds.includes("admin-ai-video-task-create-poll"));
 assert(!baselineIds.includes("openclaw-news-pulse-visual-generation"));
@@ -190,6 +192,14 @@ assert(!baselineIds.includes("admin-ai-music-test-unmetered"));
 assert(!baselineIds.includes("admin-ai-compare-unmetered"));
 assert(baselineIds.includes("internal-ai-worker-text-image-embeddings"));
 assert(baselineIds.includes("internal-ai-worker-music-video-compare"));
+
+const retiredDebug = report.retiredDebugPaths.find((entry) => entry.operationId === "admin.video.sync_debug");
+assert.equal(retiredDebug.runtimeStatus, "retired_disabled_by_default");
+assert.equal(retiredDebug.killSwitchTarget, "ALLOW_SYNC_VIDEO_DEBUG");
+assert.equal(retiredDebug.supportedReplacement, "/api/admin/ai/video-jobs");
+assert.equal(retiredDebug.normalProviderCostPath, false);
+assert(retiredDebug.disabledBehavior.some((entry) => entry.includes("does not call AI_LAB")));
+assert(retiredDebug.emergencyCompatibility.some((entry) => entry.includes("not treated as supported budgeted")));
 
 {
   const serialized = JSON.stringify(report);
@@ -332,6 +342,7 @@ assert(baselineIds.includes("internal-ai-worker-music-video-compare"));
   assert(result.stdout.includes("# Admin/Platform AI Budget Evidence"));
   assert(result.stdout.includes("Verdict: blocked"));
   assert(result.stdout.includes("admin.image.test.charged"));
+  assert(result.stdout.includes("admin.video.sync_debug"));
   assert(result.stdout.includes("platform.news_pulse.visual.ingest"));
   assert(!result.stdout.includes("openclaw-news-pulse-visual-generation"));
 }

@@ -291,10 +291,28 @@ assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.live_agent").operationConfig.replayPolicy,
   "metadata_only"
 );
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.video.sync_debug").budgetPolicy.targetFuturePhase,
+  "Phase 4.13 sync video debug retirement decision"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.video.sync_debug").budgetPolicy.temporaryBaselineAllowed,
+  false
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.video.sync_debug").routePolicy.expectedIdempotency,
+  "disabled-by-default"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.video.sync_debug").currentEnforcement.providerSuppression,
+  "partial"
+);
+assert(!policyBaseline.knownGaps.some((gap) => gap.id === "admin-ai-sync-video-debug"));
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();
 assert(routePolicyBaselines.some((entry) => entry.id === "ai.generate-image" && entry.expected === "required"));
 assert(routePolicyBaselines.some((entry) => entry.id === "admin.ai.test-embeddings" && entry.expected === "required"));
+assert(routePolicyBaselines.some((entry) => entry.id === "admin.ai.test-video-debug" && entry.expected === "disabled-by-default"));
 assert(routePolicyBaselines.some((entry) => entry.id === "openclaw.news_pulse.ingest"));
 
 const providerSourceFiles = getAiCostProviderCallSourceFiles();

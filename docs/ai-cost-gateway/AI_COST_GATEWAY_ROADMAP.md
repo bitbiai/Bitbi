@@ -1016,13 +1016,34 @@ Migration risk:
 
 - No Phase 4.12 migration.
 
-## Phase 4.13: Sync Video Debug Or Unmetered Admin Image Budget Controls
+## Phase 4.13: Sync Video Debug Retirement Decision
+
+Status: completed for sync video debug audit/classification only. Path A was chosen: `POST /api/admin/ai/test-video` is retired from normal provider-cost operations and remains disabled-by-default. No Admin Async Video Job behavior, Admin Text/Embeddings/Music/Compare/Live-Agent behavior, unmetered Admin Image behavior, OpenClaw/News Pulse behavior, member/org route behavior, public pricing, Stripe work, real provider call, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
-- Choose one remaining provider-cost gap, preferably sync video debug retirement/budget controls or the unmetered admin image branch.
+- Audit current sync video debug behavior, relationship to async video jobs, and risk.
+- Classify sync video debug as retired/disabled-by-default rather than a normal baseline gap.
+- Keep `ALLOW_SYNC_VIDEO_DEBUG=true` only as emergency compatibility; no new budget enforcement is added because direct sync provider execution is not a supported normal path.
+- Keep async admin video jobs as the supported budgeted admin video path.
+- Update registry, baseline/check output, route-policy metadata, evidence reporting, and docs.
 - Keep Admin Text/Embeddings, Admin Music, Admin Compare, Admin Live-Agent, Admin Video Jobs, OpenClaw/News Pulse, member routes, org-scoped routes, public pricing, Stripe, credit behavior, and live billing readiness unchanged.
 - Do not broaden internal AI Worker route enforcement globally unless the chosen caller path supplies valid policy metadata.
+
+Deploy units:
+
+- Auth Worker may be impacted because route-policy, registry, evidence, and check metadata changed. No AI Worker source change and no schema apply from Phase 4.13.
+
+Migration risk:
+
+- No Phase 4.13 migration.
+
+## Phase 4.14: Unmetered Admin Image Or Runtime Budget Kill Switches
+
+Scope:
+
+- Choose the next remaining narrow admin/platform gap after sync video debug retirement, likely unmetered Admin Image branch handling, runtime env kill-switch enforcement, live platform budget caps, or remaining internal caller migrations.
+- Keep already migrated admin/member/org/OpenClaw paths unchanged unless the chosen phase explicitly targets them.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 

@@ -1440,7 +1440,12 @@ test.describe('Phase 1-E auth route policy registry', () => {
     expect(getRoutePolicy('POST', '/api/admin/ai/test-video')).toEqual(expect.objectContaining({
       id: 'admin.ai.test-video-debug',
       auth: 'admin',
-      debugGate: 'ALLOW_SYNC_VIDEO_DEBUG=true',
+      debugGate: 'disabled-by-default; ALLOW_SYNC_VIDEO_DEBUG=true is retained only for emergency debug compatibility',
+      retirement: expect.objectContaining({
+        status: 'retired_debug_path',
+        supportedReplacement: 'POST /api/admin/ai/video-jobs',
+        normalProviderCostPath: false,
+      }),
     }));
     expect(getRoutePolicy('POST', '/api/orgs')).toEqual(expect.objectContaining({
       id: 'orgs.create',
@@ -15822,7 +15827,7 @@ test.describe('Worker routes', () => {
       expect(malformedStatus.status).toBe(404);
     });
 
-    test('legacy sync video debug route is disabled by default and fails closed when explicitly enabled without limiter state', async () => {
+    test('retired sync video debug route is disabled by default and fails closed when explicitly enabled without limiter state', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('sync-video-default-admin');
       const service = createAiVideoJobServiceBinding();
@@ -15873,7 +15878,7 @@ test.describe('Worker routes', () => {
       expect(service.calls).toHaveLength(0);
     });
 
-    test('legacy sync video debug route remains admin-only and same-origin when explicitly enabled', async () => {
+    test('retired sync video debug route remains admin-only and same-origin when explicitly enabled for emergency compatibility', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('sync-video-enabled-admin');
       const nonAdmin = createContractUser({ id: 'sync-video-enabled-user', role: 'user' });
