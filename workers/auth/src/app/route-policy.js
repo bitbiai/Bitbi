@@ -524,9 +524,10 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: {
       budgetScope: "platform_admin_lab_budget",
       killSwitchTarget: "ENABLE_ADMIN_AI_TEXT_BUDGET",
-      idempotency: "Idempotency-Key header is required in Phase 4.8; the key is included only as a hash in sanitized budget metadata. Durable replay/conflict persistence remains future work.",
-      callerPolicy: "Phase 4.8 signs the internal /internal/ai/test-text call with __bitbi_ai_caller_policy using budget_metadata_only status.",
-      runtimeEnforcement: "Builds a platform_admin_lab_budget plan before proxying. Runtime env kill-switch enforcement and live platform budget caps remain future work. Admin music/compare/live-agent remain separate unmigrated gaps.",
+      idempotency: "Idempotency-Key header is required. Phase 4.8.1 stores only a hash in admin_ai_usage_attempts, suppresses same-key duplicate provider calls for pending/completed/failed attempts, and conflicts same-key/different-request retries.",
+      callerPolicy: "Phase 4.8.1 signs the internal /internal/ai/test-text call with __bitbi_ai_caller_policy using budget_metadata_only status.",
+      runtimeEnforcement: "Builds a platform_admin_lab_budget plan and durable metadata-only idempotency attempt before proxying. Runtime env kill-switch enforcement and live platform budget caps remain future work. Admin music/compare/live-agent remain separate unmigrated gaps.",
+      replay: "Metadata-only: completed duplicate requests return no generated text and do not re-run the provider.",
     },
   }),
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
@@ -539,9 +540,10 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: {
       budgetScope: "platform_admin_lab_budget",
       killSwitchTarget: "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET",
-      idempotency: "Idempotency-Key header is required in Phase 4.8; the key is included only as a hash in sanitized budget metadata. Durable replay/conflict persistence remains future work.",
-      callerPolicy: "Phase 4.8 signs the internal /internal/ai/test-embeddings call with __bitbi_ai_caller_policy using budget_metadata_only status.",
-      runtimeEnforcement: "Builds a platform_admin_lab_budget plan before proxying. Runtime env kill-switch enforcement and live platform budget caps remain future work. Admin music/compare/live-agent remain separate unmigrated gaps.",
+      idempotency: "Idempotency-Key header is required. Phase 4.8.1 stores only a hash in admin_ai_usage_attempts, suppresses same-key duplicate provider calls for pending/completed/failed attempts, and conflicts same-key/different-request retries.",
+      callerPolicy: "Phase 4.8.1 signs the internal /internal/ai/test-embeddings call with __bitbi_ai_caller_policy using budget_metadata_only status.",
+      runtimeEnforcement: "Builds a platform_admin_lab_budget plan and durable metadata-only idempotency attempt before proxying. Runtime env kill-switch enforcement and live platform budget caps remain future work. Admin music/compare/live-agent remain separate unmigrated gaps.",
+      replay: "Metadata-only: completed duplicate requests return no embedding vectors and do not re-run the provider.",
     },
   }),
   adminJsonWrite("admin.ai.test-music", "POST", "/api/admin/ai/test-music", "admin-ai", "adminJson", "admin-ai-music-ip", { config: REQUIRED_CONFIG.adminAi }),

@@ -771,6 +771,8 @@ Non-goals:
 
 Status: completed for admin text and embeddings test routes only. No Admin music migration, Admin video change beyond Phase 4.5 compatibility, Admin compare migration, Admin live-agent migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, unrelated internal route migration, member/org billing behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
+Phase 4.8.1 supersedes the Phase 4.8 durable-idempotency gap for these two routes with a narrow additive table and metadata-only duplicate suppression.
+
 Scope:
 
 - Migrate exactly `POST /api/admin/ai/test-text` and `POST /api/admin/ai/test-embeddings` to explicit budget/caller-policy metadata.
@@ -799,7 +801,7 @@ Tests:
 - sanitized budget metadata includes operation id, budget scope, provider family/model, plan status, and future kill-switch target
 - caller-policy metadata is propagated to the AI Worker and stripped before mocked provider payloads
 - no raw prompts/input, secrets, cookies, auth headers, provider payloads, Stripe data, Cloudflare tokens, private keys, or R2 keys in metadata
-- same-key behavior is documented/tested as metadata-only with no durable replay/conflict store
+- same-key behavior was documented/tested as metadata-only in Phase 4.8; Phase 4.8.1 adds durable metadata-only duplicate suppression/conflict detection
 - member image/music/video, Admin BFL image, admin async video, News Pulse visual, route-policy, and cost-policy checks remain compatible
 
 Rollback:
@@ -818,12 +820,62 @@ Non-goals:
 
 - No durable replay table, no live budget cap, no runtime env kill-switch enforcement, no Admin UI, no automated shutdown/remediation, no live billing readiness claim, no pricing changes.
 
+## Phase 4.8.1: Admin Text / Embeddings Durable Idempotency Foundation
+
+Status: completed for admin text and embeddings idempotency only. No Admin music migration, Admin video change beyond Phase 4.5 compatibility, Admin compare migration, Admin live-agent migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, unrelated internal route migration, member/org billing behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
+
+Scope:
+
+- Add a narrow durable idempotency foundation for `POST /api/admin/ai/test-text` and `POST /api/admin/ai/test-embeddings`.
+- Add additive migration `0051_add_admin_ai_usage_attempts.sql`.
+- Store hashed idempotency keys, stable request fingerprints, sanitized budget/caller-policy metadata, statuses, and result summaries in `admin_ai_usage_attempts`.
+- Suppress duplicate provider calls for same-key/same-request pending, completed, and failed attempts.
+- Return conflict for same-key/different-request retries before internal AI/provider calls.
+- Return metadata-only replay for completed duplicates; do not store or replay generated text, raw embedding input, or embedding vectors.
+
+Files:
+
+- `workers/auth/migrations/0051_add_admin_ai_usage_attempts.sql`
+- `workers/auth/src/lib/admin-ai-idempotency.js`
+- `workers/auth/src/routes/admin-ai.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/src/lib/admin-platform-budget-evidence.js`
+- `workers/auth/src/app/route-policy.js`
+- `config/release-compat.json`
+- `tests/workers.spec.js`
+
+Tests:
+
+- missing/malformed `Idempotency-Key` still rejects before provider calls
+- completed duplicate text/embeddings calls do not call the provider again
+- same-key/different-request retries conflict
+- in-progress duplicate text call does not call the provider again
+- provider failure records terminal attempt state and same-key retry does not call provider
+- missing idempotency table fails closed before provider calls
+- metadata omits raw prompts, raw embedding input, generated text, vectors, secrets, cookies, auth headers, Stripe data, Cloudflare tokens, and private keys
+
+Rollback:
+
+- Revert the helper, route, registry/baseline/evidence/check/test updates. If migration `0051` has been applied locally or remotely by an operator, leave the additive table unused or drop only through a separately reviewed rollback migration.
+
+Deploy units:
+
+- Auth D1 schema migration before auth Worker deploy. No AI Worker/contact Worker/static deploy is expected from Phase 4.8.1 unless unrelated files are changed.
+
+Migration risk:
+
+- Additive migration `0051_add_admin_ai_usage_attempts.sql`; do not apply remotely until an operator intentionally runs the release plan.
+
+Non-goals:
+
+- No full result replay, no live budget cap, no runtime env kill-switch enforcement, no Admin UI, no automated shutdown/remediation, no live billing readiness claim, no pricing changes.
+
 ## Phase 4.9: Remaining Admin/Internal Caller Migration
 
 Scope:
 
 - Choose one remaining admin/provider-cost or internal caller path such as Admin music, compare, live-agent, sync video debug, unmetered admin image, or a remaining internal caller and migrate it narrowly to explicit budget/caller-policy metadata.
-- Preserve Phase 4.5 admin video, Phase 4.6 News Pulse, Phase 4.7 caller-policy guard, and Phase 4.8 admin text/embeddings behavior.
+- Preserve Phase 4.5 admin video, Phase 4.6 News Pulse, Phase 4.7 caller-policy guard, and Phase 4.8/4.8.1 admin text/embeddings behavior.
 - Do not change member/org billing behavior, public pricing, Stripe, OpenClaw/News Pulse outside Phase 4.6, platform/background AI globally, or live billing readiness.
 
 ## Historical Superseded Item: Policy Enforcement Guard

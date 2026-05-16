@@ -112,10 +112,10 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "Charged admin image tests require organization_id, Idempotency-Key, server-side credit calculation, sufficient organization credits, and no charge on provider failure.",
   }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
-    billing: { idempotency: "Idempotency-Key header is required in Phase 4.8; durable replay/conflict persistence remains future work." },
+    billing: { idempotency: "Idempotency-Key header is required and backed by admin_ai_usage_attempts metadata-only duplicate suppression." },
   }),
   adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", {
-    billing: { idempotency: "Idempotency-Key header is required in Phase 4.8; durable replay/conflict persistence remains future work." },
+    billing: { idempotency: "Idempotency-Key header is required and backed by admin_ai_usage_attempts metadata-only duplicate suppression." },
   }),
   adminJsonWrite("admin.ai.test-music", "POST", "/api/admin/ai/test-music", "admin-ai", "adminJson", "admin-ai-music-ip", {}),
   adminJsonWrite("admin.ai.test-video-debug", "POST", "/api/admin/ai/test-video", "admin-ai", "adminJson", "admin-ai-video-ip", {}),
@@ -202,13 +202,13 @@ ${inventoryExtra}
   assert(output.includes("Read-only admin/platform budget evidence:"));
   assert(output.includes("npm run report:ai-budget-evidence"));
   assert(output.includes("admin.image.test.charged: implemented/hardened; scope=admin_org_credit_account"));
-  assert(output.includes("admin.text.test: partial/budget-metadata; scope=platform_admin_lab_budget"));
-  assert(output.includes("admin.embeddings.test: partial/budget-metadata; scope=platform_admin_lab_budget"));
+  assert(output.includes("admin.text.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
+  assert(output.includes("admin.embeddings.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.video.job.create: implemented/hardened; scope=platform_admin_lab_budget"));
   assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
   assert(output.includes("Phase 4.6 OpenClaw/News Pulse visual budget controls are represented"));
   assert(output.includes("Phase 4.7 internal AI Worker caller-policy guard is represented"));
-  assert(output.includes("Phase 4.8 admin text/embeddings require Idempotency-Key"));
+  assert(output.includes("Phase 4.8.1 admin text/embeddings use admin_ai_usage_attempts"));
   assert(output.includes("internal.video_task.create: implemented/hardened; scope=internal_ai_worker_caller_enforced"));
   assert(output.includes("Known baseline gaps:"));
   assert(output.includes("killSwitch="));

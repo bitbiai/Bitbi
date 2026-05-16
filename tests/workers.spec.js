@@ -16736,7 +16736,11 @@ test.describe('Worker routes', () => {
           model_id: expect.any(String),
           idempotency_policy: 'required',
           idempotency_key_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
-          duplicate_suppression: 'idempotency_key_required_no_durable_replay',
+          duplicate_suppression: 'durable_idempotency_metadata_only',
+          durable_idempotency: true,
+          replay_policy: 'metadata_only_no_result_replay',
+          idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
+          idempotency_attempt_status: 'succeeded',
           runtime_enforcement_status: 'budget_metadata_only',
           kill_switch_flag_name: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
           fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -16771,6 +16775,41 @@ test.describe('Worker routes', () => {
       expect(serializedBudget).not.toContain('Cookie');
       expect(serializedBudget).not.toContain('Authorization');
       expect(serializedBudget).not.toContain('sk_test_');
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      const attempt = env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.text.test',
+        route: '/api/admin/ai/test-text',
+        admin_user_id: 'admin-ai-user',
+        status: 'succeeded',
+        provider_status: 'succeeded',
+        result_status: 'metadata_only',
+        budget_scope: 'platform_admin_lab_budget',
+      }));
+      expect(attempt.idempotency_key_hash).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/));
+      const attemptMetadata = JSON.parse(attempt.metadata_json);
+      expect(attemptMetadata).toEqual(expect.objectContaining({
+        replay: expect.objectContaining({
+          policy: 'metadata_only_no_result_replay',
+          full_result_stored: false,
+          raw_input_stored: false,
+          replay_available: false,
+        }),
+      }));
+      expect(attemptMetadata.request).toEqual(expect.objectContaining({
+        prompt_length: 'Summarize the AI lab.'.length,
+        system_length: 'You are concise.'.length,
+      }));
+      expect(attemptMetadata.result).toEqual(expect.objectContaining({
+        result_kind: 'text',
+        text_length: expect.any(Number),
+      }));
+      const serializedAttempt = JSON.stringify(attempt);
+      expect(serializedAttempt).not.toContain('Summarize the AI lab');
+      expect(serializedAttempt).not.toContain('You are concise');
+      expect(serializedAttempt).not.toContain('Stubbed output');
+      expect(serializedAttempt).not.toContain('Cookie');
+      expect(serializedAttempt).not.toContain('Authorization');
     });
 
     test('POST /api/admin/ai/test-image returns the image response contract used by the UI', async () => {
@@ -18078,7 +18117,11 @@ test.describe('Worker routes', () => {
           model_id: expect.any(String),
           idempotency_policy: 'required',
           idempotency_key_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
-          duplicate_suppression: 'idempotency_key_required_no_durable_replay',
+          duplicate_suppression: 'durable_idempotency_metadata_only',
+          durable_idempotency: true,
+          replay_policy: 'metadata_only_no_result_replay',
+          idempotency_attempt_id: expect.stringMatching(/^aaia_[a-f0-9]{32}$/),
+          idempotency_attempt_status: 'succeeded',
           runtime_enforcement_status: 'budget_metadata_only',
           kill_switch_flag_name: 'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
           fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -18113,6 +18156,35 @@ test.describe('Worker routes', () => {
       expect(serializedBudget).not.toContain('second snippet');
       expect(serializedBudget).not.toContain('Cookie');
       expect(serializedBudget).not.toContain('Authorization');
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      const attempt = env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.embeddings.test',
+        route: '/api/admin/ai/test-embeddings',
+        admin_user_id: 'admin-ai-user',
+        status: 'succeeded',
+        provider_status: 'succeeded',
+        result_status: 'metadata_only',
+        budget_scope: 'platform_admin_lab_budget',
+      }));
+      const attemptMetadata = JSON.parse(attempt.metadata_json);
+      const resultMetadata = JSON.parse(attempt.result_metadata_json);
+      expect(attemptMetadata.request).toEqual(expect.objectContaining({
+        input_count: 2,
+        input_total_length: 'first snippet'.length + 'second snippet'.length,
+      }));
+      expect(resultMetadata).toEqual(expect.objectContaining({
+        result_kind: 'embeddings',
+        count: 2,
+        dimensions: 4,
+        vectors_stored: false,
+      }));
+      const serializedAttempt = JSON.stringify(attempt);
+      expect(serializedAttempt).not.toContain('first snippet');
+      expect(serializedAttempt).not.toContain('second snippet');
+      expect(serializedAttempt).not.toContain('0.1');
+      expect(serializedAttempt).not.toContain('Cookie');
+      expect(serializedAttempt).not.toContain('Authorization');
     });
 
     test('POST /api/admin/ai/test-text and test-embeddings require valid idempotency before internal AI calls', async () => {
@@ -18191,16 +18263,16 @@ test.describe('Worker routes', () => {
       expect(aiLabRequests).toHaveLength(0);
     });
 
-    test('admin text idempotency is mandatory metadata-only without durable replay claims', async () => {
+    test('admin text durable idempotency suppresses completed duplicate provider calls and conflicts different requests', async () => {
       const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
       const payload = {
         preset: 'balanced',
-        prompt: 'Same idempotency key still has no durable replay store in Phase 4.8.',
+        prompt: 'Same idempotency key should not run the text provider twice.',
         maxTokens: 80,
       };
       const headers = {
         ...authHeaders,
-        'Idempotency-Key': 'admin-text-metadata-only-1',
+        'Idempotency-Key': 'admin-text-durable-1',
       };
 
       const first = await authWorker.fetch(
@@ -18218,17 +18290,242 @@ test.describe('Worker routes', () => {
       expect(second.status).toBe(200);
       const firstBody = await first.json();
       const secondBody = await second.json();
-      expect(aiLabRequests).toHaveLength(2);
+      expect(aiLabRequests).toHaveLength(1);
       expect(firstBody.budget_policy).toEqual(expect.objectContaining({
-        duplicate_suppression: 'idempotency_key_required_no_durable_replay',
+        duplicate_suppression: 'durable_idempotency_metadata_only',
+        idempotency_attempt_status: 'succeeded',
         runtime_enforcement_status: 'budget_metadata_only',
       }));
+      expect(secondBody).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'text',
+        code: 'admin_ai_idempotency_metadata_replay',
+        result: null,
+      }));
+      expect(secondBody.idempotency).toEqual(expect.objectContaining({
+        idempotent_replay: true,
+        replay_available: false,
+        replay_policy: 'metadata_only_no_result_replay',
+      }));
       expect(secondBody.budget_policy).toEqual(expect.objectContaining({
-        duplicate_suppression: 'idempotency_key_required_no_durable_replay',
-        runtime_enforcement_status: 'budget_metadata_only',
+        duplicate_suppression: 'durable_idempotency_metadata_only',
+        durable_idempotency: true,
+        replay_policy: 'metadata_only_no_result_replay',
+        idempotency_attempt_status: 'succeeded',
       }));
       expect(secondBody.budget_policy.fingerprint).toBe(firstBody.budget_policy.fingerprint);
       expect(secondBody.budget_policy.idempotency_key_hash).toBe(firstBody.budget_policy.idempotency_key_hash);
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          ...payload,
+          prompt: 'Different request with the same key must conflict.',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_conflict',
+      });
+      expect(aiLabRequests).toHaveLength(1);
+    });
+
+    test('admin embeddings durable idempotency suppresses completed duplicate provider calls and conflicts different requests', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+      const payload = {
+        preset: 'embedding_default',
+        input: ['same embedding request'],
+      };
+      const headers = {
+        ...authHeaders,
+        'Idempotency-Key': 'admin-embeddings-durable-1',
+      };
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-embeddings', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      const second = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-embeddings', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      const secondBody = await second.json();
+      expect(aiLabRequests).toHaveLength(1);
+      expect(secondBody).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'embeddings',
+        code: 'admin_ai_idempotency_metadata_replay',
+        result: null,
+      }));
+      expect(secondBody.idempotency).toEqual(expect.objectContaining({
+        idempotent_replay: true,
+        replay_available: false,
+        replay_policy: 'metadata_only_no_result_replay',
+      }));
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('same embedding request');
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('0.1');
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-embeddings', 'POST', {
+          preset: 'embedding_default',
+          input: ['different embedding request'],
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_conflict',
+      });
+      expect(aiLabRequests).toHaveLength(1);
+    });
+
+    test('admin text duplicate in-progress idempotency request does not call the provider again', async () => {
+      let releaseProvider;
+      let providerStarted;
+      const providerStartedPromise = new Promise((resolve) => {
+        providerStarted = resolve;
+      });
+      const releaseProviderPromise = new Promise((resolve) => {
+        releaseProvider = resolve;
+      });
+      const aiRunStub = createAiLabRunStub();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async (...args) => {
+          providerStarted();
+          await releaseProviderPromise;
+          return aiRunStub(...args);
+        },
+      });
+      const payload = {
+        preset: 'balanced',
+        prompt: 'In-progress duplicate should not call provider twice.',
+        maxTokens: 80,
+      };
+      const headers = {
+        ...authHeaders,
+        'Idempotency-Key': 'admin-text-in-progress-1',
+      };
+
+      const firstPromise = authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      await providerStartedPromise;
+      const second = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(second.status).toBe(409);
+      await expect(second.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_in_progress',
+        idempotency: expect.objectContaining({
+          replay_policy: 'metadata_only_no_result_replay',
+        }),
+      });
+      expect(aiLabRequests).toHaveLength(1);
+      releaseProvider();
+      const first = await firstPromise;
+      expect(first.status).toBe(200);
+      expect(aiLabRequests).toHaveLength(1);
+    });
+
+    test('admin embeddings provider failure records a terminal attempt and retry does not call provider again', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('simulated provider failure');
+        },
+      });
+      const payload = {
+        preset: 'embedding_default',
+        input: ['failing embedding request'],
+      };
+      const headers = {
+        ...authHeaders,
+        'Idempotency-Key': 'admin-embeddings-failure-1',
+      };
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-embeddings', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(502);
+      const attempt = env.DB.state.adminAiUsageAttempts[0];
+      expect(attempt).toEqual(expect.objectContaining({
+        operation_key: 'admin.embeddings.test',
+        status: 'provider_failed',
+        provider_status: 'failed',
+        result_status: 'none',
+        error_code: 'upstream_error',
+      }));
+
+      const second = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-embeddings', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(second.status).toBe(409);
+      await expect(second.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_ai_idempotency_terminal',
+      });
+      expect(aiLabRequests).toHaveLength(1);
+      expect(JSON.stringify(attempt)).not.toContain('failing embedding request');
+    });
+
+    test('admin text and embeddings fail closed before provider calls when durable idempotency table is unavailable', async () => {
+      const cases = [
+        {
+          route: '/api/admin/ai/test-text',
+          payload: {
+            preset: 'balanced',
+            prompt: 'Missing table should fail before provider.',
+            maxTokens: 80,
+          },
+          key: 'admin-text-missing-table-1',
+        },
+        {
+          route: '/api/admin/ai/test-embeddings',
+          payload: {
+            preset: 'embedding_default',
+            input: ['missing table should fail before provider'],
+          },
+          key: 'admin-embeddings-missing-table-1',
+        },
+      ];
+
+      for (const { route, payload, key } of cases) {
+        const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+        env.DB.missingTables.add('admin_ai_usage_attempts');
+        const res = await authWorker.fetch(
+          authJsonRequest(route, 'POST', payload, {
+            ...authHeaders,
+            'Idempotency-Key': key,
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(503);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'admin_ai_idempotency_unavailable',
+        });
+        expect(aiLabRequests).toHaveLength(0);
+      }
     });
 
     test('admin text and embeddings caller-policy metadata is stripped before provider payloads', async () => {

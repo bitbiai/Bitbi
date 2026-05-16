@@ -28,7 +28,7 @@ assert.equal(report.providerCalls, false);
 assert.equal(report.billingMutation, false);
 assert.equal(report.summary.memberGatewayMigrated, 3);
 assert.equal(report.summary.adminPlatformImplemented, 8);
-assert.equal(report.summary.adminTextEmbeddingsBudgetMetadata, 2);
+assert.equal(report.summary.adminTextEmbeddingsDurableIdempotency, 2);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 
@@ -105,16 +105,18 @@ assert(adminVideoJob.remainingLimitations.some((entry) => entry.includes("kill-s
 
 const adminText = report.implementedOperations.find((entry) => entry.operationId === "admin.text.test");
 assert.equal(adminText.budgetScope, "platform_admin_lab_budget");
-assert.equal(adminText.runtimeStatus, "budget_metadata_only");
+assert.equal(adminText.runtimeStatus, "budget_metadata_with_durable_idempotency");
 assert.equal(adminText.killSwitchTarget, "ENABLE_ADMIN_AI_TEXT_BUDGET");
 assert(adminText.metadataFieldsExpected.includes("caller_policy"));
-assert(adminText.remainingLimitations.some((entry) => entry.includes("durable replay")));
+assert(adminText.metadataFieldsExpected.includes("idempotency_attempt_id"));
+assert(adminText.remainingLimitations.some((entry) => entry.includes("Full result replay")));
 
 const adminEmbeddings = report.implementedOperations.find((entry) => entry.operationId === "admin.embeddings.test");
 assert.equal(adminEmbeddings.budgetScope, "platform_admin_lab_budget");
-assert.equal(adminEmbeddings.runtimeStatus, "budget_metadata_only");
+assert.equal(adminEmbeddings.runtimeStatus, "budget_metadata_with_durable_idempotency");
 assert.equal(adminEmbeddings.killSwitchTarget, "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET");
 assert(adminEmbeddings.metadataFieldsExpected.includes("idempotency_key_hash"));
+assert(adminEmbeddings.metadataFieldsExpected.includes("durable_idempotency"));
 
 const newsPulseVisual = report.implementedOperations.find((entry) => entry.operationId === "platform.news_pulse.visual.ingest");
 assert.equal(newsPulseVisual.budgetScope, "openclaw_news_pulse_budget");

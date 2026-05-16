@@ -111,9 +111,9 @@ Record pass/fail output with branch, commit, operator, and date. Do not paste se
 
 ## 3. Verify Production D1 Migration Status
 
-The production auth D1 database must be verified through `0050_add_news_pulse_visual_budget_metadata.sql` before deploying current Phase 4.6 auth Worker code and before live smoke checks. Record migration names/status only.
+The production auth D1 database must be verified through `0051_add_admin_ai_usage_attempts.sql` before deploying current auth Worker code and before live smoke checks. Record migration names/status only.
 
-This runbook does not provide or authorize a remote migration command. If production is not verified through `0050`, stop and record final verdict `BLOCKED`.
+This runbook does not provide or authorize a remote migration command. If production is not verified through `0051`, stop and record final verdict `BLOCKED`.
 
 ## 4. Deploy Auth Worker
 

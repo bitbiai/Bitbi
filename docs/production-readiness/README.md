@@ -4,7 +4,7 @@ Last updated: 2026-05-16
 
 Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
 
-The latest auth D1 migration declared by `config/release-compat.json` is `0050_add_news_pulse_visual_budget_metadata.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
+The latest auth D1 migration declared by `config/release-compat.json` is `0051_add_admin_ai_usage_attempts.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
 ## Evidence Rule
 
@@ -20,7 +20,7 @@ Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The 
 | --- | --- | --- | --- | --- |
 | Repo baseline: branch, commit, worktree, release latest migration | Repo maintainer | Local repo | None | No secrets involved. |
 | Local release checks | Repo maintainer | Local repo / CI | None | Commands must not print secrets. |
-| Auth D1 migration status through `0050_add_news_pulse_visual_budget_metadata.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
+| Auth D1 migration status through `0051_add_admin_ai_usage_attempts.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
 | Auth Worker bindings: D1, R2, Queues, Durable Object, AI, Images, service bindings | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names and present/missing only. |
 | AI Worker bindings and Durable Object migration | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding/migration names and present/missing only. |
 | Contact Worker Durable Object binding | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names only. |

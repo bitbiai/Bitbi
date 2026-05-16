@@ -724,6 +724,7 @@ class MockD1 {
       openClawIngestNonces: [],
       creditLedger: [],
       usageEvents: [],
+      adminAiUsageAttempts: [],
       memberCreditLedger: [],
       memberUsageEvents: [],
       memberCreditBuckets: [],
@@ -873,6 +874,9 @@ class MockD1 {
     }
     if (this.missingTables.has('member_ai_usage_attempts') && query.includes('member_ai_usage_attempts')) {
       throw new Error('no such table: member_ai_usage_attempts');
+    }
+    if (this.missingTables.has('admin_ai_usage_attempts') && query.includes('admin_ai_usage_attempts')) {
+      throw new Error('no such table: admin_ai_usage_attempts');
     }
     if (this.missingTables.has('user_asset_storage_usage') && query.includes('user_asset_storage_usage')) {
       throw new Error('no such table: user_asset_storage_usage');
@@ -7485,6 +7489,120 @@ class MockD1 {
         }
       }
       return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith('SELECT id, operation_key, route, admin_user_id, idempotency_key_hash, request_fingerprint')
+      && query.endsWith('FROM admin_ai_usage_attempts WHERE admin_user_id = ? AND operation_key = ? AND idempotency_key_hash = ? LIMIT 1')
+    ) {
+      const [adminUserId, operationKey, idempotencyKeyHash] = bindings;
+      return this.state.adminAiUsageAttempts.find((row) =>
+        row.admin_user_id === adminUserId &&
+        row.operation_key === operationKey &&
+        row.idempotency_key_hash === idempotencyKeyHash
+      ) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, operation_key, route, admin_user_id, idempotency_key_hash, request_fingerprint')
+      && query.endsWith('FROM admin_ai_usage_attempts WHERE id = ? LIMIT 1')
+    ) {
+      const [id] = bindings;
+      return this.state.adminAiUsageAttempts.find((row) => row.id === id) || null;
+    }
+
+    if (query.startsWith('INSERT INTO admin_ai_usage_attempts (')) {
+      const [
+        id,
+        operation_key,
+        route,
+        admin_user_id,
+        idempotency_key_hash,
+        request_fingerprint,
+        provider_family,
+        model_key,
+        budget_scope,
+        budget_policy_json,
+        caller_policy_json,
+        created_at,
+        updated_at,
+        expires_at,
+        metadata_json,
+      ] = bindings;
+      if (this.state.adminAiUsageAttempts.some((row) =>
+        row.admin_user_id === admin_user_id &&
+        row.operation_key === operation_key &&
+        row.idempotency_key_hash === idempotency_key_hash
+      )) {
+        throw new Error('UNIQUE constraint failed: admin_ai_usage_attempts.admin_user_id, admin_ai_usage_attempts.operation_key, admin_ai_usage_attempts.idempotency_key_hash');
+      }
+      this.state.adminAiUsageAttempts.push({
+        id,
+        operation_key,
+        route,
+        admin_user_id,
+        idempotency_key_hash,
+        request_fingerprint,
+        provider_family,
+        model_key,
+        budget_scope,
+        budget_policy_json,
+        caller_policy_json,
+        status: 'pending',
+        provider_status: 'not_started',
+        result_status: 'none',
+        result_metadata_json: '{}',
+        error_code: null,
+        error_message: null,
+        created_at,
+        updated_at,
+        completed_at: null,
+        expires_at,
+        metadata_json,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE admin_ai_usage_attempts SET status = 'provider_running', provider_status = 'running', updated_at = ? WHERE id = ? AND status = 'pending' AND provider_status = 'not_started'") {
+      const [updatedAt, id] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) =>
+        item.id === id && item.status === 'pending' && item.provider_status === 'not_started'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'provider_running';
+      row.provider_status = 'running';
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE admin_ai_usage_attempts SET status = 'provider_failed', provider_status = 'failed', result_status = 'none', error_code = ?, error_message = ?, updated_at = ?, completed_at = ? WHERE id = ?") {
+      const [errorCode, errorMessage, updatedAt, completedAt, id] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'provider_failed';
+      row.provider_status = 'failed';
+      row.result_status = 'none';
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.updated_at = updatedAt;
+      row.completed_at = completedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE admin_ai_usage_attempts SET status = 'succeeded', provider_status = 'succeeded', result_status = 'metadata_only', result_metadata_json = ?, metadata_json = ?, error_code = NULL, error_message = NULL, updated_at = ?, completed_at = ? WHERE id = ?") {
+      const [resultMetadataJson, metadataJson, updatedAt, completedAt, id] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'succeeded';
+      row.provider_status = 'succeeded';
+      row.result_status = 'metadata_only';
+      row.result_metadata_json = resultMetadataJson;
+      row.metadata_json = metadataJson;
+      row.error_code = null;
+      row.error_message = null;
+      row.updated_at = updatedAt;
+      row.completed_at = completedAt;
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('INSERT INTO ai_video_jobs (')) {

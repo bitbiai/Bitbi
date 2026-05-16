@@ -110,7 +110,7 @@ assert.deepEqual(summary, {
   adminPlatformOperations: 22,
   currentMissingMandatoryIdempotency: 0,
   currentMissingReservation: 0,
-  currentNoReplay: 0,
+  currentNoReplay: 1,
   platformBudgetReviewOperations: 2,
   budgetScopeCounts: {
     member_credit_account: 0,
@@ -171,6 +171,14 @@ assert.equal(
   "ENABLE_ADMIN_AI_TEXT_BUDGET"
 );
 assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.text.test").currentEnforcement.providerSuppression,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.text.test").operationConfig.replayPolicy,
+  "metadata_only"
+);
+assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.embeddings.test").currentStatus,
   "partial"
 );
@@ -181,6 +189,14 @@ assert.equal(
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.embeddings.test").budgetPolicy.killSwitchTarget,
   "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.embeddings.test").currentEnforcement.providerSuppression,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.embeddings.test").operationConfig.replayPolicy,
+  "metadata_only"
 );
 assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.charged").budgetPolicy.targetBudgetScope,

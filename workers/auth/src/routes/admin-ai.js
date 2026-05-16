@@ -72,6 +72,13 @@ import {
   normalizeAdminAiUsageAttemptFilters,
 } from "../lib/ai-usage-attempts.js";
 import {
+  AdminAiIdempotencyError,
+  beginAdminAiIdempotencyAttempt,
+  markAdminAiIdempotencyProviderFailed,
+  markAdminAiIdempotencyProviderRunning,
+  markAdminAiIdempotencySucceeded,
+} from "../lib/admin-ai-idempotency.js";
+import {
   calculateAdminImageTestCreditCost,
   isChargeableAdminImageTestModel,
 } from "../lib/admin-ai-image-credit-pricing.js";
@@ -362,18 +369,18 @@ function adminLabBudgetOperation({
       disabledBehavior: "manual_only",
       operatorCanOverride: false,
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-      notes: "Phase 4.8 records the future kill-switch metadata target only; runtime env enforcement remains future work for this route.",
+      notes: "Phase 4.8.1 records the future kill-switch metadata target only; runtime env enforcement remains future work for this route.",
     },
     routeId: registryConfig.routeId || routeId,
     routePath: registryConfig.routePath || routePath,
     auditEventPrefix: registryConfig.observabilityEventPrefix || operationId,
-    notes: "Phase 4.8 records sanitized platform_admin_lab_budget metadata for admin text/embeddings tests without enabling live billing or durable replay.",
+    notes: "Phase 4.8.1 records sanitized platform_admin_lab_budget metadata and durable metadata-only idempotency for admin text/embeddings tests without enabling live billing or full result replay.",
   };
 }
 
 function compactAdminLabBudgetPolicy(plan, fingerprint, {
   idempotencyKeyHash = null,
-  duplicateSuppression = "idempotency_key_required_no_durable_replay",
+  duplicateSuppression = "durable_idempotency_metadata_only",
 } = {}) {
   return {
     budget_policy_version: plan.policyVersion,
@@ -387,6 +394,8 @@ function compactAdminLabBudgetPolicy(plan, fingerprint, {
     idempotency_policy: plan.idempotencyPolicy,
     idempotency_key_hash: idempotencyKeyHash,
     duplicate_suppression: duplicateSuppression,
+    durable_idempotency: duplicateSuppression !== "idempotency_key_required_no_durable_replay",
+    replay_policy: "metadata_only_no_result_replay",
     runtime_enforcement_status: "budget_metadata_only",
     plan_status: plan.status,
     required_next_action: plan.requiredNextAction,
@@ -395,6 +404,18 @@ function compactAdminLabBudgetPolicy(plan, fingerprint, {
     kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? null,
     fingerprint,
     audit_fields: plan.auditFields,
+  };
+}
+
+function withAdminLabAttemptBudgetMetadata(budgetPolicy, attempt = null, state = null) {
+  return {
+    ...(budgetPolicy || {}),
+    duplicate_suppression: "durable_idempotency_metadata_only",
+    durable_idempotency: true,
+    replay_policy: "metadata_only_no_result_replay",
+    idempotency_attempt_id: attempt?.id || null,
+    idempotency_attempt_status: state || attempt?.status || null,
+    idempotency_attempt_result_status: attempt?.resultStatus || null,
   };
 }
 
@@ -424,7 +445,7 @@ async function buildAdminLabBudgetPolicyContext({
     actorUserId: user?.id || null,
     actorRole: "admin",
     modelId,
-    reason: `${operationId}_phase_4_8_metadata_only`,
+    reason: `${operationId}_phase_4_8_1_durable_metadata_only`,
     correlationId,
   });
   if (!plan.ok) {
@@ -470,6 +491,148 @@ function compactAdminCallerPolicy(callerPolicy) {
     correlation_id: callerPolicy.correlation_id || null,
     reason: callerPolicy.reason || null,
   };
+}
+
+function adminTextRequestMetadata(payload) {
+  return {
+    prompt_length: payload?.prompt ? String(payload.prompt).length : 0,
+    system_length: payload?.system ? String(payload.system).length : 0,
+    max_tokens: payload?.maxTokens ?? null,
+    temperature: payload?.temperature ?? null,
+  };
+}
+
+function adminEmbeddingsRequestMetadata(payload) {
+  const input = Array.isArray(payload?.input) ? payload.input : [payload?.input].filter((entry) => entry != null);
+  return {
+    input_count: input.length,
+    input_total_length: input.reduce((sum, entry) => sum + String(entry || "").length, 0),
+  };
+}
+
+function adminTextResultMetadata(providerBody) {
+  const text = providerBody?.result?.text == null ? "" : String(providerBody.result.text);
+  return {
+    result_kind: "text",
+    text_length: text.length,
+    usage: providerBody?.result?.usage && typeof providerBody.result.usage === "object"
+      ? {
+          prompt_tokens: Number(providerBody.result.usage.prompt_tokens || 0),
+          completion_tokens: Number(providerBody.result.usage.completion_tokens || 0),
+          total_tokens: Number(providerBody.result.usage.total_tokens || 0),
+        }
+      : null,
+    max_tokens: providerBody?.result?.maxTokens ?? null,
+    temperature: providerBody?.result?.temperature ?? null,
+  };
+}
+
+function adminEmbeddingsResultMetadata(providerBody) {
+  const result = providerBody?.result || {};
+  return {
+    result_kind: "embeddings",
+    count: Number(result.count || 0),
+    dimensions: result.dimensions == null ? null : Number(result.dimensions),
+    shape: Array.isArray(result.shape)
+      ? result.shape.map((entry) => Number(entry)).filter((entry) => Number.isFinite(entry))
+      : null,
+    pooling: typeof result.pooling === "string" ? result.pooling.slice(0, 80) : null,
+    vectors_stored: false,
+  };
+}
+
+function adminLabAttemptSafeMetadata({
+  requestMetadata,
+  resultMetadata = null,
+  budgetPolicy,
+  callerPolicy,
+  state,
+} = {}) {
+  return {
+    request: requestMetadata || {},
+    result: resultMetadata || null,
+    budget_policy: budgetPolicy || null,
+    caller_policy: compactAdminCallerPolicy(callerPolicy),
+    replay: {
+      policy: "metadata_only_no_result_replay",
+      full_result_stored: false,
+      raw_input_stored: false,
+      replay_available: false,
+    },
+    state: state || null,
+  };
+}
+
+function adminLabAttemptResponse({
+  task,
+  modelId,
+  kind,
+  attempt,
+  budgetPolicy,
+  callerPolicy,
+}, correlationId) {
+  const attemptBudget = withAdminLabAttemptBudgetMetadata(budgetPolicy, attempt, attempt?.status || kind);
+  if (kind === "completed") {
+    return withCorrelationId(json({
+      ok: true,
+      task,
+      code: "admin_ai_idempotency_metadata_replay",
+      result: null,
+      model_id: modelId || attempt?.modelKey || null,
+      idempotency: {
+        attempt_id: attempt?.id || null,
+        status: attempt?.status || "succeeded",
+        provider_status: attempt?.providerStatus || null,
+        result_status: attempt?.resultStatus || null,
+        idempotent_replay: true,
+        replay_available: false,
+        replay_policy: "metadata_only_no_result_replay",
+        completed_at: attempt?.completedAt || null,
+      },
+      budget_policy: attemptBudget,
+      caller_policy: compactAdminCallerPolicy(callerPolicy),
+    }), correlationId);
+  }
+
+  if (kind === "in_progress") {
+    return withCorrelationId(json({
+      ok: false,
+      error: "This idempotent admin AI request is already in progress.",
+      code: "admin_ai_idempotency_in_progress",
+      idempotency: {
+        attempt_id: attempt?.id || null,
+        status: attempt?.status || "provider_running",
+        provider_status: attempt?.providerStatus || null,
+        replay_policy: "metadata_only_no_result_replay",
+      },
+      budget_policy: attemptBudget,
+      caller_policy: compactAdminCallerPolicy(callerPolicy),
+    }, { status: 409 }), correlationId);
+  }
+
+  return withCorrelationId(json({
+    ok: false,
+    error: "This idempotency key is tied to a completed or failed admin AI request. Use a new key to retry.",
+    code: kind === "expired" ? "admin_ai_idempotency_expired" : "admin_ai_idempotency_terminal",
+    idempotency: {
+      attempt_id: attempt?.id || null,
+      status: attempt?.status || kind,
+      provider_status: attempt?.providerStatus || null,
+      result_status: attempt?.resultStatus || null,
+      replay_policy: "metadata_only_no_result_replay",
+    },
+    budget_policy: attemptBudget,
+    caller_policy: compactAdminCallerPolicy(callerPolicy),
+  }, { status: 409 }), correlationId);
+}
+
+async function parseJsonResponseBody(response) {
+  if (!(response instanceof Response)) return null;
+  try {
+    return await response.clone().json();
+  } catch {
+    return null;
+  }
 }
 
 async function appendAdminLabBudgetMetadata(response, {
@@ -933,9 +1096,40 @@ export async function handleAdminAI(ctx) {
         requestFingerprint: budgetPolicy.summary.fingerprint,
         killSwitchTarget: ADMIN_TEXT_BUDGET_KILL_SWITCH,
         correlationId,
-        reason: "phase_4_8_admin_text_budget_metadata_only",
-        notes: "Idempotency-Key is required; durable replay/conflict persistence remains future work.",
+        reason: "phase_4_8_1_admin_text_durable_idempotency_metadata_only",
+        notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression.",
       });
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const attemptState = await beginAdminAiIdempotencyAttempt({
+        env,
+        operationKey: ADMIN_TEXT_OPERATION_ID,
+        route: "/api/admin/ai/test-text",
+        adminUserId: result.user.id,
+        idempotencyKey,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        providerFamily: budgetPolicy.summary.provider_family,
+        modelKey: modelId,
+        budgetScope: budgetPolicy.summary.budget_scope,
+        budgetPolicy: initialBudgetPolicy,
+        callerPolicy: compactAdminCallerPolicy(callerPolicy),
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminTextRequestMetadata(validated),
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+          state: "pending",
+        }),
+      });
+      if (attemptState.kind !== "created") {
+        return adminLabAttemptResponse({
+          task: "text",
+          modelId,
+          kind: attemptState.kind,
+          attempt: attemptState.attempt,
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+        }, correlationId);
+      }
+      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-text",
@@ -948,8 +1142,26 @@ export async function handleAdminAI(ctx) {
         correlationId,
         requestInfo
       );
+      const providerBody = await parseJsonResponseBody(response);
+      if (!response.ok || !providerBody?.ok) {
+        await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          code: providerBody?.code || "provider_failed",
+          message: "Admin text provider call failed.",
+        });
+        return response;
+      }
+      const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        resultMetadata: adminTextResultMetadata(providerBody),
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminTextRequestMetadata(validated),
+          resultMetadata: adminTextResultMetadata(providerBody),
+          budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, attemptState.attempt, "succeeded"),
+          callerPolicy,
+          state: "succeeded",
+        }),
+      });
       return appendAdminLabBudgetMetadata(response, {
-        budgetPolicy: budgetPolicy.summary,
+        budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
         callerPolicy,
       }, correlationId);
     } catch (error) {
@@ -965,6 +1177,9 @@ export async function handleAdminAI(ctx) {
             ...getRemoteMediaPolicyLogFields(error),
           });
         }
+        return inputErrorResponse(error, correlationId);
+      }
+      if (error instanceof AdminAiIdempotencyError) {
         return inputErrorResponse(error, correlationId);
       }
       throw error;
@@ -1241,9 +1456,40 @@ export async function handleAdminAI(ctx) {
         requestFingerprint: budgetPolicy.summary.fingerprint,
         killSwitchTarget: ADMIN_EMBEDDINGS_BUDGET_KILL_SWITCH,
         correlationId,
-        reason: "phase_4_8_admin_embeddings_budget_metadata_only",
-        notes: "Idempotency-Key is required; durable replay/conflict persistence remains future work.",
+        reason: "phase_4_8_1_admin_embeddings_durable_idempotency_metadata_only",
+        notes: "Idempotency-Key is required and backed by durable metadata-only duplicate suppression.",
       });
+      const initialBudgetPolicy = withAdminLabAttemptBudgetMetadata(budgetPolicy.summary, null, "pending");
+      const attemptState = await beginAdminAiIdempotencyAttempt({
+        env,
+        operationKey: ADMIN_EMBEDDINGS_OPERATION_ID,
+        route: "/api/admin/ai/test-embeddings",
+        adminUserId: result.user.id,
+        idempotencyKey,
+        requestFingerprint: budgetPolicy.summary.fingerprint,
+        providerFamily: budgetPolicy.summary.provider_family,
+        modelKey: modelId,
+        budgetScope: budgetPolicy.summary.budget_scope,
+        budgetPolicy: initialBudgetPolicy,
+        callerPolicy: compactAdminCallerPolicy(callerPolicy),
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminEmbeddingsRequestMetadata(validated),
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+          state: "pending",
+        }),
+      });
+      if (attemptState.kind !== "created") {
+        return adminLabAttemptResponse({
+          task: "embeddings",
+          modelId,
+          kind: attemptState.kind,
+          attempt: attemptState.attempt,
+          budgetPolicy: initialBudgetPolicy,
+          callerPolicy,
+        }, correlationId);
+      }
+      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-embeddings",
@@ -1256,12 +1502,32 @@ export async function handleAdminAI(ctx) {
         correlationId,
         requestInfo
       );
+      const providerBody = await parseJsonResponseBody(response);
+      if (!response.ok || !providerBody?.ok) {
+        await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          code: providerBody?.code || "provider_failed",
+          message: "Admin embeddings provider call failed.",
+        });
+        return response;
+      }
+      const resultMetadata = adminEmbeddingsResultMetadata(providerBody);
+      const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        resultMetadata,
+        metadata: adminLabAttemptSafeMetadata({
+          requestMetadata: adminEmbeddingsRequestMetadata(validated),
+          resultMetadata,
+          budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, attemptState.attempt, "succeeded"),
+          callerPolicy,
+          state: "succeeded",
+        }),
+      });
       return appendAdminLabBudgetMetadata(response, {
-        budgetPolicy: budgetPolicy.summary,
+        budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
         callerPolicy,
       }, correlationId);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
       throw error;
     }
   }

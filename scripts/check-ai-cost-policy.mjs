@@ -636,7 +636,13 @@ function renderHardenedAdminBudgetOperations(entries = AI_COST_OPERATION_REGISTR
   if (!hardened.length) return "- None";
   return hardened
     .map((entry) => {
-      const label = entry.status === "implemented" ? "hardened" : "budget-metadata";
+      const registryEntry = entries.find((candidate) => candidate.operationConfig?.operationId === entry.operationId);
+      const label = entry.status === "implemented"
+        ? "hardened"
+        : registryEntry?.currentEnforcement?.providerSuppression === "implemented"
+          && registryEntry?.currentEnforcement?.replay === "partial"
+          ? "budget-metadata+durable-idempotency"
+          : "budget-metadata";
       return `- ${entry.operationId}: ${entry.status}/${label}; scope=${entry.scope}; route=${entry.route}`;
     })
     .join("\n");
@@ -689,7 +695,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
     "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
     "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
-    "- Phase 4.8 admin text/embeddings require Idempotency-Key, build platform_admin_lab_budget metadata, and propagate budget_metadata_only caller-policy metadata; durable replay/live budget caps remain future work.",
+    "- Phase 4.8.1 admin text/embeddings use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; full result replay/live budget caps remain future work.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>

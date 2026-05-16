@@ -312,8 +312,8 @@ function implementedAdminTextEmbeddingsEvidence(entry, routeIndex) {
   return {
     ...base,
     type: "partial_admin_budget_operation",
-    runtimeStatus: "budget_metadata_only",
-    idempotencyTarget: "required Idempotency-Key; key is represented only by a safe hash in metadata",
+    runtimeStatus: "budget_metadata_with_durable_idempotency",
+    idempotencyTarget: "required Idempotency-Key; admin_ai_usage_attempts stores only a safe key hash and request fingerprint",
     killSwitchTarget: isEmbeddings
       ? "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET"
       : "ENABLE_ADMIN_AI_TEXT_BUDGET",
@@ -332,7 +332,11 @@ function implementedAdminTextEmbeddingsEvidence(entry, routeIndex) {
       "estimated_credits",
       "idempotency_policy",
       "idempotency_key_hash",
+      "idempotency_attempt_id",
+      "idempotency_attempt_status",
       "duplicate_suppression",
+      "durable_idempotency",
+      "replay_policy",
       "runtime_enforcement_status",
       "plan_status",
       "kill_switch_flag_name",
@@ -341,8 +345,9 @@ function implementedAdminTextEmbeddingsEvidence(entry, routeIndex) {
       "caller_policy",
     ],
     remainingLimitations: [
-      "Runtime env kill-switch enforcement is metadata only in Phase 4.8.",
-      "No durable replay/conflict persistence exists for same-key admin text/embeddings requests yet.",
+      "Runtime env kill-switch enforcement is metadata only in Phase 4.8.1.",
+      "Full result replay is intentionally unavailable; duplicate completed requests return metadata-only replay without generated text or embedding vectors.",
+      "Admin text/embeddings attempts need future bounded cleanup/inspection before broad admin AI migration.",
       "The AI Worker internal text/embeddings routes still allow baseline-missing caller policy for other known callers to preserve org/member compatibility.",
       "No live platform budget cap, Stripe call, or credit debit is performed.",
     ],
@@ -441,7 +446,7 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
       "reason",
     ],
     remainingLimitations: [
-      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only; Phase 4.8 supplies metadata for admin text/embeddings but does not make the shared internal routes fail closed for every caller.",
+      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only; Phase 4.8.1 supplies admin text/embeddings caller metadata plus durable caller-side idempotency, but does not make the shared internal routes fail closed for every caller.",
       "Admin music/compare/live-agent, sync video debug, unmetered image, and other internal routes remain baseline-allowed until targeted caller migrations.",
       isPoll
         ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
@@ -621,7 +626,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     summary: {
       memberGatewayMigrated: memberGatewayOperations.length,
       adminPlatformImplemented: implementedAdminBudgetOperations.length,
-      adminTextEmbeddingsBudgetMetadata: partialAdminTextEmbeddingsOperations.length,
+      adminTextEmbeddingsDurableIdempotency: partialAdminTextEmbeddingsOperations.length,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
@@ -658,7 +663,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement, Phase 4.6 adds OpenClaw/News Pulse visual budget metadata/control evidence, and Phase 4.7 adds an internal AI Worker caller-policy guard for covered caller paths.",
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
-      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings now use platform_admin_lab_budget metadata and signed caller-policy metadata.",
+      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, and signed caller-policy metadata.",
       "Admin music/compare/live-agent, sync video debug, unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],
