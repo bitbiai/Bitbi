@@ -2,7 +2,7 @@
 
 Date: 2026-05-16
 
-Status: target design plus Phase 4.7 internal AI Worker caller-policy guard. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Phase 4.4 adds read-only evidence reporting. Phase 4.5 imports the helper into admin async video job creation and auth queue processing to add sanitized `platform_admin_lab_budget` job/queue metadata and budget-state checks before internal video task create/poll calls. Phase 4.6 imports the helper only into News Pulse visual generation/backfill to add sanitized `openclaw_news_pulse_budget` visual metadata, invalid-policy provider blocking, and status/attempt duplicate suppression. Phase 4.7 adds a service-auth-first internal caller-policy metadata contract and requires it for async video task create/poll while broader internal routes remain baseline-allowed. Broad Admin AI and platform/background AI outside News Pulse visuals remain outside runtime budget enforcement.
+Status: target design plus Phase 4.8 admin text/embeddings budget enforcement. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Phase 4.4 adds read-only evidence reporting. Phase 4.5 imports the helper into admin async video job creation and auth queue processing to add sanitized `platform_admin_lab_budget` job/queue metadata and budget-state checks before internal video task create/poll calls. Phase 4.6 imports the helper only into News Pulse visual generation/backfill to add sanitized `openclaw_news_pulse_budget` visual metadata, invalid-policy provider blocking, and status/attempt duplicate suppression. Phase 4.7 adds a service-auth-first internal caller-policy metadata contract and requires it for async video task create/poll while broader internal routes remain baseline-allowed. Phase 4.8 imports the helper only into admin text/embeddings tests to require `Idempotency-Key`, add `platform_admin_lab_budget` metadata, and propagate signed `budget_metadata_only` caller-policy metadata. Admin music/compare/live-agent, sync video debug, unmetered admin image, and platform/background AI outside News Pulse visuals remain outside runtime budget enforcement.
 
 ## Goals
 
@@ -34,6 +34,7 @@ Primary goals:
    - Phase 4.5 uses the helper only for admin async video jobs; it records `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` as a future kill-switch target but does not enforce a new env flag.
    - Phase 4.6 uses the helper only for OpenClaw/News Pulse visuals; it records `ENABLE_NEWS_PULSE_VISUAL_BUDGET` as a future kill-switch target but does not enforce a new env flag.
    - Phase 4.7 uses reserved signed JSON body caller-policy metadata (`__bitbi_ai_caller_policy`) for internal Auth Worker -> AI Worker provider-cost calls; it validates and strips the metadata before provider payloads.
+   - Phase 4.8 uses the helper only for admin text/embeddings; it records `ENABLE_ADMIN_AI_TEXT_BUDGET` and `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET` as future kill-switch targets and does not enforce new env flags.
    - Platform/admin-unmetered operations still need explicit cost telemetry and a budget exception before runtime migration.
 
 3. Resolve model/provider/cost
@@ -143,7 +144,7 @@ The registry currently exports:
 - `getAiCostProviderCallSourceFiles(entries)`
 - `summarizeAiCostOperationRegistry(entries)`
 
-The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened because the existing selected-organization credit branch now records safe budget-policy metadata. Phase 4.5 marks admin async video jobs as implemented for job/queue budget metadata. Phase 4.6 marks OpenClaw/News Pulse visual generation as implemented for caller-side visual budget metadata and duplicate suppression; other admin/platform/internal gaps remain baselined.
+The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened because the existing selected-organization credit branch now records safe budget-policy metadata. Phase 4.5 marks admin async video jobs as implemented for job/queue budget metadata. Phase 4.6 marks OpenClaw/News Pulse visual generation as implemented for caller-side visual budget metadata and duplicate suppression. Phase 4.8 marks admin text/embeddings as partial metadata-only coverage; other admin/platform/internal gaps remain baselined.
 
 Phase 4.2 admin/platform budget helper: `workers/auth/src/lib/admin-platform-budget-policy.js`
 
@@ -245,7 +246,7 @@ Future implementation details should also define:
 
 ## Member Music Gateway Flow
 
-Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Phase 4.1 maps remaining admin/platform/internal/OpenClaw gaps to target budget scopes. Phase 4.2 adds pure helper contracts for budget-scope, kill-switch, audit, fingerprint, and plan classification work. Phase 4.3 uses that helper only for the existing charged Admin image-test branch. Phase 4.5 uses it only for admin async video jobs. Phase 4.6 uses it only for OpenClaw/News Pulse visual generation. Broad Admin AI, platform/background AI outside News Pulse visuals, and internal AI Worker routes remain unmigrated at runtime.
+Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Phase 4.1 maps remaining admin/platform/internal/OpenClaw gaps to target budget scopes. Phase 4.2 adds pure helper contracts for budget-scope, kill-switch, audit, fingerprint, and plan classification work. Phase 4.3 uses that helper only for the existing charged Admin image-test branch. Phase 4.5 uses it only for admin async video jobs. Phase 4.6 uses it only for OpenClaw/News Pulse visual generation. Phase 4.8 uses it only for admin text/embeddings metadata-only coverage. Admin music/compare/live-agent, sync video debug, unmetered admin image, platform/background AI outside News Pulse visuals, and broader internal AI Worker callers remain unmigrated at runtime.
 
 Target operation structure:
 
@@ -367,7 +368,7 @@ Helper contract:
 - Fingerprints are deterministic, omit sensitive fields, and hash prompt-like fields inside the fingerprint payload.
 - Plan statuses are `ready_for_budget_check`, `requires_kill_switch`, `blocked_by_policy`, `caller_enforced`, `explicit_unmetered`, `platform_budget_review`, `admin_org_credit_required`, and `invalid_config`.
 
-Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. Phase 4.4 adds read-only evidence reporting only; it does not add runtime enforcement, migrate routes, call providers, mutate billing, or prove live readiness. Phase 4.5 adds additive migration `0049_add_admin_video_job_budget_metadata.sql` and changes only admin async video job budget metadata/queue checks. Phase 4.6 adds additive migration `0050_add_news_pulse_visual_budget_metadata.sql` and changes only OpenClaw/News Pulse visual budget metadata/status controls. Phase 4.7 adds no schema; it changes only internal caller-policy validation/metadata handling and does not migrate broad Admin AI, Admin video beyond Phase 4.5 compatibility, OpenClaw/News Pulse beyond Phase 4.6 compatibility, platform/background AI globally, member/org routes, Stripe, public billing, or live billing.
+Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. Phase 4.4 adds read-only evidence reporting only; it does not add runtime enforcement, migrate routes, call providers, mutate billing, or prove live readiness. Phase 4.5 adds additive migration `0049_add_admin_video_job_budget_metadata.sql` and changes only admin async video job budget metadata/queue checks. Phase 4.6 adds additive migration `0050_add_news_pulse_visual_budget_metadata.sql` and changes only OpenClaw/News Pulse visual budget metadata/status controls. Phase 4.7 adds no schema; it changes only internal caller-policy validation/metadata handling. Phase 4.8 adds no schema; it changes only admin text/embeddings required idempotency, safe budget metadata, and caller-policy propagation. It does not migrate Admin music, Admin video beyond Phase 4.5, Admin compare, Admin live-agent, OpenClaw/News Pulse beyond Phase 4.6, platform/background AI globally, member/org routes, Stripe, public billing, or live billing.
 
 ## Phase 4.5 Admin Async Video Job Budget Enforcement
 
@@ -406,7 +407,26 @@ Implemented behavior:
 Limits:
 
 - Phase 4.7 does not add a new migration, live budget caps, credit debits, credit clawbacks, Stripe calls, real provider calls in tests, Admin UI, or production/live billing readiness.
-- Broad Admin AI, Admin music/text/compare/live-agent, sync video debug, platform/background AI outside News Pulse visuals, and broader internal routes remain tracked baseline gaps.
+- Admin music/compare/live-agent, sync video debug, unmetered admin image, platform/background AI outside News Pulse visuals, and broader internal routes remain tracked baseline gaps.
+
+## Phase 4.8 Admin Text / Embeddings Budget Enforcement
+
+Phase 4.8 covers only `POST /api/admin/ai/test-text` and `POST /api/admin/ai/test-embeddings`.
+
+Implemented behavior:
+
+- both routes remain admin-only and require a valid `Idempotency-Key`
+- both routes build a Phase 4.2 `platform_admin_lab_budget` plan before proxying to the AI Worker
+- sanitized admin responses include `budget_policy` and `caller_policy` summaries with operation id, budget scope, provider family/model, plan status, safe fingerprint, and future kill-switch target
+- Auth Worker proxy bodies include signed `__bitbi_ai_caller_policy` metadata with `budget_metadata_only` status
+- AI Worker service-auth remains first, supplied caller-policy metadata is validated, and the reserved key is stripped before provider payload construction
+- raw prompt/input, provider request bodies, auth headers, cookies, Stripe data, Cloudflare tokens, private keys, and R2 keys are not included in budget/caller metadata
+
+Limits:
+
+- `ENABLE_ADMIN_AI_TEXT_BUDGET` and `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET` are metadata-only targets in this phase.
+- There is no durable replay/conflict persistence for same-key admin text/embeddings requests yet, so exactly-once provider execution is not claimed.
+- No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, and production/live billing remains blocked.
 
 ## Phase 4.6 OpenClaw/News Pulse Visual Budget Controls
 

@@ -16,35 +16,29 @@ import { AI_COST_BUDGET_SCOPES } from "../workers/auth/src/lib/ai-cost-operation
 const DEFAULT_BASELINE_GAPS = Object.freeze([
   {
     id: "admin-ai-baseline",
-    route: "/api/admin/ai/test-text",
+    route: "/api/admin/ai/test-image",
     routePolicyIds: [
-      "admin.ai.test-text",
       "admin.ai.test-image",
-      "admin.ai.test-embeddings",
       "admin.ai.test-music",
       "admin.ai.test-video-debug",
-      "admin.ai.video-jobs.create",
       "admin.ai.compare",
       "admin.ai.live-agent",
     ],
     functions: ["proxyToAiLab", "proxyLiveAgentToAiLab"],
     category: "admin",
-    reason: "Known admin provider-cost routes remain unmetered or partially covered pending platform budget policy.",
-    temporaryAllowanceReason: "Admin-only routes remain accepted only while Phase 4.2 defines platform admin lab budget contract/helpers.",
+    reason: "Known admin provider-cost routes remain unmetered or partially covered pending targeted platform budget policy migration.",
+    temporaryAllowanceReason: "Admin-only routes remain accepted only while each targeted admin provider-cost migration is completed.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetFuturePhase: "Phase 4.9 remaining admin provider-cost budget migrations",
     severity: "P2",
     ownerDomain: "admin-ai",
     killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_TESTS",
-    futureEnforcementPath: "Phase 4.2 helper contract, then one narrow admin route migration.",
+    futureEnforcementPath: "Later narrow admin route migrations should cover the remaining music/compare/live-agent/sync-video/unmetered-image gaps.",
     providerCostBearing: true,
     registryOperationIds: [
-      "admin.text.test",
       "admin.image.test.unmetered",
-      "admin.embeddings.test",
       "admin.music.test",
       "admin.video.sync_debug",
-      "admin.video.job.create",
       "admin.compare",
       "admin.live_agent",
     ],
@@ -60,7 +54,7 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     reason: "Known internal service routes rely on caller-side gateway or admin policy controls.",
     temporaryAllowanceReason: "Internal service routes remain accepted only while remaining callers migrate after the Phase 4.7 caller-policy guard.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
-    targetFuturePhase: "Phase 4.8 targeted remaining caller migrations",
+    targetFuturePhase: "Phase 4.9 targeted remaining caller migrations",
     severity: "P2",
     ownerDomain: "ai-worker",
     killSwitchTarget: "caller route budget kill switch required",
@@ -117,8 +111,12 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
     notes: "Charged admin image tests require organization_id, Idempotency-Key, server-side credit calculation, sufficient organization credits, and no charge on provider failure.",
   }),
-  adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {}),
-  adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", {}),
+  adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
+    billing: { idempotency: "Idempotency-Key header is required in Phase 4.8; durable replay/conflict persistence remains future work." },
+  }),
+  adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", {
+    billing: { idempotency: "Idempotency-Key header is required in Phase 4.8; durable replay/conflict persistence remains future work." },
+  }),
   adminJsonWrite("admin.ai.test-music", "POST", "/api/admin/ai/test-music", "admin-ai", "adminJson", "admin-ai-music-ip", {}),
   adminJsonWrite("admin.ai.test-video-debug", "POST", "/api/admin/ai/test-video", "admin-ai", "adminJson", "admin-ai-video-ip", {}),
   adminJsonWrite("admin.ai.video-jobs.create", "POST", "/api/admin/ai/video-jobs", "admin-ai", "adminVideoJobJson", "admin-ai-video-job-create-ip", {
@@ -176,8 +174,9 @@ ${inventoryExtra}
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-music"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-video"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-image"));
-  assert(result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
-  assert(result.knownPolicyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
+  assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-text"));
+  assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
+  assert(!result.knownPolicyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert.equal(result.unknownPolicyGaps.length, 0);
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-text"));
 }
@@ -203,10 +202,13 @@ ${inventoryExtra}
   assert(output.includes("Read-only admin/platform budget evidence:"));
   assert(output.includes("npm run report:ai-budget-evidence"));
   assert(output.includes("admin.image.test.charged: implemented/hardened; scope=admin_org_credit_account"));
+  assert(output.includes("admin.text.test: partial/budget-metadata; scope=platform_admin_lab_budget"));
+  assert(output.includes("admin.embeddings.test: partial/budget-metadata; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.video.job.create: implemented/hardened; scope=platform_admin_lab_budget"));
   assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
   assert(output.includes("Phase 4.6 OpenClaw/News Pulse visual budget controls are represented"));
   assert(output.includes("Phase 4.7 internal AI Worker caller-policy guard is represented"));
+  assert(output.includes("Phase 4.8 admin text/embeddings require Idempotency-Key"));
   assert(output.includes("internal.video_task.create: implemented/hardened; scope=internal_ai_worker_caller_enforced"));
   assert(output.includes("Known baseline gaps:"));
   assert(output.includes("killSwitch="));
@@ -221,7 +223,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.8 should target one remaining broad Admin AI or internal caller path"));
+  assert(output.includes("Phase 4.9 should target one remaining Admin AI gap"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;

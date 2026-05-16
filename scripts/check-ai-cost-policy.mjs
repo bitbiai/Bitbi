@@ -623,7 +623,7 @@ function renderBudgetScopeGroup(title, gaps, scopes) {
 function renderHardenedAdminBudgetOperations(entries = AI_COST_OPERATION_REGISTRY) {
   const hardened = entries
     .filter((entry) =>
-      entry.budgetPolicy?.targetEnforcementStatus === "implemented"
+      ["implemented", "partial"].includes(entry.budgetPolicy?.targetEnforcementStatus)
       && ["admin", "platform"].includes(entry.operationConfig?.actorType)
     )
     .map((entry) => ({
@@ -635,7 +635,10 @@ function renderHardenedAdminBudgetOperations(entries = AI_COST_OPERATION_REGISTR
     .sort((left, right) => left.operationId.localeCompare(right.operationId));
   if (!hardened.length) return "- None";
   return hardened
-    .map((entry) => `- ${entry.operationId}: ${entry.status}/hardened; scope=${entry.scope}; route=${entry.route}`)
+    .map((entry) => {
+      const label = entry.status === "implemented" ? "hardened" : "budget-metadata";
+      return `- ${entry.operationId}: ${entry.status}/${label}; scope=${entry.scope}; route=${entry.route}`;
+    })
     .join("\n");
 }
 
@@ -686,6 +689,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
     "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
     "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
+    "- Phase 4.8 admin text/embeddings require Idempotency-Key, build platform_admin_lab_budget metadata, and propagate budget_metadata_only caller-policy metadata; durable replay/live budget caps remain future work.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -749,7 +753,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.8 should target one remaining broad Admin AI or internal caller path without changing member/org billing behavior or broad platform/background AI.",
+    "- Phase 4.9 should target one remaining Admin AI gap such as music, compare, live-agent, sync video debug, or an internal caller path without changing member/org billing behavior or broad platform/background AI.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

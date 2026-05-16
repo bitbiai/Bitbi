@@ -519,13 +519,31 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "admin-ai-budget-evidence-ip", failClosed: true },
     notes: "Read-only Phase 4.4 Admin/Platform AI budget evidence report built from local registry, baseline, and route-policy metadata. No provider, Stripe, credit, D1 write, R2 write, or remediation action.",
   }),
-  adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", { config: REQUIRED_CONFIG.adminAi }),
+  adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
+    config: REQUIRED_CONFIG.adminAi,
+    billing: {
+      budgetScope: "platform_admin_lab_budget",
+      killSwitchTarget: "ENABLE_ADMIN_AI_TEXT_BUDGET",
+      idempotency: "Idempotency-Key header is required in Phase 4.8; the key is included only as a hash in sanitized budget metadata. Durable replay/conflict persistence remains future work.",
+      callerPolicy: "Phase 4.8 signs the internal /internal/ai/test-text call with __bitbi_ai_caller_policy using budget_metadata_only status.",
+      runtimeEnforcement: "Builds a platform_admin_lab_budget plan before proxying. Runtime env kill-switch enforcement and live platform budget caps remain future work. Admin music/compare/live-agent remain separate unmigrated gaps.",
+    },
+  }),
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
     config: REQUIRED_CONFIG.adminAi,
     sensitivity: "high",
     notes: "Admin area only. Platform admin required. Charged BFL image-test subset uses admin_org_credit_account budget-policy metadata and now propagates signed internal AI caller-policy metadata; it requires organization_id, Idempotency-Key, server-side credit calculation, sufficient selected organization credits, and no charge on provider failure. Unpriced admin image models and other admin AI routes remain separately baselined/unmigrated. No public/member/owner route exposure.",
   }),
-  adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", { config: REQUIRED_CONFIG.adminAi }),
+  adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", {
+    config: REQUIRED_CONFIG.adminAi,
+    billing: {
+      budgetScope: "platform_admin_lab_budget",
+      killSwitchTarget: "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET",
+      idempotency: "Idempotency-Key header is required in Phase 4.8; the key is included only as a hash in sanitized budget metadata. Durable replay/conflict persistence remains future work.",
+      callerPolicy: "Phase 4.8 signs the internal /internal/ai/test-embeddings call with __bitbi_ai_caller_policy using budget_metadata_only status.",
+      runtimeEnforcement: "Builds a platform_admin_lab_budget plan before proxying. Runtime env kill-switch enforcement and live platform budget caps remain future work. Admin music/compare/live-agent remain separate unmigrated gaps.",
+    },
+  }),
   adminJsonWrite("admin.ai.test-music", "POST", "/api/admin/ai/test-music", "admin-ai", "adminJson", "admin-ai-music-ip", { config: REQUIRED_CONFIG.adminAi }),
   adminJsonWrite("admin.ai.test-video-debug", "POST", "/api/admin/ai/test-video", "admin-ai", "adminJson", "admin-ai-video-ip", {
     config: REQUIRED_CONFIG.adminAi,

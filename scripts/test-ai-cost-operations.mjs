@@ -159,6 +159,30 @@ assert.equal(
   AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
 );
 assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.text.test").currentStatus,
+  "partial"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.text.test").operationConfig.idempotencyPolicy,
+  "required"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.text.test").budgetPolicy.killSwitchTarget,
+  "ENABLE_ADMIN_AI_TEXT_BUDGET"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.embeddings.test").currentStatus,
+  "partial"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.embeddings.test").operationConfig.idempotencyPolicy,
+  "required"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.embeddings.test").budgetPolicy.killSwitchTarget,
+  "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET"
+);
+assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.charged").budgetPolicy.targetBudgetScope,
   AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT
 );
@@ -201,7 +225,7 @@ assert.equal(
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();
 assert(routePolicyBaselines.some((entry) => entry.id === "ai.generate-image" && entry.expected === "required"));
-assert(routePolicyBaselines.some((entry) => entry.id === "admin.ai.test-embeddings"));
+assert(routePolicyBaselines.some((entry) => entry.id === "admin.ai.test-embeddings" && entry.expected === "required"));
 assert(routePolicyBaselines.some((entry) => entry.id === "openclaw.news_pulse.ingest"));
 
 const providerSourceFiles = getAiCostProviderCallSourceFiles();

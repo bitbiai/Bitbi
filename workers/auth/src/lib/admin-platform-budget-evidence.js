@@ -26,6 +26,10 @@ const MEMBER_GATEWAY_OPERATION_IDS = Object.freeze([
   "member.video.generate",
 ]);
 const HARDENED_ADMIN_OPERATION_ID = "admin.image.test.charged";
+const ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS = Object.freeze([
+  "admin.text.test",
+  "admin.embeddings.test",
+]);
 const ADMIN_VIDEO_JOB_OPERATION_ID = "admin.video.job.create";
 const NEWS_PULSE_VISUAL_OPERATION_IDS = Object.freeze([
   "platform.news_pulse.visual.ingest",
@@ -301,6 +305,50 @@ function implementedAdminVideoJobEvidence(entry, routeIndex) {
   };
 }
 
+function implementedAdminTextEmbeddingsEvidence(entry, routeIndex) {
+  const base = basicOperationEvidence(entry, routeIndex);
+  const operation = operationId(entry);
+  const isEmbeddings = operation === "admin.embeddings.test";
+  return {
+    ...base,
+    type: "partial_admin_budget_operation",
+    runtimeStatus: "budget_metadata_only",
+    idempotencyTarget: "required Idempotency-Key; key is represented only by a safe hash in metadata",
+    killSwitchTarget: isEmbeddings
+      ? "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET"
+      : "ENABLE_ADMIN_AI_TEXT_BUDGET",
+    modelClass: isEmbeddings ? "admin embeddings tests" : "admin text tests",
+    callerPolicyTransport: "reserved_signed_json_body_key",
+    reservedBodyKey: AI_CALLER_POLICY_BODY_KEY,
+    metadataFieldsExpected: [
+      "budget_policy_version",
+      "operation_id",
+      "budget_scope",
+      "owner_domain",
+      "provider_family",
+      "model_id",
+      "model_resolver_key",
+      "estimated_cost_units",
+      "estimated_credits",
+      "idempotency_policy",
+      "idempotency_key_hash",
+      "duplicate_suppression",
+      "runtime_enforcement_status",
+      "plan_status",
+      "kill_switch_flag_name",
+      "fingerprint",
+      "audit_fields",
+      "caller_policy",
+    ],
+    remainingLimitations: [
+      "Runtime env kill-switch enforcement is metadata only in Phase 4.8.",
+      "No durable replay/conflict persistence exists for same-key admin text/embeddings requests yet.",
+      "The AI Worker internal text/embeddings routes still allow baseline-missing caller policy for other known callers to preserve org/member compatibility.",
+      "No live platform budget cap, Stripe call, or credit debit is performed.",
+    ],
+  };
+}
+
 function implementedNewsPulseVisualEvidence(entry, routeIndex) {
   const base = basicOperationEvidence(entry, routeIndex);
   const operation = operationId(entry);
@@ -362,6 +410,8 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
     ],
     coveredCallerPaths: [
       "admin async video job queue task create/poll",
+      "admin text test",
+      "admin embeddings test",
     ],
     baselineAllowedInternalRoutes: [
       "/internal/ai/test-text",
@@ -391,8 +441,8 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
       "reason",
     ],
     remainingLimitations: [
-      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only.",
-      "Broad Admin AI, Admin music/text/compare/live-agent, sync video debug, and other internal routes remain baseline-allowed until targeted caller migrations.",
+      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll only; Phase 4.8 supplies metadata for admin text/embeddings but does not make the shared internal routes fail closed for every caller.",
+      "Admin music/compare/live-agent, sync video debug, unmetered image, and other internal routes remain baseline-allowed until targeted caller migrations.",
       isPoll
         ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
         : "Duplicate provider task creation is still suppressed by the auth job budget state and queue lease.",
@@ -513,21 +563,30 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       entry?.currentEnforcement?.providerSuppression === "implemented"
     );
 
-  const hardenedAdminEntry = entriesById.get(HARDENED_ADMIN_OPERATION_ID);
   const implementedAdminBudgetOperations = registryEntries.filter((entry) =>
     operationRuntimeStatus(entry) === "implemented" &&
     ["admin", "platform", "internal"].includes(entry?.operationConfig?.actorType) &&
     !String(entry?.operationConfig?.operationId || "").startsWith("member.")
   );
+  const partialAdminTextEmbeddingsOperations = ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS
+    .map((id) => entriesById.get(id))
+    .filter((entry) => entry && operationRuntimeStatus(entry) === "partial");
+  const reportedAdminBudgetOperations = [
+    ...implementedAdminBudgetOperations,
+    ...partialAdminTextEmbeddingsOperations,
+  ];
 
   const baselinedGaps = knownGaps.map((gap) => baselineGapEvidence(gap, entriesById));
   const blockedCriticalGaps = baselinedGaps.filter((gap) => gap.severity === "P0" || gap.severity === "P1");
 
   const implementedOperations = [
     ...memberGatewayOperations.map((entry) => memberGatewayEvidence(entry, routeIndex)),
-    ...implementedAdminBudgetOperations.map((entry) => {
+    ...reportedAdminBudgetOperations.map((entry) => {
       if (operationId(entry) === HARDENED_ADMIN_OPERATION_ID) {
         return implementedAdminImageEvidence(entry, routeIndex);
+      }
+      if (ADMIN_TEXT_EMBEDDINGS_OPERATION_IDS.includes(operationId(entry))) {
+        return implementedAdminTextEmbeddingsEvidence(entry, routeIndex);
       }
       if (operationId(entry) === ADMIN_VIDEO_JOB_OPERATION_ID) {
         return implementedAdminVideoJobEvidence(entry, routeIndex);
@@ -562,6 +621,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     summary: {
       memberGatewayMigrated: memberGatewayOperations.length,
       adminPlatformImplemented: implementedAdminBudgetOperations.length,
+      adminTextEmbeddingsBudgetMetadata: partialAdminTextEmbeddingsOperations.length,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
       routePolicyRegistered: Boolean(routeIndex.byPath.get(ADMIN_PLATFORM_BUDGET_EVIDENCE_ENDPOINT)),
@@ -598,8 +658,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Phase 4.4 is read-only evidence reporting only; Phase 4.5 adds admin async video job budget metadata/enforcement, Phase 4.6 adds OpenClaw/News Pulse visual budget metadata/control evidence, and Phase 4.7 adds an internal AI Worker caller-policy guard for covered caller paths.",
       "This report remains read-only and performs no provider call, Stripe call, billing mutation, credit mutation, D1 write, R2 write, Cloudflare mutation, or GitHub settings mutation.",
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
-      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata.",
-      "Broad Admin AI, Admin music/text/compare/live-agent, sync video debug, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
+      "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings now use platform_admin_lab_budget metadata and signed caller-policy metadata.",
+      "Admin music/compare/live-agent, sync video debug, unmetered image, platform/background AI outside News Pulse visuals, and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,

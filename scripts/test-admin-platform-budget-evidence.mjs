@@ -28,6 +28,7 @@ assert.equal(report.providerCalls, false);
 assert.equal(report.billingMutation, false);
 assert.equal(report.summary.memberGatewayMigrated, 3);
 assert.equal(report.summary.adminPlatformImplemented, 8);
+assert.equal(report.summary.adminTextEmbeddingsBudgetMetadata, 2);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 
@@ -51,7 +52,7 @@ assert(adminOrgScope.killSwitchTargets.includes("ENABLE_ADMIN_AI_BFL_IMAGE_BUDGE
 
 const platformLabScope = report.budgetScopes.find((entry) => entry.scope === "platform_admin_lab_budget");
 assert(platformLabScope.operationCount >= 8);
-assert(platformLabScope.baselineGapCount >= 6);
+assert(platformLabScope.baselineGapCount >= 5);
 assert.equal(platformLabScope.runtimeEnforcementExists, false);
 assert(["missing", "partial"].includes(platformLabScope.runtimeEnforcementStatus));
 
@@ -73,6 +74,8 @@ const implementedIds = operationIds(report.implementedOperations);
 assert(implementedIds.includes("member.image.generate"));
 assert(implementedIds.includes("member.music.generate"));
 assert(implementedIds.includes("member.video.generate"));
+assert(implementedIds.includes("admin.text.test"));
+assert(implementedIds.includes("admin.embeddings.test"));
 assert(implementedIds.includes("admin.image.test.charged"));
 assert(implementedIds.includes("admin.video.job.create"));
 assert(implementedIds.includes("internal.video_task.create"));
@@ -100,6 +103,19 @@ assert.equal(adminVideoJob.killSwitchTarget, "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET")
 assert(adminVideoJob.metadataFieldsExpected.includes("provider_task_create"));
 assert(adminVideoJob.remainingLimitations.some((entry) => entry.includes("kill-switch")));
 
+const adminText = report.implementedOperations.find((entry) => entry.operationId === "admin.text.test");
+assert.equal(adminText.budgetScope, "platform_admin_lab_budget");
+assert.equal(adminText.runtimeStatus, "budget_metadata_only");
+assert.equal(adminText.killSwitchTarget, "ENABLE_ADMIN_AI_TEXT_BUDGET");
+assert(adminText.metadataFieldsExpected.includes("caller_policy"));
+assert(adminText.remainingLimitations.some((entry) => entry.includes("durable replay")));
+
+const adminEmbeddings = report.implementedOperations.find((entry) => entry.operationId === "admin.embeddings.test");
+assert.equal(adminEmbeddings.budgetScope, "platform_admin_lab_budget");
+assert.equal(adminEmbeddings.runtimeStatus, "budget_metadata_only");
+assert.equal(adminEmbeddings.killSwitchTarget, "ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET");
+assert(adminEmbeddings.metadataFieldsExpected.includes("idempotency_key_hash"));
+
 const newsPulseVisual = report.implementedOperations.find((entry) => entry.operationId === "platform.news_pulse.visual.ingest");
 assert.equal(newsPulseVisual.budgetScope, "openclaw_news_pulse_budget");
 assert.equal(newsPulseVisual.runtimeStatus, "implemented_visual_budget_metadata");
@@ -114,6 +130,8 @@ assert.equal(internalGuard.runtimeStatus, "implemented_caller_policy_guard");
 assert.equal(internalGuard.callerPolicyTransport, "reserved_signed_json_body_key");
 assert.equal(internalGuard.reservedBodyKey, "__bitbi_ai_caller_policy");
 assert(internalGuard.requiredForInternalRoutes.includes("/internal/ai/video-task/create"));
+assert(internalGuard.coveredCallerPaths.includes("admin text test"));
+assert(internalGuard.coveredCallerPaths.includes("admin embeddings test"));
 assert(internalGuard.baselineAllowedInternalRoutes.includes("/internal/ai/test-text"));
 assert(internalGuard.remainingLimitations.some((entry) => entry.includes("baseline-allowed")));
 
@@ -121,6 +139,8 @@ const baselineIds = gapIds(report.baselinedGaps);
 assert(!baselineIds.includes("admin-ai-video-job-create"));
 assert(!baselineIds.includes("admin-ai-video-task-create-poll"));
 assert(!baselineIds.includes("openclaw-news-pulse-visual-generation"));
+assert(!baselineIds.includes("admin-ai-text-test-unmetered"));
+assert(!baselineIds.includes("admin-ai-embeddings-test-unmetered"));
 assert(baselineIds.includes("internal-ai-worker-text-image-embeddings"));
 assert(baselineIds.includes("internal-ai-worker-music-video-compare-live-agent"));
 

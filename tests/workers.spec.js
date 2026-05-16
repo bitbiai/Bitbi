@@ -16535,6 +16535,33 @@ test.describe('Worker routes', () => {
       });
       expect(aiRunCalls).toHaveLength(0);
 
+      const invalidEmbeddingsPolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-embeddings', {
+          preset: 'embedding_default',
+          input: ['invalid embeddings caller policy should not run'],
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'admin.embeddings.test',
+            budget_scope: 'platform_admin_lab_budget',
+            enforcement_status: 'budget_metadata_only',
+            caller_class: 'admin',
+            owner_domain: 'admin-ai',
+            provider_family: 'ai_worker',
+            source_route: '/api/admin/ai/test-embeddings',
+            source_component: 'test',
+            cookie_value: 'bitbi_session=should-not-pass',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidEmbeddingsPolicy.status).toBe(400);
+      await expect(invalidEmbeddingsPolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_invalid',
+      });
+      expect(aiRunCalls).toHaveLength(0);
+
       const valid = await aiWorker.fetch(
         await signedInternalAiJsonRequest('/internal/ai/test-text', {
           preset: 'balanced',
@@ -16543,17 +16570,19 @@ test.describe('Worker routes', () => {
             policy_version: 'ai-caller-policy-v1',
             operation_id: 'admin.text.test',
             budget_scope: 'platform_admin_lab_budget',
-            enforcement_status: 'baseline_allowed',
+            enforcement_status: 'budget_metadata_only',
             caller_class: 'admin',
             owner_domain: 'admin-ai',
             provider_family: 'ai_worker',
             model_resolver_key: 'admin.text.model_registry',
-            idempotency_policy: 'optional',
+            idempotency_policy: 'required',
             source_route: '/api/admin/ai/test-text',
             source_component: 'auth-worker-admin-ai',
-            kill_switch_target: 'ENABLE_ADMIN_AI_BUDGETED_TEXT_TESTS',
+            budget_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+            request_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+            kill_switch_target: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
             correlation_id: 'caller-policy-strip-test',
-            reason: 'baseline_admin_ai_provider_cost_route',
+            reason: 'phase_4_8_admin_text_budget_metadata_only',
           },
         }, { secret }),
         env,
@@ -16563,7 +16592,7 @@ test.describe('Worker routes', () => {
       await expect(valid.json()).resolves.toMatchObject({ ok: true, task: 'text' });
       expect(aiRunCalls).toHaveLength(1);
       expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('__bitbi_ai_caller_policy');
-      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_BUDGETED_TEXT_TESTS');
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_TEXT_BUDGET');
     });
 
     test('AI worker service auth fails closed when its shared secret is missing', async () => {
@@ -16663,7 +16692,7 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/test-text returns the text response contract used by the UI', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
 
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-text', 'POST', {
@@ -16672,7 +16701,10 @@ test.describe('Worker routes', () => {
           system: 'You are concise.',
           maxTokens: 280,
           temperature: 0.7,
-        }, authHeaders),
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-text-contract-1',
+        }),
         env,
         createExecutionContext().execCtx
       );
@@ -16695,7 +16727,50 @@ test.describe('Worker routes', () => {
           temperature: 0.7,
         }),
         elapsedMs: expect.any(Number),
+        budget_policy: expect.objectContaining({
+          budget_policy_version: 'admin-platform-budget-policy-v1',
+          operation_id: 'admin.text.test',
+          budget_scope: 'platform_admin_lab_budget',
+          owner_domain: 'admin-ai',
+          provider_family: 'ai_worker',
+          model_id: expect.any(String),
+          idempotency_policy: 'required',
+          idempotency_key_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          duplicate_suppression: 'idempotency_key_required_no_durable_replay',
+          runtime_enforcement_status: 'budget_metadata_only',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+          fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        caller_policy: expect.objectContaining({
+          operation_id: 'admin.text.test',
+          budget_scope: 'platform_admin_lab_budget',
+          enforcement_status: 'budget_metadata_only',
+          caller_class: 'admin',
+          idempotency_policy: 'required',
+          kill_switch_target: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+          source_route: '/api/admin/ai/test-text',
+        }),
       }));
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.text.test',
+        budget_scope: 'platform_admin_lab_budget',
+        enforcement_status: 'budget_metadata_only',
+        caller_class: 'admin',
+        kill_switch_target: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+        idempotency_policy: 'required',
+      }));
+      const serializedBudget = JSON.stringify({
+        budget_policy: body.budget_policy,
+        caller_policy: body.caller_policy,
+        internal_caller_policy: aiLabRequests[0].body.__bitbi_ai_caller_policy,
+      });
+      expect(serializedBudget).not.toContain('Summarize the AI lab');
+      expect(serializedBudget).not.toContain('You are concise');
+      expect(serializedBudget).not.toContain('Cookie');
+      expect(serializedBudget).not.toContain('Authorization');
+      expect(serializedBudget).not.toContain('sk_test_');
     });
 
     test('POST /api/admin/ai/test-image returns the image response contract used by the UI', async () => {
@@ -17962,13 +18037,16 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/test-embeddings returns the embeddings response contract used by the UI', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
 
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-embeddings', 'POST', {
           preset: 'embedding_default',
           input: ['first snippet', 'second snippet'],
-        }, authHeaders),
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-embeddings-contract-1',
+        }),
         env,
         createExecutionContext().execCtx
       );
@@ -17991,8 +18069,223 @@ test.describe('Worker routes', () => {
           shape: expect.any(Array),
         }),
         elapsedMs: expect.any(Number),
+        budget_policy: expect.objectContaining({
+          budget_policy_version: 'admin-platform-budget-policy-v1',
+          operation_id: 'admin.embeddings.test',
+          budget_scope: 'platform_admin_lab_budget',
+          owner_domain: 'admin-ai',
+          provider_family: 'ai_worker',
+          model_id: expect.any(String),
+          idempotency_policy: 'required',
+          idempotency_key_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          duplicate_suppression: 'idempotency_key_required_no_durable_replay',
+          runtime_enforcement_status: 'budget_metadata_only',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
+          fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        caller_policy: expect.objectContaining({
+          operation_id: 'admin.embeddings.test',
+          budget_scope: 'platform_admin_lab_budget',
+          enforcement_status: 'budget_metadata_only',
+          caller_class: 'admin',
+          idempotency_policy: 'required',
+          kill_switch_target: 'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
+          source_route: '/api/admin/ai/test-embeddings',
+        }),
       }));
       expect(body.result.vectors[0]).toEqual(expect.any(Array));
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.embeddings.test',
+        budget_scope: 'platform_admin_lab_budget',
+        enforcement_status: 'budget_metadata_only',
+        caller_class: 'admin',
+        kill_switch_target: 'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
+        idempotency_policy: 'required',
+      }));
+      const serializedBudget = JSON.stringify({
+        budget_policy: body.budget_policy,
+        caller_policy: body.caller_policy,
+        internal_caller_policy: aiLabRequests[0].body.__bitbi_ai_caller_policy,
+      });
+      expect(serializedBudget).not.toContain('first snippet');
+      expect(serializedBudget).not.toContain('second snippet');
+      expect(serializedBudget).not.toContain('Cookie');
+      expect(serializedBudget).not.toContain('Authorization');
+    });
+
+    test('POST /api/admin/ai/test-text and test-embeddings require valid idempotency before internal AI calls', async () => {
+      const cases = [
+        {
+          route: '/api/admin/ai/test-text',
+          payload: {
+            preset: 'balanced',
+            prompt: 'This text should not reach the AI worker.',
+            maxTokens: 80,
+          },
+        },
+        {
+          route: '/api/admin/ai/test-embeddings',
+          payload: {
+            preset: 'embedding_default',
+            input: ['This embedding input should not reach the AI worker.'],
+          },
+        },
+      ];
+
+      for (const { route, payload } of cases) {
+        const missingHarness = await createAdminAiContractHarness();
+        const missing = await missingHarness.authWorker.fetch(
+          authJsonRequest(route, 'POST', payload, missingHarness.authHeaders),
+          missingHarness.env,
+          createExecutionContext().execCtx
+        );
+        expect(missing.status).toBe(428);
+        await expect(missing.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'idempotency_key_required',
+        });
+        expect(missingHarness.aiLabRequests).toHaveLength(0);
+
+        const malformedHarness = await createAdminAiContractHarness();
+        const malformed = await malformedHarness.authWorker.fetch(
+          authJsonRequest(route, 'POST', payload, {
+            ...malformedHarness.authHeaders,
+            'Idempotency-Key': 'bad key with spaces',
+          }),
+          malformedHarness.env,
+          createExecutionContext().execCtx
+        );
+        expect(malformed.status).toBe(400);
+        await expect(malformed.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'invalid_idempotency_key',
+        });
+        expect(malformedHarness.aiLabRequests).toHaveLength(0);
+      }
+    });
+
+    test('POST /api/admin/ai/test-text remains admin-only before budget/provider work', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'member-admin-text-budget-user', role: 'user' }),
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          preset: 'balanced',
+          prompt: 'Non-admin request should not reach provider.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-text-non-admin-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(403);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'forbidden',
+      });
+      expect(aiLabRequests).toHaveLength(0);
+    });
+
+    test('admin text idempotency is mandatory metadata-only without durable replay claims', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+      const payload = {
+        preset: 'balanced',
+        prompt: 'Same idempotency key still has no durable replay store in Phase 4.8.',
+        maxTokens: 80,
+      };
+      const headers = {
+        ...authHeaders,
+        'Idempotency-Key': 'admin-text-metadata-only-1',
+      };
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      const second = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      const firstBody = await first.json();
+      const secondBody = await second.json();
+      expect(aiLabRequests).toHaveLength(2);
+      expect(firstBody.budget_policy).toEqual(expect.objectContaining({
+        duplicate_suppression: 'idempotency_key_required_no_durable_replay',
+        runtime_enforcement_status: 'budget_metadata_only',
+      }));
+      expect(secondBody.budget_policy).toEqual(expect.objectContaining({
+        duplicate_suppression: 'idempotency_key_required_no_durable_replay',
+        runtime_enforcement_status: 'budget_metadata_only',
+      }));
+      expect(secondBody.budget_policy.fingerprint).toBe(firstBody.budget_policy.fingerprint);
+      expect(secondBody.budget_policy.idempotency_key_hash).toBe(firstBody.budget_policy.idempotency_key_hash);
+    });
+
+    test('admin text and embeddings caller-policy metadata is stripped before provider payloads', async () => {
+      const aiRunCalls = [];
+      const aiRunStub = createAiLabRunStub();
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return aiRunStub(modelId, payload, options);
+        },
+      });
+
+      const textRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          preset: 'balanced',
+          prompt: 'Provider should see prompt, not caller metadata.',
+          maxTokens: 100,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-text-strip-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(textRes.status).toBe(200);
+
+      const embeddingsRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-embeddings', 'POST', {
+          preset: 'embedding_default',
+          input: ['Provider should see input, not caller metadata.'],
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-embeddings-strip-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(embeddingsRes.status).toBe(200);
+
+      expect(aiLabRequests).toHaveLength(2);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.text.test',
+        enforcement_status: 'budget_metadata_only',
+        kill_switch_target: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+      }));
+      expect(aiLabRequests[1].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.embeddings.test',
+        enforcement_status: 'budget_metadata_only',
+        kill_switch_target: 'ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET',
+      }));
+      expect(aiRunCalls).toHaveLength(2);
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('__bitbi_ai_caller_policy');
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('ENABLE_ADMIN_AI_TEXT_BUDGET');
+      expect(JSON.stringify(aiRunCalls[1].payload)).not.toContain('__bitbi_ai_caller_policy');
+      expect(JSON.stringify(aiRunCalls[1].payload)).not.toContain('ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET');
+      expect(JSON.stringify(aiRunCalls[0].payload.messages)).toContain('Provider should see prompt, not caller metadata.');
+      expect(aiRunCalls[1].payload.text).toBe('Provider should see input, not caller metadata.');
     });
 
     test('POST /api/admin/ai/test-music returns the music response contract used by the UI', async () => {
@@ -19832,7 +20125,10 @@ test.describe('Worker routes', () => {
           system: 'You are concise.',
           maxTokens: 280,
           temperature: 0.7,
-        }, authHeaders),
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-text-warning-1',
+        }),
         env,
         createExecutionContext().execCtx
       );
@@ -19859,7 +20155,10 @@ test.describe('Worker routes', () => {
           prompt: 'Summarize the AI lab.',
           maxTokens: 280,
           temperature: 0.7,
-        }, authHeaders),
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-text-not-allowlisted-1',
+        }),
         env,
         createExecutionContext().execCtx
       );

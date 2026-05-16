@@ -767,46 +767,64 @@ Non-goals:
 
 - No public route exposure, no member billing changes, no admin budget dashboard, no broad Admin AI migration, no platform/background global migration.
 
-## Phase 4.8: Targeted Remaining Admin/Internal Caller Migration
+## Phase 4.8: Admin Text / Embeddings Budget Enforcement
+
+Status: completed for admin text and embeddings test routes only. No Admin music migration, Admin video change beyond Phase 4.5 compatibility, Admin compare migration, Admin live-agent migration, OpenClaw/News Pulse change beyond Phase 4.6 compatibility, platform/background global migration, unrelated internal route migration, member/org billing behavior change, Stripe work, real provider call in tests, deployment, remote migration, credit mutation, credit clawback, public billing change, or live billing readiness claim occurred.
 
 Scope:
 
-- Choose one remaining broad Admin AI or internal caller path and migrate it to explicit budget/caller-policy metadata.
+- Migrate exactly `POST /api/admin/ai/test-text` and `POST /api/admin/ai/test-embeddings` to explicit budget/caller-policy metadata.
+- Require valid `Idempotency-Key` before internal AI Worker calls.
+- Build `platform_admin_lab_budget` metadata using the Phase 4.2 helper.
 - Preserve the Phase 4.7 service-auth-first caller-policy guard and metadata stripping behavior.
-- Keep Admin music/text/compare/live-agent, OpenClaw/News Pulse beyond Phase 4.6, platform/background AI outside News Pulse visuals, member/org billing behavior, public pricing, Stripe, and live billing unchanged unless that single chosen path is explicitly scoped.
+- Propagate signed `budget_metadata_only` caller-policy metadata under `__bitbi_ai_caller_policy`.
+- Keep Admin music/compare/live-agent, sync video debug, unmetered admin image, OpenClaw/News Pulse beyond Phase 4.6, platform/background AI outside News Pulse visuals, member/org billing behavior, public pricing, Stripe, and live billing unchanged.
 - Keep production/live billing blocked until operator evidence is complete.
 
-Likely files:
+Files:
 
-- one selected auth Worker caller route/helper
+- `workers/auth/src/routes/admin-ai.js`
 - `workers/auth/src/lib/admin-ai-proxy.js`
 - `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/src/lib/admin-platform-budget-evidence.js`
+- `workers/auth/src/app/route-policy.js`
 - `config/ai-cost-policy-baseline.json`
-- `workers/ai/src/lib/caller-policy.js`
+- `workers/ai/src/lib/caller-policy.js` and shared caller-policy validation compatibility
 - `tests/workers.spec.js`
 
 Tests:
 
-- admin/MFA/rate-limit policy for read endpoint
-- sanitized output with no raw prompts, secrets, auth headers, provider payloads, Stripe data, or internal R2 keys
-- empty/error/loading states in Admin Control Plane
-- no remediation/Stripe/provider action buttons
+- non-admin denied
+- missing/malformed `Idempotency-Key` rejects before internal provider calls
+- sanitized budget metadata includes operation id, budget scope, provider family/model, plan status, and future kill-switch target
+- caller-policy metadata is propagated to the AI Worker and stripped before mocked provider payloads
+- no raw prompts/input, secrets, cookies, auth headers, provider payloads, Stripe data, Cloudflare tokens, private keys, or R2 keys in metadata
+- same-key behavior is documented/tested as metadata-only with no durable replay/conflict store
+- member image/music/video, Admin BFL image, admin async video, News Pulse visual, route-policy, and cost-policy checks remain compatible
 
 Rollback:
 
-- Hide the dashboard/read endpoint. Telemetry rows remain historical evidence.
+- Revert the admin text/embeddings route adapter changes and registry/baseline metadata updates. No D1/R2/credit/provider state is created by this phase.
 
 Deploy units:
 
-- Auth Worker and static/pages if UI is added.
+- Auth Worker and AI Worker may be in the release plan because Phase 4.7 shared caller-policy code remains part of the changed worktree. No static/contact Worker deploy is expected unless the release classifier sees unrelated docs/static changes.
 
 Migration risk:
 
-- Possible additive telemetry table only after the contract/helper phases prove existing metadata is insufficient.
+- No Phase 4.8 migration. Existing Phase 4.5/4.6 additive migrations remain separate release considerations.
 
 Non-goals:
 
-- No automated shutdown/remediation, no live billing readiness claim, no pricing changes.
+- No durable replay table, no live budget cap, no runtime env kill-switch enforcement, no Admin UI, no automated shutdown/remediation, no live billing readiness claim, no pricing changes.
+
+## Phase 4.9: Remaining Admin/Internal Caller Migration
+
+Scope:
+
+- Choose one remaining admin/provider-cost or internal caller path such as Admin music, compare, live-agent, sync video debug, unmetered admin image, or a remaining internal caller and migrate it narrowly to explicit budget/caller-policy metadata.
+- Preserve Phase 4.5 admin video, Phase 4.6 News Pulse, Phase 4.7 caller-policy guard, and Phase 4.8 admin text/embeddings behavior.
+- Do not change member/org billing behavior, public pricing, Stripe, OpenClaw/News Pulse outside Phase 4.6, platform/background AI globally, or live billing readiness.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 
