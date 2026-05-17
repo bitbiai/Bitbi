@@ -18,7 +18,7 @@ Do not paste secret values, raw webhook secrets/signatures, API keys, private ke
 
 Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit restart state. Record platform budget reconciliation, repair, report/export, archive, and Admin Control Plane smoke evidence as separate evidence sections. Confirm no report/export/archive endpoint applied repair, mutated usage/source rows, called providers, called Stripe, changed credits, or changed member/org billing. Phase 5.1 Admin Control Plane evidence is UI/navigation-only and must not be treated as backend readiness or live billing approval.
 
-For tenant asset ownership evidence, use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` and `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`. Phase 6.8 evidence collection records do not prove full tenant isolation, do not switch access checks, do not backfill old rows, and do not list or mutate R2.
+For tenant asset ownership evidence, use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/`. Phase 6.9 package records do not prove full tenant isolation, do not switch access checks, do not backfill old rows, and do not list or mutate R2.
 
 ## 1. Repo Baseline
 
@@ -327,6 +327,7 @@ Use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenan
 | Phase 6.7 tenant asset evidence endpoint `/api/admin/tenant-assets/folders-images/evidence` called by approved admin with MFA |  | BLOCKED |  |
 | JSON export from `/api/admin/tenant-assets/folders-images/evidence/export?format=json` saved to private operator evidence storage |  | BLOCKED |  |
 | Optional Markdown export saved, if used |  | BLOCKED |  |
+| Phase 6.9 evidence package under `docs/tenant-assets/evidence/` records a sanitized summary or explicitly pending status |  | BLOCKED |  |
 | Evidence template records folders/images scanned, metadata missing, metadata conflicts, relationship conflicts, orphan references, public unsafe, derivative risk, manual review, dual-read safe, and dual-read unsafe counts |  | BLOCKED |  |
 | Evidence confirms `runtimeBehaviorChanged=false`, `accessChecksChanged=false`, `backfillPerformed=false`, and `r2LiveListed=false` |  | BLOCKED |  |
 | Evidence confirms no raw prompts, private R2 keys, signed URLs, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, or raw idempotency keys are present |  | BLOCKED |  |

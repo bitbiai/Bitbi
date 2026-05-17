@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable ownership metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those columns only on new personal folder/image writes. Phase 6.6 adds read-only dual-read diagnostics for the same domain. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the operator evidence collection runbook, template, and main-only checklist for that report. These phases do not rewrite existing D1 ownership rows, backfill old owner metadata, move/list/delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
+Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable ownership metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those columns only on new personal folder/image writes. Phase 6.6 adds read-only dual-read diagnostics for the same domain. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the operator evidence collection runbook, template, and main-only checklist for that report. Phase 6.9 adds the main-only evidence package directory and pending evidence state because no real operator-exported evidence was present in the repository. These phases do not rewrite existing D1 ownership rows, backfill old owner metadata, move/list/delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
 
 ## Current Problem
 
@@ -147,8 +147,8 @@ Phase 6.3 adds the planning document `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEM
 
 - Proposed future metadata for both `ai_folders` and `ai_images`: `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
 - Read/access impact remains planned only; existing `user_id` checks, public gallery reads, lifecycle/export/delete behavior, and storage quota behavior are unchanged.
-- Phase 6.4 now marks the focused report `schema_added_not_backfilled`; Phase 6.5 marks personal folder/image write paths as assigned for new rows only; Phase 6.6 adds simulated read diagnostics; Phase 6.7 surfaces the diagnostics to admins through bounded evidence/report export; Phase 6.8 defines the operator-run evidence collection process. Access checks remain unchanged, org-owned write assignment is still future work, backfill has not started, and the owner map is not complete.
-- Recommended next step: Phase 6.9 staging/main owner-map evidence collection only, with no broad backfill and no runtime access behavior change.
+- Phase 6.4 now marks the focused report `schema_added_not_backfilled`; Phase 6.5 marks personal folder/image write paths as assigned for new rows only; Phase 6.6 adds simulated read diagnostics; Phase 6.7 surfaces the diagnostics to admins through bounded evidence/report export; Phase 6.8 defines the operator-run evidence collection process; Phase 6.9 records that main evidence is pending in-repo. Access checks remain unchanged, org-owned write assignment is still future work, backfill has not started, and the owner map is not complete.
+- Recommended next step: Phase 6.10 operator-run main evidence review and decision only, with no broad backfill and no runtime access behavior change.
 
 ## Phase 6.5 New-Write Assignment
 
@@ -188,6 +188,15 @@ Phase 6.8 adds operator evidence collection guidance only:
 
 The runbook tells operators how to collect bounded live/main evidence from the Phase 6.7 endpoints after deployment. It does not add routes, migrations, Admin UI, backfill execution, access-check switching, D1/R2 mutation, R2 listing, provider calls, Stripe calls, or tenant-isolation approval.
 
+## Phase 6.9 Main Evidence Package
+
+Phase 6.9 adds a main-only evidence package location:
+
+- `docs/tenant-assets/evidence/README.md`
+- `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md`
+
+No real operator-exported evidence was present in the repository when Phase 6.9 was prepared, so the package is explicitly pending and must not be treated as collected live/main evidence. The local `npm run tenant-assets:summarize-evidence` helper can summarize a future reviewed JSON export without calling live endpoints. It does not mutate D1/R2, call Cloudflare, call Stripe, call providers, switch access checks, or run a backfill.
+
 ## Admin Inspection Requirements
 
 Future admin tools should show:
@@ -215,9 +224,10 @@ Admin inspection should remain sanitized and should not expose raw prompts, prov
 | 6.6 | Ownership metadata read diagnostics and dual-read safety checks | Implemented as simulated read-only evidence; no access switch. |
 | 6.7 | Tenant asset ownership admin evidence report | Implemented as read-only bounded JSON/Markdown admin evidence for folders/images; no access switch or backfill. |
 | 6.8 | Evidence collection runbook and main-only template | Implemented as operator guidance only; no access switch, backfill, R2 listing, or runtime change. |
-| 6.9 | Staging/main owner-map evidence collection | Use the runbook to collect real bounded evidence; no access switch or backfill. |
-| 6.10 | Bounded non-destructive backfill | Operator-approved metadata only after dry-run proof and reviewed evidence. |
-| 6.11 | Destructive cleanup gate | Only after backups, owner-map proof, legal/product approval, and explicit operator approval. |
+| 6.9 | Main owner-map evidence package | Implemented as main-only evidence directory plus pending package state; no live endpoint calls, access switch, or backfill. |
+| 6.10 | Operator-run main evidence review and decision | Use the runbook to collect/review real bounded main evidence; no access switch or backfill. |
+| 6.11 | Bounded non-destructive backfill | Operator-approved metadata only after dry-run proof and reviewed evidence. |
+| 6.12 | Destructive cleanup gate | Only after backups, owner-map proof, legal/product approval, and explicit operator approval. |
 
 ## Dry-Run Command
 

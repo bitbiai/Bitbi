@@ -1,0 +1,119 @@
+{
+  "ok": true,
+  "available": true,
+  "reportVersion": "tenant-asset-ownership-evidence-report-v1",
+  "generatedAt": "2026-05-17T00:00:00.000Z",
+  "source": "local_d1_read_only",
+  "domain": "folders_images",
+  "runtimeBehaviorChanged": false,
+  "accessChecksChanged": false,
+  "tenantIsolationClaimed": false,
+  "backfillPerformed": false,
+  "r2LiveListed": false,
+  "productionReadiness": "blocked",
+  "filters": {
+    "limit": 10,
+    "includeDetails": true,
+    "includePublic": true,
+    "includeRelationships": true,
+    "includeDerivatives": true
+  },
+  "summary": {
+    "totalFoldersScanned": 3,
+    "totalImagesScanned": 4,
+    "foldersWithOwnershipMetadata": 1,
+    "imagesWithOwnershipMetadata": 2,
+    "foldersWithNullOwnershipMetadata": 2,
+    "imagesWithNullOwnershipMetadata": 2,
+    "legacyUserOwnerMatchingNewOwningUser": 2,
+    "mismatchedUserIdVsOwningUserId": 1,
+    "organizationOwnedRowsFound": 0,
+    "ambiguousRows": 3,
+    "orphanFolderReferences": 1,
+    "publicImagesWithMissingOrAmbiguousOwnership": 1,
+    "derivativeOwnershipRisks": 1,
+    "simulatedDualReadSafeCount": 2,
+    "simulatedDualReadUnsafeCount": 3,
+    "needsManualReviewCount": 1,
+    "metadataConflictCount": 1,
+    "relationshipConflictCount": 1
+  },
+  "classificationRollup": {
+    "same_allow": 2,
+    "metadata_missing": 2,
+    "metadata_conflict": 1,
+    "relationship_conflict": 1,
+    "orphan_reference": 1,
+    "unsafe_to_switch": 1,
+    "needs_manual_review": 1
+  },
+  "dualReadSafetyRollup": {
+    "safe": 2,
+    "unsafe": 3,
+    "needsManualReview": 1,
+    "metadataMissing": 4,
+    "metadataConflicts": 1,
+    "relationshipConflicts": 1
+  },
+  "folderEvidence": [
+    {
+      "itemType": "folder",
+      "itemId": "synthetic-folder-1",
+      "classification": "same_allow",
+      "severity": "info",
+      "legacyOwnerSignal": {
+        "basis": "ai_folders.user_id",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": true,
+        "ownerType": "personal_user_asset",
+        "ownershipStatus": "current",
+        "owningUserIdPresent": true,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Keep observing before any access switch.",
+      "futurePhase": "Phase 6.8"
+    }
+  ],
+  "imageEvidence": [
+    {
+      "itemType": "image",
+      "itemId": "synthetic-image-1",
+      "classification": "metadata_missing",
+      "severity": "warning",
+      "legacyOwnerSignal": {
+        "basis": "ai_images.user_id",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": false,
+        "ownerType": null,
+        "ownershipStatus": null,
+        "owningUserIdPresent": false,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Do not switch this image to ownership-metadata access without review.",
+      "futurePhase": "Phase 6.8"
+    }
+  ],
+  "relationshipEvidence": [],
+  "publicGalleryEvidence": [],
+  "derivativeEvidence": [],
+  "manualReviewQueue": [],
+  "recommendations": [
+    "Do not switch ai_folders or ai_images reads to ownership metadata until unsafe, conflict, missing-metadata, and manual-review evidence is resolved or accepted."
+  ],
+  "limitations": [
+    "Synthetic fixture for local summarizer tests only.",
+    "No live R2 objects are listed."
+  ]
+}

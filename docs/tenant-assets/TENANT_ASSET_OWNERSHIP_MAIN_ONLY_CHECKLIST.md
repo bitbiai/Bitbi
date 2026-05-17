@@ -51,6 +51,7 @@ git status --short
 | Optionally call `/api/admin/tenant-assets/folders-images/evidence/export?format=markdown` |  | optional |
 | Save JSON evidence to approved private evidence storage |  | blocked |
 | Save Markdown evidence if used |  | optional |
+| Save approved redacted summary or pending marker under `docs/tenant-assets/evidence/` |  | blocked |
 | Fill `TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md` |  | blocked |
 
 ## Verify Sanitization
@@ -93,8 +94,10 @@ If any of these are nonzero, keep the verdict blocked for access-switch and back
 
 If the endpoint is unavailable, output is unsafe, or required migration/deploy evidence is missing, record `blocked`.
 
-If evidence is collected safely but high-risk counts remain, record `needs_more_evidence` or `unsafe_for_access_switch` in the evidence template and proceed only to manual review or Phase 6.9 evidence collection.
+If evidence is collected safely but high-risk counts remain, record `needs_more_evidence` or `unsafe_for_access_switch` in the evidence template and proceed only to manual review or Phase 6.10 operator-run main evidence review.
+
+If no real operator-exported evidence is present in the repository, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as the package state and do not claim main evidence was collected.
 
 ## Next Recommended Phase
 
-Phase 6.9 - Staging/Main Owner-Map Evidence Collection for AI Folders & Images.
+Phase 6.10 - Operator-run Main Evidence Review and Decision.

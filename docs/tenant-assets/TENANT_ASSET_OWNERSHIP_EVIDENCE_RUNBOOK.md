@@ -6,12 +6,15 @@ Purpose: collect operator evidence from the Phase 6.7 read-only AI folders/image
 
 This runbook is evidence collection only. It does not approve production readiness, live billing readiness, full tenant isolation, ownership backfill, access-check switching, D1 mutation, R2 listing, R2 deletion, provider calls, Stripe calls, Cloudflare changes, or GitHub settings changes.
 
+The active workflow is **main-only**. There is no required separate staging environment for this tenant asset ownership evidence collection.
+
 ## Prerequisites
 
 - The reviewed Auth Worker code containing the Phase 6.7 tenant asset evidence endpoints is deployed by the operator, if not already live.
 - Remote auth D1 migration status is verified through `0056_add_ai_folder_image_ownership_metadata.sql` before deploying Auth Worker code that reads the nullable ownership columns.
 - The operator has a platform admin account and completes admin MFA where required.
 - Evidence is saved in an operator-approved private evidence location. Do not commit live evidence files if they contain user ids or production row identifiers.
+- Sanitized in-repo summaries, pending records, or approved redacted exports belong under `docs/tenant-assets/evidence/`.
 - No backfill, cleanup, R2 listing, provider call, Stripe action, or Cloudflare dashboard/API change is part of this runbook.
 
 ## What This Evidence Proves
@@ -53,8 +56,9 @@ Supported query parameters:
 4. Fetch a JSON export.
 5. Optionally fetch a Markdown export.
 6. Inspect exports for redaction and absence of unsafe fields.
-7. Record summary counts and the risk decision in the evidence template.
-8. Do not run any backfill, cleanup, access-switch, D1 update, R2 list/delete/move, provider, Stripe, or Cloudflare action.
+7. If committing an in-repo summary, use `docs/tenant-assets/evidence/README.md` and optionally `npm run tenant-assets:summarize-evidence`.
+8. Record summary counts and the risk decision in the evidence template.
+9. Do not run any backfill, cleanup, access-switch, D1 update, R2 list/delete/move, provider, Stripe, or Cloudflare action.
 
 ## Safe Examples
 
@@ -102,6 +106,20 @@ No example command contains a real cookie, bearer token, Cloudflare token, Strip
 - `tenant-assets-evidence-record-YYYY-MM-DD.md`
 
 Keep live evidence in a private operator evidence store. Commit only redacted summaries when needed.
+
+If evidence has not been collected yet, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as the current package state. Do not treat that pending file as evidence.
+
+To summarize a reviewed JSON export without calling live endpoints:
+
+```bash
+npm run tenant-assets:summarize-evidence -- --input docs/tenant-assets/evidence/<redacted-export>.json
+```
+
+To write a sanitized Markdown summary into the evidence directory:
+
+```bash
+npm run tenant-assets:summarize-evidence -- --input docs/tenant-assets/evidence/<redacted-export>.json --output docs/tenant-assets/evidence/YYYY-MM-DD-main-folders-images-owner-map-evidence.md
+```
 
 ## Redaction Checks
 
@@ -167,7 +185,7 @@ Then:
 - do not switch access checks
 - do not backfill automatically
 - do not move, list, or delete R2 objects
-- proceed to Phase 6.9 staging/main owner-map evidence collection and manual review
+- proceed to operator-run main evidence review and manual review planning
 
 If all high-risk counts are zero on controlled test data only:
 
@@ -181,4 +199,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.9 - Staging/Main Owner-Map Evidence Collection for AI Folders & Images.
+Phase 6.10 - Operator-run Main Evidence Review and Decision.

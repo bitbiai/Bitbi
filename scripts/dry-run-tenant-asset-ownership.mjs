@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.9 candidate: collect bounded staging/main owner-map evidence before access/backfill work.",
+    futurePhase: "Phase 6.9 packaged main-only evidence state; Phase 6.10 should review operator-run main evidence before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.9 candidate: collect bounded staging/main owner-map evidence before access/backfill work.",
+    futurePhase: "Phase 6.9 packaged main-only evidence state; Phase 6.10 should review operator-run main evidence before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -218,7 +218,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.9 after admin evidence and staging/main owner-map data prove owner metadata and organization quota design is approved.",
+    futurePhase: "Phase 6.10 after operator-run main owner-map evidence proves owner metadata and organization quota design is approved.",
   },
   {
     id: "data_lifecycle",
@@ -243,7 +243,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "audit_archive_asset",
     risk: "high",
     findings: ["lifecycle_user_only", "organization_export_delete_gap"],
-    futurePhase: "Phase 6.9 after owner mapping is proven.",
+    futurePhase: "Phase 6.10 after operator-run main owner mapping is proven.",
   },
   {
     id: "news_pulse_visuals",
@@ -269,7 +269,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "platform_background_asset",
     risk: "medium",
     findings: ["platform_background_asset_classification_needed"],
-    futurePhase: "Phase 6.9 out-of-scope for tenant-owned member assets.",
+    futurePhase: "Phase 6.10 out-of-scope for tenant-owned member assets.",
   },
 ]);
 
@@ -399,16 +399,21 @@ const FUTURE_PHASES = Object.freeze([
   },
   {
     phase: "6.9",
-    title: "Staging/main owner-map evidence collection",
-    scope: "Collect bounded real-row evidence and compare admin report output against approved owner-map expectations; no access switch or backfill.",
+    title: "Main owner-map evidence packaging",
+    scope: "Package main-only evidence status and pending evidence requirements; no live endpoint calls, access switch, or backfill.",
   },
   {
     phase: "6.10",
+    title: "Operator-run main evidence review and decision",
+    scope: "Review real main evidence collected by the operator before deciding on manual review, archive, or later backfill planning.",
+  },
+  {
+    phase: "6.11",
     title: "Bounded non-destructive backfill",
     scope: "Operator-approved metadata backfill only after dry-run evidence.",
   },
   {
-    phase: "6.11",
+    phase: "6.12",
     title: "Destructive cleanup gate",
     scope: "Only after owner-map proof, backups, and explicit approval.",
   },
@@ -911,7 +916,7 @@ function findingSummary(code) {
 
 function dryRunSignal(code) {
   if (code.includes("organization") || code.includes("owning_organization")) {
-    return "Count rows without organization owner metadata once a local/staging data source is approved.";
+    return "Count rows without organization owner metadata once a local or main-only evidence source is approved.";
   }
   if (code.includes("gallery") || code.includes("publisher")) {
     return "List public rows whose attribution is user-only and lacks an organization/publisher class.";
@@ -1054,7 +1059,7 @@ function requiredActionForClass(ownerClass) {
     personal_user_asset: "Add explicit personal owner metadata only after schema and owner-map proof.",
     organization_asset: "Use explicit organization owner metadata in a future additive schema; do not infer from UI context.",
     platform_admin_test_asset: "Keep separate from customer/org assets and exclude from customer lifecycle promises unless designed.",
-    legacy_unclassified_asset: "Keep row legacy/unclassified until stronger local/staging evidence exists.",
+    legacy_unclassified_asset: "Keep row legacy/unclassified until stronger local or main-only evidence exists.",
     ambiguous_owner: "Resolve owner conflict manually or through a later approved owner-map phase before migration.",
     orphan_reference: "Review missing folder/source references before any migration.",
     unsafe_to_migrate: "Block from automated migration until ownership and public attribution are reviewed.",
@@ -1466,11 +1471,25 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         totalReviewSignals: manualReviewSignalCount,
       },
     },
+    mainEvidencePackage: {
+      status: fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md"))
+        ? "pending_main_evidence"
+        : "not_recorded",
+      directory: "docs/tenant-assets/evidence/",
+      index: "docs/tenant-assets/evidence/README.md",
+      pendingFile: "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md",
+      realMainEvidenceFoundInRepo: false,
+      activeWorkflow: "main_only",
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      r2LiveListed: false,
+      recommendedNextPhase: "Phase 6.10 — Operator-run Main Evidence Review and Decision",
+    },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
         ? "Read diagnostics compare existing user_id access with new ownership metadata before any access-check switch."
         : "Write paths assign ownership metadata for new rows.",
-      "A local/staging owner-map report validates real row counts and ambiguity rates.",
+      "A main-only owner-map evidence package validates real row counts and ambiguity rates after operator collection.",
       "Organization ownership is backed by explicit row-level evidence, not UI active organization context.",
       "Public gallery attribution and lifecycle/export/delete impacts are designed.",
       "Operator evidence is reviewed before any backfill.",
@@ -1483,7 +1502,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "No runtime access behavior changes are made.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? "Phase 6.9 — Staging/Main Owner-Map Evidence Collection for AI Folders & Images"
+      ? "Phase 6.10 — Operator-run Main Evidence Review and Decision"
       : ownershipMigrationExists
         ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
@@ -1540,7 +1559,7 @@ export function buildTenantAssetOwnershipDryRunReport(repoRoot = process.cwd(), 
     lifecycleGaps,
     blockedUntil: [
       "Read-only diagnostics prove new ownership metadata matches legacy access behavior where present.",
-      "A local/staging owner-map report proves candidate ownership for one low-risk domain.",
+      "A main-only owner-map evidence package proves candidate ownership for one low-risk domain after operator collection.",
       "R2 key ownership is reconciled against D1 rows without object moves or deletes.",
       "Lifecycle/export/delete plans support organization subjects.",
       "Operator evidence is reviewed before any non-destructive backfill.",
@@ -1549,7 +1568,7 @@ export function buildTenantAssetOwnershipDryRunReport(repoRoot = process.cwd(), 
       "This phase reads repository source and migration files only.",
       "No live D1 rows or R2 objects are listed.",
       "Counts are structural inventory counts, not production data counts.",
-      "Ambiguous legacy rows remain legacy_unclassified_asset until a later owner-map dry run uses approved local or staging data.",
+      "Ambiguous legacy rows remain legacy_unclassified_asset until a later owner-map dry run uses approved local or main-only evidence data.",
     ],
     futurePhases: FUTURE_PHASES,
   };
@@ -1683,6 +1702,13 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Export endpoint: ${report.adminEvidenceReport?.exportEndpoint || "not_added"}`,
     `- Export formats: ${(report.adminEvidenceReport?.exportFormats || []).join(", ") || "none"}`,
     `- Manual review signals: ${report.adminEvidenceReport?.manualReviewRollup?.totalReviewSignals ?? 0}`,
+    "",
+    "## Main Evidence Package",
+    "",
+    `- Status: ${report.mainEvidencePackage?.status || "not_recorded"}`,
+    `- Directory: ${report.mainEvidencePackage?.directory || "not_recorded"}`,
+    `- Active workflow: ${report.mainEvidencePackage?.activeWorkflow || "main_only"}`,
+    `- Real main evidence found in repo: ${report.mainEvidencePackage?.realMainEvidenceFoundInRepo ? "yes" : "no"}`,
     "",
     "## Safety",
     "",

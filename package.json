@@ -50,6 +50,7 @@
     "readiness:evidence:markdown": "node scripts/collect-readiness-evidence.mjs --markdown",
     "dry-run:tenant-assets": "node scripts/dry-run-tenant-asset-ownership.mjs",
     "dry-run:tenant-assets:images": "node scripts/dry-run-tenant-asset-ownership.mjs --domain folders-images --fixtures scripts/fixtures/tenant-assets/folders-images.json",
+    "tenant-assets:summarize-evidence": "node scripts/summarize-tenant-asset-evidence.mjs",
     "build:static": "node scripts/build-static-site.mjs",
     "release:plan": "node scripts/release-plan.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",

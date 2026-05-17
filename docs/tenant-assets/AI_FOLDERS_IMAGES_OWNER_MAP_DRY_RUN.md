@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the runbook/template/checklist for collecting operator evidence from those endpoints. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the runbook/template/checklist for collecting operator evidence from those endpoints. Phase 6.9 adds the main-only evidence package directory and pending state because no real operator export was present in the repository. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Schema Summary
 
@@ -87,7 +87,7 @@ Each candidate includes:
 
 - `high`: explicit organization owner evidence or equivalent approved owner-map signal.
 - `medium`: current `user_id` is the only owner signal, or explicit admin/test source evidence exists.
-- `low`: reserved for later local/staging evidence that is useful but incomplete.
+- `low`: reserved for later local/main evidence that is useful but incomplete.
 - `none`: missing folder, user conflict, unsafe public ambiguity, or no safe owner evidence.
 
 ## Phase 6.2 Fixture Coverage
@@ -151,6 +151,16 @@ Phase 6.8 adds operator evidence collection docs only:
 
 The docs tell operators how to collect bounded live/main evidence from the Phase 6.7 report/export endpoints, interpret high-risk counts, and record explicit no-mutation statements. They add no endpoint, UI, migration, access switch, backfill, D1/R2 mutation, R2 listing, provider call, Stripe call, or tenant-isolation claim.
 
+## Phase 6.9 Main Evidence Package
+
+Phase 6.9 adds main-only evidence packaging:
+
+- `docs/tenant-assets/evidence/README.md`
+- `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md`
+- `scripts/summarize-tenant-asset-evidence.mjs`
+
+No real operator-exported main evidence was present in the repository, so the package is pending and the decision remains blocked for access-check switching and backfill. The summarizer reads a local operator-provided JSON export and emits a bounded Markdown summary only; it does not call live endpoints or mutate D1/R2.
+
 ## Remaining Migration Blockers
 
 - Existing pre-Phase-6.5 rows remain null/unclassified until a future owner-map/backfill phase.
@@ -159,7 +169,7 @@ The docs tell operators how to collect bounded live/main evidence from the Phase
 - Public gallery attribution is user/profile-only.
 - Data lifecycle/export/delete is user-subject-only.
 - Storage quota is `user_asset_storage_usage` only.
-- Real row ambiguity rates are unknown until a local/staging owner-map report is approved.
+- Real row ambiguity rates are unknown until main-only operator evidence is collected and reviewed.
 
 ## Phase 6.3 Schema/Access Plan
 
@@ -169,6 +179,6 @@ Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGE
 - Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
 - Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-## Recommended Phase 6.9
+## Recommended Phase 6.10
 
-Phase 6.9 should be **Staging/Main Owner-Map Evidence Collection for AI Folders & Images**. It should use the Phase 6.8 runbook to collect real bounded evidence from the admin report and compare it against approved owner-map expectations without switching access checks or backfilling old rows.
+Phase 6.10 should be **Operator-run Main Evidence Review and Decision**. It should use the Phase 6.8 runbook and Phase 6.9 evidence package to review real bounded main evidence if the operator provides it, without switching access checks or backfilling old rows.

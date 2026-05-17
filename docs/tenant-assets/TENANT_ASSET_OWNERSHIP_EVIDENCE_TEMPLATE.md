@@ -16,6 +16,8 @@ Default risk decision: **blocked**
 
 This template records evidence for the Phase 6.7 read-only AI folders/images tenant asset ownership evidence report. It does not approve production readiness, live billing readiness, full tenant isolation, access-check switching, ownership backfill, D1 mutation, R2 listing/mutation, provider calls, Stripe calls, Cloudflare changes, or credit/billing changes.
 
+This workflow is main-only. Do not mark evidence as collected unless it came from the live/main deployment or a clearly identified local dry run.
+
 ## 1. Preconditions
 
 | Item | Evidence | Result |
@@ -41,6 +43,7 @@ This template records evidence for the Phase 6.7 read-only AI folders/images ten
 | JSON evidence response |  | yes / no |
 | JSON export |  | yes / no |
 | Markdown export |  | yes / no / not used |
+| In-repo sanitized summary under `docs/tenant-assets/evidence/` |  | yes / no / pending |
 | Screenshot or admin evidence reference |  | yes / no / not used |
 
 Do not paste real cookies, session tokens, bearer tokens, private keys, signed URLs, provider payloads, Stripe data, Cloudflare tokens, or private R2 keys into this template.
@@ -131,4 +134,4 @@ Record operator confirmation:
 
 ## 11. Next Recommended Phase
 
-Phase 6.9 - Staging/Main Owner-Map Evidence Collection for AI Folders & Images.
+Phase 6.10 - Operator-run Main Evidence Review and Decision.

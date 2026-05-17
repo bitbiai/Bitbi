@@ -11,6 +11,12 @@ import {
   renderTenantAssetOwnershipMarkdown,
   TENANT_ASSET_OWNER_CLASSES,
 } from "./dry-run-tenant-asset-ownership.mjs";
+import {
+  buildTenantAssetEvidenceSummary,
+  findUnsafeTenantAssetEvidenceFindings,
+  normalizeTenantAssetEvidenceReportPayload,
+  renderTenantAssetEvidenceSummaryMarkdown,
+} from "./summarize-tenant-asset-evidence.mjs";
 
 const repoRoot = process.cwd();
 const report = buildTenantAssetOwnershipDryRunReport(repoRoot, {
@@ -245,7 +251,13 @@ assert.equal(foldersImagesReport.adminEvidenceReport.accessChecksChanged, false)
 assert.equal(foldersImagesReport.adminEvidenceReport.backfillPerformed, false);
 assert.equal(foldersImagesReport.adminEvidenceReport.r2LiveListed, false);
 assert(foldersImagesReport.adminEvidenceReport.manualReviewRollup.totalReviewSignals >= 1);
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.9 — Staging/Main Owner-Map Evidence Collection for AI Folders & Images");
+assert.equal(foldersImagesReport.mainEvidencePackage.status, "pending_main_evidence");
+assert.equal(foldersImagesReport.mainEvidencePackage.activeWorkflow, "main_only");
+assert.equal(foldersImagesReport.mainEvidencePackage.realMainEvidenceFoundInRepo, false);
+assert.equal(foldersImagesReport.mainEvidencePackage.accessChecksChanged, false);
+assert.equal(foldersImagesReport.mainEvidencePackage.backfillPerformed, false);
+assert.equal(foldersImagesReport.mainEvidencePackage.r2LiveListed, false);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.10 — Operator-run Main Evidence Review and Decision");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -367,6 +379,66 @@ assert(!focusedSerialized.includes("cloudflare api"));
 assert(!focusedSerialized.includes("synthetic prompt omitted"));
 assert(!focusedSerialized.includes("users/user_personal/folders/personal/image_personal.png"));
 
+const evidenceFixturePath = path.join(
+  repoRoot,
+  "scripts/fixtures/tenant-assets/folders-images-evidence-export.json"
+);
+const evidencePayload = JSON.parse(fs.readFileSync(evidenceFixturePath, "utf8"));
+const normalizedEvidence = normalizeTenantAssetEvidenceReportPayload(evidencePayload);
+assert.equal(normalizedEvidence.source, "local_d1_read_only");
+assert.equal(normalizedEvidence.domain, "folders_images");
+const evidenceSummary = buildTenantAssetEvidenceSummary(evidencePayload, {
+  sourcePath: "scripts/fixtures/tenant-assets/folders-images-evidence-export.json",
+  operator: "synthetic_operator",
+  commitSha: "synthetic_commit",
+  evidenceEnvironment: "main",
+});
+assert.equal(evidenceSummary.summaryVersion, "tenant-asset-owner-map-main-evidence-summary-v1");
+assert.equal(evidenceSummary.mainOnlyEvidence, true);
+assert.equal(evidenceSummary.counts.totalFoldersScanned, 3);
+assert.equal(evidenceSummary.counts.totalImagesScanned, 4);
+assert.equal(evidenceSummary.counts.metadataMissingTotal, 4);
+assert.equal(evidenceSummary.highRiskCounts.metadataConflictCount, 1);
+assert.equal(evidenceSummary.highRiskCounts.relationshipConflictCount, 1);
+assert.equal(evidenceSummary.highRiskCounts.orphanFolderReferences, 1);
+assert.equal(evidenceSummary.highRiskCounts.publicImagesWithMissingOrAmbiguousOwnership, 1);
+assert.equal(evidenceSummary.highRiskCounts.derivativeOwnershipRisks, 1);
+assert.equal(evidenceSummary.highRiskCounts.simulatedDualReadUnsafeCount, 3);
+assert.equal(evidenceSummary.highRiskCounts.needsManualReviewCount, 1);
+assert.equal(evidenceSummary.decisionStatus, "blocked_for_access_switch_and_backfill");
+const evidenceMarkdown = renderTenantAssetEvidenceSummaryMarkdown(evidenceSummary);
+assert(evidenceMarkdown.includes("# Main AI Folders/Images Owner-Map Evidence Summary"));
+assert(evidenceMarkdown.includes("Main-only evidence: yes"));
+assert(evidenceMarkdown.includes("Decision status: blocked_for_access_switch_and_backfill"));
+assert(!evidenceMarkdown.includes("users/synthetic-user/folders"));
+assert(!evidenceMarkdown.includes("Cookie:"));
+assert(!evidenceMarkdown.includes("Bearer "));
+assert.throws(
+  () => normalizeTenantAssetEvidenceReportPayload({ source: "local_d1_read_only", domain: "folders_images" }),
+  /missing required fields/i
+);
+assert.throws(
+  () => normalizeTenantAssetEvidenceReportPayload({
+    ...evidencePayload,
+    folderEvidence: [
+      {
+        prompt: "synthetic prompt should not be present",
+      },
+    ],
+  }),
+  /unsafe fields/i
+);
+assert(
+  findUnsafeTenantAssetEvidenceFindings({
+    r2Key: "users/synthetic-user/folders/private/image.png",
+  }).some((finding) => finding.includes("private user R2 key")),
+  "unsafe raw R2 key should be detected"
+);
+const summarizerSource = fs.readFileSync(path.join(repoRoot, "scripts/summarize-tenant-asset-evidence.mjs"), "utf8");
+assert(!summarizerSource.includes("fetch("));
+assert(!summarizerSource.includes("wrangler"));
+assert(!summarizerSource.includes("d1 execute"));
+
 const ownershipMigrationPath = path.join(
   repoRoot,
   "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql"
@@ -408,5 +480,7 @@ assert(focusedMarkdown.includes("image_public_ambiguous"));
 assert(focusedMarkdown.includes("Read Diagnostics"));
 assert(focusedMarkdown.includes("metadata_missing"));
 assert(focusedMarkdown.includes("unsafe_to_switch"));
+assert(focusedMarkdown.includes("Main Evidence Package"));
+assert(focusedMarkdown.includes("pending_main_evidence"));
 
 console.log("Tenant asset ownership dry-run tests passed.");
