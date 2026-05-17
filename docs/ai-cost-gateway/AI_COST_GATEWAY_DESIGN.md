@@ -2,7 +2,7 @@
 
 Date: 2026-05-16
 
-Status: target design plus Phase 4.18 read-only `platform_admin_lab_budget` reconciliation evidence on top of Phase 4.17's first narrow cap foundation, completed Phase 4.16 design/evidence, and Phase 4.15/4.15.1 switch controls. Phase 4.18 adds bounded sanitized mismatch reporting and dry-run-only repair candidates for covered admin lab usage events; it does not add a migration, repair executor, provider call, route behavior change, Stripe behavior, Cloudflare mutation, member/org billing change, credit clawback, or live billing readiness. Platform/background AI outside News Pulse visuals and other budget scopes remain outside this reconciliation scope.
+Status: target design plus Phase 4.19 explicit admin-approved `platform_admin_lab_budget` repair execution on top of Phase 4.18 read-only reconciliation evidence, Phase 4.17's first narrow cap foundation, completed Phase 4.16 design/evidence, and Phase 4.15/4.15.1 switch controls. Phase 4.19 adds additive migration `0054_add_platform_budget_repair_actions.sql`; it can create missing usage evidence only from still-successful local D1 source evidence and records other candidate types as review-only. It does not add automatic repair, provider calls, route behavior changes, Stripe behavior, Cloudflare mutation, member/org billing changes, credit clawback, or live billing readiness. Platform/background AI outside News Pulse visuals and other budget scopes remain outside this repair scope.
 
 ## Goals
 
@@ -443,6 +443,7 @@ Implemented behavior:
 - `0051_add_admin_ai_usage_attempts.sql` adds the narrow `admin_ai_usage_attempts` table.
 - `0052_add_admin_runtime_budget_switches.sql` adds D1 app-level Admin AI budget switch state/history. It stores only switch key, boolean app state, bounded reason/metadata, safe updater summary, idempotency key, and request hash. It does not store Cloudflare values, Cloudflare API tokens, provider payloads, prompts, billing secrets, or cap-counter values.
 - `0053_add_platform_budget_caps.sql` adds Phase 4.17 platform budget cap limits, cap update events, and bounded usage events for `platform_admin_lab_budget`. It stores safe operation/source/actor summaries, estimated units, daily/monthly window keys, idempotency/source de-duplication keys, and sanitized metadata only.
+- `0054_add_platform_budget_repair_actions.sql` adds Phase 4.19 platform budget repair action audit rows for explicit admin-approved repair requests. It stores safe candidate/action/status/source summaries, idempotency key/request hash, reason, sanitized evidence/result JSON, and any created usage event id; it does not store raw prompts, provider bodies, Stripe data, Cloudflare values, secrets, or credit/customer billing data.
 - attempts store hashed idempotency keys, stable request fingerprints, model/budget/caller-policy metadata, statuses, and sanitized result metadata.
 - raw prompts, raw embedding input, generated text, embedding vectors, provider request bodies, secrets, cookies, auth headers, Stripe data, Cloudflare tokens, and private keys are not stored.
 - same-key/same-request pending, completed, or failed attempts do not make another internal AI/provider call.

@@ -133,6 +133,15 @@ function makeCandidate({
 }) {
   const severity = classifyPlatformBudgetReconciliationSeverity(issueType);
   const sourceId = sourceAttemptId || sourceJobId || usageEventIds[0] || operationKey || issueType;
+  const proposedAction = ACTION_BY_ISSUE[issueType] || "requires_operator_review";
+  const executableInPhase419 = proposedAction === "create_missing_usage_event";
+  const reviewOnlyInPhase419 = [
+    "mark_duplicate_usage_event_review",
+    "review_orphan_usage_event",
+    "review_failed_source_usage",
+    "fix_window_metadata",
+    "add_missing_cost_metadata",
+  ].includes(proposedAction);
   return Object.freeze({
     candidateId: candidateId(issueType, sourceId, usageEventIds.length > 1 ? String(usageEventIds.length) : ""),
     issueType,
@@ -142,10 +151,13 @@ function makeCandidate({
     sourceAttemptId: safeText(sourceAttemptId, 180),
     sourceJobId: safeText(sourceJobId, 180),
     usageEventIds: (usageEventIds || []).map((id) => safeText(id, 180)).filter(Boolean).slice(0, 20),
-    proposedAction: ACTION_BY_ISSUE[issueType] || "requires_operator_review",
-    actionSafety: "dry_run_only",
+    proposedAction,
+    actionSafety: executableInPhase419 ? "admin_approved_idempotent_executor" : "dry_run_or_review_only",
     requiresOperatorReview: true,
-    futureRepairExecutorRequired: true,
+    futureRepairExecutorRequired: !executableInPhase419,
+    phase419Executable: executableInPhase419,
+    reviewOnly: reviewOnlyInPhase419,
+    repairEndpoint: executableInPhase419 || reviewOnlyInPhase419 ? "/api/admin/ai/platform-budget-reconciliation/repair" : null,
     proposedUnits: proposedUnits == null ? null : safeNumber(proposedUnits, null),
     reason: safeText(reason, 500),
     evidenceSummary: Object.freeze(Object.fromEntries(
@@ -651,9 +663,10 @@ export async function buildPlatformBudgetReconciliationReport(env, options = {})
       repairCandidates: includeCandidates ? reconciliation.repairCandidates : [],
       repairCandidatesOmitted: !includeCandidates,
       notes: [
-        "Phase 4.18 reconciliation is read-only and local-D1-only.",
-        "Repair candidates are evidence only; no platform_budget_usage_events, admin_ai_usage_attempts, ai_video_jobs, credits, queues, or billing rows are mutated.",
-        "Production readiness and live billing readiness remain blocked until operator evidence and a future explicit repair executor phase exist.",
+        "Phase 4.18 reconciliation remains read-only and local-D1-only.",
+        "Phase 4.19 adds an explicit admin-approved executor for create_missing_usage_event candidates only; review-only candidates do not mutate usage/source rows.",
+        "This report itself applies no repair and mutates no platform_budget_usage_events, admin_ai_usage_attempts, ai_video_jobs, credits, queues, or billing rows.",
+        "Production readiness and live billing readiness remain blocked until operator evidence is reviewed.",
       ],
       limitations: [
         "Checks are bounded and may not enumerate every historical row when more rows exist than the applied limit.",
@@ -713,7 +726,7 @@ export async function buildPlatformBudgetReconciliationReport(env, options = {})
       })] : [],
       repairCandidatesOmitted: !includeCandidates,
       notes: [
-        "Phase 4.18 reconciliation is read-only and failed safely as unavailable.",
+        "Phase 4.18/4.19 reconciliation and repair planning failed safely as unavailable.",
       ],
       limitations: ["Required Phase 4.17 budget cap tables must exist before reconciliation can be complete."],
     });

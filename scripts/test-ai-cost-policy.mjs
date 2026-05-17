@@ -204,6 +204,7 @@ ${inventoryExtra}
   assert(output.includes("Phase 4.15 enforces runtime budget kill-switches"));
   assert(output.includes("Live platform budget cap status:"));
   assert(output.includes("Phase 4.17 implements the first narrow daily/monthly cap foundation"));
+  assert(output.includes("Phase 4.19 adds an explicit admin-approved repair executor"));
   assert(output.includes("Other platform/admin budget scopes remain future work"));
   assert(output.includes("admin.text.test: cap=cap_enforced; readiness=countable_now"));
   assert(output.includes("admin.image.test.unmetered: cap=not_implemented; readiness=metadata_only"));
@@ -448,7 +449,7 @@ ${inventoryExtra}
           reconciliationStatus: "future",
           reconciliationEvidence: {
             ...entry.budgetPolicy.reconciliationEvidence,
-            repairExecutor: true,
+            repairExecutor: false,
           },
         },
       }
@@ -457,7 +458,7 @@ ${inventoryExtra}
   const result = analyzeAiCostPolicy(repoRoot, { registryEntries: regressedRegistry });
   assert.equal(result.ok, false);
   assert(result.fatalIssues.some((issue) => issue.includes("reconciliation")));
-  assert(result.fatalIssues.some((issue) => issue.includes("repairExecutor=false")));
+  assert(result.fatalIssues.some((issue) => issue.includes("repair executor")));
 }
 
 {

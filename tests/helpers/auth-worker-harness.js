@@ -790,6 +790,7 @@ class MockD1 {
       platformBudgetLimits: defaultPlatformBudgetLimitRows(),
       platformBudgetLimitEvents: [],
       platformBudgetUsageEvents: [],
+      platformBudgetRepairActions: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -955,6 +956,9 @@ class MockD1 {
       (this.missingTables.has('platform_budget_usage_events') && query.includes('platform_budget_usage_events'))
     ) {
       throw new Error('no such table: platform_budget_caps');
+    }
+    if (this.missingTables.has('platform_budget_repair_actions') && query.includes('platform_budget_repair_actions')) {
+      throw new Error('no such table: platform_budget_repair_actions');
     }
     if (this.missingTables.has('user_asset_storage_usage') && query.includes('user_asset_storage_usage')) {
       throw new Error('no such table: user_asset_storage_usage');
@@ -7860,6 +7864,155 @@ class MockD1 {
         created_at,
       });
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, candidate_id, candidate_type, requested_action, action_status, dry_run')
+      && query.includes('FROM platform_budget_repair_actions')
+      && query.includes('WHERE idempotency_key = ?')
+    ) {
+      const [idempotencyKey] = bindings;
+      return (this.state.platformBudgetRepairActions || []).find((row) => row.idempotency_key === idempotencyKey) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, candidate_id, candidate_type, requested_action, action_status, dry_run')
+      && query.includes('FROM platform_budget_repair_actions')
+      && query.includes('WHERE id = ?')
+    ) {
+      const [id] = bindings;
+      return (this.state.platformBudgetRepairActions || []).find((row) => row.id === id) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, candidate_id, candidate_type, requested_action, action_status, dry_run')
+      && query.includes('FROM platform_budget_repair_actions')
+      && query.includes('WHERE budget_scope = ?')
+    ) {
+      const [budgetScope, limit] = bindings;
+      return {
+        results: (this.state.platformBudgetRepairActions || [])
+          .filter((row) => row.budget_scope === budgetScope)
+          .sort((left, right) => {
+            const byCreated = String(right.created_at || '').localeCompare(String(left.created_at || ''));
+            if (byCreated !== 0) return byCreated;
+            return String(right.id || '').localeCompare(String(left.id || ''));
+          })
+          .slice(0, Number(limit || 25)),
+      };
+    }
+
+    if (query.startsWith('INSERT INTO platform_budget_repair_actions (')) {
+      const [
+        id,
+        budget_scope,
+        candidate_id,
+        candidate_type,
+        requested_action,
+        action_status,
+        idempotency_key,
+        request_hash,
+        requested_by_user_id,
+        requested_by_email,
+        reason,
+        source_attempt_id,
+        source_job_id,
+        created_usage_event_id,
+        evidence_json,
+        result_json,
+        error_code,
+        error_message,
+        created_at,
+        updated_at,
+      ] = bindings;
+      if ((this.state.platformBudgetRepairActions || []).some((row) => row.idempotency_key === idempotency_key)) {
+        throw new Error('UNIQUE constraint failed: platform_budget_repair_actions.idempotency_key');
+      }
+      this.state.platformBudgetRepairActions.push({
+        id,
+        budget_scope,
+        candidate_id,
+        candidate_type,
+        requested_action,
+        action_status,
+        dry_run: 0,
+        idempotency_key,
+        request_hash,
+        requested_by_user_id,
+        requested_by_email,
+        reason,
+        source_attempt_id,
+        source_job_id,
+        created_usage_event_id,
+        evidence_json,
+        result_json,
+        error_code,
+        error_message,
+        created_at,
+        updated_at,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE platform_budget_repair_actions SET')) {
+      const [
+        action_status,
+        created_usage_event_id,
+        result_json,
+        error_code,
+        error_message,
+        updated_at,
+        id,
+      ] = bindings;
+      const row = (this.state.platformBudgetRepairActions || []).find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.action_status = action_status;
+      if (created_usage_event_id) row.created_usage_event_id = created_usage_event_id;
+      row.result_json = result_json;
+      row.error_code = error_code;
+      row.error_message = error_message;
+      row.updated_at = updated_at;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, operation_key, units, source_attempt_id, source_job_id')
+      && query.includes('FROM platform_budget_usage_events')
+      && query.includes('WHERE source_attempt_id = ?')
+    ) {
+      const [sourceAttemptId] = bindings;
+      return (this.state.platformBudgetUsageEvents || []).find((row) =>
+        row.source_attempt_id === sourceAttemptId && row.status === 'recorded'
+      ) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, operation_key, units, source_attempt_id, source_job_id')
+      && query.includes('FROM platform_budget_usage_events')
+      && query.includes('WHERE source_job_id = ?')
+    ) {
+      const [sourceJobId] = bindings;
+      return (this.state.platformBudgetUsageEvents || []).find((row) =>
+        row.source_job_id === sourceJobId && row.status === 'recorded'
+      ) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, operation_key, route, admin_user_id, idempotency_key_hash, request_fingerprint, budget_scope')
+      && query.includes('FROM admin_ai_usage_attempts')
+      && query.includes('WHERE id = ?')
+    ) {
+      const [id] = bindings;
+      return (this.state.adminAiUsageAttempts || []).find((row) => row.id === id) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, user_id, scope, status, provider, model, request_hash, idempotency_key')
+      && query.includes('FROM ai_video_jobs')
+      && query.includes('WHERE id = ?')
+    ) {
+      const [id] = bindings;
+      return (this.state.aiVideoJobs || []).find((row) => row.id === id) || null;
     }
 
     if (

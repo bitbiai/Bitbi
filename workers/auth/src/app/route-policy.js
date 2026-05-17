@@ -553,7 +553,25 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     rateLimit: { id: "admin-ai-platform-budget-reconciliation-ip", failClosed: true },
     sensitivity: "high",
-    notes: "Phase 4.18 read-only platform_admin_lab_budget reconciliation and repair-evidence API. It reports bounded sanitized missing/duplicate/orphan/failed-source/window mismatch candidates only; no repair executor, provider call, queue mutation, D1 write, credit mutation, Stripe call, Cloudflare mutation, or customer billing change.",
+    notes: "Phase 4.18 read-only platform_admin_lab_budget reconciliation and repair-evidence API. It reports bounded sanitized missing/duplicate/orphan/failed-source/window mismatch candidates only; no provider call, queue mutation, D1 write, credit mutation, Stripe call, Cloudflare mutation, or customer billing change.",
+  }),
+  adminJsonWrite("admin.ai.platform-budget-reconciliation.repair", "POST", "/api/admin/ai/platform-budget-reconciliation/repair", "admin-ai", "smallJson", "admin-ai-platform-budget-repair-write-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    sensitivity: "high",
+    audit: { event: "admin_ai_platform_budget_repair_requested" },
+    notes: "Phase 4.19 explicit admin-approved platform_admin_lab_budget repair executor. Requires Idempotency-Key, bounded reason, confirmation for execution, admin auth/MFA, same-origin JSON, and fail-closed rate limiting. Only create_missing_usage_event can create a platform_budget_usage_events row from still-successful local D1 source evidence; review-only actions record repair audit rows only. No provider, AI Worker, Stripe, credit, source attempt/job, Cloudflare, or customer billing mutation.",
+  }),
+  adminRead("admin.ai.platform-budget-repair-actions.read", "/api/admin/ai/platform-budget-repair-actions", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-platform-budget-repair-actions-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.19 bounded read-only list of sanitized platform budget repair action audit rows. No provider, Stripe, credit, source attempt/job, or billing mutation.",
+  }),
+  adminRead("admin.ai.platform-budget-repair-actions.detail", "/api/admin/ai/platform-budget-repair-actions/:id", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-platform-budget-repair-actions-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.19 bounded read-only detail for one sanitized platform budget repair action audit row. Raw prompts, provider bodies, raw idempotency keys, secrets, Stripe data, Cloudflare values, and billing data are omitted.",
   }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
     config: REQUIRED_CONFIG.adminAi,

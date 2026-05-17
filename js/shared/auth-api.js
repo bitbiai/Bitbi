@@ -416,6 +416,23 @@ export function apiAdminAiPlatformBudgetReconciliation({ limit = 25, includeCand
     return request('GET', '/admin/ai/platform-budget-reconciliation' + qs, undefined, options);
 }
 
+export function apiAdminAiRepairPlatformBudgetCandidate(payload = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/ai/platform-budget-reconciliation/repair', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminAiPlatformBudgetRepairActions({ limit = 25 } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/ai/platform-budget-repair-actions' + qs, undefined, options);
+}
+
+export function apiAdminAiPlatformBudgetRepairAction(actionId, options) {
+    return request('GET', `/admin/ai/platform-budget-repair-actions/${encodeURIComponent(actionId)}`, undefined, options);
+}
+
 export function apiAdminDataLifecycleRequests({ limit } = {}) {
     const params = new URLSearchParams();
     if (limit) params.set('limit', String(limit));

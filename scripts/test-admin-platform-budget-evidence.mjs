@@ -85,10 +85,13 @@ assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.tex
 assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.live_agent"));
 assert(report.livePlatformBudgetCaps.pathsWithEstimatedCostUnits.includes("admin.video.job.create"));
 assert(report.livePlatformBudgetCaps.pathsWithDurableCompletionTimestamps.includes("admin.compare"));
-assert.equal(report.platformBudgetReconciliation.phase, "Phase 4.18");
+assert.equal(report.platformBudgetReconciliation.phase, "Phase 4.18/4.19");
 assert.equal(report.platformBudgetReconciliation.readOnly, true);
-assert.equal(report.platformBudgetReconciliation.repairExecutorExists, false);
+assert.equal(report.platformBudgetReconciliation.repairExecutorExists, true);
 assert.equal(report.platformBudgetReconciliation.runtimeRouteBehaviorChanged, false);
+assert.equal(report.platformBudgetRepairs.phase, "Phase 4.19");
+assert.equal(report.platformBudgetRepairs.automaticRepair, false);
+assert(report.platformBudgetRepairs.executableActions.includes("create_missing_usage_event"));
 
 const platformCapScope = report.livePlatformBudgetCaps.countabilityByBudgetScope.find((entry) =>
   entry.scope === "platform_admin_lab_budget"

@@ -491,8 +491,14 @@ function validateLiveBudgetCapMetadata(registryEntries) {
       if (policy.reconciliationStatus !== "supported" && policy.reconciliationStatus !== "partial") {
         issues.push(`${operationId}: cap-enforced platform budget operation must declare reconciliation-supported or partial status.`);
       }
-      if (!policy.reconciliationEvidence || policy.reconciliationEvidence.repairExecutor !== false) {
-        issues.push(`${operationId}: Phase 4.18 reconciliation metadata must be read-only and declare repairExecutor=false.`);
+      if (!policy.reconciliationEvidence || policy.reconciliationEvidence.repairExecutor !== true) {
+        issues.push(`${operationId}: Phase 4.19 reconciliation metadata must declare the explicit admin-approved repair executor.`);
+      }
+      if (!Array.isArray(policy.reconciliationEvidence?.executableActions) || !policy.reconciliationEvidence.executableActions.includes("create_missing_usage_event")) {
+        issues.push(`${operationId}: Phase 4.19 repair metadata must allow only explicit missing usage event creation as an executable repair.`);
+      }
+      if (policy.reconciliationEvidence?.automaticRepair !== false || policy.reconciliationEvidence?.scheduledRepair !== false) {
+        issues.push(`${operationId}: Phase 4.19 repair metadata must declare automatic/scheduled repair disabled.`);
       }
     }
   }
@@ -885,6 +891,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.14 classifies Admin Image branches: charged priced models remain admin_org_credit_account-covered, FLUX.2 Dev is explicit_unmetered_admin with safe budget/caller-policy metadata, and unclassified Admin Image models are blocked before provider calls.",
     "- Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost paths; missing or false switches block before provider, queue, credit, or durable-attempt work where applicable.",
     "- Phase 4.16 adds live platform budget cap design/evidence only; Phase 4.17 adds the first platform_admin_lab_budget cap foundation without changing member/org billing behavior.",
+    "- Phase 4.18 adds read-only platform budget reconciliation evidence; Phase 4.19 adds an explicit admin-approved repair executor only for safe missing usage event evidence and review-only notes. No automatic repair, provider call, Stripe call, credit mutation, or customer billing mutation is allowed.",
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>

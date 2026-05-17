@@ -2,7 +2,7 @@
 
 Date: 2026-05-16
 
-Status: Phase 4.18 read-only `platform_admin_lab_budget` usage reconciliation and repair evidence on top of Phase 4.17's first narrow cap foundation, completed Phase 4.16 design/evidence, and Phase 4.15/4.15.1 switch enforcement. Phase 4.18 adds no migration and no runtime provider route behavior change; it adds bounded local-D1 mismatch reporting, dry-run-only repair candidates, an admin-only reconciliation API, and a compact Admin Control Plane read-only panel. These phases do not migrate new routes, change member/org billing behavior, execute repairs, call Stripe/providers, deploy, run remote migrations, enable live billing, change public pricing, mutate credits, or apply credit clawbacks.
+Status: Phase 4.19 explicit admin-approved `platform_admin_lab_budget` usage repair executor on top of Phase 4.18 read-only reconciliation evidence, Phase 4.17's first narrow cap foundation, completed Phase 4.16 design/evidence, and Phase 4.15/4.15.1 switch enforcement. Phase 4.19 adds local migration `0054_add_platform_budget_repair_actions.sql` and no runtime provider route behavior change; it can create missing usage evidence only from still-successful local D1 source evidence and records duplicate/orphan/failed-source/window/cost cases as review-only. These phases do not migrate new routes, change member/org billing behavior, run automatic repairs, call Stripe/providers, deploy, run remote migrations, enable live billing, change public pricing, mutate credits, or apply credit clawbacks.
 
 Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 
@@ -49,7 +49,7 @@ The current code already has important foundations:
 - Phase 4.14 adds Admin Image branch classification and enforcement for `POST /api/admin/ai/test-image`: priced image-test models remain charged through the existing selected-organization `admin_org_credit_account` path, `@cf/black-forest-labs/flux-2-dev` is classified as an intentional `explicit_unmetered_admin` exception with caller-policy metadata and kill-switch target `ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS`, and unknown/unclassified Admin Image models are blocked before AI Worker/provider execution. Phase 4.15 enforces the explicit-unmetered switch before FLUX.2 Dev provider calls. No migration was added, no new branch starts debiting credits, and no member/org/OpenClaw/Admin text/music/compare/live-agent/video behavior changed.
 - Phase 4.15 adds `workers/auth/src/lib/admin-platform-budget-switches.js` and enforces runtime budget switches before provider-cost work for already budget-classified admin/platform paths. Missing/false flags block before provider/proxy/queue/credit/durable-attempt work where applicable. Public News Pulse reads and member image/music/video routes are unaffected.
 - Phase 4.15.1 adds D1-backed app-level Admin AI budget switches on top of those Cloudflare master flags. Effective execution requires master flag enabled and D1 app switch enabled. Missing D1 rows, disabled app switches, unavailable D1, or disabled/missing Cloudflare flags fail closed. The Admin Control Plane can only change app-level D1 state; it cannot edit Cloudflare variables and stores no Cloudflare API tokens.
-- Phase 4.16 adds `docs/ai-cost-gateway/LIVE_PLATFORM_BUDGET_CAPS_DESIGN.md`, registry cap-readiness metadata, policy-check output, and read-only evidence fields for cap planning. It remains preserved. Phase 4.17 implements the first `platform_admin_lab_budget` cap foundation with `liveBudgetCapsStatus: platform_admin_lab_budget_foundation`, daily/monthly cap limits, bounded usage events, and admin-only cap APIs/UI for Admin Text, Embeddings, Music, Compare, Live-Agent, and Admin async video jobs. Phase 4.18 adds read-only reconciliation evidence for those same sources and proposes dry-run repair candidates only; no repair executor exists yet. Other scopes remain future work.
+- Phase 4.16 adds `docs/ai-cost-gateway/LIVE_PLATFORM_BUDGET_CAPS_DESIGN.md`, registry cap-readiness metadata, policy-check output, and read-only evidence fields for cap planning. It remains preserved. Phase 4.17 implements the first `platform_admin_lab_budget` cap foundation with `liveBudgetCapsStatus: platform_admin_lab_budget_foundation`, daily/monthly cap limits, bounded usage events, and admin-only cap APIs/UI for Admin Text, Embeddings, Music, Compare, Live-Agent, and Admin async video jobs. Phase 4.18 adds read-only reconciliation evidence for those same sources, and Phase 4.19 adds an explicit admin-approved repair executor for missing usage evidence plus review-only repair action audit rows. Other scopes remain future work.
 
 Phase 3.2 adds:
 
@@ -229,6 +229,7 @@ Phase 4.8.1 adds:
 - `workers/auth/migrations/0051_add_admin_ai_usage_attempts.sql`
 - `workers/auth/migrations/0052_add_admin_runtime_budget_switches.sql`
 - `workers/auth/migrations/0053_add_platform_budget_caps.sql`
+- `workers/auth/migrations/0054_add_platform_budget_repair_actions.sql`
 - `workers/auth/src/lib/admin-ai-idempotency.js`
 - durable metadata-only idempotency attempts for admin text and embeddings
 - same-key/same-request duplicate suppression for pending, completed, and failed attempts
@@ -363,4 +364,4 @@ Current Phase 4.12 non-goals:
 
 The check intentionally allows current admin, platform/background, OpenClaw, and internal AI Worker gaps only when they match `config/ai-cost-policy-baseline.json` and its Phase 4.1/4.2 metadata. Member personal image generation, member music generation, and member video generation are gateway-covered and must not regress to missing idempotency, reservation, replay, credit check, or provider suppression.
 
-Next implementation phase: extend caps only one scope at a time, likely `openclaw_news_pulse_budget` or a reconciliation/repair hardening pass for platform budget usage events, or choose one targeted remaining internal caller-policy gap. Production/live billing remains blocked until operator evidence is complete and reviewed.
+Next implementation phase: extend caps only one scope at a time, likely `openclaw_news_pulse_budget`, add admin-approved non-destructive review workflows for remaining repair candidate types, or choose one targeted remaining internal caller-policy gap. Production/live billing remains blocked until operator evidence is complete and reviewed.

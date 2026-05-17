@@ -1680,6 +1680,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.billingReviewResolutionRequests = captures.billingReviewResolutionRequests || [];
   captures.aiBudgetSwitchUpdateRequests = captures.aiBudgetSwitchUpdateRequests || [];
   captures.platformBudgetCapUpdateRequests = captures.platformBudgetCapUpdateRequests || [];
+  captures.platformBudgetRepairRequests = captures.platformBudgetRepairRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -2620,8 +2621,11 @@ async function mockAdminControlPlane(page, captures = {}) {
             sourceJobId: null,
             usageEventIds: [],
             proposedAction: 'create_missing_usage_event',
-            actionSafety: 'dry_run_only',
-            futureRepairExecutorRequired: true,
+            actionSafety: 'admin_approved_idempotent_executor',
+            futureRepairExecutorRequired: false,
+            phase419Executable: true,
+            reviewOnly: false,
+            repairEndpoint: '/api/admin/ai/platform-budget-reconciliation/repair',
             proposedUnits: 1,
             reason: 'Successful admin AI attempt has no matching platform budget usage event.',
           },
@@ -2634,13 +2638,59 @@ async function mockAdminControlPlane(page, captures = {}) {
             sourceAttemptId: 'att_static_2',
             usageEventIds: ['pbu_static_1', 'pbu_static_2'],
             proposedAction: 'mark_duplicate_usage_event_review',
-            actionSafety: 'dry_run_only',
+            actionSafety: 'dry_run_or_review_only',
             futureRepairExecutorRequired: true,
+            phase419Executable: false,
+            reviewOnly: true,
+            repairEndpoint: '/api/admin/ai/platform-budget-reconciliation/repair',
             proposedUnits: 2,
             reason: 'Multiple recorded platform budget usage events point at the same source.',
           },
         ],
       },
+    });
+  });
+  await page.route('**/api/admin/ai/platform-budget-reconciliation/repair', async (route) => {
+    const request = route.request();
+    const body = request.postDataJSON();
+    captures.platformBudgetRepairRequests.push({
+      idempotencyKey: request.headers()['idempotency-key'],
+      body,
+    });
+    await fulfillJson(route, {
+      ok: true,
+      repair: {
+        ok: true,
+        dryRun: body.dryRun !== false,
+        repairApplied: body.dryRun === false && body.requestedAction === 'create_missing_usage_event',
+        reviewRecorded: body.dryRun === false && body.requestedAction !== 'create_missing_usage_event',
+        plan: body.dryRun !== false ? {
+          candidate: {
+            candidateId: body.candidateId,
+            candidateType: body.candidateType,
+            budgetScope: body.budgetScope,
+          },
+          result: {
+            actionStatus: 'dry_run_planned',
+          },
+        } : undefined,
+        action: body.dryRun === false ? {
+          id: 'pbra_static_1',
+          budgetScope: body.budgetScope,
+          candidateId: body.candidateId,
+          candidateType: body.candidateType,
+          requestedAction: body.requestedAction,
+          actionStatus: body.requestedAction === 'create_missing_usage_event' ? 'applied' : 'review_recorded',
+          createdUsageEventId: body.requestedAction === 'create_missing_usage_event' ? 'pbu_repair_static_1' : null,
+          idempotencyKeyPresent: true,
+        } : null,
+      },
+    });
+  });
+  await page.route('**/api/admin/ai/platform-budget-repair-actions?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      repairActions: [],
     });
   });
 
@@ -8959,8 +9009,39 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#platformBudgetReconciliationSummary')).toContainText('needs_operator_review');
     await expect(page.locator('#platformBudgetReconciliationList')).toContainText('missing_admin_usage_event');
     await expect(page.locator('#platformBudgetReconciliationList')).toContainText('duplicate_attempt_usage_event');
-    await expect(page.locator('#platformBudgetReconciliationList')).toContainText('No repair is applied');
-    await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: /apply|repair/i })).toHaveCount(0);
+    await expect(page.locator('#platformBudgetReconciliationList')).toContainText('Repairs are explicit and admin-approved only');
+    await expect(page.locator('#platformBudgetReconciliationList')).toContainText('No provider, Stripe, credit, or customer billing action');
+    await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Dry Run' })).toHaveCount(1);
+    await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Apply Repair' })).toHaveCount(1);
+    await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Record Review' })).toHaveCount(1);
+    await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: /delete|credit|stripe|provider|bulk/i })).toHaveCount(0);
+    let repairDialogs = 0;
+    const repairDialogHandler = (dialog) => {
+      repairDialogs += 1;
+      if (dialog.type() === 'prompt') {
+        expect(dialog.message()).toContain('No provider, Stripe, credit, or source-row mutation');
+        dialog.accept('Repair missing platform budget usage evidence for static test');
+        return;
+      }
+      expect(dialog.type()).toBe('confirm');
+      expect(dialog.message()).toContain('No provider call, Stripe call, credit mutation, or source row update');
+      dialog.accept();
+    };
+    page.on('dialog', repairDialogHandler);
+    await page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Apply Repair' }).click();
+    page.off('dialog', repairDialogHandler);
+    expect(repairDialogs).toBe(2);
+    expect(captures.platformBudgetRepairRequests).toHaveLength(1);
+    expect(captures.platformBudgetRepairRequests[0].idempotencyKey).toMatch(/^platform-budget-repair-/);
+    expect(captures.platformBudgetRepairRequests[0].body).toEqual({
+      budgetScope: 'platform_admin_lab_budget',
+      candidateId: 'pbr_missing_admin_usage_event_att_static_1',
+      candidateType: 'missing_admin_usage_event',
+      requestedAction: 'create_missing_usage_event',
+      dryRun: false,
+      confirm: true,
+      reason: 'Repair missing platform budget usage evidence for static test',
+    });
     let budgetSwitchDialogs = 0;
     const budgetSwitchDialogHandler = (dialog) => {
       budgetSwitchDialogs += 1;

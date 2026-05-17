@@ -97,6 +97,13 @@ async function loadPlatformBudgetReconciliationModule() {
   return import(modulePath);
 }
 
+async function loadPlatformBudgetRepairModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/platform-budget-repair.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1422,6 +1429,34 @@ test.describe('Phase 1-E auth route policy registry', () => {
         failClosed: true,
       }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/platform-budget-reconciliation/repair')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-reconciliation.repair',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json' }),
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-platform-budget-repair-write-ip',
+        failClosed: true,
+      }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/platform-budget-repair-actions')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-repair-actions.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-platform-budget-repair-actions-ip',
+        failClosed: true,
+      }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/platform-budget-repair-actions/action-id')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-repair-actions.detail',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.cleanup-expired',
@@ -15053,10 +15088,11 @@ test.describe('Worker routes', () => {
         }),
       ]));
       expect(body.platformBudgetReconciliation).toEqual(expect.objectContaining({
-        phase: 'Phase 4.18',
+        phase: 'Phase 4.18/4.19',
         available: true,
         readOnly: true,
-        repairExecutorExists: false,
+        repairExecutorExists: true,
+        repairApplied: false,
         runtimeRouteBehaviorChanged: false,
       }));
       const serialized = JSON.stringify(body);
@@ -15672,8 +15708,8 @@ test.describe('Worker routes', () => {
         'invalid_usage_units',
         'cap_total_exceeds_limit',
       ]));
-      expect(directReport.repairCandidates.every((item) => item.actionSafety === 'dry_run_only')).toBe(true);
-      expect(directReport.repairCandidates.every((item) => item.futureRepairExecutorRequired === true)).toBe(true);
+      expect(directReport.repairCandidates.filter((item) => item.proposedAction === 'create_missing_usage_event').every((item) => item.phase419Executable === true)).toBe(true);
+      expect(directReport.repairCandidates.filter((item) => item.proposedAction !== 'create_missing_usage_event').every((item) => item.reviewOnly === true || item.futureRepairExecutorRequired === true)).toBe(true);
       const serialized = JSON.stringify(directReport);
       expect(serialized).not.toContain('raw prompt must not return');
       expect(serialized).not.toContain('provider body must not return');
@@ -15720,6 +15756,337 @@ test.describe('Worker routes', () => {
         createExecutionContext().execCtx
       );
       expect(invalidScope.status).toBe(400);
+    });
+
+    test('platform_admin_lab_budget repair executor is admin-approved, idempotent, and local-D1-only', async () => {
+      const budgetPolicyJson = JSON.stringify({
+        operation_id: 'admin.text.test',
+        budget_scope: 'platform_admin_lab_budget',
+        estimated_cost_units: 2,
+        raw_prompt: 'raw prompt must not return',
+      });
+      const repairSeed = {
+        adminAiUsageAttempts: [
+          {
+            id: 'att_repair_missing',
+            operation_key: 'admin.text.test',
+            route: '/api/admin/ai/test-text',
+            admin_user_id: 'admin-ai-user',
+            idempotency_key_hash: 'hash_repair_missing',
+            request_fingerprint: 'fp_repair_missing',
+            provider_family: 'ai_worker',
+            model_key: '@cf/test',
+            budget_scope: 'platform_admin_lab_budget',
+            budget_policy_json: budgetPolicyJson,
+            caller_policy_json: '{}',
+            status: 'succeeded',
+            provider_status: 'succeeded',
+            result_status: 'metadata_only',
+            result_metadata_json: '{}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T09:00:00.000Z',
+            updated_at: '2026-05-16T09:05:00.000Z',
+            completed_at: '2026-05-16T09:05:00.000Z',
+            expires_at: '2026-05-16T09:10:00.000Z',
+            metadata_json: '{"raw_prompt":"raw prompt must not return"}',
+          },
+          {
+            id: 'att_repair_duplicate',
+            operation_key: 'admin.music.test',
+            route: '/api/admin/ai/test-music',
+            admin_user_id: 'admin-ai-user',
+            idempotency_key_hash: 'hash_repair_duplicate',
+            request_fingerprint: 'fp_repair_duplicate',
+            provider_family: 'ai_worker',
+            model_key: 'music-test',
+            budget_scope: 'platform_admin_lab_budget',
+            budget_policy_json: budgetPolicyJson,
+            caller_policy_json: '{}',
+            status: 'succeeded',
+            provider_status: 'succeeded',
+            result_status: 'metadata_only',
+            result_metadata_json: '{}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T09:10:00.000Z',
+            updated_at: '2026-05-16T09:12:00.000Z',
+            completed_at: '2026-05-16T09:12:00.000Z',
+            expires_at: '2026-05-16T09:20:00.000Z',
+            metadata_json: '{}',
+          },
+          {
+            id: 'att_repair_failed',
+            operation_key: 'admin.compare',
+            route: '/api/admin/ai/compare',
+            admin_user_id: 'admin-ai-user',
+            idempotency_key_hash: 'hash_repair_failed',
+            request_fingerprint: 'fp_repair_failed',
+            provider_family: 'ai_worker',
+            model_key: 'compare',
+            budget_scope: 'platform_admin_lab_budget',
+            budget_policy_json: budgetPolicyJson,
+            caller_policy_json: '{}',
+            status: 'provider_failed',
+            provider_status: 'failed',
+            result_status: 'none',
+            created_at: '2026-05-16T09:20:00.000Z',
+            updated_at: '2026-05-16T09:21:00.000Z',
+            completed_at: '2026-05-16T09:21:00.000Z',
+            expires_at: '2026-05-16T09:30:00.000Z',
+            metadata_json: '{}',
+          },
+        ],
+        platformBudgetUsageEvents: [
+          {
+            id: 'pbu_repair_dup_1',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.music.test',
+            source_route: '/api/admin/ai/test-music',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: 'hash_repair_duplicate',
+            request_fingerprint: 'fp_repair_duplicate',
+            source_attempt_id: 'att_repair_duplicate',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{"provider_body":"provider body must not return"}',
+            created_at: '2026-05-16T09:12:00.000Z',
+          },
+          {
+            id: 'pbu_repair_dup_2',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.music.test',
+            source_route: '/api/admin/ai/test-music',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: 'hash_repair_duplicate',
+            request_fingerprint: 'fp_repair_duplicate',
+            source_attempt_id: 'att_repair_duplicate',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T09:13:00.000Z',
+          },
+        ],
+      };
+      const { executePlatformBudgetRepair } = await loadPlatformBudgetRepairModule();
+      const directEnv = createAuthTestEnv(repairSeed);
+      const directSourceBefore = JSON.stringify(directEnv.DB.state.adminAiUsageAttempts);
+      const missingRequest = {
+        budgetScope: 'platform_admin_lab_budget',
+        candidateId: 'pbr_missing_admin_usage_event_att_repair_missing',
+        candidateType: 'missing_admin_usage_event',
+        requestedAction: 'create_missing_usage_event',
+        reason: 'Repair missing platform budget usage evidence.',
+      };
+      const dryRun = await executePlatformBudgetRepair(directEnv, {
+        requestInput: { ...missingRequest, dryRun: true },
+        idempotencyKey: 'platform-budget-repair-dry-run-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      });
+      expect(dryRun).toEqual(expect.objectContaining({
+        ok: true,
+        dryRun: true,
+        repairApplied: false,
+      }));
+      expect(directEnv.DB.state.platformBudgetUsageEvents).toHaveLength(2);
+      expect(directEnv.DB.state.platformBudgetRepairActions).toHaveLength(0);
+
+      const applied = await executePlatformBudgetRepair(directEnv, {
+        requestInput: { ...missingRequest, dryRun: false, confirm: true },
+        idempotencyKey: 'platform-budget-repair-apply-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      });
+      expect(applied.repairApplied).toBe(true);
+      expect(applied.action).toEqual(expect.objectContaining({
+        actionStatus: 'applied',
+        candidateId: missingRequest.candidateId,
+        requestedAction: 'create_missing_usage_event',
+        sourceAttemptId: 'att_repair_missing',
+        idempotencyKeyPresent: true,
+      }));
+      expect(directEnv.DB.state.platformBudgetUsageEvents).toHaveLength(3);
+      expect(directEnv.DB.state.platformBudgetUsageEvents.find((row) => row.source_attempt_id === 'att_repair_missing')).toEqual(expect.objectContaining({
+        operation_key: 'admin.text.test',
+        units: 2,
+        window_day: '2026-05-16',
+        window_month: '2026-05',
+      }));
+      expect(JSON.stringify(directEnv.DB.state.adminAiUsageAttempts)).toBe(directSourceBefore);
+
+      const replay = await executePlatformBudgetRepair(directEnv, {
+        requestInput: { ...missingRequest, dryRun: false, confirm: true },
+        idempotencyKey: 'platform-budget-repair-apply-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      });
+      expect(replay.action.replayed).toBe(true);
+      expect(directEnv.DB.state.platformBudgetUsageEvents).toHaveLength(3);
+      await expect(executePlatformBudgetRepair(directEnv, {
+        requestInput: { ...missingRequest, dryRun: false, confirm: true, reason: 'Different repair request.' },
+        idempotencyKey: 'platform-budget-repair-apply-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      })).rejects.toMatchObject({ code: 'idempotency_conflict' });
+
+      await expect(executePlatformBudgetRepair(directEnv, {
+        requestInput: { ...missingRequest, candidateId: 'pbr_missing_admin_usage_event_att_repair_failed', dryRun: false, confirm: true },
+        idempotencyKey: 'platform-budget-repair-stale-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      })).rejects.toMatchObject({ code: 'platform_budget_repair_candidate_stale' });
+
+      const reviewRequest = {
+        budgetScope: 'platform_admin_lab_budget',
+        candidateId: 'pbr_duplicate_attempt_usage_event_att_repair_duplicate_2',
+        candidateType: 'duplicate_attempt_usage_event',
+        requestedAction: 'mark_duplicate_usage_event_review',
+        dryRun: false,
+        confirm: true,
+        reason: 'Record review for duplicate usage evidence.',
+      };
+      const review = await executePlatformBudgetRepair(directEnv, {
+        requestInput: reviewRequest,
+        idempotencyKey: 'platform-budget-repair-review-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      });
+      expect(review.reviewRecorded).toBe(true);
+      expect(review.action.actionStatus).toBe('review_recorded');
+      expect(directEnv.DB.state.platformBudgetUsageEvents).toHaveLength(3);
+      const directSerialized = JSON.stringify({ applied, review, rows: directEnv.DB.state.platformBudgetRepairActions });
+      expect(directSerialized).not.toContain('raw prompt must not return');
+      expect(directSerialized).not.toContain('provider body must not return');
+      expect(directSerialized).not.toContain('sk_live_');
+
+      const nonAdmin = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'platform-repair-member', role: 'user' }),
+        authEnv: repairSeed,
+      });
+      const denied = await nonAdmin.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation/repair', 'POST', {
+          ...missingRequest,
+          dryRun: true,
+        }, {
+          ...nonAdmin.authHeaders,
+          'Idempotency-Key': 'platform-budget-repair-denied-1',
+        }),
+        nonAdmin.env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        authEnv: repairSeed,
+      });
+      const missingKey = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation/repair', 'POST', {
+          ...missingRequest,
+          dryRun: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingKey.status).toBeGreaterThanOrEqual(400);
+
+      const missingReason = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation/repair', 'POST', {
+          ...missingRequest,
+          reason: '',
+          dryRun: true,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-repair-missing-reason-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingReason.status).toBe(400);
+
+      const noConfirm = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation/repair', 'POST', {
+          ...missingRequest,
+          dryRun: false,
+          confirm: false,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-repair-no-confirm-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(noConfirm.status).toBe(400);
+
+      const apiApply = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation/repair', 'POST', {
+          ...missingRequest,
+          dryRun: false,
+          confirm: true,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-repair-api-apply-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(apiApply.status).toBe(200);
+      const apiApplyBody = await apiApply.json();
+      expect(apiApplyBody.repair).toEqual(expect.objectContaining({
+        repairApplied: true,
+        dryRun: false,
+      }));
+      expect(env.DB.state.platformBudgetUsageEvents.filter((row) => row.source_attempt_id === 'att_repair_missing')).toHaveLength(1);
+
+      const apiReplay = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation/repair', 'POST', {
+          ...missingRequest,
+          dryRun: false,
+          confirm: true,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-repair-api-apply-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(apiReplay.status).toBe(200);
+      await expect(apiReplay.json()).resolves.toMatchObject({
+        repair: {
+          action: {
+            replayed: true,
+          },
+        },
+      });
+      expect(env.DB.state.platformBudgetUsageEvents.filter((row) => row.source_attempt_id === 'att_repair_missing')).toHaveLength(1);
+
+      const list = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-repair-actions?limit=10', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(list.status).toBe(200);
+      const listBody = await list.json();
+      expect(listBody.repairActions).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: missingRequest.candidateId,
+          actionStatus: 'applied',
+          idempotencyKeyPresent: true,
+        }),
+      ]));
+      const detailId = listBody.repairActions[0].id;
+      const detail = await authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/platform-budget-repair-actions/${encodeURIComponent(detailId)}`, 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(detail.status).toBe(200);
+      const detailText = JSON.stringify(await detail.json());
+      expect(detailText).not.toContain('platform-budget-repair-api-apply-1');
+      expect(detailText).not.toContain('raw prompt must not return');
+      expect(detailText).not.toContain('provider body must not return');
     });
 
     test('platform_admin_lab_budget caps block Admin Text before provider work and record successful usage once', async () => {

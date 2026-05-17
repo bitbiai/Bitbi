@@ -412,8 +412,11 @@ for (const operationId of [
 ]) {
   const entry = AI_COST_OPERATION_REGISTRY.find((item) => item.operationConfig.operationId === operationId);
   assert.equal(entry.budgetPolicy.reconciliationStatus, "supported", `${operationId} reconciliation status`);
-  assert.equal(entry.budgetPolicy.reconciliationEvidence.repairExecutor, false, `${operationId} must remain read-only repair evidence`);
-  assert(entry.budgetPolicy.reconciliationFuturePhase.includes("Phase 4.18"), `${operationId} reconciliation phase`);
+  assert.equal(entry.budgetPolicy.reconciliationEvidence.repairExecutor, true, `${operationId} explicit repair executor`);
+  assert.deepEqual(entry.budgetPolicy.reconciliationEvidence.executableActions, ["create_missing_usage_event"], `${operationId} executable repair actions`);
+  assert.equal(entry.budgetPolicy.reconciliationEvidence.automaticRepair, false, `${operationId} automatic repair disabled`);
+  assert.equal(entry.budgetPolicy.reconciliationEvidence.scheduledRepair, false, `${operationId} scheduled repair disabled`);
+  assert(entry.budgetPolicy.reconciliationFuturePhase.includes("Phase 4.19"), `${operationId} reconciliation phase`);
 }
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();

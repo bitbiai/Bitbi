@@ -11,16 +11,17 @@ German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1
-migration as `0053_add_platform_budget_caps.sql`. This audit
+migration as `0054_add_platform_budget_repair_actions.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
-Phase 4.18 adds no migration and no new user-facing data collection. It reads
-existing `platform_budget_usage_events`, `admin_ai_usage_attempts`, and
-`ai_video_jobs` rows for admin-only, read-only platform budget reconciliation
-evidence and dry-run repair candidates. It does not expose raw prompts,
-provider bodies, generated outputs, secrets, Stripe data, Cloudflare values, or
-apply any repair.
+Phase 4.19 adds `platform_budget_repair_actions` for admin-only repair audit
+rows and no new user-facing data collection. It reads existing
+`platform_budget_usage_events`, `admin_ai_usage_attempts`, and `ai_video_jobs`
+rows for platform budget reconciliation and can create a missing usage event
+only from still-successful local D1 source evidence. It does not expose raw
+prompts, provider bodies, generated outputs, secrets, Stripe data, Cloudflare
+values, mutate source attempts/jobs, mutate credits, or change customer billing.
 
 ## 1. Executive Summary
 

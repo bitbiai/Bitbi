@@ -138,6 +138,20 @@ export const AI_COST_RECONCILIATION_STATUSES = Object.freeze([
 ]);
 const RECONCILIATION_STATUS_VALUES = new Set(AI_COST_RECONCILIATION_STATUSES);
 
+const PLATFORM_BUDGET_REPAIR_EXECUTOR_EVIDENCE = Object.freeze({
+  repairExecutor: true,
+  executableActions: Object.freeze(["create_missing_usage_event"]),
+  reviewOnlyActions: Object.freeze([
+    "mark_duplicate_usage_event_review",
+    "review_orphan_usage_event",
+    "review_failed_source_usage",
+    "fix_window_metadata",
+    "add_missing_cost_metadata",
+  ]),
+  automaticRepair: false,
+  scheduledRepair: false,
+});
+
 function freezeList(value = []) {
   return Object.freeze([...value]);
 }
@@ -202,12 +216,12 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       requiresCentralUsageLedger: false,
     },
     reconciliationStatus: "supported",
-    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationFuturePhase: "Phase 4.19 admin-approved repair executor implemented",
     reconciliationEvidence: {
       budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
       sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
       sourceIdField: "source_attempt_id",
-      repairExecutor: false,
+      ...PLATFORM_BUDGET_REPAIR_EXECUTOR_EVIDENCE,
     },
   }),
   "admin.image.test.charged": budgetPolicy(AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT, {
@@ -263,12 +277,12 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       requiresCentralUsageLedger: false,
     },
     reconciliationStatus: "supported",
-    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationFuturePhase: "Phase 4.19 admin-approved repair executor implemented",
     reconciliationEvidence: {
       budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
       sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
       sourceIdField: "source_attempt_id",
-      repairExecutor: false,
+      ...PLATFORM_BUDGET_REPAIR_EXECUTOR_EVIDENCE,
     },
   }),
   "admin.music.test": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
@@ -289,12 +303,12 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       requiresCentralUsageLedger: false,
     },
     reconciliationStatus: "supported",
-    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationFuturePhase: "Phase 4.19 admin-approved repair executor implemented",
     reconciliationEvidence: {
       budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
       sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
       sourceIdField: "source_attempt_id",
-      repairExecutor: false,
+      ...PLATFORM_BUDGET_REPAIR_EXECUTOR_EVIDENCE,
     },
   }),
   "admin.video.sync_debug": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
@@ -322,12 +336,12 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       requiresCentralUsageLedger: false,
     },
     reconciliationStatus: "supported",
-    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationFuturePhase: "Phase 4.19 admin-approved repair executor implemented",
     reconciliationEvidence: {
       budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
       sourceTables: ["ai_video_jobs", "platform_budget_usage_events"],
       sourceIdField: "source_job_id",
-      repairExecutor: false,
+      ...PLATFORM_BUDGET_REPAIR_EXECUTOR_EVIDENCE,
     },
   }),
   "admin.video.task.create": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
@@ -362,12 +376,12 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       requiresCentralUsageLedger: false,
     },
     reconciliationStatus: "supported",
-    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationFuturePhase: "Phase 4.19 admin-approved repair executor implemented",
     reconciliationEvidence: {
       budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
       sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
       sourceIdField: "source_attempt_id",
-      repairExecutor: false,
+      ...PLATFORM_BUDGET_REPAIR_EXECUTOR_EVIDENCE,
     },
   }),
   "admin.live_agent": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
@@ -396,12 +410,12 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       streamCompletionTracking: "metadata_only",
     },
     reconciliationStatus: "supported",
-    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationFuturePhase: "Phase 4.19 admin-approved repair executor implemented",
     reconciliationEvidence: {
       budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
       sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
       sourceIdField: "source_attempt_id",
-      repairExecutor: false,
+      ...PLATFORM_BUDGET_REPAIR_EXECUTOR_EVIDENCE,
       streamCompletionTracking: "metadata_only",
     },
   }),

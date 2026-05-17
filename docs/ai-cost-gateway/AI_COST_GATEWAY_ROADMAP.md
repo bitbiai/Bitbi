@@ -4,7 +4,7 @@ Date: 2026-05-16
 
 Status: phased implementation plan only. Production/live billing remains BLOCKED.
 
-Current phase note: Phase 4.18 adds read-only `platform_admin_lab_budget` usage reconciliation and repair evidence on top of Phase 4.17. It reports missing/duplicate/orphan/failed-source/window/unit accounting issues and proposed dry-run repair candidates only. No repair executor, runtime route behavior change, migration, provider call, Stripe call, member/org billing change, credit clawback, deploy, remote migration, or live billing enablement is included.
+Current phase note: Phase 4.19 adds an explicit admin-approved `platform_admin_lab_budget` repair executor on top of Phase 4.18 read-only reconciliation and Phase 4.17 caps. It can create missing usage evidence only from still-successful local D1 source rows and records duplicate/orphan/failed-source/window/unit issues as review-only actions. No automatic repair, runtime provider route behavior change, provider call, Stripe call, member/org billing change, credit clawback, deploy, remote migration, or live billing enablement is included.
 
 ## Phase 3.2: Gateway Contract And Tests
 

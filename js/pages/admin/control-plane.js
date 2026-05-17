@@ -11,6 +11,7 @@ import {
     apiAdminAiPlatformBudgetCaps,
     apiAdminAiPlatformBudgetReconciliation,
     apiAdminAiPlatformBudgetUsage,
+    apiAdminAiRepairPlatformBudgetCandidate,
     apiAdminAiUpdatePlatformBudgetCap,
     apiAdminAiUpdateBudgetSwitch,
     apiAdminAiUsageAttempt,
@@ -1427,6 +1428,63 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
     }
 
+    function platformBudgetRepairPayload(candidate, { dryRun, reason }) {
+        return {
+            budgetScope: candidate.budgetScope || 'platform_admin_lab_budget',
+            candidateId: candidate.candidateId,
+            candidateType: candidate.issueType,
+            requestedAction: candidate.proposedAction,
+            dryRun,
+            confirm: dryRun ? false : true,
+            reason,
+        };
+    }
+
+    async function handlePlatformBudgetRepair(candidate, mode, button) {
+        const dryRun = mode === 'dry_run';
+        const reviewOnly = mode === 'review';
+        const label = reviewOnly ? 'record review note' : (dryRun ? 'dry run repair' : 'apply repair');
+        const reason = window.prompt(`Enter an operator reason to ${label}. No provider, Stripe, credit, or source-row mutation is performed.`, '');
+        if (!reason || !reason.trim()) {
+            setState('platformBudgetReconciliationState', 'Repair action cancelled: reason is required.', 'error');
+            return;
+        }
+        if (!dryRun) {
+            const confirmed = window.confirm(
+                reviewOnly
+                    ? 'Record this review note only? No platform budget usage event, provider call, Stripe call, credit mutation, or source row update will occur.'
+                    : 'Apply this repair by creating one missing platform budget usage event from local D1 evidence? No provider call, Stripe call, credit mutation, or source row update will occur.',
+            );
+            if (!confirmed) {
+                setState('platformBudgetReconciliationState', 'Repair action cancelled.', 'neutral');
+                return;
+            }
+        }
+        setSubmitting(button, true);
+        setState('platformBudgetReconciliationState', dryRun ? 'Running repair dry-run...' : 'Submitting admin-approved repair...');
+        try {
+            const res = await apiAdminAiRepairPlatformBudgetCandidate(
+                platformBudgetRepairPayload(candidate, { dryRun, reason: reason.trim() }),
+                { idempotencyKey: createIdempotencyKey('platform-budget-repair') },
+            );
+            if (!res.ok) {
+                setState('platformBudgetReconciliationState', apiUnavailableMessage(res, 'Platform budget repair request failed.'), 'error');
+                notify('Platform budget repair request failed.', 'error');
+                return;
+            }
+            const repair = res.data?.repair || {};
+            if (repair.dryRun) {
+                setState('platformBudgetReconciliationState', 'Dry-run completed. No repair was applied.');
+                notify('Repair dry-run completed.', 'success');
+                return;
+            }
+            notify(repair.repairApplied ? 'Missing usage evidence created.' : 'Repair review recorded.', 'success');
+            await loadPlatformBudgetReconciliation();
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
     async function loadPlatformBudgetReconciliation() {
         const list = byId('platformBudgetReconciliationList');
         const summaryNode = byId('platformBudgetReconciliationSummary');
@@ -1452,13 +1510,13 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 ['Generated', formatDate(reconciliation.generatedAt)],
             ]));
         }
-        setState('platformBudgetReconciliationState', 'Read-only reconciliation evidence. No repair is applied from this panel.');
+        setState('platformBudgetReconciliationState', 'Read-only reconciliation evidence plus explicit admin-approved repair actions. No automatic repair is applied.');
         const candidates = Array.isArray(reconciliation.repairCandidates) ? reconciliation.repairCandidates : [];
         if (candidates.length === 0) {
             list.appendChild(el('p', 'admin-shell__desc', 'No reconciliation repair candidates were returned for the bounded report.'));
             return;
         }
-        const { wrap, tbody } = table(['Issue', 'Severity', 'Operation', 'Source', 'Action', 'Reason']);
+        const { wrap, tbody } = table(['Issue', 'Severity', 'Operation', 'Source', 'Action', 'Reason', 'Repair']);
         for (const item of candidates.slice(0, 25)) {
             const tr = document.createElement('tr');
             addCell(tr, item.issueType || '-');
@@ -1467,10 +1525,28 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             addCell(tr, shortId(item.sourceAttemptId || item.sourceJobId || item.usageEventIds?.[0]));
             addCell(tr, item.proposedAction || '-');
             addCell(tr, item.reason || '-');
+            const actions = el('div', 'admin-control-chip-row');
+            if (item.phase419Executable || item.proposedAction === 'create_missing_usage_event') {
+                const dryRunButton = el('button', 'btn-action btn-action--secondary', 'Dry Run');
+                dryRunButton.type = 'button';
+                dryRunButton.addEventListener('click', () => handlePlatformBudgetRepair(item, 'dry_run', dryRunButton));
+                const applyButton = el('button', 'btn-action', 'Apply Repair');
+                applyButton.type = 'button';
+                applyButton.addEventListener('click', () => handlePlatformBudgetRepair(item, 'apply', applyButton));
+                actions.append(dryRunButton, applyButton);
+            } else if (item.reviewOnly) {
+                const reviewButton = el('button', 'btn-action btn-action--secondary', 'Record Review');
+                reviewButton.type = 'button';
+                reviewButton.addEventListener('click', () => handlePlatformBudgetRepair(item, 'review', reviewButton));
+                actions.appendChild(reviewButton);
+            } else {
+                actions.appendChild(el('span', 'admin-shell__desc', 'Future review'));
+            }
+            addCell(tr, actions);
             tbody.appendChild(tr);
         }
         list.appendChild(wrap);
-        list.appendChild(el('p', 'admin-shell__desc', 'No repair is applied. Repair candidates are dry-run evidence only; a future explicit repair executor is required before any data can be changed.'));
+        list.appendChild(el('p', 'admin-shell__desc', 'Repairs are explicit and admin-approved only. Apply Repair creates missing platform budget usage evidence only; review actions do not mutate usage/source rows. No provider, Stripe, credit, or customer billing action is available here.'));
     }
 
     async function loadAiAttemptDetail(attemptId) {

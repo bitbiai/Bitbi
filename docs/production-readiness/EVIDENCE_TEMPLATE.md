@@ -16,7 +16,7 @@ Allowed final verdict values: **BLOCKED**, **STAGING READY**, **CANARY READY**, 
 
 Do not paste secret values, raw webhook secrets/signatures, API keys, private keys, bearer tokens, session cookies, raw provider payloads, or unredacted customer data.
 
-Phase 4.18 platform budget reconciliation evidence must be recorded as read-only evidence only. Do not run any repair executor; none exists in Phase 4.18. Record only the `platform_admin_lab_budget` verdict, critical/warning/not-checkable counts, repair candidate count, and whether the report was generated from local D1 read-only data.
+Phase 4.18 platform budget reconciliation evidence must be recorded as read-only evidence. Phase 4.19 repair execution is explicit-admin-only: record dry-run results, applied `create_missing_usage_event` actions, review-only actions, and confirm no automatic repair/provider/Stripe/credit/source-row/customer-billing mutation occurred.
 
 ## 1. Repo Baseline
 
@@ -37,9 +37,9 @@ Record the exact branch, commit, and whether the worktree was clean. If dirty, s
 
 ## 3. Migration Status Through Latest Auth Migration
 
-Latest auth D1 migration required by release config: `0053_add_platform_budget_caps.sql`.
+Latest auth D1 migration required by release config: `0054_add_platform_budget_repair_actions.sql`.
 
-| Environment | Database | Evidence Through `0053` | Operator | Date | Result |
+| Environment | Database | Evidence Through `0054` | Operator | Date | Result |
 | --- | --- | --- | --- | --- | --- |
 | staging | `bitbi-auth-db` |  |  |  | BLOCKED |
 | production | `bitbi-auth-db` |  |  |  | BLOCKED |
@@ -220,7 +220,7 @@ Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` for t
 | Auth Worker deployed commit |  | BLOCKED |
 | Static deployed commit |  | BLOCKED |
 | Release plan attached and expected deploy units are auth Worker plus static/pages |  | BLOCKED |
-| Staging auth D1 migration evidence through `0053_add_platform_budget_caps.sql` |  | BLOCKED |
+| Staging auth D1 migration evidence through `0054_add_platform_budget_repair_actions.sql` |  | BLOCKED |
 | Admin authentication and MFA prerequisites verified |  | BLOCKED |
 | Billing Review Queue API smoke: admin-only list/filter with sanitized fields |  | BLOCKED |
 | Billing Review Detail API smoke: safe identifiers, no raw payload/signature/secret/card data |  | BLOCKED |
@@ -247,7 +247,7 @@ Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/productio
 | Release plan output attached |  | BLOCKED |
 | Auth Worker deploy evidence and deployed commit/version |  | BLOCKED |
 | Static/pages deploy evidence and deployed commit/build |  | BLOCKED |
-| Production D1 migration evidence through `0053_add_platform_budget_caps.sql` |  | BLOCKED |
+| Production D1 migration evidence through `0054_add_platform_budget_repair_actions.sql` |  | BLOCKED |
 | Live readiness evidence collector output with explicit URLs |  | BLOCKED |
 | Manual admin login/MFA smoke evidence |  | BLOCKED |
 | Manual billing review queue list/filter evidence |  | BLOCKED |
@@ -362,7 +362,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 ## 23. Blockers
 
 - Production Cloudflare live validation:
-- Remote migration evidence through `0053_add_platform_budget_caps.sql`:
+- Remote migration evidence through `0054_add_platform_budget_repair_actions.sql`:
 - Admin AI usage-attempt cleanup/inspection evidence:
 - Phase 3.4 member personal image gateway main-only evidence:
 - Stripe Testmode checkout/webhook evidence:
@@ -382,7 +382,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, Phase 4.9 Admin Music metadata-only idempotency, Phase 4.10 Admin Compare metadata-only idempotency, Phase 4.12 Admin Live-Agent metadata-only stream-session idempotency, Phase 4.13 sync video debug retirement classification, Phase 4.14 Admin Image branch classification, Phase 4.15 Cloudflare master runtime budget-switch enforcement, Phase 4.15.1 D1 app-switch control, and Phase 4.17 platform cap foundation are not live billing readiness, automated accounting reconciliation, automated remediation, customer billing, or full AI budget enforcement. A human approver must verify migrations through `0053_add_platform_budget_caps.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata/cap behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection/cap behavior, Admin Music duplicate-suppression/conflict/cap behavior, Admin Compare duplicate-suppression/conflict/cap behavior, Admin Live-Agent duplicate-suppression/conflict/finalization/cap behavior, sync video debug disabled-by-default behavior, Admin Image charged/explicit-unmetered/blocked behavior, runtime budget-switch intended state, D1 app-switch effective-state behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, Phase 4.9 Admin Music metadata-only idempotency, Phase 4.10 Admin Compare metadata-only idempotency, Phase 4.12 Admin Live-Agent metadata-only stream-session idempotency, Phase 4.13 sync video debug retirement classification, Phase 4.14 Admin Image branch classification, Phase 4.15 Cloudflare master runtime budget-switch enforcement, Phase 4.15.1 D1 app-switch control, and Phase 4.17 platform cap foundation are not live billing readiness, automated accounting reconciliation, automated remediation, customer billing, or full AI budget enforcement. A human approver must verify migrations through `0054_add_platform_budget_repair_actions.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata/cap behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection/cap behavior, Admin Music duplicate-suppression/conflict/cap behavior, Admin Compare duplicate-suppression/conflict/cap behavior, Admin Live-Agent duplicate-suppression/conflict/finalization/cap behavior, sync video debug disabled-by-default behavior, Admin Image charged/explicit-unmetered/blocked behavior, runtime budget-switch intended state, D1 app-switch effective-state behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

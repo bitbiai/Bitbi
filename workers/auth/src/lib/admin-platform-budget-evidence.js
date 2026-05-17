@@ -986,14 +986,14 @@ function platformBudgetReconciliationEvidence(reconciliation = null) {
   const summary = normalized?.summary || {};
   return {
     type: "platform_budget_usage_reconciliation",
-    phase: "Phase 4.18",
+    phase: "Phase 4.18/4.19",
     endpoint: "/api/admin/ai/platform-budget-reconciliation",
     budgetScope: normalized?.budgetScope || AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
     available: normalized?.ok !== false && normalized != null,
     source: normalized?.source || "local_d1_read_only",
     verdict: normalized?.verdict || (normalized ? "unavailable" : "not_run"),
     readOnly: true,
-    repairExecutorExists: false,
+    repairExecutorExists: true,
     repairApplied: false,
     runtimeRouteBehaviorChanged: false,
     productionReadiness: "blocked",
@@ -1013,9 +1013,52 @@ function platformBudgetReconciliationEvidence(reconciliation = null) {
       capStatusIssues: Number(summary.capStatusIssueCount || 0),
     },
     notes: [
-      "Phase 4.18 is read-only repair evidence only.",
-      "No platform_budget_usage_events, admin_ai_usage_attempts, ai_video_jobs, credits, queues, or billing rows are mutated.",
-      "A future explicit admin-approved repair executor is still required before any repair action can run.",
+      "Phase 4.18 reconciliation remains read-only repair evidence.",
+      "Phase 4.19 adds an explicit admin-approved executor for create_missing_usage_event candidates only.",
+      "Review-only candidates do not mutate usage/source rows; no credits, queues, provider state, Stripe state, or billing rows are mutated.",
+    ],
+  };
+}
+
+function platformBudgetRepairActionsEvidence(actions = null) {
+  const rows = Array.isArray(actions) ? actions : [];
+  const available = Array.isArray(actions);
+  const byStatus = {};
+  let lastRepairTimestamp = null;
+  for (const row of rows) {
+    const status = row?.actionStatus || "unknown";
+    byStatus[status] = (byStatus[status] || 0) + 1;
+    const timestamp = row?.updatedAt || row?.createdAt || null;
+    if (timestamp && (!lastRepairTimestamp || String(timestamp) > String(lastRepairTimestamp))) {
+      lastRepairTimestamp = timestamp;
+    }
+  }
+  return {
+    type: "platform_budget_usage_repair_executor",
+    phase: "Phase 4.19",
+    endpoint: "/api/admin/ai/platform-budget-reconciliation/repair",
+    listEndpoint: "/api/admin/ai/platform-budget-repair-actions",
+    budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    available,
+    automaticRepair: false,
+    scheduledRepair: false,
+    executableActions: ["create_missing_usage_event"],
+    reviewOnlyActions: [
+      "mark_duplicate_usage_event_review",
+      "review_orphan_usage_event",
+      "review_failed_source_usage",
+      "fix_window_metadata",
+      "add_missing_cost_metadata",
+    ],
+    recentActionCount: rows.length,
+    actionsByStatus: byStatus,
+    lastRepairTimestamp,
+    productionReadiness: "blocked",
+    liveBillingReadiness: "blocked",
+    notes: [
+      "Repairs require an explicit admin POST with Idempotency-Key, confirmation, and reason.",
+      "Executable repair creates only missing platform_budget_usage_events from still-successful local D1 source evidence.",
+      "No provider calls, Stripe calls, credit mutations, source attempt/job mutations, or customer billing mutations are performed.",
     ],
   };
 }
@@ -1100,6 +1143,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     options.platformBudgetCapUsageSummary || null
   );
   const platformBudgetReconciliation = platformBudgetReconciliationEvidence(options.platformBudgetReconciliation || null);
+  const platformBudgetRepairs = platformBudgetRepairActionsEvidence(options.platformBudgetRepairActions || null);
   const evidenceItems = [
     ...implementedOperations,
     ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
@@ -1107,6 +1151,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     runtimeSwitches,
     liveBudgetCaps,
     platformBudgetReconciliation,
+    platformBudgetRepairs,
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
       ...gap,
@@ -1156,6 +1201,9 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       platformBudgetReconciliationRepairCandidates: platformBudgetReconciliation.repairCandidateCount,
       platformBudgetReconciliationCriticalIssues: platformBudgetReconciliation.criticalIssueCount,
       platformBudgetReconciliationNotCheckable: platformBudgetReconciliation.notCheckableCount,
+      platformBudgetRepairExecutorAvailable: platformBudgetRepairs.available,
+      platformBudgetRepairRecentActions: platformBudgetRepairs.recentActionCount,
+      platformBudgetRepairLastActionAt: platformBudgetRepairs.lastRepairTimestamp,
       switchEnforcedNotCapEnforcedOperations: liveBudgetCaps.switchEnforcedNotCapEnforcedOperationIds.length,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
@@ -1166,6 +1214,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     runtimeBudgetSwitches: runtimeSwitches,
     livePlatformBudgetCaps: liveBudgetCaps,
     platformBudgetReconciliation,
+    platformBudgetRepairs,
     retiredDebugPaths: limitList(
       retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
       limits.maxImplementedOperations,
@@ -1206,8 +1255,8 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
       "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music/compare/live-agent now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
       "Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost routes. Missing or false switch values block provider-cost work before provider, queue, credit, or durable-attempt execution where applicable.",
-      "Phase 4.16 adds live platform budget cap design/evidence only. It does not enforce daily/monthly caps, change runtime route behavior, or enable production/live billing readiness.",
-      "Runtime budget kill-switches remain the active safety control until a future platform budget usage ledger and cap enforcement phase are implemented.",
+      "Phase 4.16 adds live platform budget cap design/evidence only. Phase 4.17 implements the first platform_admin_lab_budget cap foundation; production/live billing readiness remains blocked.",
+      "Phase 4.19 adds an explicit admin-approved repair executor for selected platform_admin_lab_budget reconciliation candidates. It has no automatic scheduler and does not call providers, Stripe, Cloudflare, or mutate credits/source rows/customer billing.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
       "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
       "Platform/background AI outside News Pulse visuals and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
@@ -1241,6 +1290,7 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     `- ${scope.scope}: status=${scope.status}; countability=${scope.countability}; future=${scope.futurePhase}; sources=${(scope.currentDataSources || []).join(", ") || "none"}`
   );
   const reconciliation = report.platformBudgetReconciliation || {};
+  const repairs = report.platformBudgetRepairs || {};
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
   );
@@ -1283,6 +1333,9 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     `- Repair candidates: ${reconciliation.repairCandidateCount ?? 0}`,
     `- Critical issues: ${reconciliation.criticalIssueCount ?? 0}`,
     `- Read-only: ${reconciliation.readOnly === true ? "yes" : "no"}`,
+    `- Repair executor: ${repairs.available === true ? "available" : "not available"}`,
+    `- Recent repair actions: ${repairs.recentActionCount ?? 0}`,
+    `- Automatic repair: ${repairs.automaticRepair === true ? "yes" : "no"}`,
     "",
     "## Baselined Gaps",
     gapLines.length ? gapLines.join("\n") : "- None",

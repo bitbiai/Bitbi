@@ -120,6 +120,13 @@ import {
   PlatformBudgetReconciliationError,
   buildPlatformBudgetReconciliationReport,
 } from "../lib/platform-budget-reconciliation.js";
+import {
+  PlatformBudgetRepairError,
+  executePlatformBudgetRepair,
+  getPlatformBudgetRepairAction,
+  listPlatformBudgetRepairActions,
+  platformBudgetRepairErrorResponse,
+} from "../lib/platform-budget-repair.js";
 import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
 import { normalizeOrgId } from "../lib/orgs.js";
 import { sha256Hex } from "../lib/tokens.js";
@@ -270,6 +277,15 @@ function platformBudgetReconciliationResponse(error, correlationId = null) {
       code: error.code || "platform_budget_reconciliation_error",
       budget_scope: error.fields?.budgetScope || null,
     }, { status: error.status || 503 }), correlationId);
+  }
+  throw error;
+}
+
+function platformBudgetRepairResponse(error, correlationId = null) {
+  if (error instanceof PlatformBudgetRepairError || error instanceof PlatformBudgetReconciliationError || error instanceof PlatformBudgetCapError) {
+    return withCorrelationId(json(platformBudgetRepairErrorResponse(error), {
+      status: error.status || 503,
+    }), correlationId);
   }
   throw error;
 }
@@ -1559,12 +1575,25 @@ export async function handleAdminAI(ctx) {
         code: error?.code || "platform_budget_reconciliation_unavailable",
       };
     }
+    let platformBudgetRepairActions = null;
+    try {
+      platformBudgetRepairActions = await listPlatformBudgetRepairActions(env, {
+        budgetScope: "platform_admin_lab_budget",
+        limit: 10,
+      });
+    } catch (error) {
+      platformBudgetRepairActions = {
+        available: false,
+        code: error?.code || "platform_budget_repair_actions_unavailable",
+      };
+    }
     return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport({
       env,
       adminAiUsageAttemptSummary,
       runtimeBudgetSwitchState,
       platformBudgetCapUsageSummary,
       platformBudgetReconciliation,
+      platformBudgetRepairActions,
     })), correlationId);
   }
 
@@ -1757,6 +1786,91 @@ export async function handleAdminAI(ctx) {
       return withCorrelationId(json({ ok: true, reconciliation: report }), correlationId);
     } catch (error) {
       return platformBudgetReconciliationResponse(error, correlationId);
+    }
+  }
+
+  // route-policy: admin.ai.platform-budget-reconciliation.repair
+  if (pathname === "/api/admin/ai/platform-budget-reconciliation/repair" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-repair-write-ip", 20, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const idempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const resultBody = await executePlatformBudgetRepair(env, {
+        requestInput: parsed.body || {},
+        idempotencyKey,
+        adminUser: result.user,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-platform-budget-repair",
+        event: resultBody.dryRun ? "admin_ai_platform_budget_repair_dry_run" : "admin_ai_platform_budget_repair_requested",
+        level: resultBody.repairApplied ? "warn" : "info",
+        correlationId,
+        admin_user_id: result.user.id,
+        budget_scope: resultBody.action?.budgetScope || resultBody.plan?.candidate?.budgetScope || parsed.body?.budgetScope || null,
+        candidate_id: resultBody.action?.candidateId || resultBody.plan?.candidate?.candidateId || parsed.body?.candidateId || null,
+        requested_action: resultBody.action?.requestedAction || resultBody.plan?.candidate?.proposedAction || parsed.body?.requestedAction || null,
+        action_status: resultBody.action?.actionStatus || resultBody.plan?.result?.actionStatus || null,
+        repair_applied: resultBody.repairApplied === true,
+        review_recorded: resultBody.reviewRecorded === true,
+        ...getRequestLogFields(requestInfo),
+      });
+      if (!resultBody.dryRun && !resultBody.action?.replayed) {
+        await auditAdminAiMaintenanceEvent(
+          ctx,
+          result.user,
+          "admin_ai_platform_budget_repair_requested",
+          {
+            budget_scope: resultBody.action?.budgetScope || null,
+            candidate_id: resultBody.action?.candidateId || null,
+            candidate_type: resultBody.action?.candidateType || null,
+            requested_action: resultBody.action?.requestedAction || null,
+            action_status: resultBody.action?.actionStatus || null,
+            created_usage_event_id: resultBody.action?.createdUsageEventId || null,
+          }
+        );
+      }
+      return withCorrelationId(json({ ok: true, repair: resultBody }), correlationId);
+    } catch (error) {
+      if (error instanceof PlatformBudgetRepairError || error instanceof PlatformBudgetReconciliationError || error instanceof PlatformBudgetCapError) {
+        return platformBudgetRepairResponse(error, correlationId);
+      }
+      return billingAdminErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === "/api/admin/ai/platform-budget-repair-actions" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-repair-actions-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const actions = await listPlatformBudgetRepairActions(env, {
+        budgetScope: url.searchParams.get("budgetScope") || url.searchParams.get("budget_scope") || "platform_admin_lab_budget",
+        limit: resolvePaginationLimit(url.searchParams.get("limit"), {
+          defaultValue: 25,
+          maxValue: 50,
+        }),
+      });
+      return withCorrelationId(json({ ok: true, repairActions: actions }), correlationId);
+    } catch (error) {
+      return platformBudgetRepairResponse(error, correlationId);
+    }
+  }
+
+  const platformBudgetRepairActionMatch = pathname.match(/^\/api\/admin\/ai\/platform-budget-repair-actions\/([^/]+)$/);
+  if (platformBudgetRepairActionMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-repair-actions-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const actionId = decodePathSegment(platformBudgetRepairActionMatch[1]);
+      if (!actionId || actionId.includes("/")) return notFoundResponse(correlationId);
+      const action = await getPlatformBudgetRepairAction(env, actionId);
+      return withCorrelationId(json({ ok: true, repairAction: action }), correlationId);
+    } catch (error) {
+      return platformBudgetRepairResponse(error, correlationId);
     }
   }
 
