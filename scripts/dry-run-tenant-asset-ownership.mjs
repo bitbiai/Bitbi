@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.15 adds the admin-approved manual-review import executor for review rows/events only; access/backfill work remains blocked.",
+    futurePhase: "Phase 6.16 adds read-only manual-review queue/evidence APIs; access/backfill/status-update work remains blocked.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.15 adds the admin-approved manual-review import executor for review rows/events only; access/backfill work remains blocked.",
+    futurePhase: "Phase 6.16 adds read-only manual-review queue/evidence APIs; access/backfill/status-update work remains blocked.",
   },
   {
     id: "ai_video_jobs",
@@ -1340,6 +1340,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const manualReviewImportDryRunScript = "scripts/dry-run-tenant-asset-manual-review-import.mjs";
   const manualReviewImportFixture = "scripts/fixtures/tenant-assets/folders-images-review-import-evidence.json";
   const manualReviewImportExecutorHelper = "workers/auth/src/lib/tenant-asset-manual-review-import.js";
+  const manualReviewQueueHelper = "workers/auth/src/lib/tenant-asset-manual-review-queue.js";
   const manualReviewStateSchemaDesignFile = "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md";
   const manualReviewStateSchemaMigrationFile = "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql";
   const realMainEvidenceFound = fileExists(repoRoot, evidenceSummaryFile);
@@ -1351,13 +1352,16 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const manualReviewStateSchemaMigrationExists = fileExists(repoRoot, manualReviewStateSchemaMigrationFile);
   const manualReviewImportDryRunReady = fileExists(repoRoot, manualReviewImportDryRunScript);
   const manualReviewImportExecutorAdded = fileExists(repoRoot, manualReviewImportExecutorHelper);
+  const manualReviewQueueReadApiAdded = fileExists(repoRoot, manualReviewQueueHelper);
   const mainEvidenceStatus = realMainEvidenceFound
     ? "needs_manual_review"
     : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
       ? "pending_main_evidence"
       : "not_recorded";
   const mainEvidenceNextPhase = realMainEvidenceFound
-    ? manualReviewImportExecutorAdded
+    ? manualReviewQueueReadApiAdded
+      ? "Phase 6.17 — Manual Review Status Update Workflow Design"
+      : manualReviewImportExecutorAdded
       ? "Phase 6.16 — Manual Review Item Import Operator Evidence"
       : manualReviewImportDryRunReady
       ? "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
@@ -1584,7 +1588,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         "superseded",
       ],
       recommendedNextPhase: manualReviewStateSchemaDesigned
-        ? manualReviewImportExecutorAdded
+        ? manualReviewQueueReadApiAdded
+          ? "Phase 6.17 — Manual Review Status Update Workflow Design"
+          : manualReviewImportExecutorAdded
           ? "Phase 6.16 — Manual Review Item Import Operator Evidence"
           : manualReviewImportDryRunReady
           ? "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
@@ -1654,7 +1660,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         "mark_superseded",
       ],
       recommendedNextPhase: manualReviewStateSchemaMigrationExists
-        ? manualReviewImportExecutorAdded
+        ? manualReviewQueueReadApiAdded
+          ? "Phase 6.17 — Manual Review Status Update Workflow Design"
+          : manualReviewImportExecutorAdded
           ? "Phase 6.16 — Manual Review Item Import Operator Evidence"
           : manualReviewImportDryRunReady
           ? "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
@@ -1680,7 +1688,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       adminUiAdded: false,
       dedupeKeyDesign: "asset_domain + asset_id + related_asset_id + issue_category + evidence_source_path; aggregate-only buckets use issue_category + evidence_source_path + evidence timestamp",
       recommendedNextPhase: manualReviewImportDryRunReady
-        ? manualReviewImportExecutorAdded
+        ? manualReviewQueueReadApiAdded
+          ? "Phase 6.17 — Manual Review Status Update Workflow Design"
+          : manualReviewImportExecutorAdded
           ? "Phase 6.16 — Manual Review Item Import Operator Evidence"
           : "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
         : "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images",
@@ -1708,15 +1718,45 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       adminUiAdded: false,
       migrationAdded: false,
       recommendedNextPhase: manualReviewImportExecutorAdded
-        ? "Phase 6.16 — Manual Review Item Import Operator Evidence"
+        ? manualReviewQueueReadApiAdded
+          ? "Phase 6.17 — Manual Review Status Update Workflow Design"
+          : "Phase 6.16 — Manual Review Item Import Operator Evidence"
         : "Phase 6.15 — Admin-approved Manual Review Item Import Executor",
+    },
+    manualReviewQueueReadApi: {
+      status: manualReviewQueueReadApiAdded ? "manual_review_queue_read_api_added" : "not_recorded",
+      helper: manualReviewQueueReadApiAdded ? manualReviewQueueHelper : null,
+      endpoints: manualReviewQueueReadApiAdded
+        ? [
+          "/api/admin/tenant-assets/folders-images/manual-review/items",
+          "/api/admin/tenant-assets/folders-images/manual-review/items/:id",
+          "/api/admin/tenant-assets/folders-images/manual-review/items/:id/events",
+          "/api/admin/tenant-assets/folders-images/manual-review/evidence",
+          "/api/admin/tenant-assets/folders-images/manual-review/evidence/export",
+        ]
+        : [],
+      exportFormats: manualReviewQueueReadApiAdded ? ["json", "markdown"] : [],
+      readOnly: true,
+      routePolicyRequired: true,
+      statusUpdatesAdded: false,
+      backfillPerformed: false,
+      accessChecksChanged: false,
+      sourceAssetRowsMutated: false,
+      r2LiveListed: false,
+      adminUiAdded: false,
+      productionReadiness: "blocked",
+      recommendedNextPhase: manualReviewQueueReadApiAdded
+        ? "Phase 6.17 — Manual Review Status Update Workflow Design"
+        : "Phase 6.16 — Manual Review Queue Read/Evidence Operationalization for AI Folders & Images",
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
         ? "Read diagnostics compare existing user_id access with new ownership metadata before any access-check switch."
         : "Write paths assign ownership metadata for new rows.",
       manualReviewStateSchemaMigrationExists
-        ? manualReviewImportExecutorAdded
+        ? manualReviewQueueReadApiAdded
+          ? "Manual-review status update workflow is designed before any ownership backfill or access-check switch."
+          : manualReviewImportExecutorAdded
           ? "Confirmed review-item import operator evidence is collected before any review-status workflow, ownership backfill, or access-check switch."
           : manualReviewImportDryRunReady
           ? "Item-level JSON evidence is provided before any review-item import executor is approved."
@@ -1997,10 +2037,23 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Source asset rows mutated: ${report.manualReviewImportExecutor?.sourceAssetRowsMutated ? "yes" : "no"}`,
     `- Recommended next phase: ${report.manualReviewImportExecutor?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
+    "## Manual Review Queue Read API",
+    "",
+    `- Status: ${report.manualReviewQueueReadApi?.status || "not_recorded"}`,
+    `- Helper: ${report.manualReviewQueueReadApi?.helper || "not_recorded"}`,
+    `- Endpoints: ${(report.manualReviewQueueReadApi?.endpoints || []).join(", ") || "none"}`,
+    `- Export formats: ${(report.manualReviewQueueReadApi?.exportFormats || []).join(", ") || "none"}`,
+    `- Read only: ${report.manualReviewQueueReadApi?.readOnly ? "yes" : "no"}`,
+    `- Status updates added: ${report.manualReviewQueueReadApi?.statusUpdatesAdded ? "yes" : "no"}`,
+    `- Source asset rows mutated: ${report.manualReviewQueueReadApi?.sourceAssetRowsMutated ? "yes" : "no"}`,
+    `- Admin UI added: ${report.manualReviewQueueReadApi?.adminUiAdded ? "yes" : "no"}`,
+    `- Recommended next phase: ${report.manualReviewQueueReadApi?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    "",
     "## Safety",
     "",
     "- This dry-run performs no D1 writes.",
     "- Phase 6.15 executor writes only manual-review rows/events when explicitly confirmed by an admin.",
+    "- Phase 6.16 queue/evidence endpoints are read-only and do not update review statuses.",
     "- No R2 writes, moves, deletes, copies, or live listings.",
     "- No Cloudflare, Stripe, GitHub, or provider calls.",
     "- No owner backfill SQL is emitted.",

@@ -56,6 +56,17 @@ Phase 6.15 adds an admin-approved review-item import executor:
 
 The endpoint defaults to dry-run and requires admin auth, production MFA, same-origin protection, rate limiting, `Idempotency-Key`, `confirm: true`, and a bounded `reason` before execution. Confirmed execution may create only review items/events in `ai_asset_manual_review_items` and `ai_asset_manual_review_events`. It does not update `ai_folders`, update `ai_images`, backfill ownership, switch access checks, add Admin UI, or list/mutate R2.
 
+Phase 6.16 adds read-only review queue/evidence visibility:
+
+- `GET /api/admin/tenant-assets/folders-images/manual-review/items`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/items/:id`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/items/:id/events`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/evidence`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/evidence/export`
+- helper: `workers/auth/src/lib/tenant-asset-manual-review-queue.js`
+
+These endpoints are admin-only, production-MFA protected through route policy, bounded, sanitized, and read-only. They expose queue items, item event history, queue rollups, and JSON/Markdown evidence exports without updating review statuses, creating notes, mutating source asset rows, backfilling ownership, switching access checks, adding Admin UI, or listing/mutating R2.
+
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
 Synthetic fixtures, runbook instructions, and pending markers must not be treated as main evidence.
@@ -82,6 +93,6 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 
 9. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
 
-10. If using the Phase 6.15 import executor, first run dry-run mode, then execute only with an admin-approved reason and `Idempotency-Key`; preserve the resulting import evidence before any status workflow, backfill design, or access-check migration.
+10. If using the Phase 6.15 import executor, first run dry-run mode, then execute only with an admin-approved reason and `Idempotency-Key`; inspect the resulting rows through the Phase 6.16 read-only queue/evidence endpoints before any status workflow, backfill design, or access-check migration.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

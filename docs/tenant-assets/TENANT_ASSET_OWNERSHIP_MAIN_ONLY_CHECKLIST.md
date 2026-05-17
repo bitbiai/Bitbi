@@ -103,4 +103,4 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 ## Next Recommended Phase
 
-Phase 6.15 adds the admin-approved review-item import executor. Phase 6.16 should collect operator evidence for dry-run/confirmed import output, with no access-check switch, ownership backfill, source asset row update, or R2 action by default.
+Phase 6.16 adds read-only queue/evidence APIs for imported manual-review rows. Phase 6.17 should design review status updates, with no access-check switch, ownership backfill, source asset row update, review status execution, or R2 action by default.

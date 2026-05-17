@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0057_add_ai_asset_manual_review_state.sql`.
 
-Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable ownership metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those columns only on new personal folder/image writes. Phase 6.6 adds read-only dual-read diagnostics for the same domain. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the operator evidence collection runbook, template, and main-only checklist for that report. Phase 6.9 adds the main-only evidence package directory. Phase 6.10 reviews the real main evidence summary in `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`; high-risk counts remain nonzero, manual review is required, and access-check switching/backfill remain blocked. Phase 6.11 adds manual-review workflow docs and a local planning helper for those high-risk counts. Phase 6.12 designs manual-review state schema. Phase 6.13 adds empty manual-review state tables in migration `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds local-only import dry-run planning that produces aggregate buckets from Markdown evidence and proposed candidates from bounded JSON evidence. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and can create only manual-review items/events. These phases do not rewrite existing D1 ownership rows, backfill old owner metadata, move/list/delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
+Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable ownership metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those columns only on new personal folder/image writes. Phase 6.6 adds read-only dual-read diagnostics for the same domain. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the operator evidence collection runbook, template, and main-only checklist for that report. Phase 6.9 adds the main-only evidence package directory. Phase 6.10 reviews the real main evidence summary in `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`; high-risk counts remain nonzero, manual review is required, and access-check switching/backfill remain blocked. Phase 6.11 adds manual-review workflow docs and a local planning helper for those high-risk counts. Phase 6.12 designs manual-review state schema. Phase 6.13 adds empty manual-review state tables in migration `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds local-only import dry-run planning that produces aggregate buckets from Markdown evidence and proposed candidates from bounded JSON evidence. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and can create only manual-review items/events. Phase 6.16 adds read-only queue/evidence APIs for imported manual-review rows. These phases do not rewrite existing D1 ownership rows, backfill old owner metadata, update review statuses, move/list/delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
 
 ## Current Problem
 
@@ -147,8 +147,8 @@ Phase 6.3 adds the planning document `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEM
 
 - Proposed future metadata for both `ai_folders` and `ai_images`: `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
 - Read/access impact remains planned only; existing `user_id` checks, public gallery reads, lifecycle/export/delete behavior, and storage quota behavior are unchanged.
-- Phase 6.4 now marks the focused report `schema_added_not_backfilled`; Phase 6.5 marks personal folder/image write paths as assigned for new rows only; Phase 6.6 adds simulated read diagnostics; Phase 6.7 surfaces the diagnostics to admins through bounded evidence/report export; Phase 6.8 defines the operator-run evidence collection process; Phase 6.9 records the main-only evidence package; Phase 6.10 records the reviewed main evidence decision as `needs_manual_review`; Phase 6.11 defines manual-review categories, statuses, and priorities; Phase 6.12 designs review-state tables, transitions, audit events, and idempotency rules; Phase 6.13 adds those empty tables/indexes only; Phase 6.14 adds local review import dry-run planning; Phase 6.15 adds an admin-approved review-item import endpoint that writes review items/events only when confirmed. Access checks remain unchanged, org-owned write assignment is still future work, backfill has not started, source asset rows are not mutated, and the owner map is not complete.
-- Recommended next step: Phase 6.16 manual review item import operator evidence, with no broad backfill or runtime access behavior change.
+- Phase 6.4 now marks the focused report `schema_added_not_backfilled`; Phase 6.5 marks personal folder/image write paths as assigned for new rows only; Phase 6.6 adds simulated read diagnostics; Phase 6.7 surfaces the diagnostics to admins through bounded evidence/report export; Phase 6.8 defines the operator-run evidence collection process; Phase 6.9 records the main-only evidence package; Phase 6.10 records the reviewed main evidence decision as `needs_manual_review`; Phase 6.11 defines manual-review categories, statuses, and priorities; Phase 6.12 designs review-state tables, transitions, audit events, and idempotency rules; Phase 6.13 adds those empty tables/indexes only; Phase 6.14 adds local review import dry-run planning; Phase 6.15 adds an admin-approved review-item import endpoint that writes review items/events only when confirmed; Phase 6.16 adds read-only queue/evidence APIs for review items/events. Access checks remain unchanged, org-owned write assignment is still future work, backfill has not started, source asset rows are not mutated, review statuses are not updated, and the owner map is not complete.
+- Recommended next step: Phase 6.17 manual review status update workflow design, with no broad backfill or runtime access behavior change.
 
 ## Phase 6.5 New-Write Assignment
 
@@ -225,6 +225,18 @@ Phase 6.13 adds migration `0057_add_ai_asset_manual_review_state.sql`.
 
 The migration creates empty `ai_asset_manual_review_items` and `ai_asset_manual_review_events` tables plus non-unique lookup/audit indexes. It also adds helper constants for issue categories, review statuses, event types, severities, priorities, and safe metadata serialization. It imports no evidence, creates no review rows, adds no endpoint/UI, updates no `ai_folders` or `ai_images` ownership metadata, performs no ownership backfill, changes no access checks, mutates no R2 objects, and makes no tenant-isolation or production-readiness claim.
 
+## Phase 6.16 Queue Read/Evidence Operationalization
+
+Phase 6.16 adds read-only admin APIs for the manual-review queue:
+
+- `GET /api/admin/tenant-assets/folders-images/manual-review/items`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/items/:id`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/items/:id/events`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/evidence`
+- `GET /api/admin/tenant-assets/folders-images/manual-review/evidence/export`
+
+The endpoints are bounded, sanitized, and production-MFA protected through route policy. They expose queue filters, item detail, event history, rollups, and JSON/Markdown exports only. Phase 6.16 adds no Admin UI, status update workflow, ownership backfill, access switch, source asset row update, R2 operation, provider call, Stripe call, Cloudflare mutation, credit/billing mutation, or tenant-isolation claim.
+
 ## Admin Inspection Requirements
 
 Future admin tools should show:
@@ -259,7 +271,8 @@ Admin inspection should remain sanitized and should not expose raw prompts, prov
 | 6.13 | Additive manual review state schema | Implemented as empty review-state tables and helper constants only; no review-row import, access switch, or backfill. |
 | 6.14 | Manual review item import dry run | Future evidence-to-review-item planning only; no ownership row updates or access switch by default. |
 | 6.15 | Admin-approved manual review item import executor | Adds a bounded admin endpoint that defaults to dry-run and writes only review items/events when confirmed; no source asset row updates, access switch, backfill, UI, or R2 action. |
-| 6.16+ | Backfill/access-switch design gates | Only after review import evidence, review records, owner-map proof, legal/product approval, and explicit operator approval. |
+| 6.16 | Manual review queue read/evidence operationalization | Adds read-only queue/list/detail/events/evidence/export APIs; no status updates, source mutation, backfill, access switch, UI, or R2 action. |
+| 6.17+ | Status/backfill/access-switch design gates | Only after review queue evidence, owner-map proof, legal/product approval, and explicit operator approval. |
 
 ## Dry-Run Command
 

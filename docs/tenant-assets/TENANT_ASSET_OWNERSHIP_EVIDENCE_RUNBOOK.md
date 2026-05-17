@@ -208,4 +208,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.15 adds the admin-approved review-item import executor after the Phase 6.14 dry-run output. Phase 6.16 should collect operator evidence for any dry-run or confirmed import, with no access-check switch, ownership backfill, source asset row update, or R2 action by default.
+Phase 6.16 adds read-only queue/evidence APIs for imported manual-review rows. The next recommended phase is Phase 6.17 - Manual Review Status Update Workflow Design, with no access-check switch, ownership backfill, source asset row update, review status update, or R2 action by default.

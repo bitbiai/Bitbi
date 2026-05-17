@@ -40,10 +40,11 @@ package. Phase 6.10 reviews real main evidence and records manual review
 required while access-switch/backfill remains blocked. Phase 6.11 adds
 manual-review workflow design and a local planner only. Phase 6.12 designs
 manual-review state schema, Phase 6.13 adds empty review-state tables only,
-Phase 6.14 adds local-only review import dry-run planning, and Phase 6.15 adds
-an admin-approved review-item import executor. These phases do
+Phase 6.14 adds local-only review import dry-run planning, Phase 6.15 adds
+an admin-approved review-item import executor, and Phase 6.16 adds read-only
+review queue/evidence APIs. These phases do
 not backfill old owner metadata, rewrite existing D1 source rows, assign organization ownership,
-move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
+update review statuses, move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
 member/org generation, or prove full tenant isolation.
 
@@ -69,9 +70,10 @@ real main evidence and requires manual review while keeping access/backfill
 blocked, Phase 6.11 defines a manual-review workflow without execution,
 Phase 6.12 designs review-state tables/events, Phase 6.13 adds those empty
 tables without importing review rows, Phase 6.14 dry-runs review import
-planning without D1/R2 mutation, and Phase 6.15 adds a review-item/event-only
-import executor. Existing generated assets are not backfilled, source asset rows
-are not updated, and assets are not migrated to organization ownership.
+planning without D1/R2 mutation, Phase 6.15 adds a review-item/event-only
+import executor, and Phase 6.16 adds read-only queue/evidence APIs. Existing
+generated assets are not backfilled, source asset rows and review statuses are
+not updated, and assets are not migrated to organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform

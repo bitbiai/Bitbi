@@ -498,6 +498,36 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "tenant_asset_manual_review_import_requested" },
     notes: "Phase 6.15 admin-approved manual-review import executor. Defaults to dry-run; confirmed execution requires Idempotency-Key, confirm=true, and reason, and writes only ai_asset_manual_review_items/events. It performs no ownership backfill, access-check switch, ai_folders/ai_images update, R2 listing/mutation, provider call, Stripe call, credit mutation, or billing behavior change.",
   }),
+  adminRead("admin.tenant-assets.folders-images.manual-review.items.list", "/api/admin/tenant-assets/folders-images/manual-review/items", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-manual-review-queue-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.16 read-only manual-review queue list for ai_folders/images review items. It is bounded and sanitized, exposes no raw prompts, private R2 keys, idempotency keys, request hashes, provider bodies, Stripe data, or Cloudflare tokens, and performs no status update, backfill, access switch, source asset mutation, R2 action, provider call, credit mutation, or billing behavior change.",
+  }),
+  adminRead("admin.tenant-assets.folders-images.manual-review.items.read", "/api/admin/tenant-assets/folders-images/manual-review/items/:id", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-manual-review-queue-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.16 read-only sanitized manual-review item detail endpoint. It reads only ai_asset_manual_review_items and optionally events; no source asset rows, ownership metadata, access checks, R2 objects, billing, credits, provider calls, or statuses are mutated.",
+  }),
+  adminRead("admin.tenant-assets.folders-images.manual-review.items.events", "/api/admin/tenant-assets/folders-images/manual-review/items/:id/events", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-manual-review-queue-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.16 read-only sanitized manual-review event history endpoint. It hides raw idempotency keys and request hashes and performs no status update, note, backfill, access switch, source asset mutation, R2 action, provider call, credit mutation, or billing behavior change.",
+  }),
+  adminRead("admin.tenant-assets.folders-images.manual-review.evidence.read", "/api/admin/tenant-assets/folders-images/manual-review/evidence", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-manual-review-queue-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.16 read-only manual-review queue evidence report. It summarizes review items/events and keeps accessSwitchReady=false, backfillReady=false, tenantIsolationClaimed=false, and productionReadiness=blocked.",
+  }),
+  adminRead("admin.tenant-assets.folders-images.manual-review.evidence.export", "/api/admin/tenant-assets/folders-images/manual-review/evidence/export", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-manual-review-queue-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.16 bounded sanitized JSON/Markdown export for manual-review queue evidence. It performs no status update, ownership backfill, access switch, source asset mutation, R2 action, provider call, Stripe call, credit mutation, or billing behavior change.",
+  }),
 
   adminRead("admin.mfa.status", "/api/admin/mfa/status", "admin-mfa", {
     mfa: "admin-bootstrap-allowed",

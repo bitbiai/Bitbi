@@ -339,4 +339,6 @@ No aggregate-only buckets were needed because item-level evidence was available.
 
 Phase 6.15 adds the admin-approved import executor at `POST /api/admin/tenant-assets/folders-images/manual-review/import`. It defaults to dry-run and requires admin confirmation, `Idempotency-Key`, and a bounded reason before it can create review items/events only.
 
-Next recommended phase: Phase 6.16 — Manual Review Item Import Operator Evidence.
+Phase 6.16 adds read-only queue/evidence endpoints for inspecting imported review items/events and exporting sanitized queue evidence. It does not update statuses, backfill ownership, switch access checks, mutate source asset rows, or list/mutate R2.
+
+Next recommended phase: Phase 6.17 — Manual Review Status Update Workflow Design.

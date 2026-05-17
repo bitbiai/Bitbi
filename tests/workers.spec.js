@@ -140,6 +140,13 @@ async function loadTenantAssetManualReviewImportModule() {
   return import(modulePath);
 }
 
+async function loadTenantAssetManualReviewQueueModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-manual-review-queue.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1743,6 +1750,302 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     const body = await missingSchema.json();
     expect(body.code).toBe('tenant_asset_manual_review_schema_unavailable');
   });
+
+  test('manual review queue helper sanitizes items and events', async () => {
+    const manualReviewQueue = await loadTenantAssetManualReviewQueueModule();
+    const item = manualReviewQueue.serializeTenantAssetManualReviewItem({
+      id: 'ta_mri_safe',
+      asset_domain: 'ai_images',
+      asset_id: 'image-safe',
+      issue_category: 'metadata_missing',
+      review_status: 'pending_review',
+      severity: 'warning',
+      priority: 'medium',
+      legacy_owner_user_id: 'tenant-user',
+      proposed_owning_user_id: 'tenant-user',
+      evidence_summary_json: JSON.stringify({ prompt: 'raw prompt', publicGalleryRisk: 'none' }),
+      metadata_json: JSON.stringify({ private_r2_key: 'users/private/raw.png', importPhase: '6.15' }),
+      created_by_user_id: 'admin-user',
+      created_at: '2026-05-17T10:00:00.000Z',
+      updated_at: '2026-05-17T10:00:00.000Z',
+    });
+    const event = manualReviewQueue.serializeTenantAssetManualReviewEvent({
+      id: 'ta_mre_safe',
+      review_item_id: 'ta_mri_safe',
+      event_type: 'created',
+      old_status: null,
+      new_status: 'pending_review',
+      actor_user_id: 'admin-user',
+      actor_email: 'admin@example.com',
+      reason: 'operator reason with possible secret',
+      idempotency_key: 'hashed-key',
+      request_hash: 'hashed-request',
+      event_metadata_json: JSON.stringify({ token: 'secret-token', status: 'created' }),
+      created_at: '2026-05-17T10:00:01.000Z',
+    });
+
+    expect(item.legacyOwnerUserIdPresent).toBe(true);
+    expect(item.proposedOwnership.owningUserIdPresent).toBe(true);
+    expect(item.evidenceSummary.prompt).toBe('[redacted]');
+    expect(item.metadataSummary.private_r2_key).toBe('[redacted]');
+    expect(event.actorEmailPresent).toBe(true);
+    expect(event.reasonPresent).toBe(true);
+    expect(event.idempotencyKeyStoredAsHash).toBe(true);
+    expect(event.requestHashStored).toBe(true);
+    expect(event.eventMetadataSummary.token).toBe('[redacted]');
+    expect(JSON.stringify(event)).not.toContain('hashed-key');
+    expect(JSON.stringify(event)).not.toContain('hashed-request');
+    expect(JSON.stringify(event)).not.toContain('admin@example.com');
+  });
+
+  test('admin can list and filter manual review queue items after confirmed import', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const beforeFolders = JSON.stringify(env.DB.state.aiFolders);
+    const beforeImages = JSON.stringify(env.DB.state.aiImages);
+
+    const dryRun = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { dryRun: true, limit: 4 },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-list-dry-run-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRun.status).toBe(200);
+    expect(env.DB.state.aiAssetManualReviewItems).toHaveLength(0);
+
+    const importRes = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          limit: 4,
+          reason: 'create review queue rows for read-only list evidence',
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-list-import-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(importRes.status).toBe(200);
+
+    const listRes = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/items?limit=2&issueCategory=public_unsafe&includeEvents=true',
+        'GET',
+        undefined,
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.ok).toBe(true);
+    expect(listBody.available).toBe(true);
+    expect(listBody.items.length).toBeLessThanOrEqual(2);
+    expect(listBody.items.length).toBeGreaterThan(0);
+    expect(listBody.items.every((item) => item.issueCategory === 'public_unsafe')).toBe(true);
+    expect(listBody.items[0].reviewStatus).toBe('blocked_public_unsafe');
+    expect(listBody.items[0].events.length).toBeGreaterThan(0);
+    expect(JSON.stringify(env.DB.state.aiFolders)).toBe(beforeFolders);
+    expect(JSON.stringify(env.DB.state.aiImages)).toBe(beforeImages);
+    const serialized = JSON.stringify(listBody);
+    expect(serialized).not.toContain('tenant-review-list-import-001');
+    expect(serialized).not.toContain('raw-private-image.png');
+    expect(serialized).not.toContain('raw-public-image.png');
+    expect(serialized).not.toContain('raw prompt should never be reported');
+    expect(serialized).not.toContain('Bearer ');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('sk_live_');
+  });
+
+  test('manual review item detail and events are bounded, sanitized, and read-only', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const importRes = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          limit: 4,
+          reason: 'create review queue rows for detail evidence',
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-detail-import-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(importRes.status).toBe(200);
+    const itemId = env.DB.state.aiAssetManualReviewItems[0].id;
+
+    const detail = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(itemId)}?includeEvents=true`,
+        'GET',
+        undefined,
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(detailBody.item.id).toBe(itemId);
+    expect(detailBody.item.events.length).toBeGreaterThan(0);
+
+    const events = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(itemId)}/events?limit=1`,
+        'GET',
+        undefined,
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(events.status).toBe(200);
+    const eventsBody = await events.json();
+    expect(eventsBody.events).toHaveLength(1);
+    expect(eventsBody.events[0].idempotencyKeyStoredAsHash).toBe(true);
+    expect(eventsBody.events[0].requestHashStored).toBe(true);
+
+    const missing = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/manual-review/items/does-not-exist', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missing.status).toBe(404);
+
+    const serialized = JSON.stringify({ detailBody, eventsBody });
+    expect(serialized).not.toContain('tenant-review-detail-import-001');
+    expect(serialized).not.toContain('raw-private-image.png');
+    expect(serialized).not.toContain('raw-public-image.png');
+    expect(serialized).not.toContain('raw prompt should never be reported');
+  });
+
+  test('manual review evidence report and export summarize queue state without readiness claims', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const importRes = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          limit: 4,
+          reason: 'create review queue rows for evidence report',
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-evidence-import-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(importRes.status).toBe(200);
+
+    const evidence = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/evidence?limit=5',
+        'GET',
+        undefined,
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(evidence.status).toBe(200);
+    const evidenceBody = await evidence.json();
+    expect(evidenceBody.report).toMatchObject({
+      available: true,
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      sourceAssetRowsMutated: false,
+      reviewStatusesChanged: false,
+      r2LiveListed: false,
+      productionReadiness: 'blocked',
+    });
+    expect(evidenceBody.report.summary.totalReviewItems).toBe(env.DB.state.aiAssetManualReviewItems.length);
+    expect(evidenceBody.report.summary.totalEvents).toBe(env.DB.state.aiAssetManualReviewEvents.length);
+    expect(evidenceBody.report.summary.issueCategoryRollup.public_unsafe).toBeGreaterThan(0);
+    expect(evidenceBody.report.summary.severityRollup.critical).toBeGreaterThan(0);
+    expect(evidenceBody.report.summary.accessSwitchReady).toBe(false);
+    expect(evidenceBody.report.summary.backfillReady).toBe(false);
+    expect(evidenceBody.report.summary.tenantIsolationClaimed).toBe(false);
+
+    const exportJson = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/evidence/export?format=json&limit=5',
+        'GET',
+        undefined,
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportJson.status).toBe(200);
+    expect(exportJson.headers.get('content-type')).toContain('application/json');
+    const exportJsonText = await exportJson.text();
+    expect(exportJsonText).toContain('"accessSwitchReady": false');
+    expect(exportJsonText).not.toContain('tenant-review-evidence-import-001');
+
+    const exportMarkdown = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/evidence/export?format=markdown&limit=5',
+        'GET',
+        undefined,
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportMarkdown.status).toBe(200);
+    expect(exportMarkdown.headers.get('content-type')).toContain('text/markdown');
+    const markdown = await exportMarkdown.text();
+    expect(markdown).toContain('Tenant Asset Manual Review Queue Evidence');
+    expect(markdown).toContain('Access checks changed: no');
+    expect(markdown).toContain('Backfill performed: no');
+    expect(markdown).not.toContain('raw-public-image.png');
+  });
+
+  test('manual review queue endpoints deny non-admin and report unavailable schema safely', async () => {
+    const nonAdmin = await createTenantEvidenceHarness({
+      user: createContractUser({ id: 'tenant-review-read-member', role: 'user' }),
+    });
+    const denied = await nonAdmin.authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/manual-review/items', 'GET', undefined, nonAdmin.authHeaders),
+      nonAdmin.env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      missingTables: ['ai_asset_manual_review_items'],
+    });
+    const list = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/manual-review/items', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(list.status).toBe(409);
+
+    const evidence = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/manual-review/evidence', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(evidence.status).toBe(200);
+    const evidenceBody = await evidence.json();
+    expect(evidenceBody.report.available).toBe(false);
+    expect(evidenceBody.report.code).toBe('tenant_asset_manual_review_schema_unavailable');
+    expect(evidenceBody.report.accessChecksChanged).toBe(false);
+    expect(evidenceBody.report.backfillPerformed).toBe(false);
+  });
 });
 
 function seedAdminImageChargeOrg(env, {
@@ -2622,6 +2925,39 @@ test.describe('Phase 1-E auth route policy registry', () => {
       body: expect.objectContaining({ kind: 'json' }),
       rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-manual-review-import-ip', failClosed: true }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/manual-review/items')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.manual-review.items.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-manual-review-queue-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_123')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.manual-review.items.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_123/events')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.manual-review.items.events',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/manual-review/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.manual-review.evidence.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/manual-review/evidence/export')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.manual-review.evidence.export',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.cleanup-expired',

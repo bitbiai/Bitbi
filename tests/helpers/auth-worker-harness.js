@@ -12,6 +12,57 @@ function normalizeSql(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
 }
 
+function normalizeManualReviewItemRow(row) {
+  return {
+    id: row.id,
+    asset_domain: row.asset_domain,
+    asset_id: row.asset_id ?? null,
+    related_asset_id: row.related_asset_id ?? null,
+    source_table: row.source_table ?? null,
+    source_row_id: row.source_row_id ?? null,
+    issue_category: row.issue_category,
+    review_status: row.review_status,
+    severity: row.severity,
+    priority: row.priority,
+    legacy_owner_user_id: row.legacy_owner_user_id ?? null,
+    proposed_asset_owner_type: row.proposed_asset_owner_type ?? null,
+    proposed_owning_user_id: row.proposed_owning_user_id ?? null,
+    proposed_owning_organization_id: row.proposed_owning_organization_id ?? null,
+    proposed_ownership_status: row.proposed_ownership_status ?? null,
+    proposed_ownership_source: row.proposed_ownership_source ?? null,
+    proposed_ownership_confidence: row.proposed_ownership_confidence ?? null,
+    evidence_source_path: row.evidence_source_path ?? null,
+    evidence_report_generated_at: row.evidence_report_generated_at ?? null,
+    evidence_summary_json: row.evidence_summary_json ?? null,
+    safe_notes: row.safe_notes ?? null,
+    assigned_to_user_id: row.assigned_to_user_id ?? null,
+    reviewed_by_user_id: row.reviewed_by_user_id ?? null,
+    reviewed_at: row.reviewed_at ?? null,
+    created_by_user_id: row.created_by_user_id ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    superseded_by_id: row.superseded_by_id ?? null,
+    metadata_json: row.metadata_json ?? null,
+  };
+}
+
+function normalizeManualReviewEventRow(row) {
+  return {
+    id: row.id,
+    review_item_id: row.review_item_id,
+    event_type: row.event_type,
+    old_status: row.old_status ?? null,
+    new_status: row.new_status ?? null,
+    actor_user_id: row.actor_user_id ?? null,
+    actor_email: row.actor_email ?? null,
+    reason: row.reason ?? null,
+    idempotency_key: row.idempotency_key ?? null,
+    request_hash: row.request_hash ?? null,
+    event_metadata_json: row.event_metadata_json ?? null,
+    created_at: row.created_at,
+  };
+}
+
 function countInlinePlaceholders(query, pattern) {
   const match = query.match(pattern);
   if (!match || !match[1]) return 0;
@@ -837,6 +888,8 @@ class MockD1 {
     }));
     this.state.aiFolders = (this.state.aiFolders || []).map((row) => normalizeAiFolderRow(row));
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
+    this.state.aiAssetManualReviewItems = (this.state.aiAssetManualReviewItems || []).map((row) => normalizeManualReviewItemRow(row));
+    this.state.aiAssetManualReviewEvents = (this.state.aiAssetManualReviewEvents || []).map((row) => normalizeManualReviewEventRow(row));
     this.state.aiVideoJobs = (this.state.aiVideoJobs || []).map((row) => normalizeAiVideoJobRow(row));
     this.state.aiTextAssets = (this.state.aiTextAssets || []).map((row) => ({
       visibility: 'private',
@@ -6399,6 +6452,140 @@ class MockD1 {
           created_at: row.created_at,
         }));
       return { results: rows };
+    }
+
+    const manualReviewItemSelectPrefix = 'SELECT id, asset_domain, asset_id, related_asset_id, source_table, source_row_id, issue_category, review_status, severity, priority, legacy_owner_user_id, proposed_asset_owner_type, proposed_owning_user_id, proposed_owning_organization_id, proposed_ownership_status, proposed_ownership_source, proposed_ownership_confidence, evidence_source_path, evidence_report_generated_at, evidence_summary_json, safe_notes, assigned_to_user_id, reviewed_by_user_id, reviewed_at, created_by_user_id, created_at, updated_at, superseded_by_id, metadata_json FROM ai_asset_manual_review_items';
+    const filterManualReviewItems = (rows, filterBindings = []) => {
+      let filtered = rows.slice();
+      let index = 0;
+      if (query.includes('review_status = ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => row.review_status === value);
+      }
+      if (query.includes('issue_category = ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => row.issue_category === value);
+      }
+      if (query.includes('severity = ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => row.severity === value);
+      }
+      if (query.includes('priority = ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => row.priority === value);
+      }
+      if (query.includes('asset_domain = ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => row.asset_domain === value);
+      }
+      if (query.includes('asset_id = ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => row.asset_id === value);
+      }
+      if (query.includes('created_at >= ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => String(row.created_at || '') >= String(value || ''));
+      }
+      if (query.includes('created_at <= ?')) {
+        const value = filterBindings[index++];
+        filtered = filtered.filter((row) => String(row.created_at || '') <= String(value || ''));
+      }
+      return filtered;
+    };
+
+    if (query.startsWith(`${manualReviewItemSelectPrefix} WHERE id = ? LIMIT 1`)) {
+      const [id] = bindings;
+      const row = this.state.aiAssetManualReviewItems.find((entry) => entry.id === id);
+      return row ? normalizeManualReviewItemRow(row) : null;
+    }
+
+    if (query.startsWith(manualReviewItemSelectPrefix)) {
+      const limit = Number(bindings.at(-2)) || 50;
+      const offset = Number(bindings.at(-1)) || 0;
+      const filterBindings = bindings.slice(0, Math.max(0, bindings.length - 2));
+      const rows = filterManualReviewItems(this.state.aiAssetManualReviewItems, filterBindings)
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(offset, offset + limit)
+        .map((row) => normalizeManualReviewItemRow(row));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS total FROM ai_asset_manual_review_items')) {
+      const rows = filterManualReviewItems(this.state.aiAssetManualReviewItems, bindings);
+      return { total: rows.length };
+    }
+
+    if (query === 'SELECT review_status AS key, COUNT(*) AS count FROM ai_asset_manual_review_items GROUP BY review_status ORDER BY count DESC, key ASC') {
+      const counts = new Map();
+      for (const row of this.state.aiAssetManualReviewItems) counts.set(row.review_status, (counts.get(row.review_status) || 0) + 1);
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))) };
+    }
+
+    if (query === 'SELECT issue_category AS key, COUNT(*) AS count FROM ai_asset_manual_review_items GROUP BY issue_category ORDER BY count DESC, key ASC') {
+      const counts = new Map();
+      for (const row of this.state.aiAssetManualReviewItems) counts.set(row.issue_category, (counts.get(row.issue_category) || 0) + 1);
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))) };
+    }
+
+    if (query === 'SELECT severity AS key, COUNT(*) AS count FROM ai_asset_manual_review_items GROUP BY severity ORDER BY count DESC, key ASC') {
+      const counts = new Map();
+      for (const row of this.state.aiAssetManualReviewItems) counts.set(row.severity, (counts.get(row.severity) || 0) + 1);
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))) };
+    }
+
+    if (query === 'SELECT priority AS key, COUNT(*) AS count FROM ai_asset_manual_review_items GROUP BY priority ORDER BY count DESC, key ASC') {
+      const counts = new Map();
+      for (const row of this.state.aiAssetManualReviewItems) counts.set(row.priority, (counts.get(row.priority) || 0) + 1);
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))) };
+    }
+
+    if (query === 'SELECT evidence_source_path AS key, COUNT(*) AS count FROM ai_asset_manual_review_items WHERE evidence_source_path IS NOT NULL GROUP BY evidence_source_path ORDER BY count DESC, key ASC LIMIT 25') {
+      const counts = new Map();
+      for (const row of this.state.aiAssetManualReviewItems) {
+        if (!row.evidence_source_path) continue;
+        counts.set(row.evidence_source_path, (counts.get(row.evidence_source_path) || 0) + 1);
+      }
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))).slice(0, 25) };
+    }
+
+    const manualReviewEventSelectPrefix = 'SELECT id, review_item_id, event_type, old_status, new_status, actor_user_id, actor_email, reason, idempotency_key, request_hash, event_metadata_json, created_at FROM ai_asset_manual_review_events';
+    if (query.startsWith(manualReviewEventSelectPrefix)) {
+      const hasItemFilter = query.includes('WHERE review_item_id = ?');
+      const limit = Number(bindings.at(-1)) || 50;
+      const reviewItemId = hasItemFilter ? bindings[0] : null;
+      const rows = this.state.aiAssetManualReviewEvents
+        .filter((row) => !reviewItemId || row.review_item_id === reviewItemId)
+        .slice()
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, limit)
+        .map((row) => normalizeManualReviewEventRow(row));
+      return { results: rows };
+    }
+
+    if (query === 'SELECT COUNT(*) AS total FROM ai_asset_manual_review_events') {
+      return { total: this.state.aiAssetManualReviewEvents.length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS total FROM ai_asset_manual_review_events WHERE event_type = ?') {
+      const [eventType] = bindings;
+      return { total: this.state.aiAssetManualReviewEvents.filter((row) => row.event_type === eventType).length };
+    }
+
+    if (query === 'SELECT MAX(created_at) AS latest FROM ai_asset_manual_review_events WHERE event_type = ?') {
+      const [eventType] = bindings;
+      const latest = this.state.aiAssetManualReviewEvents
+        .filter((row) => row.event_type === eventType)
+        .map((row) => row.created_at)
+        .filter(Boolean)
+        .sort()
+        .at(-1) || null;
+      return { latest };
     }
 
     if (query === 'SELECT id, review_status, issue_category, evidence_source_path FROM ai_asset_manual_review_items WHERE id = ? LIMIT 1') {
