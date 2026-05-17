@@ -13,7 +13,7 @@ This checkpoint is not production readiness, live billing readiness, legal compl
 1. **Production evidence** - local tests and release checks exist, but live Cloudflare, D1/R2/Queue/DO, health, headers, alerts, restore, and rollback evidence remains missing.
 2. **Live billing operations** - guarded live checkout/subscription scaffolding exists, but refunds, disputes, failed-payment remediation, invoices, portal, tax, accounting workflow, and legal approval remain incomplete.
 3. **AI cost scope** - member image/music/video and selected admin/platform routes are controlled; remaining budget scopes/internal AI Worker routes are future work.
-4. **Tenant ownership** - organization/RBAC, Phase 6.1 design evidence, Phase 6.2 folder/image owner-map dry-run evidence, Phase 6.3 schema/access planning, Phase 6.4 nullable metadata columns, Phase 6.5 new-write personal metadata, Phase 6.6 read diagnostics, Phase 6.7 admin evidence reports, Phase 6.8 runbook/template, Phase 6.9 main evidence package, Phase 6.10 real main evidence/manual-review decision, Phase 6.11 manual-review workflow design, Phase 6.12 review-state schema design, and Phase 6.13 empty review-state tables exist, but existing assets are not migrated to tenant ownership.
+4. **Tenant ownership** - organization/RBAC, Phase 6.1 design evidence, Phase 6.2 folder/image owner-map dry-run evidence, Phase 6.3 schema/access planning, Phase 6.4 nullable metadata columns, Phase 6.5 new-write personal metadata, Phase 6.6 read diagnostics, Phase 6.7 admin evidence reports, Phase 6.8 runbook/template, Phase 6.9 main evidence package, Phase 6.10 real main evidence/manual-review decision, Phase 6.11 manual-review workflow design, Phase 6.12 review-state schema design, Phase 6.13 empty review-state tables, and Phase 6.14 import dry-run planning exist, but existing assets are not migrated to tenant ownership.
 5. **Privacy lifecycle** - export/archive/cleanup foundations exist, but self-service and legal-approved irreversible actions remain open.
 6. **Documentation drift** - DOC-1 adds archive separation and currentness checks; future phases must keep active docs concise.
 
@@ -27,14 +27,14 @@ This checkpoint is not production readiness, live billing readiness, legal compl
 | AI cost | Budget switches, app switches, first caps, repair/report/archive evidence exist for scoped admin-lab paths. | Verify evidence, then choose one next scope. |
 | Admin UX | Phase 5.1 improves discovery without backend changes. | Keep deep links and grouped nav tests passing. |
 | Docs | Historical phase evidence is frozen/indexed. | Do not append full phase logs to active docs. |
-| Tenant assets | Phase 6.1 adds design/inventory/risk docs; Phase 6.2 adds `ai_folders`/`ai_images` owner-map dry-run scripts and synthetic fixtures; Phase 6.3 adds schema/access planning; Phase 6.4 adds inert nullable ownership metadata columns; Phase 6.5 writes new personal metadata; Phase 6.6 adds read diagnostics; Phase 6.7 adds admin evidence report/export; Phase 6.8 adds main-only runbook/template; Phase 6.9 adds main evidence package; Phase 6.10 reviews real main evidence and requires manual review; Phase 6.11 adds manual-review workflow design; Phase 6.12 designs review-state schema; Phase 6.13 adds empty review-state tables. | Plan review-item import only if approved; do not broad-backfill or change runtime access behavior. |
+| Tenant assets | Phase 6.1 adds design/inventory/risk docs; Phase 6.2 adds `ai_folders`/`ai_images` owner-map dry-run scripts and synthetic fixtures; Phase 6.3 adds schema/access planning; Phase 6.4 adds inert nullable ownership metadata columns; Phase 6.5 writes new personal metadata; Phase 6.6 adds read diagnostics; Phase 6.7 adds admin evidence report/export; Phase 6.8 adds main-only runbook/template; Phase 6.9 adds main evidence package; Phase 6.10 reviews real main evidence and requires manual review; Phase 6.11 adds manual-review workflow design; Phase 6.12 designs review-state schema; Phase 6.13 adds empty review-state tables; Phase 6.14 adds import dry-run planning. | Provide item-level JSON evidence or design an approved import executor; do not broad-backfill or change runtime access behavior. |
 
 ## Recommended Next Audit Work
 
 1. Verify DOC-1 documentation inventory and currentness checks after this change.
 2. Collect production-readiness evidence without changing runtime behavior.
 3. Re-run the Alpha Audit scorecard after live evidence exists.
-4. Choose one engineering track only: Phase 6.14 manual review item import dry run, billing remediation, next AI budget scope, internal caller-policy hardening, or privacy self-service.
+4. Choose one engineering track only: Phase 6.15 item-level review import evidence/executor design, billing remediation, next AI budget scope, internal caller-policy hardening, or privacy self-service.
 
 ## Evidence Links
 

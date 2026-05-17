@@ -208,4 +208,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images after the Phase 6.13 empty review-state schema, with no access-check switch or backfill by default.
+Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import after the Phase 6.14 dry-run output, with no access-check switch or backfill by default.

@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.13 adds manual review state schema only; Phase 6.14 should dry-run review-item import before access/backfill work.",
+    futurePhase: "Phase 6.14 adds review import dry-run planning only; Phase 6.15 should provide item-level evidence or explicit import executor design before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.13 adds manual review state schema only; Phase 6.14 should dry-run review-item import before access/backfill work.",
+    futurePhase: "Phase 6.14 adds review import dry-run planning only; Phase 6.15 should provide item-level evidence or explicit import executor design before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -218,7 +218,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.14 after manual review state schema addresses real main owner-map evidence.",
+    futurePhase: "Future phase after folders/images manual-review import planning addresses quota ownership.",
   },
   {
     id: "data_lifecycle",
@@ -243,7 +243,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "audit_archive_asset",
     risk: "high",
     findings: ["lifecycle_user_only", "organization_export_delete_gap"],
-    futurePhase: "Phase 6.14 after manual review state schema addresses real main owner mapping.",
+    futurePhase: "Future phase after folders/images manual-review import planning addresses lifecycle owner mapping.",
   },
   {
     id: "news_pulse_visuals",
@@ -269,7 +269,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "platform_background_asset",
     risk: "medium",
     findings: ["platform_background_asset_classification_needed"],
-    futurePhase: "Phase 6.14 out-of-scope for tenant-owned member assets.",
+    futurePhase: "Out-of-scope for folders/images manual-review import dry-run phases.",
   },
 ]);
 
@@ -425,7 +425,12 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.14",
     title: "Manual review item import dry run",
-    scope: "Future dry-run review-item import planning from evidence; no access switch or broad backfill by default.",
+    scope: "Implemented as local-only proposed review-item/bucket planning from evidence; no review rows, access switch, or backfill.",
+  },
+  {
+    phase: "6.15",
+    title: "Item-level review import evidence export or admin-approved import executor",
+    scope: "Future phase depends on whether item-level JSON evidence is available; no ownership backfill or access switch by default.",
   },
 ]);
 
@@ -1332,6 +1337,8 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const manualReviewWorkflowFile = "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md";
   const manualReviewPlanFile = "docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md";
   const manualReviewPlannerScript = "scripts/plan-tenant-asset-manual-review.mjs";
+  const manualReviewImportDryRunScript = "scripts/dry-run-tenant-asset-manual-review-import.mjs";
+  const manualReviewImportFixture = "scripts/fixtures/tenant-assets/folders-images-review-import-evidence.json";
   const manualReviewStateSchemaDesignFile = "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md";
   const manualReviewStateSchemaMigrationFile = "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql";
   const realMainEvidenceFound = fileExists(repoRoot, evidenceSummaryFile);
@@ -1341,13 +1348,16 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     && fileExists(repoRoot, manualReviewPlannerScript);
   const manualReviewStateSchemaDesigned = fileExists(repoRoot, manualReviewStateSchemaDesignFile);
   const manualReviewStateSchemaMigrationExists = fileExists(repoRoot, manualReviewStateSchemaMigrationFile);
+  const manualReviewImportDryRunReady = fileExists(repoRoot, manualReviewImportDryRunScript);
   const mainEvidenceStatus = realMainEvidenceFound
     ? "needs_manual_review"
     : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
       ? "pending_main_evidence"
       : "not_recorded";
   const mainEvidenceNextPhase = realMainEvidenceFound
-    ? manualReviewStateSchemaMigrationExists
+    ? manualReviewImportDryRunReady
+      ? "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+      : manualReviewStateSchemaMigrationExists
       ? "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
       : manualReviewStateSchemaDesigned
       ? "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
@@ -1570,7 +1580,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         "superseded",
       ],
       recommendedNextPhase: manualReviewStateSchemaDesigned
-        ? manualReviewStateSchemaMigrationExists
+        ? manualReviewImportDryRunReady
+          ? "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+          : manualReviewStateSchemaMigrationExists
           ? "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
           : "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
         : "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images",
@@ -1590,6 +1602,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       reviewRowsImported: false,
       reviewRowsNotImported: true,
       reviewItemImportAdded: false,
+      reviewItemImportDryRunReady: manualReviewImportDryRunReady,
+      reviewItemImportDryRunScript: manualReviewImportDryRunReady ? manualReviewImportDryRunScript : null,
+      reviewItemImportDryRunFixture: fileExists(repoRoot, manualReviewImportFixture) ? manualReviewImportFixture : null,
       endpointAdded: false,
       adminUiAdded: false,
       accessChecksChanged: false,
@@ -1627,15 +1642,41 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         "mark_superseded",
       ],
       recommendedNextPhase: manualReviewStateSchemaMigrationExists
-        ? "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
+        ? manualReviewImportDryRunReady
+          ? "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+          : "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
         : "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images",
+    },
+    manualReviewImportDryRun: {
+      status: manualReviewImportDryRunReady ? "manual_review_import_dry_run_ready" : "not_recorded",
+      script: manualReviewImportDryRunReady ? manualReviewImportDryRunScript : null,
+      packageScript: manualReviewImportDryRunReady ? "tenant-assets:dry-run-review-import" : null,
+      realMainEvidenceInput: realMainEvidenceFound ? evidenceSummaryFile : null,
+      syntheticJsonFixture: fileExists(repoRoot, manualReviewImportFixture) ? manualReviewImportFixture : null,
+      markdownSummaryItemLevelImportReady: false,
+      requiresJsonEvidenceForItemImport: true,
+      proposedReviewItemsCreated: false,
+      reviewRowsCreated: false,
+      reviewRowsImported: false,
+      executableSqlEmitted: false,
+      backfillPerformed: false,
+      accessChecksChanged: false,
+      r2LiveListed: false,
+      endpointAdded: false,
+      adminUiAdded: false,
+      dedupeKeyDesign: "asset_domain + asset_id + related_asset_id + issue_category + evidence_source_path; aggregate-only buckets use issue_category + evidence_source_path + evidence timestamp",
+      recommendedNextPhase: manualReviewImportDryRunReady
+        ? "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+        : "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images",
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
         ? "Read diagnostics compare existing user_id access with new ownership metadata before any access-check switch."
         : "Write paths assign ownership metadata for new rows.",
       manualReviewStateSchemaMigrationExists
-        ? "Manual-review item import remains future and must start as dry-run evidence planning without ownership mutation."
+        ? manualReviewImportDryRunReady
+          ? "Item-level JSON evidence is provided before any review-item import executor is approved."
+          : "Manual-review item import remains future and must start as dry-run evidence planning without ownership mutation."
         : manualReviewStateSchemaDesigned
         ? "Additive manual-review state tables are added in a future approved migration without importing review rows."
         : "Manual review state schema is designed for real-row owner-map metadata-missing, public unsafe, derivative-risk, dual-read-unsafe, and manual-review findings.",
@@ -1883,9 +1924,23 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Expected future migration: ${report.manualReviewStateSchema?.expectedFutureMigration || "not_recorded"}`,
     `- Migration added: ${report.manualReviewStateSchema?.migrationAdded ? "yes" : "no"}`,
     `- Review rows created: ${report.manualReviewStateSchema?.reviewRowsCreated ? "yes" : "no"}`,
+    `- Import dry run ready: ${report.manualReviewStateSchema?.reviewItemImportDryRunReady ? "yes" : "no"}`,
+    `- Import dry run script: ${report.manualReviewStateSchema?.reviewItemImportDryRunScript || "not_recorded"}`,
     `- Proposed tables: ${(report.manualReviewStateSchema?.proposedTables || []).join(", ") || "none"}`,
     `- Proposed indexes: ${(report.manualReviewStateSchema?.proposedIndexes || []).join(", ") || "none"}`,
     `- Recommended next phase: ${report.manualReviewStateSchema?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    "",
+    "## Manual Review Import Dry Run",
+    "",
+    `- Status: ${report.manualReviewImportDryRun?.status || "not_recorded"}`,
+    `- Script: ${report.manualReviewImportDryRun?.script || "not_recorded"}`,
+    `- Package script: ${report.manualReviewImportDryRun?.packageScript || "not_recorded"}`,
+    `- Markdown summary item-level import ready: ${report.manualReviewImportDryRun?.markdownSummaryItemLevelImportReady ? "yes" : "no"}`,
+    `- Requires JSON evidence for item import: ${report.manualReviewImportDryRun?.requiresJsonEvidenceForItemImport ? "yes" : "no"}`,
+    `- Review rows imported: ${report.manualReviewImportDryRun?.reviewRowsImported ? "yes" : "no"}`,
+    `- Executable SQL emitted: ${report.manualReviewImportDryRun?.executableSqlEmitted ? "yes" : "no"}`,
+    `- Dedupe key design: ${report.manualReviewImportDryRun?.dedupeKeyDesign || "not_recorded"}`,
+    `- Recommended next phase: ${report.manualReviewImportDryRun?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Safety",
     "",

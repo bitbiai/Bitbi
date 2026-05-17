@@ -138,4 +138,4 @@ Record operator confirmation:
 
 ## 11. Next Recommended Phase
 
-Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images if Phase 6.13 empty review-state schema is present and nonzero high-risk counts remain. The next phase should still avoid access-check switching and ownership backfill unless separately approved.
+Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import if Phase 6.14 aggregate dry-run output is insufficient for per-row candidates. The next phase should still avoid access-check switching and ownership backfill unless separately approved.

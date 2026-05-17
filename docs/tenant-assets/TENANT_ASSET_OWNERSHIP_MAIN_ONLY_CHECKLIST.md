@@ -103,4 +103,4 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 ## Next Recommended Phase
 
-Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images after Phase 6.13 empty review-state schema, with no access-check switch or backfill by default.
+Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import after Phase 6.14 dry-run output, with no access-check switch or backfill by default.

@@ -42,6 +42,13 @@ Phase 6.13 adds the empty review-state tables:
 
 The schema creates `ai_asset_manual_review_items` and `ai_asset_manual_review_events` plus lookup/audit indexes only. No review rows were created or imported, no evidence was imported into D1, no endpoint/UI was added, and no access-switch/backfill execution occurred.
 
+Phase 6.14 adds local-only import dry-run planning:
+
+- `scripts/dry-run-tenant-asset-manual-review-import.mjs`
+- `npm run tenant-assets:dry-run-review-import`
+
+The current Markdown evidence summary supports aggregate buckets only. Item-level review import planning requires a bounded JSON evidence export with safe detail arrays. The dry run creates no review rows, connects to no D1 database, emits no executable SQL, performs no backfill, switches no access checks, and performs no R2 operation.
+
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
 Synthetic fixtures, runbook instructions, and pending markers must not be treated as main evidence.
@@ -60,6 +67,12 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 5. Commit only sanitized summaries or approved redacted exports.
 6. Update `MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` with the reviewed source files and explicit counts.
 7. Update the manual-review plan if high-risk counts change.
-8. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
+8. Run the import dry run if item-level JSON evidence is available:
+
+   ```bash
+   npm run tenant-assets:dry-run-review-import -- --input docs/tenant-assets/evidence/<redacted-export>.json --format markdown
+   ```
+
+9. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

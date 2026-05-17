@@ -24,6 +24,10 @@ import {
   renderTenantAssetManualReviewPlanMarkdown,
 } from "./plan-tenant-asset-manual-review.mjs";
 import {
+  buildTenantAssetManualReviewImportDryRun,
+  renderTenantAssetManualReviewImportDryRunMarkdown,
+} from "./dry-run-tenant-asset-manual-review-import.mjs";
+import {
   TENANT_ASSET_MANUAL_REVIEW_EVENT_TYPES,
   TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES,
   TENANT_ASSET_MANUAL_REVIEW_PRIORITIES,
@@ -313,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
+  "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -331,6 +335,11 @@ assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsCreated, fals
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsImported, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsNotImported, true);
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportDryRunReady, true);
+assert.equal(
+  foldersImagesReport.manualReviewStateSchema.reviewItemImportDryRunScript,
+  "scripts/dry-run-tenant-asset-manual-review-import.mjs"
+);
 assert.equal(foldersImagesReport.manualReviewStateSchema.endpointAdded, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.adminUiAdded, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.accessChecksChanged, false);
@@ -345,9 +354,25 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
+  "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images");
+assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
+assert.equal(
+  foldersImagesReport.manualReviewImportDryRun.script,
+  "scripts/dry-run-tenant-asset-manual-review-import.mjs"
+);
+assert.equal(foldersImagesReport.manualReviewImportDryRun.packageScript, "tenant-assets:dry-run-review-import");
+assert.equal(foldersImagesReport.manualReviewImportDryRun.markdownSummaryItemLevelImportReady, false);
+assert.equal(foldersImagesReport.manualReviewImportDryRun.requiresJsonEvidenceForItemImport, true);
+assert.equal(foldersImagesReport.manualReviewImportDryRun.reviewRowsImported, false);
+assert.equal(foldersImagesReport.manualReviewImportDryRun.executableSqlEmitted, false);
+assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
+assert.equal(
+  foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
+  "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -588,6 +613,94 @@ assert(!/\bwrangler\s+d1\s+migrations\s+apply\b/i.test(manualReviewMarkdown));
 assert(!manualReviewMarkdown.includes("users/synthetic-user/folders"));
 assert(!manualReviewMarkdown.includes("Cookie:"));
 assert(!manualReviewMarkdown.includes("Bearer "));
+
+const aggregateImportDryRun = buildTenantAssetManualReviewImportDryRun(mainEvidenceMarkdown, {
+  sourcePath: "docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md",
+});
+assert.equal(aggregateImportDryRun.reportVersion, "tenant-asset-manual-review-import-dry-run-v1");
+assert.equal(aggregateImportDryRun.phase, "6.14");
+assert.equal(aggregateImportDryRun.inputType, "markdown_summary");
+assert.equal(aggregateImportDryRun.itemLevelImportReady, false);
+assert.equal(aggregateImportDryRun.requiresJsonEvidenceForItemImport, true);
+assert.equal(aggregateImportDryRun.proposedReviewItemCount, 0);
+assert.equal(aggregateImportDryRun.aggregateBucketCount, 10);
+assert.equal(aggregateImportDryRun.categoryRollup.metadata_missing, 75);
+assert.equal(aggregateImportDryRun.categoryRollup.public_unsafe, 21);
+assert.equal(aggregateImportDryRun.categoryRollup.derivative_risk, 63);
+assert.equal(aggregateImportDryRun.categoryRollup.dual_read_unsafe, 42);
+assert.equal(aggregateImportDryRun.categoryRollup.manual_review_needed, 90);
+assert.equal(aggregateImportDryRun.noMutation, true);
+assert.equal(aggregateImportDryRun.noSqlEmitted, true);
+assert.equal(aggregateImportDryRun.noBackfill, true);
+assert.equal(aggregateImportDryRun.noAccessSwitch, true);
+assert.equal(aggregateImportDryRun.noD1Connection, true);
+assert.equal(aggregateImportDryRun.noR2Operation, true);
+assert.equal(
+  aggregateImportDryRun.nextRecommendedPhase,
+  "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+);
+const aggregateImportMarkdown = renderTenantAssetManualReviewImportDryRunMarkdown(aggregateImportDryRun);
+assert(aggregateImportMarkdown.includes("# AI Folders/Images Manual Review Import Dry Run"));
+assert(aggregateImportMarkdown.includes("Item-level import ready: no"));
+assert(aggregateImportMarkdown.includes("metadata_missing"));
+assert(!/\bINSERT\s+INTO\b/i.test(aggregateImportMarkdown));
+assert(!/\bUPDATE\s+ai_(folders|images)\b/i.test(aggregateImportMarkdown));
+assert(!/\bDELETE\s+FROM\b/i.test(aggregateImportMarkdown));
+assert(!/\bwrangler\s+d1\s+migrations\s+apply\b/i.test(aggregateImportMarkdown));
+
+const itemLevelEvidencePath = path.join(
+  repoRoot,
+  "scripts/fixtures/tenant-assets/folders-images-review-import-evidence.json"
+);
+const itemLevelEvidence = fs.readFileSync(itemLevelEvidencePath, "utf8");
+const itemLevelImportDryRun = buildTenantAssetManualReviewImportDryRun(itemLevelEvidence, {
+  sourcePath: "scripts/fixtures/tenant-assets/folders-images-review-import-evidence.json",
+});
+assert.equal(itemLevelImportDryRun.inputType, "json_export");
+assert.equal(itemLevelImportDryRun.itemLevelImportReady, true);
+assert.equal(itemLevelImportDryRun.requiresJsonEvidenceForItemImport, false);
+assert.equal(itemLevelImportDryRun.aggregateBucketCount, 0);
+assert(itemLevelImportDryRun.proposedReviewItemCount >= 6);
+function proposedByCategory(category) {
+  const found = itemLevelImportDryRun.proposedItems.find((item) => item.issue_category === category);
+  assert(found, `missing proposed review item for ${category}`);
+  return found;
+}
+assert.equal(proposedByCategory("metadata_missing").review_status, "pending_review");
+assert.equal(proposedByCategory("metadata_missing").severity, "warning");
+assert.equal(proposedByCategory("metadata_missing").priority, "medium");
+assert.equal(proposedByCategory("public_unsafe").review_status, "blocked_public_unsafe");
+assert.equal(proposedByCategory("public_unsafe").severity, "critical");
+assert.equal(proposedByCategory("public_unsafe").priority, "high");
+assert.equal(proposedByCategory("derivative_risk").review_status, "blocked_derivative_risk");
+assert.equal(proposedByCategory("derivative_risk").severity, "warning");
+assert.equal(proposedByCategory("dual_read_unsafe").review_status, "pending_review");
+assert.equal(proposedByCategory("dual_read_unsafe").priority, "high");
+assert.equal(proposedByCategory("relationship_review").review_status, "pending_review");
+assert.equal(proposedByCategory("safe_observe_only").review_status, "deferred");
+assert(itemLevelImportDryRun.proposedItems.every((item) => item.dedupeKey.includes("scripts/fixtures/tenant-assets/folders-images-review-import-evidence.json")));
+assert.deepEqual(
+  buildTenantAssetManualReviewImportDryRun(itemLevelEvidence, {
+    sourcePath: "scripts/fixtures/tenant-assets/folders-images-review-import-evidence.json",
+  }),
+  itemLevelImportDryRun
+);
+const itemLevelImportSerialized = JSON.stringify(itemLevelImportDryRun);
+assert(!itemLevelImportSerialized.includes("users/synthetic-user/folders"));
+assert(!itemLevelImportSerialized.includes("Cookie:"));
+assert(!itemLevelImportSerialized.includes("Bearer "));
+assert(!/\bINSERT\s+INTO\b/i.test(itemLevelImportSerialized));
+assert(!/\bUPDATE\s+ai_(folders|images)\b/i.test(itemLevelImportSerialized));
+assert(!/\bDELETE\s+FROM\b/i.test(itemLevelImportSerialized));
+assert.throws(
+  () => buildTenantAssetManualReviewImportDryRun(JSON.stringify({
+    ...JSON.parse(itemLevelEvidence),
+    prompt: "unsafe raw prompt",
+  }), {
+    sourcePath: "scripts/fixtures/tenant-assets/unsafe.json",
+  }),
+  /unsafe/i
+);
 assert.throws(
   () => parseTenantAssetManualReviewEvidence("not an evidence summary"),
   /missing required evidence count fields/i
@@ -604,6 +717,15 @@ assert(!manualReviewPlannerSource.includes("fetch("));
 assert(!manualReviewPlannerSource.includes("wrangler d1"));
 assert(!manualReviewPlannerSource.includes("DELETE FROM"));
 assert(!manualReviewPlannerSource.includes("UPDATE ai_"));
+const manualReviewImportSource = fs.readFileSync(
+  path.join(repoRoot, "scripts/dry-run-tenant-asset-manual-review-import.mjs"),
+  "utf8"
+);
+assert(!manualReviewImportSource.includes("fetch("));
+assert(!manualReviewImportSource.includes("wrangler d1"));
+assert(!/\bINSERT\s+INTO\b/i.test(manualReviewImportSource));
+assert(!manualReviewImportSource.includes("DELETE FROM"));
+assert(!manualReviewImportSource.includes("UPDATE ai_"));
 
 const manualReviewStateSchemaDesignPath = path.join(
   repoRoot,
@@ -764,6 +886,8 @@ assert(focusedMarkdown.includes("manual_review_workflow_designed"));
 assert(focusedMarkdown.includes("Manual Review State Schema"));
 assert(focusedMarkdown.includes("manual_review_state_schema_added"));
 assert(focusedMarkdown.includes("ai_asset_manual_review_items"));
-assert(focusedMarkdown.includes("Phase 6.14"));
+assert(focusedMarkdown.includes("Manual Review Import Dry Run"));
+assert(focusedMarkdown.includes("manual_review_import_dry_run_ready"));
+assert(focusedMarkdown.includes("Phase 6.15"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

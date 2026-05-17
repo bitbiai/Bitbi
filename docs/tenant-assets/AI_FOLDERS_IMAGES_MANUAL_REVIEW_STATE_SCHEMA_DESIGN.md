@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. These phases do not create review rows, import evidence into D1, update ownership metadata, backfill rows, switch access checks, add endpoints, add Admin UI, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
+Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. Phase 6.14 adds local-only review-item import dry-run planning. These phases do not create review rows, import evidence into D1, update ownership metadata, backfill rows, switch access checks, add endpoints, add Admin UI, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
 
 ## Purpose
 
@@ -335,12 +335,14 @@ The UI must not include:
 
 Recommended next phase:
 
-`Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images`
+`Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import`
 
-Phase 6.14 should:
+Phase 6.14 adds the local-only dry-run importer `scripts/dry-run-tenant-asset-manual-review-import.mjs`. It maps committed Markdown evidence to aggregate buckets and maps bounded JSON evidence fixtures/exports to proposed review-item candidates. It creates no rows, emits no executable SQL, and performs no D1/R2 operations.
 
-- plan or dry-run review item import from approved evidence;
-- create no review rows unless explicitly approved in that phase;
+Phase 6.15 should:
+
+- provide item-level JSON evidence or design an admin-approved import executor;
+- create no review rows unless an explicit future execution phase approves it;
 - not backfill ownership;
 - not switch access checks;
 - not add Admin UI;

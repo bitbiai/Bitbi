@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. These phases do not create/import review rows, add an endpoint, add Admin UI, add a repair executor, perform ownership backfill, switch access checks, update folder/image ownership rows, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
+Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner in `scripts/dry-run-tenant-asset-manual-review-import.mjs`. These phases do not create/import review rows, add an endpoint, add Admin UI, add a repair executor, perform ownership backfill, switch access checks, update folder/image ownership rows, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
 
 ## Source Evidence
 
@@ -168,10 +168,16 @@ Phase 6.13 adds the additive migration `0057_add_ai_asset_manual_review_state.sq
 
 The tables are empty after migration. No evidence is imported, no review rows are created, no endpoint/UI is added, no ownership metadata is backfilled, no access checks change, and no R2 objects are listed or mutated.
 
+## Phase 6.14 Import Dry Run
+
+Phase 6.14 adds `npm run tenant-assets:dry-run-review-import` for local-only planning. The committed Markdown evidence summary supports aggregate buckets only and does not allow per-row review-item creation. Item-level review import planning requires a bounded JSON evidence export with safe detail arrays.
+
+The dry run maps evidence categories to target review-item fields and deterministic dedupe keys, but it does not connect to D1, create review rows, emit executable SQL, backfill ownership, switch access checks, or mutate R2.
+
 ## Future Implementation Phases
 
 Recommended next phase:
 
-`Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images`
+`Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import`
 
-That future phase may plan review-item import from approved evidence as a dry run. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.
+That future phase should provide or archive item-level JSON evidence before any admin-approved review item import executor is considered. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.

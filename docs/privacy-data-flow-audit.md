@@ -39,9 +39,9 @@ runbook/template/checklist docs only. Phase 6.9 adds a main-only evidence
 package. Phase 6.10 reviews real main evidence and records manual review
 required while access-switch/backfill remains blocked. Phase 6.11 adds
 manual-review workflow design and a local planner only. Phase 6.12 designs
-manual-review state schema, and Phase 6.13 adds empty review-state tables only.
-These phases do not import review rows, rewrite existing D1 ownership rows,
-backfill old owner metadata, assign organization ownership,
+manual-review state schema, Phase 6.13 adds empty review-state tables only,
+and Phase 6.14 adds local-only review import dry-run planning. These phases do
+not import review rows, rewrite existing D1 ownership rows, backfill old owner metadata, assign organization ownership,
 move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
 member/org generation, or prove full tenant isolation.
@@ -65,9 +65,10 @@ metadata, Phase 6.6 adds simulated read diagnostics, Phase 6.7 exposes bounded
 admin evidence reports/exports, Phase 6.8 defines evidence collection
 records, Phase 6.9 adds the main-only evidence package, Phase 6.10 reviews
 real main evidence and requires manual review while keeping access/backfill
-blocked, Phase 6.11 defines a manual-review workflow without execution, and
-Phase 6.12 designs review-state tables/events, and Phase 6.13 adds those empty
-tables without importing review rows. Existing generated assets are not
+blocked, Phase 6.11 defines a manual-review workflow without execution,
+Phase 6.12 designs review-state tables/events, Phase 6.13 adds those empty
+tables without importing review rows, and Phase 6.14 dry-runs review import
+planning without D1/R2 mutation. Existing generated assets are not
 backfilled and are not migrated to organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local

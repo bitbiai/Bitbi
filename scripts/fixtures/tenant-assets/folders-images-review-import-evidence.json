@@ -1,0 +1,237 @@
+{
+  "ok": true,
+  "available": true,
+  "reportVersion": "tenant-asset-ownership-evidence-report-v1",
+  "generatedAt": "2026-05-17T01:00:00.000Z",
+  "source": "local_d1_read_only",
+  "domain": "folders_images",
+  "runtimeBehaviorChanged": false,
+  "accessChecksChanged": false,
+  "tenantIsolationClaimed": false,
+  "backfillPerformed": false,
+  "r2LiveListed": false,
+  "productionReadiness": "blocked",
+  "filters": {
+    "limit": 20,
+    "includeDetails": true,
+    "includePublic": true,
+    "includeRelationships": true,
+    "includeDerivatives": true
+  },
+  "summary": {
+    "totalFoldersScanned": 3,
+    "totalImagesScanned": 5,
+    "foldersWithOwnershipMetadata": 1,
+    "imagesWithOwnershipMetadata": 1,
+    "foldersWithNullOwnershipMetadata": 2,
+    "imagesWithNullOwnershipMetadata": 4,
+    "metadataMissingTotal": 6,
+    "legacyUserOwnerMatchingNewOwningUser": 1,
+    "mismatchedUserIdVsOwningUserId": 0,
+    "organizationOwnedRowsFound": 0,
+    "ambiguousRows": 4,
+    "orphanFolderReferences": 0,
+    "publicImagesWithMissingOrAmbiguousOwnership": 1,
+    "derivativeOwnershipRisks": 1,
+    "simulatedDualReadSafeCount": 1,
+    "simulatedDualReadUnsafeCount": 2,
+    "needsManualReviewCount": 3,
+    "metadataConflictCount": 0,
+    "relationshipConflictCount": 1
+  },
+  "classificationRollup": {
+    "same_allow": 1,
+    "metadata_missing": 2,
+    "unsafe_to_switch": 1,
+    "relationship_conflict": 1,
+    "needs_manual_review": 1
+  },
+  "dualReadSafetyRollup": {
+    "safe": 1,
+    "unsafe": 2,
+    "needsManualReview": 3,
+    "metadataMissing": 6,
+    "metadataConflicts": 0,
+    "relationshipConflicts": 1
+  },
+  "folderEvidence": [
+    {
+      "itemType": "folder",
+      "itemId": "fixture-folder-metadata-missing",
+      "classification": "metadata_missing",
+      "severity": "warning",
+      "legacyOwnerSignal": {
+        "basis": "ai_folders.user_id",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": false,
+        "ownerType": null,
+        "ownershipStatus": null,
+        "owningUserIdPresent": false,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Review folder ownership before import.",
+      "futurePhase": "Phase 6.14"
+    },
+    {
+      "itemType": "folder",
+      "itemId": "fixture-folder-safe-observe",
+      "classification": "same_allow",
+      "severity": "info",
+      "legacyOwnerSignal": {
+        "basis": "ai_folders.user_id",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": true,
+        "ownerType": "personal_user_asset",
+        "ownershipStatus": "current",
+        "owningUserIdPresent": true,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Observe only; do not switch access checks.",
+      "futurePhase": "Phase 6.14"
+    }
+  ],
+  "imageEvidence": [
+    {
+      "itemType": "image",
+      "itemId": "fixture-image-metadata-missing",
+      "classification": "metadata_missing",
+      "severity": "warning",
+      "legacyOwnerSignal": {
+        "basis": "ai_images.user_id",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": false,
+        "ownerType": null,
+        "ownershipStatus": null,
+        "owningUserIdPresent": false,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Review image ownership before import.",
+      "futurePhase": "Phase 6.14"
+    },
+    {
+      "itemType": "image",
+      "itemId": "fixture-image-dual-unsafe",
+      "classification": "unsafe_to_switch",
+      "severity": "critical",
+      "legacyOwnerSignal": {
+        "basis": "ai_images.user_id",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": false,
+        "ownerType": null,
+        "ownershipStatus": null,
+        "owningUserIdPresent": false,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Keep access switch blocked.",
+      "futurePhase": "Phase 6.14"
+    }
+  ],
+  "relationshipEvidence": [
+    {
+      "itemType": "relationship",
+      "itemId": "fixture-image-relationship",
+      "relatedItemId": "fixture-folder-metadata-missing",
+      "classification": "relationship_conflict",
+      "severity": "critical",
+      "legacyOwnerSignal": {
+        "basis": "ai_images.folder_id",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": true,
+        "ownerType": "personal_user_asset",
+        "ownershipStatus": "current",
+        "owningUserIdPresent": true,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "folder_image_owner_mismatch",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Review folder/image owner alignment.",
+      "futurePhase": "Phase 6.14"
+    }
+  ],
+  "publicGalleryEvidence": [
+    {
+      "itemType": "public_gallery",
+      "itemId": "fixture-image-public-unsafe",
+      "classification": "unsafe_to_switch",
+      "severity": "critical",
+      "legacyOwnerSignal": {
+        "basis": "visibility=public",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": false,
+        "ownerType": null,
+        "ownershipStatus": null,
+        "owningUserIdPresent": false,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "unsafe_for_ownership_switch",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "not_applicable",
+      "recommendedNextAction": "Review public attribution before any ownership access switch.",
+      "futurePhase": "Phase 6.14"
+    }
+  ],
+  "derivativeEvidence": [
+    {
+      "itemType": "derivative",
+      "itemId": "fixture-image-derivative-risk",
+      "classification": "needs_manual_review",
+      "severity": "warning",
+      "legacyOwnerSignal": {
+        "basis": "ai_images derivative keys summarized",
+        "userIdPresent": true
+      },
+      "ownershipMetadataSignal": {
+        "legacyOwnerPresent": true,
+        "ownershipMetadataPresent": false,
+        "ownerType": null,
+        "ownershipStatus": null,
+        "owningUserIdPresent": false,
+        "owningOrganizationIdPresent": false
+      },
+      "publicGalleryRisk": "not_public",
+      "relationshipRisk": "not_applicable",
+      "derivativeRisk": "parent_ownership_missing",
+      "recommendedNextAction": "Resolve parent image ownership before derivative inheritance.",
+      "futurePhase": "Phase 6.14"
+    }
+  ],
+  "manualReviewQueue": [],
+  "recommendations": [
+    "Synthetic item-level fixture for dry-run importer tests only."
+  ],
+  "limitations": [
+    "No live R2 objects are listed.",
+    "Synthetic fixture only."
+  ]
+}
