@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0057_add_ai_asset_manual_review_state.sql`.
 
-Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phase 6.4 adds the planned nullable metadata columns and simple lookup/review indexes through migration `0056_add_ai_folder_image_ownership_metadata.sql`. Phase 6.5 starts assigning that metadata only on new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks. Phase 6.7 exposes those diagnostics through a bounded admin-only evidence report and JSON/Markdown export. Phase 6.8 adds the operator evidence runbook/template/checklist for collecting that report. Phase 6.9 adds the main-only evidence package, Phase 6.10 records the main evidence decision, Phase 6.11 adds manual-review workflow design, Phase 6.12 designs manual-review state schema, Phase 6.13 adds empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`, and Phase 6.14 adds local-only review-item import dry-run planning. These phases do not rewrite existing D1 rows, create/import review rows, backfill ownership metadata, move/list/delete R2 objects, change access checks, change image generation behavior, change folder access behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phase 6.4 adds the planned nullable metadata columns and simple lookup/review indexes through migration `0056_add_ai_folder_image_ownership_metadata.sql`. Phase 6.5 starts assigning that metadata only on new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks. Phase 6.7 exposes those diagnostics through a bounded admin-only evidence report and JSON/Markdown export. Phase 6.8 adds the operator evidence runbook/template/checklist for collecting that report. Phase 6.9 adds the main-only evidence package, Phase 6.10 records the main evidence decision, Phase 6.11 adds manual-review workflow design, Phase 6.12 designs manual-review state schema, Phase 6.13 adds empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`, Phase 6.14 adds local-only review-item import dry-run planning, and Phase 6.15 adds an admin-approved review-item import executor. These phases do not rewrite existing D1 source rows, backfill ownership metadata, move/list/delete R2 objects, change access checks, change image generation behavior, change folder access behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Data Model
 
@@ -185,6 +185,7 @@ Phase 6.5 implements only the personal folder create and personal saved-image wr
 - `0057_add_ai_asset_manual_review_state.sql` creates empty `ai_asset_manual_review_items` and `ai_asset_manual_review_events` tables plus lookup/audit indexes.
 - The tables are schema foundation only. Phase 6.13 imports no evidence, creates no review rows, adds no endpoint/UI, changes no access checks, performs no ownership backfill, updates no folder/image ownership metadata, mutates no R2 objects, and makes no tenant-isolation claim.
 - Phase 6.14 adds that dry-run import planner. It creates aggregate buckets from the committed Markdown evidence summary and proposed candidates only from bounded JSON evidence; no real review rows are created.
+- Phase 6.15 adds `POST /api/admin/tenant-assets/folders-images/manual-review/import`. It defaults to dry-run; confirmed execution requires admin auth, production MFA, same-origin, rate limiting, `Idempotency-Key`, `confirm: true`, and `reason`, and can write only `ai_asset_manual_review_items` plus matching `ai_asset_manual_review_events`.
 
 ## Access-Check Impact Matrix
 
@@ -284,6 +285,6 @@ Future implementation tests should cover:
 | 6.12 | Manual review state schema design for operator review records; implemented as design/check tooling only, no migration or review rows. |
 | 6.13 | Additive manual review state schema for AI folders/images; implemented as empty review-state tables/indexes only, no review-row import or backfill. |
 | 6.14 | Manual review item import dry run from approved evidence; implemented as local planning only with no review-row import. |
-| 6.15 | Item-level JSON evidence or admin-approved import executor decision; no ownership backfill or access switch by default. |
+| 6.15 | Admin-approved manual review item import executor; defaults to dry-run and writes review items/events only when confirmed. |
 
-Recommended next phase: **Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import**.
+Recommended next phase: **Phase 6.16 - Manual Review Item Import Operator Evidence**.

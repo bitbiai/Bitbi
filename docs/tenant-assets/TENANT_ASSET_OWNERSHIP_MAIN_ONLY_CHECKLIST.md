@@ -103,4 +103,4 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 ## Next Recommended Phase
 
-Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import after Phase 6.14 dry-run output, with no access-check switch or backfill by default.
+Phase 6.15 adds the admin-approved review-item import executor. Phase 6.16 should collect operator evidence for dry-run/confirmed import output, with no access-check switch, ownership backfill, source asset row update, or R2 action by default.

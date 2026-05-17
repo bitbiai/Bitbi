@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner in `scripts/dry-run-tenant-asset-manual-review-import.mjs`. These phases do not create/import review rows, add an endpoint, add Admin UI, add a repair executor, perform ownership backfill, switch access checks, update folder/image ownership rows, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
+Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner in `scripts/dry-run-tenant-asset-manual-review-import.mjs`. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. These phases do not perform ownership backfill, switch access checks, update folder/image ownership rows, add Admin UI, add a repair/backfill/access-switch executor, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
 
 ## Source Evidence
 
@@ -174,10 +174,18 @@ Phase 6.14 adds `npm run tenant-assets:dry-run-review-import` for local-only pla
 
 The dry run maps evidence categories to target review-item fields and deterministic dedupe keys, but it does not connect to D1, create review rows, emit executable SQL, backfill ownership, switch access checks, or mutate R2.
 
+## Phase 6.15 Import Executor
+
+Phase 6.15 adds `POST /api/admin/tenant-assets/folders-images/manual-review/import`. It is admin-only, production-MFA protected through route policy, same-origin protected, rate-limited, and requires `Idempotency-Key`. It defaults to dry-run; execution requires `dryRun: false`, `confirm: true`, and a bounded `reason`.
+
+Confirmed execution may create only `ai_asset_manual_review_items` rows and matching `ai_asset_manual_review_events` with `event_type = created`. It recomputes the current evidence report server-side, uses deterministic review item IDs for dedupe, skips existing review items, and does not update review statuses beyond initial creation.
+
+Phase 6.15 still does not update `ai_folders`, update `ai_images`, backfill ownership metadata, switch access checks, change public gallery/media/lifecycle/quota/billing behavior, or list/mutate R2.
+
 ## Future Implementation Phases
 
 Recommended next phase:
 
-`Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import`
+`Phase 6.16 - Manual Review Item Import Operator Evidence`
 
-That future phase should provide or archive item-level JSON evidence before any admin-approved review item import executor is considered. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.
+That future phase should collect operator evidence for any confirmed import run and verify created review items/events. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.

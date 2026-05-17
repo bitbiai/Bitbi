@@ -208,4 +208,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import after the Phase 6.14 dry-run output, with no access-check switch or backfill by default.
+Phase 6.15 adds the admin-approved review-item import executor after the Phase 6.14 dry-run output. Phase 6.16 should collect operator evidence for any dry-run or confirmed import, with no access-check switch, ownership backfill, source asset row update, or R2 action by default.

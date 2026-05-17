@@ -8,7 +8,7 @@ Decision file: `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISI
 
 This Phase 6.11 plan uses only the committed Phase 6.10 main evidence summary. It does not use synthetic fixtures as evidence. It does not require the raw JSON export to be committed because the Markdown summary contains the safe counts and decision fields needed for this plan.
 
-Phase 6.12 adds the schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner. No review rows are created or imported, no evidence is imported into D1, no access checks switch, and no ownership backfill occurs.
+Phase 6.12 adds the schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and may create only manual-review items/events when explicitly confirmed. No source asset rows are rewritten, no access checks switch, and no ownership backfill occurs.
 
 ## Evidence Counts Used
 
@@ -66,9 +66,9 @@ Phase 6.12 adds the schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_
 
 ## Next Recommended Phase
 
-`Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import`
+`Phase 6.16 - Manual Review Item Import Operator Evidence`
 
-Phase 6.14 can already dry-run the committed Markdown evidence, but that evidence supports aggregate buckets only. Phase 6.15 should provide bounded JSON evidence with item-level detail before any later admin-approved import executor is considered. It should still avoid ownership backfill, access-check switching, D1 ownership row rewrites, R2 listing/mutation, and repair execution.
+Phase 6.15 adds the bounded import executor at `POST /api/admin/tenant-assets/folders-images/manual-review/import`. The next phase should collect operator evidence for dry-run and any confirmed review-item import, including created/skipped review item counts and idempotency behavior. It should still avoid ownership backfill, access-check switching, D1 ownership row rewrites, R2 listing/mutation, and repair execution.
 
 ## Safety Statement
 

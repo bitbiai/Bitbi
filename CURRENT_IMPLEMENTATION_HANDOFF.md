@@ -9,7 +9,7 @@ Purpose: concise restart point for future Codex sessions. This file is current s
 | Item | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest completed implementation phase | Phase 6.14 tenant asset ownership manual-review import dry-run planning |
+| Latest completed implementation phase | Phase 6.15 tenant asset ownership manual-review item import executor |
 | Latest documentation phase | DOC-1 documentation diet and archive consolidation |
 | Latest auth D1 migration | `0057_add_ai_asset_manual_review_state.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
@@ -34,7 +34,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
 - Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
 - Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, Phase 6.12 manual-review state schema design, Phase 6.13 empty review-state tables, and Phase 6.14 review import dry-run planning exist; no review-row import, old-row ownership backfill, organization ownership assignment, access-check switch, or R2 objects were migrated/listed live.
+- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, Phase 6.12 manual-review state schema design, Phase 6.13 empty review-state tables, Phase 6.14 review import dry-run planning, and Phase 6.15 admin-approved review-item import executor exist; the executor writes only review items/events when confirmed. No old-row ownership backfill, organization ownership assignment, source asset row update, access-check switch, or R2 objects were migrated/listed live.
 
 ## Current Blockers
 
@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. If approved, implement Phase 6.15 as item-level review import evidence/export or an explicitly admin-approved manual review item import executor; keep it separate from ownership backfill, access switching, and R2 actions.
+1. If approved, implement Phase 6.16 as manual-review item import operator evidence; keep it separate from ownership backfill, access switching, source asset row updates, and R2 actions.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.15 item-level review import evidence/executor design, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.16 import operator evidence, manual-review queue read/status design, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 

@@ -133,6 +133,13 @@ async function loadTenantAssetManualReviewModule() {
   return import(modulePath);
 }
 
+async function loadTenantAssetManualReviewImportModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-manual-review-import.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1468,6 +1475,274 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       r2LiveListed: false,
     }));
   });
+
+  test('manual review import helper maps evidence items with deterministic review IDs', async () => {
+    const manualReviewImport = await loadTenantAssetManualReviewImportModule();
+    const publicUnsafe = await manualReviewImport.buildManualReviewItemFromEvidenceItem({
+      itemType: 'public_gallery',
+      itemId: 'image-public-missing',
+      classification: 'unsafe_to_switch',
+      severity: 'critical',
+      publicGalleryRisk: 'unsafe_for_ownership_switch',
+    });
+    const derivativeRisk = await manualReviewImport.buildManualReviewItemFromEvidenceItem({
+      itemType: 'derivative',
+      itemId: 'image-public-missing',
+      classification: 'unsafe_to_switch',
+      severity: 'warning',
+      derivativeRisk: 'parent_metadata_missing',
+    });
+    const safeObserve = await manualReviewImport.buildManualReviewItemFromEvidenceItem({
+      itemType: 'image',
+      itemId: 'image-safe',
+      classification: 'same_allow',
+      severity: 'info',
+    });
+
+    expect(publicUnsafe.issue_category).toBe('public_unsafe');
+    expect(publicUnsafe.review_status).toBe('blocked_public_unsafe');
+    expect(publicUnsafe.severity).toBe('critical');
+    expect(publicUnsafe.priority).toBe('high');
+    expect(derivativeRisk.issue_category).toBe('derivative_risk');
+    expect(derivativeRisk.review_status).toBe('blocked_derivative_risk');
+    expect(safeObserve.issue_category).toBe('safe_observe_only');
+    expect(safeObserve.review_status).toBe('deferred');
+    await expect(manualReviewImport.buildManualReviewItemId(publicUnsafe.dedupeKey)).resolves.toBe(publicUnsafe.id);
+  });
+
+  test('admin manual review import dry-run plans review rows without writes or source mutations', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const beforeFolders = JSON.stringify(env.DB.state.aiFolders);
+    const beforeImages = JSON.stringify(env.DB.state.aiImages);
+    const beforeRunCalls = env.DB.runCalls.length;
+
+    const res = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { dryRun: true, limit: 4 },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-dry-run-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.import).toMatchObject({
+      dryRun: true,
+      execute: false,
+      noMutation: true,
+      noBackfill: true,
+      noAccessSwitch: true,
+      noSourceAssetMutation: true,
+      noR2Operation: true,
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      sourceAssetRowsMutated: false,
+      r2LiveListed: false,
+    });
+    expect(body.import.summary.proposedReviewItemCount).toBeGreaterThan(0);
+    expect(body.import.proposedItems.length).toBeGreaterThan(0);
+    expect(env.DB.state.aiAssetManualReviewItems).toHaveLength(0);
+    expect(env.DB.state.aiAssetManualReviewEvents).toHaveLength(0);
+    expect(JSON.stringify(env.DB.state.aiFolders)).toBe(beforeFolders);
+    expect(JSON.stringify(env.DB.state.aiImages)).toBe(beforeImages);
+    expect(env.DB.runCalls.length).toBe(beforeRunCalls);
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('tenant-review-dry-run-001');
+    expect(serialized).not.toContain('raw prompt should never be reported');
+    expect(serialized).not.toContain('raw-private-image.png');
+    expect(serialized).not.toContain('raw-public-image.png');
+    expect(serialized).not.toContain('Bearer ');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('sk_live_');
+  });
+
+  test('manual review import execute requires idempotency, confirmation, and reason', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+
+    const missingKey = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { dryRun: false, confirm: true, reason: 'create review queue rows only' },
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+
+    const missingConfirm = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { dryRun: false, reason: 'create review queue rows only' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-import-002' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingConfirm.status).toBe(400);
+
+    const missingReason = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { dryRun: false, confirm: true },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-import-003' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingReason.status).toBe(400);
+  });
+
+  test('admin manual review import creates review items/events only and is idempotent', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const beforeFolders = JSON.stringify(env.DB.state.aiFolders);
+    const beforeImages = JSON.stringify(env.DB.state.aiImages);
+    const requestBody = {
+      dryRun: false,
+      confirm: true,
+      limit: 4,
+      reason: 'create bounded review queue rows for manual review evidence',
+    };
+    const headers = { ...authHeaders, 'Idempotency-Key': 'tenant-review-import-004' };
+
+    const created = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        requestBody,
+        headers
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(created.status).toBe(200);
+    const createdBody = await created.json();
+    expect(createdBody.import).toMatchObject({
+      dryRun: false,
+      execute: true,
+      noBackfill: true,
+      noAccessSwitch: true,
+      noSourceAssetMutation: true,
+      noR2Operation: true,
+      accessChecksChanged: false,
+      sourceAssetRowsMutated: false,
+      r2LiveListed: false,
+    });
+    expect(createdBody.import.summary.createdReviewItemCount).toBeGreaterThan(0);
+    expect(createdBody.import.summary.createdReviewEventCount).toBe(createdBody.import.summary.createdReviewItemCount);
+    expect(env.DB.state.aiAssetManualReviewItems.length).toBe(createdBody.import.summary.createdReviewItemCount);
+    expect(env.DB.state.aiAssetManualReviewEvents.length).toBe(createdBody.import.summary.createdReviewEventCount);
+    expect(JSON.stringify(env.DB.state.aiFolders)).toBe(beforeFolders);
+    expect(JSON.stringify(env.DB.state.aiImages)).toBe(beforeImages);
+
+    const statusesByCategory = new Map(env.DB.state.aiAssetManualReviewItems.map((item) => [
+      item.issue_category,
+      item.review_status,
+    ]));
+    expect(statusesByCategory.get('metadata_missing')).toBe('pending_review');
+    expect(statusesByCategory.get('public_unsafe')).toBe('blocked_public_unsafe');
+    expect(statusesByCategory.get('derivative_risk')).toBe('blocked_derivative_risk');
+    expect(statusesByCategory.get('safe_observe_only')).toBe('deferred');
+    for (const event of env.DB.state.aiAssetManualReviewEvents) {
+      expect(event.event_type).toBe('created');
+      expect(event.old_status).toBeNull();
+      expect(event.request_hash).toMatch(/^[a-f0-9]{64}$/);
+      expect(event.idempotency_key).toMatch(/^[a-f0-9]{64}$/);
+      expect(event.idempotency_key).not.toBe('tenant-review-import-004');
+      expect(event.reason).toBe(requestBody.reason);
+    }
+
+    const replay = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        requestBody,
+        headers
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(replay.status).toBe(200);
+    const replayBody = await replay.json();
+    expect(replayBody.import.idempotency.replayed).toBe(true);
+    expect(replayBody.import.summary.createdReviewItemCount).toBe(0);
+    expect(env.DB.state.aiAssetManualReviewItems.length).toBe(createdBody.import.summary.createdReviewItemCount);
+    expect(env.DB.state.aiAssetManualReviewEvents.length).toBe(createdBody.import.summary.createdReviewEventCount);
+
+    const conflict = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { ...requestBody, reason: 'different review reason' },
+        headers
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
+    const conflictBody = await conflict.json();
+    expect(conflictBody.code).toBe('idempotency_conflict');
+
+    const newKeyExisting = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        requestBody,
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-import-005' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(newKeyExisting.status).toBe(200);
+    const newKeyBody = await newKeyExisting.json();
+    expect(newKeyBody.import.summary.createdReviewItemCount).toBe(0);
+    expect(newKeyBody.import.summary.skippedExistingCount).toBeGreaterThan(0);
+    expect(env.DB.state.aiAssetManualReviewItems.length).toBe(createdBody.import.summary.createdReviewItemCount);
+    expect(env.DB.state.aiAssetManualReviewEvents.length).toBe(createdBody.import.summary.createdReviewEventCount);
+  });
+
+  test('manual review import denies non-admin users and fails closed when review schema is missing', async () => {
+    const nonAdmin = await createTenantEvidenceHarness({
+      user: createContractUser({ id: 'tenant-review-import-member', role: 'user' }),
+    });
+    const denied = await nonAdmin.authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { dryRun: true, limit: 2 },
+        { ...nonAdmin.authHeaders, 'Idempotency-Key': 'tenant-review-denied-001' }
+      ),
+      nonAdmin.env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      missingTables: ['ai_asset_manual_review_items'],
+    });
+    const missingSchema = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        { dryRun: true, limit: 2 },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-schema-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingSchema.status).toBe(409);
+    const body = await missingSchema.json();
+    expect(body.code).toBe('tenant_asset_manual_review_schema_unavailable');
+  });
 });
 
 function seedAdminImageChargeOrg(env, {
@@ -2336,6 +2611,16 @@ test.describe('Phase 1-E auth route policy registry', () => {
       sensitivity: 'high',
       csrf: 'safe-method',
       rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-evidence-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/tenant-assets/folders-images/manual-review/import')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.manual-review.import',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json' }),
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-manual-review-import-ip', failClosed: true }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({

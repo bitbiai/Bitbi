@@ -49,6 +49,13 @@ Phase 6.14 adds local-only import dry-run planning:
 
 The current Markdown evidence summary supports aggregate buckets only. Item-level review import planning requires a bounded JSON evidence export with safe detail arrays. The dry run creates no review rows, connects to no D1 database, emits no executable SQL, performs no backfill, switches no access checks, and performs no R2 operation.
 
+Phase 6.15 adds an admin-approved review-item import executor:
+
+- `POST /api/admin/tenant-assets/folders-images/manual-review/import`
+- helper: `workers/auth/src/lib/tenant-asset-manual-review-import.js`
+
+The endpoint defaults to dry-run and requires admin auth, production MFA, same-origin protection, rate limiting, `Idempotency-Key`, `confirm: true`, and a bounded `reason` before execution. Confirmed execution may create only review items/events in `ai_asset_manual_review_items` and `ai_asset_manual_review_events`. It does not update `ai_folders`, update `ai_images`, backfill ownership, switch access checks, add Admin UI, or list/mutate R2.
+
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
 Synthetic fixtures, runbook instructions, and pending markers must not be treated as main evidence.
@@ -74,5 +81,7 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
    ```
 
 9. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
+
+10. If using the Phase 6.15 import executor, first run dry-run mode, then execute only with an admin-approved reason and `Idempotency-Key`; preserve the resulting import evidence before any status workflow, backfill design, or access-check migration.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

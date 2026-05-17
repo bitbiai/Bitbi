@@ -58,4 +58,4 @@ Do not treat this file as current proof that the Phase 6.7 endpoint is live, tha
 
 ## Next Recommended Phase
 
-Phase 6.11 has added the manual review workflow, Phase 6.12 has designed review-state schema, Phase 6.13 has added empty review-state tables without importing review rows, and Phase 6.14 has added local-only import dry-run planning. Current next step is Phase 6.15 - Operator Provides JSON Evidence for Item-level Review Import if the owner continues tenant-asset work.
+Phase 6.11 has added the manual review workflow, Phase 6.12 has designed review-state schema, Phase 6.13 has added empty review-state tables without importing review rows, Phase 6.14 has added local-only import dry-run planning, and Phase 6.15 has added an admin-approved review-item import executor. Current next step is Phase 6.16 - Manual Review Item Import Operator Evidence if the owner continues tenant-asset work.

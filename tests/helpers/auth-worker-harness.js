@@ -910,6 +910,12 @@ class MockD1 {
     if (this.missingTables.has('ai_images') && query.includes('ai_images')) {
       throw new Error('no such table: ai_images');
     }
+    if (
+      (this.missingTables.has('ai_asset_manual_review_items') && query.includes('ai_asset_manual_review_items')) ||
+      (this.missingTables.has('ai_asset_manual_review_events') && query.includes('ai_asset_manual_review_events'))
+    ) {
+      throw new Error('no such table: ai_asset_manual_review_items');
+    }
     if (this.missingTables.has('ai_video_job_poison_messages') && query.includes('ai_video_job_poison_messages')) {
       throw new Error('no such table: ai_video_job_poison_messages');
     }
@@ -6393,6 +6399,143 @@ class MockD1 {
           created_at: row.created_at,
         }));
       return { results: rows };
+    }
+
+    if (query === 'SELECT id, review_status, issue_category, evidence_source_path FROM ai_asset_manual_review_items WHERE id = ? LIMIT 1') {
+      const [id] = bindings;
+      const row = this.state.aiAssetManualReviewItems.find((entry) => entry.id === id);
+      if (!row) return mode === 'all' ? { results: [] } : null;
+      return {
+        id: row.id,
+        review_status: row.review_status,
+        issue_category: row.issue_category,
+        evidence_source_path: row.evidence_source_path,
+      };
+    }
+
+    if (query === 'SELECT id, review_item_id, request_hash, created_at FROM ai_asset_manual_review_events WHERE idempotency_key = ? ORDER BY created_at ASC, id ASC LIMIT ?') {
+      const [idempotencyKey, limit] = bindings;
+      const rows = this.state.aiAssetManualReviewEvents
+        .filter((row) => row.idempotency_key === idempotencyKey)
+        .slice()
+        .sort((a, b) => (
+          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+          String(a.id || '').localeCompare(String(b.id || ''))
+        ))
+        .slice(0, Number(limit) || 200)
+        .map((row) => ({
+          id: row.id,
+          review_item_id: row.review_item_id,
+          request_hash: row.request_hash,
+          created_at: row.created_at,
+        }));
+      return { results: rows };
+    }
+
+    if (query.startsWith('INSERT INTO ai_asset_manual_review_items (')) {
+      const [
+        id,
+        asset_domain,
+        asset_id,
+        related_asset_id,
+        source_table,
+        source_row_id,
+        issue_category,
+        review_status,
+        severity,
+        priority,
+        legacy_owner_user_id,
+        proposed_asset_owner_type,
+        proposed_owning_user_id,
+        proposed_owning_organization_id,
+        proposed_ownership_status,
+        proposed_ownership_source,
+        proposed_ownership_confidence,
+        evidence_source_path,
+        evidence_report_generated_at,
+        evidence_summary_json,
+        safe_notes,
+        assigned_to_user_id,
+        reviewed_by_user_id,
+        reviewed_at,
+        created_by_user_id,
+        created_at,
+        updated_at,
+        superseded_by_id,
+        metadata_json,
+      ] = bindings;
+      if (this.state.aiAssetManualReviewItems.some((row) => row.id === id)) {
+        throw new Error('UNIQUE constraint failed: ai_asset_manual_review_items.id');
+      }
+      this.state.aiAssetManualReviewItems.push({
+        id,
+        asset_domain,
+        asset_id,
+        related_asset_id,
+        source_table,
+        source_row_id,
+        issue_category,
+        review_status,
+        severity,
+        priority,
+        legacy_owner_user_id,
+        proposed_asset_owner_type,
+        proposed_owning_user_id,
+        proposed_owning_organization_id,
+        proposed_ownership_status,
+        proposed_ownership_source,
+        proposed_ownership_confidence,
+        evidence_source_path,
+        evidence_report_generated_at,
+        evidence_summary_json,
+        safe_notes,
+        assigned_to_user_id,
+        reviewed_by_user_id,
+        reviewed_at,
+        created_by_user_id,
+        created_at,
+        updated_at,
+        superseded_by_id,
+        metadata_json,
+      });
+      this._lastChanges = 1;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO ai_asset_manual_review_events (')) {
+      const [
+        id,
+        review_item_id,
+        event_type,
+        old_status,
+        new_status,
+        actor_user_id,
+        actor_email,
+        reason,
+        idempotency_key,
+        request_hash,
+        event_metadata_json,
+        created_at,
+      ] = bindings;
+      if (this.state.aiAssetManualReviewEvents.some((row) => row.id === id)) {
+        throw new Error('UNIQUE constraint failed: ai_asset_manual_review_events.id');
+      }
+      this.state.aiAssetManualReviewEvents.push({
+        id,
+        review_item_id,
+        event_type,
+        old_status,
+        new_status,
+        actor_user_id,
+        actor_email,
+        reason,
+        idempotency_key,
+        request_hash,
+        event_metadata_json,
+        created_at,
+      });
+      this._lastChanges = 1;
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('SELECT id, folder_id, prompt, model, steps, seed, created_at') && query.includes('FROM ai_images WHERE user_id = ?')) {

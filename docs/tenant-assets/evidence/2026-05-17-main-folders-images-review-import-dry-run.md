@@ -337,4 +337,6 @@ No aggregate-only buckets were needed because item-level evidence was available.
 
 ## Next Recommended Phase
 
-Phase 6.15 — Admin-approved Manual Review Item Import Executor
+Phase 6.15 adds the admin-approved import executor at `POST /api/admin/tenant-assets/folders-images/manual-review/import`. It defaults to dry-run and requires admin confirmation, `Idempotency-Key`, and a bounded reason before it can create review items/events only.
+
+Next recommended phase: Phase 6.16 — Manual Review Item Import Operator Evidence.

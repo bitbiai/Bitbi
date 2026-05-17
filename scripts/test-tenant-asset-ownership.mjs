@@ -303,8 +303,8 @@ assert.equal(
 );
 assert.equal(foldersImagesReport.manualReviewWorkflow.plannerScript, "scripts/plan-tenant-asset-manual-review.mjs");
 assert.equal(foldersImagesReport.manualReviewWorkflow.designOnly, true);
-assert.equal(foldersImagesReport.manualReviewWorkflow.reviewExecutionAdded, false);
-assert.equal(foldersImagesReport.manualReviewWorkflow.endpointAdded, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.reviewExecutionAdded, true);
+assert.equal(foldersImagesReport.manualReviewWorkflow.endpointAdded, true);
 assert.equal(foldersImagesReport.manualReviewWorkflow.adminUiAdded, false);
 assert.equal(foldersImagesReport.manualReviewWorkflow.migrationAdded, false);
 assert.equal(foldersImagesReport.manualReviewWorkflow.accessChecksChanged, false);
@@ -317,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+  "Phase 6.16 — Manual Review Item Import Operator Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -334,19 +334,29 @@ assert.equal(foldersImagesReport.manualReviewStateSchema.reviewTablesPresent, tr
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsCreated, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsImported, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsNotImported, true);
-assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportAdded, true);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportExecutorAdded, true);
+assert.equal(
+  foldersImagesReport.manualReviewStateSchema.reviewItemImportExecutorHelper,
+  "workers/auth/src/lib/tenant-asset-manual-review-import.js"
+);
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportDryRunReady, true);
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.reviewItemImportDryRunScript,
   "scripts/dry-run-tenant-asset-manual-review-import.mjs"
 );
-assert.equal(foldersImagesReport.manualReviewStateSchema.endpointAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.endpointAdded, true);
+assert.equal(
+  foldersImagesReport.manualReviewStateSchema.importEndpoint,
+  "/api/admin/tenant-assets/folders-images/manual-review/import"
+);
 assert.equal(foldersImagesReport.manualReviewStateSchema.adminUiAdded, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.backfillPerformed, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.backfillNotStarted, true);
 assert.equal(foldersImagesReport.manualReviewStateSchema.r2LiveListed, false);
-assert.equal(foldersImagesReport.manualReviewStateSchema.futureImportRequired, true);
+assert.equal(foldersImagesReport.manualReviewStateSchema.futureImportRequired, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.futureImportExecutionRequiresAdminApproval, true);
 assert.equal(foldersImagesReport.manualReviewStateSchema.stateRowsExpectedAfterMigration, 0);
 assert(foldersImagesReport.manualReviewStateSchema.proposedTables.includes("ai_asset_manual_review_items"));
 assert(foldersImagesReport.manualReviewStateSchema.proposedTables.includes("ai_asset_manual_review_events"));
@@ -354,7 +364,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+  "Phase 6.16 — Manual Review Item Import Operator Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -370,9 +380,30 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import"
+  "Phase 6.16 — Manual Review Item Import Operator Evidence"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.15 — Operator Provides JSON Evidence for Item-level Review Import");
+assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
+assert.equal(
+  foldersImagesReport.manualReviewImportExecutor.endpoint,
+  "/api/admin/tenant-assets/folders-images/manual-review/import"
+);
+assert.equal(
+  foldersImagesReport.manualReviewImportExecutor.helper,
+  "workers/auth/src/lib/tenant-asset-manual-review-import.js"
+);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.defaultDryRun, true);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.executeRequiresConfirm, true);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.executeRequiresReason, true);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.idempotencyRequired, true);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.writesReviewItemsAndEventsOnly, true);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.reviewRowsCreatedByDryRun, false);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.sourceAssetRowsMutated, false);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.ownershipBackfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.accessChecksChanged, false);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.r2LiveListed, false);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.migrationAdded, false);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.16 — Manual Review Item Import Operator Evidence");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -888,6 +919,9 @@ assert(focusedMarkdown.includes("manual_review_state_schema_added"));
 assert(focusedMarkdown.includes("ai_asset_manual_review_items"));
 assert(focusedMarkdown.includes("Manual Review Import Dry Run"));
 assert(focusedMarkdown.includes("manual_review_import_dry_run_ready"));
-assert(focusedMarkdown.includes("Phase 6.15"));
+assert(focusedMarkdown.includes("Manual Review Import Executor"));
+assert(focusedMarkdown.includes("manual_review_import_executor_added"));
+assert(focusedMarkdown.includes("/api/admin/tenant-assets/folders-images/manual-review/import"));
+assert(focusedMarkdown.includes("Phase 6.16"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

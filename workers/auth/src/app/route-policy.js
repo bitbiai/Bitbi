@@ -492,6 +492,12 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Phase 6.7 bounded sanitized tenant asset ownership evidence export for ai_folders and ai_images. Supports JSON and Markdown, omits prompts and private R2 keys, and performs no access, data, R2, provider, Stripe, credit, or billing mutation.",
   }),
+  adminJsonWrite("admin.tenant-assets.folders-images.manual-review.import", "POST", "/api/admin/tenant-assets/folders-images/manual-review/import", "privacy", "smallJson", "admin-tenant-asset-manual-review-import-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    sensitivity: "high",
+    audit: { event: "tenant_asset_manual_review_import_requested" },
+    notes: "Phase 6.15 admin-approved manual-review import executor. Defaults to dry-run; confirmed execution requires Idempotency-Key, confirm=true, and reason, and writes only ai_asset_manual_review_items/events. It performs no ownership backfill, access-check switch, ai_folders/ai_images update, R2 listing/mutation, provider call, Stripe call, credit mutation, or billing behavior change.",
+  }),
 
   adminRead("admin.mfa.status", "/api/admin/mfa/status", "admin-mfa", {
     mfa: "admin-bootstrap-allowed",
