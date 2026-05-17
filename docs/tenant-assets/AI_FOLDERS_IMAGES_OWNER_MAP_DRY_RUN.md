@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0055_add_platform_budget_evidence_archives.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. It does not add a schema migration, rewrite D1 ownership rows, move/delete/copy/list R2 objects, change folder/image generation behavior, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Neither phase adds a schema migration, rewrites D1 ownership rows, moves/deletes/copies/lists R2 objects, changes folder/image generation behavior, changes public gallery behavior, changes lifecycle/export/delete behavior, mutates credits or billing, calls providers, calls Stripe, calls Cloudflare APIs, or claims tenant isolation.
 
 ## Current Schema Summary
 
@@ -104,33 +104,27 @@ The synthetic fixture covers:
 
 ## Migration Blockers
 
-- No `owner_type`, `owning_user_id`, `owning_organization_id`, or `created_by_user_id` columns exist on `ai_folders` or `ai_images`.
+- No `asset_owner_type`, `owning_user_id`, `owning_organization_id`, or `created_by_user_id` columns exist on `ai_folders` or `ai_images`.
 - R2 keys encode legacy user paths but do not prove tenant ownership.
 - Public gallery attribution is user/profile-only.
 - Data lifecycle/export/delete is user-subject-only.
 - Storage quota is `user_asset_storage_usage` only.
 - Real row ambiguity rates are unknown until a local/staging owner-map report is approved.
 
-## Future Target Schema Proposal
+## Phase 6.3 Schema/Access Plan
 
-Phase 6.2 does not add schema. A later additive schema should consider:
+Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`.
 
-- `owner_type TEXT`
-- `owning_user_id TEXT`
-- `owning_organization_id TEXT`
-- `created_by_user_id TEXT`
-- `owner_map_status TEXT`
-- `owner_map_reason TEXT`
-- `owner_map_updated_at TEXT`
+- Proposed future columns use `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
+- Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
+- No migration, backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-Indexes should be planned separately for user and organization listing paths. Existing `user_id` checks should remain in place until role-aware organization access checks are designed and tested.
+## Recommended Phase 6.4
 
-## Recommended Phase 6.3
+Phase 6.4 should be **Additive Ownership Metadata Schema for AI Folders & Images**:
 
-Phase 6.3 should be **AI Folders & Images Ownership Schema Proposal / Access-Check Impact Plan**:
-
-- propose the additive ownership columns and indexes
-- model role-aware access checks without changing runtime behavior
-- define local/staging real-row owner-map queries
-- preserve current public/private/gallery behavior
-- keep broad backfill out of scope
+- add the ownership metadata migration only
+- keep existing writes and reads compatible
+- do not backfill ownership
+- do not change runtime access behavior
+- add schema/currentness tests for the future migration

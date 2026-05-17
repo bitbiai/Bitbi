@@ -2,7 +2,7 @@
 
 Date: 2026-04-24
 
-Last reconciled: 2026-05-17 for Phase 6.2 AI folders/images owner-map dry run.
+Last reconciled: 2026-05-17 for Phase 6.3 AI folders/images schema/access impact plan.
 
 Purpose: current remediation tracker. Historical long-form action history is preserved in `docs/audits/archive/AUDIT_ACTION_PLAN_PRE_DOC1.md` and root phase reports.
 
@@ -19,7 +19,7 @@ This plan is not production approval, live billing readiness, legal compliance c
 | P0 | Documentation currentness | Guarded | Keep active docs short, update `docs/audits/README.md`, and run `check:doc-currentness`. |
 | P1 | Admin/platform AI budgets | Partial scoped foundation | Verify Phase 4.15.1 through 4.21 evidence; choose next budget scope or internal caller-policy gap deliberately. |
 | P1 | Billing operations | Partial | Move from review metadata/read-only reconciliation to approved operator remediation only after product/legal/accounting approval. |
-| P1 | Tenant ownership | Folder/image owner-map dry run | Use `docs/tenant-assets/` and `npm run dry-run:tenant-assets:images`; next propose additive ownership metadata/access-check impact for folders/images only. |
+| P1 | Tenant ownership | Folder/image schema/access plan | Use `docs/tenant-assets/` and `npm run dry-run:tenant-assets:images`; next add additive ownership metadata schema for folders/images only, with no backfill. |
 | P1 | Privacy/data lifecycle | Partial | Complete legal-approved retention/delete/export policy and self-service flows. |
 | P2 | Ops maturity | Partial | Record restore drill, live alert, Cloudflare dashboard drift, load, and canary evidence. |
 | P2 | Quality gates | Partial | Add staged type/lint/SAST/SBOM/dependency gates without broad rewrites. |
@@ -31,7 +31,7 @@ This plan is not production approval, live billing readiness, legal compliance c
 - Phase 3 member image/music/video AI Cost Gateway coverage and AI cost policy baseline guard.
 - Phase 4 admin/platform AI budget metadata, idempotency, switches, first `platform_admin_lab_budget` cap foundation, reconciliation, explicit repair, report/export, and evidence archive workflows.
 - Phase 5.1 Admin Control Plane navigation/discoverability consolidation.
-- Phase 6.1 tenant asset ownership design, inventory, risk matrix, and Phase 6.2 `ai_folders`/`ai_images` owner-map dry-run/test scripts with no schema, ownership, R2, or runtime mutation.
+- Phase 6.1 tenant asset ownership design, inventory, risk matrix, Phase 6.2 `ai_folders`/`ai_images` owner-map dry-run/test scripts, and Phase 6.3 schema/access impact plan with no schema migration, ownership, R2, or runtime mutation.
 
 ## Immediate Checklist Before Any Release Claim
 

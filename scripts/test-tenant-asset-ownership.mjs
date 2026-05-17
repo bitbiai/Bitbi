@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   buildFoldersImagesOwnerMapDryRunReport,
   buildTenantAssetOwnershipDryRunReport,
@@ -147,6 +149,61 @@ assert(foldersImagesReport.schemaSummary.folders.ownerColumns.includes("user_id"
 assert(foldersImagesReport.schemaSummary.images.r2KeyFields.includes("r2_key"));
 assert(foldersImagesReport.schemaSummary.images.r2KeyFields.includes("thumb_key"));
 assert(foldersImagesReport.schemaSummary.images.derivativeFields.includes("medium_key"));
+assert.equal(foldersImagesReport.schemaReadiness.status, "ready_for_schema");
+assert.equal(foldersImagesReport.schemaReadiness.migrationAdded, false);
+assert.equal(foldersImagesReport.schemaReadiness.executableSqlEmitted, false);
+for (const field of [
+  "asset_owner_type",
+  "owning_user_id",
+  "owning_organization_id",
+  "created_by_user_id",
+  "ownership_status",
+  "ownership_source",
+  "ownership_confidence",
+  "ownership_metadata_json",
+  "ownership_assigned_at",
+]) {
+  assert(foldersImagesReport.schemaReadiness.proposedSchema.ai_folders.proposedFields.includes(field), `missing folder proposed field ${field}`);
+  assert(foldersImagesReport.schemaReadiness.proposedSchema.ai_images.proposedFields.includes(field), `missing image proposed field ${field}`);
+}
+assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.assetOwnerTypes.includes("organization_asset"));
+assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.ownershipStatuses.includes("unsafe_to_migrate"));
+assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.ownershipSources.includes("new_write_org_context"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("blocked_for_backfill"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("requires_manual_review"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("unsafe_to_migrate_without_new_metadata"));
+
+const accessImpactIds = new Set(foldersImagesReport.accessImpactMatrix.map((entry) => entry.id));
+for (const expected of [
+  "image_list_read",
+  "image_create_save",
+  "image_update_move",
+  "image_delete",
+  "image_media_serving",
+  "public_gallery_images",
+  "folder_list_read",
+  "folder_create_update_delete",
+  "data_lifecycle_export_delete",
+  "storage_quota",
+]) {
+  assert(accessImpactIds.has(expected), `missing access impact ${expected}`);
+}
+for (const entry of foldersImagesReport.accessImpactMatrix) {
+  assert.equal(entry.phase63BehaviorChange, "no", `${entry.id} must not change behavior in Phase 6.3`);
+}
+const writeRuleIds = new Set(foldersImagesReport.futureWritePathRules.map((entry) => entry.id));
+assert(writeRuleIds.has("personal_generation"));
+assert(writeRuleIds.has("org_scoped_generation"));
+assert(writeRuleIds.has("derivatives_inherit_parent"));
+assert(foldersImagesReport.futureWritePathRules.some((entry) => entry.rule.includes("validated organization context")));
+assert(foldersImagesReport.futureWritePathRules.some((entry) => entry.rule.includes("Publishing or unpublishing")));
+assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("dry-run-first")));
+assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("Do not infer organization ownership")));
+assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("Public ambiguous rows are unsafe_to_migrate")));
+assert.equal(foldersImagesReport.schemaAccessImpact.phase63BehaviorChange, false);
+assert(foldersImagesReport.schemaAccessImpact.routesNeedingFutureAccessUpdates.includes("image_list_read"));
+assert(foldersImagesReport.schemaAccessImpact.writePathsNeedingFutureOwnershipAssignment.includes("org_scoped_generation"));
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -197,15 +254,22 @@ const focusedSerialized = JSON.stringify(foldersImagesReport);
 assert(!focusedSerialized.includes("UPDATE ai_folders"));
 assert(!focusedSerialized.includes("UPDATE ai_images"));
 assert(!focusedSerialized.includes("DELETE FROM"));
+assert(!focusedSerialized.includes("ALTER TABLE"));
+assert(!focusedSerialized.includes("CREATE INDEX"));
 assert(!focusedSerialized.includes("wrangler d1 migrations apply"));
 assert(!focusedSerialized.includes("r2 delete"));
 assert(!focusedSerialized.includes("r2 move"));
 assert(!focusedSerialized.includes("stripe "));
 assert(!focusedSerialized.includes("cloudflare api"));
 
+const migrationFiles = fs.readdirSync(path.join(repoRoot, "workers/auth/migrations"));
+assert(!migrationFiles.some((file) => /tenant.*asset.*ownership|ai.*folder.*image.*ownership/i.test(file)), "Phase 6.3 must not add ownership migration files");
+
 const focusedMarkdown = renderFoldersImagesOwnerMapMarkdown(foldersImagesReport);
 assert(focusedMarkdown.includes("# AI Folders & Images Owner-Map Dry Run"));
 assert(focusedMarkdown.includes("No owner backfill SQL is emitted."));
+assert(focusedMarkdown.includes("asset_owner_type"));
+assert(focusedMarkdown.includes("image_list_read"));
 assert(focusedMarkdown.includes("image_public_ambiguous"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

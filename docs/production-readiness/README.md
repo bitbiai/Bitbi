@@ -6,7 +6,7 @@ Current status: **production readiness is BLOCKED**. Live billing readiness is a
 
 The latest auth D1 migration declared by `config/release-compat.json` is `0055_add_platform_budget_evidence_archives.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
-Current audit/restart status is summarized in `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`. DOC-1 keeps this file focused on evidence requirements rather than phase chronology. Operators must record budget switch, cap, reconciliation, repair, report/export, archive, tenant asset dry-run, and Admin Control Plane smoke evidence before enabling admin/platform provider-cost flags for a canary. Evidence workflows do not apply repairs automatically, mutate source attempts/jobs or usage rows, call providers, call Stripe, change member/org billing, migrate asset ownership, add ownership schema, move/delete R2 objects, or make production/live billing ready.
+Current audit/restart status is summarized in `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`. DOC-1 keeps this file focused on evidence requirements rather than phase chronology. Operators must record budget switch, cap, reconciliation, repair, report/export, archive, tenant asset dry-run/schema-plan, and Admin Control Plane smoke evidence before enabling admin/platform provider-cost flags for a canary. Evidence workflows do not apply repairs automatically, mutate source attempts/jobs or usage rows, call providers, call Stripe, change member/org billing, migrate asset ownership, add ownership schema, change access checks, move/delete R2 objects, or make production/live billing ready.
 
 ## Evidence Rule
 
@@ -33,7 +33,7 @@ Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The 
 | Pricing/Credits/Organization smoke evidence | Product/release operator | Staging/canary | Test accounts; Stripe Testmode where relevant | Redact checkout URLs, session ids if not needed, and all secrets. |
 | Restore drill evidence | Operations owner | Staging or documented drill environment | Cloudflare/storage access may be required | No credentials or data dumps. |
 | Alert/WAF/static header/RUM evidence | Cloudflare/security operator | Dashboard/read-only evidence | Cloudflare access required | Screenshots must hide values and private account data. |
-| Tenant asset ownership dry-run | Repo maintainer | Local repo/source inventory | None | Record `npm run dry-run:tenant-assets` and focused `npm run dry-run:tenant-assets:images` summaries only; no live rows, R2 listings, ownership writes, or raw object keys required. |
+| Tenant asset ownership dry-run/schema plan | Repo maintainer | Local repo/source inventory | None | Record `npm run dry-run:tenant-assets`, focused `npm run dry-run:tenant-assets:images`, and `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md` summaries only; no live rows, R2 listings, ownership writes, access changes, or raw object keys required. |
 
 ## Required Before Live Billing
 

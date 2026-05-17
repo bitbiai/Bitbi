@@ -1,0 +1,214 @@
+# AI Folders & Images Schema Access Plan
+
+Date: 2026-05-17
+
+Current release truth: latest auth D1 migration is `0055_add_platform_budget_evidence_archives.sql`.
+
+Phase 6.3 is schema/access planning only for `ai_folders` and `ai_images`. It does not add a migration, rewrite D1 rows, update ownership columns, move/list/delete R2 objects, change access checks, change image generation, change folder behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+
+## Current Data Model
+
+### `ai_folders`
+
+- Defined by `0007_add_image_studio.sql` and `0009_add_folder_status.sql`.
+- Columns today: `id`, `user_id`, `name`, `slug`, `created_at`, `status`.
+- Current owner signal: `user_id`.
+- Missing durable tenant fields: owner class, owning user, owning organization, creator, ownership status/source/confidence.
+- No parent folder, public visibility, organization, or tenant quota fields exist.
+
+### `ai_images`
+
+- Defined by `0007_add_image_studio.sql`, `0017_add_ai_image_derivatives.sql`, `0019_add_ai_image_publication.sql`, and `0046_add_asset_storage_quota.sql`.
+- Core columns today: `id`, `user_id`, `folder_id`, `r2_key`, `prompt`, `model`, `steps`, `seed`, `created_at`.
+- Derivative/object fields: `thumb_key`, `medium_key`, MIME/dimension fields, derivative status/version/timestamps, and `size_bytes`.
+- Publication fields: `visibility`, `published_at`.
+- Current owner signal: `user_id`.
+- Missing durable tenant fields: owner class, owning user, owning organization, creator, ownership status/source/confidence.
+
+## Current Access Model
+
+- Folder create/list/rename/delete uses the signed-in user's `session.user.id` and `ai_folders.user_id`.
+- Image list/read/save/rename/delete/move/publish uses `ai_images.user_id`; folder-bound writes additionally require a matching active `ai_folders.user_id`.
+- Image media and derivative serving uses `ai_images.id` plus `ai_images.user_id`.
+- Public Mempics reads use `visibility = 'public'` and user-profile attribution through `ai_images.user_id`.
+- Avatar-from-saved-image uses an owned image thumbnail selected by `ai_images.user_id`.
+- Admin storage inspection and mutation are target-user centered.
+- Data lifecycle planning is `subject_user_id` centered.
+- Storage quota is `user_asset_storage_usage` centered on user id.
+
+## Proposed Additive Schema
+
+Do not add this migration in Phase 6.3. A later Phase 6.4 migration should add the same metadata columns to both `ai_folders` and `ai_images`.
+
+| Field | Purpose |
+| --- | --- |
+| `asset_owner_type` | Ownership class for the row. |
+| `owning_user_id` | Personal owner when the row is a personal user asset. |
+| `owning_organization_id` | Tenant owner when the row is an organization asset. |
+| `created_by_user_id` | Actor who created/imported/saved the row. |
+| `ownership_status` | Migration/review state for the ownership metadata. |
+| `ownership_source` | How ownership metadata was assigned. |
+| `ownership_confidence` | `high`, `medium`, `low`, or `none`. |
+| `ownership_metadata_json` | Bounded sanitized supporting evidence, never raw prompt/provider bodies/secrets. |
+| `ownership_assigned_at` | Timestamp for assignment/review. |
+
+Allowed `asset_owner_type` values:
+
+- `personal_user_asset`
+- `organization_asset`
+- `platform_admin_test_asset`
+- `platform_background_asset`
+- `legacy_unclassified_asset`
+- `external_reference_asset`
+
+Allowed `ownership_status` values:
+
+- `current`
+- `legacy_unclassified`
+- `ambiguous`
+- `orphan_reference`
+- `unsafe_to_migrate`
+- `pending_review`
+
+Allowed `ownership_source` values:
+
+- `new_write_personal`
+- `new_write_org_context`
+- `admin_selected_org`
+- `platform_admin_test`
+- `dry_run_inferred`
+- `manual_review`
+- `legacy_default`
+
+Future index targets:
+
+| Table | Purpose | Columns |
+| --- | --- | --- |
+| `ai_folders` | personal folder listing | `owning_user_id`, `asset_owner_type`, `status`, `name` |
+| `ai_folders` | organization folder listing | `owning_organization_id`, `asset_owner_type`, `status`, `name` |
+| `ai_folders` | migration review queues | `ownership_status`, `asset_owner_type`, `created_at` |
+| `ai_images` | personal image listing | `owning_user_id`, `asset_owner_type`, `folder_id`, `created_at`, `id` |
+| `ai_images` | organization image listing | `owning_organization_id`, `asset_owner_type`, `folder_id`, `created_at`, `id` |
+| `ai_images` | public gallery owner-aware listing | `visibility`, `asset_owner_type`, `published_at`, `created_at`, `id` |
+| `ai_images` | migration review queues | `ownership_status`, `asset_owner_type`, `created_at` |
+
+## Target Ownership Model
+
+- Personal rows use `asset_owner_type = personal_user_asset`, `owning_user_id = user_id`, and `created_by_user_id = user_id`.
+- Organization rows use `asset_owner_type = organization_asset`, a durable `owning_organization_id`, and the creating user in `created_by_user_id`.
+- Admin image tests are `platform_admin_test_asset` by default. Charged tests may carry selected organization reference in metadata, but retained output should not silently become a customer organization asset without product approval.
+- Legacy rows without strong evidence remain `legacy_unclassified_asset`, `ambiguous`, `orphan_reference`, `unsafe_to_migrate`, or `pending_review`.
+- Derivatives inherit parent image ownership and do not create independent ownership proof.
+
+## Write-Path Rules
+
+| Write path | Future ownership assignment |
+| --- | --- |
+| Personal generation/save | `personal_user_asset`, `owning_user_id = session.user.id`, `created_by_user_id = session.user.id`. |
+| Org-scoped generation/save | `organization_asset` only from validated explicit organization context and active membership. |
+| Folder create, personal context | `personal_user_asset`. |
+| Folder create, org context | `organization_asset` with validated org membership. |
+| Folder rename/delete | Must require matching owner scope and appropriate role. |
+| Image move to folder | Image and folder owner metadata must match; no personal-to-org or org-to-personal move by accident. |
+| Publish/unpublish | Never changes ownership metadata. |
+| Admin charged image test | Prefer `platform_admin_test_asset` plus selected-org reference; do not count as org-owned unless a future product decision says retained output belongs to the org. |
+| Explicit unmetered admin image test | `platform_admin_test_asset`. |
+| Derivative generation | Inherits parent `ai_images` owner metadata. |
+
+Do not implement these rules in Phase 6.3.
+
+## Access-Check Impact Matrix
+
+| Area | Current access basis | Proposed access basis | Phase 6.3 behavior change | Future phase | Tests required |
+| --- | --- | --- | --- | --- | --- |
+| Image list/read | `ai_images.user_id = session.user.id` | Personal owner or active org membership read role | no | 6.5 | Personal unchanged, org member allowed, non-member denied |
+| Image create/save | session user and optional user-owned folder | Explicit personal/org context assigns owner metadata | no | 6.5 | Personal save, org save, weak org rejected |
+| Image rename/move | image and folder matched by `user_id` | Asset and folder owner metadata match; org mutation role | no | 6.5 | No cross-scope moves, org admin move |
+| Image delete | `user_id` match and cleanup queued from row keys | Personal owner or org mutation role; cleanup remains row-key based | no | 6.7 | Role-safe delete, cleanup prefix safety |
+| Image publish/unpublish | `user_id` match | Personal owner or org publisher role; ownership unchanged | no | 6.6 | Publication does not change owner |
+| Image media/derivatives | `id` plus `user_id` | Personal owner or org read membership; derivative inherits parent | no | 6.5 | Member access, non-member denied, derivative owner inherited |
+| Folder list/read | `ai_folders.user_id` | Personal owner or org membership; counts owner-scope filtered | no | 6.5 | Personal counts, org counts, no mixed owner leakage |
+| Folder create/update/delete | `ai_folders.user_id` | Owner-scope and role-aware checks | no | 6.5 | Personal unchanged, org context create, role-safe delete |
+| Public gallery | `visibility = public`, profile join by `user_id` | Visibility plus owner-aware publisher attribution | no | 6.6 | Personal unchanged, org publisher, ambiguous public rows blocked/reviewed |
+| Avatar from saved image | source image selected by `ai_images.user_id` | Personal image owner or explicit org avatar policy | no | 6.6 | Personal unchanged, org image not silently personal avatar |
+| Admin storage | target-user centered admin queries/mutations | Owner class surfaced; future mutations choose user/org scope explicitly | no | 6.8 | Admin sees owner status, no accidental org mutation through user path |
+| Data lifecycle/export/delete | `subject_user_id` plans | Organization subject plans for org-owned rows | no | 6.7 | Personal unchanged, org lifecycle plan, ambiguous review |
+| Storage quota | `user_asset_storage_usage` | Personal quota plus future organization storage counters | no | 6.7 | No double count, org counter separate |
+
+## Public Gallery Impact
+
+Public gallery behavior must not change until an explicit future phase. The target model needs:
+
+- personal publisher attribution from the existing user profile path
+- organization publisher attribution for `organization_asset`
+- a product decision about showing created-by users for org assets
+- safe exclusion or review of `unsafe_to_migrate` public rows
+- versioned media URLs that keep current cache semantics
+
+## Folder/Image Relationship Model
+
+Preferred target: one owner scope per folder. An `ai_images.folder_id` row must point to a folder with the same owner class and owner id. Mixed-owner folders should be rejected unless a future product design explicitly creates shared folders.
+
+## Derivative Ownership Model
+
+`thumb_key` and `medium_key` inherit the parent `ai_images` owner metadata. Derivative R2 keys are not independent owner evidence. A later derivative alignment phase should verify parent ownership before generating or serving derivatives for organization assets.
+
+## Storage Quota Impact
+
+Phase 6.3 does not change `user_asset_storage_usage`. Future organization assets need separate organization storage counters before any bytes are reassigned. The migration must avoid double-counting rows during a transition where legacy `user_id` remains present for compatibility.
+
+## Lifecycle Export Delete Impact
+
+Current lifecycle plans are user-subject plans. Future organization assets require:
+
+- organization subject requests
+- role/admin approval policy
+- created-by user treatment for users who leave an organization
+- explicit handling for public org assets
+- review-only treatment for ambiguous, orphan, and unsafe rows
+
+## Admin Inspection Impact
+
+Admin storage tooling should eventually show owner type, owning user, owning organization, creator, status, source, confidence, and ambiguity reason. Phase 6.3 does not change admin storage endpoints.
+
+## Migration And Backfill Constraints
+
+- Every backfill must be dry-run-first.
+- Do not infer organization ownership from UI active organization, current folder name, R2 key shape, or membership alone.
+- Newly written rows after schema launch can be marked current.
+- Old user-only rows remain personal candidates or legacy unclassified until reviewed.
+- Public ambiguous rows are `unsafe_to_migrate`.
+- Folder/image owner conflicts are `ambiguous`.
+- Missing folders are `orphan_reference`.
+- Derivative mismatch requires review.
+- Deleted/anonymized user assets require lifecycle/legal review.
+- No ownership backfill should run in the same phase as the schema migration.
+
+## Test Plan
+
+Future implementation tests should cover:
+
+- schema compatibility with existing inserts and reads
+- personal folder/image writes with owner metadata
+- org-context folder/image writes with owner metadata
+- weak org signal rejection
+- role-aware org reads/writes
+- folder/image owner mismatch rejection
+- public gallery attribution branch
+- derivative owner inheritance
+- lifecycle and quota separation
+- admin inspection redaction
+- dry-run-first backfill evidence
+
+## Future Phases
+
+| Phase | Scope |
+| --- | --- |
+| 6.4 | Additive ownership metadata schema for `ai_folders` and `ai_images`; no backfill and no access behavior change. |
+| 6.5 | Write-path metadata assignment and compatibility helpers behind tests. |
+| 6.6 | Role-aware read/write access checks and public gallery attribution plan. |
+| 6.7 | Lifecycle/export/delete and quota integration design/implementation. |
+| 6.8 | Admin inspection and real-row owner-map report. |
+| 6.9 | Operator-approved non-destructive ownership metadata backfill. |
+
+Recommended next phase: **Phase 6.4 - Additive Ownership Metadata Schema for AI Folders & Images**.

@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0055_add_platform_budget_evidence_archives.sql`.
 
-Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. These phases do not rewrite D1 ownership rows, add ownership schema, move or delete R2 objects, change generation behavior, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
+Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain only. These phases do not rewrite D1 ownership rows, add a migration, move or delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
 
 ## Current Problem
 
@@ -24,9 +24,9 @@ Future asset rows should distinguish these concepts:
 
 | Concept | Purpose |
 | --- | --- |
-| `owner_type` | Classifies the asset ownership model. |
-| `owning_user_id` | Personal asset owner when `owner_type = personal_user_asset`. |
-| `owning_organization_id` | Tenant owner when `owner_type = organization_asset`. |
+| `asset_owner_type` | Classifies the asset ownership model. |
+| `owning_user_id` | Personal asset owner when `asset_owner_type = personal_user_asset`. |
+| `owning_organization_id` | Tenant owner when `asset_owner_type = organization_asset`. |
 | `created_by_user_id` | Actor who created or imported the asset. |
 | `source_domain` | Source such as member generation, admin test, public background job, or audit archive. |
 | `parent_asset_id` | Optional parent used by derivatives/posters/covers/thumbs. |
@@ -50,7 +50,7 @@ The model should avoid overloading `user_id`. Existing `user_id` may remain for 
 
 ### Personal Assets
 
-Personal assets are visible and mutable by the owning user. Current `user_id` equality checks remain valid for personal assets. Future schema should store `owner_type = personal_user_asset`, `owning_user_id = user_id`, and `created_by_user_id = user_id`.
+Personal assets are visible and mutable by the owning user. Current `user_id` equality checks remain valid for personal assets. Future schema should store `asset_owner_type = personal_user_asset`, `owning_user_id = user_id`, and `created_by_user_id = user_id`.
 
 ### Organization Assets
 
@@ -139,6 +139,15 @@ Phase 6.2 narrows the first migration-planning target to `ai_folders` and `ai_im
 
 The dry run classifies candidates as `personal_user_asset`, `organization_asset`, `platform_admin_test_asset`, `legacy_unclassified_asset`, `ambiguous_owner`, `orphan_reference`, or `unsafe_to_migrate`.
 
+## Phase 6.3 Schema/Access Plan
+
+Phase 6.3 adds the planning document `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md` and extends the focused dry run with schema/access readiness output.
+
+- Proposed future metadata for both `ai_folders` and `ai_images`: `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
+- Read/access impact remains planned only; existing `user_id` checks, public gallery reads, lifecycle/export/delete behavior, and storage quota behavior are unchanged.
+- The focused report now marks the domain `ready_for_schema`, while backfill remains `blocked_for_backfill`, `requires_manual_review`, and `unsafe_to_migrate_without_new_metadata`.
+- Recommended next step: Phase 6.4 additive schema only, with no backfill and no runtime access behavior change.
+
 ## Admin Inspection Requirements
 
 Future admin tools should show:
@@ -160,12 +169,12 @@ Admin inspection should remain sanitized and should not expose raw prompts, prov
 | Phase | Target | Notes |
 | --- | --- | --- |
 | 6.2 | AI folders/images owner-map dry run | Implemented as source/fixture dry run only; no schema, backfill, R2 mutation, or access-check change. |
-| 6.3 | AI folders/images ownership schema proposal and access-check impact plan | Propose additive owner metadata and real-row local/staging owner-map queries before any backfill. |
-| 6.4 | Organization-owned folder/asset access checks | Add role-aware checks behind tests; do not broad-backfill. |
-| 6.5 | Derivative/poster/thumb ownership alignment | Prove derived objects inherit parent ownership. |
-| 6.6 | Public gallery attribution and favorites references | Add organization publisher evidence where product approves. |
-| 6.7 | Export/delete/lifecycle integration | Add organization subject plans after owner model is stable. |
-| 6.8 | R2 owner-map and orphan report | Bounded local/staging object reconciliation; no deletes. |
+| 6.3 | AI folders/images ownership schema proposal and access-check impact plan | Implemented as design/check output only; no migration, backfill, or access behavior change. |
+| 6.4 | Additive ownership metadata schema for folders/images | Add columns and compatibility tests only; no backfill. |
+| 6.5 | Write-path metadata assignment and owner-scope helpers | Assign metadata for new writes behind tests; preserve compatibility. |
+| 6.6 | Role-aware access checks and public gallery attribution | Add organization-aware access and publisher policy deliberately. |
+| 6.7 | Export/delete/lifecycle and quota integration | Add organization subject plans and quota counters after owner model is stable. |
+| 6.8 | Admin inspection plus R2 owner-map and orphan report | Bounded local/staging object reconciliation; no deletes. |
 | 6.9 | Bounded non-destructive backfill | Operator-approved metadata only after dry-run proof. |
 | 6.10 | Destructive cleanup gate | Only after backups, owner-map proof, legal/product approval, and explicit operator approval. |
 

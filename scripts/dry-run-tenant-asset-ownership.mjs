@@ -31,7 +31,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "ai_images",
     primaryKey: "id",
     currentOwnerFields: ["user_id"],
-    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    targetOwnerFields: ["asset_owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
     r2KeyFields: ["r2_key", "thumb_key", "medium_key"],
     routeFiles: [
       "workers/auth/src/routes/ai/images-write.js",
@@ -52,7 +52,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.2 candidate: add owner-map dry-run and schema proposal before any backfill.",
+    futurePhase: "Phase 6.4 candidate: add ownership metadata schema after Phase 6.3 schema/access planning; no backfill.",
   },
   {
     id: "ai_text_assets",
@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "ai_text_assets",
     primaryKey: "id",
     currentOwnerFields: ["user_id"],
-    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    targetOwnerFields: ["asset_owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
     r2KeyFields: ["r2_key", "poster_r2_key"],
     routeFiles: [
       "workers/auth/src/routes/ai/text-assets-write.js",
@@ -86,7 +86,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "poster_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.3 candidate after image owner-map proof.",
+    futurePhase: "Later tenant asset phase after folders/images schema and access behavior are proven.",
   },
   {
     id: "ai_folders",
@@ -94,7 +94,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "ai_folders",
     primaryKey: "id",
     currentOwnerFields: ["user_id"],
-    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    targetOwnerFields: ["asset_owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
     r2KeyFields: [],
     routeFiles: [
       "workers/auth/src/routes/ai/folders-read.js",
@@ -111,7 +111,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.2 candidate because folders can define tenant boundaries before asset backfill.",
+    futurePhase: "Phase 6.4 candidate: add ownership metadata schema after Phase 6.3 schema/access planning; no backfill.",
   },
   {
     id: "ai_video_jobs",
@@ -119,7 +119,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "ai_video_jobs",
     primaryKey: "id",
     currentOwnerFields: ["user_id", "scope"],
-    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    targetOwnerFields: ["asset_owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
     r2KeyFields: ["output_r2_key", "poster_r2_key"],
     routeFiles: [
       "workers/auth/src/lib/ai-video-jobs.js",
@@ -137,7 +137,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset, organization_asset, or platform_admin_test_asset",
     risk: "high",
     findings: ["admin_test_asset_classification_needed", "missing_owning_organization_id"],
-    futurePhase: "Phase 6.4 candidate after folders/images clarify owner semantics.",
+    futurePhase: "Later tenant asset phase after folders/images metadata and access behavior are proven.",
   },
   {
     id: "profiles_avatars",
@@ -145,7 +145,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "profiles",
     primaryKey: "user_id",
     currentOwnerFields: ["user_id"],
-    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    targetOwnerFields: ["asset_owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
     r2KeyFields: ["avatars/{userId}"],
     routeFiles: [
       "workers/auth/src/routes/avatar.js",
@@ -174,7 +174,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "favorites",
     primaryKey: "id",
     currentOwnerFields: ["user_id", "item_type", "item_id"],
-    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id", "referenced_asset_owner_type"],
+    targetOwnerFields: ["asset_owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id", "referenced_asset_owner_type"],
     r2KeyFields: ["thumb_url"],
     routeFiles: ["workers/auth/src/routes/favorites.js"],
     migrationFiles: [
@@ -195,7 +195,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "user_asset_storage_usage",
     primaryKey: "user_id",
     currentOwnerFields: ["user_id"],
-    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id"],
+    targetOwnerFields: ["asset_owner_type", "owning_user_id", "owning_organization_id"],
     r2KeyFields: [],
     routeFiles: [
       "workers/auth/src/lib/asset-storage-quota.js",
@@ -217,7 +217,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "data_lifecycle_requests and data_lifecycle_request_items",
     primaryKey: "id",
     currentOwnerFields: ["subject_user_id", "r2_bucket", "r2_key"],
-    targetOwnerFields: ["subject_type", "subject_user_id", "subject_organization_id", "owner_type"],
+    targetOwnerFields: ["subject_type", "subject_user_id", "subject_organization_id", "asset_owner_type"],
     r2KeyFields: ["r2_bucket", "r2_key"],
     routeFiles: [
       "workers/auth/src/lib/data-lifecycle.js",
@@ -242,7 +242,7 @@ const ASSET_DOMAINS = Object.freeze([
     table: "news_pulse_items",
     primaryKey: "id",
     currentOwnerFields: ["platform/background content source"],
-    targetOwnerFields: ["owner_type", "source_domain"],
+    targetOwnerFields: ["asset_owner_type", "source_domain"],
     r2KeyFields: ["visual_object_key"],
     routeFiles: [
       "workers/auth/src/lib/news-pulse-visuals.js",
@@ -312,7 +312,7 @@ const ROUTE_DOMAINS = Object.freeze([
       "GET /api/ai/text-assets/:id/poster",
     ],
     currentAccess: "requires signed-in user and user_id match.",
-    tenantGap: "No owning_organization_id or owner_type branch.",
+    tenantGap: "No owning_organization_id or asset_owner_type branch.",
   },
   {
     id: "member_asset_writes",
@@ -356,27 +356,27 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.2",
     title: "Low-risk owner-map dry run for folders and image assets",
-    scope: "Add schema proposal or dry-run owner map for ai_folders/ai_images only; no backfill.",
+    scope: "Implemented as source/fixture owner-map rules for ai_folders/ai_images only; no schema and no backfill.",
   },
   {
     phase: "6.3",
-    title: "Staging/local owner-map report from real rows",
-    scope: "Compare candidate organization ownership against memberships, usage attempts, and billing context.",
+    title: "AI folders/images schema and access impact plan",
+    scope: "Implemented as proposed metadata fields, access impact matrix, write-path rules, and backfill policy; no migration.",
   },
   {
     phase: "6.4",
-    title: "Org-owned folder and asset access checks",
-    scope: "Introduce organization-aware read/write guards behind tests without broad migration.",
+    title: "Additive ownership metadata schema for folders/images",
+    scope: "Add columns and compatibility tests only; no backfill and no runtime access behavior change.",
   },
   {
     phase: "6.5",
-    title: "Derivative/poster/quota alignment",
-    scope: "Align derived keys and storage quota counters with owner model.",
+    title: "Write-path metadata assignment",
+    scope: "Assign owner metadata for new personal/org/admin writes after schema exists; no historical backfill.",
   },
   {
     phase: "6.6",
-    title: "Public gallery attribution",
-    scope: "Add tenant-aware publisher attribution and favorites reference owner evidence.",
+    title: "Role-aware access and public gallery attribution",
+    scope: "Introduce owner-aware read/write checks and public attribution after new rows carry metadata.",
   },
   {
     phase: "6.7",
@@ -385,8 +385,8 @@ const FUTURE_PHASES = Object.freeze([
   },
   {
     phase: "6.8",
-    title: "R2 owner-map and orphan report",
-    scope: "Bounded local/staging object-key reconciliation; no deletes.",
+    title: "Admin inspection plus R2 owner-map and orphan report",
+    scope: "Bounded local/staging object-key reconciliation and admin evidence; no deletes.",
   },
   {
     phase: "6.9",
@@ -491,6 +491,301 @@ const FOLDERS_IMAGES_OWNER_MAP_RULES = Object.freeze([
     id: "derivative_parent_clarity",
     summary: "thumb_key and medium_key inherit parent ownership and are risky when parent ownership confidence is not high.",
   },
+]);
+
+const FOLDERS_IMAGES_PROPOSED_OWNER_VALUES = Object.freeze({
+  assetOwnerTypes: [
+    "personal_user_asset",
+    "organization_asset",
+    "platform_admin_test_asset",
+    "platform_background_asset",
+    "legacy_unclassified_asset",
+    "external_reference_asset",
+  ],
+  ownershipStatuses: [
+    "current",
+    "legacy_unclassified",
+    "ambiguous",
+    "orphan_reference",
+    "unsafe_to_migrate",
+    "pending_review",
+  ],
+  ownershipSources: [
+    "new_write_personal",
+    "new_write_org_context",
+    "admin_selected_org",
+    "platform_admin_test",
+    "dry_run_inferred",
+    "manual_review",
+    "legacy_default",
+  ],
+});
+
+const FOLDERS_IMAGES_PROPOSED_SCHEMA = Object.freeze({
+  ai_folders: {
+    proposedFields: [
+      "asset_owner_type",
+      "owning_user_id",
+      "owning_organization_id",
+      "created_by_user_id",
+      "ownership_status",
+      "ownership_source",
+      "ownership_confidence",
+      "ownership_metadata_json",
+      "ownership_assigned_at",
+    ],
+    currentlyMissingFields: [
+      "asset_owner_type",
+      "owning_user_id",
+      "owning_organization_id",
+      "created_by_user_id",
+      "ownership_status",
+      "ownership_source",
+      "ownership_confidence",
+      "ownership_metadata_json",
+      "ownership_assigned_at",
+    ],
+    futureIndexTargets: [
+      {
+        purpose: "personal folder listing",
+        columns: ["owning_user_id", "asset_owner_type", "status", "name"],
+      },
+      {
+        purpose: "organization folder listing",
+        columns: ["owning_organization_id", "asset_owner_type", "status", "name"],
+      },
+      {
+        purpose: "migration review queues",
+        columns: ["ownership_status", "asset_owner_type", "created_at"],
+      },
+    ],
+  },
+  ai_images: {
+    proposedFields: [
+      "asset_owner_type",
+      "owning_user_id",
+      "owning_organization_id",
+      "created_by_user_id",
+      "ownership_status",
+      "ownership_source",
+      "ownership_confidence",
+      "ownership_metadata_json",
+      "ownership_assigned_at",
+    ],
+    currentlyMissingFields: [
+      "asset_owner_type",
+      "owning_user_id",
+      "owning_organization_id",
+      "created_by_user_id",
+      "ownership_status",
+      "ownership_source",
+      "ownership_confidence",
+      "ownership_metadata_json",
+      "ownership_assigned_at",
+    ],
+    futureIndexTargets: [
+      {
+        purpose: "personal image listing",
+        columns: ["owning_user_id", "asset_owner_type", "folder_id", "created_at", "id"],
+      },
+      {
+        purpose: "organization image listing",
+        columns: ["owning_organization_id", "asset_owner_type", "folder_id", "created_at", "id"],
+      },
+      {
+        purpose: "public gallery owner-aware listing",
+        columns: ["visibility", "asset_owner_type", "published_at", "created_at", "id"],
+      },
+      {
+        purpose: "migration review queues",
+        columns: ["ownership_status", "asset_owner_type", "created_at"],
+      },
+    ],
+  },
+});
+
+const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
+  {
+    id: "image_list_read",
+    routes: ["GET /api/ai/images", "GET /api/ai/assets"],
+    currentAccessBasis: "Signed-in user plus ai_images.user_id = session.user.id.",
+    proposedAccessBasis: "Personal assets keep owning_user_id check; organization assets require active organization membership and allowed read role.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.5",
+    testsRequired: ["personal image list unchanged", "organization member can list org images", "non-member cannot list org images"],
+  },
+  {
+    id: "image_create_save",
+    routes: ["POST /api/ai/generate-image", "POST /api/ai/images/save"],
+    currentAccessBasis: "Generation and save use session user; saved ai_images row stores user_id and optional user-owned folder_id.",
+    proposedAccessBasis: "Future writes assign owner metadata from explicit personal or organization context before insert.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.5",
+    testsRequired: ["personal save writes personal metadata", "org-context save writes organization metadata", "weak org context rejected"],
+  },
+  {
+    id: "image_update_move",
+    routes: ["PATCH /api/ai/images/:id/rename", "POST /api/ai/images/bulk-move", "POST /api/ai/assets/bulk-move"],
+    currentAccessBasis: "Image and destination folder are both matched by user_id.",
+    proposedAccessBasis: "Asset and folder owner metadata must match; organization moves require membership and mutation role.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.5",
+    testsRequired: ["cannot move personal image into org folder", "cannot move org image into personal folder", "org admin can move org image"],
+  },
+  {
+    id: "image_delete",
+    routes: ["DELETE /api/ai/images/:id", "POST /api/ai/images/bulk-delete", "POST /api/ai/assets/bulk-delete"],
+    currentAccessBasis: "Deletes match ai_images.user_id and enqueue/delete USER_IMAGES keys.",
+    proposedAccessBasis: "Personal owner or organization mutation role; cleanup keys remain derived from the owned row.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.7",
+    testsRequired: ["personal delete unchanged", "org delete requires role", "cleanup queue remains owner-safe"],
+  },
+  {
+    id: "image_publication",
+    routes: ["PATCH /api/ai/images/:id/publication"],
+    currentAccessBasis: "Signed-in user plus ai_images.user_id = session.user.id.",
+    proposedAccessBasis: "Personal owner or organization publisher role; publication must not change ownership.",
+    changeRisk: "medium",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.6",
+    testsRequired: ["publication keeps owner metadata", "org publication requires publisher role", "ambiguous public rows stay unsafe"],
+  },
+  {
+    id: "image_media_serving",
+    routes: ["GET /api/ai/images/:id/file", "GET /api/ai/images/:id/thumb", "GET /api/ai/images/:id/medium"],
+    currentAccessBasis: "Signed-in user plus ai_images.user_id = session.user.id.",
+    proposedAccessBasis: "Personal owner or organization read membership; derivative generation inherits parent owner.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.5",
+    testsRequired: ["personal media unchanged", "org media member access", "non-member denied", "derivative inherits parent owner"],
+  },
+  {
+    id: "folder_list_read",
+    routes: ["GET /api/ai/folders"],
+    currentAccessBasis: "Signed-in user plus ai_folders.user_id = session.user.id.",
+    proposedAccessBasis: "Personal folder owner or organization membership; counts must be owner-scope filtered.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.5",
+    testsRequired: ["personal folder counts unchanged", "org folder counts use org scope", "mixed owner folder hidden/rejected"],
+  },
+  {
+    id: "folder_create_update_delete",
+    routes: ["POST /api/ai/folders", "PATCH /api/ai/folders/:id", "DELETE /api/ai/folders/:id"],
+    currentAccessBasis: "Signed-in user plus ai_folders.user_id for rename/delete.",
+    proposedAccessBasis: "Future create assigns personal/org owner metadata; update/delete require matching owner scope and role.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.5",
+    testsRequired: ["personal folder create unchanged", "org folder create with org context", "folder delete scope-safe"],
+  },
+  {
+    id: "public_gallery_images",
+    routes: ["GET /api/gallery/mempics", "GET /api/gallery/mempics/:id/:version/file", "GET /api/gallery/mempics/:id/:version/thumb", "GET /api/gallery/mempics/:id/:version/medium"],
+    currentAccessBasis: "visibility = public plus user-profile publisher join.",
+    proposedAccessBasis: "Public visibility remains required; publisher attribution branches by asset_owner_type and organization publisher policy.",
+    changeRisk: "medium",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.6",
+    testsRequired: ["personal public gallery unchanged", "org publisher attribution", "unsafe ambiguous public rows excluded or reviewed"],
+  },
+  {
+    id: "avatar_from_saved_image",
+    routes: ["POST /api/profile/avatar with image_id"],
+    currentAccessBasis: "Signed-in user plus saved image thumb selected by ai_images.user_id.",
+    proposedAccessBasis: "Personal image owner or explicit organization avatar policy; do not silently allow org assets as personal avatars.",
+    changeRisk: "medium",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.6",
+    testsRequired: ["personal image avatar unchanged", "org image avatar policy explicit"],
+  },
+  {
+    id: "admin_storage_inspection",
+    routes: ["GET /api/admin/users/:id/storage", "admin user asset/folder rename, move, visibility, delete"],
+    currentAccessBasis: "Admin selects target user; queries and mutations are target-user centered.",
+    proposedAccessBasis: "Admin inspection must surface owner class and ambiguity; future mutations must choose user or organization scope explicitly.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.8",
+    testsRequired: ["admin sees owner metadata", "admin cannot accidentally mutate org asset through user-only scope"],
+  },
+  {
+    id: "data_lifecycle_export_delete",
+    routes: ["POST /api/admin/data-lifecycle/requests", "POST /api/admin/data-lifecycle/requests/:id/plan"],
+    currentAccessBasis: "Admin lifecycle requests are subject_user_id centered.",
+    proposedAccessBasis: "Organization-owned assets require organization subject lifecycle plans and created-by/user membership policy.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.7",
+    testsRequired: ["personal lifecycle unchanged", "org lifecycle plan includes org-owned images/folders", "ambiguous rows require review"],
+  },
+  {
+    id: "storage_quota",
+    routes: ["asset save/delete helpers", "GET /api/ai/folders", "GET /api/ai/assets", "GET /api/admin/users/:id/storage"],
+    currentAccessBasis: "user_asset_storage_usage by user_id.",
+    proposedAccessBasis: "Personal quota remains per user; organization assets require organization storage counters before byte reassignment.",
+    changeRisk: "high",
+    phase63BehaviorChange: "no",
+    futurePhase: "6.7",
+    testsRequired: ["personal quota unchanged", "org quota counters separate", "no byte double-count during transition"],
+  },
+]);
+
+const FOLDERS_IMAGES_WRITE_PATH_RULES = Object.freeze([
+  {
+    id: "personal_generation",
+    rule: "Personal member image generation and save writes personal_user_asset, owning_user_id = session user, created_by_user_id = session user.",
+  },
+  {
+    id: "org_scoped_generation",
+    rule: "Org-scoped image generation and save writes organization_asset only from explicit validated organization context and created_by_user_id = session user.",
+  },
+  {
+    id: "admin_charged_image_test",
+    rule: "Admin charged image tests should remain platform_admin_test_asset with selected organization reference in metadata unless product explicitly turns retained outputs into organization assets.",
+  },
+  {
+    id: "admin_unmetered_image_test",
+    rule: "Explicit unmetered admin image tests write platform_admin_test_asset and stay out of customer lifecycle/billing promises.",
+  },
+  {
+    id: "folder_personal_context",
+    rule: "Folders created without explicit organization context write personal_user_asset.",
+  },
+  {
+    id: "folder_org_context",
+    rule: "Folders created with validated organization context write organization_asset and require active membership.",
+  },
+  {
+    id: "publication_no_owner_change",
+    rule: "Publishing or unpublishing an image never changes ownership metadata.",
+  },
+  {
+    id: "derivatives_inherit_parent",
+    rule: "Thumb and medium derivatives inherit parent ai_images ownership; derivative rows/keys must not be treated as independent owner evidence.",
+  },
+  {
+    id: "legacy_default",
+    rule: "Existing rows without reliable evidence remain legacy_unclassified_asset or personal candidates until a reviewed owner-map backfill phase.",
+  },
+]);
+
+const FOLDERS_IMAGES_BACKFILL_POLICY = Object.freeze([
+  "Every backfill must be dry-run-first with reviewed row counts and ambiguity rates.",
+  "Do not infer organization ownership from active organization UI context, folder names, R2 key shape, or current user memberships alone.",
+  "Rows with explicit future organization metadata may become organization_asset.",
+  "User-only legacy rows remain personal candidates or legacy_unclassified_asset until policy approval.",
+  "Public ambiguous rows are unsafe_to_migrate.",
+  "Folder/image owner conflicts become ambiguous.",
+  "Images with missing folders become orphan_reference.",
+  "Derivative mismatches require review and must not drive parent ownership.",
+  "Deleted or anonymized user rows require lifecycle/legal review before any ownership assignment.",
 ]);
 
 function readText(repoRoot, relativePath) {
@@ -952,6 +1247,26 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       excluded: ["ai_text_assets", "ai_video_jobs", "member/org billing ledgers", "public gallery behavior changes", "R2 object listing"],
     },
     schemaSummary: FOLDERS_IMAGES_SCHEMA_SUMMARY,
+    schemaReadiness: {
+      status: "ready_for_schema",
+      migrationAdded: false,
+      executableSqlEmitted: false,
+      proposedOwnerValues: FOLDERS_IMAGES_PROPOSED_OWNER_VALUES,
+      proposedSchema: FOLDERS_IMAGES_PROPOSED_SCHEMA,
+      readinessByTable: {
+        ai_folders: "ready_for_schema",
+        ai_images: "ready_for_schema",
+      },
+      migrationReadiness: [
+        "ready_for_schema",
+        "blocked_for_backfill",
+        "requires_manual_review",
+        "unsafe_to_migrate_without_new_metadata",
+      ],
+    },
+    accessImpactMatrix: FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX,
+    futureWritePathRules: FOLDERS_IMAGES_WRITE_PATH_RULES,
+    backfillPolicy: FOLDERS_IMAGES_BACKFILL_POLICY,
     rules: FOLDERS_IMAGES_OWNER_MAP_RULES,
     fixture: {
       provided: Boolean(fixturePath),
@@ -997,6 +1312,14 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       publicGallery: "Mempics public attribution joins profiles by ai_images.user_id; organization publisher policy is absent.",
       r2Keys: "USER_IMAGES keys are owner hints, not tenant ownership proof; no live R2 listing is performed.",
     },
+    schemaAccessImpact: {
+      routesNeedingFutureAccessUpdates: FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX.map((entry) => entry.id),
+      writePathsNeedingFutureOwnershipAssignment: FOLDERS_IMAGES_WRITE_PATH_RULES.map((entry) => entry.id),
+      lifecycleExportDeleteGap: "organization-owned folder/image lifecycle plans are not implemented",
+      storageQuotaGap: "organization storage counters are not implemented",
+      publicGalleryGap: "organization publisher attribution is not implemented",
+      phase63BehaviorChange: false,
+    },
     blockedUntil: [
       "An additive ownership metadata schema is approved.",
       "A local/staging owner-map report validates real row counts and ambiguity rates.",
@@ -1011,7 +1334,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "Source-only mode reports domain/rule readiness, not row counts.",
       "No runtime access behavior changes are made.",
     ],
-    recommendedNextPhase: "Phase 6.3 — AI Folders & Images Ownership Schema Proposal / Access-Check Impact Plan",
+    recommendedNextPhase: "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
   };
 }
 
@@ -1129,6 +1452,24 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Blocked candidates: ${report.summary.blockedCandidateCount}`,
     `- Public-risk candidates: ${report.summary.publicRiskCandidateCount}`,
     `- Derivative-risk candidates: ${report.summary.derivativeRiskCandidateCount}`,
+    `- Schema readiness: ${report.schemaReadiness?.status || "not_reported"}`,
+    `- Phase 6.3 behavior change: ${report.schemaAccessImpact?.phase63BehaviorChange === false ? "no" : "review"}`,
+    "",
+    "## Proposed Schema Fields",
+    "",
+    "| Table | Proposed fields missing today |",
+    "| --- | --- |",
+    ...Object.entries(report.schemaReadiness?.proposedSchema || {}).map(([table, plan]) => (
+      `| ${table} | ${(plan.currentlyMissingFields || []).join(", ")} |`
+    )),
+    "",
+    "## Access Impact",
+    "",
+    "| Area | Current basis | Future basis | Phase 6.3 behavior change |",
+    "| --- | --- | --- | --- |",
+    ...report.accessImpactMatrix.map((entry) => (
+      `| ${entry.id} | ${entry.currentAccessBasis} | ${entry.proposedAccessBasis} | ${entry.phase63BehaviorChange} |`
+    )),
     "",
     "## Owner Classes",
     "",

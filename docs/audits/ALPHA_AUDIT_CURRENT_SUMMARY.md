@@ -18,7 +18,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Member image/music/video AI Cost Gateway flows are migrated with required idempotency and duplicate-provider suppression.
 - Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, read-only reconciliation, explicit admin-approved repair, report/export, and sanitized archives.
 - Admin Control Plane navigation now surfaces the implemented operator panels without changing backend behavior.
-- Phase 6.1 tenant asset ownership design/inventory/risk docs exist, and Phase 6.2 adds the first focused `ai_folders`/`ai_images` owner-map dry run with synthetic fixture tests.
+- Phase 6.1 tenant asset ownership design/inventory/risk docs exist; Phase 6.2 adds the focused `ai_folders`/`ai_images` owner-map dry run; Phase 6.3 adds the schema/access impact plan without adding a migration or changing access behavior.
 - Historical phase reports and pre-DOC-1 long-form docs are archived/indexed instead of expanded in active docs.
 
 ## Current Open Blockers
@@ -27,7 +27,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drills, and rollback evidence are not recorded here.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.
 - Billing remediation, refund/dispute/accounting/legal workflows remain incomplete.
-- Tenant-owned asset migration implementation and self-service privacy flows remain incomplete; Phase 6.1/6.2 did not migrate rows, add schema, or move/delete R2 objects.
+- Tenant-owned asset migration implementation and self-service privacy flows remain incomplete; Phase 6.1/6.2/6.3 did not migrate rows, add schema, change access checks, or move/delete R2 objects.
 - Remaining AI budget scopes/internal provider routes are future work.
 
 ## Deployment Requirements
@@ -48,7 +48,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 
 ## Next Recommended Step
 
-Collect operator evidence for migrations through `0055`, Admin Control Plane budget panels, AI cost policy output, repair/report/archive flows, tenant asset dry-run output, and production-readiness checks. If implementation continues, Phase 6.3 should propose additive folder/image ownership metadata and access-check impact, not broad backfill.
+Collect operator evidence for migrations through `0055`, Admin Control Plane budget panels, AI cost policy output, repair/report/archive flows, tenant asset dry-run output, and production-readiness checks. If implementation continues, Phase 6.4 should add only the additive folder/image ownership metadata schema, with no broad backfill or runtime access change.
 
 ## Historical Evidence Links
 
