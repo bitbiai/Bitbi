@@ -817,6 +817,8 @@ class MockD1 {
       platformBudgetUsageEvents: [],
       platformBudgetRepairActions: [],
       platformBudgetEvidenceArchives: [],
+      aiAssetManualReviewItems: [],
+      aiAssetManualReviewEvents: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],

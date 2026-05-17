@@ -14,7 +14,7 @@ This checklist is for owner-run evidence collection from `main` after the Phase 
 | Reviewed commit SHA recorded |  | blocked |
 | Local validation completed |  | blocked |
 | Release plan reviewed |  | blocked |
-| Remote auth D1 migration `0056_add_ai_folder_image_ownership_metadata.sql` verified before Auth Worker deploy |  | blocked |
+| Remote auth D1 migration `0057_add_ai_asset_manual_review_state.sql` verified before Auth Worker deploy |  | blocked |
 | Auth Worker containing Phase 6.7 endpoint deployed by operator if not already live |  | blocked |
 | No static/Admin UI deploy is required for Phase 6.8 docs-only work |  | blocked |
 | Admin account and MFA path confirmed |  | blocked |
@@ -103,4 +103,4 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 ## Next Recommended Phase
 
-Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images after Phase 6.12 schema design, with no review-row import, access-check switch, or backfill by default.
+Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images after Phase 6.13 empty review-state schema, with no access-check switch or backfill by default.

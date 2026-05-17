@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.12 adds manual review state schema design; Phase 6.13 should add schema only before access/backfill work.",
+    futurePhase: "Phase 6.13 adds manual review state schema only; Phase 6.14 should dry-run review-item import before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.12 adds manual review state schema design; Phase 6.13 should add schema only before access/backfill work.",
+    futurePhase: "Phase 6.13 adds manual review state schema only; Phase 6.14 should dry-run review-item import before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -218,7 +218,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.13 after manual review state schema design addresses real main owner-map evidence.",
+    futurePhase: "Phase 6.14 after manual review state schema addresses real main owner-map evidence.",
   },
   {
     id: "data_lifecycle",
@@ -243,7 +243,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "audit_archive_asset",
     risk: "high",
     findings: ["lifecycle_user_only", "organization_export_delete_gap"],
-    futurePhase: "Phase 6.13 after manual review state schema design addresses real main owner mapping.",
+    futurePhase: "Phase 6.14 after manual review state schema addresses real main owner mapping.",
   },
   {
     id: "news_pulse_visuals",
@@ -269,7 +269,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "platform_background_asset",
     risk: "medium",
     findings: ["platform_background_asset_classification_needed"],
-    futurePhase: "Phase 6.13 out-of-scope for tenant-owned member assets.",
+    futurePhase: "Phase 6.14 out-of-scope for tenant-owned member assets.",
   },
 ]);
 
@@ -420,12 +420,12 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.13",
     title: "Additive manual review state schema",
-    scope: "Add future review-state tables only if approved; no review-row import, access switch, or backfill by default.",
+    scope: "Implemented as additive review-state tables only; no review-row import, access switch, or backfill.",
   },
   {
     phase: "6.14",
-    title: "Manual review item import design",
-    scope: "Future evidence import only after schema exists; no access switch or broad backfill by default.",
+    title: "Manual review item import dry run",
+    scope: "Future dry-run review-item import planning from evidence; no access switch or broad backfill by default.",
   },
 ]);
 
@@ -1347,7 +1347,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       ? "pending_main_evidence"
       : "not_recorded";
   const mainEvidenceNextPhase = realMainEvidenceFound
-    ? manualReviewStateSchemaDesigned
+    ? manualReviewStateSchemaMigrationExists
+      ? "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
+      : manualReviewStateSchemaDesigned
       ? "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
       : manualReviewWorkflowDesigned
         ? "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images"
@@ -1568,23 +1570,34 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         "superseded",
       ],
       recommendedNextPhase: manualReviewStateSchemaDesigned
-        ? "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
+        ? manualReviewStateSchemaMigrationExists
+          ? "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
+          : "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
         : "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images",
     },
     manualReviewStateSchema: {
-      status: manualReviewStateSchemaDesigned
+      status: manualReviewStateSchemaMigrationExists
+        ? "manual_review_state_schema_added"
+        : manualReviewStateSchemaDesigned
         ? "manual_review_state_schema_designed"
         : "not_recorded",
       designDoc: manualReviewStateSchemaDesigned ? manualReviewStateSchemaDesignFile : null,
-      expectedFutureMigration: manualReviewStateSchemaMigrationFile,
+      expectedFutureMigration: manualReviewStateSchemaMigrationExists ? null : manualReviewStateSchemaMigrationFile,
+      migrationFile: manualReviewStateSchemaMigrationExists ? manualReviewStateSchemaMigrationFile : null,
       migrationAdded: manualReviewStateSchemaMigrationExists,
+      reviewTablesPresent: manualReviewStateSchemaMigrationExists,
       reviewRowsCreated: false,
+      reviewRowsImported: false,
+      reviewRowsNotImported: true,
       reviewItemImportAdded: false,
       endpointAdded: false,
       adminUiAdded: false,
       accessChecksChanged: false,
       backfillPerformed: false,
+      backfillNotStarted: true,
       r2LiveListed: false,
+      futureImportRequired: true,
+      stateRowsExpectedAfterMigration: 0,
       proposedTables: [
         "ai_asset_manual_review_items",
         "ai_asset_manual_review_events",
@@ -1613,13 +1626,17 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         "mark_deferred",
         "mark_superseded",
       ],
-      recommendedNextPhase: "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images",
+      recommendedNextPhase: manualReviewStateSchemaMigrationExists
+        ? "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
+        : "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images",
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
         ? "Read diagnostics compare existing user_id access with new ownership metadata before any access-check switch."
         : "Write paths assign ownership metadata for new rows.",
-      manualReviewStateSchemaDesigned
+      manualReviewStateSchemaMigrationExists
+        ? "Manual-review item import remains future and must start as dry-run evidence planning without ownership mutation."
+        : manualReviewStateSchemaDesigned
         ? "Additive manual-review state tables are added in a future approved migration without importing review rows."
         : "Manual review state schema is designed for real-row owner-map metadata-missing, public unsafe, derivative-risk, dual-read-unsafe, and manual-review findings.",
       "Organization ownership is backed by explicit row-level evidence, not UI active organization context.",

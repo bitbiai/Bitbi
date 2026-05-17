@@ -9,9 +9,9 @@ Purpose: concise restart point for future Codex sessions. This file is current s
 | Item | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest completed implementation phase | Phase 6.12 tenant asset ownership manual-review state schema design |
+| Latest completed implementation phase | Phase 6.13 tenant asset ownership manual-review state schema foundation |
 | Latest documentation phase | DOC-1 documentation diet and archive consolidation |
-| Latest auth D1 migration | `0056_add_ai_folder_image_ownership_metadata.sql` |
+| Latest auth D1 migration | `0057_add_ai_asset_manual_review_state.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
 | Production readiness | BLOCKED |
 | Live billing readiness | BLOCKED |
@@ -34,16 +34,16 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
 - Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
 - Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, and Phase 6.12 manual-review state schema design exist; no review-state migration, review-row import, old-row ownership backfill, organization ownership assignment, access-check switch, or R2 objects were migrated/listed live.
+- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, Phase 6.12 manual-review state schema design, and Phase 6.13 empty review-state tables exist; no review-row import, old-row ownership backfill, organization ownership assignment, access-check switch, or R2 objects were migrated/listed live.
 
 ## Current Blockers
 
-- Remote auth migrations through `0056_add_ai_folder_image_ownership_metadata.sql` must be applied before deploying auth Worker code that depends on those tables.
+- Remote auth migrations through `0057_add_ai_asset_manual_review_state.sql` must be applied before deploying auth Worker code that depends on those tables.
 - Required Worker secrets and bindings must be verified without printing values.
 - Stripe Testmode, live credit-pack, and BITBI Pro subscription canaries require explicit operator flags and evidence; live billing remains blocked.
 - Cloudflare WAF/static headers/RUM/alerts remain dashboard-managed or manual evidence items.
 - Restore drill, live health checks, security-header checks, queue/R2/D1 verification, and rollback evidence are still required.
-- Additive tenant-owned asset manual-review state schema, org-owned write assignment, old-row owner-map/backfill, self-service privacy flows, legal-approved billing remediation, invoices/customer portal/tax, and broad remaining internal AI Worker route coverage remain future work.
+- Tenant-owned asset review-item import, org-owned write assignment, old-row owner-map/backfill, self-service privacy flows, legal-approved billing remediation, invoices/customer portal/tax, and broad remaining internal AI Worker route coverage remain future work.
 
 ## Read First
 
@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. If approved, implement Phase 6.13 as additive manual-review state schema for AI folders/images using `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`; keep it schema-only with no review-row import, access switch, ownership backfill, or R2 action.
+1. If approved, implement Phase 6.14 as manual review item import dry run for AI folders/images using the Phase 6.13 schema; keep it dry-run/import-planning only with no access switch, ownership backfill, or R2 action.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.13 additive manual-review state schema, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.14 manual review item import dry run, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 

@@ -11,7 +11,7 @@ German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1
-migration as `0056_add_ai_folder_image_ownership_metadata.sql`. This audit
+migration as `0057_add_ai_asset_manual_review_state.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
@@ -39,8 +39,8 @@ runbook/template/checklist docs only. Phase 6.9 adds a main-only evidence
 package. Phase 6.10 reviews real main evidence and records manual review
 required while access-switch/backfill remains blocked. Phase 6.11 adds
 manual-review workflow design and a local planner only. Phase 6.12 designs
-future manual-review state schema only. These phases do not add the future
-review-state migration, create review rows, rewrite existing D1 ownership rows,
+manual-review state schema, and Phase 6.13 adds empty review-state tables only.
+These phases do not import review rows, rewrite existing D1 ownership rows,
 backfill old owner metadata, assign organization ownership,
 move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
@@ -66,9 +66,9 @@ admin evidence reports/exports, Phase 6.8 defines evidence collection
 records, Phase 6.9 adds the main-only evidence package, Phase 6.10 reviews
 real main evidence and requires manual review while keeping access/backfill
 blocked, Phase 6.11 defines a manual-review workflow without execution, and
-Phase 6.12 designs future review-state tables/events without adding them.
-Existing generated assets are not backfilled and are not migrated to
-organization ownership.
+Phase 6.12 designs review-state tables/events, and Phase 6.13 adds those empty
+tables without importing review rows. Existing generated assets are not
+backfilled and are not migrated to organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform

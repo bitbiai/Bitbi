@@ -30,13 +30,17 @@ Phase 6.11 adds the design-only manual review workflow and plan:
 - `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`
 - `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`
 
-The workflow defines review categories and statuses only. No review execution endpoint, Admin UI, D1 migration, ownership backfill, D1 row rewrite, R2 listing/mutation, or access-check switch has occurred.
+The workflow defines review categories and statuses only. No review execution endpoint, Admin UI, ownership backfill, D1 ownership row rewrite, R2 listing/mutation, or access-check switch has occurred.
 
-Phase 6.12 adds design-only review-state schema planning:
+Phase 6.12 adds review-state schema planning:
 
 - `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`
 
-The schema design proposes future `ai_asset_manual_review_items` and `ai_asset_manual_review_events` tables, transitions, idempotency rules, and safe evidence snapshots. No `0057` migration exists yet, no review rows were created, no evidence was imported into D1, and no access-switch/backfill execution occurred.
+Phase 6.13 adds the empty review-state tables:
+
+- `workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql`
+
+The schema creates `ai_asset_manual_review_items` and `ai_asset_manual_review_events` plus lookup/audit indexes only. No review rows were created or imported, no evidence was imported into D1, no endpoint/UI was added, and no access-switch/backfill execution occurred.
 
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 

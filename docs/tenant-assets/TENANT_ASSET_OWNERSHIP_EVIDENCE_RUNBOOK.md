@@ -11,7 +11,7 @@ The active workflow is **main-only**. There is no required separate staging envi
 ## Prerequisites
 
 - The reviewed Auth Worker code containing the Phase 6.7 tenant asset evidence endpoints is deployed by the operator, if not already live.
-- Remote auth D1 migration status is verified through `0056_add_ai_folder_image_ownership_metadata.sql` before deploying Auth Worker code that reads the nullable ownership columns.
+- Remote auth D1 migration status is verified through `0057_add_ai_asset_manual_review_state.sql` before deploying Auth Worker code that depends on the current schema foundation.
 - The operator has a platform admin account and completes admin MFA where required.
 - Evidence is saved in an operator-approved private evidence location. Do not commit live evidence files if they contain user ids or production row identifiers.
 - Sanitized in-repo summaries, pending records, or approved redacted exports belong under `docs/tenant-assets/evidence/`.
@@ -208,4 +208,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images after the Phase 6.12 schema design, with no review-row import, access-check switch, or backfill by default.
+Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images after the Phase 6.13 empty review-state schema, with no access-check switch or backfill by default.

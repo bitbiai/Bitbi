@@ -23,6 +23,19 @@ import {
   parseTenantAssetManualReviewEvidenceMarkdown,
   renderTenantAssetManualReviewPlanMarkdown,
 } from "./plan-tenant-asset-manual-review.mjs";
+import {
+  TENANT_ASSET_MANUAL_REVIEW_EVENT_TYPES,
+  TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES,
+  TENANT_ASSET_MANUAL_REVIEW_PRIORITIES,
+  TENANT_ASSET_MANUAL_REVIEW_SEVERITIES,
+  TENANT_ASSET_MANUAL_REVIEW_STATUSES,
+  normalizeTenantAssetManualReviewEventType,
+  normalizeTenantAssetManualReviewIssueCategory,
+  normalizeTenantAssetManualReviewPriority,
+  normalizeTenantAssetManualReviewSeverity,
+  normalizeTenantAssetManualReviewStatus,
+  serializeTenantAssetManualReviewMetadata,
+} from "../workers/auth/src/lib/tenant-asset-manual-review.js";
 
 const repoRoot = process.cwd();
 const report = buildTenantAssetOwnershipDryRunReport(repoRoot, {
@@ -300,34 +313,41 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
+  "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
 );
-assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_designed");
+assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.designDoc,
   "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md"
 );
 assert.equal(
-  foldersImagesReport.manualReviewStateSchema.expectedFutureMigration,
+  foldersImagesReport.manualReviewStateSchema.migrationFile,
   "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql"
 );
-assert.equal(foldersImagesReport.manualReviewStateSchema.migrationAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.expectedFutureMigration, null);
+assert.equal(foldersImagesReport.manualReviewStateSchema.migrationAdded, true);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewTablesPresent, true);
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsCreated, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsImported, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsNotImported, true);
 assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportAdded, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.endpointAdded, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.adminUiAdded, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.backfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.backfillNotStarted, true);
 assert.equal(foldersImagesReport.manualReviewStateSchema.r2LiveListed, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.futureImportRequired, true);
+assert.equal(foldersImagesReport.manualReviewStateSchema.stateRowsExpectedAfterMigration, 0);
 assert(foldersImagesReport.manualReviewStateSchema.proposedTables.includes("ai_asset_manual_review_items"));
 assert(foldersImagesReport.manualReviewStateSchema.proposedTables.includes("ai_asset_manual_review_events"));
 assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx_ai_asset_manual_review_items_domain_asset"));
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
+  "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images");
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.14 — Manual Review Item Import Dry Run for AI Folders & Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -605,7 +625,8 @@ for (const expected of [
   "create_review_item_from_evidence",
   "idx_ai_asset_manual_review_items_domain_asset",
   "Idempotency-Key",
-  "No migration file is added in Phase 6.12",
+  "Phase 6.13 Migration",
+  "Migration filename: `0057_add_ai_asset_manual_review_state.sql`",
   "No review rows are created",
 ]) {
   assert(manualReviewStateSchemaDesign.includes(expected), `manual review state schema design missing ${expected}`);
@@ -620,11 +641,80 @@ const manualReviewStateSchemaMigrationPath = path.join(
   repoRoot,
   "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql"
 );
-assert.equal(
-  fs.existsSync(manualReviewStateSchemaMigrationPath),
-  false,
-  "Phase 6.12 must not add the future 0057 manual review state migration"
-);
+assert(fs.existsSync(manualReviewStateSchemaMigrationPath), "Phase 6.13 must add the 0057 manual review state migration");
+const manualReviewStateSchemaMigration = fs.readFileSync(manualReviewStateSchemaMigrationPath, "utf8");
+for (const expected of [
+  "CREATE TABLE IF NOT EXISTS ai_asset_manual_review_items",
+  "CREATE TABLE IF NOT EXISTS ai_asset_manual_review_events",
+  "id TEXT PRIMARY KEY",
+  "asset_domain TEXT NOT NULL",
+  "issue_category TEXT NOT NULL",
+  "review_status TEXT NOT NULL",
+  "severity TEXT NOT NULL",
+  "priority TEXT NOT NULL",
+  "evidence_summary_json TEXT",
+  "metadata_json TEXT",
+  "review_item_id TEXT NOT NULL",
+  "event_type TEXT NOT NULL",
+  "idempotency_key TEXT",
+  "request_hash TEXT",
+  "idx_ai_asset_manual_review_items_domain_asset",
+  "idx_ai_asset_manual_review_items_status",
+  "idx_ai_asset_manual_review_items_category",
+  "idx_ai_asset_manual_review_items_severity",
+  "idx_ai_asset_manual_review_items_priority",
+  "idx_ai_asset_manual_review_items_created_at",
+  "idx_ai_asset_manual_review_items_evidence_source",
+  "idx_ai_asset_manual_review_events_item",
+  "idx_ai_asset_manual_review_events_idempotency",
+  "Dedupe uniqueness is deferred",
+]) {
+  assert(manualReviewStateSchemaMigration.includes(expected), `manual review state migration missing ${expected}`);
+}
+assert(!/\bINSERT\s+INTO\b/i.test(manualReviewStateSchemaMigration));
+assert(!/\bUPDATE\s+ai_(folders|images)\b/i.test(manualReviewStateSchemaMigration));
+assert(!/\bALTER\s+TABLE\s+ai_(folders|images)\b/i.test(manualReviewStateSchemaMigration));
+assert(!/\bDELETE\s+FROM\b/i.test(manualReviewStateSchemaMigration));
+assert(!/\bDROP\b/i.test(manualReviewStateSchemaMigration));
+
+assert(TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES.includes("metadata_missing"));
+assert(TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES.includes("public_unsafe"));
+assert(TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES.includes("safe_observe_only"));
+assert(TENANT_ASSET_MANUAL_REVIEW_STATUSES.includes("pending_review"));
+assert(TENANT_ASSET_MANUAL_REVIEW_STATUSES.includes("blocked_derivative_risk"));
+assert.deepEqual(TENANT_ASSET_MANUAL_REVIEW_EVENT_TYPES, [
+  "created",
+  "assigned",
+  "note_added",
+  "status_changed",
+  "superseded",
+  "deferred",
+  "rejected",
+]);
+assert.deepEqual(TENANT_ASSET_MANUAL_REVIEW_SEVERITIES, ["info", "warning", "critical"]);
+assert.deepEqual(TENANT_ASSET_MANUAL_REVIEW_PRIORITIES, ["low", "medium", "high", "urgent"]);
+assert.equal(normalizeTenantAssetManualReviewIssueCategory(" metadata_missing "), "metadata_missing");
+assert.equal(normalizeTenantAssetManualReviewIssueCategory("other"), null);
+assert.equal(normalizeTenantAssetManualReviewStatus("pending_review"), "pending_review");
+assert.equal(normalizeTenantAssetManualReviewEventType("status_changed"), "status_changed");
+assert.equal(normalizeTenantAssetManualReviewSeverity("critical"), "critical");
+assert.equal(normalizeTenantAssetManualReviewPriority("urgent"), "urgent");
+const manualReviewMetadata = serializeTenantAssetManualReviewMetadata({
+  category: "metadata_missing",
+  prompt: "do not expose",
+  r2_key: "users/synthetic-user/folders/private/image.png",
+  signedUrl: "https://example.invalid/signed",
+  nested: {
+    providerResponse: "raw provider payload",
+    safeLabel: "manual-review",
+  },
+});
+assert(manualReviewMetadata.includes('"category":"metadata_missing"'));
+assert(manualReviewMetadata.includes('"safeLabel":"manual-review"'));
+assert(!manualReviewMetadata.includes("do not expose"));
+assert(!manualReviewMetadata.includes("users/synthetic-user/folders/private/image.png"));
+assert(!manualReviewMetadata.includes("raw provider payload"));
+assert(manualReviewMetadata.includes("[redacted]"));
 
 const ownershipMigrationPath = path.join(
   repoRoot,
@@ -672,8 +762,8 @@ assert(focusedMarkdown.includes("needs_manual_review"));
 assert(focusedMarkdown.includes("Manual Review Workflow"));
 assert(focusedMarkdown.includes("manual_review_workflow_designed"));
 assert(focusedMarkdown.includes("Manual Review State Schema"));
-assert(focusedMarkdown.includes("manual_review_state_schema_designed"));
+assert(focusedMarkdown.includes("manual_review_state_schema_added"));
 assert(focusedMarkdown.includes("ai_asset_manual_review_items"));
-assert(focusedMarkdown.includes("Phase 6.13"));
+assert(focusedMarkdown.includes("Phase 6.14"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

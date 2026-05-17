@@ -23,7 +23,7 @@ This workflow is main-only. Do not mark evidence as collected unless it came fro
 | Item | Evidence | Result |
 | --- | --- | --- |
 | Auth Worker contains Phase 6.7 evidence endpoint |  | blocked |
-| Remote auth D1 migration status verified through `0056_add_ai_folder_image_ownership_metadata.sql` |  | blocked |
+| Remote auth D1 migration status verified through `0057_add_ai_asset_manual_review_state.sql` |  | blocked |
 | Admin account approved for evidence collection |  | blocked |
 | Admin MFA completed where required |  | blocked |
 | Evidence storage location approved and private |  | blocked |
@@ -138,4 +138,4 @@ Record operator confirmation:
 
 ## 11. Next Recommended Phase
 
-Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images if Phase 6.12 has already recorded the schema design and nonzero high-risk counts remain. The next phase should still avoid review-row import, access-check switching, and ownership backfill unless separately approved.
+Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images if Phase 6.13 empty review-state schema is present and nonzero high-risk counts remain. The next phase should still avoid access-check switching and ownership backfill unless separately approved.

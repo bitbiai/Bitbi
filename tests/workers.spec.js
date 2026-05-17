@@ -126,6 +126,13 @@ async function loadTenantAssetOwnershipModule() {
   return import(modulePath);
 }
 
+async function loadTenantAssetManualReviewModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-manual-review.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -913,6 +920,172 @@ test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
     );
     expect(publicGallery.status).toBe(200);
     expect((await publicGallery.json()).data.items.some((item) => item.id === imageRow.id)).toBe(true);
+  });
+});
+
+test.describe('Phase 6.13 AI asset manual review state schema', () => {
+  const itemColumns = [
+    'id',
+    'asset_domain',
+    'asset_id',
+    'related_asset_id',
+    'source_table',
+    'source_row_id',
+    'issue_category',
+    'review_status',
+    'severity',
+    'priority',
+    'legacy_owner_user_id',
+    'proposed_asset_owner_type',
+    'proposed_owning_user_id',
+    'proposed_owning_organization_id',
+    'proposed_ownership_status',
+    'proposed_ownership_source',
+    'proposed_ownership_confidence',
+    'evidence_source_path',
+    'evidence_report_generated_at',
+    'evidence_summary_json',
+    'safe_notes',
+    'assigned_to_user_id',
+    'reviewed_by_user_id',
+    'reviewed_at',
+    'created_by_user_id',
+    'created_at',
+    'updated_at',
+    'superseded_by_id',
+    'metadata_json',
+  ];
+
+  const eventColumns = [
+    'id',
+    'review_item_id',
+    'event_type',
+    'old_status',
+    'new_status',
+    'actor_user_id',
+    'actor_email',
+    'reason',
+    'idempotency_key',
+    'request_hash',
+    'event_metadata_json',
+    'created_at',
+  ];
+
+  test('migration adds review-state tables and indexes without review imports or asset rewrites', () => {
+    const migrationPath = path.join(
+      process.cwd(),
+      'workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql'
+    );
+    const migration = fs.readFileSync(migrationPath, 'utf8');
+
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS ai_asset_manual_review_items');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS ai_asset_manual_review_events');
+    for (const column of itemColumns) {
+      expect(migration).toContain(column);
+    }
+    for (const column of eventColumns) {
+      expect(migration).toContain(column);
+    }
+
+    for (const indexName of [
+      'idx_ai_asset_manual_review_items_domain_asset',
+      'idx_ai_asset_manual_review_items_status',
+      'idx_ai_asset_manual_review_items_category',
+      'idx_ai_asset_manual_review_items_severity',
+      'idx_ai_asset_manual_review_items_priority',
+      'idx_ai_asset_manual_review_items_created_at',
+      'idx_ai_asset_manual_review_items_evidence_source',
+      'idx_ai_asset_manual_review_events_item',
+      'idx_ai_asset_manual_review_events_idempotency',
+    ]) {
+      expect(migration).toContain(`CREATE INDEX IF NOT EXISTS ${indexName}`);
+    }
+
+    expect(migration).toContain('Dedupe uniqueness is deferred');
+    expect(migration).not.toMatch(/\bDROP\b/i);
+    expect(migration).not.toMatch(/\bDELETE\s+FROM\b/i);
+    expect(migration).not.toMatch(/\bUPDATE\s+ai_(folders|images)\b/i);
+    expect(migration).not.toMatch(/\bINSERT\s+INTO\b/i);
+    expect(migration).not.toMatch(/\bALTER\s+TABLE\s+ai_(folders|images)\b/i);
+  });
+
+  test('manual review helper exposes allowlists and redacts unsafe metadata', async () => {
+    const manualReview = await loadTenantAssetManualReviewModule();
+
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES).toContain('metadata_missing');
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES).toContain('public_unsafe');
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES).toContain('safe_observe_only');
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_STATUSES).toContain('pending_review');
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_STATUSES).toContain('blocked_derivative_risk');
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_EVENT_TYPES).toEqual([
+      'created',
+      'assigned',
+      'note_added',
+      'status_changed',
+      'superseded',
+      'deferred',
+      'rejected',
+    ]);
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_SEVERITIES).toEqual(['info', 'warning', 'critical']);
+    expect(manualReview.TENANT_ASSET_MANUAL_REVIEW_PRIORITIES).toEqual(['low', 'medium', 'high', 'urgent']);
+
+    expect(manualReview.normalizeTenantAssetManualReviewIssueCategory(' metadata_missing ')).toBe('metadata_missing');
+    expect(manualReview.normalizeTenantAssetManualReviewIssueCategory('unknown')).toBeNull();
+    expect(manualReview.normalizeTenantAssetManualReviewStatus('pending_review')).toBe('pending_review');
+    expect(manualReview.normalizeTenantAssetManualReviewEventType('status_changed')).toBe('status_changed');
+    expect(manualReview.normalizeTenantAssetManualReviewSeverity('critical')).toBe('critical');
+    expect(manualReview.normalizeTenantAssetManualReviewPriority('urgent')).toBe('urgent');
+
+    const metadata = manualReview.serializeTenantAssetManualReviewMetadata({
+      category: 'metadata_missing',
+      counts: { metadataMissingTotal: 75 },
+      prompt: 'do not expose',
+      r2_key: 'users/private/key.png',
+      signedUrl: 'https://example.invalid/signed',
+      nested: {
+        providerResponse: 'raw provider body',
+        safeLabel: 'review-only',
+      },
+    });
+    expect(metadata).toContain('"category":"metadata_missing"');
+    expect(metadata).toContain('"safeLabel":"review-only"');
+    expect(metadata).not.toContain('do not expose');
+    expect(metadata).not.toContain('users/private/key.png');
+    expect(metadata).not.toContain('raw provider body');
+    expect(metadata).toContain('[redacted]');
+  });
+
+  test('fresh harness state has no review rows and existing folder/image rows remain untouched', () => {
+    const folder = {
+      id: 'review-schema-folder',
+      user_id: 'review-schema-user',
+      name: 'Review Schema Folder',
+      slug: 'review-schema-folder',
+      created_at: '2026-05-17T10:00:00.000Z',
+    };
+    const image = {
+      id: 'review-schema-image',
+      user_id: 'review-schema-user',
+      folder_id: folder.id,
+      r2_key: 'users/review-schema-user/folders/review-schema-folder/image.png',
+      prompt: 'schema compatibility image',
+      model: '@cf/test-model',
+      steps: 4,
+      created_at: '2026-05-17T10:01:00.000Z',
+    };
+    const env = createAuthTestEnv({
+      aiFolders: [folder],
+      aiImages: [image],
+    });
+
+    expect(env.DB.state.aiAssetManualReviewItems).toEqual([]);
+    expect(env.DB.state.aiAssetManualReviewEvents).toEqual([]);
+    expect(env.DB.state.aiFolders).toHaveLength(1);
+    expect(env.DB.state.aiImages).toHaveLength(1);
+    expect(env.DB.state.aiFolders[0].id).toBe(folder.id);
+    expect(env.DB.state.aiImages[0].id).toBe(image.id);
+    expect(env.DB.state.aiFolders[0].asset_owner_type).toBeNull();
+    expect(env.DB.state.aiImages[0].asset_owner_type).toBeNull();
   });
 });
 
@@ -21490,8 +21663,10 @@ test.describe('Worker routes', () => {
         replay_available: false,
         replay_policy: 'metadata_only_no_result_replay',
       }));
-      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('same embedding request');
-      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('0.1');
+      const embeddingAttempt = env.DB.state.adminAiUsageAttempts[0];
+      expect(JSON.stringify(embeddingAttempt)).not.toContain('same embedding request');
+      expect(embeddingAttempt.result_metadata_json).not.toContain('0.1');
+      expect(JSON.stringify(JSON.parse(embeddingAttempt.metadata_json).result)).not.toContain('0.1');
 
       const conflict = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-embeddings', 'POST', {

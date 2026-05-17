@@ -12,7 +12,7 @@ Phase 6.10 now reviews the main-only evidence summary in `docs/tenant-assets/evi
 
 ## Required Operator Exports
 
-Collect these from the live/main deployment after the Phase 6.7 endpoint is deployed and the auth D1 migration through `0056_add_ai_folder_image_ownership_metadata.sql` is verified:
+Collect these from the live/main deployment after the Phase 6.7 endpoint is deployed and the auth D1 migrations through `0057_add_ai_asset_manual_review_state.sql` are verified:
 
 - JSON export from `/api/admin/tenant-assets/folders-images/evidence/export?format=json&limit=100&includeDetails=true&includeRelationships=true&includePublic=true&includeDerivatives=true`
 - Optional Markdown export from `/api/admin/tenant-assets/folders-images/evidence/export?format=markdown&limit=100&includeDetails=true&includeRelationships=true&includePublic=true&includeDerivatives=true`
@@ -58,4 +58,4 @@ Do not treat this file as current proof that the Phase 6.7 endpoint is live, tha
 
 ## Next Recommended Phase
 
-Phase 6.11 has added the design-only manual review workflow, and Phase 6.12 has designed future review-state schema without adding it. Current next step is Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images if the owner continues tenant-asset work.
+Phase 6.11 has added the manual review workflow, Phase 6.12 has designed review-state schema, and Phase 6.13 has added empty review-state tables without importing review rows. Current next step is Phase 6.14 - Manual Review Item Import Dry Run for AI Folders & Images if the owner continues tenant-asset work.
