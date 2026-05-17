@@ -149,8 +149,12 @@ assert(foldersImagesReport.schemaSummary.folders.ownerColumns.includes("user_id"
 assert(foldersImagesReport.schemaSummary.images.r2KeyFields.includes("r2_key"));
 assert(foldersImagesReport.schemaSummary.images.r2KeyFields.includes("thumb_key"));
 assert(foldersImagesReport.schemaSummary.images.derivativeFields.includes("medium_key"));
-assert.equal(foldersImagesReport.schemaReadiness.status, "ready_for_schema");
-assert.equal(foldersImagesReport.schemaReadiness.migrationAdded, false);
+assert.equal(foldersImagesReport.schemaReadiness.status, "schema_added_not_backfilled");
+assert.equal(foldersImagesReport.schemaReadiness.migrationAdded, true);
+assert.equal(
+  foldersImagesReport.schemaReadiness.migrationFile,
+  "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql"
+);
 assert.equal(foldersImagesReport.schemaReadiness.executableSqlEmitted, false);
 for (const field of [
   "asset_owner_type",
@@ -167,11 +171,17 @@ for (const field of [
   assert(foldersImagesReport.schemaReadiness.proposedSchema.ai_images.proposedFields.includes(field), `missing image proposed field ${field}`);
 }
 assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.assetOwnerTypes.includes("organization_asset"));
+assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.assetOwnerTypes.includes("audit_archive_asset"));
 assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.ownershipStatuses.includes("unsafe_to_migrate"));
 assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.ownershipSources.includes("new_write_org_context"));
-assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("blocked_for_backfill"));
-assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("requires_manual_review"));
-assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("unsafe_to_migrate_without_new_metadata"));
+assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.ownershipConfidences.includes("none"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("schema_added_not_backfilled"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("access_checks_not_changed"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("write_paths_not_assigned"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("backfill_not_started"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("owner_map_not_complete"));
+assert.equal(foldersImagesReport.schemaReadiness.currentlyMissingFields.ai_folders.length, 0);
+assert.equal(foldersImagesReport.schemaReadiness.currentlyMissingFields.ai_images.length, 0);
 
 const accessImpactIds = new Set(foldersImagesReport.accessImpactMatrix.map((entry) => entry.id));
 for (const expected of [
@@ -201,9 +211,10 @@ assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("dry-run-
 assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("Do not infer organization ownership")));
 assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("Public ambiguous rows are unsafe_to_migrate")));
 assert.equal(foldersImagesReport.schemaAccessImpact.phase63BehaviorChange, false);
+assert.equal(foldersImagesReport.schemaAccessImpact.phase64BehaviorChange, false);
 assert(foldersImagesReport.schemaAccessImpact.routesNeedingFutureAccessUpdates.includes("image_list_read"));
 assert(foldersImagesReport.schemaAccessImpact.writePathsNeedingFutureOwnershipAssignment.includes("org_scoped_generation"));
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images");
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -262,8 +273,35 @@ assert(!focusedSerialized.includes("r2 move"));
 assert(!focusedSerialized.includes("stripe "));
 assert(!focusedSerialized.includes("cloudflare api"));
 
-const migrationFiles = fs.readdirSync(path.join(repoRoot, "workers/auth/migrations"));
-assert(!migrationFiles.some((file) => /tenant.*asset.*ownership|ai.*folder.*image.*ownership/i.test(file)), "Phase 6.3 must not add ownership migration files");
+const ownershipMigrationPath = path.join(
+  repoRoot,
+  "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql"
+);
+assert(fs.existsSync(ownershipMigrationPath), "Phase 6.4 must add the ownership metadata migration");
+const ownershipMigration = fs.readFileSync(ownershipMigrationPath, "utf8");
+for (const table of ["ai_folders", "ai_images"]) {
+  for (const field of foldersImagesReport.schemaReadiness.proposedSchema[table].proposedFields) {
+    assert(
+      ownershipMigration.includes(`ALTER TABLE ${table} ADD COLUMN ${field} TEXT`),
+      `ownership migration missing ${table}.${field}`
+    );
+  }
+}
+for (const indexName of [
+  "idx_ai_folders_owning_user_id",
+  "idx_ai_folders_owning_organization_id",
+  "idx_ai_folders_asset_owner_type",
+  "idx_ai_folders_ownership_status",
+  "idx_ai_images_owning_user_id",
+  "idx_ai_images_owning_organization_id",
+  "idx_ai_images_asset_owner_type",
+  "idx_ai_images_ownership_status",
+]) {
+  assert(ownershipMigration.includes(`CREATE INDEX ${indexName}`), `ownership migration missing ${indexName}`);
+}
+assert(!/\bUPDATE\s+ai_(folders|images)\b/i.test(ownershipMigration));
+assert(!/\bDELETE\s+FROM\b/i.test(ownershipMigration));
+assert(!/\bDROP\b/i.test(ownershipMigration));
 
 const focusedMarkdown = renderFoldersImagesOwnerMapMarkdown(foldersImagesReport);
 assert(focusedMarkdown.includes("# AI Folders & Images Owner-Map Dry Run"));

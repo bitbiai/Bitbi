@@ -2,7 +2,7 @@
 
 Last reconciled: 2026-05-17
 
-Current release truth: `config/release-compat.json` declares latest auth D1 migration `0055_add_platform_budget_evidence_archives.sql`.
+Current release truth: `config/release-compat.json` declares latest auth D1 migration `0056_add_ai_folder_image_ownership_metadata.sql`.
 
 DOC-1 separates active operational documentation from historical evidence. No first-party Markdown was deleted. Large pre-DOC-1 active-doc snapshots were preserved in `docs/audits/archive/` before the active copies were slimmed.
 
@@ -63,7 +63,7 @@ These files must stay reconciled with `config/release-compat.json` and must not 
 | `docs/ai-cost-gateway/ADMIN_TEXT_EMBEDDINGS_IDEMPOTENCY_DESIGN.md` | Admin text/embeddings idempotency design. |
 | `docs/ai-cost-gateway/ADMIN_LIVE_AGENT_BUDGET_FLOW_AUDIT.md` | Admin Live-Agent budget-flow audit/design. |
 | `docs/ai-cost-gateway/ADMIN_SYNC_VIDEO_DEBUG_RETIREMENT_AUDIT.md` | Sync video debug retirement audit. |
-| `docs/tenant-assets/*.md` | Tenant asset ownership design, inventory, risk matrix, dry-run reports, and Phase 6.3 schema/access impact plan. |
+| `docs/tenant-assets/*.md` | Tenant asset ownership design, inventory, risk matrix, dry-run reports, Phase 6.3 schema/access plan, and Phase 6.4 schema foundation notes. |
 
 ## Historical Phase Reports - Frozen Evidence
 

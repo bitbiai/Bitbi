@@ -2,11 +2,11 @@
 
 Date: 2026-04-24
 
-Last reconciled: 2026-05-17 for Phase 6.3 AI folders/images schema/access impact plan.
+Last reconciled: 2026-05-17 for Phase 6.4 additive AI folders/images ownership metadata schema.
 
 Purpose: current remediation tracker. Historical long-form action history is preserved in `docs/audits/archive/AUDIT_ACTION_PLAN_PRE_DOC1.md` and root phase reports.
 
-Current release truth: latest auth D1 migration is `0055_add_platform_budget_evidence_archives.sql`.
+Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
 This plan is not production approval, live billing readiness, legal compliance certification, or full tenant-isolation evidence.
 
@@ -14,12 +14,12 @@ This plan is not production approval, live billing readiness, legal compliance c
 
 | Priority | Area | Status | Next action |
 | --- | --- | --- | --- |
-| P0 | Production readiness | BLOCKED | Verify migrations through `0055`, Worker secrets/bindings, D1/R2/Queues/DOs, health, headers, alerts, restore, and rollback evidence. |
+| P0 | Production readiness | BLOCKED | Verify migrations through `0056`, Worker secrets/bindings, D1/R2/Queues/DOs, health, headers, alerts, restore, and rollback evidence. |
 | P0 | Live billing readiness | BLOCKED | Keep live flags off except bounded canaries; collect Stripe Testmode/live evidence and define approved remediation workflow. |
 | P0 | Documentation currentness | Guarded | Keep active docs short, update `docs/audits/README.md`, and run `check:doc-currentness`. |
 | P1 | Admin/platform AI budgets | Partial scoped foundation | Verify Phase 4.15.1 through 4.21 evidence; choose next budget scope or internal caller-policy gap deliberately. |
 | P1 | Billing operations | Partial | Move from review metadata/read-only reconciliation to approved operator remediation only after product/legal/accounting approval. |
-| P1 | Tenant ownership | Folder/image schema/access plan | Use `docs/tenant-assets/` and `npm run dry-run:tenant-assets:images`; next add additive ownership metadata schema for folders/images only, with no backfill. |
+| P1 | Tenant ownership | Folder/image schema added, not assigned | Use `docs/tenant-assets/` and `npm run dry-run:tenant-assets:images`; next assign metadata on new folder/image writes only, with no backfill or access change. |
 | P1 | Privacy/data lifecycle | Partial | Complete legal-approved retention/delete/export policy and self-service flows. |
 | P2 | Ops maturity | Partial | Record restore drill, live alert, Cloudflare dashboard drift, load, and canary evidence. |
 | P2 | Quality gates | Partial | Add staged type/lint/SAST/SBOM/dependency gates without broad rewrites. |
@@ -31,7 +31,7 @@ This plan is not production approval, live billing readiness, legal compliance c
 - Phase 3 member image/music/video AI Cost Gateway coverage and AI cost policy baseline guard.
 - Phase 4 admin/platform AI budget metadata, idempotency, switches, first `platform_admin_lab_budget` cap foundation, reconciliation, explicit repair, report/export, and evidence archive workflows.
 - Phase 5.1 Admin Control Plane navigation/discoverability consolidation.
-- Phase 6.1 tenant asset ownership design, inventory, risk matrix, Phase 6.2 `ai_folders`/`ai_images` owner-map dry-run/test scripts, and Phase 6.3 schema/access impact plan with no schema migration, ownership, R2, or runtime mutation.
+- Phase 6.1 tenant asset ownership design, inventory, risk matrix, Phase 6.2 `ai_folders`/`ai_images` owner-map dry-run/test scripts, Phase 6.3 schema/access impact plan, and Phase 6.4 nullable ownership metadata schema with no backfill, R2, access-check, or runtime behavior mutation.
 
 ## Immediate Checklist Before Any Release Claim
 

@@ -9,9 +9,9 @@ Purpose: concise restart point for future Codex sessions. This file is current s
 | Item | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest completed implementation phase | Phase 6.3 AI folders/images schema/access impact plan |
+| Latest completed implementation phase | Phase 6.4 additive AI folder/image ownership metadata schema |
 | Latest documentation phase | DOC-1 documentation diet and archive consolidation |
-| Latest auth D1 migration | `0055_add_platform_budget_evidence_archives.sql` |
+| Latest auth D1 migration | `0056_add_ai_folder_image_ownership_metadata.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
 | Production readiness | BLOCKED |
 | Live billing readiness | BLOCKED |
@@ -34,11 +34,11 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
 - Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
 - Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, and schema/access impact plan exist; no schema migration, ownership rows, access checks, or R2 objects were migrated.
+- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, and nullable ownership metadata columns exist; no ownership backfill, access checks, write-path assignment, or R2 objects were migrated.
 
 ## Current Blockers
 
-- Remote auth migrations through `0055_add_platform_budget_evidence_archives.sql` must be applied before deploying auth Worker code that depends on those tables.
+- Remote auth migrations through `0056_add_ai_folder_image_ownership_metadata.sql` must be applied before deploying auth Worker code that depends on those tables.
 - Required Worker secrets and bindings must be verified without printing values.
 - Stripe Testmode, live credit-pack, and BITBI Pro subscription canaries require explicit operator flags and evidence; live billing remains blocked.
 - Cloudflare WAF/static headers/RUM/alerts remain dashboard-managed or manual evidence items.
@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. Collect operator evidence for migrations through `0055`, Admin Control Plane budget panels, platform cap behavior, repair/report/archive behavior, and AI cost policy checks.
+1. Collect operator evidence for migrations through `0056`, Admin Control Plane budget panels, platform cap behavior, repair/report/archive behavior, tenant schema compatibility, and AI cost policy checks.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.4 additive folder/image ownership metadata schema, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.5 new-write ownership assignment for AI folders/images, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 

@@ -2,18 +2,18 @@
 
 Date: 2026-05-17
 
-Current release truth: latest auth D1 migration is `0055_add_platform_budget_evidence_archives.sql`.
+Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan without adding the migration. These phases do not migrate ownership, rewrite rows, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
+Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan. Phase 6.4 adds nullable ownership metadata columns for those two tables only. These phases do not backfill ownership, assign metadata on writes, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
 
 | Risk | Severity | Evidence source | Affected tables/routes | Proposed mitigation | Safe dry-run signal | Future phase |
 | --- | --- | --- | --- | --- | --- | --- |
-| Ownership ambiguity | High | `ai_images.user_id`, `ai_text_assets.user_id`, `ai_folders.user_id` have no org owner column. Phase 6.2 fixture dry-run shows user-only rows are only medium-confidence personal candidates. Phase 6.3 proposes additive owner metadata but does not add it. | `ai_images`, `ai_text_assets`, `ai_folders`, private asset routes. | Add owner class and owner-map proof before writing. | Count rows lacking target owner classification. | 6.4 schema, later backfill |
+| Ownership ambiguity | High | `ai_images.user_id`, `ai_text_assets.user_id`, `ai_folders.user_id` remain the active access owner signal. Phase 6.2 fixture dry-run shows user-only rows are only medium-confidence personal candidates. Phase 6.4 adds nullable owner metadata for folders/images but does not backfill or assign it. | `ai_images`, `ai_text_assets`, `ai_folders`, private asset routes. | Assign owner class on new writes and prove owner-map before backfill. | Count rows lacking target owner classification. | 6.5 new writes, later backfill |
 | Org-billed asset stored as user-owned | High | Org-scoped generation attempts and credit ledgers exist separately from saved asset rows. | `ai_usage_attempts`, `usage_events`, `ai_images`, `ai_text_assets`. | Link future saved assets to owning org or mark personal explicitly. | Compare org attempt/usage rows to saved asset creation evidence where available. | 6.5 write-path metadata |
 | Public asset attribution is user-only | High | Public routes join `profiles` by asset `user_id`. | `/api/gallery/mempics`, `/api/gallery/memvids`, `/api/gallery/memtracks`. | Add publisher owner class and organization publisher policy. | List public rows with no organization attribution field. | 6.6 |
 | R2 key orphan/owner mismatch | High | R2 keys encode user ids but D1 is source of truth. | `USER_IMAGES`, `PRIVATE_MEDIA`, lifecycle cleanup. | Build bounded owner-map and orphan report before any object action. | Report key patterns and missing D1/R2 reconciliation status. | 6.8 |
 | Derivative/poster mismatch | High | Derivative/poster keys are separate R2 objects and owner is inferred; Phase 6.2 flags image `thumb_key`/`medium_key` when parent confidence is not high. | `thumb_key`, `medium_key`, `poster_r2_key`, video job poster keys. | Store or derive explicit parent owner evidence. | Count parent rows with derivative/poster fields by owner class. | 6.5 |
-| Folder ownership mismatch | High | Folders are user-owned and can contain multiple asset types; Phase 6.2 flags folder/image user conflicts as ambiguous or unsafe when public. Phase 6.3 recommends one owner scope per folder. | `ai_folders`, move/delete lifecycle. | Make folders owner-bound before moving org assets into them. | Identify folders with mixed future owner candidates. | 6.4/6.5 |
+| Folder ownership mismatch | High | Folders are user-owned and can contain multiple asset types; Phase 6.2 flags folder/image user conflicts as ambiguous or unsafe when public. Phase 6.3 recommends one owner scope per folder; Phase 6.4 adds inert fields only. | `ai_folders`, move/delete lifecycle. | Make folders owner-bound before moving org assets into them. | Identify folders with mixed future owner candidates. | 6.5 |
 | Lifecycle/export/delete mismatch | High | Lifecycle is centered on `subject_user_id`. | `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`. | Add organization subject design before tenant-owned asset claims. | Report lack of `subject_organization_id` path. | 6.7 |
 | Quota/accounting mismatch | High | `user_asset_storage_usage` is per-user only. | `user_asset_storage_usage`, `asset-storage-quota.js`. | Add owner-aware quota model or recompute by owner class. | Compare source asset bytes to user-only quota rows. | 6.5 |
 | Admin test asset classification | Medium | Admin video jobs and admin-saved lab outputs can use user ids. | `ai_video_jobs`, `ai_text_assets`, admin AI routes. | Add `platform_admin_test_asset` class and exclude from customer ownership. | List admin scope rows and admin-created sources. | 6.4 |
@@ -33,7 +33,7 @@ Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run fo
 
 Phase 6.2 implements the `ai_folders` and `ai_images` owner-map dry-run as source/fixture evidence only:
 
-- no schema write
+- schema write deferred to later Phase 6.4
 - no R2 list/move/delete
 - no generation behavior change
 - no runtime access-check or public gallery change
@@ -45,7 +45,17 @@ Phase 6.2 implements the `ai_folders` and `ai_images` owner-map dry-run as sourc
 Phase 6.3 adds `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md` and dry-run schema/access readiness output:
 
 - proposed additive ownership metadata for `ai_folders` and `ai_images`
-- no migration file
+- migration deferred to Phase 6.4
 - no ownership row rewrite
 - no runtime access-check, public gallery, lifecycle, quota, or R2 behavior change
 - next phase should add schema only, with no backfill
+
+## Phase 6.4 Result
+
+Phase 6.4 adds migration `0056_add_ai_folder_image_ownership_metadata.sql` and helper constants:
+
+- nullable ownership metadata columns on `ai_folders` and `ai_images`
+- simple owner/status indexes for future lookup/review
+- no backfill or ownership row rewrite
+- no runtime access-check, public gallery, lifecycle, quota, R2, generation, or billing behavior change
+- next phase should assign ownership metadata on new writes only

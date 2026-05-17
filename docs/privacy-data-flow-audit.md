@@ -11,7 +11,7 @@ German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1
-migration as `0055_add_platform_budget_evidence_archives.sql`. This audit
+migration as `0056_add_ai_folder_image_ownership_metadata.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
@@ -30,10 +30,12 @@ rows, mutate source attempts/jobs, mutate credits, or change customer billing.
 Phase 6.1 adds tenant asset ownership design, inventory, risk matrix, and
 source-only dry-run scripts only. Phase 6.2 adds a focused `ai_folders` /
 `ai_images` owner-map dry run with synthetic fixture evidence. Phase 6.3 adds
-the schema/access impact plan only. These phases do not rewrite D1 ownership
-rows, add ownership schema, move or delete R2 objects, alter access checks,
-alter lifecycle/export/delete behavior, change quota accounting, change public
-gallery behavior, change member/org generation, or prove full tenant isolation.
+the schema/access impact plan. Phase 6.4 adds nullable ownership metadata
+columns for those two tables only. These phases do not rewrite existing D1
+ownership rows, backfill owner metadata, assign metadata on writes, move or
+delete R2 objects, alter access checks, alter lifecycle/export/delete behavior,
+change quota accounting, change public gallery behavior, change member/org
+generation, or prove full tenant isolation.
 
 ## 1. Executive Summary
 
@@ -48,8 +50,9 @@ planning/export archives, Cloudflare R2/D1/Queues/Durable Objects, and
 Cloudflare Workers AI / AI Gateway model calls.
 Tenant-owned asset migration remains future work: Phase 6.1 identifies current
 user-owned media tables and R2 key patterns, Phase 6.2 maps folder/image
-owner-class candidates, and Phase 6.3 proposes the future metadata/access plan,
-but existing generated assets are not yet migrated to organization ownership.
+owner-class candidates, Phase 6.3 proposes the metadata/access plan, and Phase
+6.4 adds inert nullable columns, but existing generated assets are not yet
+migrated to organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform
@@ -115,7 +118,7 @@ billing records. Phase 4.18 adds read-only reconciliation evidence, Phase 4.19
 adds migration `0054` for explicit admin-approved repair action audit rows, and
 Phase 4.20 adds read-only repair evidence report/export over those rows with no
 new schema, no automatic repair, and no usage/source mutation. Phase 4.21 adds
-migration `0055` for sanitized archive metadata plus private `AUDIT_ARCHIVE`
+migration `0056` for sanitized archive metadata plus private `AUDIT_ARCHIVE`
 snapshots under `platform-budget-evidence/`; archive creation applies no repair
 and cleanup is bounded to the approved prefix only.
 These phases do not

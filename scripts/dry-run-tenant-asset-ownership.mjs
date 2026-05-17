@@ -3,16 +3,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  TENANT_ASSET_OWNER_TYPES,
+  TENANT_ASSET_OWNERSHIP_CONFIDENCES,
+  TENANT_ASSET_OWNERSHIP_SOURCES,
+  TENANT_ASSET_OWNERSHIP_STATUSES,
+} from "../workers/auth/src/lib/tenant-asset-ownership.js";
 
 export const TENANT_ASSET_OWNER_CLASSES = Object.freeze([
-  "personal_user_asset",
-  "organization_asset",
-  "platform_admin_test_asset",
-  "platform_background_asset",
-  "legacy_unclassified_asset",
-  "external_reference_asset",
-  "audit_archive_asset",
+  ...TENANT_ASSET_OWNER_TYPES,
 ]);
+
+const FOLDERS_IMAGES_OWNERSHIP_MIGRATION =
+  "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql";
 
 export const FOLDERS_IMAGES_OWNER_MAP_CLASSES = Object.freeze([
   "personal_user_asset",
@@ -45,6 +48,7 @@ const ASSET_DOMAINS = Object.freeze([
       "workers/auth/migrations/0017_add_ai_image_derivatives.sql",
       "workers/auth/migrations/0019_add_ai_image_publication.sql",
       "workers/auth/migrations/0046_add_asset_storage_quota.sql",
+      FOLDERS_IMAGES_OWNERSHIP_MIGRATION,
     ],
     bucket: "USER_IMAGES",
     keyPatterns: ["users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png", "users/{userId}/derivatives/v{version}/{imageId}/{variant}.webp"],
@@ -52,7 +56,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.4 candidate: add ownership metadata schema after Phase 6.3 schema/access planning; no backfill.",
+    futurePhase: "Phase 6.5 candidate: assign ownership metadata on new writes only; no backfill.",
   },
   {
     id: "ai_text_assets",
@@ -104,6 +108,7 @@ const ASSET_DOMAINS = Object.freeze([
     migrationFiles: [
       "workers/auth/migrations/0007_add_image_studio.sql",
       "workers/auth/migrations/0009_add_folder_status.sql",
+      FOLDERS_IMAGES_OWNERSHIP_MIGRATION,
     ],
     bucket: null,
     keyPatterns: [],
@@ -111,7 +116,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.4 candidate: add ownership metadata schema after Phase 6.3 schema/access planning; no backfill.",
+    futurePhase: "Phase 6.5 candidate: assign ownership metadata on new folder writes only; no backfill.",
   },
   {
     id: "ai_video_jobs",
@@ -494,31 +499,10 @@ const FOLDERS_IMAGES_OWNER_MAP_RULES = Object.freeze([
 ]);
 
 const FOLDERS_IMAGES_PROPOSED_OWNER_VALUES = Object.freeze({
-  assetOwnerTypes: [
-    "personal_user_asset",
-    "organization_asset",
-    "platform_admin_test_asset",
-    "platform_background_asset",
-    "legacy_unclassified_asset",
-    "external_reference_asset",
-  ],
-  ownershipStatuses: [
-    "current",
-    "legacy_unclassified",
-    "ambiguous",
-    "orphan_reference",
-    "unsafe_to_migrate",
-    "pending_review",
-  ],
-  ownershipSources: [
-    "new_write_personal",
-    "new_write_org_context",
-    "admin_selected_org",
-    "platform_admin_test",
-    "dry_run_inferred",
-    "manual_review",
-    "legacy_default",
-  ],
+  assetOwnerTypes: TENANT_ASSET_OWNER_TYPES,
+  ownershipStatuses: TENANT_ASSET_OWNERSHIP_STATUSES,
+  ownershipSources: TENANT_ASSET_OWNERSHIP_SOURCES,
+  ownershipConfidences: TENANT_ASSET_OWNERSHIP_CONFIDENCES,
 });
 
 const FOLDERS_IMAGES_PROPOSED_SCHEMA = Object.freeze({
@@ -806,7 +790,7 @@ function evidenceForDomain(repoRoot, domain) {
     file,
     exists: fileExists(repoRoot, file),
     mentionsTable: readText(repoRoot, file).includes(domain.table.split(" ")[0]),
-    mentionsOrganizationId: /\borganization_id\b/.test(readText(repoRoot, file)),
+    mentionsOrganizationId: /\borganization_id\b|\bowning_organization_id\b/.test(readText(repoRoot, file)),
   }));
   const routeEvidence = domain.routeFiles.map((file) => {
     const text = readText(repoRoot, file);
@@ -1213,6 +1197,18 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const folders = Array.isArray(fixture?.folders) ? fixture.folders : [];
   const images = Array.isArray(fixture?.images) ? fixture.images : [];
   const { domains, findings } = buildFoldersImagesSourceEvidence(repoRoot);
+  const ownershipMigrationExists = fileExists(repoRoot, FOLDERS_IMAGES_OWNERSHIP_MIGRATION);
+  const schemaReadinessStatus = ownershipMigrationExists ? "schema_added_not_backfilled" : "ready_for_schema";
+  const proposedSchema = Object.fromEntries(
+    Object.entries(FOLDERS_IMAGES_PROPOSED_SCHEMA).map(([table, schema]) => [
+      table,
+      {
+        ...schema,
+        currentlyMissingFields: ownershipMigrationExists ? [] : schema.currentlyMissingFields,
+        migrationFile: ownershipMigrationExists ? FOLDERS_IMAGES_OWNERSHIP_MIGRATION : null,
+      },
+    ])
+  );
   const folderRowsById = new Map();
   const folderCandidatesById = new Map();
   const candidates = [];
@@ -1248,20 +1244,25 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     },
     schemaSummary: FOLDERS_IMAGES_SCHEMA_SUMMARY,
     schemaReadiness: {
-      status: "ready_for_schema",
-      migrationAdded: false,
+      status: schemaReadinessStatus,
+      migrationAdded: ownershipMigrationExists,
+      migrationFile: ownershipMigrationExists ? FOLDERS_IMAGES_OWNERSHIP_MIGRATION : null,
       executableSqlEmitted: false,
       proposedOwnerValues: FOLDERS_IMAGES_PROPOSED_OWNER_VALUES,
-      proposedSchema: FOLDERS_IMAGES_PROPOSED_SCHEMA,
+      proposedSchema,
+      currentlyMissingFields: Object.fromEntries(
+        Object.entries(proposedSchema).map(([table, schema]) => [table, schema.currentlyMissingFields || []])
+      ),
       readinessByTable: {
-        ai_folders: "ready_for_schema",
-        ai_images: "ready_for_schema",
+        ai_folders: schemaReadinessStatus,
+        ai_images: schemaReadinessStatus,
       },
       migrationReadiness: [
-        "ready_for_schema",
-        "blocked_for_backfill",
-        "requires_manual_review",
-        "unsafe_to_migrate_without_new_metadata",
+        schemaReadinessStatus,
+        "access_checks_not_changed",
+        "write_paths_not_assigned",
+        "backfill_not_started",
+        "owner_map_not_complete",
       ],
     },
     accessImpactMatrix: FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX,
@@ -1319,9 +1320,12 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       storageQuotaGap: "organization storage counters are not implemented",
       publicGalleryGap: "organization publisher attribution is not implemented",
       phase63BehaviorChange: false,
+      phase64BehaviorChange: false,
     },
     blockedUntil: [
-      "An additive ownership metadata schema is approved.",
+      ownershipMigrationExists
+        ? "Write paths assign ownership metadata for new rows."
+        : "An additive ownership metadata schema is approved.",
       "A local/staging owner-map report validates real row counts and ambiguity rates.",
       "Organization ownership is backed by explicit row-level evidence, not UI active organization context.",
       "Public gallery attribution and lifecycle/export/delete impacts are designed.",
@@ -1334,7 +1338,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "Source-only mode reports domain/rule readiness, not row counts.",
       "No runtime access behavior changes are made.",
     ],
-    recommendedNextPhase: "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
+    recommendedNextPhase: ownershipMigrationExists
+      ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
+      : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
   };
 }
 
@@ -1453,14 +1459,16 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Public-risk candidates: ${report.summary.publicRiskCandidateCount}`,
     `- Derivative-risk candidates: ${report.summary.derivativeRiskCandidateCount}`,
     `- Schema readiness: ${report.schemaReadiness?.status || "not_reported"}`,
+    `- Ownership migration added: ${report.schemaReadiness?.migrationAdded ? "yes" : "no"}`,
     `- Phase 6.3 behavior change: ${report.schemaAccessImpact?.phase63BehaviorChange === false ? "no" : "review"}`,
+    `- Phase 6.4 behavior change: ${report.schemaAccessImpact?.phase64BehaviorChange === false ? "no" : "review"}`,
     "",
     "## Proposed Schema Fields",
     "",
-    "| Table | Proposed fields missing today |",
-    "| --- | --- |",
+    "| Table | Remaining missing fields | Migration file |",
+    "| --- | --- | --- |",
     ...Object.entries(report.schemaReadiness?.proposedSchema || {}).map(([table, plan]) => (
-      `| ${table} | ${(plan.currentlyMissingFields || []).join(", ")} |`
+      `| ${table} | ${(plan.currentlyMissingFields || []).join(", ") || "none"} | ${plan.migrationFile || "not added"} |`
     )),
     "",
     "## Access Impact",

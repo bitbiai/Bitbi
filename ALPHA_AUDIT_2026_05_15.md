@@ -2,11 +2,11 @@
 
 Date: 2026-05-15
 
-Last reconciled: 2026-05-17 for Phase 6.3 tenant asset schema/access planning.
+Last reconciled: 2026-05-17 for Phase 6.4 tenant asset ownership metadata schema.
 
 This is the active Alpha Audit scorecard. It summarizes current risk and links to the preserved evidence. It is not a production deploy approval, live billing readiness claim, full SaaS maturity claim, full tenant-isolation claim, or legal compliance certification.
 
-Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0055_add_platform_budget_evidence_archives.sql`.
+Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0056_add_ai_folder_image_ownership_metadata.sql`.
 
 ## Current Summary
 
@@ -26,7 +26,7 @@ Historical phase detail is preserved in:
 | Production readiness | BLOCKED |
 | Live billing readiness | BLOCKED |
 | SaaS maturity | Partial foundation, not complete |
-| Tenant isolation | Partial organization/RBAC plus Phase 6.1 design, Phase 6.2 folder/image owner-map dry run, and Phase 6.3 schema/access plan; not full tenant ownership |
+| Tenant isolation | Partial organization/RBAC plus Phase 6.1 design, Phase 6.2 folder/image owner-map dry run, Phase 6.3 schema/access plan, and Phase 6.4 nullable folder/image metadata columns; not full tenant ownership |
 | AI cost controls | Stronger for migrated/member/admin-lab paths, still scoped |
 | Documentation integrity | Improved by DOC-1, but future phases must avoid history sprawl |
 
@@ -53,7 +53,7 @@ Historical phase detail is preserved in:
 | A-001 | P0 | Current docs can become stale against release migrations. | Guarded by `check:doc-currentness`; active docs now point to summary/index/archive. | Keep current docs concise and release-truth aligned. |
 | A-002 | P0 | Production readiness lacks live evidence. | BLOCKED. | Record staging/live migrations, resources, health, headers, queues, D1/R2, Stripe, and rollback evidence. |
 | A-003 | P1 | Billing lifecycle remediation is not complete. | Review queue, resolution metadata, read-only reconciliation, and evidence tools exist. | Define approved remediation/accounting/legal workflow before live readiness. |
-| A-004 | P1 | Existing assets are not fully tenant-owned. | Phase 6.1 adds design/inventory/risk docs; Phase 6.2 adds `ai_folders`/`ai_images` owner-map dry-run tests; Phase 6.3 adds the schema/access impact plan. No schema, rows, access checks, or R2 objects migrated. | Phase 6.4 should add only additive folder/image ownership metadata schema, with no backfill or runtime access change. |
+| A-004 | P1 | Existing assets are not fully tenant-owned. | Phase 6.1 adds design/inventory/risk docs; Phase 6.2 adds `ai_folders`/`ai_images` owner-map dry-run tests; Phase 6.3 adds the schema/access impact plan; Phase 6.4 adds nullable metadata columns. No rows, access checks, write paths, or R2 objects migrated. | Phase 6.5 should assign metadata on new folder/image writes only, with no broad backfill or runtime access change. |
 | A-005 | P1 | AI cost controls are scoped, not universal. | Member image/music/video and selected admin/platform paths are controlled; other scopes remain explicit future work. | Continue one provider-cost scope at a time. |
 | A-006 | P1 | Privacy/data lifecycle is an engineering foundation, not compliance approval. | Inventory, retention, export, cleanup, and safe executor foundations exist. | Legal/product approval and self-service flows remain open. |
 | A-007 | P2 | Route policy is still a registry/check guard, not central enforcement. | Guard tests exist. | Plan central enforcement only after stable route inventory. |
@@ -71,9 +71,9 @@ Historical phase detail is preserved in:
 ## Roadmap
 
 1. Keep production/live billing claims blocked until evidence is recorded.
-2. Apply and verify auth migrations through `0055` before auth Worker deployment.
+2. Apply and verify auth migrations through `0056` before auth Worker deployment.
 3. Collect main-only or staging evidence for AI budget switches, platform caps, reconciliation, repair, report/export, and archive workflows.
-4. Choose one next implementation track: Phase 6.4 additive folder/image ownership metadata schema, next AI budget scope, internal caller-policy hardening, billing remediation workflow, or production evidence.
+4. Choose one next implementation track: Phase 6.5 new-write folder/image ownership metadata assignment, next AI budget scope, internal caller-policy hardening, billing remediation workflow, or production evidence.
 
 ## Documentation Governance
 

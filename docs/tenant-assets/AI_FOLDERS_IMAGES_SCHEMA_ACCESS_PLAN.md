@@ -2,9 +2,9 @@
 
 Date: 2026-05-17
 
-Current release truth: latest auth D1 migration is `0055_add_platform_budget_evidence_archives.sql`.
+Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.3 is schema/access planning only for `ai_folders` and `ai_images`. It does not add a migration, rewrite D1 rows, update ownership columns, move/list/delete R2 objects, change access checks, change image generation, change folder behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phase 6.4 adds the planned nullable metadata columns and simple lookup/review indexes through migration `0056_add_ai_folder_image_ownership_metadata.sql`. It does not rewrite existing D1 rows, backfill ownership metadata, assign metadata on writes, move/list/delete R2 objects, change access checks, change image generation, change folder behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Data Model
 
@@ -13,7 +13,7 @@ Phase 6.3 is schema/access planning only for `ai_folders` and `ai_images`. It do
 - Defined by `0007_add_image_studio.sql` and `0009_add_folder_status.sql`.
 - Columns today: `id`, `user_id`, `name`, `slug`, `created_at`, `status`.
 - Current owner signal: `user_id`.
-- Missing durable tenant fields: owner class, owning user, owning organization, creator, ownership status/source/confidence.
+- Phase 6.4 schema fields now exist as nullable/inert metadata; they are not backfilled or enforced.
 - No parent folder, public visibility, organization, or tenant quota fields exist.
 
 ### `ai_images`
@@ -23,7 +23,7 @@ Phase 6.3 is schema/access planning only for `ai_folders` and `ai_images`. It do
 - Derivative/object fields: `thumb_key`, `medium_key`, MIME/dimension fields, derivative status/version/timestamps, and `size_bytes`.
 - Publication fields: `visibility`, `published_at`.
 - Current owner signal: `user_id`.
-- Missing durable tenant fields: owner class, owning user, owning organization, creator, ownership status/source/confidence.
+- Phase 6.4 schema fields now exist as nullable/inert metadata; they are not backfilled or enforced.
 
 ## Current Access Model
 
@@ -38,7 +38,7 @@ Phase 6.3 is schema/access planning only for `ai_folders` and `ai_images`. It do
 
 ## Proposed Additive Schema
 
-Do not add this migration in Phase 6.3. A later Phase 6.4 migration should add the same metadata columns to both `ai_folders` and `ai_images`.
+Phase 6.4 adds these metadata columns to both `ai_folders` and `ai_images`. They are nullable and compatibility-only in this phase.
 
 | Field | Purpose |
 | --- | --- |
@@ -60,6 +60,7 @@ Allowed `asset_owner_type` values:
 - `platform_background_asset`
 - `legacy_unclassified_asset`
 - `external_reference_asset`
+- `audit_archive_asset`
 
 Allowed `ownership_status` values:
 
@@ -92,6 +93,8 @@ Future index targets:
 | `ai_images` | public gallery owner-aware listing | `visibility`, `asset_owner_type`, `published_at`, `created_at`, `id` |
 | `ai_images` | migration review queues | `ownership_status`, `asset_owner_type`, `created_at` |
 
+Phase 6.4 added simple single-column indexes for `owning_user_id`, `owning_organization_id`, `asset_owner_type`, and `ownership_status` on both tables. Composite access-path indexes remain future work until access checks are implemented.
+
 ## Target Ownership Model
 
 - Personal rows use `asset_owner_type = personal_user_asset`, `owning_user_id = user_id`, and `created_by_user_id = user_id`.
@@ -115,7 +118,7 @@ Future index targets:
 | Explicit unmetered admin image test | `platform_admin_test_asset`. |
 | Derivative generation | Inherits parent `ai_images` owner metadata. |
 
-Do not implement these rules in Phase 6.3.
+Do not implement these write-path rules in Phase 6.4.
 
 ## Access-Check Impact Matrix
 
@@ -155,7 +158,7 @@ Preferred target: one owner scope per folder. An `ai_images.folder_id` row must 
 
 ## Storage Quota Impact
 
-Phase 6.3 does not change `user_asset_storage_usage`. Future organization assets need separate organization storage counters before any bytes are reassigned. The migration must avoid double-counting rows during a transition where legacy `user_id` remains present for compatibility.
+Phase 6.4 does not change `user_asset_storage_usage`. Future organization assets need separate organization storage counters before any bytes are reassigned. The migration must avoid double-counting rows during a transition where legacy `user_id` remains present for compatibility.
 
 ## Lifecycle Export Delete Impact
 
@@ -169,7 +172,7 @@ Current lifecycle plans are user-subject plans. Future organization assets requi
 
 ## Admin Inspection Impact
 
-Admin storage tooling should eventually show owner type, owning user, owning organization, creator, status, source, confidence, and ambiguity reason. Phase 6.3 does not change admin storage endpoints.
+Admin storage tooling should eventually show owner type, owning user, owning organization, creator, status, source, confidence, and ambiguity reason. Phase 6.4 does not change admin storage endpoints.
 
 ## Migration And Backfill Constraints
 
@@ -204,11 +207,11 @@ Future implementation tests should cover:
 
 | Phase | Scope |
 | --- | --- |
-| 6.4 | Additive ownership metadata schema for `ai_folders` and `ai_images`; no backfill and no access behavior change. |
+| 6.4 | Additive ownership metadata schema for `ai_folders` and `ai_images`; implemented with no backfill and no access behavior change. |
 | 6.5 | Write-path metadata assignment and compatibility helpers behind tests. |
 | 6.6 | Role-aware read/write access checks and public gallery attribution plan. |
 | 6.7 | Lifecycle/export/delete and quota integration design/implementation. |
 | 6.8 | Admin inspection and real-row owner-map report. |
 | 6.9 | Operator-approved non-destructive ownership metadata backfill. |
 
-Recommended next phase: **Phase 6.4 - Additive Ownership Metadata Schema for AI Folders & Images**.
+Recommended next phase: **Phase 6.5 - Write-path Ownership Assignment for New AI Folders & Images**.

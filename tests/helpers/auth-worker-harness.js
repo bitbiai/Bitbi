@@ -211,6 +211,15 @@ function defaultPlatformBudgetLimitRows() {
 
 function normalizeAiImageRow(row = {}) {
   return {
+    asset_owner_type: null,
+    owning_user_id: null,
+    owning_organization_id: null,
+    created_by_user_id: null,
+    ownership_status: null,
+    ownership_source: null,
+    ownership_confidence: null,
+    ownership_metadata_json: null,
+    ownership_assigned_at: null,
     visibility: 'private',
     published_at: null,
     thumb_key: null,
@@ -230,6 +239,22 @@ function normalizeAiImageRow(row = {}) {
     derivatives_processing_token: null,
     derivatives_lease_expires_at: null,
     size_bytes: null,
+    ...row,
+  };
+}
+
+function normalizeAiFolderRow(row = {}) {
+  return {
+    asset_owner_type: null,
+    owning_user_id: null,
+    owning_organization_id: null,
+    created_by_user_id: null,
+    ownership_status: null,
+    ownership_source: null,
+    ownership_confidence: null,
+    ownership_metadata_json: null,
+    ownership_assigned_at: null,
+    status: 'active',
     ...row,
   };
 }
@@ -808,6 +833,7 @@ class MockD1 {
       avatar_updated_at: row.avatar_updated_at ?? null,
       ...row,
     }));
+    this.state.aiFolders = (this.state.aiFolders || []).map((row) => normalizeAiFolderRow(row));
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
     this.state.aiVideoJobs = (this.state.aiVideoJobs || []).map((row) => normalizeAiVideoJobRow(row));
     this.state.aiTextAssets = (this.state.aiTextAssets || []).map((row) => ({
@@ -5064,6 +5090,22 @@ class MockD1 {
           size_bytes: sizeBytes,
         })),
       };
+    }
+
+    if (query === 'INSERT INTO ai_folders (id, user_id, name, slug, created_at) VALUES (?, ?, ?, ?, ?)') {
+      const [id, userId, name, slug, createdAt] = bindings;
+      const conflict = this.state.aiFolders.find((row) => row.user_id === userId && row.slug === slug);
+      if (conflict) {
+        throw new Error('UNIQUE constraint failed: ai_folders.user_id, ai_folders.slug');
+      }
+      this.state.aiFolders.push(normalizeAiFolderRow({
+        id,
+        user_id: userId,
+        name,
+        slug,
+        created_at: createdAt,
+      }));
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query === 'SELECT folder_id, COUNT(*) AS cnt FROM ai_text_assets WHERE user_id = ? GROUP BY folder_id') {

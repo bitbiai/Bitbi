@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
 const path = require('path');
 const { createHash, createHmac, pbkdf2Sync, randomBytes } = require('crypto');
 const { pathToFileURL } = require('url');
@@ -114,6 +115,13 @@ async function loadPlatformBudgetRepairReportModule() {
 async function loadPlatformBudgetEvidenceArchiveModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'workers/auth/src/lib/platform-budget-evidence-archive.js')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadTenantAssetOwnershipModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-ownership.js')
   ).href;
   return import(modulePath);
 }
@@ -682,6 +690,170 @@ async function createAdminAiContractHarness(options = {}) {
 }
 
 const ADMIN_AI_CHARGE_ORG_ID = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
+  const ownershipColumns = [
+    'asset_owner_type',
+    'owning_user_id',
+    'owning_organization_id',
+    'created_by_user_id',
+    'ownership_status',
+    'ownership_source',
+    'ownership_confidence',
+    'ownership_metadata_json',
+    'ownership_assigned_at',
+  ];
+
+  test('migration adds nullable ownership metadata columns and indexes only', () => {
+    const migrationPath = path.join(
+      process.cwd(),
+      'workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql'
+    );
+    const migration = fs.readFileSync(migrationPath, 'utf8');
+
+    for (const table of ['ai_folders', 'ai_images']) {
+      for (const column of ownershipColumns) {
+        expect(migration).toContain(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+      }
+    }
+
+    for (const indexName of [
+      'idx_ai_folders_owning_user_id',
+      'idx_ai_folders_owning_organization_id',
+      'idx_ai_folders_asset_owner_type',
+      'idx_ai_folders_ownership_status',
+      'idx_ai_images_owning_user_id',
+      'idx_ai_images_owning_organization_id',
+      'idx_ai_images_asset_owner_type',
+      'idx_ai_images_ownership_status',
+    ]) {
+      expect(migration).toContain(`CREATE INDEX ${indexName}`);
+    }
+
+    expect(migration).not.toMatch(/\bDROP\b/i);
+    expect(migration).not.toMatch(/\bDELETE\s+FROM\b/i);
+    expect(migration).not.toMatch(/\bUPDATE\s+ai_(folders|images)\b/i);
+    expect(migration).not.toMatch(/\bINSERT\s+INTO\s+ai_(folders|images)\b/i);
+  });
+
+  test('ownership helper normalizes allowlisted values and redacts metadata', async () => {
+    const ownership = await loadTenantAssetOwnershipModule();
+
+    expect(ownership.TENANT_ASSET_OWNER_TYPES).toContain('organization_asset');
+    expect(ownership.TENANT_ASSET_OWNER_TYPES).toContain('audit_archive_asset');
+    expect(ownership.TENANT_ASSET_OWNERSHIP_STATUSES).toContain('unsafe_to_migrate');
+    expect(ownership.TENANT_ASSET_OWNERSHIP_SOURCES).toContain('new_write_org_context');
+    expect(ownership.TENANT_ASSET_OWNERSHIP_CONFIDENCES).toEqual(['high', 'medium', 'low', 'none']);
+
+    expect(ownership.normalizeTenantAssetOwnerType(' organization_asset ')).toBe('organization_asset');
+    expect(ownership.normalizeTenantAssetOwnerType('other')).toBeNull();
+    expect(ownership.normalizeTenantAssetOwnershipStatus('current')).toBe('current');
+    expect(ownership.normalizeTenantAssetOwnershipSource('manual_review')).toBe('manual_review');
+    expect(ownership.normalizeTenantAssetOwnershipConfidence('medium')).toBe('medium');
+
+    const metadata = ownership.serializeTenantAssetOwnershipMetadata({
+      source: 'test',
+      prompt: 'do not expose',
+      nested: { providerResponse: 'secret provider body' },
+    });
+    expect(metadata).toContain('"source":"test"');
+    expect(metadata).not.toContain('do not expose');
+    expect(metadata).not.toContain('secret provider body');
+    expect(metadata).toContain('[redacted]');
+  });
+
+  test('existing folder/image/gallery/media behavior works with null ownership metadata', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'tenant-schema-user', role: 'user' });
+    const env = createAuthTestEnv({ users: [user] });
+    const token = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+      'CF-Connecting-IP': '203.0.113.221',
+    };
+
+    const createFolder = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'POST', { name: 'Tenant Schema Smoke' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createFolder.status).toBe(201);
+    const folderBody = await createFolder.json();
+    const folderId = folderBody.data.id;
+    const folderRow = env.DB.state.aiFolders.find((row) => row.id === folderId);
+    expect(folderRow).toBeTruthy();
+    for (const column of ownershipColumns) {
+      expect(folderRow[column]).toBeNull();
+    }
+
+    const listFolders = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'GET', undefined, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listFolders.status).toBe(200);
+    expect((await listFolders.json()).data.folders.some((folder) => folder.id === folderId)).toBe(true);
+
+    const renameFolder = await authWorker.fetch(
+      authJsonRequest(`/api/ai/folders/${folderId}`, 'PATCH', { name: 'Tenant Schema Renamed' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(renameFolder.status).toBe(200);
+    expect(env.DB.state.aiFolders.find((row) => row.id === folderId).slug).toBe('tenant-schema-renamed');
+
+    const saveImage = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        folder_id: folderId,
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'schema compatibility image',
+        model: '@cf/test-model',
+        steps: 4,
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(saveImage.status).toBe(201);
+    const imageRow = env.DB.state.aiImages.find((row) => row.user_id === user.id);
+    expect(imageRow).toBeTruthy();
+    expect(imageRow.folder_id).toBe(folderId);
+    for (const column of ownershipColumns) {
+      expect(imageRow[column]).toBeNull();
+    }
+
+    const listImages = await authWorker.fetch(
+      authJsonRequest('/api/ai/images', 'GET', undefined, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listImages.status).toBe(200);
+    expect((await listImages.json()).data.images.some((image) => image.id === imageRow.id)).toBe(true);
+
+    const privateMedia = await authWorker.fetch(
+      authJsonRequest(`/api/ai/images/${imageRow.id}/file`, 'GET', undefined, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(privateMedia.status).toBe(200);
+
+    Object.assign(imageRow, {
+      visibility: 'public',
+      published_at: '2026-05-17T10:00:00.000Z',
+      derivatives_status: 'ready',
+      derivatives_version: 1,
+      thumb_key: `users/${user.id}/derivatives/v1/${imageRow.id}/thumb.webp`,
+      medium_key: `users/${user.id}/derivatives/v1/${imageRow.id}/medium.webp`,
+    });
+    const publicGallery = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics?limit=10'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicGallery.status).toBe(200);
+    expect((await publicGallery.json()).data.items.some((item) => item.id === imageRow.id)).toBe(true);
+  });
+});
 
 function seedAdminImageChargeOrg(env, {
   orgId = ADMIN_AI_CHARGE_ORG_ID,

@@ -2,6 +2,8 @@
 
 Date: 2026-05-17
 
+Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
+
 Status: Phase 4.21 adds sanitized platform budget evidence archive/retention workflow on top of Phase 4.20 read-only repair evidence reporting/export, Phase 4.19's explicit admin-approved `platform_admin_lab_budget` usage repair executor, Phase 4.18 read-only reconciliation evidence, Phase 4.17's first narrow cap foundation, Phase 4.15 runtime Cloudflare master switches, Phase 4.15.1 D1 app-level switches, and completed Phase 4.16 cap design/evidence. Phase 4.21 adds local migration `0055_add_platform_budget_evidence_archives.sql` and private `AUDIT_ARCHIVE` snapshots under `platform-budget-evidence/`; archive creation adds no runtime provider route behavior change and applies no repair. It does not add automatic repair, mutate usage/source/repair rows, call providers, call Stripe, enable live billing, change public billing, mutate credits, deploy, run remote migrations, mutate Cloudflare, change GitHub settings, change member/org billing behavior, or migrate unrelated routes.
 
 ## Scope

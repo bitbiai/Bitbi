@@ -6,10 +6,10 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const EXPECTED_MAIN_RELEASE_AUTH_MIGRATION =
-  "0053_add_platform_budget_caps.sql";
+  "0056_add_ai_folder_image_ownership_metadata.sql";
 
 const MAIN_RELEASE_DEPLOY_UNITS = Object.freeze([
-  "auth schema checkpoint 0053",
+  "auth schema checkpoint 0056",
   "auth Worker",
   "static site",
 ]);

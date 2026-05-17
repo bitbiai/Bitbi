@@ -67,11 +67,11 @@ function makeGitRunner({ status = "" } = {}) {
   assert(text.includes("Direct-main release is riskier"));
   assert(text.includes("Production readiness: BLOCKED"));
   assert(text.includes("Live billing readiness: BLOCKED"));
-  assert(text.includes("auth schema checkpoint 0053"));
+  assert(text.includes("auth schema checkpoint 0056"));
   assert(text.includes("static site"));
   assert(text.includes("auth Worker"));
   assert(!text.includes("Expected Phase 2.1-2.4 deploy units"));
-  assert(text.includes("migration 0053 before auth Worker"));
+  assert(text.includes("Production D1 migration status through 0056_add_ai_folder_image_ownership_metadata.sql"));
   assert(!text.includes(secretValue));
   assert(markdown.includes("# BITBI Main-Only Release Readiness Gate"));
   assert(markdown.includes("Final verdict: **BLOCKED**"));

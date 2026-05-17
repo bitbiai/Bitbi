@@ -2,9 +2,9 @@
 
 Date: 2026-05-17
 
-Current release truth: `config/release-compat.json` declares latest auth D1 migration `0055_add_platform_budget_evidence_archives.sql`.
+Current release truth: `config/release-compat.json` declares latest auth D1 migration `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain only. These phases do not rewrite D1 ownership rows, add a migration, move or delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
+Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable ownership metadata columns to `ai_folders` and `ai_images` only. These phases do not rewrite existing D1 ownership rows, backfill owner metadata, assign ownership on writes, move or delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
 
 ## Current Problem
 
@@ -127,6 +127,8 @@ Current lifecycle planning is user-centered. Organization asset export/delete re
 - No lifecycle/delete executor change.
 - No full tenant isolation claim.
 
+Phase 6.4 changes this schema status only for `ai_folders` and `ai_images`: migration `0056_add_ai_folder_image_ownership_metadata.sql` adds nullable owner metadata columns and indexes, but no row backfill, write assignment, access check, gallery, quota, lifecycle, R2, billing, or generation behavior changes.
+
 ## Phase 6.2 Owner-Map Dry Run
 
 Phase 6.2 narrows the first migration-planning target to `ai_folders` and `ai_images`.
@@ -145,8 +147,8 @@ Phase 6.3 adds the planning document `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEM
 
 - Proposed future metadata for both `ai_folders` and `ai_images`: `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
 - Read/access impact remains planned only; existing `user_id` checks, public gallery reads, lifecycle/export/delete behavior, and storage quota behavior are unchanged.
-- The focused report now marks the domain `ready_for_schema`, while backfill remains `blocked_for_backfill`, `requires_manual_review`, and `unsafe_to_migrate_without_new_metadata`.
-- Recommended next step: Phase 6.4 additive schema only, with no backfill and no runtime access behavior change.
+- Phase 6.4 now marks the focused report `schema_added_not_backfilled`; access checks remain unchanged, write paths are not assigned, backfill has not started, and the owner map is not complete.
+- Recommended next step: Phase 6.5 new-write ownership assignment only, with no broad backfill and no runtime access behavior change.
 
 ## Admin Inspection Requirements
 
@@ -170,7 +172,7 @@ Admin inspection should remain sanitized and should not expose raw prompts, prov
 | --- | --- | --- |
 | 6.2 | AI folders/images owner-map dry run | Implemented as source/fixture dry run only; no schema, backfill, R2 mutation, or access-check change. |
 | 6.3 | AI folders/images ownership schema proposal and access-check impact plan | Implemented as design/check output only; no migration, backfill, or access behavior change. |
-| 6.4 | Additive ownership metadata schema for folders/images | Add columns and compatibility tests only; no backfill. |
+| 6.4 | Additive ownership metadata schema for folders/images | Implemented as nullable columns and compatibility tests only; no backfill or access behavior change. |
 | 6.5 | Write-path metadata assignment and owner-scope helpers | Assign metadata for new writes behind tests; preserve compatibility. |
 | 6.6 | Role-aware access checks and public gallery attribution | Add organization-aware access and publisher policy deliberately. |
 | 6.7 | Export/delete/lifecycle and quota integration | Add organization subject plans and quota counters after owner model is stable. |
