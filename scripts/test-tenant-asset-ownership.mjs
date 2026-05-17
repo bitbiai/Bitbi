@@ -221,16 +221,81 @@ assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("Public a
 assert.equal(foldersImagesReport.schemaAccessImpact.phase63BehaviorChange, false);
 assert.equal(foldersImagesReport.schemaAccessImpact.phase64BehaviorChange, false);
 assert.equal(foldersImagesReport.schemaAccessImpact.phase65AccessBehaviorChange, false);
+assert.equal(foldersImagesReport.schemaAccessImpact.phase66AccessBehaviorChange, false);
+assert.equal(foldersImagesReport.schemaAccessImpact.readDiagnosticsAdded, true);
+assert.equal(foldersImagesReport.schemaAccessImpact.dualReadSafetySimulated, true);
+assert(foldersImagesReport.schemaAccessImpact.readDiagnosticsSummary.simulatedDualReadSafeCount >= 1);
+assert(foldersImagesReport.schemaAccessImpact.readDiagnosticsSummary.simulatedDualReadUnsafeCount >= 1);
 assert(foldersImagesReport.schemaAccessImpact.routesNeedingFutureAccessUpdates.includes("image_list_read"));
 assert(foldersImagesReport.schemaAccessImpact.writePathsAssignedForNewRows.includes("folder_personal_context"));
 assert(foldersImagesReport.schemaAccessImpact.writePathsAssignedForNewRows.includes("image_save_personal_context"));
 assert(foldersImagesReport.schemaAccessImpact.writePathsNeedingFutureOwnershipAssignment.includes("org_scoped_generation"));
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.6 — Ownership Metadata Read Diagnostics / Dual-read Safety Checks");
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.7 — Tenant Asset Ownership Admin Evidence Report for Folders/Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "public_gallery"));
 assert(foldersImagesReport.sourceEvidence.r2Bindings.some((binding) => binding.binding === "USER_IMAGES"));
+assert.equal(foldersImagesReport.readDiagnostics.reportVersion, "tenant-asset-read-diagnostics-v1");
+assert.equal(foldersImagesReport.readDiagnostics.source, "source_fixture_dry_run");
+assert.equal(foldersImagesReport.readDiagnostics.domain, "folders_images");
+assert.equal(foldersImagesReport.readDiagnostics.runtimeBehaviorChanged, false);
+assert.equal(foldersImagesReport.readDiagnostics.accessChecksChanged, false);
+assert.equal(foldersImagesReport.readDiagnostics.tenantIsolationClaimed, false);
+assert.equal(foldersImagesReport.readDiagnostics.backfillPerformed, false);
+assert.equal(foldersImagesReport.readDiagnostics.r2LiveListed, false);
+assert.equal(foldersImagesReport.readDiagnostics.summary.totalFoldersScanned, 4);
+assert.equal(foldersImagesReport.readDiagnostics.summary.totalImagesScanned, 8);
+assert(foldersImagesReport.readDiagnosticClasses.includes("same_allow"));
+assert(foldersImagesReport.readDiagnosticClasses.includes("metadata_missing"));
+assert(foldersImagesReport.readDiagnosticClasses.includes("unsafe_to_switch"));
+
+function folderDiagnostic(sourceId) {
+  const found = foldersImagesReport.readDiagnostics.folderDiagnostics.find((entry) => entry.sourceId === sourceId);
+  assert(found, `missing folder diagnostic ${sourceId}`);
+  return found;
+}
+
+function imageDiagnostic(sourceId) {
+  const found = foldersImagesReport.readDiagnostics.imageDiagnostics.find((entry) => entry.sourceId === sourceId);
+  assert(found, `missing image diagnostic ${sourceId}`);
+  return found;
+}
+
+function relationshipDiagnostic(sourceId) {
+  const found = foldersImagesReport.readDiagnostics.relationshipDiagnostics.find((entry) => entry.sourceId === sourceId);
+  assert(found, `missing relationship diagnostic ${sourceId}`);
+  return found;
+}
+
+function publicDiagnostic(sourceId) {
+  const found = foldersImagesReport.readDiagnostics.publicGalleryDiagnostics.find((entry) => entry.sourceId === sourceId);
+  assert(found, `missing public diagnostic ${sourceId}`);
+  return found;
+}
+
+function derivativeDiagnostic(sourceId) {
+  const found = foldersImagesReport.readDiagnostics.derivativeDiagnostics.find((entry) => entry.sourceId === sourceId);
+  assert(found, `missing derivative diagnostic ${sourceId}`);
+  return found;
+}
+
+assert.equal(folderDiagnostic("folder_personal").classification, "same_allow");
+assert.equal(folderDiagnostic("folder_weak_org").classification, "metadata_missing");
+assert.equal(folderDiagnostic("folder_conflict").classification, "metadata_conflict");
+assert.equal(imageDiagnostic("image_personal").classification, "same_allow");
+assert.equal(imageDiagnostic("image_weak_org").classification, "metadata_missing");
+assert.equal(imageDiagnostic("image_public_ambiguous").classification, "unsafe_to_switch");
+assert.equal(publicDiagnostic("image_public_ambiguous").classification, "unsafe_to_switch");
+assert.equal(imageDiagnostic("image_missing_folder").classification, "orphan_reference");
+assert.equal(relationshipDiagnostic("image_missing_folder").classification, "orphan_reference");
+assert.equal(imageDiagnostic("image_conflict").classification, "relationship_conflict");
+assert.equal(relationshipDiagnostic("image_conflict").classification, "relationship_conflict");
+assert.equal(derivativeDiagnostic("image_derivative_low_confidence").classification, "needs_manual_review");
+assert.equal(imageDiagnostic("image_org_strong").classification, "needs_manual_review");
+assert.equal(imageDiagnostic("image_admin_test").classification, "needs_manual_review");
+assert.equal(imageDiagnostic("image_personal").evidence.r2KeyFields.r2_key.keyClass, "users/{userId}/...");
+assert.equal(imageDiagnostic("image_personal").evidence.r2LiveListed, false);
 
 function candidate(id) {
   const found = foldersImagesReport.candidates.find((entry) => entry.sourceId === id);
@@ -281,8 +346,11 @@ assert(!focusedSerialized.includes("CREATE INDEX"));
 assert(!focusedSerialized.includes("wrangler d1 migrations apply"));
 assert(!focusedSerialized.includes("r2 delete"));
 assert(!focusedSerialized.includes("r2 move"));
+assert(!focusedSerialized.includes("r2 list"));
 assert(!focusedSerialized.includes("stripe "));
 assert(!focusedSerialized.includes("cloudflare api"));
+assert(!focusedSerialized.includes("synthetic prompt omitted"));
+assert(!focusedSerialized.includes("users/user_personal/folders/personal/image_personal.png"));
 
 const ownershipMigrationPath = path.join(
   repoRoot,
@@ -322,5 +390,8 @@ assert(focusedMarkdown.includes("image_list_read"));
 assert(focusedMarkdown.includes("Write Path Assignment"));
 assert(focusedMarkdown.includes("image_save_personal_context"));
 assert(focusedMarkdown.includes("image_public_ambiguous"));
+assert(focusedMarkdown.includes("Read Diagnostics"));
+assert(focusedMarkdown.includes("metadata_missing"));
+assert(focusedMarkdown.includes("unsafe_to_switch"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

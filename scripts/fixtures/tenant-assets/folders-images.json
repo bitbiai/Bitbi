@@ -6,7 +6,16 @@
       "name": "Personal Images",
       "slug": "personal-images",
       "created_at": "2026-05-17T00:00:00.000Z",
-      "status": "active"
+      "status": "active",
+      "asset_owner_type": "personal_user_asset",
+      "owning_user_id": "user_personal",
+      "owning_organization_id": null,
+      "created_by_user_id": "user_personal",
+      "ownership_status": "current",
+      "ownership_source": "new_write_personal",
+      "ownership_confidence": "high",
+      "ownership_metadata_json": "{\"phase\":\"6.5\",\"assigned_by\":\"write_path\"}",
+      "ownership_assigned_at": "2026-05-17T00:00:00.000Z"
     },
     {
       "id": "folder_org_strong",
@@ -15,6 +24,15 @@
       "slug": "org-campaign",
       "created_at": "2026-05-17T00:00:00.000Z",
       "status": "active",
+      "asset_owner_type": "organization_asset",
+      "owning_user_id": null,
+      "owning_organization_id": "org_acme",
+      "created_by_user_id": "user_org_creator",
+      "ownership_status": "current",
+      "ownership_source": "new_write_org_context",
+      "ownership_confidence": "high",
+      "ownership_metadata_json": "{\"phase\":\"fixture\",\"org_context_verified\":true}",
+      "ownership_assigned_at": "2026-05-17T00:00:00.000Z",
       "ownerMap": {
         "owningOrganizationId": "org_acme"
       }
@@ -34,7 +52,16 @@
       "name": "Conflict",
       "slug": "conflict",
       "created_at": "2026-05-17T00:00:00.000Z",
-      "status": "active"
+      "status": "active",
+      "asset_owner_type": "personal_user_asset",
+      "owning_user_id": "user_other_owner",
+      "owning_organization_id": null,
+      "created_by_user_id": "user_folder_owner",
+      "ownership_status": "current",
+      "ownership_source": "new_write_personal",
+      "ownership_confidence": "high",
+      "ownership_metadata_json": "{\"phase\":\"fixture\",\"conflict\":true}",
+      "ownership_assigned_at": "2026-05-17T00:00:00.000Z"
     }
   ],
   "images": [
@@ -46,7 +73,16 @@
       "prompt": "synthetic prompt omitted",
       "model": "fixture-model",
       "visibility": "private",
-      "created_at": "2026-05-17T00:00:00.000Z"
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "asset_owner_type": "personal_user_asset",
+      "owning_user_id": "user_personal",
+      "owning_organization_id": null,
+      "created_by_user_id": "user_personal",
+      "ownership_status": "current",
+      "ownership_source": "new_write_personal",
+      "ownership_confidence": "high",
+      "ownership_metadata_json": "{\"phase\":\"6.5\",\"assigned_by\":\"write_path\"}",
+      "ownership_assigned_at": "2026-05-17T00:00:00.000Z"
     },
     {
       "id": "image_org_strong",
@@ -58,6 +94,15 @@
       "model": "fixture-model",
       "visibility": "private",
       "created_at": "2026-05-17T00:00:00.000Z",
+      "asset_owner_type": "organization_asset",
+      "owning_user_id": null,
+      "owning_organization_id": "org_acme",
+      "created_by_user_id": "user_org_creator",
+      "ownership_status": "current",
+      "ownership_source": "new_write_org_context",
+      "ownership_confidence": "high",
+      "ownership_metadata_json": "{\"phase\":\"fixture\",\"org_context_verified\":true,\"derivatives_inherit_parent\":true}",
+      "ownership_assigned_at": "2026-05-17T00:00:00.000Z",
       "ownerMap": {
         "owningOrganizationId": "org_acme"
       }
@@ -117,6 +162,15 @@
       "model": "fixture-admin-model",
       "visibility": "private",
       "created_at": "2026-05-17T00:00:00.000Z",
+      "asset_owner_type": "platform_admin_test_asset",
+      "owning_user_id": null,
+      "owning_organization_id": null,
+      "created_by_user_id": "admin_user",
+      "ownership_status": "current",
+      "ownership_source": "platform_admin_test",
+      "ownership_confidence": "high",
+      "ownership_metadata_json": "{\"phase\":\"fixture\",\"source\":\"admin_test\"}",
+      "ownership_assigned_at": "2026-05-17T00:00:00.000Z",
       "source_domain": "admin_ai_image_test"
     }
   ]

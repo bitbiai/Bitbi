@@ -4,15 +4,15 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 inventories ownership only. Phase 6.2 adds a focused source/fixture owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable owner metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those fields only for new personal folder/image writes. These phases do not backfill existing rows, assign organization ownership, move/list/delete R2 objects, mutate billing, change generation behavior, change lifecycle behavior, change quota accounting, or change public gallery behavior.
+Phase 6.1 inventories ownership only. Phase 6.2 adds a focused source/fixture owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable owner metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those fields only for new personal folder/image writes. Phase 6.6 adds read-only diagnostics that compare legacy `user_id` signals with ownership metadata. These phases do not backfill existing rows, assign organization ownership, move/list/delete R2 objects, mutate billing, change generation behavior, change access checks, change lifecycle behavior, change quota accounting, or change public gallery behavior.
 
 ## Summary
 
 | Domain | Current owner fields | Target owner fields | Current access | Risk | Future phase |
 | --- | --- | --- | --- | --- | --- |
-| Generated images (`ai_images`) | `user_id`, optional `folder_id`; nullable owner metadata now assigned for new personal saves only | `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, ownership status/source/confidence metadata | Private user match; public `visibility='public'` | High | 6.6 read diagnostics next |
+| Generated images (`ai_images`) | `user_id`, optional `folder_id`; nullable owner metadata now assigned for new personal saves only | `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, ownership status/source/confidence metadata | Private user match; public `visibility='public'` | High | 6.6 diagnostics added; 6.7 evidence next |
 | Saved text/audio/video (`ai_text_assets`) | `user_id`, optional `folder_id`, `source_module` | same target owner fields plus parent/derivative owner evidence | Private user match; public source-specific galleries | High | 6.3 |
-| Folders (`ai_folders`) | `user_id`, `status`; nullable owner metadata now assigned for new personal folders only | `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, ownership status/source/confidence metadata | User match for create/rename/delete/move | High | 6.6 read diagnostics next |
+| Folders (`ai_folders`) | `user_id`, `status`; nullable owner metadata now assigned for new personal folders only | `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, ownership status/source/confidence metadata | User match for create/rename/delete/move | High | 6.6 diagnostics added; 6.7 evidence next |
 | Async video jobs (`ai_video_jobs`) | `user_id`, `scope` | owner class plus org/admin classification | User/admin scope checks | High | 6.4 |
 | Profiles/avatars (`profiles`, `PRIVATE_MEDIA`) | `user_id` | personal or organization publisher evidence | User-private; public only through gallery attribution routes | Medium | 6.6 |
 | Favorites (`favorites`) | `user_id`, `item_type`, `item_id` | referencing user plus referenced asset owner class | User-private reference list | Medium | 6.6 |
@@ -36,7 +36,7 @@ Phase 6.1 inventories ownership only. Phase 6.2 adds a focused source/fixture ow
 - Target: `personal_user_asset` or `organization_asset`.
 - Gap: org-scoped image generation can consume org credits/attempts, but saved image rows do not carry an organization owner.
 - Phase 6.2 dry-run rules classify user-only rows as medium-confidence personal candidates, require explicit owner-map evidence for organization assets, reject weak UI organization context, flag folder/user conflicts, flag missing folders, and mark public ambiguous images unsafe to migrate.
-- Phase 6.4 adds nullable ownership metadata fields and future access-check constants/tests. Phase 6.5 writes high-confidence personal ownership metadata for new saved images only; old rows remain null/unclassified, org ownership is not assigned, and runtime reads/access checks remain `user_id` based.
+- Phase 6.4 adds nullable ownership metadata fields and future access-check constants/tests. Phase 6.5 writes high-confidence personal ownership metadata for new saved images only; Phase 6.6 reports simulated dual-read safety. Old rows remain null/unclassified, org ownership is not assigned, and runtime reads/access checks remain `user_id` based.
 
 ### `ai_text_assets`
 
@@ -62,7 +62,7 @@ Phase 6.1 inventories ownership only. Phase 6.2 adds a focused source/fixture ow
 - Target: owner-bound folder with owner class and optional organization id.
 - Gap: future org-owned assets must not be mixed into personal folders without explicit policy.
 - Phase 6.2 dry-run rules keep folders owner-bound in the target model and treat weak org context as insufficient for tenant ownership.
-- Phase 6.4 adds nullable metadata fields for this target. Phase 6.5 writes high-confidence personal ownership metadata for new folders only; old rows remain null/unclassified, org ownership is not assigned, and access behavior remains `user_id` based.
+- Phase 6.4 adds nullable metadata fields for this target. Phase 6.5 writes high-confidence personal ownership metadata for new folders only; Phase 6.6 reports simulated dual-read safety. Old rows remain null/unclassified, org ownership is not assigned, and access behavior remains `user_id` based.
 
 ### `ai_video_jobs`
 
@@ -140,6 +140,7 @@ Phase 6.1 inventories ownership only. Phase 6.2 adds a focused source/fixture ow
 ## Tests Needed In Future Phases
 
 - Phase 6.5 new-write tests for personal `ai_folders` and `ai_images` ownership metadata, plus null-row compatibility.
+- Phase 6.6 diagnostics tests for metadata-missing rows, owner conflicts, relationship conflicts, public unsafe rows, orphan folder references, and derivative ownership risk.
 - Owner-map dry-run includes every existing row and marks ambiguous rows as legacy.
 - Organization-owned asset routes reject non-members and insufficient roles.
 - Personal assets remain accessible to their original user.

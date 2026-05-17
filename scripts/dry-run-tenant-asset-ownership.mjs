@@ -9,6 +9,10 @@ import {
   TENANT_ASSET_OWNERSHIP_SOURCES,
   TENANT_ASSET_OWNERSHIP_STATUSES,
 } from "../workers/auth/src/lib/tenant-asset-ownership.js";
+import {
+  buildTenantAssetReadDiagnosticsReport,
+  TENANT_ASSET_READ_DIAGNOSTIC_CLASSIFICATIONS,
+} from "../workers/auth/src/lib/tenant-asset-read-diagnostics.js";
 
 export const TENANT_ASSET_OWNER_CLASSES = Object.freeze([
   ...TENANT_ASSET_OWNER_TYPES,
@@ -56,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.6 candidate: add read diagnostics for new-row ownership metadata while old rows remain unbackfilled.",
+    futurePhase: "Phase 6.7 candidate: surface read diagnostics to operators or collect bounded staging owner-map evidence before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -116,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.6 candidate: add read diagnostics for new-row ownership metadata while old rows remain unbackfilled.",
+    futurePhase: "Phase 6.7 candidate: surface read diagnostics to operators or collect bounded staging owner-map evidence before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -171,7 +175,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or external_reference_asset",
     risk: "medium",
     findings: ["public_profile_attribution_user_only", "organization_publisher_avatar_policy_missing"],
-    futurePhase: "Phase 6.6 with public gallery attribution.",
+    futurePhase: "Later public-gallery attribution phase after folders/images diagnostics are reviewed.",
   },
   {
     id: "favorites",
@@ -192,7 +196,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "external_reference_asset",
     risk: "medium",
     findings: ["favorites_reference_owner_not_recorded"],
-    futurePhase: "Phase 6.6 with gallery/favorites attribution.",
+    futurePhase: "Later gallery/favorites attribution phase after folders/images diagnostics are reviewed.",
   },
   {
     id: "user_asset_storage_usage",
@@ -381,17 +385,17 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.6",
     title: "Ownership metadata read diagnostics and dual-read safety checks",
-    scope: "Compare existing user_id access with new ownership metadata in read-only evidence before any authorization switch.",
+    scope: "Implemented as fixture/source read diagnostics comparing existing user_id access with new ownership metadata; no authorization switch.",
   },
   {
     phase: "6.7",
-    title: "Export/delete/lifecycle integration",
-    scope: "Extend lifecycle planning to organization-owned assets after owner model is proven.",
+    title: "Tenant asset ownership admin evidence or staging owner-map evidence",
+    scope: "Surface folders/images read diagnostics to operators or collect bounded real-row evidence; no access switch or backfill.",
   },
   {
     phase: "6.8",
-    title: "Admin inspection plus R2 owner-map and orphan report",
-    scope: "Bounded local/staging object-key reconciliation and admin evidence; no deletes.",
+    title: "Export/delete/lifecycle, quota, and R2 owner-map integration",
+    scope: "Extend lifecycle/quota planning and bounded object-key evidence after owner model is proven; no deletes.",
   },
   {
     phase: "6.9",
@@ -1287,6 +1291,15 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   });
 
   const summary = summarizeCandidates(candidates);
+  const readDiagnostics = buildTenantAssetReadDiagnosticsReport({
+    folders,
+    images,
+    generatedAt,
+    source: fixturePath ? "source_fixture_dry_run" : "repo_source_read_only",
+    limit: options.limit || 100,
+    includePublic: true,
+    includeRelationships: true,
+  });
 
   return {
     reportVersion: "tenant-folders-images-owner-map-dry-run-v1",
@@ -1298,6 +1311,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     tenantIsolationReadiness: "blocked",
     budgetScope: "not_applicable",
     ownerMapClasses: FOLDERS_IMAGES_OWNER_MAP_CLASSES,
+    readDiagnosticClasses: TENANT_ASSET_READ_DIAGNOSTIC_CLASSIFICATIONS,
     domain: "folders-images",
     scope: {
       tables: ["ai_folders", "ai_images"],
@@ -1322,6 +1336,8 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         schemaReadinessStatus,
         "access_checks_not_changed",
         writePathAssignment.status,
+        "read_diagnostics_added",
+        "dual_read_safety_simulated",
         "backfill_not_started",
         "owner_map_not_complete",
       ],
@@ -1330,6 +1346,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     accessImpactMatrix: FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX,
     futureWritePathRules: FOLDERS_IMAGES_WRITE_PATH_RULES,
     backfillPolicy: FOLDERS_IMAGES_BACKFILL_POLICY,
+    readDiagnostics,
     rules: FOLDERS_IMAGES_OWNER_MAP_RULES,
     fixture: {
       provided: Boolean(fixturePath),
@@ -1388,6 +1405,21 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       phase63BehaviorChange: false,
       phase64BehaviorChange: false,
       phase65AccessBehaviorChange: false,
+      phase66AccessBehaviorChange: false,
+      readDiagnosticsAdded: true,
+      dualReadSafetySimulated: true,
+      readDiagnosticsSummary: {
+        simulatedDualReadSafeCount: readDiagnostics.summary.simulatedDualReadSafeCount,
+        simulatedDualReadUnsafeCount: readDiagnostics.summary.simulatedDualReadUnsafeCount,
+        metadataMissingCount: (
+          readDiagnostics.summary.foldersWithNullOwnershipMetadata +
+          readDiagnostics.summary.imagesWithNullOwnershipMetadata
+        ),
+        needsManualReviewCount: readDiagnostics.summary.needsManualReviewCount,
+        relationshipConflictCount: readDiagnostics.summary.relationshipConflictCount,
+        publicUnsafeCount: readDiagnostics.summary.publicImagesWithMissingOrAmbiguousOwnership,
+        derivativeRiskCount: readDiagnostics.summary.derivativeOwnershipRisks,
+      },
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
@@ -1406,7 +1438,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "No runtime access behavior changes are made.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? "Phase 6.6 — Ownership Metadata Read Diagnostics / Dual-read Safety Checks"
+      ? "Phase 6.7 — Tenant Asset Ownership Admin Evidence Report for Folders/Images"
       : ownershipMigrationExists
         ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
@@ -1533,6 +1565,10 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Phase 6.3 behavior change: ${report.schemaAccessImpact?.phase63BehaviorChange === false ? "no" : "review"}`,
     `- Phase 6.4 behavior change: ${report.schemaAccessImpact?.phase64BehaviorChange === false ? "no" : "review"}`,
     `- Phase 6.5 access behavior change: ${report.schemaAccessImpact?.phase65AccessBehaviorChange === false ? "no" : "review"}`,
+    `- Phase 6.6 access behavior change: ${report.schemaAccessImpact?.phase66AccessBehaviorChange === false ? "no" : "review"}`,
+    `- Read diagnostics added: ${report.schemaAccessImpact?.readDiagnosticsAdded ? "yes" : "no"}`,
+    `- Simulated dual-read safe items: ${report.readDiagnostics?.summary?.simulatedDualReadSafeCount ?? 0}`,
+    `- Simulated dual-read unsafe items: ${report.readDiagnostics?.summary?.simulatedDualReadUnsafeCount ?? 0}`,
     "",
     "## Proposed Schema Fields",
     "",
@@ -1578,6 +1614,20 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     "| --- | --- | --- | --- | --- | --- | --- |",
     ...report.candidates.map((candidate) => (
       `| ${candidate.candidateId} | ${candidate.sourceTable} | ${candidate.currentUserOwner || ""} | ${candidate.currentFolderId || ""} | ${candidate.inferredOwnerClass} | ${candidate.confidence} | ${candidate.blockedReason || ""} |`
+    )),
+    "",
+    "## Read Diagnostics",
+    "",
+    "| Domain | Item | Classification | Severity | Reason |",
+    "| --- | --- | --- | --- | --- |",
+    ...[
+      ...(report.readDiagnostics?.folderDiagnostics || []),
+      ...(report.readDiagnostics?.imageDiagnostics || []),
+      ...(report.readDiagnostics?.relationshipDiagnostics || []),
+      ...(report.readDiagnostics?.publicGalleryDiagnostics || []),
+      ...(report.readDiagnostics?.derivativeDiagnostics || []),
+    ].map((item) => (
+      `| ${item.domain} | ${item.sourceId || item.id} | ${item.classification} | ${item.severity} | ${item.reason} |`
     )),
     "",
     "## Safety",

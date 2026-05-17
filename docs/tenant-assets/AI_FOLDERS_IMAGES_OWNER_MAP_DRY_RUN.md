@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Schema Summary
 
@@ -116,6 +116,19 @@ The synthetic fixture covers:
 - Weak client organization hints are ignored; organization-owned saved-image/folder assignment requires a future server-verified org-scoped write path.
 - No existing rows are updated, no R2 keys are listed/moved/deleted, and gallery/media/lifecycle/quota behavior is unchanged.
 
+## Phase 6.6 Read Diagnostics
+
+The focused dry run now embeds `readDiagnostics` from `workers/auth/src/lib/tenant-asset-read-diagnostics.js`.
+
+- Safe personal rows with matching `user_id` and `owning_user_id` classify as `same_allow`.
+- Old/null rows classify as `metadata_missing` and remain supported by legacy `user_id` access.
+- `user_id` / `owning_user_id` mismatches classify as `metadata_conflict`.
+- Missing folders classify as `orphan_reference`; folder/image owner mismatches classify as `relationship_conflict`.
+- Public rows with missing, ambiguous, or conflicting metadata classify as `unsafe_to_switch`.
+- Organization and platform-admin-test rows classify as `needs_manual_review` until role-aware policies exist.
+- Derivative keys inherit parent ownership only in target design; diagnostics flag derivative risk when parent ownership is missing or conflicted.
+- Diagnostics never authorize requests, backfill rows, list R2, or change runtime access checks.
+
 ## Remaining Migration Blockers
 
 - Existing pre-Phase-6.5 rows remain null/unclassified until a future owner-map/backfill phase.
@@ -134,12 +147,6 @@ Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGE
 - Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
 - Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-## Recommended Phase 6.6
+## Recommended Phase 6.7
 
-Phase 6.6 should be **Ownership Metadata Read Diagnostics / Dual-read Safety Checks**:
-
-- compare existing `user_id` access decisions with new ownership metadata where present
-- report null/legacy folder/image rows without changing behavior
-- keep weak org signals rejected
-- do not backfill legacy rows or switch access checks
-- keep public gallery, quota, lifecycle, and R2 behavior unchanged unless explicitly planned
+Phase 6.7 should be **Tenant Asset Ownership Admin Evidence Report for Folders/Images** or a staging owner-map evidence collection phase. It should surface the read diagnostics to operators without switching access checks or backfilling old rows.

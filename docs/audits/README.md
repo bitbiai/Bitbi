@@ -63,7 +63,7 @@ These files must stay reconciled with `config/release-compat.json` and must not 
 | `docs/ai-cost-gateway/ADMIN_TEXT_EMBEDDINGS_IDEMPOTENCY_DESIGN.md` | Admin text/embeddings idempotency design. |
 | `docs/ai-cost-gateway/ADMIN_LIVE_AGENT_BUDGET_FLOW_AUDIT.md` | Admin Live-Agent budget-flow audit/design. |
 | `docs/ai-cost-gateway/ADMIN_SYNC_VIDEO_DEBUG_RETIREMENT_AUDIT.md` | Sync video debug retirement audit. |
-| `docs/tenant-assets/*.md` | Tenant asset ownership design, inventory, risk matrix, dry-run reports, Phase 6.3 schema/access plan, Phase 6.4 schema foundation notes, and Phase 6.5 new-write metadata assignment notes. |
+| `docs/tenant-assets/*.md` | Tenant asset ownership design, inventory, risk matrix, dry-run reports, Phase 6.3 schema/access plan, Phase 6.4 schema foundation notes, Phase 6.5 new-write metadata assignment notes, and Phase 6.6 read diagnostics notes. |
 
 ## Historical Phase Reports - Frozen Evidence
 
