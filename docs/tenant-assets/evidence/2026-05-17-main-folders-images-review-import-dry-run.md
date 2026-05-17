@@ -349,4 +349,4 @@ Phase 6.19 adds the operator evidence runbook, template, and decision doc for li
 
 Phase 6.20 reviews real live/main operator evidence. Dry-run import, confirmed import, and queue export evidence are present, but replay/conflict and successful standalone status-update idempotency evidence remain incomplete; the decision is `operator_evidence_collected_needs_more_idempotency`.
 
-Next recommended phase: Phase 6.22 — Admin-approved Legacy Media Reset Executor Design, after the Phase 6.21 read-only reset dry-run/export evidence is reviewed.
+Next recommended phase: Phase 6.23 — Legacy Media Reset Action Tracking Schema, after the Phase 6.22 design-only executor plan is reviewed.

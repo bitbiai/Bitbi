@@ -184,6 +184,6 @@ This is not a green evidence result. It does not approve tenant isolation, produ
 
 ## Next Recommended Phase
 
-`Phase 6.22 - Admin-approved Legacy Media Reset Executor Design`
+`Phase 6.23 - Legacy Media Reset Action Tracking Schema`
 
-Phase 6.21 adds a legacy personal media reset dry-run/export only; it does not change this operator-evidence decision, complete idempotency replay/conflict evidence, mutate review rows, delete media, backfill ownership, switch access checks, update source asset rows, update ownership metadata, or list/mutate R2. Phase 6.22 should design a future admin-approved reset executor after dry-run evidence review and should still avoid destructive execution, ownership backfill, access-check switching, provider calls, Stripe calls, Cloudflare mutations, and billing/credit mutations.
+Phase 6.21 adds a legacy personal media reset dry-run/export only; it does not change this operator-evidence decision, complete idempotency replay/conflict evidence, mutate review rows, delete media, backfill ownership, switch access checks, update source asset rows, update ownership metadata, or list/mutate R2. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` only. It designs a future admin-approved reset executor after dry-run evidence review but implements no executor, endpoint, UI, migration, destructive execution, ownership backfill, access-check switch, provider call, Stripe call, Cloudflare mutation, or billing/credit mutation. Phase 6.23 may add action tracking schema if separately approved.

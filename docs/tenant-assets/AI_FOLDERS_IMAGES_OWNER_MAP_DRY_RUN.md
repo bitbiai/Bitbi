@@ -242,8 +242,10 @@ Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGE
 - Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
 - Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-## Recommended Phase 6.22
+## Recommended Phase 6.23
 
 Phase 6.21 adds the legacy personal media reset dry-run/export only. It inventories candidate folders, images, public/gallery rows, derivative references, text/video/music coverage, quota summaries, and manual-review impact with read-only D1 queries. It performs no deletion, backfill, access switch, source asset mutation, review-row mutation, ownership metadata update, or R2 listing/mutation.
 
-Phase 6.22 should be **Admin-approved Legacy Media Reset Executor Design**. It should design, not execute, a bounded future executor that defaults to dry-run, requires admin/MFA/same-origin/idempotency/confirmation/reason, reuses existing safe delete/lifecycle paths, and still avoids broad ownership backfill or access-check migration.
+Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` only. It designs a bounded future executor, allowed/deferred domains, ordering, public/gallery handling, derivative/R2 safety, audit/idempotency, action tracking, and verification, but adds no executor, endpoint, UI, migration, deletion, D1/R2 mutation, ownership backfill, or access-check migration.
+
+Phase 6.23 should be **Legacy Media Reset Action Tracking Schema** if the owner continues the reset path.

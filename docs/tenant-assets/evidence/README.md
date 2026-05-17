@@ -105,7 +105,13 @@ Phase 6.21 adds a read-only legacy personal media reset dry-run:
 - `GET /api/admin/tenant-assets/legacy-media-reset/dry-run`
 - `GET /api/admin/tenant-assets/legacy-media-reset/dry-run/export`
 
-The dry-run inventories `ai_folders`, `ai_images`, public/gallery rows, derivative references, text/music/video records, quota summaries, and manual-review impact using bounded D1 reads only. It adds no delete executor or bulk-delete UI, performs no deletion, mutates no source/review rows, performs no ownership backfill or access switch, and does not list or mutate R2. Future Phase 6.22 may design an admin-approved executor only after dry-run evidence review.
+The dry-run inventories `ai_folders`, `ai_images`, public/gallery rows, derivative references, text/music/video records, quota summaries, and manual-review impact using bounded D1 reads only. It adds no delete executor or bulk-delete UI, performs no deletion, mutates no source/review rows, performs no ownership backfill or access switch, and does not list or mutate R2.
+
+Phase 6.22 adds the design-only reset executor plan:
+
+- `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md`
+
+The design defines future allowed/deferred domains, endpoint shape, deletion order, public/gallery handling, derivative/R2 safety, audit/idempotency, action tracking, partial-failure, and verification requirements. It adds no executor, endpoint, UI, migration, deletion, source mutation, review-row mutation, R2 action, ownership backfill, or access switch. Future Phase 6.23 may add action-tracking schema only if separately approved.
 
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 

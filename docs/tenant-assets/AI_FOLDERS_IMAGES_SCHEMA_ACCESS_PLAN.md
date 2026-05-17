@@ -296,5 +296,6 @@ Future implementation tests should cover:
 | 6.19 | Manual review status operator evidence collection; implemented as runbook/template docs only, no runtime behavior, import execution, status update, source mutation, ownership backfill, or access switch. |
 | 6.20 | Manual review operator evidence decision update; implemented from committed live/main evidence as `operator_evidence_collected_needs_more_idempotency`, with no runtime behavior, import execution, status update, source mutation, ownership backfill, or access switch. |
 | 6.21 | Legacy personal media reset dry-run; implemented as admin-only read/export planning from D1 counts only, no deletion, source mutation, review-row mutation, R2 listing/mutation, ownership backfill, or access switch. |
+| 6.22 | Admin-approved legacy media reset executor design; implemented as design-only requirements for future action tracking/execution, with no endpoint, UI, migration, deletion, source mutation, review-row mutation, R2 action, ownership backfill, or access switch. |
 
-Recommended next phase: **Phase 6.22 - Admin-approved Legacy Media Reset Executor Design**.
+Recommended next phase: **Phase 6.23 - Legacy Media Reset Action Tracking Schema**.

@@ -66,9 +66,9 @@ Phase 6.12 adds the schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_
 
 ## Next Recommended Phase
 
-`Phase 6.22 - Admin-approved Legacy Media Reset Executor Design`
+`Phase 6.23 - Legacy Media Reset Action Tracking Schema`
 
-Phase 6.20 records that live/main import dry-run, confirmed import, and queue evidence exports are now present. Phase 6.21 adds a read-only legacy media reset dry-run/export so the operator can compare reset/retirement planning against ownership backfill. Phase 6.22 should design a future executor only after dry-run evidence review, and it should still avoid ownership backfill, access-check switching, D1 ownership row rewrites, ownership metadata updates, review-row mutation unless separately approved, R2 listing/mutation by design tooling, and destructive execution.
+Phase 6.20 records that live/main import dry-run, confirmed import, and queue evidence exports are now present. Phase 6.21 adds a read-only legacy media reset dry-run/export so the operator can compare reset/retirement planning against ownership backfill. Phase 6.22 adds future executor design only and still avoids ownership backfill, access-check switching, D1 ownership row rewrites, ownership metadata updates, review-row mutation, R2 listing/mutation, endpoint/UI/migration changes, and destructive execution. Phase 6.23 may add action tracking schema if separately approved.
 
 ## Safety Statement
 

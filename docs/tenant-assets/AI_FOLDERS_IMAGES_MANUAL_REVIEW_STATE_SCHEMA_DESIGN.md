@@ -371,9 +371,9 @@ Phase 6.18 adds Admin Control Plane visibility and operator evidence rollups for
 
 Recommended next phase:
 
-`Phase 6.22 - Admin-approved Legacy Media Reset Executor Design`
+`Phase 6.23 - Legacy Media Reset Action Tracking Schema`
 
-Phase 6.21 adds legacy media reset dry-run/export planning only. Later phases may separately complete manual-review idempotency evidence, design a reset executor, or design non-destructive ownership metadata backfill readiness. Each must be dry-run-first where applicable, explicitly approved, and must not imply tenant isolation or access-switch readiness.
+Phase 6.21 adds legacy media reset dry-run/export planning only. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` only. It does not implement deletion, a reset endpoint, UI, migration, review-row mutation, source-row mutation, R2 action, ownership backfill, or access-check switch. Later phases may separately complete manual-review idempotency evidence, add action tracking schema, or design non-destructive ownership metadata backfill readiness. Each must be dry-run-first where applicable, explicitly approved, and must not imply tenant isolation or access-switch readiness.
 
 ## Validation And Test Plan
 

@@ -317,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -364,7 +364,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -380,7 +380,7 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
 assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
 assert.equal(
@@ -421,7 +421,7 @@ assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.productionReadiness, "blocked");
 assert.equal(
   foldersImagesReport.manualReviewQueueReadApi.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.status, "manual_review_status_workflow_added");
 assert.equal(
@@ -444,7 +444,7 @@ assert.equal(foldersImagesReport.manualReviewStatusWorkflow.r2LiveListed, false)
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, true);
 assert.equal(
   foldersImagesReport.manualReviewStatusWorkflow.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.status, "manual_review_status_operator_evidence_added");
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.adminVisibilityAdded, true);
@@ -459,7 +459,7 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.accessChecks
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidence.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.status,
@@ -502,7 +502,7 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.re
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.status, "legacy_media_reset_dry_run_added");
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.endpoint, "/api/admin/tenant-assets/legacy-media-reset/dry-run");
@@ -525,9 +525,26 @@ assert.equal(foldersImagesReport.legacyMediaResetDryRun.r2LiveListed, false);
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.r2ObjectsMutated, false);
 assert.equal(
   foldersImagesReport.legacyMediaResetDryRun.recommendedNextPhase,
-  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design");
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.status, "legacy_media_reset_executor_designed");
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.doc, "docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md");
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.executorImplemented, false);
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.endpointAdded, false);
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.migrationAdded, false);
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.deletionPerformed, false);
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.sourceAssetRowsMutated, false);
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.reviewRowsMutated, false);
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.r2LiveListed, false);
+assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.r2ObjectsMutated, false);
+assert(foldersImagesReport.legacyMediaResetExecutorDesign.allowedFirstExecutorDomains.includes("ai_images"));
+assert(foldersImagesReport.legacyMediaResetExecutorDesign.deferredDomains.includes("video_assets"));
+assert(foldersImagesReport.legacyMediaResetExecutorDesign.futureEndpointsDesigned.includes("POST /api/admin/tenant-assets/legacy-media-reset/execute"));
+assert.equal(
+  foldersImagesReport.legacyMediaResetExecutorDesign.recommendedNextPhase,
+  "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
+);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.23 — Legacy Media Reset Action Tracking Schema");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -1062,5 +1079,9 @@ assert(focusedMarkdown.includes("Legacy Media Reset Dry Run"));
 assert(focusedMarkdown.includes("legacy_media_reset_dry_run_added"));
 assert(focusedMarkdown.includes("Phase 6.21"));
 assert(focusedMarkdown.includes("Phase 6.22"));
+assert(focusedMarkdown.includes("Legacy Media Reset Executor Design"));
+assert(focusedMarkdown.includes("legacy_media_reset_executor_designed"));
+assert(focusedMarkdown.includes("/api/admin/tenant-assets/legacy-media-reset/execute"));
+assert(focusedMarkdown.includes("Phase 6.23"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

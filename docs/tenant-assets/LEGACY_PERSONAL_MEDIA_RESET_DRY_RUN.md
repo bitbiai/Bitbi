@@ -2,7 +2,7 @@
 
 Date: 2026-05-17
 
-Phase 6.21 adds a bounded, admin-only, read-only dry-run report for evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths may be cleaner than ownership backfill.
+Phase 6.21 adds a bounded, admin-only, read-only dry-run report for evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths may be cleaner than ownership backfill. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` as design-only follow-up; it does not add an executor, endpoint, UI, migration, deletion, source mutation, review-row mutation, R2 action, backfill, or access switch.
 
 This phase is evidence and planning only. It does not delete media, depublish public rows, update source asset rows, update manual-review rows, backfill ownership, change access checks, list live R2, or mutate R2.
 
@@ -99,4 +99,4 @@ A later executor, if approved, must:
 
 Phase 6.21 performs no deletion, no ownership backfill, no access-check switch, no source asset mutation, no ownership metadata update, no review row mutation, no public/gallery mutation, no storage quota mutation, no R2 listing/move/copy/delete/rewrite, no provider call, no Stripe call, no Cloudflare API call, no credit/billing mutation, no deployment, and no tenant-isolation or production-readiness claim.
 
-Recommended next phase: `Phase 6.22 — Admin-approved Legacy Media Reset Executor Design`.
+Recommended next phase: `Phase 6.23 — Legacy Media Reset Action Tracking Schema`.

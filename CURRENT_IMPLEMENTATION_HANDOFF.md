@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. If approved, implement Phase 6.22 as admin-approved legacy media reset executor design; keep it separate from deletion execution, ownership backfill, access switching, source asset row updates, ownership metadata updates, review row/status changes by Codex/tests, and R2 actions.
+1. If approved, implement Phase 6.23 as legacy media reset action tracking schema after reviewing the Phase 6.22 executor design; keep it separate from deletion execution, ownership backfill, access switching, source asset row updates, ownership metadata updates, review row/status changes by Codex/tests, and R2 actions.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.22 reset executor design, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.23 reset action tracking schema, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 
