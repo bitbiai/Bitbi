@@ -16,7 +16,7 @@ Allowed final verdict values: **BLOCKED**, **STAGING READY**, **CANARY READY**, 
 
 Do not paste secret values, raw webhook secrets/signatures, API keys, private keys, bearer tokens, session cookies, raw provider payloads, or unredacted customer data.
 
-Phase 4.18 platform budget reconciliation evidence must be recorded as read-only evidence. Phase 4.19 repair execution is explicit-admin-only: record dry-run results, applied `create_missing_usage_event` actions, review-only actions, and confirm no automatic repair/provider/Stripe/credit/source-row/customer-billing mutation occurred.
+Phase 4.18 platform budget reconciliation evidence must be recorded as read-only evidence. Phase 4.19 repair execution is explicit-admin-only: record dry-run results, applied `create_missing_usage_event` actions, review-only actions, and confirm no automatic repair/provider/Stripe/credit/source-row/customer-billing mutation occurred. Phase 4.20 repair evidence reports/exports are read-only: attach the bounded JSON or Markdown operator report, record filters used, and confirm no report/export endpoint applied repair, mutated usage/source rows, called providers, called Stripe, or changed credits.
 
 ## 1. Repo Baseline
 

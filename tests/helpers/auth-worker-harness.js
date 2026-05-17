@@ -7801,6 +7801,14 @@ class MockD1 {
       return { results: [...grouped.values()].sort((left, right) => right.used_units - left.used_units || left.operation_key.localeCompare(right.operation_key)).slice(0, 20) };
     }
 
+    if (
+      query.startsWith('SELECT id, budget_scope, operation_key, source_route, actor_user_id, actor_role, units, window_day, window_month, source_attempt_id, source_job_id, status, metadata_json, created_at FROM platform_budget_usage_events')
+      && query.includes('WHERE id = ?')
+    ) {
+      const [id] = bindings;
+      return (this.state.platformBudgetUsageEvents || []).find((row) => row.id === id) || null;
+    }
+
     if (query.startsWith('SELECT id, budget_scope, operation_key, source_route, actor_user_id, actor_role, units, window_day, window_month, source_attempt_id, source_job_id, status, metadata_json, created_at FROM platform_budget_usage_events')) {
       const [budgetScope, limit] = bindings;
       const rows = (this.state.platformBudgetUsageEvents || [])

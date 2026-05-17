@@ -648,6 +648,21 @@
                     <div id="platformBudgetReconciliationState" class="admin-state">Loading platform budget reconciliation...</div>
                     <div id="platformBudgetReconciliationList"></div>
                 </div>
+                <div class="admin-shell glass glass-card reveal visible">
+                    <div class="admin-control-card-head">
+                        <div>
+                            <h3 class="admin-section-title">Repair Evidence Report</h3>
+                            <p class="admin-shell__desc">Read-only operator report and export for platform budget repair actions. Reports do not apply repairs, mutate usage/source rows, call providers, call Stripe, or change credits.</p>
+                        </div>
+                        <div class="admin-control-chip-row">
+                            <button type="button" id="platformBudgetRepairReportRefresh" class="btn-action btn-action--secondary">Refresh Report</button>
+                            <button type="button" id="platformBudgetRepairReportExportJson" class="btn-action">Export JSON</button>
+                        </div>
+                    </div>
+                    <div id="platformBudgetRepairReportSummary"></div>
+                    <div id="platformBudgetRepairReportState" class="admin-state">Loading repair evidence report...</div>
+                    <div id="platformBudgetRepairReportList"></div>
+                </div>
             </div>
 
             <!-- ═══════════════════════════════════════

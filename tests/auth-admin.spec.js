@@ -1681,6 +1681,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.aiBudgetSwitchUpdateRequests = captures.aiBudgetSwitchUpdateRequests || [];
   captures.platformBudgetCapUpdateRequests = captures.platformBudgetCapUpdateRequests || [];
   captures.platformBudgetRepairRequests = captures.platformBudgetRepairRequests || [];
+  captures.platformBudgetRepairReportExportRequests = captures.platformBudgetRepairReportExportRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -2691,6 +2692,75 @@ async function mockAdminControlPlane(page, captures = {}) {
     await fulfillJson(route, {
       ok: true,
       repairActions: [],
+    });
+  });
+  await page.route('**/api/admin/ai/platform-budget-repair-report?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      report: {
+        ok: true,
+        available: true,
+        version: 'platform-budget-repair-report-v1',
+        reportId: 'pbr_report_static',
+        generatedAt: '2026-05-16T12:10:00.000Z',
+        source: 'local_d1_read_only',
+        budgetScope: 'platform_admin_lab_budget',
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        repairExecution: 'manual_admin_approved_only',
+        automaticRepair: false,
+        scheduledRepair: false,
+        runtimeMutation: false,
+        providerCalls: false,
+        stripeCalls: false,
+        creditMutation: false,
+        summary: {
+          totalRepairActions: 3,
+          executableRepairsApplied: 1,
+          dryRunsPerformed: 1,
+          reviewOnlyActionsRecorded: 1,
+          failedRepairAttempts: 1,
+          idempotencyConflictCount: 0,
+          recentRepairCount: 3,
+          createdUsageEventCount: 1,
+          unresolvedRepairCandidatesCount: 2,
+          criticalReconciliationIssueCount: 0,
+          lastRepairTimestamp: '2026-05-16T12:05:00.000Z',
+          lastDryRunTimestamp: '2026-05-16T12:04:00.000Z',
+        },
+        sections: {
+          repairActionStatusRollup: [
+            { key: 'applied', count: 1, createdUsageEventCount: 1, lastActionAt: '2026-05-16T12:05:00.000Z' },
+            { key: 'review_recorded', count: 1, createdUsageEventCount: 0, lastActionAt: '2026-05-16T12:03:00.000Z' },
+            { key: 'failed', count: 1, createdUsageEventCount: 0, lastActionAt: '2026-05-16T12:02:00.000Z' },
+          ],
+          repairActionTypeRollup: [
+            { key: 'missing_admin_usage_event:create_missing_usage_event', count: 1, createdUsageEventCount: 1, lastActionAt: '2026-05-16T12:05:00.000Z' },
+            { key: 'duplicate_attempt_usage_event:mark_duplicate_usage_event_review', count: 1, createdUsageEventCount: 0, lastActionAt: '2026-05-16T12:03:00.000Z' },
+          ],
+          recentRepairActions: [],
+          createdUsageEventEvidence: [],
+          reviewOnlyActionEvidence: [],
+        },
+      },
+    });
+  });
+  await page.route('**/api/admin/ai/platform-budget-repair-report/export?*', async (route) => {
+    captures.platformBudgetRepairReportExportRequests.push({
+      url: route.request().url(),
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'content-disposition': 'attachment; filename="platform-budget-repair-report-static.json"',
+      },
+      body: JSON.stringify({
+        source: 'local_d1_read_only',
+        budgetScope: 'platform_admin_lab_budget',
+        automaticRepair: false,
+        summary: { totalRepairActions: 3 },
+      }),
     });
   });
 
@@ -9015,6 +9085,24 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Apply Repair' })).toHaveCount(1);
     await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Record Review' })).toHaveCount(1);
     await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: /delete|credit|stripe|provider|bulk/i })).toHaveCount(0);
+    await expect(switchSection).toContainText('Repair Evidence Report');
+    await expect(page.locator('#platformBudgetRepairReportSummary')).toContainText('Total repair actions');
+    await expect(page.locator('#platformBudgetRepairReportSummary')).toContainText('3');
+    await expect(page.locator('#platformBudgetRepairReportSummary')).toContainText('Automatic repair');
+    await expect(page.locator('#platformBudgetRepairReportList')).toContainText('status:applied');
+    await expect(page.locator('#platformBudgetRepairReportList')).toContainText('type:missing_admin_usage_event:create_missing_usage_event');
+    await expect(page.locator('#platformBudgetRepairReportState')).toContainText('No repair is applied');
+    await expect(page.locator('#platformBudgetRepairReportList')).toContainText('Reports and exports expose no raw prompts');
+    await expect(page.locator('#platformBudgetRepairReportList')).not.toContainText('sk_live_');
+    await expect(page.locator('#platformBudgetRepairReportList').getByRole('button', { name: /apply|delete|purge|credit|stripe|provider|bulk/i })).toHaveCount(0);
+    const reportDownload = page.waitForEvent('download', { timeout: 3000 }).catch(() => null);
+    await page.locator('#platformBudgetRepairReportExportJson').click();
+    await expect.poll(() => captures.platformBudgetRepairReportExportRequests.length).toBe(1);
+    expect(captures.platformBudgetRepairReportExportRequests[0].url).toContain('format=json');
+    const downloadedReport = await reportDownload;
+    if (downloadedReport) {
+      await downloadedReport.cancel();
+    }
     let repairDialogs = 0;
     const repairDialogHandler = (dialog) => {
       repairDialogs += 1;

@@ -10,6 +10,8 @@ import {
     apiAdminAiListVideoJobPoisonMessages,
     apiAdminAiPlatformBudgetCaps,
     apiAdminAiPlatformBudgetReconciliation,
+    apiAdminAiPlatformBudgetRepairReport,
+    apiAdminAiPlatformBudgetRepairReportExport,
     apiAdminAiPlatformBudgetUsage,
     apiAdminAiRepairPlatformBudgetCandidate,
     apiAdminAiUpdatePlatformBudgetCap,
@@ -1549,6 +1551,104 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         list.appendChild(el('p', 'admin-shell__desc', 'Repairs are explicit and admin-approved only. Apply Repair creates missing platform budget usage evidence only; review actions do not mutate usage/source rows. No provider, Stripe, credit, or customer billing action is available here.'));
     }
 
+    function downloadTextFile(filename, text, type) {
+        if (typeof Blob === 'undefined' || !window.URL?.createObjectURL) return false;
+        const blob = new Blob([text || ''], { type: type || 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        anchor.rel = 'noopener';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+        return true;
+    }
+
+    async function loadPlatformBudgetRepairReport() {
+        const summaryNode = byId('platformBudgetRepairReportSummary');
+        const list = byId('platformBudgetRepairReportList');
+        setState('platformBudgetRepairReportState', 'Loading repair evidence report...');
+        clear(summaryNode);
+        clear(list);
+        const res = await apiAdminAiPlatformBudgetRepairReport({
+            limit: 25,
+            includeDetails: false,
+            includeCandidates: false,
+        });
+        if (!res.ok) {
+            setState('platformBudgetRepairReportState', '');
+            renderUnavailable(list, res, 'Platform budget repair evidence report unavailable.');
+            return;
+        }
+        const report = res.data?.report || {};
+        const summary = report.summary || {};
+        if (summaryNode) {
+            summaryNode.appendChild(detailRows([
+                ['Scope', report.budgetScope || 'platform_admin_lab_budget'],
+                ['Source', report.source || '-'],
+                ['Total repair actions', summary.totalRepairActions ?? 0],
+                ['Executable repairs applied', summary.executableRepairsApplied ?? 0],
+                ['Review-only actions', summary.reviewOnlyActionsRecorded ?? 0],
+                ['Failed repair attempts', summary.failedRepairAttempts ?? 0],
+                ['Created usage events', summary.createdUsageEventCount ?? 0],
+                ['Automatic repair', report.automaticRepair === false ? 'No' : 'Unknown'],
+                ['Generated', formatDate(report.generatedAt)],
+            ]));
+        }
+        setState('platformBudgetRepairReportState', 'No repair is applied. Read-only operator evidence report; export is bounded and sanitized.');
+        const statusRows = report.sections?.repairActionStatusRollup || [];
+        const typeRows = report.sections?.repairActionTypeRollup || [];
+        if (!statusRows.length && !typeRows.length) {
+            list.appendChild(el('p', 'admin-shell__desc', 'No platform budget repair actions were returned for the bounded report.'));
+        } else {
+            const { wrap, tbody } = table(['Rollup', 'Count', 'Created usage events', 'Last action']);
+            for (const row of statusRows.slice(0, 12)) {
+                const tr = document.createElement('tr');
+                addCell(tr, `status:${row.key || '-'}`);
+                addCell(tr, row.count ?? 0);
+                addCell(tr, row.createdUsageEventCount ?? 0);
+                addCell(tr, formatDate(row.lastActionAt));
+                tbody.appendChild(tr);
+            }
+            for (const row of typeRows.slice(0, 12)) {
+                const tr = document.createElement('tr');
+                addCell(tr, `type:${row.key || '-'}`);
+                addCell(tr, row.count ?? 0);
+                addCell(tr, row.createdUsageEventCount ?? 0);
+                addCell(tr, formatDate(row.lastActionAt));
+                tbody.appendChild(tr);
+            }
+            list.appendChild(wrap);
+        }
+        list.appendChild(el('p', 'admin-shell__desc', 'Reports and exports expose no raw prompts, provider bodies, raw idempotency keys, Stripe data, Cloudflare tokens, private keys, credit repairs, delete actions, or provider actions.'));
+    }
+
+    async function exportPlatformBudgetRepairReportJson(button) {
+        setSubmitting(button, true);
+        setState('platformBudgetRepairReportState', 'Preparing repair evidence JSON export...');
+        try {
+            const res = await apiAdminAiPlatformBudgetRepairReportExport({
+                format: 'json',
+                limit: 50,
+                includeDetails: true,
+                includeCandidates: false,
+            });
+            if (!res.ok) {
+                setState('platformBudgetRepairReportState', apiUnavailableMessage(res, 'Repair evidence export failed.'), 'error');
+                notify('Repair evidence export failed.', 'error');
+                return;
+            }
+            const filename = `platform-budget-repair-report-${new Date().toISOString().slice(0, 10)}.json`;
+            downloadTextFile(filename, res.text || '{}\n', 'application/json');
+            setState('platformBudgetRepairReportState', 'Repair evidence JSON export prepared. No repair was applied.');
+            notify('Repair evidence export prepared.', 'success');
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
     async function loadAiAttemptDetail(attemptId) {
         const detail = byId('aiAttemptDetail');
         detail.hidden = false;
@@ -1829,6 +1929,10 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         byId('aiBudgetSwitchesRefresh')?.addEventListener('click', loadAiBudgetSwitches);
         byId('platformBudgetCapsRefresh')?.addEventListener('click', loadPlatformBudgetCaps);
         byId('platformBudgetReconciliationRefresh')?.addEventListener('click', loadPlatformBudgetReconciliation);
+        byId('platformBudgetRepairReportRefresh')?.addEventListener('click', loadPlatformBudgetRepairReport);
+        byId('platformBudgetRepairReportExportJson')?.addEventListener('click', (event) => {
+            exportPlatformBudgetRepairReportJson(event.currentTarget);
+        });
         byId('lifecycleRequestsRefresh')?.addEventListener('click', loadLifecycleRequests);
         byId('lifecycleArchivesRefresh')?.addEventListener('click', loadLifecycleArchives);
         byId('operationsRefresh')?.addEventListener('click', loadOperations);
@@ -1858,7 +1962,12 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         if (sectionName === 'billing') await loadBillingPlans();
         if (sectionName === 'billing-events') await Promise.all([loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
         if (sectionName === 'ai-usage') await loadAiAttempts();
-        if (sectionName === 'ai-budget-switches') await Promise.all([loadAiBudgetSwitches(), loadPlatformBudgetCaps(), loadPlatformBudgetReconciliation()]);
+        if (sectionName === 'ai-budget-switches') await Promise.all([
+            loadAiBudgetSwitches(),
+            loadPlatformBudgetCaps(),
+            loadPlatformBudgetReconciliation(),
+            loadPlatformBudgetRepairReport(),
+        ]);
         if (sectionName === 'lifecycle') await loadLifecycle();
         if (sectionName === 'operations') await loadOperations();
     }

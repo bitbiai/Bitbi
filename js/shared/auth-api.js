@@ -433,6 +433,64 @@ export function apiAdminAiPlatformBudgetRepairAction(actionId, options) {
     return request('GET', `/admin/ai/platform-budget-repair-actions/${encodeURIComponent(actionId)}`, undefined, options);
 }
 
+export function apiAdminAiPlatformBudgetRepairReport({
+    limit = 25,
+    includeDetails = false,
+    includeCandidates = false,
+    status,
+    candidateType,
+    requestedAction,
+} = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    params.set('includeDetails', includeDetails ? 'true' : 'false');
+    params.set('includeCandidates', includeCandidates ? 'true' : 'false');
+    if (status) params.set('status', String(status));
+    if (candidateType) params.set('candidateType', String(candidateType));
+    if (requestedAction) params.set('requestedAction', String(requestedAction));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/ai/platform-budget-repair-report' + qs, undefined, options);
+}
+
+export async function apiAdminAiPlatformBudgetRepairReportExport({
+    format = 'json',
+    limit = 50,
+    includeDetails = true,
+    includeCandidates = false,
+} = {}, options = {}) {
+    const params = new URLSearchParams();
+    params.set('format', format);
+    params.set('limit', String(limit || 50));
+    params.set('includeDetails', includeDetails ? 'true' : 'false');
+    params.set('includeCandidates', includeCandidates ? 'true' : 'false');
+    const exportPath = '/admin/ai/platform-budget-repair-report/export';
+    try {
+        const res = await fetch(BASE + exportPath + '?' + params, {
+            method: 'GET',
+            credentials: 'include',
+            headers: options.headers || {},
+        });
+        const text = await res.text();
+        if (res.ok) {
+            return {
+                ok: true,
+                text,
+                status: res.status,
+                contentType: res.headers.get('content-type') || '',
+                filename: res.headers.get('content-disposition') || '',
+            };
+        }
+        let data = null;
+        try { data = JSON.parse(text); } catch { data = null; }
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
+}
+
 export function apiAdminDataLifecycleRequests({ limit } = {}) {
     const params = new URLSearchParams();
     if (limit) params.set('limit', String(limit));

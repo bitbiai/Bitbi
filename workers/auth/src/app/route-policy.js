@@ -573,6 +573,18 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Phase 4.19 bounded read-only detail for one sanitized platform budget repair action audit row. Raw prompts, provider bodies, raw idempotency keys, secrets, Stripe data, Cloudflare values, and billing data are omitted.",
   }),
+  adminRead("admin.ai.platform-budget-repair-report.read", "/api/admin/ai/platform-budget-repair-report", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-platform-budget-repair-report-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.20 read-only platform_admin_lab_budget repair evidence report. Supports bounded filters and sanitized local D1 summaries only; no provider, Stripe, credit, source attempt/job, usage event, repair action, Cloudflare, or billing mutation.",
+  }),
+  adminRead("admin.ai.platform-budget-repair-report.export", "/api/admin/ai/platform-budget-repair-report/export", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-platform-budget-repair-report-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.20 read-only platform_admin_lab_budget repair evidence export. Returns bounded sanitized JSON or Markdown evidence only; no repair execution, automatic repair, provider call, Stripe call, credit mutation, source row mutation, or billing mutation.",
+  }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
     config: REQUIRED_CONFIG.adminAi,
     billing: {

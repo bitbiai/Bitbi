@@ -104,6 +104,13 @@ async function loadPlatformBudgetRepairModule() {
   return import(modulePath);
 }
 
+async function loadPlatformBudgetRepairReportModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/platform-budget-repair-report.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1457,6 +1464,28 @@ test.describe('Phase 1-E auth route policy registry', () => {
       auth: 'admin',
       mfa: 'admin-production-required',
       csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/platform-budget-repair-report')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-repair-report.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-platform-budget-repair-report-ip',
+        failClosed: true,
+      }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/platform-budget-repair-report/export')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-repair-report.export',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-platform-budget-repair-report-ip',
+        failClosed: true,
+      }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.cleanup-expired',
@@ -4725,7 +4754,11 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(serialized).not.toContain('Stripe-Signature');
     expect(serialized).not.toContain('payload_hash');
     expect(serialized).not.toContain('pm_live_should_not_leak');
-    expect(serialized).not.toContain('4242');
+    const sanitizedStripeMetadata = JSON.stringify({
+      payloadSummary: detailBody.event.payloadSummary,
+      actions: detailBody.event.actions.map((action) => action.summary),
+    });
+    expect(sanitizedStripeMetadata).not.toContain('4242');
   });
 
   test('Stripe live billing lifecycle review records expired checkout without granting credits', async () => {
@@ -16087,6 +16120,259 @@ test.describe('Worker routes', () => {
       expect(detailText).not.toContain('platform-budget-repair-api-apply-1');
       expect(detailText).not.toContain('raw prompt must not return');
       expect(detailText).not.toContain('provider body must not return');
+    });
+
+    test('platform_admin_lab_budget repair evidence report/export is read-only, bounded, and sanitized', async () => {
+      const repairReportSeed = {
+        platformBudgetUsageEvents: [
+          {
+            id: 'pbu_report_created',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.text.test',
+            source_route: '/api/admin/ai/test-text',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 2,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: 'hash_report_created',
+            request_fingerprint: 'fp_report_created',
+            source_attempt_id: 'att_report_created',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{"safe_summary":"created by repair","provider_body":"provider body must not return","raw_prompt":"raw prompt must not return"}',
+            created_at: '2026-05-16T09:05:00.000Z',
+          },
+        ],
+        platformBudgetRepairActions: [
+          {
+            id: 'pbra_report_apply',
+            budget_scope: 'platform_admin_lab_budget',
+            candidate_id: 'pbr_missing_admin_usage_event_att_report_created',
+            candidate_type: 'missing_admin_usage_event',
+            requested_action: 'create_missing_usage_event',
+            action_status: 'applied',
+            dry_run: 0,
+            idempotency_key: 'raw-report-apply-idempotency-key',
+            request_hash: 'report_request_hash_1',
+            requested_by_user_id: 'admin-ai-user',
+            requested_by_email: 'admin@example.com',
+            reason: 'Created missing usage evidence.',
+            source_attempt_id: 'att_report_created',
+            source_job_id: null,
+            created_usage_event_id: 'pbu_report_created',
+            evidence_json: '{"sourceType":"admin_ai_usage_attempt","raw_prompt":"raw prompt must not return"}',
+            result_json: '{"result":"created","stripe_secret":"sk_live_must_not_return"}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T09:06:00.000Z',
+            updated_at: '2026-05-16T09:06:00.000Z',
+          },
+          {
+            id: 'pbra_report_review',
+            budget_scope: 'platform_admin_lab_budget',
+            candidate_id: 'pbr_duplicate_attempt_usage_event_att_report_duplicate_2',
+            candidate_type: 'duplicate_attempt_usage_event',
+            requested_action: 'mark_duplicate_usage_event_review',
+            action_status: 'review_recorded',
+            dry_run: 0,
+            idempotency_key: 'raw-report-review-idempotency-key',
+            request_hash: 'report_request_hash_2',
+            requested_by_user_id: 'admin-ai-user',
+            requested_by_email: 'admin@example.com',
+            reason: 'Reviewed duplicate usage evidence.',
+            source_attempt_id: 'att_report_duplicate',
+            source_job_id: null,
+            created_usage_event_id: null,
+            evidence_json: '{"usageEventCount":2,"provider_body":"provider body must not return"}',
+            result_json: '{"review":"recorded"}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T09:07:00.000Z',
+            updated_at: '2026-05-16T09:07:00.000Z',
+          },
+          {
+            id: 'pbra_report_failed',
+            budget_scope: 'platform_admin_lab_budget',
+            candidate_id: 'pbr_missing_admin_usage_event_att_report_failed',
+            candidate_type: 'missing_admin_usage_event',
+            requested_action: 'create_missing_usage_event',
+            action_status: 'failed',
+            dry_run: 0,
+            idempotency_key: 'raw-report-failed-idempotency-key',
+            request_hash: 'report_request_hash_3',
+            requested_by_user_id: 'admin-ai-user',
+            requested_by_email: 'admin@example.com',
+            reason: 'Failed repair attempt.',
+            source_attempt_id: 'att_report_failed',
+            source_job_id: null,
+            created_usage_event_id: null,
+            evidence_json: '{}',
+            result_json: '{}',
+            error_code: 'idempotency_conflict',
+            error_message: 'Same idempotency key was used for a different request.',
+            created_at: '2026-05-16T09:08:00.000Z',
+            updated_at: '2026-05-16T09:08:00.000Z',
+          },
+          {
+            id: 'pbra_report_dry_run',
+            budget_scope: 'platform_admin_lab_budget',
+            candidate_id: 'pbr_missing_video_usage_event_vid_report',
+            candidate_type: 'missing_video_usage_event',
+            requested_action: 'create_missing_usage_event',
+            action_status: 'no_op',
+            dry_run: 1,
+            idempotency_key: 'raw-report-dry-run-idempotency-key',
+            request_hash: 'report_request_hash_4',
+            requested_by_user_id: 'admin-ai-user',
+            requested_by_email: 'admin@example.com',
+            reason: 'Dry-run evidence only.',
+            source_attempt_id: null,
+            source_job_id: 'vid_report',
+            created_usage_event_id: null,
+            evidence_json: '{}',
+            result_json: '{"dryRun":true}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T09:09:00.000Z',
+            updated_at: '2026-05-16T09:09:00.000Z',
+          },
+        ],
+      };
+      const {
+        buildPlatformBudgetRepairOperatorReport,
+        exportPlatformBudgetRepairReportJson,
+        exportPlatformBudgetRepairReportMarkdown,
+      } = await loadPlatformBudgetRepairReportModule();
+      const directEnv = createAuthTestEnv(repairReportSeed);
+      const beforeRunCalls = directEnv.DB.runCalls.length;
+      const directReport = await buildPlatformBudgetRepairOperatorReport(directEnv, {
+        generatedAt: '2026-05-16T12:30:00.000Z',
+        includeDetails: true,
+        includeCandidates: false,
+        limit: 25,
+      });
+      expect(directEnv.DB.runCalls).toHaveLength(beforeRunCalls);
+      expect(directReport).toEqual(expect.objectContaining({
+        ok: true,
+        available: true,
+        source: 'local_d1_read_only',
+        budgetScope: 'platform_admin_lab_budget',
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        repairExecution: 'manual_admin_approved_only',
+        automaticRepair: false,
+        runtimeMutation: false,
+        providerCalls: false,
+        stripeCalls: false,
+        creditMutation: false,
+      }));
+      expect(directReport.summary).toEqual(expect.objectContaining({
+        totalRepairActions: 4,
+        executableRepairsApplied: 1,
+        dryRunsPerformed: 1,
+        reviewOnlyActionsRecorded: 1,
+        failedRepairAttempts: 1,
+        idempotencyConflictCount: 1,
+        createdUsageEventCount: 1,
+      }));
+      expect(directReport.sections.repairActionStatusRollup).toEqual(expect.arrayContaining([
+        expect.objectContaining({ key: 'applied', count: 1, createdUsageEventCount: 1 }),
+        expect.objectContaining({ key: 'review_recorded', count: 1 }),
+        expect.objectContaining({ key: 'failed', count: 1 }),
+      ]));
+      expect(directReport.sections.createdUsageEventEvidence).toEqual([
+        expect.objectContaining({
+          id: 'pbu_report_created',
+          operationKey: 'admin.text.test',
+          units: 2,
+          metadata: expect.objectContaining({ safe_summary: 'created by repair' }),
+        }),
+      ]);
+      const directSerialized = JSON.stringify(directReport);
+      expect(directSerialized).not.toContain('raw prompt must not return');
+      expect(directSerialized).not.toContain('provider body must not return');
+      expect(directSerialized).not.toContain('sk_live_must_not_return');
+      expect(directSerialized).not.toContain('raw-report-apply-idempotency-key');
+      expect(directSerialized).not.toContain('stripe_secret');
+      expect(exportPlatformBudgetRepairReportJson(directReport)).toContain('"automaticRepair": false');
+      expect(exportPlatformBudgetRepairReportMarkdown(directReport)).toContain('Platform Budget Repair Evidence Report');
+
+      const missingTableEnv = createAuthTestEnv({
+        ...repairReportSeed,
+        missingTables: ['platform_budget_repair_actions'],
+      });
+      const unavailable = await buildPlatformBudgetRepairOperatorReport(missingTableEnv, {
+        generatedAt: '2026-05-16T12:31:00.000Z',
+      });
+      expect(unavailable).toEqual(expect.objectContaining({
+        ok: true,
+        available: false,
+        code: 'platform_budget_repair_report_unavailable',
+      }));
+
+      const nonAdmin = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'platform-report-member', role: 'user' }),
+        authEnv: repairReportSeed,
+      });
+      const denied = await nonAdmin.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-repair-report', 'GET', undefined, nonAdmin.authHeaders),
+        nonAdmin.env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        authEnv: repairReportSeed,
+      });
+      const invalidScope = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-repair-report?budgetScope=openclaw_news_pulse_budget', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidScope.status).toBe(400);
+
+      const reportResponse = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-repair-report?limit=25&includeDetails=true', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(reportResponse.status).toBe(200);
+      const reportBody = await reportResponse.json();
+      expect(reportBody.report).toEqual(expect.objectContaining({
+        source: 'local_d1_read_only',
+        automaticRepair: false,
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+      }));
+      const reportText = JSON.stringify(reportBody);
+      expect(reportText).not.toContain('raw prompt must not return');
+      expect(reportText).not.toContain('provider body must not return');
+      expect(reportText).not.toContain('raw-report-apply-idempotency-key');
+
+      const exportJson = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-repair-report/export?format=json&includeDetails=true', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(exportJson.status).toBe(200);
+      expect(exportJson.headers.get('content-type')).toContain('application/json');
+      expect(exportJson.headers.get('content-disposition')).toContain('platform-budget-repair-report-');
+      const exportJsonText = await exportJson.text();
+      expect(exportJsonText).toContain('"automaticRepair": false');
+      expect(exportJsonText).not.toContain('raw-report-apply-idempotency-key');
+      expect(exportJsonText).not.toContain('provider body must not return');
+
+      const exportMarkdown = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-repair-report/export?format=markdown', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(exportMarkdown.status).toBe(200);
+      expect(exportMarkdown.headers.get('content-type')).toContain('text/markdown');
+      const exportMarkdownText = await exportMarkdown.text();
+      expect(exportMarkdownText).toContain('Platform Budget Repair Evidence Report');
+      expect(exportMarkdownText).not.toContain('raw-report-apply-idempotency-key');
     });
 
     test('platform_admin_lab_budget caps block Admin Text before provider work and record successful usage once', async () => {

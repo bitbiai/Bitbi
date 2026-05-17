@@ -4,7 +4,7 @@ Date: 2026-05-16
 
 Status: phased implementation plan only. Production/live billing remains BLOCKED.
 
-Current phase note: Phase 4.19 adds an explicit admin-approved `platform_admin_lab_budget` repair executor on top of Phase 4.18 read-only reconciliation and Phase 4.17 caps. It can create missing usage evidence only from still-successful local D1 source rows and records duplicate/orphan/failed-source/window/unit issues as review-only actions. No automatic repair, runtime provider route behavior change, provider call, Stripe call, member/org billing change, credit clawback, deploy, remote migration, or live billing enablement is included.
+Current phase note: Phase 4.20 adds read-only operator repair evidence report/export on top of Phase 4.19's explicit admin-approved `platform_admin_lab_budget` repair executor, Phase 4.18 read-only reconciliation, and Phase 4.17 caps. It reports and exports bounded sanitized repair action evidence only. No new repair execution, automatic repair, runtime provider route behavior change, provider call, Stripe call, member/org billing change, credit clawback, deploy, remote migration, or live billing enablement is included.
 
 ## Phase 3.2: Gateway Contract And Tests
 
@@ -1141,6 +1141,42 @@ Migration risk:
 Recommended next scope:
 
 - Either harden/reconcile Phase 4.17 usage recording repair paths, or add a separate scoped design/implementation for `openclaw_news_pulse_budget`. Do not combine multiple remaining scopes in one phase.
+
+## Phase 4.18: Platform Budget Usage Reconciliation & Repair Evidence
+
+Status: completed as read-only reconciliation for `platform_admin_lab_budget`.
+
+Implemented scope:
+
+- Adds bounded local-D1 reconciliation between `platform_budget_usage_events`, successful `admin_ai_usage_attempts`, and successful admin `ai_video_jobs`.
+- Reports missing usage records, duplicates, orphan usage records, failed-source usage, window mismatches, invalid units, and not-checkable cases.
+- Produces dry-run repair candidates only. No repair executor, provider call, Stripe call, source mutation, credit mutation, or runtime provider route behavior change is included.
+
+## Phase 4.19: Explicit Admin-Approved Repair Executor
+
+Status: completed for selected safe `platform_admin_lab_budget` repair candidates.
+
+Implemented scope:
+
+- Adds local additive migration `0054_add_platform_budget_repair_actions.sql`.
+- Supports explicit admin-approved `create_missing_usage_event` only when local D1 source evidence still proves a successful source and no matching usage event exists.
+- Records duplicate/orphan/failed-source/window/cost candidates as review-only repair action rows.
+- Does not run automatically, delete/rewrite usage events, mutate source attempts/jobs, call providers, call Stripe, mutate credits, or change member/org/customer billing.
+
+## Phase 4.20: Repair Evidence Export / Operator Report
+
+Status: completed as read-only operator report/export.
+
+Implemented scope:
+
+- Adds bounded admin-only report/export APIs for Phase 4.19 repair actions and related sanitized local D1 evidence.
+- Supports JSON and Markdown export formats plus a compact Admin Control Plane evidence panel.
+- Supports validated filters for status, candidate type, requested action, dry-run, date range, limit, detail inclusion, and candidate snapshot inclusion.
+- Adds no migration and does not add new repair execution, automatic repair, usage/source mutation, provider calls, Stripe calls, credit mutations, Cloudflare changes, or member/org billing changes.
+
+Recommended next scope:
+
+- Decide whether the next phase should add a retention/archive policy for exported operator evidence, expand cap coverage to `openclaw_news_pulse_budget`, or harden one remaining internal caller-policy baseline gap. Keep the next phase narrow.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 

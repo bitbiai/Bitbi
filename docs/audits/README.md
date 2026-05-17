@@ -2,7 +2,7 @@
 
 Last reconciled: 2026-05-16
 
-Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0054_add_platform_budget_repair_actions.sql`. Phase 4.15.1 adds the D1-backed Admin AI Budget Switch Control Plane on top of the Phase 4.15 Cloudflare master switches, Phase 4.16 remains preserved as live platform budget cap design/evidence, Phase 4.17 adds the first narrow `platform_admin_lab_budget` cap foundation, Phase 4.18 adds read-only platform budget usage reconciliation, and Phase 4.19 adds explicit admin-approved repair action audit for selected safe usage-evidence repairs.
+Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0054_add_platform_budget_repair_actions.sql`. Phase 4.15.1 adds the D1-backed Admin AI Budget Switch Control Plane on top of the Phase 4.15 Cloudflare master switches, Phase 4.16 remains preserved as live platform budget cap design/evidence, Phase 4.17 adds the first narrow `platform_admin_lab_budget` cap foundation, Phase 4.18 adds read-only platform budget usage reconciliation, Phase 4.19 adds explicit admin-approved repair action audit for selected safe usage-evidence repairs, and Phase 4.20 adds read-only bounded repair evidence report/export without applying repairs or mutating usage/source rows.
 
 This index classifies first-party audit, report, policy, runbook, and handoff Markdown files. No first-party Markdown is deleted in this phase. Historical reports remain historical evidence and should not be rewritten to pretend they were originally about later migrations.
 

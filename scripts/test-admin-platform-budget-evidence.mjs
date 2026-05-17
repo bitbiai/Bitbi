@@ -92,6 +92,13 @@ assert.equal(report.platformBudgetReconciliation.runtimeRouteBehaviorChanged, fa
 assert.equal(report.platformBudgetRepairs.phase, "Phase 4.19");
 assert.equal(report.platformBudgetRepairs.automaticRepair, false);
 assert(report.platformBudgetRepairs.executableActions.includes("create_missing_usage_event"));
+assert.equal(report.platformBudgetRepairReport.phase, "Phase 4.20");
+assert.equal(report.platformBudgetRepairReport.automaticRepair, false);
+assert.equal(report.platformBudgetRepairReport.reportAppliesRepair, false);
+assert(report.platformBudgetRepairReport.exportFormats.includes("json"));
+assert(report.platformBudgetRepairReport.exportFormats.includes("markdown"));
+assert.equal(report.summary.platformBudgetRepairReportAvailable, false);
+assert.equal(report.summary.platformBudgetRepairReportExportFormats, 2);
 
 const platformCapScope = report.livePlatformBudgetCaps.countabilityByBudgetScope.find((entry) =>
   entry.scope === "platform_admin_lab_budget"

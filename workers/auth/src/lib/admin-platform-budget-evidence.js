@@ -1063,6 +1063,38 @@ function platformBudgetRepairActionsEvidence(actions = null) {
   };
 }
 
+function platformBudgetRepairReportEvidence(report = null) {
+  const normalized = report && typeof report === "object" ? report : null;
+  const summary = normalized?.summary || {};
+  return {
+    type: "platform_budget_usage_repair_operator_report",
+    phase: "Phase 4.20",
+    endpoint: "/api/admin/ai/platform-budget-repair-report",
+    exportEndpoint: "/api/admin/ai/platform-budget-repair-report/export",
+    budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    available: normalized?.available !== false && normalized != null,
+    source: normalized?.source || "local_d1_read_only",
+    exportFormats: ["json", "markdown"],
+    automaticRepair: false,
+    scheduledRepair: false,
+    reportAppliesRepair: false,
+    runtimeRouteBehaviorChanged: false,
+    productionReadiness: "blocked",
+    liveBillingReadiness: "blocked",
+    totalRepairActions: Number(summary.totalRepairActions || 0),
+    executableRepairsApplied: Number(summary.executableRepairsApplied || 0),
+    reviewOnlyActionsRecorded: Number(summary.reviewOnlyActionsRecorded || 0),
+    failedRepairAttempts: Number(summary.failedRepairAttempts || 0),
+    createdUsageEventCount: Number(summary.createdUsageEventCount || 0),
+    lastRepairTimestamp: summary.lastRepairTimestamp || null,
+    notes: [
+      "Phase 4.20 report/export is read-only and bounded.",
+      "Reports do not apply repairs, delete rows, mutate usage evidence, mutate source attempts/jobs, call providers, call Stripe, or mutate credits.",
+      "JSON export is supported; Markdown export is available for operator evidence packets.",
+    ],
+  };
+}
+
 export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   const limits = normalizeLimits(options.limits);
   const generatedAt = options.generatedAt || new Date().toISOString();
@@ -1144,6 +1176,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   );
   const platformBudgetReconciliation = platformBudgetReconciliationEvidence(options.platformBudgetReconciliation || null);
   const platformBudgetRepairs = platformBudgetRepairActionsEvidence(options.platformBudgetRepairActions || null);
+  const platformBudgetRepairReport = platformBudgetRepairReportEvidence(options.platformBudgetRepairReport || null);
   const evidenceItems = [
     ...implementedOperations,
     ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
@@ -1152,6 +1185,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     liveBudgetCaps,
     platformBudgetReconciliation,
     platformBudgetRepairs,
+    platformBudgetRepairReport,
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
       ...gap,
@@ -1204,6 +1238,9 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       platformBudgetRepairExecutorAvailable: platformBudgetRepairs.available,
       platformBudgetRepairRecentActions: platformBudgetRepairs.recentActionCount,
       platformBudgetRepairLastActionAt: platformBudgetRepairs.lastRepairTimestamp,
+      platformBudgetRepairReportAvailable: platformBudgetRepairReport.available,
+      platformBudgetRepairReportExportFormats: platformBudgetRepairReport.exportFormats.length,
+      platformBudgetRepairReportTotalActions: platformBudgetRepairReport.totalRepairActions,
       switchEnforcedNotCapEnforcedOperations: liveBudgetCaps.switchEnforcedNotCapEnforcedOperationIds.length,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
@@ -1215,6 +1252,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     livePlatformBudgetCaps: liveBudgetCaps,
     platformBudgetReconciliation,
     platformBudgetRepairs,
+    platformBudgetRepairReport,
     retiredDebugPaths: limitList(
       retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
       limits.maxImplementedOperations,
@@ -1257,6 +1295,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost routes. Missing or false switch values block provider-cost work before provider, queue, credit, or durable-attempt execution where applicable.",
       "Phase 4.16 adds live platform budget cap design/evidence only. Phase 4.17 implements the first platform_admin_lab_budget cap foundation; production/live billing readiness remains blocked.",
       "Phase 4.19 adds an explicit admin-approved repair executor for selected platform_admin_lab_budget reconciliation candidates. It has no automatic scheduler and does not call providers, Stripe, Cloudflare, or mutate credits/source rows/customer billing.",
+      "Phase 4.20 adds read-only platform budget repair evidence reporting/export. Reports and exports are bounded, sanitized, and cannot apply repairs or mutate usage/source/credit/billing state.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
       "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
       "Platform/background AI outside News Pulse visuals and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
@@ -1291,6 +1330,7 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
   );
   const reconciliation = report.platformBudgetReconciliation || {};
   const repairs = report.platformBudgetRepairs || {};
+  const repairReport = report.platformBudgetRepairReport || {};
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
   );
@@ -1335,6 +1375,7 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     `- Read-only: ${reconciliation.readOnly === true ? "yes" : "no"}`,
     `- Repair executor: ${repairs.available === true ? "available" : "not available"}`,
     `- Recent repair actions: ${repairs.recentActionCount ?? 0}`,
+    `- Repair report/export: ${repairReport.available === true ? "available" : "not available"}; formats=${(repairReport.exportFormats || []).join(", ") || "none"}`,
     `- Automatic repair: ${repairs.automaticRepair === true ? "yes" : "no"}`,
     "",
     "## Baselined Gaps",

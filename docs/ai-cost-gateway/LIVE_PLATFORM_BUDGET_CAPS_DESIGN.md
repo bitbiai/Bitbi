@@ -1,6 +1,6 @@
 # Live Platform Budget Caps Design
 
-Status: Phase 4.16 design/evidence is preserved, Phase 4.17 implements the first narrow `platform_admin_lab_budget` cap foundation, Phase 4.18 adds read-only reconciliation/repair evidence for that foundation, and Phase 4.19 adds an explicit admin-approved repair executor for selected safe candidates. Phase 4.19 adds local migration `0054_add_platform_budget_repair_actions.sql`, does not change runtime provider route behavior, and never runs repairs automatically. No provider call, Stripe call, Cloudflare/GitHub mutation, remote migration, member/org billing change, credit clawback, or live billing enablement is performed by this document or by tests. Other budget scopes remain future work.
+Status: Phase 4.16 design/evidence is preserved, Phase 4.17 implements the first narrow `platform_admin_lab_budget` cap foundation, Phase 4.18 adds read-only reconciliation/repair evidence for that foundation, Phase 4.19 adds an explicit admin-approved repair executor for selected safe candidates, and Phase 4.20 adds read-only operator repair evidence reporting/export. Phase 4.19 adds local migration `0054_add_platform_budget_repair_actions.sql`; Phase 4.20 adds no migration and does not change runtime provider route behavior or repair execution semantics. No provider call, Stripe call, Cloudflare/GitHub mutation, remote migration, member/org billing change, credit clawback, or live billing enablement is performed by this document or by tests. Other budget scopes remain future work.
 
 ## Why Caps Are Needed
 
@@ -46,6 +46,18 @@ Executable repair is limited to `create_missing_usage_event` when local D1 evide
 
 Duplicate, orphan, failed-source, window, and missing-cost candidates are review-only in Phase 4.19. Recording a review action writes only a `platform_budget_repair_actions` audit row and does not rewrite or delete existing usage/source rows.
 
+## Phase 4.20 Repair Evidence Report / Export
+
+Phase 4.20 adds an admin-only, read-only operator report over `platform_budget_repair_actions`, sanitized related `platform_budget_usage_events`, bounded reconciliation summary, and cap status summary for `platform_admin_lab_budget`.
+
+The report endpoints are:
+
+- `GET /api/admin/ai/platform-budget-repair-report`
+- `GET /api/admin/ai/platform-budget-repair-report/export?format=json`
+- `GET /api/admin/ai/platform-budget-repair-report/export?format=markdown`
+
+Reports are bounded, sanitized, and local-D1-only. They support filters for status, candidate type, requested action, dry-run flag, date range, limit, detail inclusion, and candidate snapshot inclusion. They do not apply repairs, run automatic repair, delete or rewrite repair actions, mutate `platform_budget_usage_events`, mutate source attempts/jobs, call providers, call Stripe, mutate credits, mutate Cloudflare, or change member/org billing behavior.
+
 ## Kill Switches Vs. Budget Caps
 
 Runtime budget kill switches answer whether a classified provider-cost path may execute at all. After Phase 4.15.1, effective execution requires the Cloudflare master flag and the D1 app switch to be enabled. Missing, false, unrecognized, or unavailable switch state blocks covered admin/platform work before provider, queue, credit, or durable-attempt work.
@@ -89,7 +101,7 @@ The first implementation should use estimated units/credits where actual provide
 
 ## Future Data Model
 
-No migration is added in Phase 4.16. Phase 4.17 implements the first narrow subset through local additive migration `0053_add_platform_budget_caps.sql`. Phase 4.19 adds `0054_add_platform_budget_repair_actions.sql` for admin-approved repair audit rows. Later phases can extend this schema or add derived window/override tables if needed.
+No migration is added in Phase 4.16. Phase 4.17 implements the first narrow subset through local additive migration `0053_add_platform_budget_caps.sql`. Phase 4.19 adds `0054_add_platform_budget_repair_actions.sql` for admin-approved repair audit rows. Phase 4.20 adds read-only reporting/export over that table and does not add schema. Later phases can extend this schema or add derived window/override tables if needed.
 
 ### `platform_budget_limits`
 
@@ -201,4 +213,4 @@ Future implementation tests should prove:
 
 ## Production Readiness
 
-Production/live billing remains BLOCKED. Runtime budget kill switches from Phase 4.15, D1 app switches from Phase 4.15.1, the Phase 4.17 `platform_admin_lab_budget` cap foundation, Phase 4.18 reconciliation evidence, and Phase 4.19 admin-approved repair actions are layered safety controls, not customer billing. Operators should keep admin/platform AI budget flags off unless they intentionally run bounded testing, apply migrations through `0054`, configure daily/monthly caps, and record evidence. Other scopes remain future work.
+Production/live billing remains BLOCKED. Runtime budget kill switches from Phase 4.15, D1 app switches from Phase 4.15.1, the Phase 4.17 `platform_admin_lab_budget` cap foundation, Phase 4.18 reconciliation evidence, Phase 4.19 admin-approved repair actions, and Phase 4.20 repair evidence reports/exports are layered safety/evidence controls, not customer billing. Operators should keep admin/platform AI budget flags off unless they intentionally run bounded testing, apply migrations through `0054`, configure daily/monthly caps, and record evidence. Other scopes remain future work.
