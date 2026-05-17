@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner in `scripts/dry-run-tenant-asset-manual-review-import.mjs`. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only manual-review queue/evidence APIs for imported rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. Phase 6.18 adds operator status evidence rollups, Admin Control Plane visibility, API client wrappers, and review-status controls limited to review-state rows. These phases do not perform ownership backfill, switch access checks, update folder/image ownership rows, add a repair/backfill/access-switch executor, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
+Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner in `scripts/dry-run-tenant-asset-manual-review-import.mjs`. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only manual-review queue/evidence APIs for imported rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. Phase 6.18 adds operator status evidence rollups, Admin Control Plane visibility, API client wrappers, and review-status controls limited to review-state rows. Phase 6.19 adds operator evidence collection docs and a pending decision for live/main import, queue, status, idempotency, Admin panel, and export evidence. These phases do not perform ownership backfill, switch access checks, update folder/image ownership rows, add a repair/backfill/access-switch executor, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
 
 ## Source Evidence
 
@@ -210,10 +210,16 @@ The Admin panel shows queue totals, pending/in-progress counts, blocked public/d
 
 Phase 6.18 status controls update review-state rows only. They do not update ownership metadata, source asset rows, public visibility, access checks, lifecycle/export/delete behavior, quota accounting, billing/credits, providers, Stripe, Cloudflare, or R2. The UI intentionally contains no backfill, access-switch, source-asset update, delete, R2, provider, Stripe, credit, or billing controls.
 
+## Phase 6.19 Operator Evidence Collection
+
+Phase 6.19 adds `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Current status is `operator_evidence_pending` because no sanitized live/main operator evidence files are present for manual-review import dry-run, confirmed import, queue reads, status updates, idempotency behavior, Admin panel rendering, or queue evidence exports.
+
+Phase 6.19 is documentation/evidence packaging only. It adds no runtime behavior, migration, backend route change, frontend UI change, review status update, import execution, source asset mutation, ownership metadata update, R2 action, ownership backfill, or access-check switch.
+
 ## Future Implementation Phases
 
 Recommended next phase:
 
-`Phase 6.19 - Manual Review Status Operator Evidence Collection`
+`Phase 6.20 - Operator Executes Manual Review Import/Status Evidence Collection`
 
-That future phase should collect and archive operator evidence from actual status workflow usage before any backfill planning or access-switch work. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.
+That future phase should collect and archive actual main/live operator evidence from the import, queue, status, idempotency, Admin panel, and export workflow before any backfill planning or access-switch work. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.

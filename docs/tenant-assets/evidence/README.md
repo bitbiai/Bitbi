@@ -9,6 +9,7 @@ This directory is for **main-only evidence**. The owner does not use a separate 
 ## What Belongs Here
 
 - Sanitized summaries derived from `/api/admin/tenant-assets/folders-images/evidence/export?format=json`.
+- Sanitized manual-review queue/import/status evidence derived from `/api/admin/tenant-assets/folders-images/manual-review/*` endpoints.
 - Completed operator evidence records based on `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`.
 - Pending placeholders that explicitly state main evidence has not been collected.
 
@@ -81,6 +82,14 @@ Phase 6.18 adds operator evidence/Admin visibility for the queue:
 - The panel intentionally contains no backfill, access-switch, source-asset update, delete, R2, provider, Stripe, credit, or billing controls.
 - Status controls remain review-state only and do not approve ownership backfill, access-check switching, tenant isolation, or production readiness.
 
+Phase 6.19 adds operator evidence collection docs and a pending decision for the Phase 6.15-6.18 manual-review workflow:
+
+- `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`
+- `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`
+- `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
+
+Current Phase 6.19 status is `operator_evidence_pending`: no sanitized live/main operator evidence files for manual-review import dry-run, confirmed import execution, queue reads, status updates, idempotency behavior, Admin Control Plane rendering, or queue evidence exports are present in this repository. Backfill, access-switching, tenant isolation, and production readiness remain blocked.
+
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
 Synthetic fixtures, runbook instructions, and pending markers must not be treated as main evidence.
@@ -110,5 +119,7 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 10. If using the Phase 6.15 import executor, first run dry-run mode, then execute only with an admin-approved reason and `Idempotency-Key`; inspect the resulting rows through the Phase 6.16 read-only queue/evidence endpoints before any status workflow, backfill design, or access-check migration.
 
 11. If using the Phase 6.17 status workflow or Phase 6.18 Admin panel, change only review statuses with explicit reasons and idempotency, then export updated queue evidence. Status changes are operator evidence only and do not approve backfill or access-check switching.
+
+12. For Phase 6.19 manual-review operator evidence, follow `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, complete `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and update `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. If evidence remains absent, keep `operator_evidence_pending`.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

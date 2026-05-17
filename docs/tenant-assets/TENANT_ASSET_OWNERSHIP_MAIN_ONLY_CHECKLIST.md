@@ -103,4 +103,6 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 ## Next Recommended Phase
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 should collect status operator evidence, with no access-check switch, ownership backfill, source asset row update, ownership metadata update, or R2 action by default.
+Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`.
+
+Current Phase 6.19 status is `operator_evidence_pending`; no sanitized live/main manual-review import, queue, status, idempotency, Admin panel, or export evidence files are present in-repo. The next recommended phase is Phase 6.20 operator execution of manual-review import/status evidence collection, with no access-check switch, ownership backfill, source asset row update, ownership metadata update, or R2 action by default.

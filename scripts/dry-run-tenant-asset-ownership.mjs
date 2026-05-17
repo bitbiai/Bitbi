@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.19 should collect operator evidence from status workflow use before any access/backfill/source asset work.",
+    futurePhase: "Phase 6.20 should collect operator evidence from status workflow use before any access/backfill/source asset work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.19 should collect operator evidence from status workflow use before any access/backfill/source asset work.",
+    futurePhase: "Phase 6.20 should collect operator evidence from status workflow use before any access/backfill/source asset work.",
   },
   {
     id: "ai_video_jobs",
@@ -441,6 +441,16 @@ const FUTURE_PHASES = Object.freeze([
     phase: "6.17",
     title: "Manual review status workflow and operator evidence",
     scope: "Implemented as admin-approved status updates on review items plus immutable events; no source asset mutation, ownership backfill, or access switch.",
+  },
+  {
+    phase: "6.18",
+    title: "Manual review status operator evidence and Admin visibility",
+    scope: "Implemented as queue/status evidence rollups plus Admin Control Plane visibility/status controls for review-state rows only; no ownership backfill or access switch.",
+  },
+  {
+    phase: "6.19",
+    title: "Manual review status operator evidence collection",
+    scope: "Implemented as runbook/template/pending decision docs for collecting main-only operator evidence; no runtime change, import execution, status update, ownership backfill, or access switch.",
   },
 ]);
 
@@ -822,6 +832,32 @@ function readText(repoRoot, relativePath) {
 
 function fileExists(repoRoot, relativePath) {
   return fs.existsSync(path.join(repoRoot, relativePath));
+}
+
+function listManualReviewOperatorEvidenceFiles(repoRoot) {
+  const evidenceDir = "docs/tenant-assets/evidence";
+  const absoluteDir = path.join(repoRoot, evidenceDir);
+  if (!fs.existsSync(absoluteDir)) return [];
+
+  const excluded = new Set([
+    "2026-05-17-main-folders-images-manual-review-plan.md",
+    "2026-05-17-main-folders-images-owner-map-evidence.md",
+    "2026-05-17-main-folders-images-review-import-dry-run.md",
+    "MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md",
+    "MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md",
+    "PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md",
+    "README.md",
+  ]);
+  const operatorEvidencePattern = /(?:manual-review-(?:operator|queue|status|import)|manual_review_status_operator_evidence)/i;
+
+  return fs.readdirSync(absoluteDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => /\.(?:json|md)$/i.test(name))
+    .filter((name) => !excluded.has(name))
+    .filter((name) => operatorEvidencePattern.test(name))
+    .map((name) => `${evidenceDir}/${name}`)
+    .sort();
 }
 
 function buildFoldersImagesWritePathAssignment(repoRoot) {
@@ -1355,10 +1391,18 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const authApiClientFile = "js/shared/auth-api.js";
   const adminControlPlaneFile = "js/pages/admin/control-plane.js";
   const adminIndexFile = "admin/index.html";
+  const manualReviewStatusOperatorEvidenceRunbookFile = "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md";
+  const manualReviewStatusOperatorEvidenceTemplateFile = "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md";
+  const manualReviewStatusOperatorEvidenceDecisionFile = "docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md";
   const manualReviewStateSchemaDesignFile = "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md";
   const manualReviewStateSchemaMigrationFile = "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql";
   const realMainEvidenceFound = fileExists(repoRoot, evidenceSummaryFile);
   const evidenceDecisionReviewed = fileExists(repoRoot, evidenceDecisionFile);
+  const manualReviewOperatorEvidenceFiles = listManualReviewOperatorEvidenceFiles(repoRoot);
+  const manualReviewOperatorEvidenceFilesFound = manualReviewOperatorEvidenceFiles.length > 0;
+  const manualReviewStatusOperatorEvidenceRunbookAdded = fileExists(repoRoot, manualReviewStatusOperatorEvidenceRunbookFile)
+    && fileExists(repoRoot, manualReviewStatusOperatorEvidenceTemplateFile)
+    && fileExists(repoRoot, manualReviewStatusOperatorEvidenceDecisionFile);
   const manualReviewWorkflowDesigned = fileExists(repoRoot, manualReviewWorkflowFile)
     && fileExists(repoRoot, manualReviewPlanFile)
     && fileExists(repoRoot, manualReviewPlannerScript);
@@ -1382,11 +1426,21 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
       ? "pending_main_evidence"
       : "not_recorded";
+  const manualReviewOperatorEvidenceStatus = manualReviewOperatorEvidenceFilesFound
+    ? "operator_evidence_collected_blocked"
+    : manualReviewStatusOperatorEvidenceRunbookAdded
+      ? "operator_evidence_pending"
+      : "not_recorded";
+  const manualReviewOperatorEvidenceNextPhase = manualReviewOperatorEvidenceFilesFound
+    ? "Phase 6.20 — Backfill Readiness Report for Reviewed Items"
+    : "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection";
   const mainEvidenceNextPhase = realMainEvidenceFound
     ? manualReviewQueueReadApiAdded
       ? manualReviewStatusWorkflowAdded
         ? manualReviewStatusOperatorEvidenceAdded
-          ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+          ? manualReviewStatusOperatorEvidenceRunbookAdded
+            ? manualReviewOperatorEvidenceNextPhase
+            : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
           : "Phase 6.18 — Manual Review Status Operator Evidence"
         : "Phase 6.17 — Manual Review Status Update Workflow Design"
       : manualReviewImportExecutorAdded
@@ -1619,7 +1673,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         ? manualReviewQueueReadApiAdded
           ? manualReviewStatusWorkflowAdded
             ? manualReviewStatusOperatorEvidenceAdded
-              ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+              ? manualReviewStatusOperatorEvidenceRunbookAdded
+                ? manualReviewOperatorEvidenceNextPhase
+                : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
               : "Phase 6.18 — Manual Review Status Operator Evidence"
             : "Phase 6.17 — Manual Review Status Update Workflow Design"
           : manualReviewImportExecutorAdded
@@ -1695,7 +1751,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         ? manualReviewQueueReadApiAdded
           ? manualReviewStatusWorkflowAdded
             ? manualReviewStatusOperatorEvidenceAdded
-              ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+              ? manualReviewStatusOperatorEvidenceRunbookAdded
+                ? manualReviewOperatorEvidenceNextPhase
+                : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
               : "Phase 6.18 — Manual Review Status Operator Evidence"
             : "Phase 6.17 — Manual Review Status Update Workflow Design"
           : manualReviewImportExecutorAdded
@@ -1727,7 +1785,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         ? manualReviewQueueReadApiAdded
           ? manualReviewStatusWorkflowAdded
             ? manualReviewStatusOperatorEvidenceAdded
-              ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+              ? manualReviewStatusOperatorEvidenceRunbookAdded
+                ? manualReviewOperatorEvidenceNextPhase
+                : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
               : "Phase 6.18 — Manual Review Status Operator Evidence"
             : "Phase 6.17 — Manual Review Status Update Workflow Design"
           : manualReviewImportExecutorAdded
@@ -1761,7 +1821,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         ? manualReviewQueueReadApiAdded
           ? manualReviewStatusWorkflowAdded
             ? manualReviewStatusOperatorEvidenceAdded
-              ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+              ? manualReviewStatusOperatorEvidenceRunbookAdded
+                ? manualReviewOperatorEvidenceNextPhase
+                : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
               : "Phase 6.18 — Manual Review Status Operator Evidence"
             : "Phase 6.17 — Manual Review Status Update Workflow Design"
           : "Phase 6.16 — Manual Review Item Import Operator Evidence"
@@ -1792,7 +1854,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       recommendedNextPhase: manualReviewQueueReadApiAdded
         ? manualReviewStatusWorkflowAdded
           ? manualReviewStatusOperatorEvidenceAdded
-            ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+            ? manualReviewStatusOperatorEvidenceRunbookAdded
+              ? manualReviewOperatorEvidenceNextPhase
+              : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
             : "Phase 6.18 — Manual Review Status Operator Evidence"
           : "Phase 6.17 — Manual Review Status Update Workflow Design"
         : "Phase 6.16 — Manual Review Queue Read/Evidence Operationalization for AI Folders & Images",
@@ -1819,7 +1883,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       productionReadiness: "blocked",
       recommendedNextPhase: manualReviewStatusWorkflowAdded
         ? manualReviewStatusOperatorEvidenceAdded
-          ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+          ? manualReviewStatusOperatorEvidenceRunbookAdded
+            ? manualReviewOperatorEvidenceNextPhase
+            : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
           : "Phase 6.18 — Manual Review Status Operator Evidence"
         : "Phase 6.17 — Manual Review Status Update Workflow Design",
     },
@@ -1846,8 +1912,42 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       creditBillingMutated: false,
       productionReadiness: "blocked",
       recommendedNextPhase: manualReviewStatusOperatorEvidenceAdded
-        ? "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+        ? manualReviewStatusOperatorEvidenceRunbookAdded
+          ? manualReviewOperatorEvidenceNextPhase
+          : "Phase 6.19 — Manual Review Status Operator Evidence Collection"
         : "Phase 6.18 — Manual Review Status Operator Evidence",
+    },
+    manualReviewStatusOperatorEvidenceCollection: {
+      status: manualReviewOperatorEvidenceStatus,
+      runbook: manualReviewStatusOperatorEvidenceRunbookAdded ? manualReviewStatusOperatorEvidenceRunbookFile : null,
+      template: manualReviewStatusOperatorEvidenceRunbookAdded ? manualReviewStatusOperatorEvidenceTemplateFile : null,
+      decisionFile: fileExists(repoRoot, manualReviewStatusOperatorEvidenceDecisionFile)
+        ? manualReviewStatusOperatorEvidenceDecisionFile
+        : null,
+      operatorEvidenceFilesFound: manualReviewOperatorEvidenceFilesFound,
+      sourceEvidenceFiles: manualReviewOperatorEvidenceFiles,
+      importDryRunEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => file.includes("import-dry-run")),
+      confirmedImportEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => /import-(?:execute|execution)/.test(file)),
+      queueEvidenceExportFound: manualReviewOperatorEvidenceFiles.some((file) => /queue-evidence|evidence-export/.test(file)),
+      statusUpdateEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => /status-update|status-idempotency/.test(file)),
+      idempotencyEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => /idempotency/.test(file)),
+      accessSwitchReady: false,
+      backfillReady: false,
+      tenantIsolationClaimed: false,
+      productionReadiness: "blocked",
+      ownershipBackfillPerformed: false,
+      accessChecksChanged: false,
+      sourceAssetRowsMutated: false,
+      ownershipMetadataUpdated: false,
+      reviewStatusesChangedByCodexTests: false,
+      r2LiveListed: false,
+      providerCalls: false,
+      stripeCalls: false,
+      cloudflareCalls: false,
+      creditBillingMutated: false,
+      recommendedNextPhase: manualReviewStatusOperatorEvidenceRunbookAdded
+        ? manualReviewOperatorEvidenceNextPhase
+        : "Phase 6.19 — Manual Review Status Operator Evidence Collection",
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
@@ -1855,7 +1955,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         : "Write paths assign ownership metadata for new rows.",
       manualReviewStateSchemaMigrationExists
         ? manualReviewStatusWorkflowAdded
-          ? "Manual-review status operator evidence is collected before any ownership backfill or access-check switch."
+          ? manualReviewStatusOperatorEvidenceRunbookAdded
+            ? "Manual-review status operator evidence remains pending until the owner captures main/live import, queue, status, idempotency, Admin panel, and export evidence."
+            : "Manual-review status operator evidence is collected before any ownership backfill or access-check switch."
           : manualReviewQueueReadApiAdded
           ? "Manual-review status update workflow is designed before any ownership backfill or access-check switch."
           : manualReviewImportExecutorAdded
@@ -2176,6 +2278,23 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Source asset rows mutated: ${report.manualReviewStatusOperatorEvidence?.sourceAssetRowsMutated ? "yes" : "no"}`,
     `- Recommended next phase: ${report.manualReviewStatusOperatorEvidence?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
+    "## Manual Review Status Operator Evidence Collection",
+    "",
+    `- Status: ${report.manualReviewStatusOperatorEvidenceCollection?.status || "not_recorded"}`,
+    `- Runbook: ${report.manualReviewStatusOperatorEvidenceCollection?.runbook || "not_recorded"}`,
+    `- Template: ${report.manualReviewStatusOperatorEvidenceCollection?.template || "not_recorded"}`,
+    `- Decision file: ${report.manualReviewStatusOperatorEvidenceCollection?.decisionFile || "not_recorded"}`,
+    `- Operator evidence files found: ${report.manualReviewStatusOperatorEvidenceCollection?.operatorEvidenceFilesFound ? "yes" : "no"}`,
+    `- Source evidence files: ${(report.manualReviewStatusOperatorEvidenceCollection?.sourceEvidenceFiles || []).join(", ") || "none"}`,
+    `- Import dry-run evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.importDryRunEvidenceFound ? "yes" : "no"}`,
+    `- Confirmed import evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.confirmedImportEvidenceFound ? "yes" : "no"}`,
+    `- Queue evidence export found: ${report.manualReviewStatusOperatorEvidenceCollection?.queueEvidenceExportFound ? "yes" : "no"}`,
+    `- Status update evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusUpdateEvidenceFound ? "yes" : "no"}`,
+    `- Idempotency evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyEvidenceFound ? "yes" : "no"}`,
+    `- Backfill ready: ${report.manualReviewStatusOperatorEvidenceCollection?.backfillReady ? "yes" : "no"}`,
+    `- Access switch ready: ${report.manualReviewStatusOperatorEvidenceCollection?.accessSwitchReady ? "yes" : "no"}`,
+    `- Recommended next phase: ${report.manualReviewStatusOperatorEvidenceCollection?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    "",
     "## Safety",
     "",
     "- This dry-run performs no D1 writes.",
@@ -2183,6 +2302,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     "- Phase 6.16 queue/evidence endpoints are read-only and do not update review statuses.",
     "- Phase 6.17 status workflow updates review items/events only and performs no ownership backfill.",
     "- Phase 6.18 Admin visibility/status controls remain review-state only and perform no ownership backfill.",
+    "- Phase 6.19 operator evidence collection is pending unless sanitized live/main evidence files are present.",
     "- No R2 writes, moves, deletes, copies, or live listings.",
     "- No Cloudflare, Stripe, GitHub, or provider calls.",
     "- No owner backfill SQL is emitted.",

@@ -317,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -364,7 +364,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -380,7 +380,7 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
 assert.equal(
@@ -421,7 +421,7 @@ assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.productionReadiness, "blocked");
 assert.equal(
   foldersImagesReport.manualReviewQueueReadApi.recommendedNextPhase,
-  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.status, "manual_review_status_workflow_added");
 assert.equal(
@@ -444,7 +444,7 @@ assert.equal(foldersImagesReport.manualReviewStatusWorkflow.r2LiveListed, false)
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, true);
 assert.equal(
   foldersImagesReport.manualReviewStatusWorkflow.recommendedNextPhase,
-  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.status, "manual_review_status_operator_evidence_added");
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.adminVisibilityAdded, true);
@@ -459,9 +459,38 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.accessChecks
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidence.recommendedNextPhase,
-  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.19 — Manual Review Status Operator Evidence Collection");
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.status, "operator_evidence_pending");
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.runbook,
+  "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md"
+);
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.template,
+  "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md"
+);
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.decisionFile,
+  "docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md"
+);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.operatorEvidenceFilesFound, false);
+assert.deepEqual(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.sourceEvidenceFiles, []);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.importDryRunEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.confirmedImportEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.statusUpdateEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.ownershipBackfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.accessChecksChanged, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.sourceAssetRowsMutated, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.ownershipMetadataUpdated, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.reviewStatusesChangedByCodexTests, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.r2LiveListed, false);
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.recommendedNextPhase,
+  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -989,6 +1018,9 @@ assert(focusedMarkdown.includes("/api/admin/tenant-assets/folders-images/manual-
 assert(focusedMarkdown.includes("Manual Review Status Operator Evidence"));
 assert(focusedMarkdown.includes("manual_review_status_operator_evidence_added"));
 assert(focusedMarkdown.includes("admin/index.html#operations"));
+assert(focusedMarkdown.includes("Manual Review Status Operator Evidence Collection"));
+assert(focusedMarkdown.includes("operator_evidence_pending"));
 assert(focusedMarkdown.includes("Phase 6.19"));
+assert(focusedMarkdown.includes("Phase 6.20"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

@@ -366,11 +366,11 @@ Confirmed execution must not:
 - update `ai_folders` or `ai_images` ownership metadata;
 - list/move/delete R2 objects.
 
-Phase 6.18 adds Admin Control Plane visibility and operator evidence rollups for the existing queue/status workflow. It does not add a migration, import executor changes, review-note workflow, ownership metadata updates, ownership backfill, access switching, source asset mutation, R2 operations, provider calls, Stripe calls, Cloudflare API calls, or credit/billing changes.
+Phase 6.18 adds Admin Control Plane visibility and operator evidence rollups for the existing queue/status workflow. Phase 6.19 adds operator evidence runbook/template/pending decision docs for collecting live/main import, queue, status, idempotency, Admin panel, and export evidence. Phase 6.19 does not add runtime behavior, a migration, import execution, status changes, ownership metadata updates, ownership backfill, access switching, source asset mutation, R2 operations, provider calls, Stripe calls, Cloudflare API calls, or credit/billing changes.
 
 Recommended next phase:
 
-`Phase 6.19 - Manual Review Status Operator Evidence Collection`
+`Phase 6.20 - Operator Executes Manual Review Import/Status Evidence Collection`
 
 Later phases may separately collect status operator evidence from live-main operator use and eventually design non-destructive ownership metadata backfill readiness. Each must be dry-run-first where applicable and explicitly approved.
 

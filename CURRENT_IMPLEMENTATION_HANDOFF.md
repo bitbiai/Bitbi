@@ -9,7 +9,7 @@ Purpose: concise restart point for future Codex sessions. This file is current s
 | Item | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest completed implementation phase | Phase 6.18 tenant asset ownership manual-review status operator evidence/Admin visibility |
+| Latest completed implementation phase | Phase 6.19 tenant asset ownership manual-review status operator evidence collection |
 | Latest documentation phase | DOC-1 documentation diet and archive consolidation |
 | Latest auth D1 migration | `0057_add_ai_asset_manual_review_state.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
@@ -34,7 +34,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
 - Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
 - Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, Phase 6.12 manual-review state schema design, Phase 6.13 empty review-state tables, Phase 6.14 review import dry-run planning, Phase 6.15 admin-approved review-item import executor, Phase 6.16 read-only queue/evidence APIs, Phase 6.17 admin-approved review-status workflow, and Phase 6.18 Admin Control Plane queue/status visibility exist. No old-row ownership backfill, organization ownership assignment, source asset row update, ownership metadata update, access-check switch, or R2 objects were migrated/listed live.
+- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, Phase 6.12 manual-review state schema design, Phase 6.13 empty review-state tables, Phase 6.14 review import dry-run planning, Phase 6.15 admin-approved review-item import executor, Phase 6.16 read-only queue/evidence APIs, Phase 6.17 admin-approved review-status workflow, Phase 6.18 Admin Control Plane queue/status visibility, and Phase 6.19 operator evidence runbook/template/pending decision exist. No old-row ownership backfill, organization ownership assignment, source asset row update, ownership metadata update, review status change by Codex/tests, access-check switch, or R2 objects were migrated/listed live.
 
 ## Current Blockers
 
@@ -43,7 +43,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Stripe Testmode, live credit-pack, and BITBI Pro subscription canaries require explicit operator flags and evidence; live billing remains blocked.
 - Cloudflare WAF/static headers/RUM/alerts remain dashboard-managed or manual evidence items.
 - Restore drill, live health checks, security-header checks, queue/R2/D1 verification, and rollback evidence are still required.
-- Tenant-owned asset status operator evidence collection, org-owned write assignment, old-row owner-map/backfill, self-service privacy flows, legal-approved billing remediation, invoices/customer portal/tax, and broad remaining internal AI Worker route coverage remain future work.
+- Tenant-owned asset live/main operator evidence execution, org-owned write assignment, old-row owner-map/backfill, self-service privacy flows, legal-approved billing remediation, invoices/customer portal/tax, and broad remaining internal AI Worker route coverage remain future work.
 
 ## Read First
 
@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. If approved, implement Phase 6.19 as manual-review status operator evidence collection; keep it separate from ownership backfill, access switching, source asset row updates, ownership metadata updates, and R2 actions.
+1. If approved, implement Phase 6.20 as operator execution of manual-review import/status evidence collection; keep it separate from ownership backfill, access switching, source asset row updates, ownership metadata updates, review status changes by automation, and R2 actions.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.19 status operator evidence collection, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.20 operator evidence collection, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 

@@ -47,6 +47,7 @@ This workflow is main-only. Do not mark evidence as collected unless it came fro
 | Decision document `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` |  | yes / no / pending |
 | Manual review workflow `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` |  | yes / no / not needed yet |
 | Manual review plan under `docs/tenant-assets/evidence/` |  | yes / no / not needed yet |
+| Manual review status operator evidence decision `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md` |  | yes / no / pending |
 | Screenshot or admin evidence reference |  | yes / no / not used |
 
 Do not paste real cookies, session tokens, bearer tokens, private keys, signed URLs, provider payloads, Stripe data, Cloudflare tokens, or private R2 keys into this template.
@@ -138,4 +139,4 @@ Record operator confirmation:
 
 ## 11. Next Recommended Phase
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 should collect status operator evidence and still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, and R2 actions unless separately approved.
+Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`; current status is `operator_evidence_pending` until sanitized live/main import, queue, status, idempotency, Admin panel, and export evidence is provided. Future evidence collection must still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, and R2 actions unless separately approved.

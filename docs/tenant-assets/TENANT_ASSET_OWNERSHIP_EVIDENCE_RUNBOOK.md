@@ -130,6 +130,8 @@ After the Phase 6.10 decision is reviewed, use `docs/tenant-assets/AI_FOLDERS_IM
 npm run tenant-assets:plan-manual-review -- --input docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md
 ```
 
+For the later manual-review import/status workflow, use `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Phase 6.19 currently records `operator_evidence_pending` because no sanitized live/main import, queue, status, idempotency, Admin panel, or export evidence files are present in-repo.
+
 ## Redaction Checks
 
 Before sharing or attaching evidence, verify that it does not contain:
@@ -208,4 +210,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. The next recommended phase is Phase 6.19 - Manual Review Status Operator Evidence Collection, with no access-check switch, ownership backfill, source asset row update, ownership metadata update, or R2 action by default.
+Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds operator evidence collection docs and a pending decision only. The next recommended phase is Phase 6.20 - Operator Executes Manual Review Import/Status Evidence Collection, with no access-check switch, ownership backfill, source asset row update, ownership metadata update, or R2 action by default.

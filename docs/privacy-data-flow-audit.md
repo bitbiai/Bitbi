@@ -43,10 +43,11 @@ manual-review state schema, Phase 6.13 adds empty review-state tables only,
 Phase 6.14 adds local-only review import dry-run planning, Phase 6.15 adds
 an admin-approved review-item import executor, Phase 6.16 adds read-only
 review queue/evidence APIs, Phase 6.17 adds admin-approved review-status
-updates on review items/events only, and Phase 6.18 adds Admin queue/status
-visibility for review-state rows only. These phases do
+updates on review items/events only, Phase 6.18 adds Admin queue/status
+visibility for review-state rows only, and Phase 6.19 adds operator evidence
+collection docs plus a pending decision only. These phases do
 not backfill old owner metadata, rewrite existing D1 source rows, update ownership metadata,
-assign organization ownership, move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
+change review statuses by documentation, assign organization ownership, move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
 member/org generation, or prove full tenant isolation.
 
@@ -74,10 +75,12 @@ Phase 6.12 designs review-state tables/events, Phase 6.13 adds those empty
 tables without importing review rows, Phase 6.14 dry-runs review import
 planning without D1/R2 mutation, Phase 6.15 adds a review-item/event-only
 import executor, Phase 6.16 adds read-only queue/evidence APIs, Phase 6.17
-adds review-status updates on review items/events only, and Phase 6.18 adds
-Admin queue/status visibility for review-state rows only. Existing generated assets
-are not backfilled, source asset rows and ownership metadata are not updated, and
-assets are not migrated to organization ownership.
+adds review-status updates on review items/events only, Phase 6.18 adds
+Admin queue/status visibility for review-state rows only, and Phase 6.19 adds
+pending operator evidence collection docs only. Existing generated assets
+are not backfilled, source asset rows and ownership metadata are not updated,
+review statuses are not changed by Phase 6.19 docs, and assets are not migrated
+to organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform
