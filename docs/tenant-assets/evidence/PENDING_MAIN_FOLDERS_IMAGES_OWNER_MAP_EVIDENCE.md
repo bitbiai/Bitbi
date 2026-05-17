@@ -2,13 +2,13 @@
 
 Date: 2026-05-17
 
-Status: **PENDING**
+Status: **SUPERSEDED_PENDING_MARKER**
 
 Decision: **blocked**
 
 This file is not evidence. It records that no real operator-exported main evidence files were present in the repository when Phase 6.9 was prepared.
 
-Phase 6.10 reviewed the repository evidence package and kept this pending status. See `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`.
+Phase 6.10 now reviews the main-only evidence summary in `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`. The current decision is `needs_manual_review`, with access-check switching and ownership backfill still blocked. See `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`.
 
 ## Required Operator Exports
 
@@ -20,9 +20,9 @@ Collect these from the live/main deployment after the Phase 6.7 endpoint is depl
 
 Follow `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` and `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_MAIN_ONLY_CHECKLIST.md`.
 
-## Current Counts
+## Historical Counts
 
-No live/main counts are recorded in this repository.
+No counts are recorded in this historical pending marker. Current counts are in `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` and the Phase 6.10 decision document.
 
 | Count | Value |
 | --- | ---: |
@@ -40,11 +40,11 @@ No live/main counts are recorded in this repository.
 
 ## Decision
 
-- `blocked_for_access_switch`: main evidence is pending.
-- `blocked_for_backfill`: main evidence is pending.
-- `needs_manual_review`: not yet measurable from live/main evidence.
+- `blocked_for_access_switch`: current main evidence contains nonzero high-risk counts.
+- `blocked_for_backfill`: current main evidence contains nonzero high-risk counts.
+- `needs_manual_review`: current Phase 6.10 decision requires manual review.
 
-Do not treat this file as proof that the Phase 6.7 endpoint is live, that ownership metadata is complete, that access checks can switch to ownership metadata, or that old rows can be backfilled.
+Do not treat this file as current proof that the Phase 6.7 endpoint is live, that ownership metadata is complete, that access checks can switch to ownership metadata, or that old rows can be backfilled.
 
 ## Safety Statement
 
@@ -58,4 +58,4 @@ Do not treat this file as proof that the Phase 6.7 endpoint is live, that owners
 
 ## Next Recommended Phase
 
-Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images.
+Phase 6.11 has added the design-only manual review workflow. Current next step is Phase 6.12 - Manual Review State Schema Design for AI Folders & Images if the owner continues tenant-asset work.

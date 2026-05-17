@@ -99,6 +99,8 @@ If evidence is collected safely but high-risk counts remain, record `needs_more_
 
 If no real operator-exported evidence is present in the repository, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as the package state, keep `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` pending, and do not claim main evidence was collected. Synthetic fixtures are not main evidence.
 
+When real evidence has been reviewed and high-risk counts remain nonzero, use `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md` for design-only manual review planning. Do not treat either document as approval to backfill, repair, or switch access checks.
+
 ## Next Recommended Phase
 
-Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images when the decision remains pending.
+Phase 6.12 - Manual Review State Schema Design for AI Folders & Images after Phase 6.11 workflow design.

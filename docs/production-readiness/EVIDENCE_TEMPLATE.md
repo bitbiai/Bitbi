@@ -18,7 +18,7 @@ Do not paste secret values, raw webhook secrets/signatures, API keys, private ke
 
 Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit restart state. Record platform budget reconciliation, repair, report/export, archive, and Admin Control Plane smoke evidence as separate evidence sections. Confirm no report/export/archive endpoint applied repair, mutated usage/source rows, called providers, called Stripe, changed credits, or changed member/org billing. Phase 5.1 Admin Control Plane evidence is UI/navigation-only and must not be treated as backend readiness or live billing approval.
 
-For tenant asset ownership evidence, use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`, `docs/tenant-assets/evidence/`, and `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`. Phase 6.10 decision records do not prove full tenant isolation, do not switch access checks, do not backfill old rows, and do not list or mutate R2. Pending tenant evidence blocks tenant-isolation/access-switch claims.
+For tenant asset ownership evidence, use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`, `docs/tenant-assets/evidence/`, `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`, and `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`. Phase 6.10/6.11 decision and workflow records do not prove full tenant isolation, do not switch access checks, do not backfill old rows, and do not list or mutate R2. The current real main evidence decision requires manual review and blocks tenant-isolation/access-switch claims.
 
 ## 1. Repo Baseline
 
@@ -327,8 +327,9 @@ Use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenan
 | Phase 6.7 tenant asset evidence endpoint `/api/admin/tenant-assets/folders-images/evidence` called by approved admin with MFA |  | BLOCKED |  |
 | JSON export from `/api/admin/tenant-assets/folders-images/evidence/export?format=json` saved to private operator evidence storage |  | BLOCKED |  |
 | Optional Markdown export saved, if used |  | BLOCKED |  |
-| Phase 6.10 decision under `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` records sanitized source evidence or explicitly pending status |  | BLOCKED |  |
+| Phase 6.10 decision under `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` records sanitized main evidence summary and current manual-review decision |  | BLOCKED |  |
 | Evidence template records folders/images scanned, metadata missing, metadata conflicts, relationship conflicts, orphan references, public unsafe, derivative risk, manual review, dual-read safe, and dual-read unsafe counts |  | BLOCKED |  |
+| Phase 6.11 manual review workflow and plan record review categories/statuses without executor, access switch, backfill, or R2 listing |  | BLOCKED |  |
 | Evidence confirms `runtimeBehaviorChanged=false`, `accessChecksChanged=false`, `backfillPerformed=false`, and `r2LiveListed=false` |  | BLOCKED |  |
 | Evidence confirms no raw prompts, private R2 keys, signed URLs, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, or raw idempotency keys are present |  | BLOCKED |  |
 | Risk decision recorded as `safe_to_continue_design_only`, `needs_more_evidence`, `unsafe_for_access_switch`, or `blocked` |  | BLOCKED |  |

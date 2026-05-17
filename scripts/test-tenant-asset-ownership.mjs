@@ -17,6 +17,12 @@ import {
   normalizeTenantAssetEvidenceReportPayload,
   renderTenantAssetEvidenceSummaryMarkdown,
 } from "./summarize-tenant-asset-evidence.mjs";
+import {
+  buildTenantAssetManualReviewPlan,
+  parseTenantAssetManualReviewEvidence,
+  parseTenantAssetManualReviewEvidenceMarkdown,
+  renderTenantAssetManualReviewPlanMarkdown,
+} from "./plan-tenant-asset-manual-review.mjs";
 
 const repoRoot = process.cwd();
 const report = buildTenantAssetOwnershipDryRunReport(repoRoot, {
@@ -251,20 +257,48 @@ assert.equal(foldersImagesReport.adminEvidenceReport.accessChecksChanged, false)
 assert.equal(foldersImagesReport.adminEvidenceReport.backfillPerformed, false);
 assert.equal(foldersImagesReport.adminEvidenceReport.r2LiveListed, false);
 assert(foldersImagesReport.adminEvidenceReport.manualReviewRollup.totalReviewSignals >= 1);
-assert.equal(foldersImagesReport.mainEvidencePackage.status, "pending_main_evidence");
+assert.equal(foldersImagesReport.mainEvidencePackage.status, "needs_manual_review");
 assert.equal(foldersImagesReport.mainEvidencePackage.activeWorkflow, "main_only");
+assert.equal(
+  foldersImagesReport.mainEvidencePackage.evidenceSummaryFile,
+  "docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md"
+);
 assert.equal(
   foldersImagesReport.mainEvidencePackage.decisionFile,
   "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md"
 );
 assert.equal(foldersImagesReport.mainEvidencePackage.decisionReviewed, true);
-assert.equal(foldersImagesReport.mainEvidencePackage.realMainEvidenceFoundInRepo, false);
+assert.equal(foldersImagesReport.mainEvidencePackage.realMainEvidenceFoundInRepo, true);
 assert.equal(foldersImagesReport.mainEvidencePackage.accessSwitchDecision, "blocked");
 assert.equal(foldersImagesReport.mainEvidencePackage.backfillDecision, "blocked");
+assert.equal(foldersImagesReport.mainEvidencePackage.manualReviewDecision, "required");
 assert.equal(foldersImagesReport.mainEvidencePackage.accessChecksChanged, false);
 assert.equal(foldersImagesReport.mainEvidencePackage.backfillPerformed, false);
 assert.equal(foldersImagesReport.mainEvidencePackage.r2LiveListed, false);
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.11 — Operator Collects Main Evidence Export for AI Folders & Images");
+assert.equal(foldersImagesReport.manualReviewWorkflow.status, "manual_review_workflow_designed");
+assert.equal(
+  foldersImagesReport.manualReviewWorkflow.workflowDoc,
+  "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md"
+);
+assert.equal(
+  foldersImagesReport.manualReviewWorkflow.planDoc,
+  "docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md"
+);
+assert.equal(foldersImagesReport.manualReviewWorkflow.plannerScript, "scripts/plan-tenant-asset-manual-review.mjs");
+assert.equal(foldersImagesReport.manualReviewWorkflow.designOnly, true);
+assert.equal(foldersImagesReport.manualReviewWorkflow.reviewExecutionAdded, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.endpointAdded, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.migrationAdded, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.accessChecksChanged, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.backfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.r2LiveListed, false);
+assert(foldersImagesReport.manualReviewWorkflow.issueCategories.includes("metadata_missing"));
+assert(foldersImagesReport.manualReviewWorkflow.issueCategories.includes("public_unsafe"));
+assert(foldersImagesReport.manualReviewWorkflow.issueCategories.includes("derivative_risk"));
+assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending_review"));
+assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -444,10 +478,83 @@ assert(
   }).some((finding) => finding.includes("private user R2 key")),
   "unsafe raw R2 key should be detected"
 );
+
+const mainEvidenceSummaryPath = path.join(
+  repoRoot,
+  "docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md"
+);
+const mainEvidenceMarkdown = fs.readFileSync(mainEvidenceSummaryPath, "utf8");
+const parsedManualReviewEvidence = parseTenantAssetManualReviewEvidenceMarkdown(mainEvidenceMarkdown, {
+  sourcePath: "docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md",
+});
+assert.equal(parsedManualReviewEvidence.mainOnlyEvidence, true);
+assert.equal(parsedManualReviewEvidence.syntheticFixture, false);
+assert.equal(parsedManualReviewEvidence.decisionStatus, "blocked_for_access_switch_and_backfill");
+assert.equal(parsedManualReviewEvidence.counts.totalFoldersScanned, 16);
+assert.equal(parsedManualReviewEvidence.counts.totalImagesScanned, 63);
+assert.equal(parsedManualReviewEvidence.counts.metadataMissingTotal, 75);
+assert.equal(parsedManualReviewEvidence.counts.publicImagesWithMissingOrAmbiguousOwnership, 21);
+assert.equal(parsedManualReviewEvidence.counts.derivativeOwnershipRisks, 63);
+assert.equal(parsedManualReviewEvidence.counts.simulatedDualReadUnsafeCount, 42);
+assert.equal(parsedManualReviewEvidence.counts.needsManualReviewCount, 90);
+assert.equal(parsedManualReviewEvidence.counts.metadataConflictCount, 0);
+assert.equal(parsedManualReviewEvidence.counts.relationshipConflictCount, 0);
+assert.equal(parsedManualReviewEvidence.counts.orphanFolderReferences, 0);
+assert.equal(parsedManualReviewEvidence.counts.organizationOwnedRowsFound, 0);
+const manualReviewPlan = buildTenantAssetManualReviewPlan(parsedManualReviewEvidence, {
+  generatedAt: "2026-05-17T00:00:00.000Z",
+});
+assert.equal(manualReviewPlan.planVersion, "tenant-folders-images-manual-review-plan-v1");
+assert.equal(manualReviewPlan.phase, "6.11");
+assert.equal(manualReviewPlan.blockedDecisions.accessCheckSwitch, "blocked_for_access_switch");
+assert.equal(manualReviewPlan.blockedDecisions.ownershipBackfill, "blocked_for_backfill");
+assert.equal(manualReviewPlan.blockedDecisions.tenantIsolation, "not_claimed");
+assert.equal(manualReviewPlan.blockedDecisions.productionReadiness, "blocked");
+assert(manualReviewPlan.reviewCategories.includes("metadata_missing"));
+assert(manualReviewPlan.reviewCategories.includes("public_unsafe"));
+assert(manualReviewPlan.reviewCategories.includes("derivative_risk"));
+assert(manualReviewPlan.reviewCategories.includes("dual_read_unsafe"));
+assert(manualReviewPlan.reviewCategories.includes("manual_review_needed"));
+assert(manualReviewPlan.reviewCategories.includes("safe_observe_only"));
+assert(manualReviewPlan.reviewStatuses.includes("approved_personal_user_asset"));
+assert(manualReviewPlan.reviewStatuses.includes("blocked_missing_evidence"));
+assert.equal(
+  manualReviewPlan.recommendedNextPhase,
+  "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images"
+);
+assert.equal(manualReviewPlan.mutationSafety.d1RowsRewritten, false);
+assert.equal(manualReviewPlan.mutationSafety.ownershipBackfillPerformed, false);
+assert.equal(manualReviewPlan.mutationSafety.r2LiveListed, false);
+assert.equal(manualReviewPlan.mutationSafety.runtimeAccessChecksChanged, false);
+assert.equal(manualReviewPlan.mutationSafety.executableSqlEmitted, false);
+assert.equal(manualReviewPlan.mutationSafety.liveEndpointCalls, false);
+const manualReviewMarkdown = renderTenantAssetManualReviewPlanMarkdown(manualReviewPlan);
+assert(manualReviewMarkdown.includes("# Main AI Folders/Images Manual Review Plan"));
+assert(manualReviewMarkdown.includes("metadata_missing"));
+assert(manualReviewMarkdown.includes("blocked_for_access_switch"));
+assert(manualReviewMarkdown.includes("Phase 6.12"));
+assert(!/\bUPDATE\s+ai_(folders|images)\b/i.test(manualReviewMarkdown));
+assert(!/\bDELETE\s+FROM\b/i.test(manualReviewMarkdown));
+assert(!/\bwrangler\s+d1\s+migrations\s+apply\b/i.test(manualReviewMarkdown));
+assert(!manualReviewMarkdown.includes("users/synthetic-user/folders"));
+assert(!manualReviewMarkdown.includes("Cookie:"));
+assert(!manualReviewMarkdown.includes("Bearer "));
+assert.throws(
+  () => parseTenantAssetManualReviewEvidence("not an evidence summary"),
+  /missing required evidence count fields/i
+);
 const summarizerSource = fs.readFileSync(path.join(repoRoot, "scripts/summarize-tenant-asset-evidence.mjs"), "utf8");
 assert(!summarizerSource.includes("fetch("));
 assert(!summarizerSource.includes("wrangler"));
 assert(!summarizerSource.includes("d1 execute"));
+const manualReviewPlannerSource = fs.readFileSync(
+  path.join(repoRoot, "scripts/plan-tenant-asset-manual-review.mjs"),
+  "utf8"
+);
+assert(!manualReviewPlannerSource.includes("fetch("));
+assert(!manualReviewPlannerSource.includes("wrangler d1"));
+assert(!manualReviewPlannerSource.includes("DELETE FROM"));
+assert(!manualReviewPlannerSource.includes("UPDATE ai_"));
 
 const ownershipMigrationPath = path.join(
   repoRoot,
@@ -491,6 +598,8 @@ assert(focusedMarkdown.includes("Read Diagnostics"));
 assert(focusedMarkdown.includes("metadata_missing"));
 assert(focusedMarkdown.includes("unsafe_to_switch"));
 assert(focusedMarkdown.includes("Main Evidence Package"));
-assert(focusedMarkdown.includes("pending_main_evidence"));
+assert(focusedMarkdown.includes("needs_manual_review"));
+assert(focusedMarkdown.includes("Manual Review Workflow"));
+assert(focusedMarkdown.includes("manual_review_workflow_designed"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

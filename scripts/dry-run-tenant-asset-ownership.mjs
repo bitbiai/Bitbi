@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.10 records the pending/blocked decision; Phase 6.11 should collect the real main evidence export before access/backfill work.",
+    futurePhase: "Phase 6.11 adds manual review workflow design; Phase 6.12 should design review-state records before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.10 records the pending/blocked decision; Phase 6.11 should collect the real main evidence export before access/backfill work.",
+    futurePhase: "Phase 6.11 adds manual review workflow design; Phase 6.12 should design review-state records before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -218,7 +218,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.11 after operator-run main owner-map evidence proves owner metadata and organization quota design is approved.",
+    futurePhase: "Phase 6.12 after manual review workflow design addresses real main owner-map evidence.",
   },
   {
     id: "data_lifecycle",
@@ -243,7 +243,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "audit_archive_asset",
     risk: "high",
     findings: ["lifecycle_user_only", "organization_export_delete_gap"],
-    futurePhase: "Phase 6.11 after operator-run main owner mapping is proven.",
+    futurePhase: "Phase 6.12 after manual review workflow design addresses real main owner mapping.",
   },
   {
     id: "news_pulse_visuals",
@@ -269,7 +269,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "platform_background_asset",
     risk: "medium",
     findings: ["platform_background_asset_classification_needed"],
-    futurePhase: "Phase 6.11 out-of-scope for tenant-owned member assets.",
+    futurePhase: "Phase 6.12 out-of-scope for tenant-owned member assets.",
   },
 ]);
 
@@ -400,22 +400,22 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.9",
     title: "Main owner-map evidence packaging",
-    scope: "Package main-only evidence status and pending evidence requirements; no live endpoint calls, access switch, or backfill.",
+    scope: "Package main-only evidence status and pending-marker requirements; no live endpoint calls, access switch, or backfill.",
   },
   {
     phase: "6.10",
     title: "Operator-run main evidence review and decision",
-    scope: "Implemented as a pending/blocked decision because no real main evidence export is present in-repo.",
+    scope: "Implemented as a reviewed main evidence decision requiring manual review; access switch and backfill stay blocked.",
   },
   {
     phase: "6.11",
-    title: "Operator collects main evidence export",
-    scope: "Collect and provide real bounded main evidence from the Phase 6.7 endpoint; no access switch or backfill.",
+    title: "Manual review workflow design",
+    scope: "Implemented as manual-review workflow design and main evidence review plan; no access switch or backfill.",
   },
   {
     phase: "6.12",
-    title: "Manual review workflow or evidence archive",
-    scope: "Choose based on Phase 6.11 counts; no access switch or broad backfill by default.",
+    title: "Manual review state schema design",
+    scope: "Design additive operator review-state records if needed; no access switch or broad backfill by default.",
   },
   {
     phase: "6.13",
@@ -1326,6 +1326,27 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     + readDiagnostics.summary.relationshipConflictCount
     + readDiagnostics.summary.publicImagesWithMissingOrAmbiguousOwnership
     + readDiagnostics.summary.derivativeOwnershipRisks;
+  const evidenceSummaryFile = "docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md";
+  const evidenceDecisionFile = "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md";
+  const evidencePendingFile = "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md";
+  const manualReviewWorkflowFile = "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md";
+  const manualReviewPlanFile = "docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md";
+  const manualReviewPlannerScript = "scripts/plan-tenant-asset-manual-review.mjs";
+  const realMainEvidenceFound = fileExists(repoRoot, evidenceSummaryFile);
+  const evidenceDecisionReviewed = fileExists(repoRoot, evidenceDecisionFile);
+  const manualReviewWorkflowDesigned = fileExists(repoRoot, manualReviewWorkflowFile)
+    && fileExists(repoRoot, manualReviewPlanFile)
+    && fileExists(repoRoot, manualReviewPlannerScript);
+  const mainEvidenceStatus = realMainEvidenceFound
+    ? "needs_manual_review"
+    : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
+      ? "pending_main_evidence"
+      : "not_recorded";
+  const mainEvidenceNextPhase = realMainEvidenceFound
+    ? manualReviewWorkflowDesigned
+      ? "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images"
+      : "Phase 6.11 — Manual Review Workflow Design for AI Folders & Images Owner-Map Issues"
+    : "Phase 6.11 — Operator Collects Main Evidence Export for AI Folders & Images";
 
   return {
     reportVersion: "tenant-folders-images-owner-map-dry-run-v1",
@@ -1482,30 +1503,71 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       },
     },
     mainEvidencePackage: {
-      status: fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md"))
-        ? "pending_main_evidence"
-        : fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md"))
-        ? "pending_main_evidence"
-        : "not_recorded",
+      status: mainEvidenceStatus,
       directory: "docs/tenant-assets/evidence/",
       index: "docs/tenant-assets/evidence/README.md",
-      pendingFile: "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md",
-      decisionFile: "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md",
-      decisionReviewed: fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md")),
-      realMainEvidenceFoundInRepo: false,
+      evidenceSummaryFile: realMainEvidenceFound ? evidenceSummaryFile : null,
+      pendingFile: evidencePendingFile,
+      decisionFile: evidenceDecisionFile,
+      decisionReviewed: evidenceDecisionReviewed,
+      realMainEvidenceFoundInRepo: realMainEvidenceFound,
       activeWorkflow: "main_only",
       accessSwitchDecision: "blocked",
       backfillDecision: "blocked",
+      manualReviewDecision: realMainEvidenceFound ? "required" : "pending_real_main_evidence",
       accessChecksChanged: false,
       backfillPerformed: false,
       r2LiveListed: false,
-      recommendedNextPhase: "Phase 6.11 — Operator Collects Main Evidence Export for AI Folders & Images",
+      recommendedNextPhase: mainEvidenceNextPhase,
+    },
+    manualReviewWorkflow: {
+      status: manualReviewWorkflowDesigned ? "manual_review_workflow_designed" : "not_recorded",
+      workflowDoc: manualReviewWorkflowDesigned ? manualReviewWorkflowFile : null,
+      planDoc: manualReviewWorkflowDesigned ? manualReviewPlanFile : null,
+      plannerScript: manualReviewWorkflowDesigned ? manualReviewPlannerScript : null,
+      designOnly: true,
+      reviewExecutionAdded: false,
+      endpointAdded: false,
+      adminUiAdded: false,
+      migrationAdded: false,
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      r2LiveListed: false,
+      issueCategories: [
+        "metadata_missing",
+        "public_unsafe",
+        "derivative_risk",
+        "dual_read_unsafe",
+        "manual_review_needed",
+        "relationship_review",
+        "legacy_unclassified",
+        "future_org_ownership_review",
+        "platform_admin_test_review",
+        "safe_observe_only",
+      ],
+      reviewStatuses: [
+        "pending_review",
+        "review_in_progress",
+        "approved_personal_user_asset",
+        "approved_organization_asset",
+        "approved_legacy_unclassified",
+        "approved_platform_admin_test_asset",
+        "blocked_public_unsafe",
+        "blocked_derivative_risk",
+        "blocked_relationship_conflict",
+        "blocked_missing_evidence",
+        "needs_legal_privacy_review",
+        "deferred",
+        "rejected",
+        "superseded",
+      ],
+      recommendedNextPhase: "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images",
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
         ? "Read diagnostics compare existing user_id access with new ownership metadata before any access-check switch."
         : "Write paths assign ownership metadata for new rows.",
-      "A main-only owner-map evidence package validates real row counts and ambiguity rates after operator collection.",
+      "Manual review workflow is defined for real-row owner-map metadata-missing, public unsafe, derivative-risk, dual-read-unsafe, and manual-review findings.",
       "Organization ownership is backed by explicit row-level evidence, not UI active organization context.",
       "Public gallery attribution and lifecycle/export/delete impacts are designed.",
       "Operator evidence is reviewed before any backfill.",
@@ -1518,7 +1580,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "No runtime access behavior changes are made.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? "Phase 6.11 — Operator Collects Main Evidence Export for AI Folders & Images"
+      ? mainEvidenceNextPhase
       : ownershipMigrationExists
         ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
@@ -1575,7 +1637,7 @@ export function buildTenantAssetOwnershipDryRunReport(repoRoot = process.cwd(), 
     lifecycleGaps,
     blockedUntil: [
       "Read-only diagnostics prove new ownership metadata matches legacy access behavior where present.",
-      "A main-only owner-map evidence package proves candidate ownership for one low-risk domain after operator collection.",
+    "Manual review workflow is defined for real-row owner-map metadata-missing, public unsafe, derivative-risk, dual-read-unsafe, and manual-review findings.",
       "R2 key ownership is reconciled against D1 rows without object moves or deletes.",
       "Lifecycle/export/delete plans support organization subjects.",
       "Operator evidence is reviewed before any non-destructive backfill.",
@@ -1724,11 +1786,24 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Status: ${report.mainEvidencePackage?.status || "not_recorded"}`,
     `- Directory: ${report.mainEvidencePackage?.directory || "not_recorded"}`,
     `- Active workflow: ${report.mainEvidencePackage?.activeWorkflow || "main_only"}`,
+    `- Evidence summary file: ${report.mainEvidencePackage?.evidenceSummaryFile || "not_recorded"}`,
     `- Decision file: ${report.mainEvidencePackage?.decisionFile || "not_recorded"}`,
     `- Decision reviewed: ${report.mainEvidencePackage?.decisionReviewed ? "yes" : "no"}`,
     `- Real main evidence found in repo: ${report.mainEvidencePackage?.realMainEvidenceFoundInRepo ? "yes" : "no"}`,
     `- Access switch decision: ${report.mainEvidencePackage?.accessSwitchDecision || "blocked"}`,
     `- Backfill decision: ${report.mainEvidencePackage?.backfillDecision || "blocked"}`,
+    `- Manual review decision: ${report.mainEvidencePackage?.manualReviewDecision || "pending_real_main_evidence"}`,
+    `- Recommended next phase: ${report.mainEvidencePackage?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    "",
+    "## Manual Review Workflow",
+    "",
+    `- Status: ${report.manualReviewWorkflow?.status || "not_recorded"}`,
+    `- Workflow doc: ${report.manualReviewWorkflow?.workflowDoc || "not_recorded"}`,
+    `- Plan doc: ${report.manualReviewWorkflow?.planDoc || "not_recorded"}`,
+    `- Planner script: ${report.manualReviewWorkflow?.plannerScript || "not_recorded"}`,
+    `- Design only: ${report.manualReviewWorkflow?.designOnly ? "yes" : "no"}`,
+    `- Review execution added: ${report.manualReviewWorkflow?.reviewExecutionAdded ? "yes" : "no"}`,
+    `- Recommended next phase: ${report.manualReviewWorkflow?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Safety",
     "",

@@ -35,10 +35,9 @@ columns for those two tables only. Phase 6.5 assigns those columns only on new
 personal folder/image writes. Phase 6.6 adds read-only dual-read diagnostics
 for the same folder/image domain. Phase 6.7 adds admin-only bounded evidence
 reports/exports over those diagnostics. Phase 6.8 adds evidence collection
-runbook/template/checklist docs only. Phase 6.9 adds a main-only pending
-evidence package because no real operator export was present in-repo. Phase
-6.10 adds the pending/blocked decision document because no real main evidence
-export is present. These phases do not rewrite existing D1
+runbook/template/checklist docs only. Phase 6.9 adds a main-only evidence
+package. Phase 6.10 reviews real main evidence and records manual review
+required while access-switch/backfill remains blocked. Phase 6.11 adds manual-review workflow design and a local planner only. These phases do not rewrite existing D1
 ownership rows, backfill old owner metadata, assign organization ownership,
 move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
@@ -61,8 +60,8 @@ owner-class candidates, Phase 6.3 proposes the metadata/access plan, Phase 6.4
 adds nullable columns, Phase 6.5 assigns new personal folder/image write
 metadata, Phase 6.6 adds simulated read diagnostics, Phase 6.7 exposes bounded
 admin evidence reports/exports, Phase 6.8 defines evidence collection
-records, Phase 6.9 records pending main evidence in-repo, and Phase 6.10 keeps
-the decision pending/blocked. Existing generated assets are not backfilled and are not migrated to
+records, Phase 6.9 adds the main-only evidence package, Phase 6.10 reviews
+real main evidence and requires manual review while keeping access/backfill blocked, and Phase 6.11 defines a manual-review workflow without execution. Existing generated assets are not backfilled and are not migrated to
 organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local

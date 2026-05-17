@@ -2,86 +2,101 @@
 
 Date: 2026-05-17
 
-Status: `pending_main_evidence`
+Status: `needs_manual_review`
 
-Decision: **blocked**
+Decision: **blocked_for_access_switch_and_backfill**
 
-This Phase 6.10 decision reviews the in-repository evidence package for AI folders/images tenant asset ownership. No live endpoints were called, no synthetic fixture was treated as evidence, and no live/main evidence counts are recorded in this document.
+This Phase 6.10 decision reviews the in-repository main-only evidence package for AI folders/images tenant asset ownership. The real main evidence summary is present at `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`; no live endpoints were called by Codex, no synthetic fixture was treated as evidence, and no raw JSON export is required in-repo because the Markdown summary contains the safe counts and decision fields needed for this review.
 
 ## Evidence Presence
 
 | Item | Result |
 | --- | --- |
-| Real main evidence found in repository | no |
-| Evidence summarized | no |
+| Real main evidence found in repository | yes |
+| Evidence summarized | yes |
+| Source evidence summary | `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` |
+| Raw JSON committed | no; not required for this decision because the safe Markdown summary is complete |
 | Synthetic fixtures excluded | yes |
-| Pending placeholder present | yes |
+| Pending placeholder present | yes; retained as historical/superseded by the main evidence summary |
 | Access-check switch decision | blocked |
 | Ownership backfill decision | blocked |
-| Manual review status | pending real main evidence |
+| Manual review status | required |
 | Design-only work | may continue with no runtime/access/data mutation |
+| Full tenant isolation claim | no |
+| Production readiness claim | no |
 
 ## Files Reviewed
 
 | Path | Classification | Decision use |
 | --- | --- | --- |
+| `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` | real main evidence summary | source of safe counts and decision fields |
 | `docs/tenant-assets/evidence/README.md` | evidence index | not evidence |
-| `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` | pending marker | proves evidence is pending only |
+| `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` | historical pending marker | superseded for current decision, not count evidence |
 | `scripts/fixtures/tenant-assets/folders-images-evidence-export.json` | synthetic test fixture | excluded from main evidence |
 
 `docs/production-readiness/evidence/` was not present in the repository during this review.
 
+## Safety Review
+
+The evidence summary states:
+
+- `runtimeBehaviorChanged`: false
+- `accessChecksChanged`: false
+- `tenantIsolationClaimed`: false
+- `backfillPerformed`: false
+- `r2LiveListed`: false
+- `productionReadiness`: blocked
+
+The reviewed Markdown summary does not include raw prompts, private R2 keys, signed URLs, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, raw idempotency keys, or unredacted provider request/response bodies.
+
 ## Summary Counts
 
-No real main evidence export was present, so no counts are recorded or inferred.
+Counts are copied only from `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`.
 
 | Count | Value |
 | --- | ---: |
-| Folders scanned | not collected |
-| Images scanned | not collected |
-| Metadata missing total | not collected |
-| Metadata conflict count | not collected |
-| Relationship conflict count | not collected |
-| Orphan references | not collected |
-| Public unsafe count | not collected |
-| Derivative risk count | not collected |
-| Manual review count | not collected |
-| Dual-read safe count | not collected |
-| Dual-read unsafe count | not collected |
-| Organization-owned rows found | not collected |
+| Folders scanned | 16 |
+| Images scanned | 63 |
+| Folders with ownership metadata | 4 |
+| Images with ownership metadata | 0 |
+| Folders with null ownership metadata | 12 |
+| Images with null ownership metadata | 63 |
+| Metadata missing total | 75 |
+| Metadata conflict count | 0 |
+| Relationship conflict count | 0 |
+| Orphan references | 0 |
+| Public unsafe count | 21 |
+| Derivative risk count | 63 |
+| Dual-read safe count | 4 |
+| Dual-read unsafe count | 42 |
+| Manual review count | 90 |
+| Organization-owned rows found | 0 |
 
 ## High-Risk Findings
 
-Because no real main evidence export was present, all high-risk signals remain unknown and must be treated as blocking:
+The following high-risk signals are nonzero and block any ownership access-check switch or old-row backfill:
 
-- metadata missing
-- metadata conflicts
-- relationship conflicts
-- orphan references
-- public unsafe rows
-- derivative ownership risks
-- dual-read unsafe rows
-- manual-review rows
-- organization-owned rows without org-role access evidence
-- platform-admin-test rows without normal access-model evidence
+- `metadataMissingTotal`: 75
+- `publicImagesWithMissingOrAmbiguousOwnership`: 21
+- `derivativeOwnershipRisks`: 63
+- `simulatedDualReadUnsafeCount`: 42
+- `needsManualReviewCount`: 90
 
-## Required Evidence To Supersede This Decision
+These zero-count signals are still recorded as reviewed but do not remove the blockers above:
 
-Follow `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` and `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_MAIN_ONLY_CHECKLIST.md`, then provide sanitized main-only evidence such as:
-
-- JSON export from `/api/admin/tenant-assets/folders-images/evidence/export?format=json&limit=100&includeDetails=true&includeRelationships=true&includePublic=true&includeDerivatives=true`
-- optional Markdown export from `/api/admin/tenant-assets/folders-images/evidence/export?format=markdown&limit=100&includeDetails=true&includeRelationships=true&includePublic=true&includeDerivatives=true`
-- completed operator evidence record based on `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`
-
-Do not treat local synthetic fixtures, pending markers, runbook instructions, or unreviewed exports as main evidence.
+- `metadataConflictCount`: 0
+- `relationshipConflictCount`: 0
+- `orphanFolderReferences`: 0
+- `organizationOwnedRowsFound`: 0
 
 ## Decision
 
-- `pending_main_evidence`: no real main evidence file was present in the repository.
-- `blocked_for_access_switch`: future folder/image access checks must not switch to ownership metadata.
-- `blocked_for_backfill`: no old-row ownership metadata backfill may proceed.
-- `needs_manual_review`: not measurable until real evidence exists.
-- `safe_to_continue_design_only`: design/checklist work may continue if it does not change runtime behavior or mutate data.
+- `blocked_for_access_switch`: future folder/image access checks must not switch to ownership metadata because high-risk counts are nonzero.
+- `blocked_for_backfill`: no old-row ownership metadata backfill may proceed because metadata-missing rows, public unsafe rows, derivative risks, dual-read unsafe rows, and manual-review rows remain.
+- `needs_manual_review`: manual review is required before any future migration, backfill, or access-check switch design can proceed beyond evidence/planning.
+- `safe_to_continue_design_only`: non-mutating design, checklist, archive, and manual-review workflow planning may continue.
+
+This is not a green evidence result. It does not approve tenant isolation, production readiness, live billing readiness, access-check switching, or ownership backfill.
 
 ## Safety Statement
 
@@ -90,9 +105,9 @@ Do not treat local synthetic fixtures, pending markers, runbook instructions, or
 - No existing `ai_images` rows were rewritten.
 - No runtime access checks were changed or switched to ownership metadata.
 - No R2 objects were listed live, moved, copied, rewritten, or deleted.
-- No live BITBI endpoint, Cloudflare API, Stripe API, GitHub settings API, provider API, D1 production query, R2 listing, credit mutation, billing mutation, lifecycle mutation, quota mutation, gallery mutation, or media-serving mutation was performed.
+- No live BITBI endpoint, Cloudflare API, Stripe API, GitHub settings API, provider API, D1 production query, R2 listing, credit mutation, billing mutation, lifecycle mutation, quota mutation, gallery mutation, or media-serving mutation was performed by Codex.
 - No tenant isolation, production readiness, or live billing readiness claim is made.
 
 ## Next Recommended Phase
 
-Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images.
+Phase 6.11 implemented the design-only manual review workflow in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`. The next recommended tenant-asset phase is Phase 6.12 - Manual Review State Schema Design for AI Folders & Images.

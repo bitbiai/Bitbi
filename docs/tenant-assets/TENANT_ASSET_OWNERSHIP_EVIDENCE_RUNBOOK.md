@@ -108,9 +108,9 @@ No example command contains a real cookie, bearer token, Cloudflare token, Strip
 
 Keep live evidence in a private operator evidence store. Commit only redacted summaries when needed.
 
-If evidence has not been collected yet, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as the current package state. Do not treat that pending file as evidence.
+If evidence has not been collected yet, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as a pending marker. In the current Phase 6.10 state, `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` is the reviewed main evidence summary and the pending marker is historical. Do not treat pending files as evidence.
 
-`docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` records the current operator decision. A pending decision is not evidence, and synthetic fixtures under `scripts/fixtures/` are not main evidence.
+`docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` records the current operator decision. Synthetic fixtures under `scripts/fixtures/` are not main evidence.
 
 To summarize a reviewed JSON export without calling live endpoints:
 
@@ -122,6 +122,12 @@ To write a sanitized Markdown summary into the evidence directory:
 
 ```bash
 npm run tenant-assets:summarize-evidence -- --input docs/tenant-assets/evidence/<redacted-export>.json --output docs/tenant-assets/evidence/YYYY-MM-DD-main-folders-images-owner-map-evidence.md
+```
+
+After the Phase 6.10 decision is reviewed, use `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md` for design-only manual review planning. The local planner can render a non-mutating plan from the committed Markdown summary:
+
+```bash
+npm run tenant-assets:plan-manual-review -- --input docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md
 ```
 
 ## Redaction Checks
@@ -202,4 +208,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images when the decision remains pending.
+Phase 6.12 - Manual Review State Schema Design for AI Folders & Images after the Phase 6.11 workflow design, with no access-check switch or backfill by default.

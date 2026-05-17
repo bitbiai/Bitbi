@@ -21,9 +21,18 @@ This directory is for **main-only evidence**. The owner does not use a separate 
 
 ## Current State
 
-`MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` is the current Phase 6.10 decision. Status remains `pending_main_evidence` because no real operator-exported main evidence file is present in this repository.
+`MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` is the current Phase 6.10 decision. Status is `needs_manual_review` based on the main-only summary in `2026-05-17-main-folders-images-owner-map-evidence.md`.
 
-`PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` remains the active pending marker. It is not evidence; it records that the main-only evidence package still needs an operator-exported JSON or Markdown report before access-switch or backfill decisions can be considered.
+The current evidence summary records nonzero high-risk counts, so access-check switching and ownership backfill remain blocked. Manual review is required before any future access-check/backfill phase.
+
+Phase 6.11 adds the design-only manual review workflow and plan:
+
+- `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`
+- `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`
+
+The workflow defines review categories and statuses only. No review execution endpoint, Admin UI, D1 migration, ownership backfill, D1 row rewrite, R2 listing/mutation, or access-check switch has occurred.
+
+`PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
 Synthetic fixtures, runbook instructions, and pending markers must not be treated as main evidence.
 
@@ -40,6 +49,7 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 
 5. Commit only sanitized summaries or approved redacted exports.
 6. Update `MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` with the reviewed source files and explicit counts.
-7. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
+7. Update the manual-review plan if high-risk counts change.
+8. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

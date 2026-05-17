@@ -9,7 +9,7 @@ Purpose: concise restart point for future Codex sessions. This file is current s
 | Item | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest completed implementation phase | Phase 6.10 tenant asset ownership main evidence review decision |
+| Latest completed implementation phase | Phase 6.11 tenant asset ownership manual review workflow design |
 | Latest documentation phase | DOC-1 documentation diet and archive consolidation |
 | Latest auth D1 migration | `0056_add_ai_folder_image_ownership_metadata.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
@@ -34,7 +34,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
 - Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
 - Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only pending evidence package, and Phase 6.10 pending/blocked decision document exist; no old-row ownership backfill, organization ownership assignment, access-check switch, or R2 objects were migrated/listed live.
+- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, and Phase 6.11 manual-review workflow design exist; no old-row ownership backfill, organization ownership assignment, access-check switch, or R2 objects were migrated/listed live.
 
 ## Current Blockers
 
@@ -43,7 +43,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Stripe Testmode, live credit-pack, and BITBI Pro subscription canaries require explicit operator flags and evidence; live billing remains blocked.
 - Cloudflare WAF/static headers/RUM/alerts remain dashboard-managed or manual evidence items.
 - Restore drill, live health checks, security-header checks, queue/R2/D1 verification, and rollback evidence are still required.
-- Tenant-owned asset real main evidence export collection, org-owned write assignment, old-row owner-map/backfill, self-service privacy flows, legal-approved billing remediation, invoices/customer portal/tax, and broad remaining internal AI Worker route coverage remain future work.
+- Tenant-owned asset manual-review state schema, org-owned write assignment, old-row owner-map/backfill, self-service privacy flows, legal-approved billing remediation, invoices/customer portal/tax, and broad remaining internal AI Worker route coverage remain future work.
 
 ## Read First
 
@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. Collect operator evidence for migrations through `0056`, Admin Control Plane budget panels, platform cap behavior, repair/report/archive behavior, tenant schema compatibility, Phase 6.5 new-write metadata behavior, Phase 6.6 diagnostics output, and Phase 6.7 admin evidence output using the Phase 6.8 runbook/template and Phase 6.10 decision document, plus AI cost policy checks.
+1. Design Phase 6.12 manual-review state schema for AI folders/images owner-map issues using `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`, then collect any remaining operator evidence for migrations through `0056`, Admin Control Plane budget panels, platform cap behavior, repair/report/archive behavior, and AI cost policy checks.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.11 operator collection of the main AI folders/images evidence export, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.12 manual-review state schema design for AI folders/images owner-map issues, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 

@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the runbook/template/checklist for collecting operator evidence from those endpoints. Phase 6.9 adds the main-only evidence package directory and pending state because no real operator export was present in the repository. Phase 6.10 adds the pending/blocked decision document after reviewing that no real main evidence export is present. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the runbook/template/checklist for collecting operator evidence from those endpoints. Phase 6.9 adds the main-only evidence package directory. Phase 6.10 reviews the real main evidence summary and records `needs_manual_review`; access-check switching and ownership backfill remain blocked. Phase 6.11 adds manual-review workflow design and a local planner for those high-risk findings. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Schema Summary
 
@@ -159,13 +159,19 @@ Phase 6.9 adds main-only evidence packaging:
 - `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md`
 - `scripts/summarize-tenant-asset-evidence.mjs`
 
-No real operator-exported main evidence was present in the repository, so the package is pending and the decision remains blocked for access-check switching and backfill. The summarizer reads a local operator-provided JSON export and emits a bounded Markdown summary only; it does not call live endpoints or mutate D1/R2.
+No real operator-exported main evidence was present in the repository when Phase 6.9 was prepared. The summarizer reads a local operator-provided JSON export and emits a bounded Markdown summary only; it does not call live endpoints or mutate D1/R2.
 
 ## Phase 6.10 Evidence Decision
 
 Phase 6.10 adds `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`.
 
-The decision remains `pending_main_evidence` because the repo still contains no real operator-exported main evidence. Synthetic fixtures are not evidence. Access-check switching and backfill remain blocked, and no runtime route, D1/R2, R2 listing, provider, Stripe, Cloudflare, credit, billing, lifecycle, quota, gallery, or media behavior changed.
+The decision reviews `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` and records `needs_manual_review`. The summary reports 75 metadata-missing rows, 21 public unsafe rows, 63 derivative ownership risks, 42 simulated dual-read unsafe rows, and 90 manual-review rows. Synthetic fixtures are not evidence. Access-check switching and backfill remain blocked, and no runtime route, D1/R2, R2 listing, provider, Stripe, Cloudflare, credit, billing, lifecycle, quota, gallery, or media behavior changed.
+
+## Phase 6.11 Manual Review Workflow
+
+Phase 6.11 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`, `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`, and `npm run tenant-assets:plan-manual-review`.
+
+The workflow turns the Phase 6.10 high-risk counts into design-only review categories: metadata missing, public unsafe, derivative risk, dual-read unsafe, manual review needed, relationship review, legacy unclassified, future org ownership review, platform admin test review, and safe observe only. It does not execute review outcomes, update rows, emit backfill SQL, switch access checks, list/mutate R2, or claim tenant isolation.
 
 ## Remaining Migration Blockers
 
@@ -175,7 +181,7 @@ The decision remains `pending_main_evidence` because the repo still contains no 
 - Public gallery attribution is user/profile-only.
 - Data lifecycle/export/delete is user-subject-only.
 - Storage quota is `user_asset_storage_usage` only.
-- Real row ambiguity rates are unknown until main-only operator evidence is collected and reviewed. Phase 6.10 confirms the current in-repo decision is still pending.
+- Real main evidence now shows nonzero high-risk counts; manual review is required before any access-check switch, old-row backfill, or tenant-isolation claim.
 
 ## Phase 6.3 Schema/Access Plan
 
@@ -185,6 +191,6 @@ Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGE
 - Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
 - Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-## Recommended Phase 6.11
+## Recommended Phase 6.12
 
-Phase 6.11 should be **Operator Collects Main Evidence Export for AI Folders & Images**. It should use the Phase 6.8 runbook and Phase 6.10 decision document to provide real bounded main evidence, without switching access checks or backfilling old rows.
+Phase 6.12 should be **Manual Review State Schema Design for AI Folders & Images**. It should decide whether an additive review-state table is needed for operator review records while still avoiding access-check switching, old-row ownership backfill, repair execution, and R2 mutation.

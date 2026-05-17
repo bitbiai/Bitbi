@@ -4,11 +4,11 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan. Phase 6.4 adds nullable ownership metadata columns for those two tables only. Phase 6.5 assigns metadata only for new personal folder/image writes. Phase 6.6 adds read-only simulated dual-read diagnostics. Phase 6.7 exposes those diagnostics through a bounded admin evidence report/export. Phase 6.8 adds the operator evidence runbook/template/checklist for collecting that report on main/live. Phase 6.9 adds a main-only evidence package directory and pending marker because no real operator export was present in-repo. Phase 6.10 reviews the package and keeps the decision pending/blocked because no real main evidence export is present. These phases do not backfill ownership, assign organization ownership, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
+Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan. Phase 6.4 adds nullable ownership metadata columns for those two tables only. Phase 6.5 assigns metadata only for new personal folder/image writes. Phase 6.6 adds read-only simulated dual-read diagnostics. Phase 6.7 exposes those diagnostics through a bounded admin evidence report/export. Phase 6.8 adds the operator evidence runbook/template/checklist for collecting that report on main/live. Phase 6.9 adds a main-only evidence package directory. Phase 6.10 reviews the real main evidence summary; metadata missing, public unsafe, derivative risk, simulated dual-read unsafe, and manual-review counts remain nonzero, so access-switch/backfill stay blocked. These phases do not backfill ownership, assign organization ownership, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
 
 | Risk | Severity | Evidence source | Affected tables/routes | Proposed mitigation | Safe dry-run signal | Future phase |
 | --- | --- | --- | --- | --- | --- | --- |
-| Ownership ambiguity | High | `ai_images.user_id`, `ai_text_assets.user_id`, `ai_folders.user_id` remain the active access owner signal. Phase 6.2 fixture dry-run shows user-only rows are only medium-confidence personal candidates. Phase 6.5 assigns high-confidence personal owner metadata only for new folder/image writes; Phase 6.6 flags old/null and conflicting rows; Phase 6.7 surfaces bounded admin evidence without changing access; Phase 6.10 records main evidence as pending/blocked in-repo. | `ai_images`, `ai_text_assets`, `ai_folders`, private asset routes. | Prove owner-map before backfill and keep read diagnostics clean before access changes. | Count rows lacking target owner classification and simulated dual-read conflicts. | 6.11 main evidence export |
+| Ownership ambiguity | High | `ai_images.user_id`, `ai_text_assets.user_id`, `ai_folders.user_id` remain the active access owner signal. Phase 6.2 fixture dry-run shows user-only rows are only medium-confidence personal candidates. Phase 6.5 assigns high-confidence personal owner metadata only for new folder/image writes; Phase 6.6 flags old/null and conflicting rows; Phase 6.7 surfaces bounded admin evidence without changing access; Phase 6.10 real main evidence records 75 metadata-missing rows, 42 simulated dual-read unsafe rows, and 90 manual-review rows. | `ai_images`, `ai_text_assets`, `ai_folders`, private asset routes. | Prove owner-map before backfill and keep read diagnostics clean before access changes. | Count rows lacking target owner classification and simulated dual-read conflicts. | 6.11 manual review workflow |
 | Org-billed asset stored as user-owned | High | Org-scoped generation attempts and credit ledgers exist separately from saved asset rows. Phase 6.5 ignores weak client org hints and does not create org-owned saved images without server-verified evidence. | `ai_usage_attempts`, `usage_events`, `ai_images`, `ai_text_assets`. | Link future saved assets to owning org only from server-verified org context, or mark personal explicitly. | Compare org attempt/usage rows to saved asset creation evidence where available. | Future org write-path phase |
 | Public asset attribution is user-only | High | Public routes join `profiles` by asset `user_id`. | `/api/gallery/mempics`, `/api/gallery/memvids`, `/api/gallery/memtracks`. | Add publisher owner class and organization publisher policy. | List public rows with no organization attribution field. | 6.6 |
 | R2 key orphan/owner mismatch | High | R2 keys encode user ids but D1 is source of truth. | `USER_IMAGES`, `PRIVATE_MEDIA`, lifecycle cleanup. | Build bounded owner-map and orphan report before any object action. | Report key patterns and missing D1/R2 reconciliation status. | 6.8 |
@@ -105,8 +105,8 @@ Phase 6.9 adds main-only evidence packaging only:
 
 - `docs/tenant-assets/evidence/README.md` defines the evidence package directory and safety rules
 - `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` records that no real main evidence export was present in-repo
-- `npm run tenant-assets:summarize-evidence` can summarize a future reviewed JSON export without calling live endpoints
-- decision remains blocked for access-switch and backfill work until operator-run main evidence is collected and reviewed
+- `npm run tenant-assets:summarize-evidence` can summarize a reviewed JSON export without calling live endpoints
+- Phase 6.10 later reviews the main evidence summary and keeps access-switch/backfill blocked with manual review required
 - no endpoint, UI, migration, access switch, old-row rewrite, ownership backfill, R2 listing/mutation, provider call, Stripe call, Cloudflare mutation, credit/billing mutation, or tenant-isolation claim is added
 
 ## Phase 6.10 Result
@@ -114,7 +114,21 @@ Phase 6.9 adds main-only evidence packaging only:
 Phase 6.10 adds the operator decision document:
 
 - `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`
-- status remains `pending_main_evidence` because no real main evidence export is present in-repo
+- real main evidence summary reviewed: `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`
+- status is `needs_manual_review`
+- high-risk counts include 75 metadata-missing rows, 21 public unsafe rows, 63 derivative ownership risks, 42 simulated dual-read unsafe rows, and 90 manual-review rows
 - access-check switching and ownership backfill remain blocked
 - synthetic fixtures and pending markers are excluded from main evidence
 - no endpoint, UI, migration, access switch, old-row rewrite, ownership backfill, R2 listing/mutation, provider call, Stripe call, Cloudflare mutation, credit/billing mutation, or tenant-isolation claim is added
+
+## Phase 6.11 Result
+
+Phase 6.11 adds manual-review workflow design only:
+
+- `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`
+- `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`
+- `npm run tenant-assets:plan-manual-review`
+- review categories cover metadata missing, public unsafe, derivative risk, dual-read unsafe, manual review needed, relationship review, legacy unclassified, future org ownership review, platform admin test review, and safe observe only
+- review statuses are design-only and are not persisted in D1
+- access-check switching and ownership backfill remain blocked
+- no endpoint, UI, migration, access switch, old-row rewrite, ownership backfill, review executor, R2 listing/mutation, provider call, Stripe call, Cloudflare mutation, credit/billing mutation, or tenant-isolation claim is added
