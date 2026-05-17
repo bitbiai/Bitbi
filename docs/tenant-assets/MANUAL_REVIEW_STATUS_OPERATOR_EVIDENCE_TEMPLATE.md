@@ -121,6 +121,7 @@ Decision state:
 
 - `operator_evidence_pending`
 - `operator_evidence_collected_blocked`
+- `operator_evidence_collected_needs_more_idempotency`
 - `evidence_rejected_unsafe`
 - `needs_more_operator_evidence`
 
@@ -144,3 +145,10 @@ Confirm this evidence package contains none of the following:
 - raw request hashes if policy avoids exposing them;
 - unsafe metadata blobs.
 
+## Phase 6.20 Collection Notes
+
+If the evidence package contains dry-run import, confirmed import, and queue export evidence but does not include same-key replay/conflict proof, record the decision as `operator_evidence_collected_needs_more_idempotency`.
+
+If a standalone status-update response failed but a later queue export shows `statusChangedEventsCount > 0`, record both facts explicitly. Do not infer old/new status, event metadata, or idempotency behavior that is not present in committed evidence.
+
+Before committing JSON evidence, redact any top-level operator-captured request idempotency keys. Keep only server-returned hashed/stored-as fields or redacted placeholders.

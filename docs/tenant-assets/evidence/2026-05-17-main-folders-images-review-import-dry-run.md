@@ -345,6 +345,8 @@ Phase 6.17 adds the admin-approved status endpoint for review items only. It req
 
 Phase 6.18 adds status operator evidence rollups plus Admin Control Plane visibility/status controls for the manual-review queue. The UI controls call only the review-status endpoint, require confirmation and reason, and expose no backfill/access-switch/source-asset/R2/provider/Stripe/credit/billing actions.
 
-Phase 6.19 adds the operator evidence runbook, template, and pending decision for live/main manual-review import, queue, status, idempotency, Admin panel, and export evidence. No real operator evidence files are present in-repo yet, so the decision remains `operator_evidence_pending`.
+Phase 6.19 adds the operator evidence runbook, template, and decision doc for live/main manual-review import, queue, status, idempotency, Admin panel, and export evidence.
 
-Next recommended phase: Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection.
+Phase 6.20 reviews real live/main operator evidence. Dry-run import, confirmed import, and queue export evidence are present, but replay/conflict and successful standalone status-update idempotency evidence remain incomplete; the decision is `operator_evidence_collected_needs_more_idempotency`.
+
+Next recommended phase: Phase 6.22 — Admin-approved Legacy Media Reset Executor Design, after the Phase 6.21 read-only reset dry-run/export evidence is reviewed.

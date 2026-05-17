@@ -317,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -364,7 +364,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -380,7 +380,7 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
 );
 assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
 assert.equal(
@@ -421,7 +421,7 @@ assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.productionReadiness, "blocked");
 assert.equal(
   foldersImagesReport.manualReviewQueueReadApi.recommendedNextPhase,
-  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
 );
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.status, "manual_review_status_workflow_added");
 assert.equal(
@@ -444,7 +444,7 @@ assert.equal(foldersImagesReport.manualReviewStatusWorkflow.r2LiveListed, false)
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, true);
 assert.equal(
   foldersImagesReport.manualReviewStatusWorkflow.recommendedNextPhase,
-  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
 );
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.status, "manual_review_status_operator_evidence_added");
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.adminVisibilityAdded, true);
@@ -459,9 +459,12 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.accessChecks
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidence.recommendedNextPhase,
-  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
 );
-assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.status, "operator_evidence_pending");
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.status,
+  "operator_evidence_collected_needs_more_idempotency"
+);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.runbook,
   "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md"
@@ -474,12 +477,23 @@ assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.decisionFile,
   "docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md"
 );
-assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.operatorEvidenceFilesFound, false);
-assert.deepEqual(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.sourceEvidenceFiles, []);
-assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.importDryRunEvidenceFound, false);
-assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.confirmedImportEvidenceFound, false);
-assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.statusUpdateEvidenceFound, false);
-assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.operatorEvidenceFilesFound, true);
+assert.deepEqual(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.sourceEvidenceFiles, [
+  "docs/tenant-assets/evidence/manual-review-import-confirmed-live.json",
+  "docs/tenant-assets/evidence/manual-review-import-dry-run-live.json",
+  "docs/tenant-assets/evidence/manual-review-status-update-live.json",
+  "docs/tenant-assets/evidence/tenant-asset-manual-review-evidence-2026-05-17T19-03-30.974Z.json",
+]);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.importDryRunEvidenceFound, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.confirmedImportEvidenceFound, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.queueEvidenceExportFound, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.statusUpdateEvidenceFound, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.statusChangedRollupFound, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.statusUpdateEndpointSuccessEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyEvidenceFound, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyHashEvidenceFound, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyReplayOrConflictEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.unsafeRawIdempotencyEvidenceFound, false);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.ownershipBackfillPerformed, false);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.sourceAssetRowsMutated, false);
@@ -488,9 +502,32 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.re
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.recommendedNextPhase,
-  "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection"
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection");
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.status, "legacy_media_reset_dry_run_added");
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.endpoint, "/api/admin/tenant-assets/legacy-media-reset/dry-run");
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.exportEndpoint, "/api/admin/tenant-assets/legacy-media-reset/dry-run/export");
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.adminUiAdded, false);
+assert(foldersImagesReport.legacyMediaResetDryRun.domainsInventoried.includes("ai_folders"));
+assert(foldersImagesReport.legacyMediaResetDryRun.domainsInventoried.includes("ai_images"));
+assert(foldersImagesReport.legacyMediaResetDryRun.domainsInventoried.includes("video_assets_and_jobs"));
+assert(foldersImagesReport.legacyMediaResetDryRun.domainsInventoried.includes("music_assets"));
+assert(foldersImagesReport.legacyMediaResetDryRun.domainsInventoried.includes("lifecycle_delete_paths"));
+assert(foldersImagesReport.legacyMediaResetDryRun.candidateClassifications.includes("candidate_requires_depublish_or_gallery_review"));
+assert(foldersImagesReport.legacyMediaResetDryRun.candidateClassifications.includes("candidate_requires_derivative_cleanup"));
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.deletionPerformed, false);
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.deleteExecutorAdded, false);
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.sourceAssetRowsMutated, false);
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.ownershipBackfillPerformed, false);
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.accessChecksChanged, false);
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.reviewRowsMutated, false);
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.r2LiveListed, false);
+assert.equal(foldersImagesReport.legacyMediaResetDryRun.r2ObjectsMutated, false);
+assert.equal(
+  foldersImagesReport.legacyMediaResetDryRun.recommendedNextPhase,
+  "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -1019,8 +1056,11 @@ assert(focusedMarkdown.includes("Manual Review Status Operator Evidence"));
 assert(focusedMarkdown.includes("manual_review_status_operator_evidence_added"));
 assert(focusedMarkdown.includes("admin/index.html#operations"));
 assert(focusedMarkdown.includes("Manual Review Status Operator Evidence Collection"));
-assert(focusedMarkdown.includes("operator_evidence_pending"));
-assert(focusedMarkdown.includes("Phase 6.19"));
+assert(focusedMarkdown.includes("operator_evidence_collected_needs_more_idempotency"));
 assert(focusedMarkdown.includes("Phase 6.20"));
+assert(focusedMarkdown.includes("Legacy Media Reset Dry Run"));
+assert(focusedMarkdown.includes("legacy_media_reset_dry_run_added"));
+assert(focusedMarkdown.includes("Phase 6.21"));
+assert(focusedMarkdown.includes("Phase 6.22"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

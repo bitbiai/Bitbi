@@ -1,6 +1,6 @@
 {
   "itemId": "HIER_ITEM_ID_EINFÜGEN",
-  "idempotencyKey": "83b4c451-1a73-4765-8521-e7f8eab5a8b5",
+  "idempotencyKey": "[redacted-operator-request-key]",
   "response": {
     "ok": false,
     "error": "Manual-review item was not found.",

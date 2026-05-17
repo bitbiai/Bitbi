@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. Phase 6.14 adds local-only review-item import dry-run planning. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only queue/evidence APIs for imported review rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. Phase 6.18 adds status operator evidence rollups, Admin Control Plane visibility, API client wrappers, and review-status controls that operate only on review-state rows. These phases do not update ownership metadata, backfill rows, switch access checks, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
+Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. Phase 6.14 adds local-only review-item import dry-run planning. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only queue/evidence APIs for imported review rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. Phase 6.18 adds status operator evidence rollups, Admin Control Plane visibility, API client wrappers, and review-status controls that operate only on review-state rows. Phase 6.20 reviews live/main operator evidence and records `operator_evidence_collected_needs_more_idempotency` because replay/conflict and successful standalone status-update idempotency evidence remain incomplete. Phase 6.21 adds read-only legacy media reset dry-run/export planning. These phases do not update ownership metadata, backfill rows, switch access checks, mutate review rows in Phase 6.21, delete media rows, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
 
 ## Purpose
 
@@ -43,6 +43,7 @@ The evidence is main-only and summarized from a read-only admin evidence export.
 - No R2 objects are listed, moved, copied, rewritten, or deleted.
 - No public gallery, media serving, lifecycle/export/delete, quota, generation, credit, or billing behavior changes.
 - No repair/backfill/access-switch executor is designed as approved for use.
+- Phase 6.21 reset planning is dry-run/export only and does not supersede review items or mutate review rows.
 
 ## Phase 6.13 Migration
 
@@ -366,13 +367,13 @@ Confirmed execution must not:
 - update `ai_folders` or `ai_images` ownership metadata;
 - list/move/delete R2 objects.
 
-Phase 6.18 adds Admin Control Plane visibility and operator evidence rollups for the existing queue/status workflow. Phase 6.19 adds operator evidence runbook/template/pending decision docs for collecting live/main import, queue, status, idempotency, Admin panel, and export evidence. Phase 6.19 does not add runtime behavior, a migration, import execution, status changes, ownership metadata updates, ownership backfill, access switching, source asset mutation, R2 operations, provider calls, Stripe calls, Cloudflare API calls, or credit/billing changes.
+Phase 6.18 adds Admin Control Plane visibility and operator evidence rollups for the existing queue/status workflow. Phase 6.19 adds operator evidence runbook/template docs for collecting live/main import, queue, status, idempotency, Admin panel, and export evidence. Phase 6.20 reviews committed live/main operator evidence and records `operator_evidence_collected_needs_more_idempotency`; same-key replay/conflict evidence and a successful standalone status-update response remain pending. Phase 6.20 does not add runtime behavior, a migration, import execution, status changes by Codex/tests, ownership metadata updates, ownership backfill, access switching, source asset mutation, R2 operations, provider calls, Stripe calls, Cloudflare API calls, or credit/billing changes.
 
 Recommended next phase:
 
-`Phase 6.20 - Operator Executes Manual Review Import/Status Evidence Collection`
+`Phase 6.22 - Admin-approved Legacy Media Reset Executor Design`
 
-Later phases may separately collect status operator evidence from live-main operator use and eventually design non-destructive ownership metadata backfill readiness. Each must be dry-run-first where applicable and explicitly approved.
+Phase 6.21 adds legacy media reset dry-run/export planning only. Later phases may separately complete manual-review idempotency evidence, design a reset executor, or design non-destructive ownership metadata backfill readiness. Each must be dry-run-first where applicable, explicitly approved, and must not imply tenant isolation or access-switch readiness.
 
 ## Validation And Test Plan
 

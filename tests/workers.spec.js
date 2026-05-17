@@ -154,6 +154,13 @@ async function loadTenantAssetManualReviewStatusModule() {
   return import(modulePath);
 }
 
+async function loadTenantAssetLegacyMediaResetModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-legacy-media-reset.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1241,7 +1248,15 @@ test.describe('Phase 6.5 AI folder/image new-write ownership metadata', () => {
 });
 
 test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
-  async function createTenantEvidenceHarness({ user = createAdminUser('tenant-evidence-admin'), missingTables = [] } = {}) {
+  async function createTenantEvidenceHarness({
+    user = createAdminUser('tenant-evidence-admin'),
+    missingTables = [],
+    aiTextAssets = [],
+    aiVideoJobs = [],
+    userAssetStorageUsage = [],
+    aiAssetManualReviewItems = [],
+    aiAssetManualReviewEvents = [],
+  } = {}) {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [user],
@@ -1346,6 +1361,11 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
           created_at: '2026-05-17T10:01:00.000Z',
         },
       ],
+      aiTextAssets,
+      aiVideoJobs,
+      userAssetStorageUsage,
+      aiAssetManualReviewItems,
+      aiAssetManualReviewEvents,
     });
     const authHeaders = {
       Origin: 'https://bitbi.ai',
@@ -2418,6 +2438,232 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(evidenceBody.report.accessChecksChanged).toBe(false);
     expect(evidenceBody.report.backfillPerformed).toBe(false);
   });
+
+  test('legacy media reset helper exposes dry-run classifications without destructive commands', async () => {
+    const legacyReset = await loadTenantAssetLegacyMediaResetModule();
+    expect(legacyReset.LEGACY_MEDIA_RESET_CANDIDATE_CLASSIFICATIONS).toContain('candidate_requires_depublish_or_gallery_review');
+    expect(legacyReset.LEGACY_MEDIA_RESET_CANDIDATE_CLASSIFICATIONS).toContain('candidate_requires_derivative_cleanup');
+    const options = legacyReset.normalizeLegacyMediaResetDryRunOptions({
+      includeDetails: 'true',
+      limit: '500',
+      format: 'markdown',
+    });
+    expect(options.limit).toBe(100);
+    expect(options.includeDetails).toBe(true);
+    expect(options.format).toBe('markdown');
+    expect(() => legacyReset.normalizeLegacyMediaResetDryRunOptions({ includePublic: 'delete' })).toThrow(/Invalid legacy media reset/);
+  });
+
+  test('admin can fetch legacy media reset dry-run without D1 source, review, or R2 mutation', async () => {
+    const manualReviewItem = {
+      id: 'ta_mri_legacy_reset_001',
+      asset_domain: 'ai_images',
+      asset_id: 'image-public-missing',
+      issue_category: 'public_unsafe',
+      review_status: 'blocked_public_unsafe',
+      severity: 'critical',
+      priority: 'high',
+      evidence_source_path: 'current_evidence_report',
+      safe_notes: 'public row requires review',
+      created_at: '2026-05-17T12:00:00.000Z',
+      updated_at: '2026-05-17T12:00:00.000Z',
+    };
+    const manualReviewEvent = {
+      id: 'ta_mre_legacy_reset_001',
+      review_item_id: manualReviewItem.id,
+      event_type: 'created',
+      old_status: null,
+      new_status: 'blocked_public_unsafe',
+      idempotency_key: 'hashed-idempotency-key-should-not-appear',
+      request_hash: 'hashed-request-should-not-appear',
+      created_at: '2026-05-17T12:00:01.000Z',
+    };
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      aiTextAssets: [
+        {
+          id: 'music-asset-001',
+          user_id: 'tenant-legacy-user',
+          folder_id: 'folder-missing',
+          r2_key: 'users/tenant-legacy-user/folders/music/raw-track.mp3',
+          title: 'Music asset',
+          file_name: 'track.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: 4096,
+          visibility: 'public',
+          poster_r2_key: 'users/tenant-legacy-user/derivatives/music/poster.webp',
+          poster_size_bytes: 512,
+          created_at: '2026-05-17T11:00:00.000Z',
+        },
+        {
+          id: 'video-asset-001',
+          user_id: 'tenant-legacy-user',
+          folder_id: null,
+          r2_key: 'users/tenant-legacy-user/folders/video/raw-video.mp4',
+          title: 'Video asset',
+          file_name: 'video.mp4',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: 8192,
+          visibility: 'private',
+          created_at: '2026-05-17T11:05:00.000Z',
+        },
+      ],
+      aiVideoJobs: [
+        {
+          id: 'video-job-001',
+          user_id: 'tenant-legacy-user',
+          scope: 'member',
+          status: 'succeeded',
+          provider: 'test-provider',
+          model: 'test-model',
+          input_json: '{}',
+          request_hash: 'video-request-hash-should-not-appear',
+          output_r2_key: 'users/tenant-legacy-user/video-jobs/job-output.mp4',
+          output_size_bytes: 16384,
+          poster_r2_key: 'users/tenant-legacy-user/video-jobs/job-poster.webp',
+          poster_size_bytes: 1024,
+          created_at: '2026-05-17T11:10:00.000Z',
+          updated_at: '2026-05-17T11:10:00.000Z',
+          expires_at: '2026-06-17T11:10:00.000Z',
+        },
+      ],
+      userAssetStorageUsage: [{
+        user_id: 'tenant-legacy-user',
+        used_bytes: 30000,
+        updated_at: '2026-05-17T11:15:00.000Z',
+      }],
+      aiAssetManualReviewItems: [manualReviewItem],
+      aiAssetManualReviewEvents: [manualReviewEvent],
+    });
+    const beforeState = JSON.stringify({
+      aiFolders: env.DB.state.aiFolders,
+      aiImages: env.DB.state.aiImages,
+      aiTextAssets: env.DB.state.aiTextAssets,
+      aiVideoJobs: env.DB.state.aiVideoJobs,
+      userAssetStorageUsage: env.DB.state.userAssetStorageUsage,
+      aiAssetManualReviewItems: env.DB.state.aiAssetManualReviewItems,
+      aiAssetManualReviewEvents: env.DB.state.aiAssetManualReviewEvents,
+    });
+    const beforeRunCalls = env.DB.runCalls.length;
+
+    const res = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/dry-run?limit=2&includeDetails=true',
+        'GET',
+        undefined,
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.report).toMatchObject({
+      ok: true,
+      available: true,
+      source: 'local_d1_read_only',
+      domain: 'legacy_personal_media_reset',
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      tenantIsolationClaimed: false,
+      ownershipBackfillPerformed: false,
+      sourceAssetRowsMutated: false,
+      reviewRowsMutated: false,
+      r2LiveListed: false,
+      r2ObjectsMutated: false,
+      productionReadiness: 'blocked',
+    });
+    expect(body.report.summary.totalFolders).toBe(3);
+    expect(body.report.summary.foldersWithNullOwnershipMetadata).toBe(1);
+    expect(body.report.summary.totalImages).toBe(4);
+    expect(body.report.summary.imagesWithNullOwnershipMetadata).toBe(1);
+    expect(body.report.summary.publicGalleryRows).toBeGreaterThanOrEqual(2);
+    expect(body.report.summary.derivativePosterThumbReferences).toBeGreaterThan(0);
+    expect(body.report.summary.manualReviewItemsCurrentlyPresent).toBe(1);
+    expect(body.report.folderImageCandidates.details.images.length).toBeLessThanOrEqual(2);
+    expect(body.report.publicGalleryCandidates.classification).toBe('candidate_requires_depublish_or_gallery_review');
+    expect(body.report.derivativeCandidates.classification).toBe('candidate_requires_derivative_cleanup');
+    expect(body.report.videoCandidates.coverage).toBe('partially_covered');
+    expect(body.report.musicCandidates.coverage).toBe('partially_covered');
+    expect(body.report.manualReviewImpact.reviewRowsMutated).toBe(false);
+    expect(env.DB.runCalls.length).toBe(beforeRunCalls);
+    expect(JSON.stringify({
+      aiFolders: env.DB.state.aiFolders,
+      aiImages: env.DB.state.aiImages,
+      aiTextAssets: env.DB.state.aiTextAssets,
+      aiVideoJobs: env.DB.state.aiVideoJobs,
+      userAssetStorageUsage: env.DB.state.userAssetStorageUsage,
+      aiAssetManualReviewItems: env.DB.state.aiAssetManualReviewItems,
+      aiAssetManualReviewEvents: env.DB.state.aiAssetManualReviewEvents,
+    })).toBe(beforeState);
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('raw prompt should never be reported');
+    expect(serialized).not.toContain('raw-public-image.png');
+    expect(serialized).not.toContain('raw-track.mp3');
+    expect(serialized).not.toContain('job-output.mp4');
+    expect(serialized).not.toContain('hashed-idempotency-key-should-not-appear');
+    expect(serialized).not.toContain('video-request-hash-should-not-appear');
+    expect(serialized).not.toContain('Bearer ');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('sk_live_');
+  });
+
+  test('legacy media reset dry-run denies non-admins, handles optional schemas, and exports evidence', async () => {
+    const nonAdmin = await createTenantEvidenceHarness({
+      user: createContractUser({ id: 'legacy-media-reset-member', role: 'user' }),
+    });
+    const denied = await nonAdmin.authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/dry-run', 'GET', undefined, nonAdmin.authHeaders),
+      nonAdmin.env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      missingTables: ['ai_text_assets', 'ai_video_jobs', 'user_asset_storage_usage', 'ai_asset_manual_review_items'],
+    });
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/dry-run?includeTextAssets=true&includeVideos=true&includeQuota=true', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.report.available).toBe(true);
+    expect(body.report.textAssetCandidates.coverage).toBe('unknown_schema');
+    expect(body.report.videoCandidates.videoJobs.coverage).toBe('unknown_schema');
+    expect(body.report.quotaImpact.usageRows).toBeNull();
+    expect(body.report.manualReviewImpact.coverage).toBe('unknown_schema');
+
+    const exportJson = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/dry-run/export?format=json&limit=2', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportJson.status).toBe(200);
+    expect(exportJson.headers.get('content-type')).toContain('application/json');
+    expect(exportJson.headers.get('content-disposition')).toContain('tenant-asset-legacy-media-reset-dry-run-');
+    const exportJsonBody = await exportJson.json();
+    expect(exportJsonBody.reportVersion).toBe('tenant-asset-legacy-media-reset-dry-run-v1');
+    expect(exportJsonBody.ownershipBackfillPerformed).toBe(false);
+
+    const exportMarkdown = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/dry-run/export?format=markdown&limit=2', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportMarkdown.status).toBe(200);
+    expect(exportMarkdown.headers.get('content-type')).toContain('text/markdown');
+    const markdown = await exportMarkdown.text();
+    expect(markdown).toContain('Legacy Personal Media Reset Dry Run');
+    expect(markdown).toContain('Ownership backfill performed: no');
+    expect(markdown).toContain('R2 live listed: no');
+    expect(markdown).not.toContain('DELETE FROM');
+    expect(markdown).not.toContain('wrangler r2');
+  });
 });
 
 function seedAdminImageChargeOrg(env, {
@@ -3286,6 +3532,24 @@ test.describe('Phase 1-E auth route policy registry', () => {
       sensitivity: 'high',
       csrf: 'safe-method',
       rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-evidence-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/dry-run')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.dry-run',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-legacy-media-reset-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/dry-run/export')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.dry-run.export',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-legacy-media-reset-ip', failClosed: true }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/tenant-assets/folders-images/manual-review/import')).toEqual(expect.objectContaining({

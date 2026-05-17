@@ -130,7 +130,7 @@ After the Phase 6.10 decision is reviewed, use `docs/tenant-assets/AI_FOLDERS_IM
 npm run tenant-assets:plan-manual-review -- --input docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md
 ```
 
-For the later manual-review import/status workflow, use `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Phase 6.19 currently records `operator_evidence_pending` because no sanitized live/main import, queue, status, idempotency, Admin panel, or export evidence files are present in-repo.
+For the later manual-review import/status workflow, use `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Phase 6.20 records sanitized live/main operator evidence as `operator_evidence_collected_needs_more_idempotency`: import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but same-key replay/conflict idempotency evidence and a successful standalone status-update response still need completion.
 
 ## Redaction Checks
 
@@ -210,4 +210,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds operator evidence collection docs and a pending decision only. The next recommended phase is Phase 6.20 - Operator Executes Manual Review Import/Status Evidence Collection, with no access-check switch, ownership backfill, source asset row update, ownership metadata update, or R2 action by default.
+Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds operator evidence collection docs. Phase 6.20 reviews committed live/main operator evidence and leaves the decision at `operator_evidence_collected_needs_more_idempotency`. Phase 6.21 adds read-only legacy media reset dry-run/export planning, with no deletion, access-check switch, ownership backfill, source asset row update, ownership metadata update, review row mutation, or R2 action. The next recommended reset-planning phase is Phase 6.22 - Admin-approved Legacy Media Reset Executor Design.

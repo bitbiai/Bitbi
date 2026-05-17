@@ -492,6 +492,18 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Phase 6.7 bounded sanitized tenant asset ownership evidence export for ai_folders and ai_images. Supports JSON and Markdown, omits prompts and private R2 keys, and performs no access, data, R2, provider, Stripe, credit, or billing mutation.",
   }),
+  adminRead("admin.tenant-assets.legacy-media-reset.dry-run", "/api/admin/tenant-assets/legacy-media-reset/dry-run", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-legacy-media-reset-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.21 read-only legacy personal media reset dry run. It inventories D1 rows and reset classifications only; no delete executor, source asset mutation, review row mutation, ownership backfill, access-check switch, R2 listing/mutation, provider call, Stripe call, credit mutation, or billing behavior change.",
+  }),
+  adminRead("admin.tenant-assets.legacy-media-reset.dry-run.export", "/api/admin/tenant-assets/legacy-media-reset/dry-run/export", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-legacy-media-reset-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.21 bounded sanitized JSON/Markdown export for legacy media reset dry-run evidence. It uses D1-only counts, omits prompts/private R2 keys/raw metadata, and performs no deletion, R2 listing/mutation, ownership backfill, source row update, access switch, provider call, Stripe call, credit mutation, or billing behavior change.",
+  }),
   adminJsonWrite("admin.tenant-assets.folders-images.manual-review.import", "POST", "/api/admin/tenant-assets/folders-images/manual-review/import", "privacy", "smallJson", "admin-tenant-asset-manual-review-import-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     sensitivity: "high",

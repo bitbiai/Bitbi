@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.20 should collect operator evidence from status workflow use before any access/backfill/source asset work.",
+    futurePhase: "Phase 6.22 should design an admin-approved reset executor after Phase 6.21 dry-run evidence review; no access/backfill/source asset work is approved.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.20 should collect operator evidence from status workflow use before any access/backfill/source asset work.",
+    futurePhase: "Phase 6.22 should design an admin-approved reset executor after Phase 6.21 dry-run evidence review; no access/backfill/source asset work is approved.",
   },
   {
     id: "ai_video_jobs",
@@ -450,7 +450,17 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.19",
     title: "Manual review status operator evidence collection",
-    scope: "Implemented as runbook/template/pending decision docs for collecting main-only operator evidence; no runtime change, import execution, status update, ownership backfill, or access switch.",
+    scope: "Implemented as runbook/template docs for collecting main-only operator evidence; no runtime change, import execution, status update, ownership backfill, or access switch.",
+  },
+  {
+    phase: "6.20",
+    title: "Manual review operator evidence decision update",
+    scope: "Implemented as evidence-review decision docs from committed live/main operator evidence; no runtime change, import execution, status update by Codex/tests, ownership backfill, or access switch.",
+  },
+  {
+    phase: "6.21",
+    title: "Legacy personal media reset dry run",
+    scope: "Implemented as admin-only read-only D1 inventory/reporting for safe asset retirement planning; no deletion, source row mutation, review row mutation, R2 listing, ownership backfill, or access switch.",
   },
 ]);
 
@@ -843,12 +853,13 @@ function listManualReviewOperatorEvidenceFiles(repoRoot) {
     "2026-05-17-main-folders-images-manual-review-plan.md",
     "2026-05-17-main-folders-images-owner-map-evidence.md",
     "2026-05-17-main-folders-images-review-import-dry-run.md",
+    "2026-05-17-manual-review-status-operator-evidence-summary.md",
     "MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md",
     "MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md",
     "PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md",
     "README.md",
   ]);
-  const operatorEvidencePattern = /(?:manual-review-(?:operator|queue|status|import)|manual_review_status_operator_evidence)/i;
+  const operatorEvidencePattern = /(?:manual-review-(?:operator|queue|status|import|evidence)|manual_review_status_operator_evidence|tenant-asset-manual-review-evidence)/i;
 
   return fs.readdirSync(absoluteDir, { withFileTypes: true })
     .filter((entry) => entry.isFile())
@@ -858,6 +869,60 @@ function listManualReviewOperatorEvidenceFiles(repoRoot) {
     .filter((name) => operatorEvidencePattern.test(name))
     .map((name) => `${evidenceDir}/${name}`)
     .sort();
+}
+
+function buildManualReviewOperatorEvidenceMetadata(repoRoot, files) {
+  const entries = files.map((file) => ({
+    file,
+    text: readText(repoRoot, file),
+  }));
+  const includesText = (pattern) => entries.some((entry) => pattern.test(entry.text));
+  const includesFile = (pattern) => files.some((file) => pattern.test(file));
+  const unsafeRawIdempotencyEvidenceFound = includesText(/"idempotencyKey"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/i);
+  const importDryRunEvidenceFound = includesFile(/import-dry-run/i);
+  const confirmedImportEvidenceFound = includesFile(/import-(?:confirmed|execute|execution)/i);
+  const queueEvidenceExportFound = includesFile(/(?:tenant-asset-manual-review-evidence|queue-evidence|evidence-export)/i);
+  const statusUpdateEvidenceFound = includesFile(/status-update|status-idempotency/i);
+  const statusChangedRollupFound = includesText(/"statusChangedEventsCount"\s*:\s*[1-9][0-9]*/);
+  const statusUpdateEndpointSuccessEvidenceFound = entries
+    .filter((entry) => /status-update|status-idempotency/i.test(entry.file))
+    .some((entry) => /"ok"\s*:\s*true/.test(entry.text));
+  const idempotencyHashEvidenceFound = includesText(/"storedAs"\s*:\s*"sha256"/i);
+  const idempotencyReplayOrConflictEvidenceFound = includesText(/"replayed"\s*:\s*true/i)
+    || includesText(/"idempotencyReplayEventCount"\s*:\s*[1-9][0-9]*/i)
+    || includesText(/"status"\s*:\s*409|"httpStatus"\s*:\s*409/i)
+    || includesText(/idempotency[^"\n]*(?:conflict|mismatch)|same[-_ ]key[^"\n]*(?:conflict|different)|request[^"\n]*hash[^"\n]*conflict/i);
+  const idempotencyEvidenceFound = idempotencyHashEvidenceFound || idempotencyReplayOrConflictEvidenceFound || includesFile(/idempotency/i);
+
+  const completeEnoughForBlockedDecision = importDryRunEvidenceFound
+    && confirmedImportEvidenceFound
+    && queueEvidenceExportFound
+    && statusChangedRollupFound
+    && idempotencyHashEvidenceFound
+    && idempotencyReplayOrConflictEvidenceFound
+    && statusUpdateEndpointSuccessEvidenceFound;
+
+  const status = files.length === 0
+    ? "operator_evidence_pending"
+    : unsafeRawIdempotencyEvidenceFound
+      ? "operator_evidence_rejected_unsafe"
+      : completeEnoughForBlockedDecision
+        ? "operator_evidence_collected_blocked"
+        : "operator_evidence_collected_needs_more_idempotency";
+
+  return {
+    status,
+    importDryRunEvidenceFound,
+    confirmedImportEvidenceFound,
+    queueEvidenceExportFound,
+    statusUpdateEvidenceFound: statusUpdateEvidenceFound || statusChangedRollupFound,
+    statusChangedRollupFound,
+    statusUpdateEndpointSuccessEvidenceFound,
+    idempotencyEvidenceFound,
+    idempotencyHashEvidenceFound,
+    idempotencyReplayOrConflictEvidenceFound,
+    unsafeRawIdempotencyEvidenceFound,
+  };
 }
 
 function buildFoldersImagesWritePathAssignment(repoRoot) {
@@ -1396,10 +1461,18 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const manualReviewStatusOperatorEvidenceDecisionFile = "docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md";
   const manualReviewStateSchemaDesignFile = "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md";
   const manualReviewStateSchemaMigrationFile = "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql";
+  const legacyMediaResetDryRunDocFile = "docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_DRY_RUN.md";
+  const legacyMediaResetDryRunHelper = "workers/auth/src/lib/tenant-asset-legacy-media-reset.js";
+  const tenantAssetsAdminRouteFile = "workers/auth/src/routes/admin-tenant-assets.js";
+  const routePolicyFile = "workers/auth/src/app/route-policy.js";
   const realMainEvidenceFound = fileExists(repoRoot, evidenceSummaryFile);
   const evidenceDecisionReviewed = fileExists(repoRoot, evidenceDecisionFile);
   const manualReviewOperatorEvidenceFiles = listManualReviewOperatorEvidenceFiles(repoRoot);
   const manualReviewOperatorEvidenceFilesFound = manualReviewOperatorEvidenceFiles.length > 0;
+  const manualReviewOperatorEvidenceMetadata = buildManualReviewOperatorEvidenceMetadata(
+    repoRoot,
+    manualReviewOperatorEvidenceFiles
+  );
   const manualReviewStatusOperatorEvidenceRunbookAdded = fileExists(repoRoot, manualReviewStatusOperatorEvidenceRunbookFile)
     && fileExists(repoRoot, manualReviewStatusOperatorEvidenceTemplateFile)
     && fileExists(repoRoot, manualReviewStatusOperatorEvidenceDecisionFile);
@@ -1421,18 +1494,26 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     && readText(repoRoot, manualReviewQueueHelper).includes("latestStatusUpdateTimestamp")
     && manualReviewClientWrappersAdded
     && manualReviewAdminVisibilityAdded;
+  const legacyMediaResetDryRunAdded = fileExists(repoRoot, legacyMediaResetDryRunHelper)
+    && fileExists(repoRoot, legacyMediaResetDryRunDocFile)
+    && readText(repoRoot, tenantAssetsAdminRouteFile).includes("TENANT_ASSET_LEGACY_MEDIA_RESET_DRY_RUN_ENDPOINT")
+    && readText(repoRoot, routePolicyFile).includes("admin.tenant-assets.legacy-media-reset.dry-run");
   const mainEvidenceStatus = realMainEvidenceFound
     ? "needs_manual_review"
     : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
       ? "pending_main_evidence"
       : "not_recorded";
   const manualReviewOperatorEvidenceStatus = manualReviewOperatorEvidenceFilesFound
-    ? "operator_evidence_collected_blocked"
+    ? manualReviewOperatorEvidenceMetadata.status
     : manualReviewStatusOperatorEvidenceRunbookAdded
       ? "operator_evidence_pending"
       : "not_recorded";
   const manualReviewOperatorEvidenceNextPhase = manualReviewOperatorEvidenceFilesFound
-    ? "Phase 6.20 — Backfill Readiness Report for Reviewed Items"
+    ? legacyMediaResetDryRunAdded
+      ? "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+      : manualReviewOperatorEvidenceStatus === "operator_evidence_collected_blocked"
+        ? "Phase 6.21 — Legacy Personal Media Reset / Safe Asset Retirement Dry Run"
+        : "Phase 6.21 — Manual Review Idempotency Evidence Completion"
     : "Phase 6.20 — Operator Executes Manual Review Import/Status Evidence Collection";
   const mainEvidenceNextPhase = realMainEvidenceFound
     ? manualReviewQueueReadApiAdded
@@ -1926,11 +2007,16 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         : null,
       operatorEvidenceFilesFound: manualReviewOperatorEvidenceFilesFound,
       sourceEvidenceFiles: manualReviewOperatorEvidenceFiles,
-      importDryRunEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => file.includes("import-dry-run")),
-      confirmedImportEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => /import-(?:execute|execution)/.test(file)),
-      queueEvidenceExportFound: manualReviewOperatorEvidenceFiles.some((file) => /queue-evidence|evidence-export/.test(file)),
-      statusUpdateEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => /status-update|status-idempotency/.test(file)),
-      idempotencyEvidenceFound: manualReviewOperatorEvidenceFiles.some((file) => /idempotency/.test(file)),
+      importDryRunEvidenceFound: manualReviewOperatorEvidenceMetadata.importDryRunEvidenceFound,
+      confirmedImportEvidenceFound: manualReviewOperatorEvidenceMetadata.confirmedImportEvidenceFound,
+      queueEvidenceExportFound: manualReviewOperatorEvidenceMetadata.queueEvidenceExportFound,
+      statusUpdateEvidenceFound: manualReviewOperatorEvidenceMetadata.statusUpdateEvidenceFound,
+      statusChangedRollupFound: manualReviewOperatorEvidenceMetadata.statusChangedRollupFound,
+      statusUpdateEndpointSuccessEvidenceFound: manualReviewOperatorEvidenceMetadata.statusUpdateEndpointSuccessEvidenceFound,
+      idempotencyEvidenceFound: manualReviewOperatorEvidenceMetadata.idempotencyEvidenceFound,
+      idempotencyHashEvidenceFound: manualReviewOperatorEvidenceMetadata.idempotencyHashEvidenceFound,
+      idempotencyReplayOrConflictEvidenceFound: manualReviewOperatorEvidenceMetadata.idempotencyReplayOrConflictEvidenceFound,
+      unsafeRawIdempotencyEvidenceFound: manualReviewOperatorEvidenceMetadata.unsafeRawIdempotencyEvidenceFound,
       accessSwitchReady: false,
       backfillReady: false,
       tenantIsolationClaimed: false,
@@ -1949,6 +2035,59 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         ? manualReviewOperatorEvidenceNextPhase
         : "Phase 6.19 — Manual Review Status Operator Evidence Collection",
     },
+    legacyMediaResetDryRun: {
+      status: legacyMediaResetDryRunAdded ? "legacy_media_reset_dry_run_added" : "not_recorded",
+      helper: legacyMediaResetDryRunAdded ? legacyMediaResetDryRunHelper : null,
+      doc: legacyMediaResetDryRunAdded ? legacyMediaResetDryRunDocFile : null,
+      endpoint: legacyMediaResetDryRunAdded
+        ? "/api/admin/tenant-assets/legacy-media-reset/dry-run"
+        : null,
+      exportEndpoint: legacyMediaResetDryRunAdded
+        ? "/api/admin/tenant-assets/legacy-media-reset/dry-run/export"
+        : null,
+      routePolicyRequired: true,
+      readOnly: true,
+      adminOnly: true,
+      adminUiAdded: false,
+      domainsInventoried: [
+        "ai_folders",
+        "ai_images",
+        "public_gallery_mempics",
+        "derivative_artifacts",
+        "ai_text_assets",
+        "music_assets",
+        "video_assets_and_jobs",
+        "storage_quota",
+        "manual_review_items",
+        "lifecycle_delete_paths",
+      ],
+      candidateClassifications: [
+        "candidate_safe_for_future_executor",
+        "candidate_requires_depublish_or_gallery_review",
+        "candidate_requires_derivative_cleanup",
+        "candidate_requires_folder_child_handling",
+        "candidate_requires_existing_delete_path",
+        "candidate_requires_manual_review",
+        "candidate_unknown_table_or_schema",
+        "candidate_not_covered",
+        "blocked_active_dependency",
+        "blocked_unowned_or_org_unknown",
+        "not_selected",
+      ],
+      deletionPerformed: false,
+      deleteExecutorAdded: false,
+      sourceAssetRowsMutated: false,
+      ownershipMetadataUpdated: false,
+      ownershipBackfillPerformed: false,
+      accessChecksChanged: false,
+      reviewRowsMutated: false,
+      r2LiveListed: false,
+      r2ObjectsMutated: false,
+      futureExecutorRequired: true,
+      recommendedNextPhase: legacyMediaResetDryRunAdded
+        ? "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+        : "Phase 6.21 — Legacy Personal Media Reset / Safe Asset Retirement Dry Run",
+    },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
         ? "Read diagnostics compare existing user_id access with new ownership metadata before any access-check switch."
@@ -1956,8 +2095,10 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       manualReviewStateSchemaMigrationExists
         ? manualReviewStatusWorkflowAdded
           ? manualReviewStatusOperatorEvidenceRunbookAdded
-            ? "Manual-review status operator evidence remains pending until the owner captures main/live import, queue, status, idempotency, Admin panel, and export evidence."
-            : "Manual-review status operator evidence is collected before any ownership backfill or access-check switch."
+            ? manualReviewOperatorEvidenceFilesFound
+              ? "Manual-review idempotency replay/conflict and successful status-update evidence are completed before any ownership backfill or access-check switch."
+              : "Manual-review status operator evidence remains pending until the owner captures main/live import, queue, status, idempotency, Admin panel, and export evidence."
+            : "Manual-review status operator evidence docs are added before any ownership backfill or access-check switch."
           : manualReviewQueueReadApiAdded
           ? "Manual-review status update workflow is designed before any ownership backfill or access-check switch."
           : manualReviewImportExecutorAdded
@@ -1971,6 +2112,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "Organization ownership is backed by explicit row-level evidence, not UI active organization context.",
       "Public gallery attribution and lifecycle/export/delete impacts are designed.",
       "Operator evidence is reviewed before any backfill.",
+      legacyMediaResetDryRunAdded
+        ? "Legacy media reset has dry-run evidence only; a future executor design is required before any deletion, depublish, R2 cleanup, quota recalculation, or manual-review supersede action."
+        : "Legacy media reset dry-run evidence is collected before any deletion executor is considered.",
     ],
     limitations: [
       "No live D1 rows are queried.",
@@ -1978,9 +2122,12 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "Fixture data is synthetic and deterministic.",
       "Source-only mode reports domain/rule readiness, not row counts.",
       "No runtime access behavior changes are made.",
+      "Legacy media reset reporting is D1-only and never lists or deletes live R2 objects.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? mainEvidenceNextPhase
+      ? legacyMediaResetDryRunAdded
+        ? "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
+        : mainEvidenceNextPhase
       : ownershipMigrationExists
         ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
@@ -2291,9 +2438,24 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Queue evidence export found: ${report.manualReviewStatusOperatorEvidenceCollection?.queueEvidenceExportFound ? "yes" : "no"}`,
     `- Status update evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusUpdateEvidenceFound ? "yes" : "no"}`,
     `- Idempotency evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyEvidenceFound ? "yes" : "no"}`,
+    `- Idempotency replay/conflict evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyReplayOrConflictEvidenceFound ? "yes" : "no"}`,
+    `- Successful status endpoint response found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusUpdateEndpointSuccessEvidenceFound ? "yes" : "no"}`,
     `- Backfill ready: ${report.manualReviewStatusOperatorEvidenceCollection?.backfillReady ? "yes" : "no"}`,
     `- Access switch ready: ${report.manualReviewStatusOperatorEvidenceCollection?.accessSwitchReady ? "yes" : "no"}`,
     `- Recommended next phase: ${report.manualReviewStatusOperatorEvidenceCollection?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    "",
+    "## Legacy Media Reset Dry Run",
+    "",
+    `- Status: ${report.legacyMediaResetDryRun?.status || "not_recorded"}`,
+    `- Endpoint: ${report.legacyMediaResetDryRun?.endpoint || "not_recorded"}`,
+    `- Export endpoint: ${report.legacyMediaResetDryRun?.exportEndpoint || "not_recorded"}`,
+    `- Admin UI added: ${report.legacyMediaResetDryRun?.adminUiAdded ? "yes" : "no"}`,
+    `- Domains inventoried: ${(report.legacyMediaResetDryRun?.domainsInventoried || []).join(", ") || "none"}`,
+    `- Delete executor added: ${report.legacyMediaResetDryRun?.deleteExecutorAdded ? "yes" : "no"}`,
+    `- Deletion performed: ${report.legacyMediaResetDryRun?.deletionPerformed ? "yes" : "no"}`,
+    `- Review rows mutated: ${report.legacyMediaResetDryRun?.reviewRowsMutated ? "yes" : "no"}`,
+    `- R2 objects mutated: ${report.legacyMediaResetDryRun?.r2ObjectsMutated ? "yes" : "no"}`,
+    `- Recommended next phase: ${report.legacyMediaResetDryRun?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Safety",
     "",
@@ -2302,7 +2464,8 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     "- Phase 6.16 queue/evidence endpoints are read-only and do not update review statuses.",
     "- Phase 6.17 status workflow updates review items/events only and performs no ownership backfill.",
     "- Phase 6.18 Admin visibility/status controls remain review-state only and perform no ownership backfill.",
-    "- Phase 6.19 operator evidence collection is pending unless sanitized live/main evidence files are present.",
+    "- Phase 6.20 operator evidence decision is collected-but-blocked until idempotency replay/conflict evidence is complete.",
+    "- Phase 6.21 legacy media reset dry-run performs D1-only inventory and no deletion, review mutation, R2 listing, or R2 mutation.",
     "- No R2 writes, moves, deletes, copies, or live listings.",
     "- No Cloudflare, Stripe, GitHub, or provider calls.",
     "- No owner backfill SQL is emitted.",

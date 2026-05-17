@@ -214,8 +214,21 @@ Allowed decision states:
 
 - `operator_evidence_pending`
 - `operator_evidence_collected_blocked`
+- `operator_evidence_collected_needs_more_idempotency`
 - `evidence_rejected_unsafe`
 - `needs_more_operator_evidence`
 
 Even successful operator evidence can prove only that the manual-review workflow was exercised and remained bounded. It does not prove tenant isolation, production readiness, ownership backfill readiness, or access-switch readiness.
 
+## Phase 6.20 Interpretation
+
+Phase 6.20 reviewed committed live/main evidence and set the decision to `operator_evidence_collected_needs_more_idempotency`. The dry-run import, confirmed import, final queue export, and one status-change rollup were captured, but same-key replay/conflict evidence and a successful standalone status-update response with hashed idempotency/request-hash evidence were not present.
+
+When archiving future JSON evidence:
+
+- remove or replace raw request `Idempotency-Key` values before committing;
+- keep only server-returned hashed/stored-as metadata or redacted placeholders;
+- keep bounded counts, status labels, timestamps, and safety flags;
+- do not store cookies, auth headers, raw request hashes, prompts, provider bodies, private R2 keys, signed URLs, Stripe data, Cloudflare tokens, private keys, or unsafe metadata blobs.
+
+If replay/conflict evidence is missing, keep a `needs_more_idempotency` decision and do not proceed to backfill-readiness reporting as if idempotency was fully exercised.

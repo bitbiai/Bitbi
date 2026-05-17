@@ -963,6 +963,9 @@ class MockD1 {
     if (this.missingTables.has('ai_images') && query.includes('ai_images')) {
       throw new Error('no such table: ai_images');
     }
+    if (this.missingTables.has('ai_text_assets') && query.includes('ai_text_assets')) {
+      throw new Error('no such table: ai_text_assets');
+    }
     if (
       (this.missingTables.has('ai_asset_manual_review_items') && query.includes('ai_asset_manual_review_items')) ||
       (this.missingTables.has('ai_asset_manual_review_events') && query.includes('ai_asset_manual_review_events'))
@@ -6454,6 +6457,172 @@ class MockD1 {
       return { results: rows };
     }
 
+    const hasOwnershipMetadata = (row) => Boolean(
+      row.asset_owner_type && row.ownership_status && (row.owning_user_id || row.owning_organization_id)
+    );
+
+    if (query === 'SELECT COUNT(*) AS total FROM ai_folders') {
+      return { total: this.state.aiFolders.length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_folders WHERE asset_owner_type IS NULL OR ownership_status IS NULL OR (owning_user_id IS NULL AND owning_organization_id IS NULL)') {
+      return { total: this.state.aiFolders.filter((row) => !hasOwnershipMetadata(row)).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_folders WHERE NOT (asset_owner_type IS NULL OR ownership_status IS NULL OR (owning_user_id IS NULL AND owning_organization_id IS NULL))') {
+      return { total: this.state.aiFolders.filter((row) => hasOwnershipMetadata(row)).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_folders WHERE status = ?') {
+      const [status] = bindings;
+      return { total: this.state.aiFolders.filter((row) => (row.status || 'active') === status).length };
+    }
+    if (query === 'SELECT id, status, asset_owner_type, owning_user_id, owning_organization_id, ownership_status, created_at FROM ai_folders ORDER BY created_at DESC, id DESC LIMIT ?') {
+      const [limit] = bindings;
+      return {
+        results: this.state.aiFolders
+          .slice()
+          .sort((a, b) => (
+            String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+            String(b.id || '').localeCompare(String(a.id || ''))
+          ))
+          .slice(0, Number(limit) || 25)
+          .map((row) => ({
+            id: row.id,
+            status: row.status || 'active',
+            asset_owner_type: row.asset_owner_type ?? null,
+            owning_user_id: row.owning_user_id ?? null,
+            owning_organization_id: row.owning_organization_id ?? null,
+            ownership_status: row.ownership_status ?? null,
+            created_at: row.created_at ?? null,
+          })),
+      };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images') {
+      return { total: this.state.aiImages.length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images WHERE asset_owner_type IS NULL OR ownership_status IS NULL OR (owning_user_id IS NULL AND owning_organization_id IS NULL)') {
+      return { total: this.state.aiImages.filter((row) => !hasOwnershipMetadata(row)).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images WHERE NOT (asset_owner_type IS NULL OR ownership_status IS NULL OR (owning_user_id IS NULL AND owning_organization_id IS NULL))') {
+      return { total: this.state.aiImages.filter((row) => hasOwnershipMetadata(row)).length };
+    }
+    if (query === "SELECT COUNT(*) AS total FROM ai_images WHERE COALESCE(visibility, 'private') = ?") {
+      const [visibility] = bindings;
+      return { total: this.state.aiImages.filter((row) => (row.visibility || 'private') === visibility).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images WHERE folder_id IS NOT NULL') {
+      return { total: this.state.aiImages.filter((row) => row.folder_id != null).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images WHERE thumb_key IS NOT NULL') {
+      return { total: this.state.aiImages.filter((row) => row.thumb_key != null).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images WHERE medium_key IS NOT NULL') {
+      return { total: this.state.aiImages.filter((row) => row.medium_key != null).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images WHERE thumb_key IS NOT NULL OR medium_key IS NOT NULL') {
+      return { total: this.state.aiImages.filter((row) => row.thumb_key != null || row.medium_key != null).length };
+    }
+    if (query === "SELECT COUNT(*) AS total FROM ai_images WHERE (asset_owner_type IS NULL OR ownership_status IS NULL OR (owning_user_id IS NULL AND owning_organization_id IS NULL)) AND COALESCE(visibility, 'private') != 'public' AND thumb_key IS NULL AND medium_key IS NULL") {
+      return {
+        total: this.state.aiImages.filter((row) =>
+          !hasOwnershipMetadata(row) &&
+          (row.visibility || 'private') !== 'public' &&
+          row.thumb_key == null &&
+          row.medium_key == null
+        ).length,
+      };
+    }
+    if (query === 'SELECT id, folder_id, visibility, asset_owner_type, owning_user_id, owning_organization_id, ownership_status, created_at, thumb_key, medium_key FROM ai_images ORDER BY created_at DESC, id DESC LIMIT ?') {
+      const [limit] = bindings;
+      return {
+        results: this.state.aiImages
+          .slice()
+          .sort((a, b) => (
+            String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+            String(b.id || '').localeCompare(String(a.id || ''))
+          ))
+          .slice(0, Number(limit) || 25)
+          .map((row) => ({
+            id: row.id,
+            folder_id: row.folder_id ?? null,
+            visibility: row.visibility || 'private',
+            asset_owner_type: row.asset_owner_type ?? null,
+            owning_user_id: row.owning_user_id ?? null,
+            owning_organization_id: row.owning_organization_id ?? null,
+            ownership_status: row.ownership_status ?? null,
+            created_at: row.created_at ?? null,
+            thumb_key: row.thumb_key ?? null,
+            medium_key: row.medium_key ?? null,
+          })),
+      };
+    }
+    if (query === 'SELECT COALESCE(SUM(size_bytes), 0) AS total FROM ai_images') {
+      return { total: this.state.aiImages.reduce((sum, row) => sum + Number(row.size_bytes || 0), 0) };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_text_assets') {
+      return { total: this.state.aiTextAssets.length };
+    }
+    if (query === "SELECT COUNT(*) AS total FROM ai_text_assets WHERE COALESCE(visibility, 'private') = ?") {
+      const [visibility] = bindings;
+      return { total: this.state.aiTextAssets.filter((row) => (row.visibility || 'private') === visibility).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_text_assets WHERE poster_r2_key IS NOT NULL') {
+      return { total: this.state.aiTextAssets.filter((row) => row.poster_r2_key != null).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_text_assets WHERE source_module = ?') {
+      const [sourceModule] = bindings;
+      return { total: this.state.aiTextAssets.filter((row) => row.source_module === sourceModule).length };
+    }
+    if (query === "SELECT COUNT(*) AS total FROM ai_text_assets WHERE source_module = ? AND COALESCE(visibility, 'private') = ?") {
+      const [sourceModule, visibility] = bindings;
+      return {
+        total: this.state.aiTextAssets.filter((row) =>
+          row.source_module === sourceModule &&
+          (row.visibility || 'private') === visibility
+        ).length,
+      };
+    }
+    if (query === 'SELECT source_module AS key, COUNT(*) AS count FROM ai_text_assets GROUP BY source_module ORDER BY count DESC, key ASC') {
+      const counts = new Map();
+      for (const row of this.state.aiTextAssets) counts.set(row.source_module || 'unknown', (counts.get(row.source_module || 'unknown') || 0) + 1);
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))) };
+    }
+    if (query === 'SELECT COALESCE(SUM(size_bytes), 0) AS total FROM ai_text_assets') {
+      return { total: this.state.aiTextAssets.reduce((sum, row) => sum + Number(row.size_bytes || 0), 0) };
+    }
+    if (query === 'SELECT COALESCE(SUM(poster_size_bytes), 0) AS total FROM ai_text_assets') {
+      return { total: this.state.aiTextAssets.reduce((sum, row) => sum + Number(row.poster_size_bytes || 0), 0) };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_video_jobs') {
+      return { total: this.state.aiVideoJobs.length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_video_jobs WHERE output_r2_key IS NOT NULL') {
+      return { total: this.state.aiVideoJobs.filter((row) => row.output_r2_key != null).length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM ai_video_jobs WHERE poster_r2_key IS NOT NULL') {
+      return { total: this.state.aiVideoJobs.filter((row) => row.poster_r2_key != null).length };
+    }
+    if (query === 'SELECT scope AS key, COUNT(*) AS count FROM ai_video_jobs GROUP BY scope ORDER BY count DESC, key ASC') {
+      const counts = new Map();
+      for (const row of this.state.aiVideoJobs) counts.set(row.scope || 'unknown', (counts.get(row.scope || 'unknown') || 0) + 1);
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))) };
+    }
+    if (query === 'SELECT status AS key, COUNT(*) AS count FROM ai_video_jobs GROUP BY status ORDER BY count DESC, key ASC') {
+      const counts = new Map();
+      for (const row of this.state.aiVideoJobs) counts.set(row.status || 'unknown', (counts.get(row.status || 'unknown') || 0) + 1);
+      return { results: [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || String(a.key).localeCompare(String(b.key))) };
+    }
+    if (query === 'SELECT COALESCE(SUM(output_size_bytes), 0) AS total FROM ai_video_jobs') {
+      return { total: this.state.aiVideoJobs.reduce((sum, row) => sum + Number(row.output_size_bytes || 0), 0) };
+    }
+    if (query === 'SELECT COALESCE(SUM(poster_size_bytes), 0) AS total FROM ai_video_jobs') {
+      return { total: this.state.aiVideoJobs.reduce((sum, row) => sum + Number(row.poster_size_bytes || 0), 0) };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM user_asset_storage_usage') {
+      return { total: this.state.userAssetStorageUsage.length };
+    }
+    if (query === 'SELECT COALESCE(SUM(used_bytes), 0) AS total FROM user_asset_storage_usage') {
+      return { total: this.state.userAssetStorageUsage.reduce((sum, row) => sum + Number(row.used_bytes || 0), 0) };
+    }
+
     const manualReviewItemSelectPrefix = 'SELECT id, asset_domain, asset_id, related_asset_id, source_table, source_row_id, issue_category, review_status, severity, priority, legacy_owner_user_id, proposed_asset_owner_type, proposed_owning_user_id, proposed_owning_organization_id, proposed_ownership_status, proposed_ownership_source, proposed_ownership_confidence, evidence_source_path, evidence_report_generated_at, evidence_summary_json, safe_notes, assigned_to_user_id, reviewed_by_user_id, reviewed_at, created_by_user_id, created_at, updated_at, superseded_by_id, metadata_json FROM ai_asset_manual_review_items';
     const filterManualReviewItems = (rows, filterBindings = []) => {
       let filtered = rows.slice();
@@ -6514,6 +6683,10 @@ class MockD1 {
     }
 
     if (query.startsWith('SELECT COUNT(*) AS total FROM ai_asset_manual_review_items')) {
+      if (query === 'SELECT COUNT(*) AS total FROM ai_asset_manual_review_items WHERE asset_domain IN (?, ?, ?, ?)') {
+        const domains = new Set(bindings);
+        return { total: this.state.aiAssetManualReviewItems.filter((row) => domains.has(row.asset_domain)).length };
+      }
       const rows = filterManualReviewItems(this.state.aiAssetManualReviewItems, bindings);
       return { total: rows.length };
     }

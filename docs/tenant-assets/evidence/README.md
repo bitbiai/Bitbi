@@ -82,13 +82,30 @@ Phase 6.18 adds operator evidence/Admin visibility for the queue:
 - The panel intentionally contains no backfill, access-switch, source-asset update, delete, R2, provider, Stripe, credit, or billing controls.
 - Status controls remain review-state only and do not approve ownership backfill, access-check switching, tenant isolation, or production readiness.
 
-Phase 6.19 adds operator evidence collection docs and a pending decision for the Phase 6.15-6.18 manual-review workflow:
+Phase 6.19 added operator evidence collection docs and a pending decision for the Phase 6.15-6.18 manual-review workflow:
 
 - `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`
 - `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`
 - `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
 
-Current Phase 6.19 status is `operator_evidence_pending`: no sanitized live/main operator evidence files for manual-review import dry-run, confirmed import execution, queue reads, status updates, idempotency behavior, Admin Control Plane rendering, or queue evidence exports are present in this repository. Backfill, access-switching, tenant isolation, and production readiness remain blocked.
+Phase 6.20 reviews the committed live/main operator evidence and updates the decision:
+
+- `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
+- `docs/tenant-assets/evidence/2026-05-17-manual-review-status-operator-evidence-summary.md`
+- `docs/tenant-assets/evidence/manual-review-import-dry-run-live.json`
+- `docs/tenant-assets/evidence/manual-review-import-confirmed-live.json`
+- `docs/tenant-assets/evidence/manual-review-status-update-live.json`
+- `docs/tenant-assets/evidence/tenant-asset-manual-review-evidence-2026-05-17T19-03-30.974Z.json`
+
+Current Phase 6.20 status is `operator_evidence_collected_needs_more_idempotency`: the live/main import dry-run, confirmed import, and queue evidence export were captured, and the final export records one status-changed event. Same-key replay/conflict evidence and a successful standalone status-update response with hashed idempotency/request-hash evidence are still missing. Backfill, access-switching, tenant isolation, production readiness, and live billing readiness remain blocked.
+
+Phase 6.21 adds a read-only legacy personal media reset dry-run:
+
+- `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_DRY_RUN.md`
+- `GET /api/admin/tenant-assets/legacy-media-reset/dry-run`
+- `GET /api/admin/tenant-assets/legacy-media-reset/dry-run/export`
+
+The dry-run inventories `ai_folders`, `ai_images`, public/gallery rows, derivative references, text/music/video records, quota summaries, and manual-review impact using bounded D1 reads only. It adds no delete executor or bulk-delete UI, performs no deletion, mutates no source/review rows, performs no ownership backfill or access switch, and does not list or mutate R2. Future Phase 6.22 may design an admin-approved executor only after dry-run evidence review.
 
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
@@ -120,6 +137,10 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 
 11. If using the Phase 6.17 status workflow or Phase 6.18 Admin panel, change only review statuses with explicit reasons and idempotency, then export updated queue evidence. Status changes are operator evidence only and do not approve backfill or access-check switching.
 
-12. For Phase 6.19 manual-review operator evidence, follow `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, complete `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and update `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. If evidence remains absent, keep `operator_evidence_pending`.
+12. For manual-review operator evidence, follow `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, complete `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and update `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. If evidence is collected but replay/conflict proof is missing, keep the decision at `operator_evidence_collected_needs_more_idempotency`.
+
+13. Phase 6.20 redacted raw operator request idempotency keys from committed JSON evidence before summarizing. Future evidence archives must store only hashed or redacted idempotency values.
+
+14. For legacy personal media reset planning, use the Phase 6.21 dry-run/export endpoints only. Save sanitized JSON/Markdown output if operators want to review a deletion-executor design; do not treat the dry-run as deletion approval, backfill approval, access-switch readiness, tenant isolation, or production readiness.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

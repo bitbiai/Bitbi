@@ -1,5 +1,5 @@
 {
-  "idempotencyKey": "3a913a35-810f-4d9e-ae83-e6da0988990e",
+  "idempotencyKey": "[redacted-operator-request-key]",
   "response": {
     "ok": true,
     "import": {
