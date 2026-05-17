@@ -147,6 +147,13 @@ async function loadTenantAssetManualReviewQueueModule() {
   return import(modulePath);
 }
 
+async function loadTenantAssetManualReviewStatusModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-manual-review-status.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1349,6 +1356,30 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     return { authWorker, env, authHeaders };
   }
 
+  async function importTenantReviewQueue(authWorker, env, authHeaders, {
+    idempotencyKey = 'tenant-review-status-import-001',
+    limit = 4,
+    reason = 'create review queue rows for status workflow tests',
+  } = {}) {
+    const res = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/import',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          limit,
+          reason,
+        },
+        { ...authHeaders, 'Idempotency-Key': idempotencyKey }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
   test('admin can fetch bounded sanitized folders/images ownership evidence without mutations', async () => {
     const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
     const beforeState = JSON.stringify(env.DB.state);
@@ -2013,6 +2044,332 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(markdown).not.toContain('raw-public-image.png');
   });
 
+  test('manual review status helper enforces conservative transitions', async () => {
+    const manualReviewStatus = await loadTenantAssetManualReviewStatusModule();
+    expect(manualReviewStatus.validateManualReviewStatusTransition('pending_review', 'review_in_progress')).toEqual(expect.objectContaining({
+      allowed: true,
+      eventType: 'status_changed',
+    }));
+    expect(manualReviewStatus.validateManualReviewStatusTransition('pending_review', 'approved_legacy_unclassified')).toEqual(expect.objectContaining({
+      allowed: false,
+      code: 'tenant_asset_manual_review_status_transition_forbidden',
+    }));
+    expect(manualReviewStatus.validateManualReviewStatusTransition('review_in_progress', 'blocked_public_unsafe')).toEqual(expect.objectContaining({
+      allowed: true,
+      eventType: 'status_changed',
+    }));
+    expect(manualReviewStatus.validateManualReviewStatusTransition('blocked_public_unsafe', 'superseded')).toEqual(expect.objectContaining({
+      allowed: true,
+      eventType: 'superseded',
+    }));
+    expect(manualReviewStatus.validateManualReviewStatusTransition('superseded', 'pending_review')).toEqual(expect.objectContaining({
+      allowed: false,
+    }));
+  });
+
+  test('manual review status endpoint requires admin, same-origin, idempotency, confirmation, reason, and valid transition', async () => {
+    const nonAdmin = await createTenantEvidenceHarness({
+      user: createContractUser({ id: 'tenant-review-status-member', role: 'user' }),
+    });
+    const denied = await nonAdmin.authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_missing/status',
+        'POST',
+        { newStatus: 'review_in_progress', confirm: true, reason: 'begin review' },
+        { ...nonAdmin.authHeaders, 'Idempotency-Key': 'tenant-review-status-denied-001' }
+      ),
+      nonAdmin.env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    await importTenantReviewQueue(authWorker, env, authHeaders, {
+      idempotencyKey: 'tenant-review-status-guard-import-001',
+    });
+    const pendingItem = env.DB.state.aiAssetManualReviewItems.find((item) => item.review_status === 'pending_review');
+    expect(pendingItem).toBeTruthy();
+
+    const badOrigin = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'review_in_progress', confirm: true, reason: 'begin review' },
+        { ...authHeaders, Origin: 'https://evil.example', 'Idempotency-Key': 'tenant-review-status-bad-origin-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(badOrigin.status).toBe(403);
+
+    const missingKey = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'review_in_progress', confirm: true, reason: 'begin review' },
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+
+    const missingConfirm = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'review_in_progress', reason: 'begin review' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-status-guard-002' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingConfirm.status).toBe(400);
+
+    const missingReason = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'review_in_progress', confirm: true },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-status-guard-003' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingReason.status).toBe(400);
+
+    const invalidStatus = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'apply_backfill', confirm: true, reason: 'invalid status should fail' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-status-guard-004' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidStatus.status).toBe(400);
+
+    const invalidTransition = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'approved_legacy_unclassified', confirm: true, reason: 'direct approval is forbidden' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-status-guard-005' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidTransition.status).toBe(400);
+    const invalidTransitionBody = await invalidTransition.json();
+    expect(invalidTransitionBody.code).toBe('tenant_asset_manual_review_status_transition_forbidden');
+  });
+
+  test('admin manual review status update writes only review status and sanitized event evidence', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    await importTenantReviewQueue(authWorker, env, authHeaders, {
+      idempotencyKey: 'tenant-review-status-import-001',
+    });
+    const beforeFolders = JSON.stringify(env.DB.state.aiFolders);
+    const beforeImages = JSON.stringify(env.DB.state.aiImages);
+    const pendingItem = env.DB.state.aiAssetManualReviewItems.find((item) => item.review_status === 'pending_review');
+    expect(pendingItem).toBeTruthy();
+    const beforeEventCount = env.DB.state.aiAssetManualReviewEvents.length;
+
+    const requestBody = {
+      newStatus: 'review_in_progress',
+      confirm: true,
+      reason: 'begin bounded manual review without backfill',
+      metadata: {
+        note: 'safe operator note',
+        private_r2_key: 'users/private/raw.png',
+        prompt: 'unsafe prompt should be redacted',
+      },
+    };
+    const headers = { ...authHeaders, 'Idempotency-Key': 'tenant-review-status-update-001' };
+    const update = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        requestBody,
+        headers
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(update.status).toBe(200);
+    const updateBody = await update.json();
+    expect(updateBody.statusUpdate).toMatchObject({
+      previousStatus: 'pending_review',
+      newStatus: 'review_in_progress',
+      eventType: 'status_changed',
+      noBackfill: true,
+      noAccessSwitch: true,
+      noSourceAssetMutation: true,
+      noR2Operation: true,
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      sourceAssetRowsMutated: false,
+      ownershipMetadataUpdated: false,
+      r2LiveListed: false,
+      productionReadiness: 'blocked',
+    });
+    expect(updateBody.statusUpdate.item.reviewStatus).toBe('review_in_progress');
+    expect(updateBody.statusUpdate.event.eventType).toBe('status_changed');
+    expect(updateBody.statusUpdate.event.oldStatus).toBe('pending_review');
+    expect(updateBody.statusUpdate.event.newStatus).toBe('review_in_progress');
+    expect(updateBody.statusUpdate.event.reasonPresent).toBe(true);
+    expect(env.DB.state.aiAssetManualReviewItems.find((item) => item.id === pendingItem.id).review_status).toBe('review_in_progress');
+    expect(env.DB.state.aiAssetManualReviewEvents.length).toBe(beforeEventCount + 1);
+    const statusEvent = env.DB.state.aiAssetManualReviewEvents.at(-1);
+    expect(statusEvent.event_type).toBe('status_changed');
+    expect(statusEvent.idempotency_key).toMatch(/^[a-f0-9]{64}$/);
+    expect(statusEvent.idempotency_key).not.toBe('tenant-review-status-update-001');
+    expect(statusEvent.request_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(env.DB.state.aiFolders)).toBe(beforeFolders);
+    expect(JSON.stringify(env.DB.state.aiImages)).toBe(beforeImages);
+
+    const replay = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        requestBody,
+        headers
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(replay.status).toBe(200);
+    const replayBody = await replay.json();
+    expect(replayBody.statusUpdate.idempotency.replayed).toBe(true);
+    expect(env.DB.state.aiAssetManualReviewEvents.length).toBe(beforeEventCount + 1);
+
+    const conflict = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { ...requestBody, reason: 'different reason conflicts' },
+        headers
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
+    const conflictBody = await conflict.json();
+    expect(conflictBody.code).toBe('idempotency_conflict');
+
+    const noOpNewKey = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        requestBody,
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-status-update-002' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(noOpNewKey.status).toBe(409);
+
+    const serialized = JSON.stringify(updateBody);
+    expect(serialized).not.toContain('tenant-review-status-update-001');
+    expect(serialized).not.toContain('raw-private-image.png');
+    expect(serialized).not.toContain('users/private/raw.png');
+    expect(serialized).not.toContain('unsafe prompt should be redacted');
+    expect(serialized).not.toContain('begin bounded manual review');
+    expect(serialized).not.toContain('Bearer ');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('sk_live_');
+  });
+
+  test('manual review status workflow records terminal and blocked decisions without backfill readiness', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    await importTenantReviewQueue(authWorker, env, authHeaders, {
+      idempotencyKey: 'tenant-review-terminal-import-001',
+    });
+    const beforeFolders = JSON.stringify(env.DB.state.aiFolders);
+    const beforeImages = JSON.stringify(env.DB.state.aiImages);
+    const pendingItem = env.DB.state.aiAssetManualReviewItems.find((item) => item.review_status === 'pending_review');
+    const publicItem = env.DB.state.aiAssetManualReviewItems.find((item) => item.issue_category === 'public_unsafe');
+    expect(pendingItem).toBeTruthy();
+    expect(publicItem).toBeTruthy();
+
+    const start = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'review_in_progress', confirm: true, reason: 'start review before terminal decision' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-terminal-start-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(start.status).toBe(200);
+
+    const approve = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'approved_legacy_unclassified', confirm: true, reason: 'approve legacy classification only, no backfill' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-terminal-approve-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(approve.status).toBe(200);
+    const approveBody = await approve.json();
+    expect(approveBody.statusUpdate.item.reviewStatus).toBe('approved_legacy_unclassified');
+    expect(approveBody.statusUpdate.backfillPerformed).toBe(false);
+    expect(approveBody.statusUpdate.accessChecksChanged).toBe(false);
+
+    const terminalToTerminal = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(pendingItem.id)}/status`,
+        'POST',
+        { newStatus: 'approved_personal_user_asset', confirm: true, reason: 'terminal to terminal should fail' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-terminal-forbidden-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(terminalToTerminal.status).toBe(400);
+
+    publicItem.review_status = 'review_in_progress';
+    const blockPublic = await authWorker.fetch(
+      authJsonRequest(
+        `/api/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(publicItem.id)}/status`,
+        'POST',
+        { newStatus: 'blocked_public_unsafe', confirm: true, reason: 'public row remains unsafe for ownership switch' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-terminal-block-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(blockPublic.status).toBe(200);
+    const blockBody = await blockPublic.json();
+    expect(blockBody.statusUpdate.item.reviewStatus).toBe('blocked_public_unsafe');
+    expect(blockBody.statusUpdate.noSourceAssetMutation).toBe(true);
+
+    const evidence = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/manual-review/evidence?limit=5', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(evidence.status).toBe(200);
+    const evidenceBody = await evidence.json();
+    expect(evidenceBody.report.summary.statusWorkflowAvailable).toBe(true);
+    expect(evidenceBody.report.summary.statusChangedEventsCount).toBeGreaterThanOrEqual(3);
+    expect(evidenceBody.report.summary.terminalApprovedCount).toBeGreaterThanOrEqual(1);
+    expect(evidenceBody.report.summary.terminalBlockedCount).toBeGreaterThanOrEqual(1);
+    expect(evidenceBody.report.summary.accessSwitchReady).toBe(false);
+    expect(evidenceBody.report.summary.backfillReady).toBe(false);
+    expect(evidenceBody.report.reviewStatusesChanged).toBe(true);
+    expect(evidenceBody.report.tenantIsolationClaimed).toBe(false);
+    expect(evidenceBody.report.productionReadiness).toBe('blocked');
+    expect(JSON.stringify(env.DB.state.aiFolders)).toBe(beforeFolders);
+    expect(JSON.stringify(env.DB.state.aiImages)).toBe(beforeImages);
+  });
+
   test('manual review queue endpoints deny non-admin and report unavailable schema safely', async () => {
     const nonAdmin = await createTenantEvidenceHarness({
       user: createContractUser({ id: 'tenant-review-read-member', role: 'user' }),
@@ -2033,6 +2390,20 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       createExecutionContext().execCtx
     );
     expect(list.status).toBe(409);
+
+    const status = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_missing/status',
+        'POST',
+        { newStatus: 'review_in_progress', confirm: true, reason: 'schema missing should fail closed' },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-status-schema-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(status.status).toBe(409);
+    const statusBody = await status.json();
+    expect(statusBody.code).toBe('tenant_asset_manual_review_schema_unavailable');
 
     const evidence = await authWorker.fetch(
       authJsonRequest('/api/admin/tenant-assets/folders-images/manual-review/evidence', 'GET', undefined, authHeaders),

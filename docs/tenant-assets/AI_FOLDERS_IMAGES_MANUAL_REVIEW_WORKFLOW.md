@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner in `scripts/dry-run-tenant-asset-manual-review-import.mjs`. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only manual-review queue/evidence APIs for imported rows. These phases do not perform ownership backfill, switch access checks, update folder/image ownership rows, add Admin UI, add a repair/backfill/access-switch executor, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
+Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design review-state persistence. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner in `scripts/dry-run-tenant-asset-manual-review-import.mjs`. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only manual-review queue/evidence APIs for imported rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. These phases do not perform ownership backfill, switch access checks, update folder/image ownership rows, add Admin UI, add a repair/backfill/access-switch executor, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
 
 ## Source Evidence
 
@@ -178,7 +178,7 @@ The dry run maps evidence categories to target review-item fields and determinis
 
 Phase 6.15 adds `POST /api/admin/tenant-assets/folders-images/manual-review/import`. It is admin-only, production-MFA protected through route policy, same-origin protected, rate-limited, and requires `Idempotency-Key`. It defaults to dry-run; execution requires `dryRun: false`, `confirm: true`, and a bounded `reason`.
 
-Confirmed execution may create only `ai_asset_manual_review_items` rows and matching `ai_asset_manual_review_events` with `event_type = created`. It recomputes the current evidence report server-side, uses deterministic review item IDs for dedupe, skips existing review items, and does not update review statuses beyond initial creation.
+Confirmed execution may create only `ai_asset_manual_review_items` rows and matching `ai_asset_manual_review_events` with `event_type = created`. It recomputes the current evidence report server-side, uses deterministic review item IDs for dedupe, skips existing review items, and leaves later review status changes to the separate Phase 6.17 endpoint.
 
 Phase 6.15 still does not update `ai_folders`, update `ai_images`, backfill ownership metadata, switch access checks, change public gallery/media/lifecycle/quota/billing behavior, or list/mutate R2.
 
@@ -194,10 +194,18 @@ Phase 6.16 adds read-only admin visibility for imported manual-review rows:
 
 The endpoints are bounded, sanitized, production-MFA protected through route policy, and read-only. They support queue filters, event history, queue rollups, and JSON/Markdown evidence export. They do not update review statuses, add notes, create review rows, update source asset rows, backfill ownership metadata, switch access checks, add Admin UI, or list/mutate R2.
 
+## Phase 6.17 Status Workflow
+
+Phase 6.17 adds `POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status`. The endpoint is admin-only, production-MFA protected through route policy, same-origin protected, rate-limited, and requires `Idempotency-Key`, `confirm: true`, and a bounded `reason`.
+
+Allowed transitions are conservative: `pending_review` can move to `review_in_progress`, `deferred`, `rejected`, or `needs_legal_privacy_review`; `review_in_progress` can move to approved, blocked, deferred, rejected, or legal/privacy states; terminal approved/blocked/rejected states can move only to `superseded`; `superseded` has no outgoing transitions. Each status write updates only the review item row and creates a sanitized event (`status_changed`, `deferred`, `rejected`, or `superseded`).
+
+Phase 6.17 does not update ownership metadata, source asset rows, public visibility, folders/images access checks, lifecycle/export/delete behavior, quota accounting, billing/credits, providers, Stripe, Cloudflare, or R2. Status decisions are operator evidence only and do not approve backfill or access switching.
+
 ## Future Implementation Phases
 
 Recommended next phase:
 
-`Phase 6.17 - Manual Review Status Update Workflow Design`
+`Phase 6.18 - Manual Review Status Operator Evidence`
 
-That future phase should design the status-transition workflow before any status update endpoint exists. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.
+That future phase should collect operator evidence from status changes before any backfill planning or access-switch work. It should still avoid access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.

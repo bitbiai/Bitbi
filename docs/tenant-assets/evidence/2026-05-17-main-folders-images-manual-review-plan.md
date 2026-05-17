@@ -8,7 +8,7 @@ Decision file: `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISI
 
 This Phase 6.11 plan uses only the committed Phase 6.10 main evidence summary. It does not use synthetic fixtures as evidence. It does not require the raw JSON export to be committed because the Markdown summary contains the safe counts and decision fields needed for this plan.
 
-Phase 6.12 adds the schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and may create only manual-review items/events when explicitly confirmed. Phase 6.16 adds read-only queue/evidence APIs for imported manual-review rows. No source asset rows are rewritten, no access checks switch, no review statuses are updated, and no ownership backfill occurs.
+Phase 6.12 adds the schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`. Phase 6.13 adds the empty review-state tables in `0057_add_ai_asset_manual_review_state.sql`. Phase 6.14 adds a local-only import dry-run planner. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and may create only manual-review items/events when explicitly confirmed. Phase 6.16 adds read-only queue/evidence APIs for imported manual-review rows. Phase 6.17 adds admin-approved review status updates on review items/events only. No source asset rows are rewritten, no access checks switch, no ownership metadata is updated, and no ownership backfill occurs.
 
 ## Evidence Counts Used
 
@@ -66,9 +66,9 @@ Phase 6.12 adds the schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_
 
 ## Next Recommended Phase
 
-`Phase 6.17 - Manual Review Status Update Workflow Design`
+`Phase 6.18 - Manual Review Status Operator Evidence`
 
-Phase 6.16 adds read-only queue/evidence endpoints for inspecting imported review items and events. The next phase should design status transitions and operator controls before any status update endpoint exists. It should still avoid ownership backfill, access-check switching, D1 ownership row rewrites, R2 listing/mutation, and repair execution.
+Phase 6.17 adds the status-transition endpoint for review items only. The next phase should collect operator evidence from status changes before any backfill planning or access-check migration. It should still avoid ownership backfill, access-check switching, D1 ownership row rewrites, ownership metadata updates, R2 listing/mutation, and repair execution.
 
 ## Safety Statement
 

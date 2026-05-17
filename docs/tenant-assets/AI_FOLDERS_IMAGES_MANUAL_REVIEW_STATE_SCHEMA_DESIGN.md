@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. Phase 6.14 adds local-only review-item import dry-run planning. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only queue/evidence APIs for imported review rows. These phases do not update ownership metadata, backfill rows, switch access checks, add Admin UI, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
+Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. Phase 6.14 adds local-only review-item import dry-run planning. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only queue/evidence APIs for imported review rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. These phases do not update ownership metadata, backfill rows, switch access checks, add Admin UI, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
 
 ## Purpose
 
@@ -296,23 +296,23 @@ It must not include:
 
 ## API Design
 
-Phase 6.15 implements only the import endpoint, and Phase 6.16 implements only read-only queue/evidence endpoints:
+Phase 6.15 implements the import endpoint, Phase 6.16 implements read-only queue/evidence endpoints, and Phase 6.17 implements the bounded status endpoint:
 
 - `POST /api/admin/tenant-assets/folders-images/manual-review/import`
 - `GET /api/admin/tenant-assets/folders-images/manual-review/items`
 - `GET /api/admin/tenant-assets/folders-images/manual-review/items/:id`
 - `GET /api/admin/tenant-assets/folders-images/manual-review/items/:id/events`
+- `POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status`
 - `GET /api/admin/tenant-assets/folders-images/manual-review/evidence`
 - `GET /api/admin/tenant-assets/folders-images/manual-review/evidence/export`
 
-The read endpoints are admin-only, production-MFA protected, bounded, sanitized, and read-only. They expose queue filters, item detail, event history, rollups, and JSON/Markdown evidence export. They do not update review statuses, create notes, import rows, backfill ownership, switch access checks, mutate source asset rows, or touch R2.
+The read endpoints are admin-only, production-MFA protected, bounded, sanitized, and read-only. They expose queue filters, item detail, event history, rollups, and JSON/Markdown evidence export. The status endpoint is admin-only, production-MFA protected through route policy, same-origin protected, rate-limited, idempotency-guarded, and requires `confirm: true` plus a bounded `reason`. It can update only `ai_asset_manual_review_items.review_status`/review metadata and create a matching `ai_asset_manual_review_events` row. None of these endpoints backfill ownership, switch access checks, mutate source asset rows, create notes, or touch R2.
 
-Possible future endpoints, not implemented in Phase 6.16:
+Possible future endpoints, not implemented in Phase 6.17:
 
 | Endpoint | Method | Purpose | Requirements |
 | --- | --- | --- | --- |
 | `/api/admin/tenant-assets/folders-images/manual-review-items/import-from-evidence` | POST | Future bounded import from approved evidence. | Admin-only, production MFA, same-origin JSON, `Idempotency-Key`, no backfill. |
-| `/api/admin/tenant-assets/folders-images/manual-review-items/:id/status` | POST | Future status transition. | Admin-only, production MFA, same-origin JSON, `Idempotency-Key`, event audit. |
 | `/api/admin/tenant-assets/folders-images/manual-review-items/:id/note` | POST | Future bounded note event. | Admin-only, production MFA, same-origin JSON, `Idempotency-Key`, event audit. |
 
 Future endpoints must not apply ownership changes, backfill rows, switch access checks, list/mutate R2, call providers, call Stripe, mutate Cloudflare, change public visibility, or change credits/billing.
@@ -367,9 +367,9 @@ Confirmed execution must not:
 
 Recommended next phase:
 
-`Phase 6.17 - Manual Review Status Update Workflow Design`
+`Phase 6.18 - Manual Review Status Operator Evidence`
 
-Later phases may separately design status updates, add Admin UI, and eventually design non-destructive ownership metadata backfill. Each must be dry-run-first where applicable and explicitly approved.
+Later phases may separately collect status operator evidence, add Admin UI, and eventually design non-destructive ownership metadata backfill. Each must be dry-run-first where applicable and explicitly approved.
 
 ## Validation And Test Plan
 

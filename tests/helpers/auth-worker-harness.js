@@ -6553,6 +6553,24 @@ class MockD1 {
 
     const manualReviewEventSelectPrefix = 'SELECT id, review_item_id, event_type, old_status, new_status, actor_user_id, actor_email, reason, idempotency_key, request_hash, event_metadata_json, created_at FROM ai_asset_manual_review_events';
     if (query.startsWith(manualReviewEventSelectPrefix)) {
+      if (query.includes('WHERE id = ?')) {
+        const [id] = bindings;
+        const row = this.state.aiAssetManualReviewEvents.find((entry) => entry.id === id);
+        return row ? normalizeManualReviewEventRow(row) : null;
+      }
+      if (query.includes('WHERE idempotency_key = ?')) {
+        const [idempotencyKey, limit] = bindings;
+        const rows = this.state.aiAssetManualReviewEvents
+          .filter((row) => row.idempotency_key === idempotencyKey)
+          .slice()
+          .sort((a, b) => (
+            String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+            String(a.id || '').localeCompare(String(b.id || ''))
+          ))
+          .slice(0, Number(limit) || 20)
+          .map((row) => normalizeManualReviewEventRow(row));
+        return { results: rows };
+      }
       const hasItemFilter = query.includes('WHERE review_item_id = ?');
       const limit = Number(bindings.at(-1)) || 50;
       const reviewItemId = hasItemFilter ? bindings[0] : null;
@@ -6685,6 +6703,21 @@ class MockD1 {
         superseded_by_id,
         metadata_json,
       });
+      this._lastChanges = 1;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE ai_asset_manual_review_items SET review_status = ?, reviewed_by_user_id = ?, reviewed_at = ?, updated_at = ? WHERE id = ?')) {
+      const [review_status, reviewed_by_user_id, reviewed_at, updated_at, id] = bindings;
+      const row = this.state.aiAssetManualReviewItems.find((entry) => entry.id === id);
+      if (!row) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      row.review_status = review_status;
+      row.reviewed_by_user_id = reviewed_by_user_id;
+      row.reviewed_at = reviewed_at;
+      row.updated_at = updated_at;
       this._lastChanges = 1;
       return { success: true, meta: { changes: 1 } };
     }

@@ -317,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.17 — Manual Review Status Update Workflow Design"
+  "Phase 6.18 — Manual Review Status Operator Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -364,7 +364,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.17 — Manual Review Status Update Workflow Design"
+  "Phase 6.18 — Manual Review Status Operator Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -380,7 +380,7 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "Phase 6.17 — Manual Review Status Update Workflow Design"
+  "Phase 6.18 — Manual Review Status Operator Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
 assert.equal(
@@ -421,9 +421,32 @@ assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, false);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.productionReadiness, "blocked");
 assert.equal(
   foldersImagesReport.manualReviewQueueReadApi.recommendedNextPhase,
-  "Phase 6.17 — Manual Review Status Update Workflow Design"
+  "Phase 6.18 — Manual Review Status Operator Evidence"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.17 — Manual Review Status Update Workflow Design");
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.status, "manual_review_status_workflow_added");
+assert.equal(
+  foldersImagesReport.manualReviewStatusWorkflow.helper,
+  "workers/auth/src/lib/tenant-asset-manual-review-status.js"
+);
+assert.equal(
+  foldersImagesReport.manualReviewStatusWorkflow.endpoint,
+  "/api/admin/tenant-assets/folders-images/manual-review/items/:id/status"
+);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.confirmRequired, true);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.reasonRequired, true);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.idempotencyRequired, true);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.statusChangesReviewTableOnly, true);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.sourceAssetRowsMutated, false);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.ownershipMetadataUpdated, false);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.ownershipBackfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.accessChecksChanged, false);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.r2LiveListed, false);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, false);
+assert.equal(
+  foldersImagesReport.manualReviewStatusWorkflow.recommendedNextPhase,
+  "Phase 6.18 — Manual Review Status Operator Evidence"
+);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.18 — Manual Review Status Operator Evidence");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -945,6 +968,9 @@ assert(focusedMarkdown.includes("/api/admin/tenant-assets/folders-images/manual-
 assert(focusedMarkdown.includes("Manual Review Queue Read API"));
 assert(focusedMarkdown.includes("manual_review_queue_read_api_added"));
 assert(focusedMarkdown.includes("/api/admin/tenant-assets/folders-images/manual-review/evidence/export"));
-assert(focusedMarkdown.includes("Phase 6.17"));
+assert(focusedMarkdown.includes("Manual Review Status Workflow"));
+assert(focusedMarkdown.includes("manual_review_status_workflow_added"));
+assert(focusedMarkdown.includes("/api/admin/tenant-assets/folders-images/manual-review/items/:id/status"));
+assert(focusedMarkdown.includes("Phase 6.18"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

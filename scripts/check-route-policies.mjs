@@ -57,6 +57,7 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/items", "admin.tenant-assets.folders-images.manual-review.items.list"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_123", "admin.tenant-assets.folders-images.manual-review.items.read"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_123/events", "admin.tenant-assets.folders-images.manual-review.items.events"],
+  ["POST", "/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_123/status", "admin.tenant-assets.folders-images.manual-review.items.status.update"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/evidence", "admin.tenant-assets.folders-images.manual-review.evidence.read"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/evidence/export", "admin.tenant-assets.folders-images.manual-review.evidence.export"],
   ["GET", "/api/orgs", "orgs.list"],

@@ -40,11 +40,18 @@ import {
   tenantAssetManualReviewEvidenceOptionsFromSearch,
   tenantAssetManualReviewQueueOptionsFromSearch,
 } from "../lib/tenant-asset-manual-review-queue.js";
+import {
+  TENANT_ASSET_MANUAL_REVIEW_STATUS_ENDPOINT_SUFFIX,
+  TenantAssetManualReviewStatusError,
+  serializeManualReviewStatusUpdateResult,
+  updateTenantAssetManualReviewStatus,
+} from "../lib/tenant-asset-manual-review-status.js";
 import { withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
 
 const TENANT_ASSET_EVIDENCE_RATE_LIMIT = "admin-tenant-asset-evidence-ip";
 const TENANT_ASSET_MANUAL_REVIEW_IMPORT_RATE_LIMIT = "admin-tenant-asset-manual-review-import-ip";
 const TENANT_ASSET_MANUAL_REVIEW_QUEUE_RATE_LIMIT = "admin-tenant-asset-manual-review-queue-ip";
+const TENANT_ASSET_MANUAL_REVIEW_STATUS_RATE_LIMIT = "admin-tenant-asset-manual-review-status-ip";
 
 async function enforceTenantAssetEvidenceRateLimit(ctx) {
   const result = await evaluateSharedRateLimit(
@@ -100,6 +107,24 @@ async function enforceTenantAssetManualReviewQueueRateLimit(ctx) {
   return null;
 }
 
+async function enforceTenantAssetManualReviewStatusRateLimit(ctx) {
+  const result = await evaluateSharedRateLimit(
+    ctx.env,
+    TENANT_ASSET_MANUAL_REVIEW_STATUS_RATE_LIMIT,
+    getClientIp(ctx.request),
+    10,
+    900_000,
+    sensitiveRateLimitOptions({
+      component: "admin-tenant-asset-manual-review-status",
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
+  );
+  if (result.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
+  if (result.limited) return rateLimitResponse();
+  return null;
+}
+
 function evidenceErrorResponse(error, correlationId) {
   if (error instanceof TenantAssetEvidenceReportError) {
     return withCorrelationId(json({
@@ -126,6 +151,18 @@ function manualReviewImportErrorResponse(error, correlationId) {
 
 function manualReviewQueueErrorResponse(error, correlationId) {
   if (error instanceof TenantAssetManualReviewQueueError) {
+    return withCorrelationId(json({
+      ok: false,
+      error: error.message,
+      code: error.code,
+      fields: error.fields,
+    }, { status: error.status }), correlationId);
+  }
+  throw error;
+}
+
+function manualReviewStatusErrorResponse(error, correlationId) {
+  if (error instanceof TenantAssetManualReviewStatusError) {
     return withCorrelationId(json({
       ok: false,
       error: error.message,
@@ -269,6 +306,32 @@ export async function handleAdminTenantAssets(ctx) {
       return withCorrelationId(json({ ok: true, ...items }), correlationId);
     } catch (error) {
       return manualReviewQueueErrorResponse(error, correlationId);
+    }
+  }
+
+  const manualReviewItemStatusMatch = pathname.match(/^\/api\/admin\/tenant-assets\/folders-images\/manual-review\/items\/([^/]+)\/status$/);
+  // POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status
+  // route-policy: admin.tenant-assets.folders-images.manual-review.items.status.update
+  if (manualReviewItemStatusMatch && method === "POST") {
+    const limited = await enforceTenantAssetManualReviewStatusRateLimit(ctx);
+    if (limited) return limited;
+    const itemId = decodePathSegment(manualReviewItemStatusMatch[1]);
+    if (!itemId) return withCorrelationId(json({ ok: false, error: "Not found.", code: "not_found" }, { status: 404 }), correlationId);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    try {
+      const result = await updateTenantAssetManualReviewStatus(env, {
+        itemId,
+        request: parsed.body,
+        adminUser: admin.user,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+      });
+      return withCorrelationId(json({
+        ok: true,
+        statusUpdate: serializeManualReviewStatusUpdateResult(result),
+      }), correlationId);
+    } catch (error) {
+      return manualReviewStatusErrorResponse(error, correlationId);
     }
   }
 

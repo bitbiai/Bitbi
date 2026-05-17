@@ -41,6 +41,18 @@ const BLOCKING_CATEGORIES = new Set([
   "manual_review_needed",
   "relationship_review",
 ]);
+const TERMINAL_APPROVED_STATUSES = new Set([
+  "approved_personal_user_asset",
+  "approved_organization_asset",
+  "approved_legacy_unclassified",
+  "approved_platform_admin_test_asset",
+]);
+const TERMINAL_BLOCKED_STATUSES = new Set([
+  "blocked_public_unsafe",
+  "blocked_derivative_risk",
+  "blocked_relationship_conflict",
+  "blocked_missing_evidence",
+]);
 
 export class TenantAssetManualReviewQueueError extends Error {
   constructor(message, { status = 400, code = "tenant_asset_manual_review_queue_error", fields = {} } = {}) {
@@ -463,12 +475,25 @@ async function sourceEvidencePathRows(env) {
   }));
 }
 
+function hasStatusChangeEvidence(summary) {
+  return Boolean(
+    Number(summary?.statusChangedEventsCount || 0) ||
+    Number(summary?.deferredEventsCount || 0) ||
+    Number(summary?.rejectedEventsCount || 0) ||
+    Number(summary?.supersededEventsCount || 0)
+  );
+}
+
 export async function buildTenantAssetManualReviewQueueSummary(env) {
   try {
     const [
       totalReviewItems,
       totalEvents,
       createdEventsCount,
+      statusChangedEventsCount,
+      deferredEventsCount,
+      rejectedEventsCount,
+      supersededEventsCount,
       latestCreatedEvent,
       reviewStatusRollup,
       issueCategoryRollup,
@@ -479,6 +504,10 @@ export async function buildTenantAssetManualReviewQueueSummary(env) {
       countRows(env, "SELECT COUNT(*) AS total FROM ai_asset_manual_review_items"),
       countRows(env, "SELECT COUNT(*) AS total FROM ai_asset_manual_review_events"),
       countRows(env, "SELECT COUNT(*) AS total FROM ai_asset_manual_review_events WHERE event_type = ?", ["created"]),
+      countRows(env, "SELECT COUNT(*) AS total FROM ai_asset_manual_review_events WHERE event_type = ?", ["status_changed"]),
+      countRows(env, "SELECT COUNT(*) AS total FROM ai_asset_manual_review_events WHERE event_type = ?", ["deferred"]),
+      countRows(env, "SELECT COUNT(*) AS total FROM ai_asset_manual_review_events WHERE event_type = ?", ["rejected"]),
+      countRows(env, "SELECT COUNT(*) AS total FROM ai_asset_manual_review_events WHERE event_type = ?", ["superseded"]),
       env.DB.prepare(
         `SELECT MAX(created_at) AS latest
            FROM ai_asset_manual_review_events
@@ -494,10 +523,22 @@ export async function buildTenantAssetManualReviewQueueSummary(env) {
       Object.entries(issueCategoryRollup)
         .filter(([category, count]) => BLOCKING_CATEGORIES.has(category) && count > 0)
     );
+    const terminalApprovedCount = Object.entries(reviewStatusRollup)
+      .filter(([status]) => TERMINAL_APPROVED_STATUSES.has(status))
+      .reduce((sum, [, count]) => sum + Number(count || 0), 0);
+    const terminalBlockedCount = Object.entries(reviewStatusRollup)
+      .filter(([status]) => TERMINAL_BLOCKED_STATUSES.has(status))
+      .reduce((sum, [, count]) => sum + Number(count || 0), 0);
     return {
       totalReviewItems,
       totalEvents,
       createdEventsCount,
+      statusChangedEventsCount,
+      deferredEventsCount,
+      rejectedEventsCount,
+      supersededEventsCount,
+      terminalApprovedCount,
+      terminalBlockedCount,
       mostRecentImportTimestamp: latestCreatedEvent?.latest || null,
       reviewStatusRollup,
       issueCategoryRollup,
@@ -505,6 +546,7 @@ export async function buildTenantAssetManualReviewQueueSummary(env) {
       priorityRollup,
       sourceEvidencePaths,
       blockedCategories,
+      statusWorkflowAvailable: true,
       approvedForBackfillSupported: false,
       accessSwitchReady: false,
       backfillReady: false,
@@ -530,6 +572,7 @@ export async function buildTenantAssetManualReviewEvidenceReport(env, input = {}
     const itemPage = options.includeItems
       ? await listTenantAssetManualReviewItems(env, { limit: options.limit })
       : { items: [] };
+    const reviewStatusesChanged = hasStatusChangeEvidence(summary);
     return {
       ok: true,
       available: true,
@@ -542,7 +585,7 @@ export async function buildTenantAssetManualReviewEvidenceReport(env, input = {}
       tenantIsolationClaimed: false,
       backfillPerformed: false,
       sourceAssetRowsMutated: false,
-      reviewStatusesChanged: false,
+      reviewStatusesChanged,
       r2LiveListed: false,
       productionReadiness: "blocked",
       filters: options,
@@ -551,7 +594,7 @@ export async function buildTenantAssetManualReviewEvidenceReport(env, input = {}
       recommendations: [
         "Use this report as operator evidence for review queue visibility only.",
         "Do not backfill ownership or switch access checks from this report.",
-        "Use a later explicit phase for status updates, assignment, notes, backfill planning, or Admin UI workflows.",
+        "Use the Phase 6.17 status workflow only for explicit review-status changes; assignment, notes, backfill planning, and Admin UI workflows remain separate future work.",
       ],
       limitations: [
         "This report reads manual-review state tables only.",
@@ -620,7 +663,14 @@ export function exportTenantAssetManualReviewEvidenceReportMarkdown(report) {
     "totalReviewItems",
     "totalEvents",
     "createdEventsCount",
+    "statusChangedEventsCount",
+    "deferredEventsCount",
+    "rejectedEventsCount",
+    "supersededEventsCount",
+    "terminalApprovedCount",
+    "terminalBlockedCount",
     "mostRecentImportTimestamp",
+    "statusWorkflowAvailable",
     "accessSwitchReady",
     "backfillReady",
     "tenantIsolationClaimed",

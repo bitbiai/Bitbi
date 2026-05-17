@@ -67,6 +67,13 @@ Phase 6.16 adds read-only review queue/evidence visibility:
 
 These endpoints are admin-only, production-MFA protected through route policy, bounded, sanitized, and read-only. They expose queue items, item event history, queue rollups, and JSON/Markdown evidence exports without updating review statuses, creating notes, mutating source asset rows, backfilling ownership, switching access checks, adding Admin UI, or listing/mutating R2.
 
+Phase 6.17 adds the admin-approved status workflow endpoint:
+
+- `POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status`
+- helper: `workers/auth/src/lib/tenant-asset-manual-review-status.js`
+
+The endpoint requires admin auth, production MFA through route policy, same-origin protection, rate limiting, `Idempotency-Key`, `confirm: true`, and a bounded `reason`. It updates only review item status/review metadata and appends sanitized events. It does not update source asset rows, ownership metadata, public visibility, access checks, backfill ownership, add Admin UI, or list/mutate R2. Queue evidence reports now include status-change event counts, terminal approved/blocked counts, and keep `accessSwitchReady=false`, `backfillReady=false`, `tenantIsolationClaimed=false`, and `productionReadiness=blocked`.
+
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
 Synthetic fixtures, runbook instructions, and pending markers must not be treated as main evidence.
@@ -94,5 +101,7 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 9. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
 
 10. If using the Phase 6.15 import executor, first run dry-run mode, then execute only with an admin-approved reason and `Idempotency-Key`; inspect the resulting rows through the Phase 6.16 read-only queue/evidence endpoints before any status workflow, backfill design, or access-check migration.
+
+11. If using the Phase 6.17 status workflow, change only review statuses with explicit reasons and idempotency, then export updated queue evidence. Status changes are operator evidence only and do not approve backfill or access-check switching.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.
