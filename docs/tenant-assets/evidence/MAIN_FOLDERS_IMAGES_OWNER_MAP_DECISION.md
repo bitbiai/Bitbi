@@ -110,4 +110,4 @@ This is not a green evidence result. It does not approve tenant isolation, produ
 
 ## Next Recommended Phase
 
-Phase 6.11 implemented the design-only manual review workflow in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`. The next recommended tenant-asset phase is Phase 6.12 - Manual Review State Schema Design for AI Folders & Images.
+Phase 6.11 implemented the design-only manual review workflow in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`. Phase 6.12 implemented the design-only review-state schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` without adding a migration or review rows. The next recommended tenant-asset phase is Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images.

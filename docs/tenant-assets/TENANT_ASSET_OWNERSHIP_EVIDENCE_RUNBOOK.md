@@ -208,4 +208,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.12 - Manual Review State Schema Design for AI Folders & Images after the Phase 6.11 workflow design, with no access-check switch or backfill by default.
+Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images after the Phase 6.12 schema design, with no review-row import, access-check switch, or backfill by default.

@@ -37,8 +37,11 @@ for the same folder/image domain. Phase 6.7 adds admin-only bounded evidence
 reports/exports over those diagnostics. Phase 6.8 adds evidence collection
 runbook/template/checklist docs only. Phase 6.9 adds a main-only evidence
 package. Phase 6.10 reviews real main evidence and records manual review
-required while access-switch/backfill remains blocked. Phase 6.11 adds manual-review workflow design and a local planner only. These phases do not rewrite existing D1
-ownership rows, backfill old owner metadata, assign organization ownership,
+required while access-switch/backfill remains blocked. Phase 6.11 adds
+manual-review workflow design and a local planner only. Phase 6.12 designs
+future manual-review state schema only. These phases do not add the future
+review-state migration, create review rows, rewrite existing D1 ownership rows,
+backfill old owner metadata, assign organization ownership,
 move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
 member/org generation, or prove full tenant isolation.
@@ -61,7 +64,10 @@ adds nullable columns, Phase 6.5 assigns new personal folder/image write
 metadata, Phase 6.6 adds simulated read diagnostics, Phase 6.7 exposes bounded
 admin evidence reports/exports, Phase 6.8 defines evidence collection
 records, Phase 6.9 adds the main-only evidence package, Phase 6.10 reviews
-real main evidence and requires manual review while keeping access/backfill blocked, and Phase 6.11 defines a manual-review workflow without execution. Existing generated assets are not backfilled and are not migrated to
+real main evidence and requires manual review while keeping access/backfill
+blocked, Phase 6.11 defines a manual-review workflow without execution, and
+Phase 6.12 designs future review-state tables/events without adding them.
+Existing generated assets are not backfilled and are not migrated to
 organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local

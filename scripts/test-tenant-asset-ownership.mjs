@@ -298,7 +298,36 @@ assert(foldersImagesReport.manualReviewWorkflow.issueCategories.includes("public
 assert(foldersImagesReport.manualReviewWorkflow.issueCategories.includes("derivative_risk"));
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending_review"));
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.12 — Manual Review State Schema Design for AI Folders & Images");
+assert.equal(
+  foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
+  "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
+);
+assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_designed");
+assert.equal(
+  foldersImagesReport.manualReviewStateSchema.designDoc,
+  "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md"
+);
+assert.equal(
+  foldersImagesReport.manualReviewStateSchema.expectedFutureMigration,
+  "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql"
+);
+assert.equal(foldersImagesReport.manualReviewStateSchema.migrationAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewRowsCreated, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.reviewItemImportAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.endpointAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.accessChecksChanged, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.backfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.r2LiveListed, false);
+assert(foldersImagesReport.manualReviewStateSchema.proposedTables.includes("ai_asset_manual_review_items"));
+assert(foldersImagesReport.manualReviewStateSchema.proposedTables.includes("ai_asset_manual_review_events"));
+assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx_ai_asset_manual_review_items_domain_asset"));
+assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
+assert.equal(
+  foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
+  "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images"
+);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.13 — Additive Manual Review State Schema for AI Folders & Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -556,6 +585,47 @@ assert(!manualReviewPlannerSource.includes("wrangler d1"));
 assert(!manualReviewPlannerSource.includes("DELETE FROM"));
 assert(!manualReviewPlannerSource.includes("UPDATE ai_"));
 
+const manualReviewStateSchemaDesignPath = path.join(
+  repoRoot,
+  "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md"
+);
+assert(fs.existsSync(manualReviewStateSchemaDesignPath), "Phase 6.12 manual review state schema design must exist");
+const manualReviewStateSchemaDesign = fs.readFileSync(manualReviewStateSchemaDesignPath, "utf8");
+for (const expected of [
+  "ai_asset_manual_review_items",
+  "ai_asset_manual_review_events",
+  "metadata_missing",
+  "public_unsafe",
+  "derivative_risk",
+  "dual_read_unsafe",
+  "pending_review",
+  "review_in_progress",
+  "approved_personal_user_asset",
+  "blocked_public_unsafe",
+  "create_review_item_from_evidence",
+  "idx_ai_asset_manual_review_items_domain_asset",
+  "Idempotency-Key",
+  "No migration file is added in Phase 6.12",
+  "No review rows are created",
+]) {
+  assert(manualReviewStateSchemaDesign.includes(expected), `manual review state schema design missing ${expected}`);
+}
+assert(!/\bUPDATE\s+ai_(folders|images)\b/i.test(manualReviewStateSchemaDesign));
+assert(!/\bDELETE\s+FROM\b/i.test(manualReviewStateSchemaDesign));
+assert(!/\bwrangler\s+d1\s+migrations\s+apply\b/i.test(manualReviewStateSchemaDesign));
+assert(!manualReviewStateSchemaDesign.includes("Cookie:"));
+assert(!manualReviewStateSchemaDesign.includes("Bearer "));
+
+const manualReviewStateSchemaMigrationPath = path.join(
+  repoRoot,
+  "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql"
+);
+assert.equal(
+  fs.existsSync(manualReviewStateSchemaMigrationPath),
+  false,
+  "Phase 6.12 must not add the future 0057 manual review state migration"
+);
+
 const ownershipMigrationPath = path.join(
   repoRoot,
   "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql"
@@ -601,5 +671,9 @@ assert(focusedMarkdown.includes("Main Evidence Package"));
 assert(focusedMarkdown.includes("needs_manual_review"));
 assert(focusedMarkdown.includes("Manual Review Workflow"));
 assert(focusedMarkdown.includes("manual_review_workflow_designed"));
+assert(focusedMarkdown.includes("Manual Review State Schema"));
+assert(focusedMarkdown.includes("manual_review_state_schema_designed"));
+assert(focusedMarkdown.includes("ai_asset_manual_review_items"));
+assert(focusedMarkdown.includes("Phase 6.13"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

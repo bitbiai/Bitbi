@@ -8,6 +8,8 @@ Decision file: `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISI
 
 This Phase 6.11 plan uses only the committed Phase 6.10 main evidence summary. It does not use synthetic fixtures as evidence. It does not require the raw JSON export to be committed because the Markdown summary contains the safe counts and decision fields needed for this plan.
 
+Phase 6.12 adds the design-only schema plan in `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`. That design does not add a migration, create review rows, import evidence into D1, switch access checks, or backfill ownership.
+
 ## Evidence Counts Used
 
 | Signal | Count |
@@ -64,11 +66,10 @@ This Phase 6.11 plan uses only the committed Phase 6.10 main evidence summary. I
 
 ## Next Recommended Phase
 
-`Phase 6.12 - Manual Review State Schema Design for AI Folders & Images`
+`Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images`
 
-Phase 6.12 should decide whether an additive manual-review state table is needed for operator review records. It should still avoid ownership backfill, access-check switching, D1 row rewrites, R2 listing/mutation, and repair execution.
+Phase 6.13 may add the additive manual-review state tables and indexes if approved. It should still avoid importing review rows, ownership backfill, access-check switching, D1 ownership row rewrites, R2 listing/mutation, and repair execution.
 
 ## Safety Statement
 
 No D1 rows were rewritten. No ownership backfill was performed. No R2 objects were listed, moved, deleted, copied, or rewritten. No runtime access checks changed. No backend route behavior, frontend runtime behavior, lifecycle/export/delete behavior, storage quota behavior, public gallery behavior, media serving behavior, generation behavior, billing behavior, credit behavior, provider call, Stripe call, Cloudflare API call, remote migration, deploy, or destructive action occurred.
-

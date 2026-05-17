@@ -138,4 +138,4 @@ Record operator confirmation:
 
 ## 11. Next Recommended Phase
 
-Phase 6.12 - Manual Review State Schema Design for AI Folders & Images if Phase 6.11 has already recorded the workflow design and nonzero high-risk counts remain.
+Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images if Phase 6.12 has already recorded the schema design and nonzero high-risk counts remain. The next phase should still avoid review-row import, access-check switching, and ownership backfill unless separately approved.

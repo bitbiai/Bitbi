@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. It is design and planning only. It does not add a D1 migration, endpoint, Admin UI, repair executor, ownership backfill, access-check switch, D1 row update, R2 listing, R2 mutation, provider call, Stripe call, Cloudflare call, credit mutation, billing mutation, tenant-isolation claim, or production-readiness claim.
+Phase 6.11 defines a manual-review workflow for AI folders/images owner-map issues found by the main-only evidence process. Phase 6.12 adds `AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` to design future review-state persistence. Both phases are design and planning only. They do not add a D1 migration, create review rows, add an endpoint, add Admin UI, add a repair executor, perform ownership backfill, switch access checks, update D1 rows, list/mutate R2, call providers, call Stripe, call Cloudflare APIs, mutate credits/billing, claim tenant isolation, or claim production readiness.
 
 ## Source Evidence
 
@@ -60,7 +60,7 @@ Manual review is not allowed to update rows, run backfills, emit executable SQL,
 
 ## Review Statuses
 
-These statuses are design-only in Phase 6.11. No D1 table is added, no D1 row is updated, and no runtime behavior changes.
+These statuses remain design-only in Phase 6.11/6.12. No D1 table is added, no review row is created, no D1 row is updated, and no runtime behavior changes.
 
 - `pending_review`
 - `review_in_progress`
@@ -151,11 +151,21 @@ Access-check switching and ownership backfill remain blocked when any of these a
 
 The Phase 6.10 main evidence has nonzero `metadata_missing`, `public_unsafe`, `derivative_risk`, `dual_read_unsafe`, and `manual_review_needed`, so the workflow cannot approve access-check switching or backfill.
 
+## Phase 6.12 State Schema Design
+
+Phase 6.12 defines future review-state persistence without implementing it:
+
+- proposed tables: `ai_asset_manual_review_items` and `ai_asset_manual_review_events`;
+- future migration name: `0057_add_ai_asset_manual_review_state.sql`, not added in Phase 6.12;
+- deterministic review item keys and idempotent future imports;
+- append-only review events for future status changes;
+- safe evidence snapshot fields and forbidden unsafe fields;
+- future admin API/UI requirements with no backfill, access-switch, R2, provider, Stripe, Cloudflare, credit, or billing actions.
+
 ## Future Implementation Phases
 
 Recommended next phase:
 
-`Phase 6.12 - Manual Review State Schema Design for AI Folders & Images`
+`Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images`
 
-That future phase may design or add an additive review-state table if needed. It should still avoid access-check switching, old-row backfill, D1 row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.
-
+That future phase may add the additive review-state tables and indexes if approved. It should still avoid review-row import, access-check switching, old-row backfill, D1 ownership row rewrites, R2 listing/mutation, and any repair executor unless explicitly approved later.

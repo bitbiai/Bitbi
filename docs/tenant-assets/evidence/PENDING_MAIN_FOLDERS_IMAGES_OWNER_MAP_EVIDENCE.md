@@ -58,4 +58,4 @@ Do not treat this file as current proof that the Phase 6.7 endpoint is live, tha
 
 ## Next Recommended Phase
 
-Phase 6.11 has added the design-only manual review workflow. Current next step is Phase 6.12 - Manual Review State Schema Design for AI Folders & Images if the owner continues tenant-asset work.
+Phase 6.11 has added the design-only manual review workflow, and Phase 6.12 has designed future review-state schema without adding it. Current next step is Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images if the owner continues tenant-asset work.

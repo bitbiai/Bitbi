@@ -103,4 +103,4 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 ## Next Recommended Phase
 
-Phase 6.12 - Manual Review State Schema Design for AI Folders & Images after Phase 6.11 workflow design.
+Phase 6.13 - Additive Manual Review State Schema for AI Folders & Images after Phase 6.12 schema design, with no review-row import, access-check switch, or backfill by default.
