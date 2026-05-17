@@ -27,6 +27,12 @@ operator evidence retention. It does not expose raw prompts, provider bodies,
 generated outputs, secrets, raw idempotency keys, raw request fingerprints,
 Stripe data, Cloudflare values, private R2 keys, mutate usage/source/repair
 rows, mutate source attempts/jobs, mutate credits, or change customer billing.
+Phase 6.1 adds tenant asset ownership design, inventory, risk matrix, and
+source-only dry-run scripts only. Phase 6.2 adds a focused `ai_folders` /
+`ai_images` owner-map dry run with synthetic fixture evidence. These phases do
+not rewrite D1 ownership rows, add ownership schema, move or delete R2 objects,
+alter lifecycle/export/delete behavior, change public gallery behavior, change
+member/org generation, or prove full tenant isolation.
 
 ## 1. Executive Summary
 
@@ -39,6 +45,10 @@ member subscription and credit bucket scaffolding, Stripe checkout/webhook
 processing, admin audit and user activity logging, data lifecycle
 planning/export archives, Cloudflare R2/D1/Queues/Durable Objects, and
 Cloudflare Workers AI / AI Gateway model calls.
+Tenant-owned asset migration remains future work: Phase 6.1 identifies current
+user-owned media tables and R2 key patterns, and Phase 6.2 maps folder/image
+owner-class candidates, but existing generated assets are not yet migrated to
+organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform

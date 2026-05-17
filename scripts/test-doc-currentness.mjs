@@ -110,4 +110,15 @@ function writeFile(repo, relativePath, text) {
   assert.equal(result.violations[0].type, "unclassified-markdown");
 }
 
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/tenant-assets/TENANT_ASSET_OWNERSHIP_DESIGN.md", "Tenant design.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(result.categoryCounts.active_domain_design, 1);
+}
+
 console.log("Doc currentness tests passed.");

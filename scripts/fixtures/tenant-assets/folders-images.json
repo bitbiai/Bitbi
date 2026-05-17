@@ -1,0 +1,123 @@
+{
+  "folders": [
+    {
+      "id": "folder_personal",
+      "user_id": "user_personal",
+      "name": "Personal Images",
+      "slug": "personal-images",
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "status": "active"
+    },
+    {
+      "id": "folder_org_strong",
+      "user_id": "user_org_creator",
+      "name": "Org Campaign",
+      "slug": "org-campaign",
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "status": "active",
+      "ownerMap": {
+        "owningOrganizationId": "org_acme"
+      }
+    },
+    {
+      "id": "folder_weak_org",
+      "user_id": "user_weak",
+      "name": "Weak Org Signal",
+      "slug": "weak-org-signal",
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "status": "active",
+      "activeOrganizationId": "org_from_ui_only"
+    },
+    {
+      "id": "folder_conflict",
+      "user_id": "user_folder_owner",
+      "name": "Conflict",
+      "slug": "conflict",
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "status": "active"
+    }
+  ],
+  "images": [
+    {
+      "id": "image_personal",
+      "user_id": "user_personal",
+      "folder_id": "folder_personal",
+      "r2_key": "users/user_personal/folders/personal/image_personal.png",
+      "prompt": "synthetic prompt omitted",
+      "model": "fixture-model",
+      "visibility": "private",
+      "created_at": "2026-05-17T00:00:00.000Z"
+    },
+    {
+      "id": "image_org_strong",
+      "user_id": "user_org_creator",
+      "folder_id": "folder_org_strong",
+      "r2_key": "users/user_org_creator/folders/org/image_org_strong.png",
+      "thumb_key": "users/user_org_creator/derivatives/v1/image_org_strong/thumb.webp",
+      "medium_key": "users/user_org_creator/derivatives/v1/image_org_strong/medium.webp",
+      "model": "fixture-model",
+      "visibility": "private",
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "ownerMap": {
+        "owningOrganizationId": "org_acme"
+      }
+    },
+    {
+      "id": "image_weak_org",
+      "user_id": "user_weak",
+      "folder_id": "folder_weak_org",
+      "r2_key": "users/user_weak/folders/weak/image_weak_org.png",
+      "model": "fixture-model",
+      "visibility": "private",
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "selectedOrganizationId": "org_from_ui_only"
+    },
+    {
+      "id": "image_conflict",
+      "user_id": "user_image_owner",
+      "folder_id": "folder_conflict",
+      "r2_key": "users/user_image_owner/folders/conflict/image_conflict.png",
+      "model": "fixture-model",
+      "visibility": "private",
+      "created_at": "2026-05-17T00:00:00.000Z"
+    },
+    {
+      "id": "image_missing_folder",
+      "user_id": "user_personal",
+      "folder_id": "folder_missing",
+      "r2_key": "users/user_personal/folders/missing/image_missing_folder.png",
+      "model": "fixture-model",
+      "visibility": "private",
+      "created_at": "2026-05-17T00:00:00.000Z"
+    },
+    {
+      "id": "image_public_ambiguous",
+      "user_id": "user_image_owner",
+      "folder_id": "folder_conflict",
+      "r2_key": "users/user_image_owner/folders/conflict/image_public_ambiguous.png",
+      "model": "fixture-model",
+      "visibility": "public",
+      "published_at": "2026-05-17T00:00:00.000Z",
+      "created_at": "2026-05-17T00:00:00.000Z"
+    },
+    {
+      "id": "image_derivative_low_confidence",
+      "user_id": "user_personal",
+      "folder_id": "folder_personal",
+      "r2_key": "users/user_personal/folders/personal/image_derivative_low_confidence.png",
+      "thumb_key": "users/user_personal/derivatives/v1/image_derivative_low_confidence/thumb.webp",
+      "model": "fixture-model",
+      "visibility": "private",
+      "created_at": "2026-05-17T00:00:00.000Z"
+    },
+    {
+      "id": "image_admin_test",
+      "user_id": "admin_user",
+      "r2_key": "users/admin_user/folders/admin/image_admin_test.png",
+      "model": "fixture-admin-model",
+      "visibility": "private",
+      "created_at": "2026-05-17T00:00:00.000Z",
+      "source_domain": "admin_ai_image_test"
+    }
+  ]
+}

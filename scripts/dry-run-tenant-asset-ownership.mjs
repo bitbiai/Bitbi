@@ -1,0 +1,1220 @@
+#!/usr/bin/env node
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const TENANT_ASSET_OWNER_CLASSES = Object.freeze([
+  "personal_user_asset",
+  "organization_asset",
+  "platform_admin_test_asset",
+  "platform_background_asset",
+  "legacy_unclassified_asset",
+  "external_reference_asset",
+  "audit_archive_asset",
+]);
+
+export const FOLDERS_IMAGES_OWNER_MAP_CLASSES = Object.freeze([
+  "personal_user_asset",
+  "organization_asset",
+  "platform_admin_test_asset",
+  "legacy_unclassified_asset",
+  "ambiguous_owner",
+  "orphan_reference",
+  "unsafe_to_migrate",
+]);
+
+const ASSET_DOMAINS = Object.freeze([
+  {
+    id: "ai_images",
+    label: "Generated image assets",
+    table: "ai_images",
+    primaryKey: "id",
+    currentOwnerFields: ["user_id"],
+    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    r2KeyFields: ["r2_key", "thumb_key", "medium_key"],
+    routeFiles: [
+      "workers/auth/src/routes/ai/images-write.js",
+      "workers/auth/src/routes/ai/assets-read.js",
+      "workers/auth/src/routes/ai/files-read.js",
+      "workers/auth/src/routes/ai/publication.js",
+      "workers/auth/src/routes/gallery.js",
+    ],
+    migrationFiles: [
+      "workers/auth/migrations/0007_add_image_studio.sql",
+      "workers/auth/migrations/0017_add_ai_image_derivatives.sql",
+      "workers/auth/migrations/0019_add_ai_image_publication.sql",
+      "workers/auth/migrations/0046_add_asset_storage_quota.sql",
+    ],
+    bucket: "USER_IMAGES",
+    keyPatterns: ["users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png", "users/{userId}/derivatives/v{version}/{imageId}/{variant}.webp"],
+    currentAccess: "user_id equality for private reads/writes; visibility='public' for public Mempics.",
+    targetClass: "personal_user_asset or organization_asset",
+    risk: "high",
+    findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
+    futurePhase: "Phase 6.2 candidate: add owner-map dry-run and schema proposal before any backfill.",
+  },
+  {
+    id: "ai_text_assets",
+    label: "Saved text/audio/video assets",
+    table: "ai_text_assets",
+    primaryKey: "id",
+    currentOwnerFields: ["user_id"],
+    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    r2KeyFields: ["r2_key", "poster_r2_key"],
+    routeFiles: [
+      "workers/auth/src/routes/ai/text-assets-write.js",
+      "workers/auth/src/routes/ai/music-generate.js",
+      "workers/auth/src/routes/ai/video-generate.js",
+      "workers/auth/src/routes/ai/assets-read.js",
+      "workers/auth/src/routes/ai/files-read.js",
+      "workers/auth/src/routes/ai/publication.js",
+      "workers/auth/src/routes/audio-gallery.js",
+      "workers/auth/src/routes/video-gallery.js",
+    ],
+    migrationFiles: [
+      "workers/auth/migrations/0016_add_ai_text_assets.sql",
+      "workers/auth/migrations/0021_add_music_source_module.sql",
+      "workers/auth/migrations/0022_add_video_source_module.sql",
+      "workers/auth/migrations/0023_add_text_asset_publication.sql",
+      "workers/auth/migrations/0024_add_text_asset_poster.sql",
+      "workers/auth/migrations/0046_add_asset_storage_quota.sql",
+    ],
+    bucket: "USER_IMAGES",
+    keyPatterns: ["users/{userId}/folders/{folderSlug}/{text|audio|video}/{timestamp}-{random}-{fileName}", "users/{userId}/derivatives/v1/{assetId}/poster.{ext}"],
+    currentAccess: "user_id equality for private reads/writes; visibility='public' plus source_module filters for Memvids/Memtracks.",
+    targetClass: "personal_user_asset or organization_asset",
+    risk: "high",
+    findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "poster_owner_inferred_from_parent"],
+    futurePhase: "Phase 6.3 candidate after image owner-map proof.",
+  },
+  {
+    id: "ai_folders",
+    label: "AI asset folders",
+    table: "ai_folders",
+    primaryKey: "id",
+    currentOwnerFields: ["user_id"],
+    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    r2KeyFields: [],
+    routeFiles: [
+      "workers/auth/src/routes/ai/folders-read.js",
+      "workers/auth/src/routes/ai/folders-write.js",
+      "workers/auth/src/routes/ai/lifecycle.js",
+    ],
+    migrationFiles: [
+      "workers/auth/migrations/0007_add_image_studio.sql",
+      "workers/auth/migrations/0009_add_folder_status.sql",
+    ],
+    bucket: null,
+    keyPatterns: [],
+    currentAccess: "user_id equality; folder ownership guards image/text asset moves and deletes.",
+    targetClass: "personal_user_asset or organization_asset",
+    risk: "high",
+    findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
+    futurePhase: "Phase 6.2 candidate because folders can define tenant boundaries before asset backfill.",
+  },
+  {
+    id: "ai_video_jobs",
+    label: "Async video job outputs",
+    table: "ai_video_jobs",
+    primaryKey: "id",
+    currentOwnerFields: ["user_id", "scope"],
+    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    r2KeyFields: ["output_r2_key", "poster_r2_key"],
+    routeFiles: [
+      "workers/auth/src/lib/ai-video-jobs.js",
+      "workers/auth/src/routes/admin-ai.js",
+      "workers/auth/src/routes/ai/video-generate.js",
+    ],
+    migrationFiles: [
+      "workers/auth/migrations/0029_add_ai_video_jobs.sql",
+      "workers/auth/migrations/0030_harden_ai_video_jobs_phase1b.sql",
+      "workers/auth/migrations/0049_add_admin_video_job_budget_metadata.sql",
+    ],
+    bucket: "USER_IMAGES",
+    keyPatterns: ["users/{userId}/video-jobs/{jobId}/output.mp4", "users/{userId}/video-jobs/{jobId}/poster.{ext}"],
+    currentAccess: "user_id plus scope for member/admin job surfaces; no organization owner column.",
+    targetClass: "personal_user_asset, organization_asset, or platform_admin_test_asset",
+    risk: "high",
+    findings: ["admin_test_asset_classification_needed", "missing_owning_organization_id"],
+    futurePhase: "Phase 6.4 candidate after folders/images clarify owner semantics.",
+  },
+  {
+    id: "profiles_avatars",
+    label: "Profile avatars",
+    table: "profiles",
+    primaryKey: "user_id",
+    currentOwnerFields: ["user_id"],
+    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id"],
+    r2KeyFields: ["avatars/{userId}"],
+    routeFiles: [
+      "workers/auth/src/routes/avatar.js",
+      "workers/auth/src/routes/profile.js",
+      "workers/auth/src/lib/profile-avatar-state.js",
+      "workers/auth/src/routes/gallery.js",
+      "workers/auth/src/routes/audio-gallery.js",
+      "workers/auth/src/routes/video-gallery.js",
+    ],
+    migrationFiles: [
+      "workers/auth/migrations/0005_add_profiles.sql",
+      "workers/auth/migrations/0018_add_profile_avatar_state.sql",
+      "workers/auth/migrations/0026_add_cursor_pagination_support.sql",
+    ],
+    bucket: "PRIVATE_MEDIA",
+    keyPatterns: ["avatars/{userId}"],
+    currentAccess: "private avatar route requires the signed-in user; public gallery avatar routes expose avatar only for published assets.",
+    targetClass: "personal_user_asset or external_reference_asset",
+    risk: "medium",
+    findings: ["public_profile_attribution_user_only", "organization_publisher_avatar_policy_missing"],
+    futurePhase: "Phase 6.6 with public gallery attribution.",
+  },
+  {
+    id: "favorites",
+    label: "Favorites and public asset references",
+    table: "favorites",
+    primaryKey: "id",
+    currentOwnerFields: ["user_id", "item_type", "item_id"],
+    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id", "created_by_user_id", "referenced_asset_owner_type"],
+    r2KeyFields: ["thumb_url"],
+    routeFiles: ["workers/auth/src/routes/favorites.js"],
+    migrationFiles: [
+      "workers/auth/migrations/0008_add_favorites.sql",
+      "workers/auth/migrations/0025_add_media_favorite_types.sql",
+    ],
+    bucket: null,
+    keyPatterns: ["public URL reference only"],
+    currentAccess: "user_id equality; referenced public assets are not tenant-attributed in the row.",
+    targetClass: "external_reference_asset",
+    risk: "medium",
+    findings: ["favorites_reference_owner_not_recorded"],
+    futurePhase: "Phase 6.6 with gallery/favorites attribution.",
+  },
+  {
+    id: "user_asset_storage_usage",
+    label: "Asset storage quota counters",
+    table: "user_asset_storage_usage",
+    primaryKey: "user_id",
+    currentOwnerFields: ["user_id"],
+    targetOwnerFields: ["owner_type", "owning_user_id", "owning_organization_id"],
+    r2KeyFields: [],
+    routeFiles: [
+      "workers/auth/src/lib/asset-storage-quota.js",
+      "workers/auth/src/routes/ai/quota.js",
+      "workers/auth/src/routes/admin-storage.js",
+    ],
+    migrationFiles: ["workers/auth/migrations/0046_add_asset_storage_quota.sql"],
+    bucket: null,
+    keyPatterns: [],
+    currentAccess: "per-user counter recomputed from user-owned ai_images and ai_text_assets.",
+    targetClass: "personal_user_asset or organization_asset",
+    risk: "high",
+    findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
+    futurePhase: "Phase 6.5 after target owner columns are decided.",
+  },
+  {
+    id: "data_lifecycle",
+    label: "Lifecycle/export/delete planning",
+    table: "data_lifecycle_requests and data_lifecycle_request_items",
+    primaryKey: "id",
+    currentOwnerFields: ["subject_user_id", "r2_bucket", "r2_key"],
+    targetOwnerFields: ["subject_type", "subject_user_id", "subject_organization_id", "owner_type"],
+    r2KeyFields: ["r2_bucket", "r2_key"],
+    routeFiles: [
+      "workers/auth/src/lib/data-lifecycle.js",
+      "workers/auth/src/lib/data-export-cleanup.js",
+      "workers/auth/src/routes/admin-data-lifecycle.js",
+    ],
+    migrationFiles: [
+      "workers/auth/migrations/0032_add_data_lifecycle_requests.sql",
+      "workers/auth/migrations/0033_harden_data_export_archives.sql",
+    ],
+    bucket: "AUDIT_ARCHIVE",
+    keyPatterns: ["data-exports/{subjectUserId}/{requestId}/{archiveId}.json"],
+    currentAccess: "admin/support workflow centered on subject_user_id; organization lifecycle plans are deferred.",
+    targetClass: "audit_archive_asset",
+    risk: "high",
+    findings: ["lifecycle_user_only", "organization_export_delete_gap"],
+    futurePhase: "Phase 6.7 after owner mapping is proven.",
+  },
+  {
+    id: "news_pulse_visuals",
+    label: "News Pulse generated visuals",
+    table: "news_pulse_items",
+    primaryKey: "id",
+    currentOwnerFields: ["platform/background content source"],
+    targetOwnerFields: ["owner_type", "source_domain"],
+    r2KeyFields: ["visual_object_key"],
+    routeFiles: [
+      "workers/auth/src/lib/news-pulse-visuals.js",
+      "workers/auth/src/routes/public-news-pulse.js",
+      "workers/auth/src/routes/openclaw-news-pulse.js",
+    ],
+    migrationFiles: [
+      "workers/auth/migrations/0043_add_news_pulse_items.sql",
+      "workers/auth/migrations/0045_add_news_pulse_visuals.sql",
+      "workers/auth/migrations/0050_add_news_pulse_visual_budget_metadata.sql",
+    ],
+    bucket: "USER_IMAGES",
+    keyPatterns: ["news-pulse/thumbs/{itemId}.webp"],
+    currentAccess: "public content cache; not user or organization owned.",
+    targetClass: "platform_background_asset",
+    risk: "medium",
+    findings: ["platform_background_asset_classification_needed"],
+    futurePhase: "Phase 6.8 out-of-scope for tenant-owned member assets.",
+  },
+]);
+
+const R2_BINDINGS = Object.freeze([
+  {
+    binding: "USER_IMAGES",
+    bucket: "bitbi-user-images",
+    keyPatterns: [
+      "users/{userId}/folders/{folderSlug}/...",
+      "users/{userId}/derivatives/v{version}/...",
+      "users/{userId}/video-jobs/{jobId}/...",
+      "tmp/ai-generated/{userId}/{tempId}",
+      "tmp/ai-generated/music-covers/{userId}/{assetId}-{random}.png",
+      "news-pulse/thumbs/{itemId}.webp",
+    ],
+    ownerSignal: "Mostly encoded user id or platform prefix; D1 row remains source of truth.",
+    migrationRisk: "R2 keys alone are not sufficient for tenant ownership because organization id is not encoded.",
+  },
+  {
+    binding: "PRIVATE_MEDIA",
+    bucket: "bitbi-private-media",
+    keyPatterns: ["avatars/{userId}"],
+    ownerSignal: "Encoded user id only.",
+    migrationRisk: "Public gallery avatar attribution remains user/profile based.",
+  },
+  {
+    binding: "AUDIT_ARCHIVE",
+    bucket: "bitbi-audit-archive",
+    keyPatterns: [
+      "data-exports/{subjectUserId}/{requestId}/{archiveId}.json",
+      "platform-budget-evidence/platform_admin_lab_budget/{archiveId}.json",
+      "platform-budget-evidence/platform_admin_lab_budget/{archiveId}.md",
+    ],
+    ownerSignal: "Audit/lifecycle subject or platform budget scope.",
+    migrationRisk: "Audit archives are not tenant-owned media; keep as audit_archive_asset.",
+  },
+]);
+
+const ROUTE_DOMAINS = Object.freeze([
+  {
+    id: "member_private_assets",
+    routes: [
+      "GET /api/ai/assets",
+      "GET /api/ai/images",
+      "GET /api/ai/images/:id/file",
+      "GET /api/ai/images/:id/thumb",
+      "GET /api/ai/images/:id/medium",
+      "GET /api/ai/text-assets/:id/file",
+      "GET /api/ai/text-assets/:id/poster",
+    ],
+    currentAccess: "requires signed-in user and user_id match.",
+    tenantGap: "No owning_organization_id or owner_type branch.",
+  },
+  {
+    id: "member_asset_writes",
+    routes: [
+      "POST /api/ai/images/save",
+      "POST /api/ai/audio/save",
+      "PATCH /api/ai/images/:id/publication",
+      "PATCH /api/ai/text-assets/:id/publication",
+      "PATCH /api/ai/assets/bulk-move",
+      "POST /api/ai/assets/bulk-delete",
+    ],
+    currentAccess: "requires signed-in user and user_id match.",
+    tenantGap: "Future organization-owned assets need role/tenant checks before write/move/delete.",
+  },
+  {
+    id: "public_gallery",
+    routes: [
+      "GET /api/gallery/mempics",
+      "GET /api/gallery/mempics/:id/:version/file",
+      "GET /api/gallery/memvids",
+      "GET /api/gallery/memtracks",
+    ],
+    currentAccess: "visibility='public' and source_module filters; publisher attribution joins profiles by user_id.",
+    tenantGap: "Organization attribution and tenant-public policy are absent.",
+  },
+  {
+    id: "admin_storage",
+    routes: ["GET /api/admin/users/:id/storage", "admin user asset rename/move/visibility/delete routes"],
+    currentAccess: "admin can inspect/mutate assets by target user id.",
+    tenantGap: "Admin inspection is user-centered and does not surface tenant ownership ambiguity.",
+  },
+  {
+    id: "data_lifecycle",
+    routes: ["POST /api/admin/data-lifecycle/requests", "POST /api/admin/data-lifecycle/requests/:id/plan"],
+    currentAccess: "admin/support subject_user_id workflow.",
+    tenantGap: "No organization subject owner-map or tenant asset lifecycle plan.",
+  },
+]);
+
+const FUTURE_PHASES = Object.freeze([
+  {
+    phase: "6.2",
+    title: "Low-risk owner-map dry run for folders and image assets",
+    scope: "Add schema proposal or dry-run owner map for ai_folders/ai_images only; no backfill.",
+  },
+  {
+    phase: "6.3",
+    title: "Staging/local owner-map report from real rows",
+    scope: "Compare candidate organization ownership against memberships, usage attempts, and billing context.",
+  },
+  {
+    phase: "6.4",
+    title: "Org-owned folder and asset access checks",
+    scope: "Introduce organization-aware read/write guards behind tests without broad migration.",
+  },
+  {
+    phase: "6.5",
+    title: "Derivative/poster/quota alignment",
+    scope: "Align derived keys and storage quota counters with owner model.",
+  },
+  {
+    phase: "6.6",
+    title: "Public gallery attribution",
+    scope: "Add tenant-aware publisher attribution and favorites reference owner evidence.",
+  },
+  {
+    phase: "6.7",
+    title: "Export/delete/lifecycle integration",
+    scope: "Extend lifecycle planning to organization-owned assets after owner model is proven.",
+  },
+  {
+    phase: "6.8",
+    title: "R2 owner-map and orphan report",
+    scope: "Bounded local/staging object-key reconciliation; no deletes.",
+  },
+  {
+    phase: "6.9",
+    title: "Bounded non-destructive backfill",
+    scope: "Operator-approved metadata backfill only after dry-run evidence.",
+  },
+  {
+    phase: "6.10",
+    title: "Destructive cleanup gate",
+    scope: "Only after owner-map proof, backups, and explicit approval.",
+  },
+]);
+
+const FOLDERS_IMAGES_SCHEMA_SUMMARY = Object.freeze({
+  folders: Object.freeze({
+    table: "ai_folders",
+    primaryKey: "id",
+    ownerColumns: ["user_id"],
+    organizationColumns: [],
+    parentColumns: [],
+    visibilityColumns: [],
+    timestampColumns: ["created_at"],
+    lifecycleColumns: ["status"],
+    currentAccess: "User-scoped queries use user_id and status='active'. Folders are private user containers.",
+    sourceMigrations: ["0007_add_image_studio.sql", "0009_add_folder_status.sql"],
+    sourceRoutes: [
+      "workers/auth/src/routes/ai/folders-read.js",
+      "workers/auth/src/routes/ai/folders-write.js",
+      "workers/auth/src/routes/ai/lifecycle.js",
+    ],
+  }),
+  images: Object.freeze({
+    table: "ai_images",
+    primaryKey: "id",
+    ownerColumns: ["user_id"],
+    organizationColumns: [],
+    folderColumns: ["folder_id"],
+    generationColumns: ["prompt", "model", "steps", "seed"],
+    r2KeyFields: ["r2_key", "thumb_key", "medium_key"],
+    derivativeFields: [
+      "thumb_key",
+      "medium_key",
+      "thumb_mime_type",
+      "medium_mime_type",
+      "thumb_width",
+      "thumb_height",
+      "medium_width",
+      "medium_height",
+      "derivatives_status",
+      "derivatives_version",
+    ],
+    publicationColumns: ["visibility", "published_at"],
+    storageColumns: ["size_bytes"],
+    timestampColumns: ["created_at", "published_at", "derivatives_ready_at"],
+    currentAccess: "Private image reads/writes use user_id equality. Public Mempics use visibility='public' and profile joins by user_id.",
+    sourceMigrations: [
+      "0007_add_image_studio.sql",
+      "0017_add_ai_image_derivatives.sql",
+      "0019_add_ai_image_publication.sql",
+      "0046_add_asset_storage_quota.sql",
+    ],
+    sourceRoutes: [
+      "workers/auth/src/routes/ai/images-write.js",
+      "workers/auth/src/routes/ai/assets-read.js",
+      "workers/auth/src/routes/ai/files-read.js",
+      "workers/auth/src/routes/ai/publication.js",
+      "workers/auth/src/routes/gallery.js",
+    ],
+  }),
+});
+
+const FOLDERS_IMAGES_OWNER_MAP_RULES = Object.freeze([
+  {
+    id: "strong_org_evidence_required",
+    summary: "Classify as organization_asset only when an explicit organization id appears in approved owner-map or fixture evidence.",
+  },
+  {
+    id: "weak_org_context_rejected",
+    summary: "Do not infer organization ownership from UI selected organization, active organization localStorage, folder name, or R2 key alone.",
+  },
+  {
+    id: "user_only_personal_candidate",
+    summary: "A row with only user_id ownership is a personal_user_asset candidate with medium confidence, not a completed migration.",
+  },
+  {
+    id: "admin_test_explicit",
+    summary: "Classify platform_admin_test_asset only with explicit admin/test source evidence.",
+  },
+  {
+    id: "folder_image_conflict",
+    summary: "Image and folder user_id mismatch is ambiguous_owner; if public, it becomes unsafe_to_migrate.",
+  },
+  {
+    id: "missing_folder",
+    summary: "An image pointing at a missing folder is orphan_reference.",
+  },
+  {
+    id: "public_ambiguous_block",
+    summary: "Public images with ambiguous ownership are unsafe_to_migrate until attribution policy is approved.",
+  },
+  {
+    id: "derivative_parent_clarity",
+    summary: "thumb_key and medium_key inherit parent ownership and are risky when parent ownership confidence is not high.",
+  },
+]);
+
+function readText(repoRoot, relativePath) {
+  const absolutePath = path.join(repoRoot, relativePath);
+  try {
+    return fs.readFileSync(absolutePath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function fileExists(repoRoot, relativePath) {
+  return fs.existsSync(path.join(repoRoot, relativePath));
+}
+
+function evidenceForDomain(repoRoot, domain) {
+  const migrationEvidence = domain.migrationFiles.map((file) => ({
+    file,
+    exists: fileExists(repoRoot, file),
+    mentionsTable: readText(repoRoot, file).includes(domain.table.split(" ")[0]),
+    mentionsOrganizationId: /\borganization_id\b/.test(readText(repoRoot, file)),
+  }));
+  const routeEvidence = domain.routeFiles.map((file) => {
+    const text = readText(repoRoot, file);
+    return {
+      file,
+      exists: Boolean(text),
+      mentionsTable: text.includes(domain.table.split(" ")[0]),
+      userOwnedGuard: /\buser_id\s*=\s*\?|\buserId\b|session\.user\.id/.test(text),
+      organizationGuard: /\borganization_id\b|\borganizationId\b|requireOrgRole/.test(text),
+      r2Access: /USER_IMAGES|PRIVATE_MEDIA|AUDIT_ARCHIVE/.test(text),
+    };
+  });
+  return { migrationEvidence, routeEvidence };
+}
+
+function buildFindings(domain) {
+  return domain.findings.map((code) => ({
+    id: `${domain.id}.${code}`,
+    code,
+    severity: domain.risk === "high" ? "high" : "medium",
+    domainId: domain.id,
+    table: domain.table,
+    summary: findingSummary(code),
+    dryRunSignal: dryRunSignal(code),
+    futurePhase: domain.futurePhase,
+  }));
+}
+
+function findingSummary(code) {
+  const summaries = {
+    missing_owning_organization_id: "Asset row has no durable organization owner field.",
+    public_gallery_user_attribution_only: "Public gallery attribution is derived from user profile only.",
+    derivative_owner_inferred_from_parent: "Derivative object ownership is inferred from parent image metadata.",
+    poster_owner_inferred_from_parent: "Poster object ownership is inferred from parent saved asset metadata.",
+    folder_user_owned_only: "Folder rows are user-owned and cannot separate personal vs organization assets.",
+    folder_mixed_owner_future_risk: "Future tenant assets could be mixed in a folder unless owner boundaries are explicit.",
+    admin_test_asset_classification_needed: "Admin-created/test outputs need explicit platform_admin_test_asset classification.",
+    public_profile_attribution_user_only: "Published assets expose user profile attribution and no organization publisher.",
+    organization_publisher_avatar_policy_missing: "No organization avatar/publisher policy exists for public galleries.",
+    favorites_reference_owner_not_recorded: "Favorite rows store item references but not referenced owner/tenant class.",
+    quota_accounting_user_only: "Storage usage is tracked per user and cannot report organization quota.",
+    organization_storage_quota_missing: "Organization storage quota accounting is not represented.",
+    lifecycle_user_only: "Lifecycle/export/delete planning is centered on subject_user_id.",
+    organization_export_delete_gap: "Organization-owned asset export/delete behavior is not implemented.",
+    platform_background_asset_classification_needed: "Platform background/generated content needs explicit owner class.",
+  };
+  return summaries[code] || "Tenant ownership review required.";
+}
+
+function dryRunSignal(code) {
+  if (code.includes("organization") || code.includes("owning_organization")) {
+    return "Count rows without organization owner metadata once a local/staging data source is approved.";
+  }
+  if (code.includes("gallery") || code.includes("publisher")) {
+    return "List public rows whose attribution is user-only and lacks an organization/publisher class.";
+  }
+  if (code.includes("quota")) {
+    return "Compare summed asset bytes by target owner class against user_asset_storage_usage.";
+  }
+  if (code.includes("lifecycle")) {
+    return "List lifecycle plan item coverage by subject type and asset table.";
+  }
+  return "Verify source row and R2 key owner class before any migration.";
+}
+
+function normalizeMaybeId(value) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 128) return null;
+  if (/[\u0000-\u001f\u007f]/.test(text)) return null;
+  return text;
+}
+
+function readJsonFile(filePath) {
+  if (!filePath) return null;
+  const text = fs.readFileSync(filePath, "utf8");
+  const parsed = JSON.parse(text);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+}
+
+function resolveFixturePath(repoRoot, fixturePath) {
+  if (!fixturePath) return null;
+  if (path.isAbsolute(fixturePath)) return fixturePath;
+  return path.join(repoRoot, fixturePath);
+}
+
+function getNestedObject(value, key) {
+  const object = value?.[key];
+  return object && typeof object === "object" && !Array.isArray(object) ? object : {};
+}
+
+function getStrongOrganizationId(row) {
+  return normalizeMaybeId(row?.owning_organization_id)
+    || normalizeMaybeId(row?.owningOrganizationId)
+    || normalizeMaybeId(row?.organization_id)
+    || normalizeMaybeId(row?.organizationId)
+    || normalizeMaybeId(getNestedObject(row, "ownerMap").owningOrganizationId)
+    || normalizeMaybeId(getNestedObject(row, "ownerMap").owning_organization_id)
+    || normalizeMaybeId(getNestedObject(row, "owner_map").owningOrganizationId)
+    || normalizeMaybeId(getNestedObject(row, "owner_map").owning_organization_id)
+    || normalizeMaybeId(getNestedObject(row, "ownerEvidence").owningOrganizationId)
+    || normalizeMaybeId(getNestedObject(row, "ownerEvidence").owning_organization_id)
+    || normalizeMaybeId(getNestedObject(row, "ownerEvidence").organizationId)
+    || normalizeMaybeId(getNestedObject(row, "ownerEvidence").organization_id);
+}
+
+function getWeakOrganizationEvidence(row) {
+  return normalizeMaybeId(row?.activeOrganizationId)
+    || normalizeMaybeId(row?.active_organization_id)
+    || normalizeMaybeId(row?.selectedOrganizationId)
+    || normalizeMaybeId(row?.selected_organization_id)
+    || normalizeMaybeId(row?.localStorageOrganizationId)
+    || normalizeMaybeId(row?.local_storage_organization_id)
+    || normalizeMaybeId(row?.uiOrganizationId)
+    || normalizeMaybeId(row?.ui_organization_id)
+    || normalizeMaybeId(row?.weakOrganizationId)
+    || normalizeMaybeId(row?.weak_organization_id);
+}
+
+function hasAdminTestEvidence(row) {
+  const values = [
+    row?.source_domain,
+    row?.sourceDomain,
+    row?.generation_source,
+    row?.generationSource,
+    row?.created_by_role,
+    row?.createdByRole,
+    row?.scope,
+  ].map((value) => String(value || "").toLowerCase());
+  return values.some((value) => value.includes("admin") || value.includes("test"));
+}
+
+function isPublicRow(row) {
+  return String(row?.visibility || "").toLowerCase() === "public"
+    || row?.is_public === true
+    || row?.isPublic === true;
+}
+
+function hasUnsafeKeyCharacters(key) {
+  return (
+    key.includes("..") ||
+    key.includes("\\") ||
+    key.includes("\0") ||
+    key.includes("//") ||
+    key.startsWith("/") ||
+    /[\u0000-\u001f\u007f]/.test(key)
+  );
+}
+
+function sanitizeR2Key(value) {
+  const key = String(value || "").trim();
+  if (!key) {
+    return { present: false, keyClass: "missing" };
+  }
+  let keyClass = "present";
+  if (key.startsWith("users/")) keyClass = "users/{userId}/...";
+  else if (key.startsWith("tmp/ai-generated/")) keyClass = "tmp/ai-generated/{userId}/...";
+  else if (key.startsWith("news-pulse/")) keyClass = "news-pulse/...";
+  else if (key.startsWith("avatars/")) keyClass = "avatars/{userId}";
+  else if (key.startsWith("data-exports/")) keyClass = "data-exports/...";
+  else if (key.startsWith("platform-budget-evidence/")) keyClass = "platform-budget-evidence/...";
+  return {
+    present: true,
+    keyClass,
+    unsafeCharacters: hasUnsafeKeyCharacters(key),
+  };
+}
+
+function relatedR2Fields(row, fields) {
+  const out = {};
+  for (const field of fields) {
+    out[field] = sanitizeR2Key(row?.[field]);
+  }
+  return out;
+}
+
+function hasDerivativeKey(row) {
+  return Boolean(row?.thumb_key || row?.medium_key);
+}
+
+function buildCandidateBase({ table, id, index, userId, folderId = null }) {
+  return {
+    candidateId: `${table}:${normalizeMaybeId(id) || `fixture-${index}`}`,
+    sourceTable: table,
+    sourceId: normalizeMaybeId(id) || null,
+    currentUserOwner: normalizeMaybeId(userId),
+    currentFolderId: normalizeMaybeId(folderId),
+  };
+}
+
+function requiredActionForClass(ownerClass) {
+  const actions = {
+    personal_user_asset: "Add explicit personal owner metadata only after schema and owner-map proof.",
+    organization_asset: "Use explicit organization owner metadata in a future additive schema; do not infer from UI context.",
+    platform_admin_test_asset: "Keep separate from customer/org assets and exclude from customer lifecycle promises unless designed.",
+    legacy_unclassified_asset: "Keep row legacy/unclassified until stronger local/staging evidence exists.",
+    ambiguous_owner: "Resolve owner conflict manually or through a later approved owner-map phase before migration.",
+    orphan_reference: "Review missing folder/source references before any migration.",
+    unsafe_to_migrate: "Block from automated migration until ownership and public attribution are reviewed.",
+  };
+  return actions[ownerClass] || "Review before migration.";
+}
+
+function publicGalleryRiskForRow(row, ownerClass) {
+  if (!isPublicRow(row)) return "none";
+  if (ownerClass === "personal_user_asset") return "user_profile_attribution_only";
+  if (ownerClass === "organization_asset") return "organization_publisher_policy_missing";
+  return "public_owner_ambiguous";
+}
+
+function lifecycleRiskForClass(ownerClass) {
+  if (ownerClass === "organization_asset") return "organization_lifecycle_not_implemented";
+  if (ownerClass === "ambiguous_owner" || ownerClass === "orphan_reference" || ownerClass === "unsafe_to_migrate") {
+    return "owner_map_required_before_lifecycle";
+  }
+  return "user_subject_lifecycle_only";
+}
+
+function storageQuotaRiskForClass(ownerClass) {
+  if (ownerClass === "organization_asset") return "organization_storage_quota_missing";
+  if (ownerClass === "ambiguous_owner" || ownerClass === "orphan_reference" || ownerClass === "unsafe_to_migrate") {
+    return "quota_owner_unclear";
+  }
+  return "user_storage_quota_only";
+}
+
+function classifyFolderOwner(row, index = 0) {
+  const strongOrgId = getStrongOrganizationId(row);
+  const weakOrgId = getWeakOrganizationEvidence(row);
+  const ambiguityReasons = [];
+  let ownerClass = "legacy_unclassified_asset";
+  let confidence = "none";
+  let inferredOwningOrganizationId = null;
+  let blockedReason = null;
+
+  if (strongOrgId) {
+    ownerClass = "organization_asset";
+    confidence = "high";
+    inferredOwningOrganizationId = strongOrgId;
+    ambiguityReasons.push("explicit_organization_owner_evidence");
+  } else if (normalizeMaybeId(row?.user_id) || normalizeMaybeId(row?.userId)) {
+    ownerClass = "personal_user_asset";
+    confidence = "medium";
+    ambiguityReasons.push("user_id_only_current_model");
+  } else {
+    ambiguityReasons.push("missing_user_owner");
+    blockedReason = "folder_has_no_safe_user_or_org_owner_evidence";
+  }
+
+  if (weakOrgId && !strongOrgId) {
+    ambiguityReasons.push("weak_org_signal_ignored");
+  }
+
+  return {
+    ...buildCandidateBase({
+      table: "ai_folders",
+      id: row?.id,
+      index,
+      userId: row?.user_id ?? row?.userId,
+    }),
+    inferredOwnerClass: ownerClass,
+    inferredOwningOrganizationId,
+    confidence,
+    ambiguityReasons,
+    requiredFutureMigrationAction: requiredActionForClass(ownerClass),
+    blockedReason,
+    relatedR2KeyFields: {},
+    relatedDerivativeFields: {},
+    publicGalleryRisk: "none",
+    lifecycleExportDeleteRisk: lifecycleRiskForClass(ownerClass),
+    storageQuotaRisk: storageQuotaRiskForClass(ownerClass),
+  };
+}
+
+function classifyImageOwner(row, folderRowsById, folderCandidatesById, index = 0) {
+  const imageUserId = normalizeMaybeId(row?.user_id ?? row?.userId);
+  const folderId = normalizeMaybeId(row?.folder_id ?? row?.folderId);
+  const folder = folderId ? folderRowsById.get(folderId) : null;
+  const folderCandidate = folderId ? folderCandidatesById.get(folderId) : null;
+  const strongOrgId = getStrongOrganizationId(row) || getStrongOrganizationId(folder);
+  const weakOrgId = getWeakOrganizationEvidence(row) || getWeakOrganizationEvidence(folder);
+  const ambiguityReasons = [];
+  let ownerClass = "legacy_unclassified_asset";
+  let confidence = "none";
+  let inferredOwningOrganizationId = null;
+  let blockedReason = null;
+
+  if (folderId && !folder) {
+    ownerClass = "orphan_reference";
+    confidence = "none";
+    blockedReason = "image_references_missing_folder";
+    ambiguityReasons.push("missing_folder_reference");
+  } else {
+    const folderUserId = normalizeMaybeId(folder?.user_id ?? folder?.userId);
+    const hasFolderUserConflict = Boolean(folderUserId && imageUserId && folderUserId !== imageUserId);
+    if (hasFolderUserConflict) {
+      ownerClass = isPublicRow(row) ? "unsafe_to_migrate" : "ambiguous_owner";
+      confidence = "none";
+      blockedReason = isPublicRow(row)
+        ? "public_image_has_folder_user_conflict"
+        : "folder_user_conflicts_with_image_user";
+      ambiguityReasons.push("folder_image_user_conflict");
+      if (isPublicRow(row)) ambiguityReasons.push("public_owner_ambiguity");
+    } else if (hasAdminTestEvidence(row)) {
+      ownerClass = "platform_admin_test_asset";
+      confidence = "medium";
+      ambiguityReasons.push("admin_test_source_evidence");
+    } else if (strongOrgId) {
+      ownerClass = "organization_asset";
+      confidence = "high";
+      inferredOwningOrganizationId = strongOrgId;
+      ambiguityReasons.push("explicit_organization_owner_evidence");
+      if (folderCandidate?.inferredOwnerClass === "personal_user_asset") {
+        ambiguityReasons.push("folder_currently_user_owned");
+      }
+    } else if (imageUserId) {
+      ownerClass = "personal_user_asset";
+      confidence = "medium";
+      ambiguityReasons.push("user_id_only_current_model");
+    } else {
+      ambiguityReasons.push("missing_user_owner");
+      blockedReason = "image_has_no_safe_user_or_org_owner_evidence";
+    }
+  }
+
+  if (weakOrgId && !strongOrgId) {
+    ambiguityReasons.push("weak_org_signal_ignored");
+  }
+
+  const derivativeRisk = hasDerivativeKey(row) && confidence !== "high"
+    ? "derivative_parent_ownership_not_high_confidence"
+    : "inherits_parent_owner";
+  if (derivativeRisk !== "inherits_parent_owner") {
+    ambiguityReasons.push("derivative_parent_ownership_unclear");
+  }
+
+  return {
+    ...buildCandidateBase({
+      table: "ai_images",
+      id: row?.id,
+      index,
+      userId: imageUserId,
+      folderId,
+    }),
+    inferredOwnerClass: ownerClass,
+    inferredOwningOrganizationId,
+    confidence,
+    ambiguityReasons,
+    requiredFutureMigrationAction: requiredActionForClass(ownerClass),
+    blockedReason,
+    relatedR2KeyFields: relatedR2Fields(row, ["r2_key", "thumb_key", "medium_key"]),
+    relatedDerivativeFields: {
+      thumb_key: sanitizeR2Key(row?.thumb_key),
+      medium_key: sanitizeR2Key(row?.medium_key),
+      derivativeOwnershipRisk: derivativeRisk,
+    },
+    publicGalleryRisk: publicGalleryRiskForRow(row, ownerClass),
+    lifecycleExportDeleteRisk: lifecycleRiskForClass(ownerClass),
+    storageQuotaRisk: storageQuotaRiskForClass(ownerClass),
+  };
+}
+
+function summarizeCandidates(candidates) {
+  const byOwnerClass = {};
+  const byConfidence = {};
+  const ambiguityReasons = {};
+  for (const candidate of candidates) {
+    byOwnerClass[candidate.inferredOwnerClass] = (byOwnerClass[candidate.inferredOwnerClass] || 0) + 1;
+    byConfidence[candidate.confidence] = (byConfidence[candidate.confidence] || 0) + 1;
+    for (const reason of candidate.ambiguityReasons || []) {
+      ambiguityReasons[reason] = (ambiguityReasons[reason] || 0) + 1;
+    }
+  }
+  return {
+    candidateCount: candidates.length,
+    byOwnerClass,
+    byConfidence,
+    ambiguityReasons,
+    blockedCandidateCount: candidates.filter((candidate) => candidate.blockedReason).length,
+    publicRiskCandidateCount: candidates.filter((candidate) => candidate.publicGalleryRisk && candidate.publicGalleryRisk !== "none").length,
+    derivativeRiskCandidateCount: candidates.filter((candidate) => (
+      candidate.relatedDerivativeFields?.derivativeOwnershipRisk === "derivative_parent_ownership_not_high_confidence"
+    )).length,
+  };
+}
+
+function buildFoldersImagesSourceEvidence(repoRoot) {
+  const domains = ASSET_DOMAINS
+    .filter((domain) => domain.id === "ai_folders" || domain.id === "ai_images")
+    .map((domain) => ({
+      ...domain,
+      evidence: evidenceForDomain(repoRoot, domain),
+      readiness: "blocked_needs_owner_map",
+    }));
+  return {
+    domains,
+    findings: domains.flatMap(buildFindings),
+  };
+}
+
+export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(), options = {}) {
+  const generatedAt = options.generatedAt || new Date().toISOString();
+  const fixturePath = resolveFixturePath(repoRoot, options.fixturePath);
+  const fixture = fixturePath ? readJsonFile(fixturePath) : null;
+  const folders = Array.isArray(fixture?.folders) ? fixture.folders : [];
+  const images = Array.isArray(fixture?.images) ? fixture.images : [];
+  const { domains, findings } = buildFoldersImagesSourceEvidence(repoRoot);
+  const folderRowsById = new Map();
+  const folderCandidatesById = new Map();
+  const candidates = [];
+
+  folders.forEach((folder, index) => {
+    const folderId = normalizeMaybeId(folder?.id);
+    if (folderId) folderRowsById.set(folderId, folder);
+    const candidate = classifyFolderOwner(folder, index);
+    candidates.push(candidate);
+    if (folderId) folderCandidatesById.set(folderId, candidate);
+  });
+
+  images.forEach((image, index) => {
+    candidates.push(classifyImageOwner(image, folderRowsById, folderCandidatesById, index));
+  });
+
+  const summary = summarizeCandidates(candidates);
+
+  return {
+    reportVersion: "tenant-folders-images-owner-map-dry-run-v1",
+    phase: "6.2",
+    generatedAt,
+    source: fixturePath ? "repo_source_and_fixture_read_only" : "repo_source_read_only",
+    mutationMode: "dry_run_only",
+    productionReadiness: "blocked",
+    tenantIsolationReadiness: "blocked",
+    budgetScope: "not_applicable",
+    ownerMapClasses: FOLDERS_IMAGES_OWNER_MAP_CLASSES,
+    domain: "folders-images",
+    scope: {
+      tables: ["ai_folders", "ai_images"],
+      excluded: ["ai_text_assets", "ai_video_jobs", "member/org billing ledgers", "public gallery behavior changes", "R2 object listing"],
+    },
+    schemaSummary: FOLDERS_IMAGES_SCHEMA_SUMMARY,
+    rules: FOLDERS_IMAGES_OWNER_MAP_RULES,
+    fixture: {
+      provided: Boolean(fixturePath),
+      path: fixturePath ? path.relative(repoRoot, fixturePath) : null,
+      folderCount: folders.length,
+      imageCount: images.length,
+    },
+    summary: {
+      folderCandidateCount: folders.length,
+      imageCandidateCount: images.length,
+      ...summary,
+      sourceDomainCount: domains.length,
+      sourceFindingCount: findings.length,
+    },
+    mutationSafety: {
+      d1Writes: false,
+      r2Writes: false,
+      r2Deletes: false,
+      r2Moves: false,
+      cloudflareApiCalls: false,
+      stripeApiCalls: false,
+      providerCalls: false,
+      emittedCommands: [],
+      remoteQueries: false,
+      backfillSqlEmitted: false,
+    },
+    sourceEvidence: {
+      domains,
+      findings,
+      routeDomains: ROUTE_DOMAINS.filter((domain) => (
+        domain.id === "member_private_assets" ||
+        domain.id === "member_asset_writes" ||
+        domain.id === "public_gallery" ||
+        domain.id === "admin_storage" ||
+        domain.id === "data_lifecycle"
+      )),
+      r2Bindings: R2_BINDINGS.filter((binding) => binding.binding === "USER_IMAGES"),
+    },
+    candidates,
+    risks: {
+      lifecycleExportDelete: "Current lifecycle/export/delete planning remains subject_user_id centered and has no organization subject path.",
+      storageQuota: "Current storage quota is user_asset_storage_usage by user_id only.",
+      publicGallery: "Mempics public attribution joins profiles by ai_images.user_id; organization publisher policy is absent.",
+      r2Keys: "USER_IMAGES keys are owner hints, not tenant ownership proof; no live R2 listing is performed.",
+    },
+    blockedUntil: [
+      "An additive ownership metadata schema is approved.",
+      "A local/staging owner-map report validates real row counts and ambiguity rates.",
+      "Organization ownership is backed by explicit row-level evidence, not UI active organization context.",
+      "Public gallery attribution and lifecycle/export/delete impacts are designed.",
+      "Operator evidence is reviewed before any backfill.",
+    ],
+    limitations: [
+      "No live D1 rows are queried.",
+      "No live R2 objects are listed.",
+      "Fixture data is synthetic and deterministic.",
+      "Source-only mode reports domain/rule readiness, not row counts.",
+      "No runtime access behavior changes are made.",
+    ],
+    recommendedNextPhase: "Phase 6.3 — AI Folders & Images Ownership Schema Proposal / Access-Check Impact Plan",
+  };
+}
+
+export function buildTenantAssetOwnershipDryRunReport(repoRoot = process.cwd(), options = {}) {
+  const generatedAt = options.generatedAt || new Date().toISOString();
+  const assetDomains = ASSET_DOMAINS.map((domain) => ({
+    ...domain,
+    evidence: evidenceForDomain(repoRoot, domain),
+    readiness: domain.risk === "high" ? "blocked_needs_owner_map" : "review_required",
+  }));
+  const findings = assetDomains.flatMap(buildFindings);
+  const missingOrganizationOwnerDomains = assetDomains.filter((domain) => (
+    domain.targetOwnerFields.includes("owning_organization_id") &&
+    !domain.currentOwnerFields.includes("organization_id")
+  ));
+  const lifecycleGaps = findings.filter((finding) => finding.code.includes("lifecycle") || finding.code.includes("export_delete"));
+
+  return {
+    reportVersion: "tenant-asset-ownership-dry-run-v1",
+    phase: "6.1",
+    generatedAt,
+    source: "repo_source_read_only",
+    mutationMode: "dry_run_only",
+    productionReadiness: "blocked",
+    tenantIsolationReadiness: "blocked",
+    ownerClasses: TENANT_ASSET_OWNER_CLASSES,
+    summary: {
+      assetDomainCount: assetDomains.length,
+      routeDomainCount: ROUTE_DOMAINS.length,
+      r2BindingCount: R2_BINDINGS.length,
+      highRiskDomainCount: assetDomains.filter((domain) => domain.risk === "high").length,
+      missingOrganizationOwnerDomainCount: missingOrganizationOwnerDomains.length,
+      lifecycleGapCount: lifecycleGaps.length,
+      futurePhaseCount: FUTURE_PHASES.length,
+    },
+    mutationSafety: {
+      d1Writes: false,
+      r2Writes: false,
+      r2Deletes: false,
+      r2Moves: false,
+      cloudflareApiCalls: false,
+      stripeApiCalls: false,
+      providerCalls: false,
+      emittedCommands: [],
+      remoteQueries: false,
+    },
+    assetDomains,
+    routeDomains: ROUTE_DOMAINS,
+    r2Bindings: R2_BINDINGS,
+    findings,
+    lifecycleGaps,
+    blockedUntil: [
+      "Target owner columns and owner classes are approved.",
+      "A local/staging owner-map report proves candidate ownership for one low-risk domain.",
+      "R2 key ownership is reconciled against D1 rows without object moves or deletes.",
+      "Lifecycle/export/delete plans support organization subjects.",
+      "Operator evidence is reviewed before any non-destructive backfill.",
+    ],
+    limitations: [
+      "This phase reads repository source and migration files only.",
+      "No live D1 rows or R2 objects are listed.",
+      "Counts are structural inventory counts, not production data counts.",
+      "Ambiguous legacy rows remain legacy_unclassified_asset until a later owner-map dry run uses approved local or staging data.",
+    ],
+    futurePhases: FUTURE_PHASES,
+  };
+}
+
+export function renderTenantAssetOwnershipMarkdown(report) {
+  const lines = [
+    "# Tenant Asset Ownership Dry Run",
+    "",
+    `Generated at: ${report.generatedAt}`,
+    `Source: ${report.source}`,
+    `Mutation mode: ${report.mutationMode}`,
+    `Tenant isolation readiness: ${report.tenantIsolationReadiness}`,
+    "",
+    "## Summary",
+    "",
+    `- Asset domains: ${report.summary.assetDomainCount}`,
+    `- High-risk domains: ${report.summary.highRiskDomainCount}`,
+    `- Domains missing organization owner fields: ${report.summary.missingOrganizationOwnerDomainCount}`,
+    `- Lifecycle gaps: ${report.summary.lifecycleGapCount}`,
+    "",
+    "## Asset Domains",
+    "",
+    "| Domain | Table | Current owner | Target class | Risk | Readiness |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...report.assetDomains.map((domain) => (
+      `| ${domain.id} | ${domain.table} | ${domain.currentOwnerFields.join(", ")} | ${domain.targetClass} | ${domain.risk} | ${domain.readiness} |`
+    )),
+    "",
+    "## Safety",
+    "",
+    "- No D1 writes.",
+    "- No R2 writes, moves, or deletes.",
+    "- No Cloudflare, Stripe, or provider calls.",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderFoldersImagesOwnerMapMarkdown(report) {
+  const lines = [
+    "# AI Folders & Images Owner-Map Dry Run",
+    "",
+    `Generated at: ${report.generatedAt}`,
+    `Source: ${report.source}`,
+    `Mutation mode: ${report.mutationMode}`,
+    `Tenant isolation readiness: ${report.tenantIsolationReadiness}`,
+    "",
+    "## Summary",
+    "",
+    `- Folder candidates: ${report.summary.folderCandidateCount}`,
+    `- Image candidates: ${report.summary.imageCandidateCount}`,
+    `- Blocked candidates: ${report.summary.blockedCandidateCount}`,
+    `- Public-risk candidates: ${report.summary.publicRiskCandidateCount}`,
+    `- Derivative-risk candidates: ${report.summary.derivativeRiskCandidateCount}`,
+    "",
+    "## Owner Classes",
+    "",
+    "| Owner class | Count |",
+    "| --- | ---: |",
+    ...Object.entries(report.summary.byOwnerClass || {}).map(([ownerClass, count]) => `| ${ownerClass} | ${count} |`),
+    "",
+    "## Classification Rules",
+    "",
+    ...report.rules.map((rule) => `- ${rule.id}: ${rule.summary}`),
+    "",
+    "## Candidates",
+    "",
+    "| Candidate | Table | Current user | Folder | Class | Confidence | Blocked reason |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    ...report.candidates.map((candidate) => (
+      `| ${candidate.candidateId} | ${candidate.sourceTable} | ${candidate.currentUserOwner || ""} | ${candidate.currentFolderId || ""} | ${candidate.inferredOwnerClass} | ${candidate.confidence} | ${candidate.blockedReason || ""} |`
+    )),
+    "",
+    "## Safety",
+    "",
+    "- No D1 writes.",
+    "- No R2 writes, moves, deletes, copies, or live listings.",
+    "- No Cloudflare, Stripe, GitHub, or provider calls.",
+    "- No owner backfill SQL is emitted.",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function parseArgs(argv) {
+  const args = {
+    markdown: false,
+    format: "json",
+    domain: null,
+    fixtures: null,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--markdown") {
+      args.markdown = true;
+      args.format = "markdown";
+    } else if (arg === "--format") {
+      args.format = String(argv[index + 1] || "json").trim().toLowerCase();
+      index += 1;
+    } else if (arg.startsWith("--format=")) {
+      args.format = arg.slice("--format=".length).trim().toLowerCase();
+    } else if (arg === "--domain") {
+      args.domain = String(argv[index + 1] || "").trim();
+      index += 1;
+    } else if (arg.startsWith("--domain=")) {
+      args.domain = arg.slice("--domain=".length).trim();
+    } else if (arg === "--fixtures") {
+      args.fixtures = String(argv[index + 1] || "").trim();
+      index += 1;
+    } else if (arg.startsWith("--fixtures=")) {
+      args.fixtures = arg.slice("--fixtures=".length).trim();
+    }
+  }
+  if (args.format !== "json" && args.format !== "markdown") {
+    throw new Error("Unsupported format. Use json or markdown.");
+  }
+  return args;
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  if (args.domain === "folders-images") {
+    const report = buildFoldersImagesOwnerMapDryRunReport(repoRoot, {
+      fixturePath: args.fixtures,
+    });
+    if (args.markdown || args.format === "markdown") {
+      process.stdout.write(renderFoldersImagesOwnerMapMarkdown(report));
+      return;
+    }
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return;
+  }
+  const report = buildTenantAssetOwnershipDryRunReport(repoRoot);
+  if (args.markdown || args.format === "markdown") {
+    process.stdout.write(renderTenantAssetOwnershipMarkdown(report));
+    return;
+  }
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main();
+}

@@ -164,6 +164,7 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (normalized.startsWith("docs/runbooks/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/ops/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (ACTIVE_DOMAIN_DESIGN_DOCS.has(normalized)) return "active_domain_design";
+  if (normalized.startsWith("docs/tenant-assets/") && normalized.endsWith(".md")) return "active_domain_design";
   if (HISTORICAL_HANDOFF_DOCS.has(normalized)) return "historical_handoff";
   if (normalized.startsWith("docs/audits/archive/") && normalized.endsWith(".md")) return "historical_phase_report";
   if (normalized === "docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md") return "historical_phase_report";

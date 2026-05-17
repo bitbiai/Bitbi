@@ -2,11 +2,11 @@
 
 Date: 2026-04-26
 
-Last reconciled: 2026-05-16
+Last reconciled: 2026-05-17
 
 This file is an engineering baseline for retention and deletion behavior. It is not legal advice and does not claim GDPR/CCPA compliance. Product/legal review is required before enabling irreversible deletion or promising user-facing retention terms.
 
-Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0055_add_platform_budget_evidence_archives.sql`. Phase 4.19 adds `platform_budget_repair_actions` for explicit admin-approved repair audit rows; Phase 4.20 adds read-only bounded repair evidence reports/exports over those rows; Phase 4.21 adds sanitized evidence archive metadata plus `AUDIT_ARCHIVE` snapshots under `platform-budget-evidence/`. No automatic repair exists, reports/archives do not apply repairs, and review-only actions do not mutate usage/source rows. This policy baseline does not approve production deploy, full live billing readiness, full SaaS maturity, full tenant isolation, customer billing from platform caps, or full legal compliance.
+Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0055_add_platform_budget_evidence_archives.sql`. Phase 4.19 adds `platform_budget_repair_actions` for explicit admin-approved repair audit rows; Phase 4.20 adds read-only bounded repair evidence reports/exports over those rows; Phase 4.21 adds sanitized evidence archive metadata plus `AUDIT_ARCHIVE` snapshots under `platform-budget-evidence/`. Phase 6.1 adds tenant asset ownership design/dry-run docs and scripts only, and Phase 6.2 adds a focused `ai_folders`/`ai_images` owner-map dry run. No automatic repair exists, reports/archives do not apply repairs, review-only actions do not mutate usage/source rows, and Phase 6.1/6.2 do not mutate ownership rows, add schema, move/delete R2 objects, change lifecycle plans, generation behavior, gallery behavior, or billing. This policy baseline does not approve production deploy, full live billing readiness, full SaaS maturity, full tenant isolation, customer billing from platform caps, or full legal compliance.
 
 ## Principles
 
@@ -17,6 +17,7 @@ Current release truth: `config/release-compat.json` declares the latest auth D1 
 - Do not inline large R2 binaries into export archives; Phase 1-I export archives use authorized JSON manifests with media references only and do not expose raw internal media R2 keys.
 - Delete only owner-scoped or lifecycle-scoped R2 objects whose prefix has been explicitly approved. Phase 1-J cleanup is limited to `AUDIT_ARCHIVE` objects under `data-exports/`; Phase 4.21 platform budget evidence cleanup is limited to `AUDIT_ARCHIVE` objects under `platform-budget-evidence/`.
 - Treat Admin Control Plane, Pricing page, and Credits dashboard data as presentation surfaces over existing backend records unless a future phase adds new storage. Phase 4.15.1 adds D1 app-level budget switch state/history for admin/platform AI controls only; it stores no Cloudflare API tokens or Cloudflare variable values. Phase 4.17 adds `platform_admin_lab_budget` cap limit and usage evidence only; Phase 4.18 adds read-only reconciliation evidence; Phase 4.19 adds explicit admin-approved repair action audit rows and can create missing platform budget usage evidence from local D1 source proof only; Phase 4.20 adds read-only repair evidence report/export over those existing rows; Phase 4.21 stores sanitized archive metadata and private archive objects for operator evidence only. These phases are not customer billing or live billing readiness.
+- Treat Phase 6.1/6.2 tenant asset ownership output as design/dry-run evidence only. It creates no schema, owner backfill, R2 move/delete, lifecycle executor, gallery change, or tenant isolation claim.
 
 ## Retention Candidates
 
