@@ -9098,10 +9098,25 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeAttached();
+    await expect(page.locator('.admin-nav__group-label')).toContainText([
+      'Overview',
+      'Users',
+      'AI',
+      'Finance',
+      'Organization',
+      'System',
+    ]);
+    const missingInternalNavTargets = await page.locator('a.admin-nav__link[data-section]').evaluateAll((links) => links
+      .filter((link) => (link.getAttribute('href') || '').startsWith('#'))
+      .map((link) => link.dataset.section)
+      .filter((section) => !document.getElementById(`section${section.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('')}`)));
+    expect(missingInternalNavTargets).toEqual([]);
 
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Organizations / RBAC');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Billing / Credits');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Usage Attempts');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Budget Controls');
+    await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
 
     await clickAdminNavSection(page, 'security');
     await expect(page).toHaveURL(/#security$/);
@@ -9190,9 +9205,15 @@ test.describe('Admin Control Plane', () => {
     await clickAdminNavSection(page, 'ai-budget-switches');
     const switchSection = page.locator('#sectionAiBudgetSwitches');
     await expect(switchSection).toContainText('AI Budget Switches');
+    await expect(switchSection).toContainText('AI Budget Switches & Controls');
+    await expect(switchSection).toContainText('Operator Control Map');
+    await expect(switchSection).toContainText('Needs evidence');
+    await expect(page.locator('.admin-control-panel-nav')).toContainText('Evidence Archives');
     await expect(switchSection).toContainText('Cloudflare master flag');
     await expect(switchSection).toContainText('Platform Budget Caps');
     await expect(switchSection).toContainText('not customer billing');
+    await expect(switchSection).toContainText('No automatic repair');
+    await expect(switchSection).toContainText('No Stripe action');
     await expect(page.locator('#aiBudgetSwitchesSummary')).toContainText('Cloudflare master flag enabled AND app switch enabled');
     await expect(page.locator('#aiBudgetSwitchesSummary')).toContainText('platform_admin_lab_budget_foundation');
     await expect(page.locator('#aiBudgetSwitchesList')).toContainText('Admin Text Budget');
@@ -9362,6 +9383,41 @@ test.describe('Admin Control Plane', () => {
     expect(consoleErrors).toEqual([]);
   });
 
+  test('budget control aliases expose operator panels and keyboard help without replacing grouped nav', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, {});
+
+    const response = await page.goto('/admin/index.html#platform-budget-caps');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    const aiBudgetLink = page.locator('a.admin-nav__link[data-section="ai-budget-switches"]');
+    const aiGroup = page.locator('.admin-nav__group:has(a[data-section="ai-budget-switches"])');
+    await expect(aiBudgetLink).toHaveClass(/admin-nav__link--active/);
+    await expect(aiGroup).toHaveClass(/admin-nav__group--active/);
+    await expect(aiGroup).toHaveClass(/admin-nav__group--expanded/);
+    await expect(page.locator('#sectionAiBudgetSwitches')).toBeVisible();
+    await expect(page.locator('#platformBudgetCapsPanel')).toBeVisible();
+    await expect(page.locator('#platformBudgetCapsPanel')).toContainText('not customer billing');
+    await expect(page.locator('#platformBudgetCapsPanel')).toContainText('Cap required');
+
+    await page.getByRole('button', { name: 'Platform Budget Caps help' }).focus();
+    await expect(page.locator('#platformBudgetCapsHelp')).toBeVisible();
+    await expect(page.locator('#platformBudgetCapsHelp')).toContainText('not customer billing');
+
+    await page.locator('.admin-control-panel-nav__link[href="#repair-evidence-report"]').click();
+    await expect(page).toHaveURL(/#repair-evidence-report$/);
+    await expect(aiBudgetLink).toHaveClass(/admin-nav__link--active/);
+    await expect(page.locator('#platformBudgetRepairReportPanel')).toBeVisible();
+    await expect(page.locator('#platformBudgetRepairReportPanel')).toContainText('Read-only');
+    await expect(page.locator('#platformBudgetRepairReportPanel')).toContainText('No automatic repair');
+
+    await page.setViewportSize({ width: 390, height: 820 });
+    await expect(page.locator('.admin-control-panel-nav__link[href="#evidence-archives"]')).toBeVisible();
+    await expect(page.locator('#platformBudgetEvidenceArchivesPanel')).toContainText('No provider call');
+  });
+
   test('renders billing review queue safely and records manual resolutions only', async ({
     page,
   }) => {
@@ -9496,7 +9552,7 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(7);
+    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(8);
     const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
     );

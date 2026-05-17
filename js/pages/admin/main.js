@@ -144,6 +144,14 @@ const sectionMeta = {
     settings:  { title: 'Admin Settings',   desc: 'Safe settings boundaries and deployment-owned configuration' },
 };
 
+const sectionAliases = {
+    'platform-budget-caps': { section: 'ai-budget-switches', panel: 'platformBudgetCapsPanel' },
+    'budget-reconciliation': { section: 'ai-budget-switches', panel: 'platformBudgetReconciliationPanel' },
+    'budget-repair': { section: 'ai-budget-switches', panel: 'platformBudgetReconciliationPanel' },
+    'repair-evidence-report': { section: 'ai-budget-switches', panel: 'platformBudgetRepairReportPanel' },
+    'evidence-archives': { section: 'ai-budget-switches', panel: 'platformBudgetEvidenceArchivesPanel' },
+};
+
 /* ═══════════════════════════════════════════════════════════
    Toast
    ═══════════════════════════════════════════════════════════ */
@@ -163,6 +171,14 @@ const ADMIN_MFA_GATE_CODES = new Set([
     'admin_mfa_invalid_or_expired',
 ]);
 let adminBootstrapped = false;
+let pendingAdminPanelTarget = null;
+
+function resolveSectionRoute(name) {
+    const routeName = name || 'dashboard';
+    const alias = sectionAliases[routeName];
+    if (alias) return alias;
+    return { section: routeName, panel: null };
+}
 
 function setAdminMfaNotice(message = '', type = 'info') {
     if (!$mfaNotice) return;
@@ -617,7 +633,19 @@ function initAdminNavOffset() {
     window.visualViewport?.addEventListener?.('resize', syncAdminNavOffset);
 }
 
+function focusAdminPanelTarget(panelId) {
+    if (!panelId) return;
+    window.requestAnimationFrame(() => {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        panel.scrollIntoView({ block: 'start', behavior: 'auto' });
+    });
+}
+
 function showSection(name) {
+    const route = resolveSectionRoute(name);
+    name = route.section;
+    pendingAdminPanelTarget = route.panel;
     if (!sections[name]) name = 'dashboard';
     currentSection = name;
 
@@ -668,6 +696,10 @@ function showSection(name) {
     controlPlane.load(name).catch((error) => {
         console.warn(error);
         showToast('Failed to load control-plane section.', 'error');
+    }).finally(() => {
+        const panelTarget = pendingAdminPanelTarget;
+        pendingAdminPanelTarget = null;
+        focusAdminPanelTarget(panelTarget);
     });
     if (name === 'users') loadUsers($searchInput.value.trim());
     if (name === 'activity') loadActivity();
@@ -741,6 +773,17 @@ function initRouting() {
         link.addEventListener('click', (e) => {
             e.preventDefault();
             location.hash = link.dataset.nav;
+        });
+    });
+
+    document.querySelectorAll('[data-admin-panel-target]').forEach(link => {
+        link.addEventListener('click', () => {
+            const panelTarget = link.dataset.adminPanelTarget || null;
+            pendingAdminPanelTarget = panelTarget;
+            const linkHash = (link.getAttribute('href') || '').replace('#', '');
+            if (linkHash && linkHash === (location.hash || '').replace('#', '')) {
+                focusAdminPanelTarget(panelTarget);
+            }
         });
     });
 

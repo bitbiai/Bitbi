@@ -460,6 +460,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             capabilityProbe('Billing plans', () => apiAdminBillingPlans()),
             capabilityProbe('Billing events', () => apiAdminBillingEvents({ limit: 1 })),
             capabilityProbe('AI usage attempts', () => apiAdminAiUsageAttempts({ limit: 1 })),
+            capabilityProbe('AI budget controls', () => apiAdminAiBudgetSwitches()),
             capabilityProbe('Data lifecycle', () => apiAdminDataLifecycleRequests({ limit: 1 })),
             capabilityProbe('Export archives', () => apiAdminDataLifecycleArchives({ limit: 1 })),
         ]);
@@ -497,8 +498,15 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 href: '#ai-usage',
             },
             {
-                title: 'Data Lifecycle',
+                title: 'AI Budget Controls',
                 badge: { label: probes[4].status, variant: probes[4].variant },
+                copy: 'Operate Cloudflare-master plus D1 app switches, platform_admin_lab_budget caps, reconciliation, repair evidence, and sanitized archives. This is not live billing readiness.',
+                href: '#ai-budget-switches',
+                cta: 'Open controls',
+            },
+            {
+                title: 'Data Lifecycle',
+                badge: { label: probes[5].status, variant: probes[5].variant },
                 copy: 'Inspect export/deletion/anonymization requests and private export archive metadata. Irreversible deletion remains unavailable in this UI.',
                 href: '#lifecycle',
             },

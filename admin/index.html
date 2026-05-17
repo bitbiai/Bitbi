@@ -312,6 +312,10 @@
                         <span class="admin-quick-link__icon">&#x1F9E0;</span>
                         <span class="admin-quick-link__label">AI Usage</span>
                     </a>
+                    <a href="#ai-budget-switches" class="admin-quick-link glass glass-card reveal" data-nav="ai-budget-switches">
+                        <span class="admin-quick-link__icon">AI</span>
+                        <span class="admin-quick-link__label">Budget Controls</span>
+                    </a>
                     <a href="#lifecycle" class="admin-quick-link glass glass-card reveal" data-nav="lifecycle">
                         <span class="admin-quick-link__icon">&#x1F512;</span>
                         <span class="admin-quick-link__label">Data Lifecycle</span>
@@ -604,57 +608,125 @@
             <div id="sectionAiBudgetSwitches" class="admin-section" style="display:none">
                 <div class="admin-control-toolbar glass glass-card reveal visible">
                     <div>
-                        <h3 class="admin-section-title">AI Budget Switches</h3>
-                        <p class="admin-shell__desc">App-level controls for already budget-classified admin/platform AI provider-cost paths. Cloudflare master flags must also be enabled.</p>
+                        <div class="admin-section-heading-row">
+                            <h3 class="admin-section-title">AI Budget Switches & Controls</h3>
+                            <span class="admin-help">
+                                <button type="button" class="admin-help__button" aria-label="AI Budget Controls help" aria-describedby="aiBudgetControlsHelp">?</button>
+                                <span id="aiBudgetControlsHelp" class="admin-help__tooltip" role="tooltip">A provider-cost path is active only when the Cloudflare master flag, the D1 app switch, and any required platform budget cap all allow it.</span>
+                            </span>
+                        </div>
+                        <p class="admin-shell__desc">Operator controls for already budget-classified admin/platform AI paths. This page does not edit Cloudflare variables, call providers, call Stripe, or approve production readiness.</p>
+                    </div>
+                    <div class="admin-control-toolbar__badges" aria-label="AI budget control status">
+                        <span class="badge badge--admin">Admin-only</span>
+                        <span class="badge badge--legacy">MFA</span>
+                        <span class="badge badge--disabled">Production blocked</span>
                     </div>
                     <button type="button" id="aiBudgetSwitchesRefresh" class="btn-action">Refresh</button>
                 </div>
-                <div class="admin-shell glass glass-card reveal visible">
-                    <h3 class="admin-section-title">Effective Rule</h3>
+                <div class="admin-shell glass glass-card reveal visible admin-operator-map" aria-labelledby="aiBudgetOperatorMapTitle">
+                    <div class="admin-section-heading-row">
+                        <h3 id="aiBudgetOperatorMapTitle" class="admin-section-title">Operator Control Map</h3>
+                        <span class="badge badge--legacy">Needs evidence</span>
+                    </div>
+                    <p class="admin-shell__desc">Use these panels in order: verify switches, confirm caps, reconcile usage evidence, review/repair evidence, then archive sanitized operator snapshots. Live billing and production readiness remain blocked until external evidence is recorded.</p>
+                    <nav class="admin-control-panel-nav" aria-label="AI budget control panels">
+                        <a href="#ai-budget-switches" class="admin-control-panel-nav__link" data-admin-panel-target="aiBudgetSwitchesPanel">Switches</a>
+                        <a href="#platform-budget-caps" class="admin-control-panel-nav__link" data-admin-panel-target="platformBudgetCapsPanel">Caps</a>
+                        <a href="#budget-reconciliation" class="admin-control-panel-nav__link" data-admin-panel-target="platformBudgetReconciliationPanel">Reconciliation</a>
+                        <a href="#budget-repair" class="admin-control-panel-nav__link" data-admin-panel-target="platformBudgetReconciliationPanel">Repair</a>
+                        <a href="#repair-evidence-report" class="admin-control-panel-nav__link" data-admin-panel-target="platformBudgetRepairReportPanel">Repair Evidence</a>
+                        <a href="#evidence-archives" class="admin-control-panel-nav__link" data-admin-panel-target="platformBudgetEvidenceArchivesPanel">Evidence Archives</a>
+                    </nav>
+                </div>
+                <div id="aiBudgetSwitchesRulePanel" class="admin-shell glass glass-card reveal visible">
+                    <div class="admin-section-heading-row">
+                        <h3 class="admin-section-title">Effective Rule</h3>
+                        <span class="badge badge--user">Switch required</span>
+                        <span class="badge badge--user">Cap required</span>
+                    </div>
                     <p class="admin-shell__desc">Provider-cost work runs only when the Cloudflare master flag and the D1 app switch are both enabled; platform_admin_lab_budget routes also require an allowing daily/monthly cap. This UI does not show Cloudflare values or edit Cloudflare variables.</p>
                     <div id="aiBudgetSwitchesSummary"></div>
                 </div>
-                <div class="admin-shell glass glass-card reveal visible">
+                <div id="aiBudgetSwitchesPanel" class="admin-shell glass glass-card reveal visible">
                     <div class="admin-control-card-head">
                         <div>
-                            <h3 class="admin-section-title">Allowed Switches</h3>
+                            <div class="admin-section-heading-row">
+                                <h3 class="admin-section-title">Allowed Switches</h3>
+                                <span class="admin-help">
+                                    <button type="button" class="admin-help__button" aria-label="AI Budget Switches help" aria-describedby="aiBudgetSwitchesHelp">?</button>
+                                    <span id="aiBudgetSwitchesHelp" class="admin-help__tooltip" role="tooltip">The app switch is a D1 control-plane switch. It cannot override a disabled or missing Cloudflare master flag.</span>
+                                </span>
+                            </div>
                             <p class="admin-shell__desc">Updates require a reason and an Idempotency-Key. Turning on the app switch cannot override a disabled or missing Cloudflare master flag.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges" aria-label="Switch panel status">
+                            <span class="badge badge--admin">Admin-only</span>
+                            <span class="badge badge--user">Switch required</span>
                         </div>
                     </div>
                     <div id="aiBudgetSwitchesState" class="admin-state">Loading AI budget switches...</div>
                     <div id="aiBudgetSwitchesList"></div>
                 </div>
-                <div class="admin-shell glass glass-card reveal visible">
+                <div id="platformBudgetCapsPanel" class="admin-shell glass glass-card reveal visible">
                     <div class="admin-control-card-head">
                         <div>
-                            <h3 class="admin-section-title">Platform Budget Caps</h3>
+                            <div class="admin-section-heading-row">
+                                <h3 class="admin-section-title">Platform Budget Caps</h3>
+                                <span class="admin-help">
+                                    <button type="button" class="admin-help__button" aria-label="Platform Budget Caps help" aria-describedby="platformBudgetCapsHelp">?</button>
+                                    <span id="platformBudgetCapsHelp" class="admin-help__tooltip" role="tooltip">Caps limit platform/admin AI lab usage for the platform_admin_lab_budget scope. They are not customer billing or Stripe accounting.</span>
+                                </span>
+                            </div>
                             <p class="admin-shell__desc">Daily and monthly caps for platform_admin_lab_budget only. These are not customer billing, do not edit Stripe or Cloudflare, and other scopes remain future work.</p>
                         </div>
-                        <button type="button" id="platformBudgetCapsRefresh" class="btn-action">Refresh Caps</button>
+                        <div class="admin-control-chip-row">
+                            <span class="badge badge--user">Not customer billing</span>
+                            <span class="badge badge--legacy">Cap required</span>
+                            <button type="button" id="platformBudgetCapsRefresh" class="btn-action">Refresh Caps</button>
+                        </div>
                     </div>
                     <div id="platformBudgetCapsSummary"></div>
                     <div id="platformBudgetCapsState" class="admin-state">Loading platform budget caps...</div>
                     <div id="platformBudgetCapsList"></div>
                 </div>
-                <div class="admin-shell glass glass-card reveal visible">
+                <div id="platformBudgetReconciliationPanel" class="admin-shell glass glass-card reveal visible">
                     <div class="admin-control-card-head">
                         <div>
-                            <h3 class="admin-section-title">Budget Reconciliation</h3>
+                            <div class="admin-section-heading-row">
+                                <h3 class="admin-section-title">Budget Reconciliation</h3>
+                                <span class="admin-help">
+                                    <button type="button" class="admin-help__button" aria-label="Budget Reconciliation help" aria-describedby="platformBudgetReconciliationHelp">?</button>
+                                    <span id="platformBudgetReconciliationHelp" class="admin-help__tooltip" role="tooltip">Read-only checks find missing, duplicate, orphaned, failed-source, or window-mismatched budget usage evidence.</span>
+                                </span>
+                            </div>
                             <p class="admin-shell__desc">Read-only platform_admin_lab_budget usage evidence for missing, duplicate, orphan, failed-source, and window mismatch records. No repair is applied from this panel.</p>
                         </div>
-                        <button type="button" id="platformBudgetReconciliationRefresh" class="btn-action">Refresh Reconciliation</button>
+                        <div class="admin-control-chip-row">
+                            <span class="badge badge--user">Read-only checks</span>
+                            <span class="badge badge--legacy">Repairable</span>
+                            <button type="button" id="platformBudgetReconciliationRefresh" class="btn-action">Refresh Reconciliation</button>
+                        </div>
                     </div>
                     <div id="platformBudgetReconciliationSummary"></div>
                     <div id="platformBudgetReconciliationState" class="admin-state">Loading platform budget reconciliation...</div>
                     <div id="platformBudgetReconciliationList"></div>
                 </div>
-                <div class="admin-shell glass glass-card reveal visible">
+                <div id="platformBudgetRepairReportPanel" class="admin-shell glass glass-card reveal visible">
                     <div class="admin-control-card-head">
                         <div>
-                            <h3 class="admin-section-title">Repair Evidence Report</h3>
+                            <div class="admin-section-heading-row">
+                                <h3 class="admin-section-title">Repair Evidence Report</h3>
+                                <span class="admin-help">
+                                    <button type="button" class="admin-help__button" aria-label="Repair Evidence Report help" aria-describedby="platformBudgetRepairReportHelp">?</button>
+                                    <span id="platformBudgetRepairReportHelp" class="admin-help__tooltip" role="tooltip">Reports are bounded, sanitized, read-only operator evidence. They do not apply repairs or change usage/source rows.</span>
+                                </span>
+                            </div>
                             <p class="admin-shell__desc">Read-only operator report and export for platform budget repair actions. Reports do not apply repairs, mutate usage/source rows, call providers, call Stripe, or change credits.</p>
                         </div>
                         <div class="admin-control-chip-row">
+                            <span class="badge badge--user">Read-only</span>
+                            <span class="badge badge--disabled">No automatic repair</span>
                             <button type="button" id="platformBudgetRepairReportRefresh" class="btn-action btn-action--secondary">Refresh Report</button>
                             <button type="button" id="platformBudgetRepairReportExportJson" class="btn-action">Export JSON</button>
                         </div>
@@ -663,13 +735,22 @@
                     <div id="platformBudgetRepairReportState" class="admin-state">Loading repair evidence report...</div>
                     <div id="platformBudgetRepairReportList"></div>
                 </div>
-                <div class="admin-shell glass glass-card reveal visible">
+                <div id="platformBudgetEvidenceArchivesPanel" class="admin-shell glass glass-card reveal visible">
                     <div class="admin-control-card-head">
                         <div>
-                            <h3 class="admin-section-title">Evidence Archives</h3>
+                            <div class="admin-section-heading-row">
+                                <h3 class="admin-section-title">Evidence Archives</h3>
+                                <span class="admin-help">
+                                    <button type="button" class="admin-help__button" aria-label="Evidence Archives help" aria-describedby="platformBudgetEvidenceArchivesHelp">?</button>
+                                    <span id="platformBudgetEvidenceArchivesHelp" class="admin-help__tooltip" role="tooltip">Archives are sanitized operator evidence snapshots stored under the approved platform-budget-evidence prefix. They do not approve production readiness.</span>
+                                </span>
+                            </div>
                             <p class="admin-shell__desc">Admin-approved sanitized archives for platform_admin_lab_budget repair, reconciliation, and cap evidence. Archives are operator evidence only and do not apply repairs, call providers, call Stripe, or change credits.</p>
                         </div>
                         <div class="admin-control-chip-row">
+                            <span class="badge badge--user">Sanitized</span>
+                            <span class="badge badge--legacy">No provider call</span>
+                            <span class="badge badge--legacy">No Stripe action</span>
                             <button type="button" id="platformBudgetEvidenceArchivesRefresh" class="btn-action btn-action--secondary">Refresh Archives</button>
                             <button type="button" id="platformBudgetEvidenceArchiveCreate" class="btn-action">Create Archive</button>
                             <button type="button" id="platformBudgetEvidenceArchiveCleanup" class="btn-action btn-action--secondary">Cleanup Expired</button>
