@@ -6,6 +6,8 @@ Scope: Alpha Audit hardening status. Phase 0 reconciled audit/documentation curr
 
 Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0053_add_platform_budget_caps.sql`.
 
+Phase 4.18 adds no migration and adds read-only `platform_admin_lab_budget` usage reconciliation plus repair evidence only. It reports bounded sanitized inconsistencies across `platform_budget_usage_events`, `admin_ai_usage_attempts`, and `ai_video_jobs`, returns dry-run repair candidates, and does not apply repairs, mutate credits/billing/queues/R2, call providers, call Stripe, run remote migrations, or change runtime provider route behavior.
+
 ## Executive Summary
 
 BITBI has a substantial Cloudflare-native SaaS foundation: static frontend, Auth/AI/Contact Workers, D1 migrations, R2 storage, Queues, Durable Objects, route policy checks, release compatibility metadata, admin MFA, data lifecycle foundations, organization/RBAC scaffolding, credit ledgers, billing event ingestion, live one-time credit-pack scaffolding, and BITBI Pro member subscription/credit-bucket scaffolding.

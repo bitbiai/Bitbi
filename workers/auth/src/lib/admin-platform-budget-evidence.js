@@ -981,6 +981,45 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches, platfor
   };
 }
 
+function platformBudgetReconciliationEvidence(reconciliation = null) {
+  const normalized = reconciliation && typeof reconciliation === "object" ? reconciliation : null;
+  const summary = normalized?.summary || {};
+  return {
+    type: "platform_budget_usage_reconciliation",
+    phase: "Phase 4.18",
+    endpoint: "/api/admin/ai/platform-budget-reconciliation",
+    budgetScope: normalized?.budgetScope || AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    available: normalized?.ok !== false && normalized != null,
+    source: normalized?.source || "local_d1_read_only",
+    verdict: normalized?.verdict || (normalized ? "unavailable" : "not_run"),
+    readOnly: true,
+    repairExecutorExists: false,
+    repairApplied: false,
+    runtimeRouteBehaviorChanged: false,
+    productionReadiness: "blocked",
+    liveBillingReadiness: "blocked",
+    issueCount: Number(summary.issueCount || 0),
+    repairCandidateCount: Number(summary.repairCandidateCount || 0),
+    criticalIssueCount: Number(summary.criticalIssueCount || 0),
+    warningIssueCount: Number(summary.warningIssueCount || 0),
+    notCheckableCount: Number(summary.notCheckableCount || 0),
+    checks: {
+      missingUsageEvents: Number(summary.missingUsageEventCount || 0),
+      duplicateUsageEvents: Number(summary.duplicateUsageEventCount || 0),
+      orphanUsageEvents: Number(summary.orphanUsageEventCount || 0),
+      failedSourcesCounted: Number(summary.failedSourceUsageCount || 0),
+      windowMismatches: Number(summary.windowMismatchCount || 0),
+      invalidUsageUnits: Number(summary.invalidUsageUnitCount || 0),
+      capStatusIssues: Number(summary.capStatusIssueCount || 0),
+    },
+    notes: [
+      "Phase 4.18 is read-only repair evidence only.",
+      "No platform_budget_usage_events, admin_ai_usage_attempts, ai_video_jobs, credits, queues, or billing rows are mutated.",
+      "A future explicit admin-approved repair executor is still required before any repair action can run.",
+    ],
+  };
+}
+
 export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   const limits = normalizeLimits(options.limits);
   const generatedAt = options.generatedAt || new Date().toISOString();
@@ -1060,12 +1099,14 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     runtimeSwitches,
     options.platformBudgetCapUsageSummary || null
   );
+  const platformBudgetReconciliation = platformBudgetReconciliationEvidence(options.platformBudgetReconciliation || null);
   const evidenceItems = [
     ...implementedOperations,
     ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
     adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
     runtimeSwitches,
     liveBudgetCaps,
+    platformBudgetReconciliation,
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
       ...gap,
@@ -1110,6 +1151,11 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       liveBudgetCapsStatus: liveBudgetCaps.liveBudgetCapsStatus,
       liveBudgetCapsEnforced: liveBudgetCaps.liveBudgetCapsEnforced,
       recommendedFirstCapScope: liveBudgetCaps.recommendedFirstCapScope,
+      platformBudgetReconciliationAvailable: platformBudgetReconciliation.available,
+      platformBudgetReconciliationVerdict: platformBudgetReconciliation.verdict,
+      platformBudgetReconciliationRepairCandidates: platformBudgetReconciliation.repairCandidateCount,
+      platformBudgetReconciliationCriticalIssues: platformBudgetReconciliation.criticalIssueCount,
+      platformBudgetReconciliationNotCheckable: platformBudgetReconciliation.notCheckableCount,
       switchEnforcedNotCapEnforcedOperations: liveBudgetCaps.switchEnforcedNotCapEnforcedOperationIds.length,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
@@ -1119,6 +1165,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     adminAiUsageAttempts: adminAiUsageAttemptOperationalEvidence(options.adminAiUsageAttemptSummary, routeIndex),
     runtimeBudgetSwitches: runtimeSwitches,
     livePlatformBudgetCaps: liveBudgetCaps,
+    platformBudgetReconciliation,
     retiredDebugPaths: limitList(
       retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
       limits.maxImplementedOperations,
@@ -1193,6 +1240,7 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
   const capScopeLines = (report.livePlatformBudgetCaps?.countabilityByBudgetScope || []).map((scope) =>
     `- ${scope.scope}: status=${scope.status}; countability=${scope.countability}; future=${scope.futurePhase}; sources=${(scope.currentDataSources || []).join(", ") || "none"}`
   );
+  const reconciliation = report.platformBudgetReconciliation || {};
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
   );
@@ -1229,6 +1277,12 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     "",
     "## Live Platform Budget Caps",
     capScopeLines.length ? capScopeLines.join("\n") : "- None",
+    "",
+    "## Platform Budget Reconciliation",
+    `- Status: ${reconciliation.verdict || "not_run"}`,
+    `- Repair candidates: ${reconciliation.repairCandidateCount ?? 0}`,
+    `- Critical issues: ${reconciliation.criticalIssueCount ?? 0}`,
+    `- Read-only: ${reconciliation.readOnly === true ? "yes" : "no"}`,
     "",
     "## Baselined Gaps",
     gapLines.length ? gapLines.join("\n") : "- None",

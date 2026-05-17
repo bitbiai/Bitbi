@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Current AI budget note: Phase 4.18 adds read-only `platform_admin_lab_budget` usage reconciliation and repair evidence on top of Phase 4.17. The auth Worker may list bounded mismatch evidence and dry-run repair candidates, but it must not apply repairs, mutate `platform_budget_usage_events`, mutate `admin_ai_usage_attempts`, mutate `ai_video_jobs`, call providers, call Stripe, mutate Cloudflare, change member/org billing behavior, or claim live billing readiness.
+
 ## Overview
 
 Cloudflare Worker providing auth API for bitbi.ai. Modular ES module architecture using Cloudflare D1 (SQLite) for persistence, Cloudflare AI for image generation, R2 for protected/user-owned media, and cookie-based sessions. No framework — pure request/response handling with manual route matching. Wrangler v4 bundles all ES module imports via esbuild automatically.

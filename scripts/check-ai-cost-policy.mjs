@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   AI_COST_BUDGET_SCOPES,
   AI_COST_LIVE_BUDGET_CAP_STATUSES,
+  AI_COST_RECONCILIATION_STATUSES,
   AI_COST_OPERATION_REGISTRY,
   getAiCostProviderCallSourceFiles,
   getAiCostRoutePolicyBaselines,
@@ -24,6 +25,7 @@ const KNOWN_GAP_CATEGORIES = new Set(["admin", "platform", "internal", "backgrou
 const KNOWN_GAP_SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
 const KNOWN_BUDGET_SCOPES = new Set(Object.values(AI_COST_BUDGET_SCOPES));
 const LIVE_BUDGET_CAP_STATUSES = new Set(AI_COST_LIVE_BUDGET_CAP_STATUSES);
+const RECONCILIATION_STATUSES = new Set(AI_COST_RECONCILIATION_STATUSES);
 const MIGRATED_MEMBER_OPERATION_IDS = Object.freeze([
   "member.image.generate",
   "member.music.generate",
@@ -481,6 +483,17 @@ function validateLiveBudgetCapMetadata(registryEntries) {
       && policy.liveBudgetCapStatus !== "cap_enforced"
     ) {
       issues.push(`${operationId}: runtime kill-switch enforcement must remain distinct from non-enforced live budget cap metadata.`);
+    }
+    if (!RECONCILIATION_STATUSES.has(policy.reconciliationStatus)) {
+      issues.push(`${operationId}: missing or invalid platform budget reconciliation status metadata.`);
+    }
+    if (policy.liveBudgetCapStatus === "cap_enforced" || policy.targetEnforcement?.liveBudgetCap === "implemented") {
+      if (policy.reconciliationStatus !== "supported" && policy.reconciliationStatus !== "partial") {
+        issues.push(`${operationId}: cap-enforced platform budget operation must declare reconciliation-supported or partial status.`);
+      }
+      if (!policy.reconciliationEvidence || policy.reconciliationEvidence.repairExecutor !== false) {
+        issues.push(`${operationId}: Phase 4.18 reconciliation metadata must be read-only and declare repairExecutor=false.`);
+      }
     }
   }
   return issues;

@@ -4,6 +4,8 @@ Date: 2026-05-16
 
 Status: phased implementation plan only. Production/live billing remains BLOCKED.
 
+Current phase note: Phase 4.18 adds read-only `platform_admin_lab_budget` usage reconciliation and repair evidence on top of Phase 4.17. It reports missing/duplicate/orphan/failed-source/window/unit accounting issues and proposed dry-run repair candidates only. No repair executor, runtime route behavior change, migration, provider call, Stripe call, member/org billing change, credit clawback, deploy, remote migration, or live billing enablement is included.
+
 ## Phase 3.2: Gateway Contract And Tests
 
 Status: completed for contract/test foundation only.

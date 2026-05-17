@@ -116,6 +116,10 @@ import {
   upsertPlatformBudgetLimit,
   withPlatformBudgetCapMetadata,
 } from "../lib/platform-budget-caps.js";
+import {
+  PlatformBudgetReconciliationError,
+  buildPlatformBudgetReconciliationReport,
+} from "../lib/platform-budget-reconciliation.js";
 import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
 import { normalizeOrgId } from "../lib/orgs.js";
 import { sha256Hex } from "../lib/tokens.js";
@@ -254,6 +258,18 @@ function runtimeBudgetSwitchErrorResponse(error, correlationId = null) {
 function platformBudgetCapResponse(error, correlationId = null) {
   if (error instanceof PlatformBudgetCapError) {
     return withCorrelationId(platformBudgetCapErrorResponse(error), correlationId);
+  }
+  throw error;
+}
+
+function platformBudgetReconciliationResponse(error, correlationId = null) {
+  if (error instanceof PlatformBudgetReconciliationError || error instanceof PlatformBudgetCapError) {
+    return withCorrelationId(json({
+      ok: false,
+      error: error.message,
+      code: error.code || "platform_budget_reconciliation_error",
+      budget_scope: error.fields?.budgetScope || null,
+    }, { status: error.status || 503 }), correlationId);
   }
   throw error;
 }
@@ -1529,11 +1545,26 @@ export async function handleAdminAI(ctx) {
         code: error?.code || "platform_budget_cap_usage_unavailable",
       };
     }
+    let platformBudgetReconciliation = null;
+    try {
+      platformBudgetReconciliation = await buildPlatformBudgetReconciliationReport(env, {
+        includeCandidates: false,
+        limit: 25,
+      });
+    } catch (error) {
+      platformBudgetReconciliation = {
+        ok: false,
+        source: "local_d1_read_only",
+        budgetScope: "platform_admin_lab_budget",
+        code: error?.code || "platform_budget_reconciliation_unavailable",
+      };
+    }
     return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport({
       env,
       adminAiUsageAttemptSummary,
       runtimeBudgetSwitchState,
       platformBudgetCapUsageSummary,
+      platformBudgetReconciliation,
     })), correlationId);
   }
 
@@ -1706,6 +1737,26 @@ export async function handleAdminAI(ctx) {
     } catch (error) {
       if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       throw error;
+    }
+  }
+
+  if (pathname === "/api/admin/ai/platform-budget-reconciliation" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-reconciliation-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const includeCandidates = url.searchParams.get("includeCandidates") !== "false"
+        && url.searchParams.get("include_candidates") !== "false";
+      const report = await buildPlatformBudgetReconciliationReport(env, {
+        budgetScope: url.searchParams.get("budgetScope") || url.searchParams.get("budget_scope") || "platform_admin_lab_budget",
+        includeCandidates,
+        limit: resolvePaginationLimit(url.searchParams.get("limit"), {
+          defaultValue: 50,
+          maxValue: 100,
+        }),
+      });
+      return withCorrelationId(json({ ok: true, reconciliation: report }), correlationId);
+    } catch (error) {
+      return platformBudgetReconciliationResponse(error, correlationId);
     }
   }
 

@@ -636,6 +636,18 @@
                     <div id="platformBudgetCapsState" class="admin-state">Loading platform budget caps...</div>
                     <div id="platformBudgetCapsList"></div>
                 </div>
+                <div class="admin-shell glass glass-card reveal visible">
+                    <div class="admin-control-card-head">
+                        <div>
+                            <h3 class="admin-section-title">Budget Reconciliation</h3>
+                            <p class="admin-shell__desc">Read-only platform_admin_lab_budget usage evidence for missing, duplicate, orphan, failed-source, and window mismatch records. No repair is applied from this panel.</p>
+                        </div>
+                        <button type="button" id="platformBudgetReconciliationRefresh" class="btn-action">Refresh Reconciliation</button>
+                    </div>
+                    <div id="platformBudgetReconciliationSummary"></div>
+                    <div id="platformBudgetReconciliationState" class="admin-state">Loading platform budget reconciliation...</div>
+                    <div id="platformBudgetReconciliationList"></div>
+                </div>
             </div>
 
             <!-- ═══════════════════════════════════════

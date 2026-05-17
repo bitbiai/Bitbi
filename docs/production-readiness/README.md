@@ -6,6 +6,8 @@ Current status: **production readiness is BLOCKED**. Live billing readiness is a
 
 The latest auth D1 migration declared by `config/release-compat.json` is `0053_add_platform_budget_caps.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
+Phase 4.18 adds read-only platform budget usage reconciliation evidence for `platform_admin_lab_budget`. Operators must record the reconciliation verdict, critical/warning issue counts, repair candidate count, and not-checkable count before enabling admin/platform provider-cost flags for a canary. Phase 4.18 does not apply repairs, mutate usage events, mutate admin attempts/jobs, call providers, call Stripe, change member/org billing, or make production/live billing ready.
+
 ## Evidence Rule
 
 Production readiness requires evidence, not assumptions. Acceptable evidence is dated, tied to a branch and commit, names the environment, identifies who ran the check, records pass/fail output, and redacts all secret values.

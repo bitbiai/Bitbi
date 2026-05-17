@@ -402,6 +402,20 @@ for (const [operationId, readiness] of Object.entries({
   assert.equal(entry.budgetPolicy.liveBudgetCapReadiness, readiness, `${operationId} cap readiness`);
 }
 
+for (const operationId of [
+  "admin.video.job.create",
+  "admin.text.test",
+  "admin.embeddings.test",
+  "admin.music.test",
+  "admin.compare",
+  "admin.live_agent",
+]) {
+  const entry = AI_COST_OPERATION_REGISTRY.find((item) => item.operationConfig.operationId === operationId);
+  assert.equal(entry.budgetPolicy.reconciliationStatus, "supported", `${operationId} reconciliation status`);
+  assert.equal(entry.budgetPolicy.reconciliationEvidence.repairExecutor, false, `${operationId} must remain read-only repair evidence`);
+  assert(entry.budgetPolicy.reconciliationFuturePhase.includes("Phase 4.18"), `${operationId} reconciliation phase`);
+}
+
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();
 assert(routePolicyBaselines.some((entry) => entry.id === "ai.generate-image" && entry.expected === "required"));
 assert(routePolicyBaselines.some((entry) => entry.id === "admin.ai.test-embeddings" && entry.expected === "required"));

@@ -438,6 +438,29 @@ ${inventoryExtra}
 }
 
 {
+  const repoRoot = makeRepo();
+  const regressedRegistry = AI_COST_OPERATION_REGISTRY.map((entry) =>
+    entry.operationConfig?.operationId === "admin.compare"
+      ? {
+        ...entry,
+        budgetPolicy: {
+          ...entry.budgetPolicy,
+          reconciliationStatus: "future",
+          reconciliationEvidence: {
+            ...entry.budgetPolicy.reconciliationEvidence,
+            repairExecutor: true,
+          },
+        },
+      }
+      : entry
+  );
+  const result = analyzeAiCostPolicy(repoRoot, { registryEntries: regressedRegistry });
+  assert.equal(result.ok, false);
+  assert(result.fatalIssues.some((issue) => issue.includes("reconciliation")));
+  assert(result.fatalIssues.some((issue) => issue.includes("repairExecutor=false")));
+}
+
+{
   assert.deepEqual(parseAiCostPolicyArgs([]), { strict: false, help: false });
   assert.deepEqual(parseAiCostPolicyArgs(["--strict"]), { strict: true, help: false });
   assert.deepEqual(parseAiCostPolicyArgs(["--help"]), { strict: false, help: true });

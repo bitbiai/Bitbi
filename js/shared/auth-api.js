@@ -408,6 +408,14 @@ export function apiAdminAiPlatformBudgetUsage(options) {
     return request('GET', '/admin/ai/platform-budget-usage', undefined, options);
 }
 
+export function apiAdminAiPlatformBudgetReconciliation({ limit = 25, includeCandidates = true } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    params.set('includeCandidates', includeCandidates === false ? 'false' : 'true');
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/ai/platform-budget-reconciliation' + qs, undefined, options);
+}
+
 export function apiAdminDataLifecycleRequests({ limit } = {}) {
     const params = new URLSearchParams();
     if (limit) params.set('limit', String(limit));

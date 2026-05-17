@@ -47,6 +47,9 @@ assert.equal(report.summary.runtimeBudgetSwitchesEffectiveEnabled, null);
 assert.equal(report.summary.liveBudgetCapsStatus, "platform_admin_lab_budget_foundation");
 assert.equal(report.summary.liveBudgetCapsEnforced, true);
 assert.equal(report.summary.recommendedFirstCapScope, "platform_admin_lab_budget");
+assert.equal(report.summary.platformBudgetReconciliationAvailable, false);
+assert.equal(report.summary.platformBudgetReconciliationVerdict, "not_run");
+assert.equal(report.summary.platformBudgetReconciliationRepairCandidates, 0);
 assert(report.summary.switchEnforcedNotCapEnforcedOperations >= 4);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
@@ -82,6 +85,10 @@ assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.tex
 assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.live_agent"));
 assert(report.livePlatformBudgetCaps.pathsWithEstimatedCostUnits.includes("admin.video.job.create"));
 assert(report.livePlatformBudgetCaps.pathsWithDurableCompletionTimestamps.includes("admin.compare"));
+assert.equal(report.platformBudgetReconciliation.phase, "Phase 4.18");
+assert.equal(report.platformBudgetReconciliation.readOnly, true);
+assert.equal(report.platformBudgetReconciliation.repairExecutorExists, false);
+assert.equal(report.platformBudgetReconciliation.runtimeRouteBehaviorChanged, false);
 
 const platformCapScope = report.livePlatformBudgetCaps.countabilityByBudgetScope.find((entry) =>
   entry.scope === "platform_admin_lab_budget"

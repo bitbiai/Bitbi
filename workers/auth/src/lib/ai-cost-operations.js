@@ -129,6 +129,14 @@ export const AI_COST_LIVE_BUDGET_CAP_STATUSES = Object.freeze([
   "future",
 ]);
 const LIVE_BUDGET_CAP_STATUS_VALUES = new Set(AI_COST_LIVE_BUDGET_CAP_STATUSES);
+export const AI_COST_RECONCILIATION_STATUSES = Object.freeze([
+  "supported",
+  "partial",
+  "not_checkable",
+  "future",
+  "not_applicable",
+]);
+const RECONCILIATION_STATUS_VALUES = new Set(AI_COST_RECONCILIATION_STATUSES);
 
 function freezeList(value = []) {
   return Object.freeze([...value]);
@@ -149,6 +157,9 @@ function budgetPolicy(targetBudgetScope, {
   liveBudgetCapScope = targetBudgetScope,
   liveBudgetCapFuturePhase = "Phase 4.17 live platform budget cap foundation",
   liveBudgetCapEvidence = {},
+  reconciliationStatus = "future",
+  reconciliationFuturePhase = "Phase 4.18 platform budget reconciliation evidence",
+  reconciliationEvidence = {},
 } = {}) {
   return Object.freeze({
     targetBudgetScope,
@@ -166,6 +177,9 @@ function budgetPolicy(targetBudgetScope, {
     liveBudgetCapScope,
     liveBudgetCapFuturePhase,
     liveBudgetCapEvidence: Object.freeze({ ...liveBudgetCapEvidence }),
+    reconciliationStatus,
+    reconciliationFuturePhase,
+    reconciliationEvidence: Object.freeze({ ...reconciliationEvidence }),
   });
 }
 
@@ -186,6 +200,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       durableCompletionTimestamp: true,
       estimatedCostUnitsAvailable: true,
       requiresCentralUsageLedger: false,
+    },
+    reconciliationStatus: "supported",
+    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationEvidence: {
+      budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
+      sourceIdField: "source_attempt_id",
+      repairExecutor: false,
     },
   }),
   "admin.image.test.charged": budgetPolicy(AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT, {
@@ -240,6 +262,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       estimatedCostUnitsAvailable: true,
       requiresCentralUsageLedger: false,
     },
+    reconciliationStatus: "supported",
+    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationEvidence: {
+      budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
+      sourceIdField: "source_attempt_id",
+      repairExecutor: false,
+    },
   }),
   "admin.music.test": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
@@ -257,6 +287,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       durableCompletionTimestamp: true,
       estimatedCostUnitsAvailable: true,
       requiresCentralUsageLedger: false,
+    },
+    reconciliationStatus: "supported",
+    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationEvidence: {
+      budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
+      sourceIdField: "source_attempt_id",
+      repairExecutor: false,
     },
   }),
   "admin.video.sync_debug": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
@@ -282,6 +320,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       durableCompletionTimestamp: true,
       estimatedCostUnitsAvailable: true,
       requiresCentralUsageLedger: false,
+    },
+    reconciliationStatus: "supported",
+    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationEvidence: {
+      budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      sourceTables: ["ai_video_jobs", "platform_budget_usage_events"],
+      sourceIdField: "source_job_id",
+      repairExecutor: false,
     },
   }),
   "admin.video.task.create": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
@@ -315,6 +361,14 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       estimatedCostUnitsAvailable: true,
       requiresCentralUsageLedger: false,
     },
+    reconciliationStatus: "supported",
+    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationEvidence: {
+      budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
+      sourceIdField: "source_attempt_id",
+      repairExecutor: false,
+    },
   }),
   "admin.live_agent": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
@@ -339,6 +393,15 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
       durableCompletionTimestamp: true,
       estimatedCostUnitsAvailable: true,
       requiresCentralUsageLedger: false,
+      streamCompletionTracking: "metadata_only",
+    },
+    reconciliationStatus: "supported",
+    reconciliationFuturePhase: "Phase 4.18 read-only repair evidence implemented",
+    reconciliationEvidence: {
+      budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      sourceTables: ["admin_ai_usage_attempts", "platform_budget_usage_events"],
+      sourceIdField: "source_attempt_id",
+      repairExecutor: false,
       streamCompletionTracking: "metadata_only",
     },
   }),
@@ -454,6 +517,7 @@ function operation(entry) {
       ...entryBudgetPolicy,
       targetEnforcement: Object.freeze({ ...entryBudgetPolicy.targetEnforcement }),
       liveBudgetCapEvidence: Object.freeze({ ...entryBudgetPolicy.liveBudgetCapEvidence }),
+      reconciliationEvidence: Object.freeze({ ...entryBudgetPolicy.reconciliationEvidence }),
     }) : null,
     routePolicy: entry.routePolicy ? Object.freeze({ ...entry.routePolicy }) : null,
     currentGaps: freezeList(entry.currentGaps),
@@ -1727,6 +1791,15 @@ export function validateAiCostOperationRegistry(entries = AI_COST_OPERATION_REGI
         }
         if (!entryBudgetPolicy.liveBudgetCapEvidence || typeof entryBudgetPolicy.liveBudgetCapEvidence !== "object") {
           issues.push(`${normalized.operationId}: missing budgetPolicy.liveBudgetCapEvidence.`);
+        }
+        if (!RECONCILIATION_STATUS_VALUES.has(entryBudgetPolicy.reconciliationStatus)) {
+          issues.push(`${normalized.operationId}: invalid budgetPolicy.reconciliationStatus "${entryBudgetPolicy.reconciliationStatus}".`);
+        }
+        if (!entryBudgetPolicy.reconciliationFuturePhase || typeof entryBudgetPolicy.reconciliationFuturePhase !== "string") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.reconciliationFuturePhase.`);
+        }
+        if (!entryBudgetPolicy.reconciliationEvidence || typeof entryBudgetPolicy.reconciliationEvidence !== "object") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.reconciliationEvidence.`);
         }
       }
     }

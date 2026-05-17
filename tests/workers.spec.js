@@ -90,6 +90,13 @@ async function loadAiVideoJobsModule() {
   return import(modulePath);
 }
 
+async function loadPlatformBudgetReconciliationModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/platform-budget-reconciliation.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1400,6 +1407,18 @@ test.describe('Phase 1-E auth route policy registry', () => {
       body: expect.objectContaining({ kind: 'none' }),
       rateLimit: expect.objectContaining({
         id: 'admin-ai-budget-evidence-ip',
+        failClosed: true,
+      }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/platform-budget-reconciliation')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-reconciliation.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-platform-budget-reconciliation-ip',
         failClosed: true,
       }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
@@ -14921,6 +14940,8 @@ test.describe('Worker routes', () => {
           runtimeBudgetSwitchTargets: 10,
           runtimeBudgetSwitchesEnabled: 10,
           runtimeBudgetSwitchesDisabled: 0,
+          platformBudgetReconciliationAvailable: true,
+          platformBudgetReconciliationRepairCandidates: 0,
           baselineGaps: expect.any(Number),
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
@@ -15031,6 +15052,13 @@ test.describe('Worker routes', () => {
           enabled: true,
         }),
       ]));
+      expect(body.platformBudgetReconciliation).toEqual(expect.objectContaining({
+        phase: 'Phase 4.18',
+        available: true,
+        readOnly: true,
+        repairExecutorExists: false,
+        runtimeRouteBehaviorChanged: false,
+      }));
       const serialized = JSON.stringify(body);
       expect(serialized).not.toContain('raw prompt');
       expect(serialized).not.toContain('sk_live_');
@@ -15275,6 +15303,419 @@ test.describe('Worker routes', () => {
           ...authHeaders,
           'Idempotency-Key': 'platform-budget-cap-invalid-scope-1',
         }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidScope.status).toBe(400);
+    });
+
+    test('platform_admin_lab_budget reconciliation is read-only, bounded, sanitized, and reports repair evidence', async () => {
+      const budgetPolicyJson = JSON.stringify({
+        operation_id: 'admin.text.test',
+        budget_scope: 'platform_admin_lab_budget',
+        estimated_cost_units: 2,
+        prompt: 'raw prompt must not return',
+      });
+      const videoBudgetPolicyJson = JSON.stringify({
+        operation_id: 'admin.video.job.create',
+        budget_scope: 'platform_admin_lab_budget',
+        estimated_cost_units: 139,
+        provider_request_body: 'provider body must not return',
+      });
+      const reconciliationSeed = {
+        platformBudgetLimits: [
+          {
+            id: 'pbl_recon_daily',
+            budget_scope: 'platform_admin_lab_budget',
+            window_type: 'daily',
+            limit_units: 3,
+            mode: 'enforce',
+            status: 'active',
+            starts_at: null,
+            ends_at: null,
+            reason: 'low cap for reconciliation test',
+            metadata_json: '{}',
+            created_at: '2026-05-16T00:00:00.000Z',
+            updated_at: '2026-05-16T00:00:00.000Z',
+            created_by_user_id: 'test',
+            updated_by_user_id: 'test',
+          },
+          {
+            id: 'pbl_recon_monthly',
+            budget_scope: 'platform_admin_lab_budget',
+            window_type: 'monthly',
+            limit_units: 3,
+            mode: 'enforce',
+            status: 'active',
+            starts_at: null,
+            ends_at: null,
+            reason: 'low monthly cap for reconciliation test',
+            metadata_json: '{}',
+            created_at: '2026-05-16T00:00:00.000Z',
+            updated_at: '2026-05-16T00:00:00.000Z',
+            created_by_user_id: 'test',
+            updated_by_user_id: 'test',
+          },
+        ],
+        adminAiUsageAttempts: [
+          {
+            id: 'att_missing_usage',
+            operation_key: 'admin.text.test',
+            route: '/api/admin/ai/test-text',
+            admin_user_id: 'admin-ai-user',
+            idempotency_key_hash: 'hash_missing',
+            request_fingerprint: 'fp_missing',
+            provider_family: 'ai_worker',
+            model_key: '@cf/test',
+            budget_scope: 'platform_admin_lab_budget',
+            budget_policy_json: budgetPolicyJson,
+            caller_policy_json: '{}',
+            status: 'succeeded',
+            provider_status: 'succeeded',
+            result_status: 'metadata_only',
+            result_metadata_json: '{}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T09:00:00.000Z',
+            updated_at: '2026-05-16T09:05:00.000Z',
+            completed_at: '2026-05-16T09:05:00.000Z',
+            expires_at: '2026-05-16T09:10:00.000Z',
+            metadata_json: '{"raw_prompt":"raw prompt must not return"}',
+          },
+          {
+            id: 'att_duplicate_usage',
+            operation_key: 'admin.music.test',
+            route: '/api/admin/ai/test-music',
+            admin_user_id: 'admin-ai-user',
+            idempotency_key_hash: 'hash_duplicate',
+            request_fingerprint: 'fp_duplicate',
+            provider_family: 'ai_worker',
+            model_key: 'music-test',
+            budget_scope: 'platform_admin_lab_budget',
+            budget_policy_json: budgetPolicyJson,
+            caller_policy_json: '{}',
+            status: 'succeeded',
+            provider_status: 'succeeded',
+            result_status: 'metadata_only',
+            result_metadata_json: '{}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T09:10:00.000Z',
+            updated_at: '2026-05-16T09:12:00.000Z',
+            completed_at: '2026-05-16T09:12:00.000Z',
+            expires_at: '2026-05-16T09:20:00.000Z',
+            metadata_json: '{}',
+          },
+          {
+            id: 'att_failed_counted',
+            operation_key: 'admin.compare',
+            route: '/api/admin/ai/compare',
+            admin_user_id: 'admin-ai-user',
+            idempotency_key_hash: 'hash_failed',
+            request_fingerprint: 'fp_failed',
+            provider_family: 'ai_worker',
+            model_key: 'compare-test',
+            budget_scope: 'platform_admin_lab_budget',
+            budget_policy_json: budgetPolicyJson,
+            caller_policy_json: '{}',
+            status: 'provider_failed',
+            provider_status: 'failed',
+            result_status: 'none',
+            result_metadata_json: '{}',
+            error_code: 'provider_failed',
+            error_message: 'failed',
+            created_at: '2026-05-16T09:20:00.000Z',
+            updated_at: '2026-05-16T09:21:00.000Z',
+            completed_at: '2026-05-16T09:21:00.000Z',
+            expires_at: '2026-05-16T09:30:00.000Z',
+            metadata_json: '{}',
+          },
+        ],
+        aiVideoJobs: [
+          {
+            id: 'vidjob_missing_usage',
+            user_id: 'admin-ai-user',
+            scope: 'admin',
+            status: 'succeeded',
+            provider: 'workers-ai',
+            model: 'pixverse/v6',
+            prompt: 'raw prompt must not return',
+            input_json: '{"prompt":"raw prompt must not return"}',
+            request_hash: 'video_hash_missing',
+            provider_task_id: 'task_missing',
+            idempotency_key: 'video-idem-missing',
+            budget_policy_json: videoBudgetPolicyJson,
+            budget_policy_status: 'ready_for_budget_check',
+            budget_policy_fingerprint: 'video_fp_missing',
+            budget_policy_version: 'admin-platform-budget-policy-v1',
+            created_at: '2026-05-16T10:00:00.000Z',
+            updated_at: '2026-05-16T10:15:00.000Z',
+            completed_at: '2026-05-16T10:15:00.000Z',
+          },
+          {
+            id: 'vidjob_failed_counted',
+            user_id: 'admin-ai-user',
+            scope: 'admin',
+            status: 'failed',
+            provider: 'workers-ai',
+            model: 'pixverse/v6',
+            request_hash: 'video_hash_failed',
+            provider_task_id: 'task_failed',
+            idempotency_key: 'video-idem-failed',
+            budget_policy_json: videoBudgetPolicyJson,
+            budget_policy_status: 'ready_for_budget_check',
+            budget_policy_fingerprint: 'video_fp_failed',
+            budget_policy_version: 'admin-platform-budget-policy-v1',
+            error_code: 'provider_failed',
+            created_at: '2026-05-16T10:20:00.000Z',
+            updated_at: '2026-05-16T10:25:00.000Z',
+            completed_at: '2026-05-16T10:25:00.000Z',
+          },
+        ],
+        platformBudgetUsageEvents: [
+          {
+            id: 'pbu_dup_1',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.music.test',
+            source_route: '/api/admin/ai/test-music',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: 'hash_duplicate',
+            request_fingerprint: 'fp_duplicate',
+            source_attempt_id: 'att_duplicate_usage',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{"provider_body":"provider body must not return"}',
+            created_at: '2026-05-16T09:12:00.000Z',
+          },
+          {
+            id: 'pbu_dup_2',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.music.test',
+            source_route: '/api/admin/ai/test-music',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: 'hash_duplicate',
+            request_fingerprint: 'fp_duplicate',
+            source_attempt_id: 'att_duplicate_usage',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T09:13:00.000Z',
+          },
+          {
+            id: 'pbu_failed_attempt',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.compare',
+            source_route: '/api/admin/ai/compare',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: null,
+            request_fingerprint: null,
+            source_attempt_id: 'att_failed_counted',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T09:21:00.000Z',
+          },
+          {
+            id: 'pbu_failed_job',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.video.job.create',
+            source_route: '/api/admin/ai/video-jobs',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: null,
+            request_fingerprint: null,
+            source_attempt_id: null,
+            source_job_id: 'vidjob_failed_counted',
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T10:25:00.000Z',
+          },
+          {
+            id: 'pbu_orphan_attempt',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.text.test',
+            source_route: '/api/admin/ai/test-text',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: null,
+            request_fingerprint: null,
+            source_attempt_id: 'att_missing_row',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T11:00:00.000Z',
+          },
+          {
+            id: 'pbu_orphan_job',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.video.job.create',
+            source_route: '/api/admin/ai/video-jobs',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: null,
+            request_fingerprint: null,
+            source_attempt_id: null,
+            source_job_id: 'vidjob_missing_row',
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T11:01:00.000Z',
+          },
+          {
+            id: 'pbu_no_source',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.live_agent',
+            source_route: '/api/admin/ai/live-agent',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: 'hash_live',
+            request_fingerprint: 'fp_live',
+            source_attempt_id: null,
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T11:02:00.000Z',
+          },
+          {
+            id: 'pbu_window_mismatch',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.embeddings.test',
+            source_route: '/api/admin/ai/test-embeddings',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-15',
+            window_month: '2026-04',
+            idempotency_key_hash: null,
+            request_fingerprint: null,
+            source_attempt_id: null,
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T11:03:00.000Z',
+          },
+          {
+            id: 'pbu_invalid_units',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.live_agent',
+            source_route: '/api/admin/ai/live-agent',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 0,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: null,
+            request_fingerprint: null,
+            source_attempt_id: null,
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{}',
+            created_at: '2026-05-16T11:04:00.000Z',
+          },
+        ],
+      };
+
+      const { buildPlatformBudgetReconciliationReport } = await loadPlatformBudgetReconciliationModule();
+      const directEnv = createAuthTestEnv(reconciliationSeed);
+      const beforeRunCalls = directEnv.DB.runCalls.length;
+      const directReport = await buildPlatformBudgetReconciliationReport(directEnv, {
+        generatedAt: '2026-05-16T12:00:00.000Z',
+        includeCandidates: true,
+        limit: 50,
+      });
+      expect(directEnv.DB.runCalls).toHaveLength(beforeRunCalls);
+      expect(directReport).toEqual(expect.objectContaining({
+        ok: true,
+        source: 'local_d1_read_only',
+        budgetScope: 'platform_admin_lab_budget',
+        verdict: 'blocked',
+        runtimeMutation: false,
+        repairApplied: false,
+        providerCalls: false,
+        stripeCalls: false,
+      }));
+      const issueTypes = directReport.repairCandidates.map((item) => item.issueType);
+      expect(issueTypes).toEqual(expect.arrayContaining([
+        'missing_admin_usage_event',
+        'missing_video_usage_event',
+        'duplicate_attempt_usage_event',
+        'duplicate_idempotent_usage_event',
+        'failed_attempt_counted',
+        'failed_job_counted',
+        'orphan_attempt_usage_event',
+        'orphan_job_usage_event',
+        'usage_event_without_source',
+        'window_mismatch',
+        'invalid_usage_units',
+        'cap_total_exceeds_limit',
+      ]));
+      expect(directReport.repairCandidates.every((item) => item.actionSafety === 'dry_run_only')).toBe(true);
+      expect(directReport.repairCandidates.every((item) => item.futureRepairExecutorRequired === true)).toBe(true);
+      const serialized = JSON.stringify(directReport);
+      expect(serialized).not.toContain('raw prompt must not return');
+      expect(serialized).not.toContain('provider body must not return');
+      expect(serialized).not.toContain('sk_live_');
+      expect(serialized).not.toContain('bitbi_session');
+
+      const nonAdmin = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'platform-recon-member', role: 'user' }),
+        authEnv: reconciliationSeed,
+      });
+      const denied = await nonAdmin.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation', 'GET', undefined, nonAdmin.authHeaders),
+        nonAdmin.env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        authEnv: reconciliationSeed,
+      });
+      const api = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation?limit=25&includeCandidates=true', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(api.status).toBe(200);
+      const body = await api.json();
+      expect(body.reconciliation).toEqual(expect.objectContaining({
+        source: 'local_d1_read_only',
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+      }));
+      expect(body.reconciliation.summary).toEqual(expect.objectContaining({
+        repairCandidateCount: expect.any(Number),
+        criticalIssueCount: expect.any(Number),
+        notCheckableCount: expect.any(Number),
+      }));
+      expect(JSON.stringify(body)).not.toContain('raw prompt must not return');
+      expect(JSON.stringify(body)).not.toContain('provider body must not return');
+
+      const invalidScope = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-reconciliation?budgetScope=openclaw_news_pulse_budget', 'GET', undefined, authHeaders),
         env,
         createExecutionContext().execCtx
       );

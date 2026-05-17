@@ -7863,6 +7863,318 @@ class MockD1 {
     }
 
     if (
+      query.startsWith('SELECT a.id, a.operation_key, a.route, a.admin_user_id')
+      && query.includes('FROM admin_ai_usage_attempts a LEFT JOIN platform_budget_usage_events p')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const allowedOperations = new Set([
+        'admin.text.test',
+        'admin.embeddings.test',
+        'admin.music.test',
+        'admin.compare',
+        'admin.live_agent',
+      ]);
+      const rows = (this.state.adminAiUsageAttempts || [])
+        .filter((row) =>
+          row.budget_scope === budgetScope &&
+          allowedOperations.has(row.operation_key) &&
+          row.status === 'succeeded' &&
+          row.provider_status === 'succeeded'
+        )
+        .sort((left, right) => {
+          const leftTime = left.completed_at || left.updated_at || left.created_at || '';
+          const rightTime = right.completed_at || right.updated_at || right.created_at || '';
+          const byTime = String(rightTime).localeCompare(String(leftTime));
+          if (byTime !== 0) return byTime;
+          return String(right.id || '').localeCompare(String(left.id || ''));
+        })
+        .slice(0, Number(limit || 50))
+        .map((row) => ({
+          id: row.id,
+          operation_key: row.operation_key,
+          route: row.route,
+          admin_user_id: row.admin_user_id,
+          status: row.status,
+          provider_status: row.provider_status,
+          result_status: row.result_status,
+          budget_policy_json: row.budget_policy_json,
+          completed_at: row.completed_at,
+          updated_at: row.updated_at,
+          usage_event_id: (this.state.platformBudgetUsageEvents || []).find((event) =>
+            event.budget_scope === row.budget_scope &&
+            event.source_attempt_id === row.id &&
+            event.status === 'recorded'
+          )?.id || null,
+        }));
+      return { results: rows };
+    }
+
+    if (
+      query.startsWith('SELECT j.id, j.user_id, j.status, j.provider, j.model')
+      && query.includes('FROM ai_video_jobs j LEFT JOIN platform_budget_usage_events u')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = (this.state.aiVideoJobs || [])
+        .filter((row) => row.scope === 'admin' && row.status === 'succeeded')
+        .sort((left, right) => {
+          const leftTime = left.completed_at || left.updated_at || left.created_at || '';
+          const rightTime = right.completed_at || right.updated_at || right.created_at || '';
+          const byTime = String(rightTime).localeCompare(String(leftTime));
+          if (byTime !== 0) return byTime;
+          return String(right.id || '').localeCompare(String(left.id || ''));
+        })
+        .slice(0, Number(limit || 50))
+        .map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          status: row.status,
+          provider: row.provider,
+          model: row.model,
+          budget_policy_json: row.budget_policy_json,
+          budget_policy_status: row.budget_policy_status,
+          completed_at: row.completed_at,
+          updated_at: row.updated_at,
+          usage_event_id: (this.state.platformBudgetUsageEvents || []).find((event) =>
+            event.budget_scope === budgetScope &&
+            event.source_job_id === row.id &&
+            event.status === 'recorded'
+          )?.id || null,
+        }));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT source_attempt_id AS source_id, operation_key, COUNT(*) AS event_count')) {
+      const [budgetScope, limit] = bindings;
+      const grouped = new Map();
+      for (const row of (this.state.platformBudgetUsageEvents || [])) {
+        if (row.budget_scope !== budgetScope || row.status !== 'recorded' || !row.source_attempt_id) continue;
+        const key = `${row.source_attempt_id}:${row.operation_key}`;
+        const existing = grouped.get(key) || {
+          source_id: row.source_attempt_id,
+          operation_key: row.operation_key,
+          event_count: 0,
+          total_units: 0,
+          ids: [],
+        };
+        existing.event_count += 1;
+        existing.total_units += Number(row.units || 0);
+        existing.ids.push(row.id);
+        grouped.set(key, existing);
+      }
+      return { results: [...grouped.values()]
+        .filter((row) => row.event_count > 1)
+        .slice(0, Number(limit || 50))
+        .map((row) => ({ ...row, usage_event_ids: row.ids.join(',') })) };
+    }
+
+    if (query.startsWith('SELECT source_job_id AS source_id, operation_key, COUNT(*) AS event_count')) {
+      const [budgetScope, limit] = bindings;
+      const grouped = new Map();
+      for (const row of (this.state.platformBudgetUsageEvents || [])) {
+        if (row.budget_scope !== budgetScope || row.status !== 'recorded' || !row.source_job_id) continue;
+        const key = `${row.source_job_id}:${row.operation_key}`;
+        const existing = grouped.get(key) || {
+          source_id: row.source_job_id,
+          operation_key: row.operation_key,
+          event_count: 0,
+          total_units: 0,
+          ids: [],
+        };
+        existing.event_count += 1;
+        existing.total_units += Number(row.units || 0);
+        existing.ids.push(row.id);
+        grouped.set(key, existing);
+      }
+      return { results: [...grouped.values()]
+        .filter((row) => row.event_count > 1)
+        .slice(0, Number(limit || 50))
+        .map((row) => ({ ...row, usage_event_ids: row.ids.join(',') })) };
+    }
+
+    if (query.startsWith("SELECT 'idempotency_group' AS source_id, operation_key, COUNT(*) AS event_count")) {
+      const [budgetScope, limit] = bindings;
+      const grouped = new Map();
+      for (const row of (this.state.platformBudgetUsageEvents || [])) {
+        if (row.budget_scope !== budgetScope || row.status !== 'recorded' || !row.idempotency_key_hash || !row.request_fingerprint) continue;
+        const key = `${row.operation_key}:${row.idempotency_key_hash}:${row.request_fingerprint}`;
+        const existing = grouped.get(key) || {
+          source_id: 'idempotency_group',
+          operation_key: row.operation_key,
+          event_count: 0,
+          total_units: 0,
+          ids: [],
+        };
+        existing.event_count += 1;
+        existing.total_units += Number(row.units || 0);
+        existing.ids.push(row.id);
+        grouped.set(key, existing);
+      }
+      return { results: [...grouped.values()]
+        .filter((row) => row.event_count > 1)
+        .slice(0, Number(limit || 50))
+        .map((row) => ({ ...row, usage_event_ids: row.ids.join(',') })) };
+    }
+
+    if (
+      query.startsWith('SELECT u.id AS usage_event_id, u.operation_key, u.units, u.source_attempt_id')
+      && query.includes('INNER JOIN admin_ai_usage_attempts a')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = [];
+      for (const event of (this.state.platformBudgetUsageEvents || [])) {
+        if (event.budget_scope !== budgetScope || event.status !== 'recorded' || !event.source_attempt_id) continue;
+        const attempt = (this.state.adminAiUsageAttempts || []).find((row) => row.id === event.source_attempt_id);
+        if (!attempt || (attempt.status === 'succeeded' && attempt.provider_status === 'succeeded')) continue;
+        rows.push({
+          usage_event_id: event.id,
+          operation_key: event.operation_key,
+          units: event.units,
+          source_attempt_id: event.source_attempt_id,
+          source_status: attempt.status,
+          source_provider_status: attempt.provider_status,
+        });
+      }
+      return { results: rows.slice(0, Number(limit || 50)) };
+    }
+
+    if (
+      query.startsWith('SELECT u.id AS usage_event_id, u.operation_key, u.units, u.source_job_id')
+      && query.includes('INNER JOIN ai_video_jobs j')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = [];
+      for (const event of (this.state.platformBudgetUsageEvents || [])) {
+        if (event.budget_scope !== budgetScope || event.status !== 'recorded' || !event.source_job_id) continue;
+        const job = (this.state.aiVideoJobs || []).find((row) => row.id === event.source_job_id);
+        if (!job || job.status === 'succeeded') continue;
+        rows.push({
+          usage_event_id: event.id,
+          operation_key: event.operation_key,
+          units: event.units,
+          source_job_id: event.source_job_id,
+          source_status: job.status,
+          source_error_code: job.error_code,
+        });
+      }
+      return { results: rows.slice(0, Number(limit || 50)) };
+    }
+
+    if (
+      query.startsWith('SELECT u.id, u.operation_key, u.units, u.source_attempt_id')
+      && query.includes('LEFT JOIN admin_ai_usage_attempts a')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = (this.state.platformBudgetUsageEvents || [])
+        .filter((event) =>
+          event.budget_scope === budgetScope &&
+          event.status === 'recorded' &&
+          event.source_attempt_id &&
+          !(this.state.adminAiUsageAttempts || []).some((attempt) => attempt.id === event.source_attempt_id)
+        )
+        .map((event) => ({
+          id: event.id,
+          operation_key: event.operation_key,
+          units: event.units,
+          source_attempt_id: event.source_attempt_id,
+          created_at: event.created_at,
+        }))
+        .slice(0, Number(limit || 50));
+      return { results: rows };
+    }
+
+    if (
+      query.startsWith('SELECT u.id, u.operation_key, u.units, u.source_job_id')
+      && query.includes('LEFT JOIN ai_video_jobs j')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = (this.state.platformBudgetUsageEvents || [])
+        .filter((event) =>
+          event.budget_scope === budgetScope &&
+          event.status === 'recorded' &&
+          event.source_job_id &&
+          !(this.state.aiVideoJobs || []).some((job) => job.id === event.source_job_id)
+        )
+        .map((event) => ({
+          id: event.id,
+          operation_key: event.operation_key,
+          units: event.units,
+          source_job_id: event.source_job_id,
+          created_at: event.created_at,
+        }))
+        .slice(0, Number(limit || 50));
+      return { results: rows };
+    }
+
+    if (
+      query.startsWith('SELECT id, operation_key, units, created_at')
+      && query.includes('source_attempt_id IS NULL')
+      && query.includes('source_job_id IS NULL')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = (this.state.platformBudgetUsageEvents || [])
+        .filter((event) =>
+          event.budget_scope === budgetScope &&
+          event.status === 'recorded' &&
+          !event.source_attempt_id &&
+          !event.source_job_id
+        )
+        .map((event) => ({
+          id: event.id,
+          operation_key: event.operation_key,
+          units: event.units,
+          created_at: event.created_at,
+        }))
+        .slice(0, Number(limit || 50));
+      return { results: rows };
+    }
+
+    if (
+      query.startsWith('SELECT id, operation_key, units, window_day, window_month, created_at')
+      && query.includes('substr(created_at, 1, 10) <> window_day')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = (this.state.platformBudgetUsageEvents || [])
+        .filter((event) =>
+          event.budget_scope === budgetScope &&
+          event.status === 'recorded' &&
+          (String(event.created_at || '').slice(0, 10) !== event.window_day || String(event.created_at || '').slice(0, 7) !== event.window_month)
+        )
+        .map((event) => ({
+          id: event.id,
+          operation_key: event.operation_key,
+          units: event.units,
+          window_day: event.window_day,
+          window_month: event.window_month,
+          created_at: event.created_at,
+        }))
+        .slice(0, Number(limit || 50));
+      return { results: rows };
+    }
+
+    if (
+      query.startsWith('SELECT id, operation_key, units, window_day, window_month, created_at')
+      && query.includes('(units IS NULL OR units <= 0)')
+    ) {
+      const [budgetScope, limit] = bindings;
+      const rows = (this.state.platformBudgetUsageEvents || [])
+        .filter((event) =>
+          event.budget_scope === budgetScope &&
+          event.status === 'recorded' &&
+          (event.units == null || Number(event.units) <= 0)
+        )
+        .map((event) => ({
+          id: event.id,
+          operation_key: event.operation_key,
+          units: event.units,
+          window_day: event.window_day,
+          window_month: event.window_month,
+          created_at: event.created_at,
+        }))
+        .slice(0, Number(limit || 50));
+      return { results: rows };
+    }
+
+    if (
       query.startsWith('SELECT id, operation_key, route, admin_user_id, idempotency_key_hash, request_fingerprint')
       && query.endsWith('FROM admin_ai_usage_attempts WHERE admin_user_id = ? AND operation_key = ? AND idempotency_key_hash = ? LIMIT 1')
     ) {

@@ -1,6 +1,6 @@
 # Live Platform Budget Caps Design
 
-Status: Phase 4.16 design/evidence is preserved, and Phase 4.17 implements the first narrow `platform_admin_lab_budget` cap foundation. Phase 4.17 adds local additive migration `0053_add_platform_budget_caps.sql`, D1-backed daily/monthly limits, bounded usage events, admin-only cap APIs, and an Admin Control Plane panel for the selected admin lab scope only. No provider, Stripe, Cloudflare, GitHub, or remote migration action is performed by this document or by tests. Other budget scopes remain future work.
+Status: Phase 4.16 design/evidence is preserved, Phase 4.17 implements the first narrow `platform_admin_lab_budget` cap foundation, and Phase 4.18 adds read-only reconciliation/repair evidence for that foundation. Phase 4.18 adds no migration and no runtime route behavior change; it reports bounded local-D1 inconsistencies and dry-run repair candidates only. No repair executor, provider call, Stripe call, Cloudflare/GitHub mutation, remote migration, member/org billing change, credit clawback, or live billing enablement is performed by this document or by tests. Other budget scopes remain future work.
 
 ## Why Caps Are Needed
 
@@ -31,6 +31,12 @@ Phase 4.17 adds a narrow runtime cap foundation for `platform_admin_lab_budget` 
 - Missing active daily/monthly cap configuration, unavailable D1, or exceeded caps fail closed before provider-cost work.
 
 Phase 4.17 is not customer billing, not Stripe/live billing, and does not change member or organization credit behavior. `admin_org_credit_account`, `explicit_unmetered_admin`, `openclaw_news_pulse_budget`, `platform_background_budget`, and broader internal caller scopes remain future cap work.
+
+## Phase 4.18 Reconciliation Evidence
+
+Phase 4.18 adds a read-only evidence layer for the Phase 4.17 `platform_admin_lab_budget` foundation. The helper and admin-only endpoint compare `platform_budget_usage_events` against successful `admin_ai_usage_attempts` and successful `ai_video_jobs`, detect duplicate/orphan/failed-source/window/unit mismatches where data supports it, and return proposed repair candidates with `actionSafety: dry_run_only`.
+
+No repair is applied in Phase 4.18. The reconciliation layer does not mutate `platform_budget_usage_events`, `admin_ai_usage_attempts`, `ai_video_jobs`, credits, queues, billing, R2, Cloudflare, Stripe, or provider resources. A future explicit admin-approved repair executor phase is required before any write can occur.
 
 ## Kill Switches Vs. Budget Caps
 

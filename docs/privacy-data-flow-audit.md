@@ -15,6 +15,13 @@ migration as `0053_add_platform_budget_caps.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
+Phase 4.18 adds no migration and no new user-facing data collection. It reads
+existing `platform_budget_usage_events`, `admin_ai_usage_attempts`, and
+`ai_video_jobs` rows for admin-only, read-only platform budget reconciliation
+evidence and dry-run repair candidates. It does not expose raw prompts,
+provider bodies, generated outputs, secrets, Stripe data, Cloudflare values, or
+apply any repair.
+
 ## 1. Executive Summary
 
 The current product is no longer a simple static website. The repository now

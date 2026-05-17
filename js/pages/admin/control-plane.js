@@ -9,6 +9,7 @@ import {
     apiAdminAiListFailedVideoJobs,
     apiAdminAiListVideoJobPoisonMessages,
     apiAdminAiPlatformBudgetCaps,
+    apiAdminAiPlatformBudgetReconciliation,
     apiAdminAiPlatformBudgetUsage,
     apiAdminAiUpdatePlatformBudgetCap,
     apiAdminAiUpdateBudgetSwitch,
@@ -1426,6 +1427,52 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
     }
 
+    async function loadPlatformBudgetReconciliation() {
+        const list = byId('platformBudgetReconciliationList');
+        const summaryNode = byId('platformBudgetReconciliationSummary');
+        setState('platformBudgetReconciliationState', 'Loading platform budget reconciliation...');
+        clear(list);
+        clear(summaryNode);
+        const res = await apiAdminAiPlatformBudgetReconciliation({ limit: 25, includeCandidates: true });
+        if (!res.ok) {
+            setState('platformBudgetReconciliationState', '');
+            renderUnavailable(list, res, 'Platform budget reconciliation unavailable.');
+            return;
+        }
+        const reconciliation = res.data?.reconciliation || {};
+        const summary = reconciliation.summary || {};
+        if (summaryNode) {
+            summaryNode.appendChild(detailRows([
+                ['Scope', reconciliation.budgetScope || 'platform_admin_lab_budget'],
+                ['Verdict', reconciliation.verdict || '-'],
+                ['Critical issues', summary.criticalIssueCount ?? 0],
+                ['Warnings', summary.warningIssueCount ?? 0],
+                ['Repair candidates', summary.repairCandidateCount ?? 0],
+                ['Read-only', reconciliation.repairApplied === false ? 'Yes' : 'No'],
+                ['Generated', formatDate(reconciliation.generatedAt)],
+            ]));
+        }
+        setState('platformBudgetReconciliationState', 'Read-only reconciliation evidence. No repair is applied from this panel.');
+        const candidates = Array.isArray(reconciliation.repairCandidates) ? reconciliation.repairCandidates : [];
+        if (candidates.length === 0) {
+            list.appendChild(el('p', 'admin-shell__desc', 'No reconciliation repair candidates were returned for the bounded report.'));
+            return;
+        }
+        const { wrap, tbody } = table(['Issue', 'Severity', 'Operation', 'Source', 'Action', 'Reason']);
+        for (const item of candidates.slice(0, 25)) {
+            const tr = document.createElement('tr');
+            addCell(tr, item.issueType || '-');
+            addCell(tr, badge(item.severity || 'warning', item.severity === 'critical' ? 'disabled' : 'legacy'));
+            addCell(tr, item.operationKey || '-');
+            addCell(tr, shortId(item.sourceAttemptId || item.sourceJobId || item.usageEventIds?.[0]));
+            addCell(tr, item.proposedAction || '-');
+            addCell(tr, item.reason || '-');
+            tbody.appendChild(tr);
+        }
+        list.appendChild(wrap);
+        list.appendChild(el('p', 'admin-shell__desc', 'No repair is applied. Repair candidates are dry-run evidence only; a future explicit repair executor is required before any data can be changed.'));
+    }
+
     async function loadAiAttemptDetail(attemptId) {
         const detail = byId('aiAttemptDetail');
         detail.hidden = false;
@@ -1705,6 +1752,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         byId('aiCleanupForm')?.addEventListener('submit', handleAiCleanup);
         byId('aiBudgetSwitchesRefresh')?.addEventListener('click', loadAiBudgetSwitches);
         byId('platformBudgetCapsRefresh')?.addEventListener('click', loadPlatformBudgetCaps);
+        byId('platformBudgetReconciliationRefresh')?.addEventListener('click', loadPlatformBudgetReconciliation);
         byId('lifecycleRequestsRefresh')?.addEventListener('click', loadLifecycleRequests);
         byId('lifecycleArchivesRefresh')?.addEventListener('click', loadLifecycleArchives);
         byId('operationsRefresh')?.addEventListener('click', loadOperations);
@@ -1734,7 +1782,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         if (sectionName === 'billing') await loadBillingPlans();
         if (sectionName === 'billing-events') await Promise.all([loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
         if (sectionName === 'ai-usage') await loadAiAttempts();
-        if (sectionName === 'ai-budget-switches') await Promise.all([loadAiBudgetSwitches(), loadPlatformBudgetCaps()]);
+        if (sectionName === 'ai-budget-switches') await Promise.all([loadAiBudgetSwitches(), loadPlatformBudgetCaps(), loadPlatformBudgetReconciliation()]);
         if (sectionName === 'lifecycle') await loadLifecycle();
         if (sectionName === 'operations') await loadOperations();
     }

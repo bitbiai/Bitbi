@@ -16,6 +16,8 @@ Allowed final verdict values: **BLOCKED**, **STAGING READY**, **CANARY READY**, 
 
 Do not paste secret values, raw webhook secrets/signatures, API keys, private keys, bearer tokens, session cookies, raw provider payloads, or unredacted customer data.
 
+Phase 4.18 platform budget reconciliation evidence must be recorded as read-only evidence only. Do not run any repair executor; none exists in Phase 4.18. Record only the `platform_admin_lab_budget` verdict, critical/warning/not-checkable counts, repair candidate count, and whether the report was generated from local D1 read-only data.
+
 ## 1. Repo Baseline
 
 | Item | Evidence |

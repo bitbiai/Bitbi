@@ -549,6 +549,12 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Phase 4.17 sanitized platform_admin_lab_budget usage summary. Bounded read-only reporting over platform_budget_usage_events; no raw prompts, provider bodies, Stripe data, Cloudflare values, or secrets.",
   }),
+  adminRead("admin.ai.platform-budget-reconciliation.read", "/api/admin/ai/platform-budget-reconciliation", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-platform-budget-reconciliation-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.18 read-only platform_admin_lab_budget reconciliation and repair-evidence API. It reports bounded sanitized missing/duplicate/orphan/failed-source/window mismatch candidates only; no repair executor, provider call, queue mutation, D1 write, credit mutation, Stripe call, Cloudflare mutation, or customer billing change.",
+  }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
     config: REQUIRED_CONFIG.adminAi,
     billing: {

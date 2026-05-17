@@ -2582,6 +2582,67 @@ async function mockAdminControlPlane(page, captures = {}) {
       },
     });
   });
+  await page.route('**/api/admin/ai/platform-budget-reconciliation?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      reconciliation: {
+        ok: true,
+        generatedAt: '2026-05-16T11:50:00.000Z',
+        source: 'local_d1_read_only',
+        budgetScope: 'platform_admin_lab_budget',
+        verdict: 'needs_operator_review',
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        runtimeMutation: false,
+        repairApplied: false,
+        summary: {
+          issueCount: 2,
+          criticalIssueCount: 0,
+          warningIssueCount: 2,
+          repairCandidateCount: 2,
+          notCheckableCount: 0,
+          missingUsageEventCount: 1,
+          duplicateUsageEventCount: 1,
+          orphanUsageEventCount: 0,
+          failedSourceUsageCount: 0,
+          windowMismatchCount: 0,
+          invalidUsageUnitCount: 0,
+          capStatusIssueCount: 0,
+        },
+        repairCandidates: [
+          {
+            candidateId: 'pbr_missing_admin_usage_event_att_static_1',
+            issueType: 'missing_admin_usage_event',
+            severity: 'warning',
+            budgetScope: 'platform_admin_lab_budget',
+            operationKey: 'admin.text.test',
+            sourceAttemptId: 'att_static_1',
+            sourceJobId: null,
+            usageEventIds: [],
+            proposedAction: 'create_missing_usage_event',
+            actionSafety: 'dry_run_only',
+            futureRepairExecutorRequired: true,
+            proposedUnits: 1,
+            reason: 'Successful admin AI attempt has no matching platform budget usage event.',
+          },
+          {
+            candidateId: 'pbr_duplicate_attempt_usage_event_att_static_2',
+            issueType: 'duplicate_attempt_usage_event',
+            severity: 'critical',
+            budgetScope: 'platform_admin_lab_budget',
+            operationKey: 'admin.music.test',
+            sourceAttemptId: 'att_static_2',
+            usageEventIds: ['pbu_static_1', 'pbu_static_2'],
+            proposedAction: 'mark_duplicate_usage_event_review',
+            actionSafety: 'dry_run_only',
+            futureRepairExecutorRequired: true,
+            proposedUnits: 2,
+            reason: 'Multiple recorded platform budget usage events point at the same source.',
+          },
+        ],
+      },
+    });
+  });
 
   await page.route('**/api/admin/data-lifecycle/requests?*', async (route) => {
     await fulfillJson(route, {
@@ -8894,6 +8955,12 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#platformBudgetCapsSummary')).toContainText('platform_admin_lab_budget');
     await expect(page.locator('#platformBudgetCapsList')).toContainText('daily');
     await expect(page.locator('#platformBudgetCapsList')).toContainText('admin.text.test');
+    await expect(switchSection).toContainText('Budget Reconciliation');
+    await expect(page.locator('#platformBudgetReconciliationSummary')).toContainText('needs_operator_review');
+    await expect(page.locator('#platformBudgetReconciliationList')).toContainText('missing_admin_usage_event');
+    await expect(page.locator('#platformBudgetReconciliationList')).toContainText('duplicate_attempt_usage_event');
+    await expect(page.locator('#platformBudgetReconciliationList')).toContainText('No repair is applied');
+    await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: /apply|repair/i })).toHaveCount(0);
     let budgetSwitchDialogs = 0;
     const budgetSwitchDialogHandler = (dialog) => {
       budgetSwitchDialogs += 1;
