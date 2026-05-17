@@ -1,5 +1,11 @@
 # Cloudflare WAF Rate Limiting — Wave 1
 
+> Historical/dashboard-managed WAF note / not current release source of truth.
+>
+> This file remains useful manual prerequisite context, but current deploy/schema
+> truth lives in `config/release-compat.json` and current route-policy state lives
+> in `workers/auth/src/app/route-policy.js`.
+
 ## Purpose
 
 Wave 1 adds a Cloudflare WAF rate limiting rule in front of the auth worker on `bitbi.ai`. It targets the sensitive POST endpoints most commonly attacked via credential stuffing, brute-force login, and account enumeration. The rule operates at the Cloudflare edge, blocking abusive traffic before it reaches the Worker.

@@ -1,5 +1,10 @@
 # Gallery Exclusive / Little Monster Cleanup Note
 
+> Historical cleanup note / not current source of truth.
+>
+> Do not perform deletion from this note without fresh live D1/R2 verification,
+> owner approval, and a current cleanup plan.
+
 This note documents the manual cleanup gate for the retired Gallery Exclusive / Little Monster media.
 Do not delete R2 objects until the live D1 verification query returns zero rows.
 Retired bundled Sound Lab Free / Exclusive cleanup is tracked separately in `docs/soundlab-free-exclusive-cleanup.md`.

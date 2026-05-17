@@ -1,5 +1,10 @@
 # Sound Lab Free / Exclusive Cleanup Note
 
+> Historical cleanup note / not current source of truth.
+>
+> Do not perform deletion from this note without fresh live R2 verification,
+> owner approval, and a current cleanup plan.
+
 This note documents the safe cleanup path for the retired bundled Sound Lab Free and Exclusive catalogs.
 The old bundled tracks are no longer imported or migrated into Saved Assets.
 

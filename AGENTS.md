@@ -100,6 +100,17 @@ Do not invent commands/scripts that are not present in this repo.
 
 ---
 
+## Documentation hygiene
+
+- Keep active current-state docs concise. Do not append full phase history to `CURRENT_IMPLEMENTATION_HANDOFF.md`, `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md`, `AUDIT_ACTION_PLAN.md`, `AUDIT_NEXT_LEVEL.md`, or `ALPHA_AUDIT_2026_05_15.md`.
+- Put detailed phase outcomes in a dedicated phase report, final response, or `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`.
+- Preserve historical phase reports as frozen evidence. Do not rewrite them to current migration numbers.
+- Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the restart/current audit snapshot and `docs/audits/README.md` for documentation classification.
+- Current source-of-truth docs must mention the latest auth migration from `config/release-compat.json` and must not claim production readiness or live billing readiness without recorded evidence.
+- Docs remain English. Public/member-facing runtime changes still require English/German product parity; admin docs and admin-only UI remain English unless explicitly requested.
+
+---
+
 ## Validation expectations (proportional)
 
 Run the smallest set that truly covers changed surfaces:

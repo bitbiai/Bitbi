@@ -1,12 +1,12 @@
 # Production/Staging Evidence Framework
 
-Last updated: 2026-05-16
+Last updated: 2026-05-17
 
 Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
 
 The latest auth D1 migration declared by `config/release-compat.json` is `0055_add_platform_budget_evidence_archives.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
-Phase 4.18 adds read-only platform budget usage reconciliation evidence for `platform_admin_lab_budget`. Phase 4.19 adds explicit admin-approved repair actions for missing usage evidence plus review-only repair notes. Phase 4.20 adds bounded read-only repair evidence reports/exports for operator review. Phase 4.21 adds admin-approved sanitized evidence archives in `AUDIT_ARCHIVE` under `platform-budget-evidence/`, with retention metadata, download, expire, and bounded approved-prefix-only cleanup. Phase 5.1 consolidates Admin Control Plane navigation/discoverability for the existing budget switch, cap, reconciliation, repair, report, and archive panels; it does not add backend behavior or readiness approval. Operators must record the reconciliation verdict, repair candidate count, repair action status, report/export evidence, archive id/status/retention, not-checkable count, and Admin Control Plane navigation/deep-link smoke evidence before enabling admin/platform provider-cost flags for a canary. Phase 4.21 archives and Phase 5.1 UI consolidation do not apply repairs, run automatic repairs, mutate source attempts/jobs or usage rows, call providers, call Stripe, change member/org billing, or make production/live billing ready.
+Current audit/restart status is summarized in `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`. DOC-1 keeps this file focused on evidence requirements rather than phase chronology. Operators must record budget switch, cap, reconciliation, repair, report/export, archive, and Admin Control Plane smoke evidence before enabling admin/platform provider-cost flags for a canary. Evidence workflows do not apply repairs automatically, mutate source attempts/jobs or usage rows, call providers, call Stripe, change member/org billing, or make production/live billing ready.
 
 ## Evidence Rule
 

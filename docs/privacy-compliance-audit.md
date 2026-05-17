@@ -3,8 +3,10 @@
 **Audit date:** 7 March 2026
 **Scope:** All pages of bitbi.ai (index, experiments/skyfall, experiments/king, experiments/cosmic, legal/privacy, legal/datenschutz, legal/imprint)
 
-This document is historical audit context, not the canonical release contract.
-Current repo-validated release/deploy truth lives in `config/release-compat.json`.
+This document is historical audit context, not the canonical release contract or
+current privacy/data-flow source of truth. Current repo-validated release/deploy
+truth lives in `config/release-compat.json`; current engineering privacy/data
+flow status lives in `docs/privacy-data-flow-audit.md`.
 
 ---
 

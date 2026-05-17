@@ -7,6 +7,12 @@ const result = scanDocCurrentness(repoRoot);
 
 console.log(`Doc currentness check: release latest auth migration is ${result.latest}`);
 console.log(`Doc currentness check: scanned ${result.scannedDocs.length} current source-of-truth document(s).`);
+if (result.markdownInventory?.length) {
+  console.log(`Doc currentness check: inventoried ${result.markdownInventory.length} first-party Markdown file(s).`);
+  for (const [category, count] of Object.entries(result.categoryCounts).sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`- ${category}: ${count}`);
+  }
+}
 
 if (result.violations.length > 0) {
   console.error("Doc currentness check failed.");
@@ -21,4 +27,3 @@ if (result.violations.length > 0) {
 }
 
 console.log("Doc currentness check passed.");
-

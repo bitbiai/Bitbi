@@ -35,6 +35,7 @@ function writeFile(repo, relativePath, text) {
     currentDocs: ["README.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
   });
   assert.deepEqual(result.violations, []);
+  assert.equal(result.categoryCounts.active_current, 2);
 }
 
 {
@@ -56,6 +57,7 @@ function writeFile(repo, relativePath, text) {
     currentDocs: ["README.md"],
   });
   assert.deepEqual(result.violations, []);
+  assert.equal(result.categoryCounts.historical_phase_report, 1);
 }
 
 {
@@ -66,6 +68,27 @@ function writeFile(repo, relativePath, text) {
   });
   assert.equal(result.violations.length, 1);
   assert.equal(result.violations[0].type, "missing-current-latest");
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "CURRENT_IMPLEMENTATION_HANDOFF.md", `Latest auth D1 migration: ${latest}\n${"history\n".repeat(351)}`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "current-doc-too-long"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/unknown-note.md", "Unindexed note.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "unclassified-markdown");
 }
 
 console.log("Doc currentness tests passed.");

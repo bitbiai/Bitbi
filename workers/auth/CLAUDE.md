@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation Hygiene
+
+Keep Auth Worker docs operational and concise. Do not append full phase chronology to this file; put detailed history in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, root phase reports, or `docs/audits/archive/`. Current migration truth must continue to come from `config/release-compat.json`; historical reports may mention older migrations in their original context.
+
 Current AI budget note: Phase 4.21 adds sanitized `platform_admin_lab_budget` evidence archive/retention workflow on top of Phase 4.20 read-only repair evidence report/export, Phase 4.19 explicit admin-approved repair execution, Phase 4.18 reconciliation, and Phase 4.17 caps. The auth Worker may dry-run/admin-approve repairs only through the Phase 4.19 endpoint, create a missing `platform_budget_usage_events` row only from still-successful local D1 source evidence, record review-only repair audit rows, export bounded sanitized repair evidence, and create/download/expire/cleanup sanitized archive snapshots under `AUDIT_ARCHIVE` prefix `platform-budget-evidence/`. Report/export/archive endpoints must not apply repairs, run repairs automatically, delete/rewrite existing usage events, mutate `platform_budget_repair_actions` as a repair action, mutate `admin_ai_usage_attempts`, mutate `ai_video_jobs`, call providers, call Stripe, mutate Cloudflare, change member/org billing behavior, mutate credits, delete outside the approved archive prefix, or claim live billing readiness.
 
 ## Overview

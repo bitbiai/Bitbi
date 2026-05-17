@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation Hygiene
+
+- Keep active current-state docs concise. Do not append full phase history to every current doc.
+- Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit snapshot and `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` for concise phase history.
+- Historical phase reports and `docs/audits/archive/` snapshots are frozen evidence; do not rewrite them to current migrations.
+- Current source-of-truth docs must stay aligned with `config/release-compat.json` and must not claim production readiness or live billing readiness without evidence.
+
 ## PERMANENT PROJECT RULES – ALWAYS FOLLOW THESE FIRST
 
 - ALWAYS prioritize self-hosted content first.

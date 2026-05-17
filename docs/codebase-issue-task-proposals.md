@@ -1,5 +1,11 @@
 # Codebase Issue Task Proposals (2026-04-20)
 
+> Historical proposal backlog / not current source of truth.
+>
+> Some proposals may have been resolved or superseded by later Alpha Audit
+> phases. Re-check the current code, `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`,
+> and `docs/audits/README.md` before using this as implementation input.
+
 This document proposes four targeted tasks discovered during a quick repo walkthrough: one typo fix, one bug fix, one documentation discrepancy fix, and one test improvement.
 
 ## 1) Typo fix task (spelling consistency in comments)

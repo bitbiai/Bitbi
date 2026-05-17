@@ -1,5 +1,11 @@
 # Privacy Text Follow-Up — 2026-03-07
 
+> Historical / not current source of truth.
+>
+> This file preserves privacy-copy follow-up evidence from March 2026. Current
+> engineering privacy/data-flow status lives in `docs/privacy-data-flow-audit.md`,
+> and release truth lives in `config/release-compat.json`.
+
 ## Changes Made
 
 ### Files Modified
