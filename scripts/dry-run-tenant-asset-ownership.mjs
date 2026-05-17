@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.9 packaged main-only evidence state; Phase 6.10 should review operator-run main evidence before access/backfill work.",
+    futurePhase: "Phase 6.10 records the pending/blocked decision; Phase 6.11 should collect the real main evidence export before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.9 packaged main-only evidence state; Phase 6.10 should review operator-run main evidence before access/backfill work.",
+    futurePhase: "Phase 6.10 records the pending/blocked decision; Phase 6.11 should collect the real main evidence export before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -218,7 +218,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.10 after operator-run main owner-map evidence proves owner metadata and organization quota design is approved.",
+    futurePhase: "Phase 6.11 after operator-run main owner-map evidence proves owner metadata and organization quota design is approved.",
   },
   {
     id: "data_lifecycle",
@@ -243,7 +243,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "audit_archive_asset",
     risk: "high",
     findings: ["lifecycle_user_only", "organization_export_delete_gap"],
-    futurePhase: "Phase 6.10 after operator-run main owner mapping is proven.",
+    futurePhase: "Phase 6.11 after operator-run main owner mapping is proven.",
   },
   {
     id: "news_pulse_visuals",
@@ -269,7 +269,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "platform_background_asset",
     risk: "medium",
     findings: ["platform_background_asset_classification_needed"],
-    futurePhase: "Phase 6.10 out-of-scope for tenant-owned member assets.",
+    futurePhase: "Phase 6.11 out-of-scope for tenant-owned member assets.",
   },
 ]);
 
@@ -405,15 +405,25 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.10",
     title: "Operator-run main evidence review and decision",
-    scope: "Review real main evidence collected by the operator before deciding on manual review, archive, or later backfill planning.",
+    scope: "Implemented as a pending/blocked decision because no real main evidence export is present in-repo.",
   },
   {
     phase: "6.11",
-    title: "Bounded non-destructive backfill",
-    scope: "Operator-approved metadata backfill only after dry-run evidence.",
+    title: "Operator collects main evidence export",
+    scope: "Collect and provide real bounded main evidence from the Phase 6.7 endpoint; no access switch or backfill.",
   },
   {
     phase: "6.12",
+    title: "Manual review workflow or evidence archive",
+    scope: "Choose based on Phase 6.11 counts; no access switch or broad backfill by default.",
+  },
+  {
+    phase: "6.13",
+    title: "Bounded non-destructive backfill",
+    scope: "Operator-approved metadata backfill only after dry-run proof and reviewed evidence.",
+  },
+  {
+    phase: "6.14",
     title: "Destructive cleanup gate",
     scope: "Only after owner-map proof, backups, and explicit approval.",
   },
@@ -1472,18 +1482,24 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       },
     },
     mainEvidencePackage: {
-      status: fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md"))
+      status: fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md"))
+        ? "pending_main_evidence"
+        : fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md"))
         ? "pending_main_evidence"
         : "not_recorded",
       directory: "docs/tenant-assets/evidence/",
       index: "docs/tenant-assets/evidence/README.md",
       pendingFile: "docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md",
+      decisionFile: "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md",
+      decisionReviewed: fs.existsSync(path.join(repoRoot, "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md")),
       realMainEvidenceFoundInRepo: false,
       activeWorkflow: "main_only",
+      accessSwitchDecision: "blocked",
+      backfillDecision: "blocked",
       accessChecksChanged: false,
       backfillPerformed: false,
       r2LiveListed: false,
-      recommendedNextPhase: "Phase 6.10 — Operator-run Main Evidence Review and Decision",
+      recommendedNextPhase: "Phase 6.11 — Operator Collects Main Evidence Export for AI Folders & Images",
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
@@ -1502,7 +1518,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "No runtime access behavior changes are made.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? "Phase 6.10 — Operator-run Main Evidence Review and Decision"
+      ? "Phase 6.11 — Operator Collects Main Evidence Export for AI Folders & Images"
       : ownershipMigrationExists
         ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
@@ -1708,7 +1724,11 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Status: ${report.mainEvidencePackage?.status || "not_recorded"}`,
     `- Directory: ${report.mainEvidencePackage?.directory || "not_recorded"}`,
     `- Active workflow: ${report.mainEvidencePackage?.activeWorkflow || "main_only"}`,
+    `- Decision file: ${report.mainEvidencePackage?.decisionFile || "not_recorded"}`,
+    `- Decision reviewed: ${report.mainEvidencePackage?.decisionReviewed ? "yes" : "no"}`,
     `- Real main evidence found in repo: ${report.mainEvidencePackage?.realMainEvidenceFoundInRepo ? "yes" : "no"}`,
+    `- Access switch decision: ${report.mainEvidencePackage?.accessSwitchDecision || "blocked"}`,
+    `- Backfill decision: ${report.mainEvidencePackage?.backfillDecision || "blocked"}`,
     "",
     "## Safety",
     "",

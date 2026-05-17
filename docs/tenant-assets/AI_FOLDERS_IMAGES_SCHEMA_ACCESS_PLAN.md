@@ -158,6 +158,14 @@ Phase 6.5 implements only the personal folder create and personal saved-image wr
 - `npm run tenant-assets:summarize-evidence` can summarize a future reviewed JSON export without calling live endpoints.
 - Phase 6.9 adds no migration, endpoint, Admin UI, runtime route change, ownership backfill, access-check switch, D1/R2 mutation, R2 listing, provider call, Stripe call, or tenant-isolation claim.
 
+## Phase 6.10 Evidence Decision
+
+- `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` records the current operator decision.
+- Status is `pending_main_evidence` because no real main evidence export is present in-repo.
+- Access-check switching and ownership backfill remain blocked.
+- Synthetic fixtures and pending markers are not main evidence.
+- Phase 6.10 adds no migration, endpoint, Admin UI, runtime route change, ownership backfill, access-check switch, D1/R2 mutation, R2 listing, provider call, Stripe call, or tenant-isolation claim.
+
 ## Access-Check Impact Matrix
 
 | Area | Current access basis | Proposed access basis | Phase 6.3 behavior change | Future phase | Tests required |
@@ -251,7 +259,9 @@ Future implementation tests should cover:
 | 6.7 | Tenant asset ownership admin evidence report for folders/images; implemented as read-only bounded JSON/Markdown evidence. |
 | 6.8 | Evidence collection runbook/template/checklist for the Phase 6.7 folders/images report. |
 | 6.9 | Main-only owner-map evidence package and pending state; implemented with no live endpoint calls, backfill, or access switch. |
-| 6.10 | Operator-run main evidence review and decision; no backfill or access switch unless a later explicit phase approves it. |
-| 6.11 | Operator-approved non-destructive ownership metadata backfill, only after reviewed evidence. |
+| 6.10 | Operator-run main evidence review and decision; implemented as pending/blocked because no real main evidence export is present. |
+| 6.11 | Operator collects main evidence export for AI folders/images; no backfill or access switch. |
+| 6.12 | Manual review workflow or evidence archive depending on Phase 6.11 counts. |
+| 6.13 | Operator-approved non-destructive ownership metadata backfill, only after reviewed evidence. |
 
-Recommended next phase: **Phase 6.10 - Operator-run Main Evidence Review and Decision**.
+Recommended next phase: **Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images**.

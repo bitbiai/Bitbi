@@ -58,7 +58,8 @@ Supported query parameters:
 6. Inspect exports for redaction and absence of unsafe fields.
 7. If committing an in-repo summary, use `docs/tenant-assets/evidence/README.md` and optionally `npm run tenant-assets:summarize-evidence`.
 8. Record summary counts and the risk decision in the evidence template.
-9. Do not run any backfill, cleanup, access-switch, D1 update, R2 list/delete/move, provider, Stripe, or Cloudflare action.
+9. Update `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` after real main evidence is collected and reviewed.
+10. Do not run any backfill, cleanup, access-switch, D1 update, R2 list/delete/move, provider, Stripe, or Cloudflare action.
 
 ## Safe Examples
 
@@ -108,6 +109,8 @@ No example command contains a real cookie, bearer token, Cloudflare token, Strip
 Keep live evidence in a private operator evidence store. Commit only redacted summaries when needed.
 
 If evidence has not been collected yet, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as the current package state. Do not treat that pending file as evidence.
+
+`docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` records the current operator decision. A pending decision is not evidence, and synthetic fixtures under `scripts/fixtures/` are not main evidence.
 
 To summarize a reviewed JSON export without calling live endpoints:
 
@@ -185,7 +188,7 @@ Then:
 - do not switch access checks
 - do not backfill automatically
 - do not move, list, or delete R2 objects
-- proceed to operator-run main evidence review and manual review planning
+- update the decision document and proceed to manual review planning
 
 If all high-risk counts are zero on controlled test data only:
 
@@ -199,4 +202,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.10 - Operator-run Main Evidence Review and Decision.
+Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images when the decision remains pending.

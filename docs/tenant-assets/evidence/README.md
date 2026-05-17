@@ -21,7 +21,11 @@ This directory is for **main-only evidence**. The owner does not use a separate 
 
 ## Current State
 
-`PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is the current Phase 6.9 package state. It is not evidence; it records that no real operator-exported main evidence files were present in the repository when Phase 6.9 was prepared.
+`MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` is the current Phase 6.10 decision. Status remains `pending_main_evidence` because no real operator-exported main evidence file is present in this repository.
+
+`PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` remains the active pending marker. It is not evidence; it records that the main-only evidence package still needs an operator-exported JSON or Markdown report before access-switch or backfill decisions can be considered.
+
+Synthetic fixtures, runbook instructions, and pending markers must not be treated as main evidence.
 
 ## Adding A Future Snapshot
 
@@ -35,6 +39,7 @@ This directory is for **main-only evidence**. The owner does not use a separate 
    ```
 
 5. Commit only sanitized summaries or approved redacted exports.
-6. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
+6. Update `MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` with the reviewed source files and explicit counts.
+7. Keep any access-check switch or backfill blocked unless operator evidence and a later approved phase explicitly allow it.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

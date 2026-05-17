@@ -18,7 +18,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Member image/music/video AI Cost Gateway flows are migrated with required idempotency and duplicate-provider suppression.
 - Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, read-only reconciliation, explicit admin-approved repair, report/export, and sanitized archives.
 - Admin Control Plane navigation now surfaces the implemented operator panels without changing backend behavior.
-- Phase 6.1 tenant asset ownership design/inventory/risk docs exist; Phase 6.2 adds the focused `ai_folders`/`ai_images` owner-map dry run; Phase 6.3 adds the schema/access plan; Phase 6.4 adds nullable ownership metadata schema; Phase 6.5 assigns metadata only on new personal folder/image writes; Phase 6.6 adds read-only dual-read diagnostics; Phase 6.7 adds admin-only evidence report/export; Phase 6.8 adds evidence collection runbook/template/checklist only; Phase 6.9 adds a main-only pending evidence package because no real operator export was present in-repo, with no old-row backfill or access behavior change.
+- Phase 6.1 tenant asset ownership design/inventory/risk docs exist; Phase 6.2 adds the focused `ai_folders`/`ai_images` owner-map dry run; Phase 6.3 adds the schema/access plan; Phase 6.4 adds nullable ownership metadata schema; Phase 6.5 assigns metadata only on new personal folder/image writes; Phase 6.6 adds read-only dual-read diagnostics; Phase 6.7 adds admin-only evidence report/export; Phase 6.8 adds evidence collection runbook/template/checklist only; Phase 6.9 adds a main-only pending evidence package; Phase 6.10 adds a pending/blocked decision document because no real operator export was present in-repo, with no old-row backfill or access behavior change.
 - Historical phase reports and pre-DOC-1 long-form docs are archived/indexed instead of expanded in active docs.
 
 ## Current Open Blockers
@@ -27,7 +27,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drills, and rollback evidence are not recorded here.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.
 - Billing remediation, refund/dispute/accounting/legal workflows remain incomplete.
-- Tenant-owned asset migration implementation and self-service privacy flows remain incomplete; Phase 6.7 evidence reports, Phase 6.8 collection docs, and Phase 6.9 pending main evidence package are read-only/evidence-only and did not migrate old rows, assign organization ownership, change access checks, or move/list/delete R2 objects.
+- Tenant-owned asset migration implementation and self-service privacy flows remain incomplete; Phase 6.7 evidence reports, Phase 6.8 collection docs, Phase 6.9 pending main evidence package, and Phase 6.10 pending decision are read-only/evidence-only and did not migrate old rows, assign organization ownership, change access checks, or move/list/delete R2 objects.
 - Remaining AI budget scopes/internal provider routes are future work.
 
 ## Deployment Requirements
@@ -48,7 +48,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 
 ## Next Recommended Step
 
-Use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` to collect bounded main/live evidence from the Phase 6.7 folders/images evidence report after deployment. Phase 6.9 records that evidence as pending in-repo. If implementation continues, Phase 6.10 should review operator-run main evidence and decide whether manual review, archive work, or another design-only step is next, with no broad backfill or access behavior change.
+Use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` to collect bounded main/live evidence from the Phase 6.7 folders/images evidence report after deployment. Phase 6.10 reviewed the repo evidence package and kept `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` at `pending_main_evidence` because no real main export is present. If implementation continues, Phase 6.11 should be operator collection of the main evidence export, with no broad backfill or access behavior change.
 
 ## Historical Evidence Links
 

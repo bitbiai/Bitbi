@@ -170,6 +170,7 @@ export function buildTenantAssetEvidenceSummary(report, {
   operator = "not_recorded",
   commitSha = "not_recorded",
   evidenceEnvironment = "main",
+  syntheticFixture = false,
 } = {}) {
   const normalized = normalizeTenantAssetEvidenceReportPayload(report);
   const counts = buildCountSummary(normalized.summary || {}, normalized.dualReadSafetyRollup || {});
@@ -182,6 +183,7 @@ export function buildTenantAssetEvidenceSummary(report, {
     operator,
     commitSha,
     evidenceEnvironment,
+    syntheticFixture,
     mainOnlyEvidence: evidenceEnvironment === "main" || evidenceEnvironment === "live-main",
     endpointTested: "/api/admin/tenant-assets/folders-images/evidence/export?format=json",
     source: normalized.source,
@@ -214,11 +216,14 @@ export function renderTenantAssetEvidenceSummaryMarkdown(summary) {
     `Source file: ${summary.sourcePath || "operator-provided JSON export"}`,
     `Environment: ${summary.evidenceEnvironment}`,
     `Main-only evidence: ${summary.mainOnlyEvidence ? "yes" : "no"}`,
+    `Synthetic fixture: ${summary.syntheticFixture ? "yes" : "no"}`,
     `Operator: ${summary.operator}`,
     `Commit SHA: ${summary.commitSha}`,
     `Decision status: ${summary.decisionStatus}`,
     "",
-    "This summary is derived from an operator-provided read-only JSON export. It does not apply a backfill, change access checks, mutate D1/R2, list live R2, call providers, call Stripe, mutate Cloudflare, or prove full tenant isolation.",
+    summary.syntheticFixture
+      ? "This summary is derived from a synthetic fixture for local validation only. It is not main evidence and does not apply a backfill, change access checks, mutate D1/R2, list live R2, call providers, call Stripe, mutate Cloudflare, or prove full tenant isolation."
+      : "This summary is derived from an operator-provided read-only JSON export. It does not apply a backfill, change access checks, mutate D1/R2, list live R2, call providers, call Stripe, mutate Cloudflare, or prove full tenant isolation.",
     "",
     "## Safety Flags",
     "",
@@ -262,6 +267,7 @@ function parseArgs(argv) {
     operator: "not_recorded",
     commitSha: "not_recorded",
     evidenceEnvironment: "main",
+    evidenceEnvironmentProvided: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -283,6 +289,7 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === "--environment") {
       args.evidenceEnvironment = argv[index + 1] || args.evidenceEnvironment;
+      args.evidenceEnvironmentProvided = true;
       index += 1;
     }
   }
@@ -306,12 +313,18 @@ function main() {
   }
   const repoRoot = repoRootFromScript();
   const inputPath = path.resolve(repoRoot, args.input);
+  const relativeInputPath = path.relative(repoRoot, inputPath);
+  const syntheticFixture = relativeInputPath.split(path.sep).includes("fixtures");
+  const evidenceEnvironment = syntheticFixture && !args.evidenceEnvironmentProvided
+    ? "synthetic_fixture"
+    : args.evidenceEnvironment;
   const payload = JSON.parse(fs.readFileSync(inputPath, "utf8"));
   const summary = buildTenantAssetEvidenceSummary(payload, {
-    sourcePath: path.relative(repoRoot, inputPath),
+    sourcePath: relativeInputPath,
     operator: args.operator,
     commitSha: args.commitSha,
-    evidenceEnvironment: args.evidenceEnvironment,
+    evidenceEnvironment,
+    syntheticFixture,
   });
   const markdown = renderTenantAssetEvidenceSummaryMarkdown(summary);
   if (args.output) {

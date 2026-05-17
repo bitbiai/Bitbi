@@ -8,6 +8,8 @@ Decision: **blocked**
 
 This file is not evidence. It records that no real operator-exported main evidence files were present in the repository when Phase 6.9 was prepared.
 
+Phase 6.10 reviewed the repository evidence package and kept this pending status. See `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`.
+
 ## Required Operator Exports
 
 Collect these from the live/main deployment after the Phase 6.7 endpoint is deployed and the auth D1 migration through `0056_add_ai_folder_image_ownership_metadata.sql` is verified:
@@ -56,4 +58,4 @@ Do not treat this file as proof that the Phase 6.7 endpoint is live, that owners
 
 ## Next Recommended Phase
 
-Phase 6.10 - Operator-run Main Evidence Review and Decision.
+Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images.

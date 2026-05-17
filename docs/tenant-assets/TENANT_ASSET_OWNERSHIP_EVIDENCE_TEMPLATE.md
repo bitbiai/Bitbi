@@ -44,9 +44,11 @@ This workflow is main-only. Do not mark evidence as collected unless it came fro
 | JSON export |  | yes / no |
 | Markdown export |  | yes / no / not used |
 | In-repo sanitized summary under `docs/tenant-assets/evidence/` |  | yes / no / pending |
+| Decision document `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` |  | yes / no / pending |
 | Screenshot or admin evidence reference |  | yes / no / not used |
 
 Do not paste real cookies, session tokens, bearer tokens, private keys, signed URLs, provider payloads, Stripe data, Cloudflare tokens, or private R2 keys into this template.
+Do not treat synthetic fixtures or pending-marker documents as main evidence.
 
 ## 4. Summary Counts
 
@@ -134,4 +136,4 @@ Record operator confirmation:
 
 ## 11. Next Recommended Phase
 
-Phase 6.10 - Operator-run Main Evidence Review and Decision.
+Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images if main evidence is still pending.

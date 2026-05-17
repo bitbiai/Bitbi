@@ -253,11 +253,18 @@ assert.equal(foldersImagesReport.adminEvidenceReport.r2LiveListed, false);
 assert(foldersImagesReport.adminEvidenceReport.manualReviewRollup.totalReviewSignals >= 1);
 assert.equal(foldersImagesReport.mainEvidencePackage.status, "pending_main_evidence");
 assert.equal(foldersImagesReport.mainEvidencePackage.activeWorkflow, "main_only");
+assert.equal(
+  foldersImagesReport.mainEvidencePackage.decisionFile,
+  "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md"
+);
+assert.equal(foldersImagesReport.mainEvidencePackage.decisionReviewed, true);
 assert.equal(foldersImagesReport.mainEvidencePackage.realMainEvidenceFoundInRepo, false);
+assert.equal(foldersImagesReport.mainEvidencePackage.accessSwitchDecision, "blocked");
+assert.equal(foldersImagesReport.mainEvidencePackage.backfillDecision, "blocked");
 assert.equal(foldersImagesReport.mainEvidencePackage.accessChecksChanged, false);
 assert.equal(foldersImagesReport.mainEvidencePackage.backfillPerformed, false);
 assert.equal(foldersImagesReport.mainEvidencePackage.r2LiveListed, false);
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.10 — Operator-run Main Evidence Review and Decision");
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.11 — Operator Collects Main Evidence Export for AI Folders & Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -391,10 +398,12 @@ const evidenceSummary = buildTenantAssetEvidenceSummary(evidencePayload, {
   sourcePath: "scripts/fixtures/tenant-assets/folders-images-evidence-export.json",
   operator: "synthetic_operator",
   commitSha: "synthetic_commit",
-  evidenceEnvironment: "main",
+  evidenceEnvironment: "synthetic_fixture",
+  syntheticFixture: true,
 });
 assert.equal(evidenceSummary.summaryVersion, "tenant-asset-owner-map-main-evidence-summary-v1");
-assert.equal(evidenceSummary.mainOnlyEvidence, true);
+assert.equal(evidenceSummary.mainOnlyEvidence, false);
+assert.equal(evidenceSummary.syntheticFixture, true);
 assert.equal(evidenceSummary.counts.totalFoldersScanned, 3);
 assert.equal(evidenceSummary.counts.totalImagesScanned, 4);
 assert.equal(evidenceSummary.counts.metadataMissingTotal, 4);
@@ -408,7 +417,8 @@ assert.equal(evidenceSummary.highRiskCounts.needsManualReviewCount, 1);
 assert.equal(evidenceSummary.decisionStatus, "blocked_for_access_switch_and_backfill");
 const evidenceMarkdown = renderTenantAssetEvidenceSummaryMarkdown(evidenceSummary);
 assert(evidenceMarkdown.includes("# Main AI Folders/Images Owner-Map Evidence Summary"));
-assert(evidenceMarkdown.includes("Main-only evidence: yes"));
+assert(evidenceMarkdown.includes("Main-only evidence: no"));
+assert(evidenceMarkdown.includes("Synthetic fixture: yes"));
 assert(evidenceMarkdown.includes("Decision status: blocked_for_access_switch_and_backfill"));
 assert(!evidenceMarkdown.includes("users/synthetic-user/folders"));
 assert(!evidenceMarkdown.includes("Cookie:"));

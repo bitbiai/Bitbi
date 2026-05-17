@@ -53,6 +53,7 @@ git status --short
 | Save Markdown evidence if used |  | optional |
 | Save approved redacted summary or pending marker under `docs/tenant-assets/evidence/` |  | blocked |
 | Fill `TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md` |  | blocked |
+| Update `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` with source files and counts |  | blocked |
 
 ## Verify Sanitization
 
@@ -94,10 +95,10 @@ If any of these are nonzero, keep the verdict blocked for access-switch and back
 
 If the endpoint is unavailable, output is unsafe, or required migration/deploy evidence is missing, record `blocked`.
 
-If evidence is collected safely but high-risk counts remain, record `needs_more_evidence` or `unsafe_for_access_switch` in the evidence template and proceed only to manual review or Phase 6.10 operator-run main evidence review.
+If evidence is collected safely but high-risk counts remain, record `needs_more_evidence` or `unsafe_for_access_switch` in the evidence template, update the decision document, and proceed only to manual review planning.
 
-If no real operator-exported evidence is present in the repository, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as the package state and do not claim main evidence was collected.
+If no real operator-exported evidence is present in the repository, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as the package state, keep `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` pending, and do not claim main evidence was collected. Synthetic fixtures are not main evidence.
 
 ## Next Recommended Phase
 
-Phase 6.10 - Operator-run Main Evidence Review and Decision.
+Phase 6.11 - Operator Collects Main Evidence Export for AI Folders & Images when the decision remains pending.
