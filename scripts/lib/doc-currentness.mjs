@@ -30,13 +30,16 @@ export const CURRENT_DOC_LINE_LIMITS = Object.freeze({
 });
 
 const MARKDOWN_SCAN_IGNORES = Object.freeze([
-  ".git/",
-  ".wrangler/",
-  "_site/",
-  "node_modules/",
   "playwright-report/",
   "test-results/",
   "js/vendor/",
+]);
+
+const MARKDOWN_SCAN_IGNORED_SEGMENTS = new Set([
+  ".git",
+  ".wrangler",
+  "_site",
+  "node_modules",
 ]);
 
 const SUPERSEDED_STALE_DOCS = new Set([
@@ -129,6 +132,9 @@ function normalizePathname(value) {
 
 function isIgnoredMarkdownPath(relativePath) {
   const normalized = normalizePathname(relativePath);
+  if (normalized.split("/").some((segment) => MARKDOWN_SCAN_IGNORED_SEGMENTS.has(segment))) {
+    return true;
+  }
   return MARKDOWN_SCAN_IGNORES.some((prefix) => normalized.startsWith(prefix));
 }
 

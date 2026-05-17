@@ -83,6 +83,25 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/audits/README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "workers/auth/CLAUDE.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "node_modules/foo/README.md", "Dependency readme.\n");
+  writeFile(repo, "workers/ai/node_modules/foo/README.md", "Nested dependency readme.\n");
+  writeFile(repo, "workers/auth/node_modules/foo/LICENSE.md", "Nested dependency license.\n");
+  writeFile(repo, "workers/contact/node_modules/undici/docs/docs/api/Agent.md", "Deep nested dependency docs.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "docs/audits/README.md", "workers/auth/CLAUDE.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  const inventoriedPaths = result.markdownInventory.map((entry) => entry.path);
+  assert(inventoriedPaths.includes("docs/audits/README.md"));
+  assert(inventoriedPaths.includes("workers/auth/CLAUDE.md"));
+  assert(!inventoriedPaths.some((entryPath) => entryPath.split("/").includes("node_modules")));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "docs/unknown-note.md", "Unindexed note.\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],

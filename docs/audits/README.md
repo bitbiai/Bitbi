@@ -104,7 +104,7 @@ These files remain available for context. They now carry or should carry an expl
 | Pattern | Reason |
 | --- | --- |
 | `js/vendor/README-qrcode-generator.md` | Third-party/vendor documentation, not first-party audit evidence. |
-| `node_modules/**`, `_site/**`, `.git/**`, `.wrangler/**`, `playwright-report/**`, `test-results/**` | Generated, dependency, or local tool output. |
+| Any path segment named `node_modules`, plus `_site/**`, `.git/**`, `.wrangler/**`, `playwright-report/**`, `test-results/**` | Generated, dependency, or local tool output. |
 
 ## Removal Status
 
