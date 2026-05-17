@@ -663,6 +663,54 @@
                     <div id="platformBudgetRepairReportState" class="admin-state">Loading repair evidence report...</div>
                     <div id="platformBudgetRepairReportList"></div>
                 </div>
+                <div class="admin-shell glass glass-card reveal visible">
+                    <div class="admin-control-card-head">
+                        <div>
+                            <h3 class="admin-section-title">Evidence Archives</h3>
+                            <p class="admin-shell__desc">Admin-approved sanitized archives for platform_admin_lab_budget repair, reconciliation, and cap evidence. Archives are operator evidence only and do not apply repairs, call providers, call Stripe, or change credits.</p>
+                        </div>
+                        <div class="admin-control-chip-row">
+                            <button type="button" id="platformBudgetEvidenceArchivesRefresh" class="btn-action btn-action--secondary">Refresh Archives</button>
+                            <button type="button" id="platformBudgetEvidenceArchiveCreate" class="btn-action">Create Archive</button>
+                            <button type="button" id="platformBudgetEvidenceArchiveCleanup" class="btn-action btn-action--secondary">Cleanup Expired</button>
+                        </div>
+                    </div>
+                    <div class="admin-control-form admin-control-form--inline">
+                        <label>
+                            <span>Format</span>
+                            <select id="platformBudgetEvidenceArchiveFormat">
+                                <option value="json">JSON</option>
+                                <option value="markdown">Markdown</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Archive type</span>
+                            <select id="platformBudgetEvidenceArchiveType">
+                                <option value="repair_report">Repair report</option>
+                                <option value="combined_evidence">Combined evidence</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Retention days</span>
+                            <input id="platformBudgetEvidenceArchiveRetentionDays" type="number" min="1" max="365" value="90">
+                        </label>
+                        <label>
+                            <span>Reason</span>
+                            <input id="platformBudgetEvidenceArchiveReason" type="text" maxlength="500" placeholder="Operator evidence archive reason">
+                        </label>
+                    </div>
+                    <label class="admin-ai__field--inline">
+                        <input id="platformBudgetEvidenceArchiveIncludeDetails" type="checkbox">
+                        <span>Include bounded detail rows</span>
+                    </label>
+                    <label class="admin-ai__field--inline">
+                        <input id="platformBudgetEvidenceArchiveIncludeCandidates" type="checkbox">
+                        <span>Include bounded reconciliation candidates</span>
+                    </label>
+                    <div id="platformBudgetEvidenceArchivesSummary"></div>
+                    <div id="platformBudgetEvidenceArchivesState" class="admin-state" aria-live="polite">Loading evidence archives...</div>
+                    <div id="platformBudgetEvidenceArchivesList"></div>
+                </div>
             </div>
 
             <!-- ═══════════════════════════════════════

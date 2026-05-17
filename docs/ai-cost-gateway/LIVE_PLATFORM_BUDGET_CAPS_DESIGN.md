@@ -1,6 +1,6 @@
 # Live Platform Budget Caps Design
 
-Status: Phase 4.16 design/evidence is preserved, Phase 4.17 implements the first narrow `platform_admin_lab_budget` cap foundation, Phase 4.18 adds read-only reconciliation/repair evidence for that foundation, Phase 4.19 adds an explicit admin-approved repair executor for selected safe candidates, and Phase 4.20 adds read-only operator repair evidence reporting/export. Phase 4.19 adds local migration `0054_add_platform_budget_repair_actions.sql`; Phase 4.20 adds no migration and does not change runtime provider route behavior or repair execution semantics. No provider call, Stripe call, Cloudflare/GitHub mutation, remote migration, member/org billing change, credit clawback, or live billing enablement is performed by this document or by tests. Other budget scopes remain future work.
+Status: Phase 4.16 design/evidence is preserved, Phase 4.17 implements the first narrow `platform_admin_lab_budget` cap foundation, Phase 4.18 adds read-only reconciliation/repair evidence for that foundation, Phase 4.19 adds an explicit admin-approved repair executor for selected safe candidates, Phase 4.20 adds read-only operator repair evidence reporting/export, and Phase 4.21 adds sanitized evidence archives under `AUDIT_ARCHIVE` with retention metadata. Phase 4.21 adds local migration `0055_add_platform_budget_evidence_archives.sql` and does not change runtime provider route behavior or repair execution semantics. No provider call, Stripe call, Cloudflare/GitHub mutation, remote migration, member/org billing change, credit clawback, or live billing enablement is performed by this document or by tests. Other budget scopes remain future work.
 
 ## Why Caps Are Needed
 
@@ -101,7 +101,7 @@ The first implementation should use estimated units/credits where actual provide
 
 ## Future Data Model
 
-No migration is added in Phase 4.16. Phase 4.17 implements the first narrow subset through local additive migration `0053_add_platform_budget_caps.sql`. Phase 4.19 adds `0054_add_platform_budget_repair_actions.sql` for admin-approved repair audit rows. Phase 4.20 adds read-only reporting/export over that table and does not add schema. Later phases can extend this schema or add derived window/override tables if needed.
+No migration is added in Phase 4.16. Phase 4.17 implements the first narrow subset through local additive migration `0053_add_platform_budget_caps.sql`. Phase 4.19 adds `0054_add_platform_budget_repair_actions.sql` for admin-approved repair audit rows. Phase 4.20 adds read-only reporting/export over that table and does not add schema. Phase 4.21 adds `0055_add_platform_budget_evidence_archives.sql` for sanitized archive metadata and private archive object tracking. Later phases can extend this schema or add derived window/override tables if needed.
 
 ### `platform_budget_limits`
 
@@ -213,4 +213,4 @@ Future implementation tests should prove:
 
 ## Production Readiness
 
-Production/live billing remains BLOCKED. Runtime budget kill switches from Phase 4.15, D1 app switches from Phase 4.15.1, the Phase 4.17 `platform_admin_lab_budget` cap foundation, Phase 4.18 reconciliation evidence, Phase 4.19 admin-approved repair actions, and Phase 4.20 repair evidence reports/exports are layered safety/evidence controls, not customer billing. Operators should keep admin/platform AI budget flags off unless they intentionally run bounded testing, apply migrations through `0054`, configure daily/monthly caps, and record evidence. Other scopes remain future work.
+Production/live billing remains BLOCKED. Runtime budget kill switches from Phase 4.15, D1 app switches from Phase 4.15.1, the Phase 4.17 `platform_admin_lab_budget` cap foundation, Phase 4.18 reconciliation evidence, Phase 4.19 admin-approved repair actions, Phase 4.20 repair evidence reports/exports, and Phase 4.21 sanitized evidence archives are layered safety/evidence controls, not customer billing. Phase 4.21 archives are operator-approved snapshots stored in `AUDIT_ARCHIVE` under `platform-budget-evidence/`; archive creation applies no repairs, performs no provider/Stripe/credit/source mutation, and cleanup is bounded plus approved-prefix-only. Operators should keep admin/platform AI budget flags off unless they intentionally run bounded testing, apply migrations through `0055`, configure daily/monthly caps, and record evidence. Other scopes remain future work.

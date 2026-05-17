@@ -2,7 +2,7 @@
 
 Audit date: 2026-05-03
 
-Last reconciled: 2026-05-16
+Last reconciled: 2026-05-17
 
 Scope: repository-level audit for the public privacy policy and German
 Datenschutzerklaerung. This report is an engineering/privacy inventory, not
@@ -11,7 +11,7 @@ German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1
-migration as `0054_add_platform_budget_repair_actions.sql`. This audit
+migration as `0055_add_platform_budget_evidence_archives.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
@@ -20,11 +20,13 @@ rows and no new user-facing data collection. It reads existing
 `platform_budget_usage_events`, `admin_ai_usage_attempts`, and `ai_video_jobs`
 rows for platform budget reconciliation and can create a missing usage event
 only from still-successful local D1 source evidence. Phase 4.20 adds read-only
-bounded repair evidence reports/exports over those existing local D1 rows and
-does not add storage. It does not expose raw prompts, provider bodies, generated
-outputs, secrets, raw idempotency keys, Stripe data, Cloudflare values, mutate
-usage/source/repair rows, mutate source attempts/jobs, mutate credits, or change
-customer billing.
+bounded repair evidence reports/exports over those existing local D1 rows.
+Phase 4.21 adds `platform_budget_evidence_archives` metadata and sanitized
+private `AUDIT_ARCHIVE` snapshots under `platform-budget-evidence/` for
+operator evidence retention. It does not expose raw prompts, provider bodies,
+generated outputs, secrets, raw idempotency keys, raw request fingerprints,
+Stripe data, Cloudflare values, private R2 keys, mutate usage/source/repair
+rows, mutate source attempts/jobs, mutate credits, or change customer billing.
 
 ## 1. Executive Summary
 
@@ -101,7 +103,10 @@ prompts, provider bodies, Stripe data, Cloudflare values/tokens, or member/org
 billing records. Phase 4.18 adds read-only reconciliation evidence, Phase 4.19
 adds migration `0054` for explicit admin-approved repair action audit rows, and
 Phase 4.20 adds read-only repair evidence report/export over those rows with no
-new schema, no automatic repair, and no usage/source mutation.
+new schema, no automatic repair, and no usage/source mutation. Phase 4.21 adds
+migration `0055` for sanitized archive metadata plus private `AUDIT_ARCHIVE`
+snapshots under `platform-budget-evidence/`; archive creation applies no repair
+and cleanup is bounded to the approved prefix only.
 These phases do not
 call real providers in tests, change public billing, add provider-cost action buttons, migrate Admin
 video beyond Phase 4.5, migrate OpenClaw/News
@@ -110,7 +115,7 @@ hard-fail internal AI Worker routes, change member image/music/video billing
 behavior, change org-scoped member route behavior, or make
 admin/platform/internal AI cost flows production-ready. Phase 4.3, Phase 4.5,
 Phase 4.6, Phase 4.7, Phase 4.8, Phase 4.8.1, Phase 4.8.2, Phase 4.9, Phase 4.10,
-Phase 4.11, Phase 4.12, Phase 4.13, Phase 4.14, Phase 4.15, Phase 4.16, Phase 4.17, Phase 4.18, Phase 4.19, and Phase 4.20
+Phase 4.11, Phase 4.12, Phase 4.13, Phase 4.14, Phase 4.15, Phase 4.16, Phase 4.17, Phase 4.18, Phase 4.19, Phase 4.20, and Phase 4.21
 metadata/inspection responses must not include raw prompts, raw lyrics, raw
 audio, raw compare prompts, compare outputs, raw Live-Agent messages/output, raw provider request bodies, provider response bodies, auth headers, cookies, Stripe data,
 Cloudflare tokens, private R2 keys, secrets, or sensitive raw article/source
@@ -186,7 +191,7 @@ Repo-wide searches included privacy-sensitive terms such as `localStorage`,
 | Asset storage quota | Asset upload/save activity | Enforce member storage limits | D1 `user_asset_storage_usage`, asset metadata and R2 object references | Private/member/admin | Cloudflare D1/R2 | Quota summaries are derived account data and are not yet integrated into lifecycle export/delete planning. |
 | Organization membership | Org creation/memberships | Org/team/account credit foundation | D1 `organizations`, `organization_memberships` | Private/org/admin | Cloudflare D1 | Export/delete treatment is not fully implemented in lifecycle planning. |
 | User/admin activity logs | Auth/profile/admin/billing/security actions | Security, audit, support, abuse prevention | D1 `user_activity_log`, `admin_audit_log`, `activity_search_index`; archived to R2 | Admin/operator | Cloudflare Queues/D1/R2 | Hot retention/archiving exists; legal retention policy still needs owner review. |
-| Data lifecycle/export records | Admin/support lifecycle process | Export/deletion/anonymization planning | D1 `data_lifecycle_*`, `data_export_archives`; R2 `AUDIT_ARCHIVE` | Admin/support | Cloudflare R2/D1 | Export exists as admin workflow; irreversible hard deletion is not enabled by default. |
+| Data lifecycle/export records | Admin/support lifecycle process | Export/deletion/anonymization planning and platform budget operator evidence archives | D1 `data_lifecycle_*`, `data_export_archives`, `platform_budget_evidence_archives`; R2 `AUDIT_ARCHIVE` | Admin/support | Cloudflare R2/D1 | Export exists as admin workflow; irreversible hard deletion is not enabled by default. Phase 4.21 platform budget archives are sanitized operator snapshots under `platform-budget-evidence/` and do not apply repairs or expose raw AI/provider/billing payloads. |
 | Rate-limit/security state | Requests/IP/user ids/route keys | Abuse prevention and fail-closed controls | Durable Objects, D1 `rate_limit_counters`, logs | Operator | Cloudflare Durable Objects/D1 | Keys may contain IP-derived or route identifiers. |
 
 ## 5. Third-Party and Provider Table
@@ -284,6 +289,7 @@ every third-party model/provider path, especially provider fallback/API paths.
 | SIWE challenges | 10-minute expiry, scheduled cleanup | Can state short-lived wallet auth challenge behavior. |
 | Activity/audit logs | Hot logs archived after 90 days into `AUDIT_ARCHIVE`; archival retention beyond that needs policy | Do not promise complete immediate deletion of logs. |
 | Export archives | Admin-generated JSON archive manifests, 14-day expiry, R2 cleanup for `data-exports/` objects | Can state export support is currently an admin/support process. |
+| Platform budget evidence archives | Admin-generated sanitized JSON/Markdown operator evidence snapshots, default 90-day retention capped at 365 days, metadata expiry, and approved-prefix-only R2 cleanup under `platform-budget-evidence/` | Can state these are admin/operator evidence records only; they do not apply repairs, mutate credits/billing/source rows, call providers, or call Stripe. |
 | User assets/media | Stored until user deletes assets or account/lifecycle handling proceeds | Do not promise automatic deletion unless code proves it. |
 | Data deletion/anonymization | Planning/admin approval exists; irreversible hard delete is disabled by default in lifecycle executor | Public text should say requests can be made and will be handled subject to legal/technical obligations; do not promise immediate deletion. |
 | Billing records | Ledger/checkout/webhook records retained for reconciliation/audit; no defined purge | Legal retention policy required before strong deletion promises. |

@@ -99,6 +99,15 @@ assert(report.platformBudgetRepairReport.exportFormats.includes("json"));
 assert(report.platformBudgetRepairReport.exportFormats.includes("markdown"));
 assert.equal(report.summary.platformBudgetRepairReportAvailable, false);
 assert.equal(report.summary.platformBudgetRepairReportExportFormats, 2);
+assert.equal(report.summary.platformBudgetEvidenceArchiveAvailable, false);
+assert.equal(report.summary.platformBudgetEvidenceArchiveRecentCount, 0);
+assert.equal(report.platformBudgetEvidenceArchives.phase, "Phase 4.21");
+assert.equal(report.platformBudgetEvidenceArchives.available, false);
+assert.equal(report.platformBudgetEvidenceArchives.approvedPrefix, "platform-budget-evidence/");
+assert.equal(report.platformBudgetEvidenceArchives.archiveAppliesRepair, false);
+assert.equal(report.platformBudgetEvidenceArchives.cleanupApprovedPrefixOnly, true);
+assert(report.platformBudgetEvidenceArchives.archiveFormats.includes("json"));
+assert(report.platformBudgetEvidenceArchives.archiveFormats.includes("markdown"));
 
 const platformCapScope = report.livePlatformBudgetCaps.countabilityByBudgetScope.find((entry) =>
   entry.scope === "platform_admin_lab_budget"

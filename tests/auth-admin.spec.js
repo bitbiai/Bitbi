@@ -1682,6 +1682,10 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.platformBudgetCapUpdateRequests = captures.platformBudgetCapUpdateRequests || [];
   captures.platformBudgetRepairRequests = captures.platformBudgetRepairRequests || [];
   captures.platformBudgetRepairReportExportRequests = captures.platformBudgetRepairReportExportRequests || [];
+  captures.platformBudgetEvidenceArchiveCreateRequests = captures.platformBudgetEvidenceArchiveCreateRequests || [];
+  captures.platformBudgetEvidenceArchiveDownloadRequests = captures.platformBudgetEvidenceArchiveDownloadRequests || [];
+  captures.platformBudgetEvidenceArchiveExpireRequests = captures.platformBudgetEvidenceArchiveExpireRequests || [];
+  captures.platformBudgetEvidenceArchiveCleanupRequests = captures.platformBudgetEvidenceArchiveCleanupRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -2762,6 +2766,129 @@ async function mockAdminControlPlane(page, captures = {}) {
         summary: { totalRepairActions: 3 },
       }),
     });
+  });
+  const evidenceArchives = captures.platformBudgetEvidenceArchives || [
+    {
+      id: 'pbea_static_1',
+      budgetScope: 'platform_admin_lab_budget',
+      archiveType: 'repair_report',
+      archiveStatus: 'created',
+      contentType: 'application/json; charset=utf-8',
+      format: 'json',
+      sha256: 'safehash',
+      sizeBytes: 720,
+      filters: { limit: 50 },
+      summary: {
+        totalRepairActions: 3,
+        createdUsageEventCount: 1,
+      },
+      idempotencyKeyPresent: true,
+      reason: 'Static evidence archive',
+      createdByEmail: 'admin@example.com',
+      createdAt: '2026-05-16T12:20:00.000Z',
+      updatedAt: '2026-05-16T12:20:00.000Z',
+      expiresAt: '2026-08-14T12:20:00.000Z',
+      storage: {
+        private: true,
+        bucketBinding: 'AUDIT_ARCHIVE',
+        prefix: 'platform-budget-evidence/',
+        internalKeyIncluded: false,
+      },
+    },
+  ];
+  await page.route('**/api/admin/ai/platform-budget-evidence-archives/cleanup-expired', async (route) => {
+    const request = route.request();
+    if (request.method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+    captures.platformBudgetEvidenceArchiveCleanupRequests.push({
+      idempotencyKey: request.headers()['idempotency-key'],
+      body: request.postDataJSON(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      cleanup: {
+        ok: true,
+        budgetScope: 'platform_admin_lab_budget',
+        scannedCount: 1,
+        deletedCount: 1,
+        failedCount: 0,
+        results: [{ id: 'pbea_static_expired', status: 'deleted', internalKeyIncluded: false }],
+      },
+    });
+  });
+  await page.route('**/api/admin/ai/platform-budget-evidence-archives/*/download', async (route) => {
+    captures.platformBudgetEvidenceArchiveDownloadRequests.push({
+      url: route.request().url(),
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'content-disposition': 'attachment; filename="platform-budget-evidence-static.json"',
+      },
+      body: JSON.stringify({
+        archive: {
+          id: 'pbea_static_1',
+          budgetScope: 'platform_admin_lab_budget',
+          providerCalls: false,
+          stripeCalls: false,
+        },
+      }),
+    });
+  });
+  await page.route('**/api/admin/ai/platform-budget-evidence-archives/*/expire', async (route) => {
+    const request = route.request();
+    captures.platformBudgetEvidenceArchiveExpireRequests.push({
+      idempotencyKey: request.headers()['idempotency-key'],
+      body: request.postDataJSON(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      archive: {
+        ...evidenceArchives[0],
+        archiveStatus: 'expired',
+      },
+      expired: true,
+    });
+  });
+  await page.route(/\/api\/admin\/ai\/platform-budget-evidence-archives(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await fulfillJson(route, {
+        ok: true,
+        available: true,
+        budgetScope: 'platform_admin_lab_budget',
+        appliedLimit: 25,
+        archives: evidenceArchives,
+      });
+      return;
+    }
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON();
+      captures.platformBudgetEvidenceArchiveCreateRequests.push({
+        idempotencyKey: request.headers()['idempotency-key'],
+        body,
+      });
+      const created = {
+        ...evidenceArchives[0],
+        id: 'pbea_static_created',
+        archiveType: body.archiveType,
+        format: body.format,
+        reason: body.reason,
+        createdAt: '2026-05-16T12:30:00.000Z',
+        updatedAt: '2026-05-16T12:30:00.000Z',
+      };
+      evidenceArchives.unshift(created);
+      await fulfillJson(route, {
+        ok: true,
+        archive: created,
+        replayed: false,
+      });
+      return;
+    }
+    await route.fallback();
   });
 
   await page.route('**/api/admin/data-lifecycle/requests?*', async (route) => {
@@ -9102,6 +9229,31 @@ test.describe('Admin Control Plane', () => {
     const downloadedReport = await reportDownload;
     if (downloadedReport) {
       await downloadedReport.cancel();
+    }
+    await expect(switchSection).toContainText('Evidence Archives');
+    await expect(page.locator('#platformBudgetEvidenceArchivesSummary')).toContainText('AUDIT_ARCHIVE / platform-budget-evidence/');
+    await expect(page.locator('#platformBudgetEvidenceArchivesList')).toContainText('pbea');
+    await expect(page.locator('#platformBudgetEvidenceArchivesList')).toContainText('3 repairs; 1 usage events');
+    await expect(page.locator('#platformBudgetEvidenceArchivesList')).toContainText('Archive metadata omits private R2 keys');
+    await expect(page.locator('#platformBudgetEvidenceArchivesList')).not.toContainText('sk_live_');
+    await expect(page.locator('#platformBudgetEvidenceArchivesList').getByRole('button', { name: /apply|repair|delete|credit|stripe|provider|cloudflare/i })).toHaveCount(0);
+    await page.locator('#platformBudgetEvidenceArchiveReason').fill('Static evidence archive reason');
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#platformBudgetEvidenceArchiveCreate').click();
+    await expect.poll(() => captures.platformBudgetEvidenceArchiveCreateRequests.length).toBe(1);
+    expect(captures.platformBudgetEvidenceArchiveCreateRequests[0].idempotencyKey).toMatch(/^platform-budget-evidence-archive-/);
+    expect(captures.platformBudgetEvidenceArchiveCreateRequests[0].body).toMatchObject({
+      budgetScope: 'platform_admin_lab_budget',
+      format: 'json',
+      archiveType: 'repair_report',
+      reason: 'Static evidence archive reason',
+    });
+    const archiveDownload = page.waitForEvent('download', { timeout: 3000 }).catch(() => null);
+    await page.locator('#platformBudgetEvidenceArchivesList').getByRole('button', { name: 'Download' }).first().click();
+    await expect.poll(() => captures.platformBudgetEvidenceArchiveDownloadRequests.length).toBe(1);
+    const downloadedArchive = await archiveDownload;
+    if (downloadedArchive) {
+      await downloadedArchive.cancel();
     }
     let repairDialogs = 0;
     const repairDialogHandler = (dialog) => {

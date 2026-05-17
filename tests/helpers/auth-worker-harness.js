@@ -791,6 +791,7 @@ class MockD1 {
       platformBudgetLimitEvents: [],
       platformBudgetUsageEvents: [],
       platformBudgetRepairActions: [],
+      platformBudgetEvidenceArchives: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -959,6 +960,9 @@ class MockD1 {
     }
     if (this.missingTables.has('platform_budget_repair_actions') && query.includes('platform_budget_repair_actions')) {
       throw new Error('no such table: platform_budget_repair_actions');
+    }
+    if (this.missingTables.has('platform_budget_evidence_archives') && query.includes('platform_budget_evidence_archives')) {
+      throw new Error('no such table: platform_budget_evidence_archives');
     }
     if (this.missingTables.has('user_asset_storage_usage') && query.includes('user_asset_storage_usage')) {
       throw new Error('no such table: user_asset_storage_usage');
@@ -7980,6 +7984,186 @@ class MockD1 {
       row.error_code = error_code;
       row.error_message = error_message;
       row.updated_at = updated_at;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, archive_type, archive_status, storage_bucket, storage_key')
+      && query.includes('FROM platform_budget_evidence_archives')
+      && query.includes('WHERE idempotency_key_hash = ?')
+    ) {
+      const [idempotencyKeyHash] = bindings;
+      return (this.state.platformBudgetEvidenceArchives || []).find((row) => row.idempotency_key_hash === idempotencyKeyHash) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, archive_type, archive_status, storage_bucket, storage_key')
+      && query.includes('FROM platform_budget_evidence_archives')
+      && query.includes('WHERE id = ?')
+    ) {
+      const [id] = bindings;
+      return (this.state.platformBudgetEvidenceArchives || []).find((row) => row.id === id) || null;
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, archive_type, archive_status, storage_bucket, storage_key')
+      && query.includes('FROM platform_budget_evidence_archives')
+      && query.includes('WHERE budget_scope = ?')
+      && query.includes('ORDER BY created_at DESC')
+    ) {
+      const [budgetScope, limit] = bindings;
+      return {
+        results: (this.state.platformBudgetEvidenceArchives || [])
+          .filter((row) => row.budget_scope === budgetScope)
+          .sort((left, right) => {
+            const byCreated = String(right.created_at || '').localeCompare(String(left.created_at || ''));
+            if (byCreated !== 0) return byCreated;
+            return String(right.id || '').localeCompare(String(left.id || ''));
+          })
+          .slice(0, Number(limit || 25)),
+      };
+    }
+
+    if (
+      query.startsWith('SELECT id, budget_scope, archive_type, archive_status, storage_bucket, storage_key')
+      && query.includes('FROM platform_budget_evidence_archives')
+      && query.includes("archive_status IN ('created', 'expired', 'cleanup_failed')")
+    ) {
+      const [budgetScope, now, limit] = bindings;
+      return {
+        results: (this.state.platformBudgetEvidenceArchives || [])
+          .filter((row) =>
+            row.budget_scope === budgetScope &&
+            ['created', 'expired', 'cleanup_failed'].includes(row.archive_status) &&
+            (row.archive_status === 'expired' || (row.expires_at && row.expires_at <= now))
+          )
+          .sort((left, right) => {
+            const byExpires = String(left.expires_at || '').localeCompare(String(right.expires_at || ''));
+            if (byExpires !== 0) return byExpires;
+            const byCreated = String(left.created_at || '').localeCompare(String(right.created_at || ''));
+            if (byCreated !== 0) return byCreated;
+            return String(left.id || '').localeCompare(String(right.id || ''));
+          })
+          .slice(0, Number(limit || 25)),
+      };
+    }
+
+    if (query.startsWith('INSERT INTO platform_budget_evidence_archives')) {
+      const [
+        id,
+        budget_scope,
+        archive_type,
+        archive_status,
+        storage_bucket,
+        storage_key,
+        content_type,
+        format,
+        sha256,
+        size_bytes,
+        filters_json,
+        summary_json,
+        idempotency_key_hash,
+        request_hash,
+        reason,
+        created_by_user_id,
+        created_by_email,
+        created_at,
+        updated_at,
+        expires_at,
+        deleted_at,
+        error_code,
+        error_message,
+      ] = bindings;
+      if (idempotency_key_hash && (this.state.platformBudgetEvidenceArchives || []).some((row) => row.idempotency_key_hash === idempotency_key_hash)) {
+        throw new Error('UNIQUE constraint failed: platform_budget_evidence_archives.idempotency_key_hash');
+      }
+      if ((this.state.platformBudgetEvidenceArchives || []).some((row) => row.storage_key === storage_key)) {
+        throw new Error('UNIQUE constraint failed: platform_budget_evidence_archives.storage_key');
+      }
+      this.state.platformBudgetEvidenceArchives.push({
+        id,
+        budget_scope,
+        archive_type,
+        archive_status,
+        storage_bucket,
+        storage_key,
+        content_type,
+        format,
+        sha256,
+        size_bytes,
+        filters_json,
+        summary_json,
+        idempotency_key_hash,
+        request_hash,
+        reason,
+        created_by_user_id,
+        created_by_email,
+        created_at,
+        updated_at,
+        expires_at,
+        deleted_at,
+        error_code,
+        error_message,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE platform_budget_evidence_archives') && query.includes("SET archive_status = 'created'")) {
+      const [sha256, size_bytes, summary_json, updated_at, id] = bindings;
+      const row = (this.state.platformBudgetEvidenceArchives || []).find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.archive_status = 'created';
+      row.sha256 = sha256;
+      row.size_bytes = size_bytes;
+      row.summary_json = summary_json;
+      row.error_code = null;
+      row.error_message = null;
+      row.updated_at = updated_at;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE platform_budget_evidence_archives') && query.includes("SET archive_status = 'failed'")) {
+      const [error_code, error_message, updated_at, id] = bindings;
+      const row = (this.state.platformBudgetEvidenceArchives || []).find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.archive_status = 'failed';
+      row.error_code = error_code;
+      row.error_message = error_message;
+      row.updated_at = updated_at;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE platform_budget_evidence_archives') && query.includes("SET archive_status = 'expired'")) {
+      const [reason, updated_at, expires_at, id] = bindings;
+      const row = (this.state.platformBudgetEvidenceArchives || []).find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.archive_status = 'expired';
+      row.reason = reason;
+      row.updated_at = updated_at;
+      row.expires_at = expires_at;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE platform_budget_evidence_archives') && query.includes("SET archive_status = 'cleanup_failed'")) {
+      const [error_code, error_message, updated_at, id] = bindings;
+      const row = (this.state.platformBudgetEvidenceArchives || []).find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.archive_status = 'cleanup_failed';
+      row.error_code = error_code;
+      row.error_message = error_message;
+      row.updated_at = updated_at;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE platform_budget_evidence_archives') && query.includes("SET archive_status = 'deleted'")) {
+      const [deleted_at, updated_at, id] = bindings;
+      const row = (this.state.platformBudgetEvidenceArchives || []).find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.archive_status = 'deleted';
+      row.deleted_at = deleted_at;
+      row.updated_at = updated_at;
+      row.error_code = null;
+      row.error_message = null;
       return { success: true, meta: { changes: 1 } };
     }
 

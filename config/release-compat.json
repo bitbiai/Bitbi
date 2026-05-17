@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0054_add_platform_budget_repair_actions.sql",
+        "latest": "0055_add_platform_budget_evidence_archives.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -623,6 +623,8 @@
       "/admin/ai/platform-budget-repair-actions",
       "/admin/ai/platform-budget-repair-report",
       "/admin/ai/platform-budget-repair-report/export",
+      "/admin/ai/platform-budget-evidence-archives",
+      "/admin/ai/platform-budget-evidence-archives/cleanup-expired",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset",
@@ -655,6 +657,8 @@
       "/api/admin/ai/platform-budget-repair-actions",
       "/api/admin/ai/platform-budget-repair-report",
       "/api/admin/ai/platform-budget-repair-report/export",
+      "/api/admin/ai/platform-budget-evidence-archives",
+      "/api/admin/ai/platform-budget-evidence-archives/cleanup-expired",
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
       "/api/admin/ai/video-jobs",
@@ -670,6 +674,9 @@
       "PATCH /api/admin/ai/budget-switches/:id",
       "PATCH /api/admin/ai/platform-budget-caps/:id",
       "GET /api/admin/ai/platform-budget-repair-actions/:id",
+      "GET /api/admin/ai/platform-budget-evidence-archives/:id",
+      "GET /api/admin/ai/platform-budget-evidence-archives/:id/download",
+      "POST /api/admin/ai/platform-budget-evidence-archives/:id/expire",
       "GET /api/admin/ai/video-jobs/:id",
       "GET /api/admin/ai/video-jobs/poison/:id",
       "GET /api/admin/ai/video-jobs/failed/:id",

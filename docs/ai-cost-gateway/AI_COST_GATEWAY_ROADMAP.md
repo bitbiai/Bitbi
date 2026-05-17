@@ -1,10 +1,10 @@
 # AI Cost Gateway Roadmap
 
-Date: 2026-05-16
+Date: 2026-05-17
 
 Status: phased implementation plan only. Production/live billing remains BLOCKED.
 
-Current phase note: Phase 4.20 adds read-only operator repair evidence report/export on top of Phase 4.19's explicit admin-approved `platform_admin_lab_budget` repair executor, Phase 4.18 read-only reconciliation, and Phase 4.17 caps. It reports and exports bounded sanitized repair action evidence only. No new repair execution, automatic repair, runtime provider route behavior change, provider call, Stripe call, member/org billing change, credit clawback, deploy, remote migration, or live billing enablement is included.
+Current phase note: Phase 4.21 adds sanitized operator-approved evidence archives on top of Phase 4.20 read-only repair evidence report/export, Phase 4.19's explicit admin-approved `platform_admin_lab_budget` repair executor, Phase 4.18 read-only reconciliation, and Phase 4.17 caps. It stores bounded sanitized JSON/Markdown report snapshots in private `AUDIT_ARCHIVE` under `platform-budget-evidence/` and supports archive metadata, download, expire, and bounded approved-prefix-only cleanup. No new repair execution, automatic repair, runtime provider route behavior change, provider call, Stripe call, member/org billing change, credit clawback, deploy, remote migration, or live billing enablement is included.
 
 ## Phase 3.2: Gateway Contract And Tests
 
@@ -1217,8 +1217,8 @@ Deploy units:
 
 Migration risk:
 
-- None.
+- Phase 4.21 adds auth migration `0055_add_platform_budget_evidence_archives.sql` for sanitized platform budget evidence archive metadata. Remote migration must be applied before deploying auth Worker code that creates/lists/expires/cleans evidence archives.
 
 Non-goals:
 
-- No runtime behavior changes.
+- No runtime provider-route behavior changes, repair execution, provider calls, Stripe calls, Cloudflare API calls, credit mutation, member/org billing mutation, or production/live billing readiness claims.

@@ -585,6 +585,42 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Phase 4.20 read-only platform_admin_lab_budget repair evidence export. Returns bounded sanitized JSON or Markdown evidence only; no repair execution, automatic repair, provider call, Stripe call, credit mutation, source row mutation, or billing mutation.",
   }),
+  adminJsonWrite("admin.ai.platform-budget-evidence-archives.create", "POST", "/api/admin/ai/platform-budget-evidence-archives", "admin-ai", "smallJson", "admin-ai-platform-budget-evidence-archives-write-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    sensitivity: "high",
+    audit: { event: "admin_ai_platform_budget_evidence_archive_created" },
+    notes: "Phase 4.21 admin-approved platform_admin_lab_budget evidence archive creation. Requires Idempotency-Key, bounded reason, admin auth/MFA, same-origin JSON, fail-closed rate limiting, and AUDIT_ARCHIVE. Writes only sanitized archive metadata plus an AUDIT_ARCHIVE object under platform-budget-evidence/; no repair, provider, Stripe, Cloudflare, credit, source attempt/job, member/org billing, or customer billing mutation.",
+  }),
+  adminRead("admin.ai.platform-budget-evidence-archives.read", "/api/admin/ai/platform-budget-evidence-archives", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-platform-budget-evidence-archives-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.21 bounded admin-only list of sanitized platform budget evidence archive metadata. It omits private R2 keys and raw archive content.",
+  }),
+  adminRead("admin.ai.platform-budget-evidence-archives.detail", "/api/admin/ai/platform-budget-evidence-archives/:id", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-platform-budget-evidence-archives-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.21 admin-only detail for one sanitized platform budget evidence archive metadata row. Private R2 keys, raw prompts, provider bodies, raw idempotency keys, Stripe data, Cloudflare values, and secrets are omitted.",
+  }),
+  adminRead("admin.ai.platform-budget-evidence-archives.download", "/api/admin/ai/platform-budget-evidence-archives/:id/download", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    rateLimit: { id: "admin-ai-platform-budget-evidence-archives-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 4.21 admin-only download of a previously created sanitized platform budget evidence archive from AUDIT_ARCHIVE. Reads only approved platform-budget-evidence/ prefix objects and performs no repair or billing/provider action.",
+  }),
+  adminJsonWrite("admin.ai.platform-budget-evidence-archives.expire", "POST", "/api/admin/ai/platform-budget-evidence-archives/:id/expire", "admin-ai", "smallJson", "admin-ai-platform-budget-evidence-archives-write-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    sensitivity: "high",
+    audit: { event: "admin_ai_platform_budget_evidence_archive_expired" },
+    notes: "Phase 4.21 admin-approved archive expiry metadata update. Requires Idempotency-Key, bounded reason, admin auth/MFA, same-origin JSON, and fail-closed rate limiting. It does not delete R2 immediately and does not mutate repairs, usage events, source attempts/jobs, credits, Stripe, Cloudflare, providers, or customer billing.",
+  }),
+  adminJsonWrite("admin.ai.platform-budget-evidence-archives.cleanup-expired", "POST", "/api/admin/ai/platform-budget-evidence-archives/cleanup-expired", "admin-ai", "smallJson", "admin-ai-platform-budget-evidence-archives-write-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    sensitivity: "high",
+    audit: { event: "admin_ai_platform_budget_evidence_archive_cleanup_expired" },
+    notes: "Phase 4.21 admin-triggered bounded cleanup for expired platform budget evidence archives. Deletes only AUDIT_ARCHIVE objects whose keys pass the approved platform-budget-evidence/ prefix check, marks archive metadata, and refuses unsafe keys. It never touches data-exports, user media, audit chunks, AI media, repairs, usage/source rows, credits, Stripe, providers, Cloudflare, or customer billing.",
+  }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
     config: REQUIRED_CONFIG.adminAi,
     billing: {

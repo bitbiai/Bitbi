@@ -111,6 +111,13 @@ async function loadPlatformBudgetRepairReportModule() {
   return import(modulePath);
 }
 
+async function loadPlatformBudgetEvidenceArchiveModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/platform-budget-evidence-archive.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -1486,6 +1493,45 @@ test.describe('Phase 1-E auth route policy registry', () => {
         failClosed: true,
       }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/platform-budget-evidence-archives')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-evidence-archives.create',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json' }),
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-platform-budget-evidence-archives-write-ip',
+        failClosed: true,
+      }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER', 'AUDIT_ARCHIVE']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/platform-budget-evidence-archives')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-evidence-archives.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/platform-budget-evidence-archives/pbea_123/download')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-evidence-archives.download',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER', 'AUDIT_ARCHIVE']),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/platform-budget-evidence-archives/pbea_123/expire')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-evidence-archives.expire',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json' }),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/platform-budget-evidence-archives/cleanup-expired')).toEqual(expect.objectContaining({
+      id: 'admin.ai.platform-budget-evidence-archives.cleanup-expired',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'same-origin-required',
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER', 'AUDIT_ARCHIVE']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.cleanup-expired',
@@ -16373,6 +16419,314 @@ test.describe('Worker routes', () => {
       const exportMarkdownText = await exportMarkdown.text();
       expect(exportMarkdownText).toContain('Platform Budget Repair Evidence Report');
       expect(exportMarkdownText).not.toContain('raw-report-apply-idempotency-key');
+    });
+
+    test('platform_admin_lab_budget evidence archives are admin-approved, sanitized, and prefix-cleaned only', async () => {
+      const archiveSeed = {
+        platformBudgetRepairActions: [
+          {
+            id: 'pbra_archive_apply',
+            budget_scope: 'platform_admin_lab_budget',
+            candidate_id: 'pbr_missing_admin_usage_event_att_archive',
+            candidate_type: 'missing_admin_usage_event',
+            requested_action: 'create_missing_usage_event',
+            action_status: 'applied',
+            dry_run: 0,
+            idempotency_key: 'raw-archive-idempotency-key',
+            request_hash: 'archive_request_hash',
+            requested_by_user_id: 'admin-ai-user',
+            requested_by_email: 'admin@example.com',
+            reason: 'Archive evidence repair row.',
+            source_attempt_id: 'att_archive',
+            source_job_id: null,
+            created_usage_event_id: 'pbu_archive_created',
+            evidence_json: '{"safe":"yes","raw_prompt":"raw prompt must not archive"}',
+            result_json: '{"result":"created","stripe_secret":"sk_live_must_not_archive"}',
+            error_code: null,
+            error_message: null,
+            created_at: '2026-05-16T10:00:00.000Z',
+            updated_at: '2026-05-16T10:00:00.000Z',
+          },
+        ],
+        platformBudgetUsageEvents: [
+          {
+            id: 'pbu_archive_created',
+            budget_scope: 'platform_admin_lab_budget',
+            operation_key: 'admin.text.test',
+            source_route: '/api/admin/ai/test-text',
+            actor_user_id: 'admin-ai-user',
+            actor_role: 'admin',
+            units: 1,
+            window_day: '2026-05-16',
+            window_month: '2026-05',
+            idempotency_key_hash: 'hash_archive',
+            request_fingerprint: 'fp_archive',
+            source_attempt_id: 'att_archive',
+            source_job_id: null,
+            status: 'recorded',
+            metadata_json: '{"safe_summary":"archive usage","provider_body":"provider body must not archive"}',
+            created_at: '2026-05-16T10:01:00.000Z',
+          },
+        ],
+      };
+      const {
+        cleanupExpiredPlatformBudgetEvidenceArchives,
+        createPlatformBudgetEvidenceArchive,
+        isApprovedPlatformBudgetEvidenceArchiveKey,
+      } = await loadPlatformBudgetEvidenceArchiveModule();
+
+      const directEnv = createAuthTestEnv(archiveSeed);
+      const beforeRunCalls = directEnv.DB.runCalls.length;
+      const created = await createPlatformBudgetEvidenceArchive(directEnv, {
+        requestInput: {
+          budgetScope: 'platform_admin_lab_budget',
+          format: 'json',
+          archiveType: 'repair_report',
+          reason: 'Create archive for operator review.',
+          includeDetails: true,
+          retentionDays: 30,
+        },
+        idempotencyKey: 'platform-budget-evidence-archive-direct-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      });
+      expect(created.archive).toEqual(expect.objectContaining({
+        budgetScope: 'platform_admin_lab_budget',
+        archiveStatus: 'created',
+        format: 'json',
+        storage: expect.objectContaining({
+          bucketBinding: 'AUDIT_ARCHIVE',
+          prefix: 'platform-budget-evidence/',
+          internalKeyIncluded: false,
+        }),
+      }));
+      expect(directEnv.AUDIT_ARCHIVE.putCalls).toHaveLength(1);
+      const storedKey = directEnv.AUDIT_ARCHIVE.putCalls[0].key;
+      expect(isApprovedPlatformBudgetEvidenceArchiveKey(storedKey)).toBe(true);
+      const archivedBody = directEnv.AUDIT_ARCHIVE.objects.get(storedKey).body;
+      expect(archivedBody).toContain('platform_admin_lab_budget');
+      expect(archivedBody).toContain('"automaticRepair": false');
+      expect(archivedBody).not.toContain('raw prompt must not archive');
+      expect(archivedBody).not.toContain('provider body must not archive');
+      expect(archivedBody).not.toContain('sk_live_must_not_archive');
+      expect(archivedBody).not.toContain('raw-archive-idempotency-key');
+      expect(directEnv.DB.state.platformBudgetUsageEvents).toHaveLength(1);
+      expect(directEnv.DB.state.platformBudgetRepairActions).toHaveLength(1);
+      expect(directEnv.DB.runCalls.length).toBeGreaterThan(beforeRunCalls);
+
+      const replay = await createPlatformBudgetEvidenceArchive(directEnv, {
+        requestInput: {
+          budgetScope: 'platform_admin_lab_budget',
+          format: 'json',
+          archiveType: 'repair_report',
+          reason: 'Create archive for operator review.',
+          includeDetails: true,
+          retentionDays: 30,
+        },
+        idempotencyKey: 'platform-budget-evidence-archive-direct-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      });
+      expect(replay.replayed).toBe(true);
+      expect(directEnv.AUDIT_ARCHIVE.putCalls).toHaveLength(1);
+      expect(directEnv.DB.state.platformBudgetEvidenceArchives).toHaveLength(1);
+
+      await expect(createPlatformBudgetEvidenceArchive(directEnv, {
+        requestInput: {
+          budgetScope: 'platform_admin_lab_budget',
+          format: 'json',
+          archiveType: 'repair_report',
+          reason: 'Different archive request.',
+          retentionDays: 30,
+        },
+        idempotencyKey: 'platform-budget-evidence-archive-direct-1',
+        adminUser: { id: 'admin-ai-user', email: 'admin@example.com' },
+      })).rejects.toMatchObject({ code: 'platform_budget_evidence_archive_idempotency_conflict' });
+
+      expect(isApprovedPlatformBudgetEvidenceArchiveKey('data-exports/user/request/dla_bad.json')).toBe(false);
+      expect(isApprovedPlatformBudgetEvidenceArchiveKey('../platform-budget-evidence/platform_admin_lab_budget/pbea_bad.json')).toBe(false);
+      directEnv.DB.state.platformBudgetEvidenceArchives.push({
+        id: 'pbea_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        budget_scope: 'platform_admin_lab_budget',
+        archive_type: 'repair_report',
+        archive_status: 'expired',
+        storage_bucket: 'AUDIT_ARCHIVE',
+        storage_key: 'data-exports/user/request/dla_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json',
+        content_type: 'application/json; charset=utf-8',
+        format: 'json',
+        sha256: 'unsafe',
+        size_bytes: 10,
+        filters_json: '{}',
+        summary_json: '{}',
+        idempotency_key_hash: null,
+        request_hash: null,
+        reason: 'unsafe key test',
+        created_by_user_id: 'admin-ai-user',
+        created_by_email: 'admin@example.com',
+        created_at: '2026-05-16T10:02:00.000Z',
+        updated_at: '2026-05-16T10:02:00.000Z',
+        expires_at: '2026-05-16T10:02:00.000Z',
+        deleted_at: null,
+        error_code: null,
+        error_message: null,
+      });
+      const cleanup = await cleanupExpiredPlatformBudgetEvidenceArchives(directEnv, {
+        budgetScope: 'platform_admin_lab_budget',
+        limit: 10,
+        reason: 'Cleanup expired archives.',
+      });
+      expect(cleanup.results).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'pbea_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: 'cleanup_failed',
+          errorCode: 'platform_budget_evidence_archive_key_unsafe',
+        }),
+      ]));
+      expect(directEnv.AUDIT_ARCHIVE.deleteCalls).not.toContain('data-exports/user/request/dla_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json');
+
+      const nonAdmin = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'archive-member', role: 'user' }),
+        authEnv: archiveSeed,
+      });
+      const denied = await nonAdmin.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-evidence-archives', 'POST', {
+          reason: 'Member cannot create archive.',
+        }, {
+          ...nonAdmin.authHeaders,
+          'Idempotency-Key': 'platform-budget-evidence-archive-denied-1',
+        }),
+        nonAdmin.env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        authEnv: archiveSeed,
+      });
+      const missingKey = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-evidence-archives', 'POST', {
+          reason: 'Missing idempotency key.',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingKey.status).toBeGreaterThanOrEqual(400);
+
+      const missingReason = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-evidence-archives', 'POST', {
+          budgetScope: 'platform_admin_lab_budget',
+          format: 'json',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-evidence-archive-missing-reason-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingReason.status).toBe(400);
+
+      const createResponse = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-evidence-archives', 'POST', {
+          budgetScope: 'platform_admin_lab_budget',
+          format: 'markdown',
+          archiveType: 'combined_evidence',
+          reason: 'Archive evidence through admin API.',
+          includeDetails: true,
+          includeCandidates: true,
+          retentionDays: 14,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-evidence-archive-api-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(createResponse.status).toBe(200);
+      const createBody = await createResponse.json();
+      expect(createBody.archive).toEqual(expect.objectContaining({
+        budgetScope: 'platform_admin_lab_budget',
+        archiveStatus: 'created',
+        format: 'markdown',
+      }));
+      expect(env.AUDIT_ARCHIVE.putCalls[0].key).toMatch(/^platform-budget-evidence\/platform_admin_lab_budget\/pbea_[a-f0-9]{32}\.md$/);
+      expect(JSON.stringify(createBody)).not.toContain(env.AUDIT_ARCHIVE.putCalls[0].key);
+
+      const list = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-evidence-archives?limit=10', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(list.status).toBe(200);
+      const listBody = await list.json();
+      expect(listBody.archives).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: createBody.archive.id,
+          storage: expect.objectContaining({
+            internalKeyIncluded: false,
+          }),
+        }),
+      ]));
+      expect(JSON.stringify(listBody)).not.toContain(env.AUDIT_ARCHIVE.putCalls[0].key);
+
+      const detail = await authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/platform-budget-evidence-archives/${encodeURIComponent(createBody.archive.id)}`, 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(detail.status).toBe(200);
+      expect(JSON.stringify(await detail.json())).not.toContain(env.AUDIT_ARCHIVE.putCalls[0].key);
+
+      const download = await authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/platform-budget-evidence-archives/${encodeURIComponent(createBody.archive.id)}/download`, 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(download.status).toBe(200);
+      expect(download.headers.get('content-type')).toContain('text/markdown');
+      expect(download.headers.get('content-disposition')).toContain('platform-budget-evidence-');
+      const downloadText = await download.text();
+      expect(downloadText).toContain('Platform Budget Evidence Archive');
+      expect(downloadText).not.toContain('raw-archive-idempotency-key');
+      expect(downloadText).not.toContain('sk_live_must_not_archive');
+
+      const expire = await authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/platform-budget-evidence-archives/${encodeURIComponent(createBody.archive.id)}/expire`, 'POST', {
+          reason: 'Expire archive after review.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-evidence-archive-expire-api-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(expire.status).toBe(200);
+      await expect(expire.json()).resolves.toMatchObject({
+        archive: {
+          archiveStatus: 'expired',
+        },
+      });
+
+      const cleanupResponse = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-evidence-archives/cleanup-expired', 'POST', {
+          budgetScope: 'platform_admin_lab_budget',
+          limit: 10,
+          reason: 'Cleanup expired archive after review.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-evidence-archive-cleanup-api-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(cleanupResponse.status).toBe(200);
+      const cleanupBody = await cleanupResponse.json();
+      expect(cleanupBody.cleanup).toEqual(expect.objectContaining({
+        deletedCount: 1,
+        failedCount: 0,
+      }));
+      expect(env.AUDIT_ARCHIVE.deleteCalls).toEqual(expect.arrayContaining([
+        env.AUDIT_ARCHIVE.putCalls[0].key,
+      ]));
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(1);
+      expect(env.DB.state.platformBudgetRepairActions).toHaveLength(1);
     });
 
     test('platform_admin_lab_budget caps block Admin Text before provider work and record successful usage once', async () => {

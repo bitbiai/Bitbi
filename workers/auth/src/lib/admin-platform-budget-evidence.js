@@ -1095,6 +1095,58 @@ function platformBudgetRepairReportEvidence(report = null) {
   };
 }
 
+function platformBudgetEvidenceArchiveEvidence(archivePage = null) {
+  const normalized = archivePage && typeof archivePage === "object" ? archivePage : null;
+  const archives = Array.isArray(normalized?.archives) ? normalized.archives : [];
+  const statusCounts = {};
+  let lastArchiveTimestamp = null;
+  let expiredCount = 0;
+  let cleanupEligibleCount = 0;
+  for (const archive of archives) {
+    const status = archive?.archiveStatus || "unknown";
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
+    if (status === "expired") expiredCount += 1;
+    if (status === "expired" || (archive?.expiresAt && archive.expiresAt <= new Date().toISOString())) cleanupEligibleCount += 1;
+    const timestamp = archive?.updatedAt || archive?.createdAt || null;
+    if (timestamp && (!lastArchiveTimestamp || String(timestamp) > String(lastArchiveTimestamp))) {
+      lastArchiveTimestamp = timestamp;
+    }
+  }
+  return {
+    type: "platform_budget_evidence_archive_retention",
+    phase: "Phase 4.21",
+    endpoint: "/api/admin/ai/platform-budget-evidence-archives",
+    downloadEndpoint: "/api/admin/ai/platform-budget-evidence-archives/:id/download",
+    expireEndpoint: "/api/admin/ai/platform-budget-evidence-archives/:id/expire",
+    cleanupEndpoint: "/api/admin/ai/platform-budget-evidence-archives/cleanup-expired",
+    budgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    available: normalized?.available !== false && normalized != null,
+    source: "local_d1_and_audit_archive_admin_approved",
+    storageBinding: "AUDIT_ARCHIVE",
+    approvedPrefix: "platform-budget-evidence/",
+    archiveFormats: ["json", "markdown"],
+    archiveAppliesRepair: false,
+    automaticRepair: false,
+    scheduledRepair: false,
+    cleanupBounded: true,
+    cleanupApprovedPrefixOnly: true,
+    privateStorageKeysExposed: false,
+    recentArchiveCount: archives.length,
+    archivesByStatus: statusCounts,
+    expiredArchiveCount: expiredCount,
+    cleanupEligibleCount,
+    lastArchiveTimestamp,
+    productionReadiness: "blocked",
+    liveBillingReadiness: "blocked",
+    notes: [
+      "Phase 4.21 creates sanitized operator evidence archives from bounded Phase 4.20 repair report/export data.",
+      "Archive creation writes only archive metadata and an AUDIT_ARCHIVE object under the platform-budget-evidence/ prefix.",
+      "Archive creation and download do not apply repairs, call providers, call Stripe, mutate credits, mutate source rows, or change member/org/customer billing.",
+      "Cleanup is admin-triggered, bounded, and refuses storage keys outside the approved platform-budget-evidence/ prefix.",
+    ],
+  };
+}
+
 export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   const limits = normalizeLimits(options.limits);
   const generatedAt = options.generatedAt || new Date().toISOString();
@@ -1177,6 +1229,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
   const platformBudgetReconciliation = platformBudgetReconciliationEvidence(options.platformBudgetReconciliation || null);
   const platformBudgetRepairs = platformBudgetRepairActionsEvidence(options.platformBudgetRepairActions || null);
   const platformBudgetRepairReport = platformBudgetRepairReportEvidence(options.platformBudgetRepairReport || null);
+  const platformBudgetEvidenceArchives = platformBudgetEvidenceArchiveEvidence(options.platformBudgetEvidenceArchives || null);
   const evidenceItems = [
     ...implementedOperations,
     ...retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
@@ -1186,6 +1239,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     platformBudgetReconciliation,
     platformBudgetRepairs,
     platformBudgetRepairReport,
+    platformBudgetEvidenceArchives,
     ...baselinedGaps.map((gap) => ({
       type: "baselined_runtime_gap",
       ...gap,
@@ -1241,6 +1295,11 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       platformBudgetRepairReportAvailable: platformBudgetRepairReport.available,
       platformBudgetRepairReportExportFormats: platformBudgetRepairReport.exportFormats.length,
       platformBudgetRepairReportTotalActions: platformBudgetRepairReport.totalRepairActions,
+      platformBudgetEvidenceArchiveAvailable: platformBudgetEvidenceArchives.available,
+      platformBudgetEvidenceArchiveRecentCount: platformBudgetEvidenceArchives.recentArchiveCount,
+      platformBudgetEvidenceArchiveLastArchiveAt: platformBudgetEvidenceArchives.lastArchiveTimestamp,
+      platformBudgetEvidenceArchiveExpiredCount: platformBudgetEvidenceArchives.expiredArchiveCount,
+      platformBudgetEvidenceArchiveCleanupEligibleCount: platformBudgetEvidenceArchives.cleanupEligibleCount,
       switchEnforcedNotCapEnforcedOperations: liveBudgetCaps.switchEnforcedNotCapEnforcedOperationIds.length,
       baselineGaps: baselinedGaps.length,
       blockedCriticalGaps: blockedCriticalGaps.length,
@@ -1253,6 +1312,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
     platformBudgetReconciliation,
     platformBudgetRepairs,
     platformBudgetRepairReport,
+    platformBudgetEvidenceArchives,
     retiredDebugPaths: limitList(
       retiredDebugOperations.map((entry) => retiredSyncVideoDebugEvidence(entry, routeIndex)),
       limits.maxImplementedOperations,
@@ -1296,6 +1356,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Phase 4.16 adds live platform budget cap design/evidence only. Phase 4.17 implements the first platform_admin_lab_budget cap foundation; production/live billing readiness remains blocked.",
       "Phase 4.19 adds an explicit admin-approved repair executor for selected platform_admin_lab_budget reconciliation candidates. It has no automatic scheduler and does not call providers, Stripe, Cloudflare, or mutate credits/source rows/customer billing.",
       "Phase 4.20 adds read-only platform budget repair evidence reporting/export. Reports and exports are bounded, sanitized, and cannot apply repairs or mutate usage/source/credit/billing state.",
+      "Phase 4.21 adds explicit admin-approved platform budget evidence archives in AUDIT_ARCHIVE under the platform-budget-evidence/ prefix. Archives are sanitized operator evidence snapshots, not production readiness approval, and cleanup is bounded plus approved-prefix-only.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
       "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
       "Platform/background AI outside News Pulse visuals and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
@@ -1331,6 +1392,7 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
   const reconciliation = report.platformBudgetReconciliation || {};
   const repairs = report.platformBudgetRepairs || {};
   const repairReport = report.platformBudgetRepairReport || {};
+  const archives = report.platformBudgetEvidenceArchives || {};
   const gapLines = (report.baselinedGaps || []).map((gap) =>
     `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.budgetScope}; runtime=${gap.runtimeEnforcementStatus}; target=${gap.futurePhase}`
   );
@@ -1377,6 +1439,7 @@ export function renderAdminPlatformBudgetEvidenceMarkdown(report) {
     `- Recent repair actions: ${repairs.recentActionCount ?? 0}`,
     `- Repair report/export: ${repairReport.available === true ? "available" : "not available"}; formats=${(repairReport.exportFormats || []).join(", ") || "none"}`,
     `- Automatic repair: ${repairs.automaticRepair === true ? "yes" : "no"}`,
+    `- Evidence archives: ${archives.available === true ? "available" : "not available"}; recent=${archives.recentArchiveCount ?? 0}; prefix=${archives.approvedPrefix || "n/a"}`,
     "",
     "## Baselined Gaps",
     gapLines.length ? gapLines.join("\n") : "- None",

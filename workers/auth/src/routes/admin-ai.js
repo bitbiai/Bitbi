@@ -134,6 +134,16 @@ import {
   exportPlatformBudgetRepairReportMarkdown,
   platformBudgetRepairReportErrorResponse,
 } from "../lib/platform-budget-repair-report.js";
+import {
+  PlatformBudgetEvidenceArchiveError,
+  cleanupExpiredPlatformBudgetEvidenceArchives,
+  createPlatformBudgetEvidenceArchive,
+  expirePlatformBudgetEvidenceArchive,
+  getPlatformBudgetEvidenceArchive,
+  getPlatformBudgetEvidenceArchiveDownload,
+  listPlatformBudgetEvidenceArchives,
+  platformBudgetEvidenceArchiveErrorResponse,
+} from "../lib/platform-budget-evidence-archive.js";
 import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
 import { normalizeOrgId } from "../lib/orgs.js";
 import { sha256Hex } from "../lib/tokens.js";
@@ -300,6 +310,22 @@ function platformBudgetRepairResponse(error, correlationId = null) {
 function platformBudgetRepairReportResponse(error, correlationId = null) {
   if (error instanceof PlatformBudgetRepairReportError || error instanceof PlatformBudgetRepairError || error instanceof PlatformBudgetReconciliationError || error instanceof PlatformBudgetCapError) {
     return withCorrelationId(json(platformBudgetRepairReportErrorResponse(error), {
+      status: error.status || 503,
+    }), correlationId);
+  }
+  throw error;
+}
+
+function platformBudgetEvidenceArchiveResponse(error, correlationId = null) {
+  if (error instanceof BillingError) return billingAdminErrorResponse(error, correlationId);
+  if (
+    error instanceof PlatformBudgetEvidenceArchiveError ||
+    error instanceof PlatformBudgetRepairReportError ||
+    error instanceof PlatformBudgetRepairError ||
+    error instanceof PlatformBudgetReconciliationError ||
+    error instanceof PlatformBudgetCapError
+  ) {
+    return withCorrelationId(json(platformBudgetEvidenceArchiveErrorResponse(error), {
       status: error.status || 503,
     }), correlationId);
   }
@@ -1654,6 +1680,18 @@ export async function handleAdminAI(ctx) {
         code: error?.code || "platform_budget_repair_report_unavailable",
       };
     }
+    let platformBudgetEvidenceArchives = null;
+    try {
+      platformBudgetEvidenceArchives = await listPlatformBudgetEvidenceArchives(env, {
+        budgetScope: "platform_admin_lab_budget",
+        limit: 10,
+      });
+    } catch (error) {
+      platformBudgetEvidenceArchives = {
+        available: false,
+        code: error?.code || "platform_budget_evidence_archives_unavailable",
+      };
+    }
     return withCorrelationId(json(buildAdminPlatformBudgetEvidenceReport({
       env,
       adminAiUsageAttemptSummary,
@@ -1662,6 +1700,7 @@ export async function handleAdminAI(ctx) {
       platformBudgetReconciliation,
       platformBudgetRepairActions,
       platformBudgetRepairReport,
+      platformBudgetEvidenceArchives,
     })), correlationId);
   }
 
@@ -1975,6 +2014,201 @@ export async function handleAdminAI(ctx) {
       });
     } catch (error) {
       return platformBudgetRepairReportResponse(error, correlationId);
+    }
+  }
+
+  // route-policy: admin.ai.platform-budget-evidence-archives.create
+  if (pathname === "/api/admin/ai/platform-budget-evidence-archives" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-evidence-archives-write-ip", 12, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const idempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const archiveResult = await createPlatformBudgetEvidenceArchive(env, {
+        requestInput: parsed.body || {},
+        idempotencyKey,
+        adminUser: result.user,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-platform-budget-evidence-archives",
+        event: archiveResult.replayed ? "admin_ai_platform_budget_evidence_archive_replayed" : "admin_ai_platform_budget_evidence_archive_created",
+        level: "info",
+        correlationId,
+        admin_user_id: result.user.id,
+        archive_id: archiveResult.archive?.id || null,
+        budget_scope: archiveResult.archive?.budgetScope || null,
+        archive_type: archiveResult.archive?.archiveType || null,
+        format: archiveResult.archive?.format || null,
+        size_bytes: archiveResult.archive?.sizeBytes ?? null,
+        ...getRequestLogFields(requestInfo),
+      });
+      if (!archiveResult.replayed) {
+        await auditAdminAiMaintenanceEvent(
+          ctx,
+          result.user,
+          "admin_ai_platform_budget_evidence_archive_created",
+          {
+            archive_id: archiveResult.archive?.id || null,
+            budget_scope: archiveResult.archive?.budgetScope || null,
+            archive_type: archiveResult.archive?.archiveType || null,
+            format: archiveResult.archive?.format || null,
+            size_bytes: archiveResult.archive?.sizeBytes ?? null,
+          }
+        );
+      }
+      return withCorrelationId(json({ ok: true, ...archiveResult }), correlationId);
+    } catch (error) {
+      return platformBudgetEvidenceArchiveResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === "/api/admin/ai/platform-budget-evidence-archives" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-evidence-archives-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const archives = await listPlatformBudgetEvidenceArchives(env, {
+        budgetScope: url.searchParams.get("budgetScope") || url.searchParams.get("budget_scope") || "platform_admin_lab_budget",
+        status: url.searchParams.get("status"),
+        archiveType: url.searchParams.get("archiveType") || url.searchParams.get("archive_type"),
+        format: url.searchParams.get("format"),
+        limit: resolvePaginationLimit(url.searchParams.get("limit"), {
+          defaultValue: 25,
+          maxValue: 100,
+        }),
+      });
+      return withCorrelationId(json({ ok: true, ...archives }), correlationId);
+    } catch (error) {
+      return platformBudgetEvidenceArchiveResponse(error, correlationId);
+    }
+  }
+
+  // route-policy: admin.ai.platform-budget-evidence-archives.cleanup-expired
+  if (pathname === "/api/admin/ai/platform-budget-evidence-archives/cleanup-expired" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-evidence-archives-write-ip", 12, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const cleanup = await cleanupExpiredPlatformBudgetEvidenceArchives(env, parsed.body || {});
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-platform-budget-evidence-archives",
+        event: "admin_ai_platform_budget_evidence_archive_cleanup_expired",
+        level: cleanup.failedCount > 0 ? "warn" : "info",
+        correlationId,
+        admin_user_id: result.user.id,
+        budget_scope: cleanup.budgetScope || null,
+        scanned_count: cleanup.scannedCount ?? null,
+        deleted_count: cleanup.deletedCount ?? null,
+        failed_count: cleanup.failedCount ?? null,
+        ...getRequestLogFields(requestInfo),
+      });
+      await auditAdminAiMaintenanceEvent(
+        ctx,
+        result.user,
+        "admin_ai_platform_budget_evidence_archive_cleanup_expired",
+        {
+          budget_scope: cleanup.budgetScope || null,
+          scanned_count: cleanup.scannedCount ?? null,
+          deleted_count: cleanup.deletedCount ?? null,
+          failed_count: cleanup.failedCount ?? null,
+        }
+      );
+      return withCorrelationId(json({ ok: true, cleanup }), correlationId);
+    } catch (error) {
+      return platformBudgetEvidenceArchiveResponse(error, correlationId);
+    }
+  }
+
+  const platformBudgetEvidenceArchiveDownloadMatch = pathname.match(/^\/api\/admin\/ai\/platform-budget-evidence-archives\/([^/]+)\/download$/);
+  if (platformBudgetEvidenceArchiveDownloadMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-evidence-archives-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const archiveId = decodePathSegment(platformBudgetEvidenceArchiveDownloadMatch[1]);
+      if (!archiveId || archiveId.includes("/")) return notFoundResponse(correlationId);
+      const download = await getPlatformBudgetEvidenceArchiveDownload(env, archiveId);
+      return withCorrelationId(new Response(download.body || "", {
+        status: 200,
+        headers: {
+          "content-type": download.contentType || "application/json; charset=utf-8",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "content-disposition": `attachment; filename="${download.filename}"`,
+        },
+      }), correlationId);
+    } catch (error) {
+      return platformBudgetEvidenceArchiveResponse(error, correlationId);
+    }
+  }
+
+  const platformBudgetEvidenceArchiveExpireMatch = pathname.match(/^\/api\/admin\/ai\/platform-budget-evidence-archives\/([^/]+)\/expire$/);
+  // route-policy: admin.ai.platform-budget-evidence-archives.expire
+  if (platformBudgetEvidenceArchiveExpireMatch && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-evidence-archives-write-ip", 12, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const idempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const archiveId = decodePathSegment(platformBudgetEvidenceArchiveExpireMatch[1]);
+      if (!archiveId || archiveId.includes("/")) return notFoundResponse(correlationId);
+      const expired = await expirePlatformBudgetEvidenceArchive(env, {
+        id: archiveId,
+        reason: parsed.body?.reason,
+        idempotencyKey,
+        adminUser: result.user,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-platform-budget-evidence-archives",
+        event: "admin_ai_platform_budget_evidence_archive_expired",
+        level: "info",
+        correlationId,
+        admin_user_id: result.user.id,
+        archive_id: expired.archive?.id || archiveId,
+        budget_scope: expired.archive?.budgetScope || null,
+        replayed: expired.replayed === true,
+        ...getRequestLogFields(requestInfo),
+      });
+      if (!expired.replayed) {
+        await auditAdminAiMaintenanceEvent(
+          ctx,
+          result.user,
+          "admin_ai_platform_budget_evidence_archive_expired",
+          {
+            archive_id: expired.archive?.id || archiveId,
+            budget_scope: expired.archive?.budgetScope || null,
+          }
+        );
+      }
+      return withCorrelationId(json({ ok: true, ...expired }), correlationId);
+    } catch (error) {
+      return platformBudgetEvidenceArchiveResponse(error, correlationId);
+    }
+  }
+
+  const platformBudgetEvidenceArchiveMatch = pathname.match(/^\/api\/admin\/ai\/platform-budget-evidence-archives\/([^/]+)$/);
+  if (platformBudgetEvidenceArchiveMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-platform-budget-evidence-archives-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const archiveId = decodePathSegment(platformBudgetEvidenceArchiveMatch[1]);
+      if (!archiveId || archiveId.includes("/")) return notFoundResponse(correlationId);
+      const archive = await getPlatformBudgetEvidenceArchive(env, archiveId);
+      return withCorrelationId(json({ ok: true, archive }), correlationId);
+    } catch (error) {
+      return platformBudgetEvidenceArchiveResponse(error, correlationId);
     }
   }
 

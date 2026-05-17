@@ -1,8 +1,8 @@
 # AI Cost Gateway Design
 
-Date: 2026-05-16
+Date: 2026-05-17
 
-Status: target design plus Phase 4.20 read-only `platform_admin_lab_budget` repair evidence report/export on top of Phase 4.19 explicit admin-approved repair execution, Phase 4.18 read-only reconciliation evidence, Phase 4.17's first narrow cap foundation, completed Phase 4.16 design/evidence, and Phase 4.15/4.15.1 switch controls. Phase 4.19 adds additive migration `0054_add_platform_budget_repair_actions.sql`; Phase 4.20 adds no migration and exports bounded sanitized repair evidence only. It does not add repair execution, automatic repair, provider calls, route behavior changes, Stripe behavior, Cloudflare mutation, member/org billing changes, credit clawback, or live billing readiness. Platform/background AI outside News Pulse visuals and other budget scopes remain outside this report scope.
+Status: target design plus Phase 4.21 sanitized `platform_admin_lab_budget` evidence archive/retention workflow on top of Phase 4.20 read-only repair evidence report/export, Phase 4.19 explicit admin-approved repair execution, Phase 4.18 read-only reconciliation evidence, Phase 4.17's first narrow cap foundation, completed Phase 4.16 design/evidence, and Phase 4.15/4.15.1 switch controls. Phase 4.21 adds additive migration `0055_add_platform_budget_evidence_archives.sql` and stores bounded sanitized report snapshots in private `AUDIT_ARCHIVE` under `platform-budget-evidence/`. It does not add repair execution, automatic repair, provider calls, route behavior changes, Stripe behavior, Cloudflare mutation, member/org billing changes, credit clawback, or live billing readiness. Platform/background AI outside News Pulse visuals and other budget scopes remain outside this report scope.
 
 ## Goals
 
@@ -621,3 +621,7 @@ For the gateway module:
 - Phase 3.2 deterministic test harness in `scripts/test-ai-cost-gateway.mjs`
 - Worker tests for D1 concurrency/idempotency behavior
 - static route-policy/check tests that block new cost-bearing routes without gateway metadata after enforcement begins
+
+## Platform Budget Evidence Archives
+
+Phase 4.21 adds an archive/retention workflow for sanitized `platform_admin_lab_budget` evidence snapshots. Archives are generated only by an explicit admin request with `Idempotency-Key` and a bounded reason, are stored in `AUDIT_ARCHIVE` under `platform-budget-evidence/`, and carry D1 metadata in `platform_budget_evidence_archives`. Archive creation and download are evidence-only: no repair is applied, no usage/source/repair rows are mutated as repair actions, no provider or internal AI Worker route is called, no Stripe or Cloudflare API is called, and no member/org/customer billing or credit state changes. Cleanup is bounded and refuses any storage key outside the approved prefix.

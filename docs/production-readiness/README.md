@@ -4,9 +4,9 @@ Last updated: 2026-05-16
 
 Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
 
-The latest auth D1 migration declared by `config/release-compat.json` is `0054_add_platform_budget_repair_actions.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
+The latest auth D1 migration declared by `config/release-compat.json` is `0055_add_platform_budget_evidence_archives.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
-Phase 4.18 adds read-only platform budget usage reconciliation evidence for `platform_admin_lab_budget`. Phase 4.19 adds explicit admin-approved repair actions for missing usage evidence plus review-only repair notes. Phase 4.20 adds bounded read-only repair evidence reports/exports for operator review. Operators must record the reconciliation verdict, repair candidate count, repair action status, report/export evidence, and not-checkable count before enabling admin/platform provider-cost flags for a canary. Phase 4.20 does not apply repairs, run automatic repairs, mutate source attempts/jobs or usage rows, call providers, call Stripe, change member/org billing, or make production/live billing ready.
+Phase 4.18 adds read-only platform budget usage reconciliation evidence for `platform_admin_lab_budget`. Phase 4.19 adds explicit admin-approved repair actions for missing usage evidence plus review-only repair notes. Phase 4.20 adds bounded read-only repair evidence reports/exports for operator review. Phase 4.21 adds admin-approved sanitized evidence archives in `AUDIT_ARCHIVE` under `platform-budget-evidence/`, with retention metadata, download, expire, and bounded approved-prefix-only cleanup. Operators must record the reconciliation verdict, repair candidate count, repair action status, report/export evidence, archive id/status/retention, and not-checkable count before enabling admin/platform provider-cost flags for a canary. Phase 4.21 archives do not apply repairs, run automatic repairs, mutate source attempts/jobs or usage rows, call providers, call Stripe, change member/org billing, or make production/live billing ready.
 
 ## Evidence Rule
 
@@ -22,7 +22,7 @@ Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The 
 | --- | --- | --- | --- | --- |
 | Repo baseline: branch, commit, worktree, release latest migration | Repo maintainer | Local repo | None | No secrets involved. |
 | Local release checks | Repo maintainer | Local repo / CI | None | Commands must not print secrets. |
-| Auth D1 migration status through `0054_add_platform_budget_repair_actions.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
+| Auth D1 migration status through `0055_add_platform_budget_evidence_archives.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
 | Auth Worker bindings: D1, R2, Queues, Durable Object, AI, Images, service bindings | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names and present/missing only. |
 | AI Worker bindings and Durable Object migration | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding/migration names and present/missing only. |
 | Contact Worker Durable Object binding | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names only. |
@@ -58,7 +58,7 @@ Phase 2.1 adds repository-local code for operator-review-only live Stripe event 
 
 Live billing remains blocked until failure, refund, dispute, chargeback, expired-session, review queue/resolution, read-only reconciliation, approved remediation, invoice/customer-portal/tax/legal, and support workflow evidence is complete or explicitly scoped out by product/legal with documented risk acceptance.
 
-Phase 4.8.2 adds admin-only sanitized inspection and bounded non-destructive cleanup for `admin_ai_usage_attempts` created by admin text/embeddings idempotency. Phase 4.9 adds no migration and extends that metadata-only idempotency foundation only to Admin Music test generation. Phase 4.10 adds no migration and extends it only to Admin Compare. Phase 4.11 adds no migration and audits/designs Admin Live-Agent budget enforcement only. Phase 4.12 adds no migration and extends the metadata-only attempt foundation only to Admin Live-Agent stream sessions with required `Idempotency-Key`, caller-policy propagation, duplicate stream suppression, and observable stream completion/failure tracking. Phase 4.13 adds no migration and retires the synchronous Admin Video Debug route from normal provider-cost operations as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path. Phase 4.14 adds no migration and classifies Admin Image branches. Phase 4.15 adds no migration and enforces Cloudflare master runtime budget kill switches. Phase 4.15.1 adds additive migration `0052` and D1 app-level switch state/history. Phase 4.16 remains completed and documents/reports live platform budget cap design and countability. Phase 4.17 adds additive migration `0053`, D1 daily/monthly cap limits and usage events, admin-only cap APIs, and a compact Admin Control Plane cap panel for `platform_admin_lab_budget` only. Phase 4.19 adds additive migration `0054`, admin-only repair APIs/UI, and `platform_budget_repair_actions` audit rows. Phase 4.20 adds no migration and adds read-only repair evidence report/export APIs/UI. These phases do not call providers in tests, call Stripe, enable live billing, implement customer billing, or make production/live billing ready.
+Phase 4.8.2 adds admin-only sanitized inspection and bounded non-destructive cleanup for `admin_ai_usage_attempts` created by admin text/embeddings idempotency. Phase 4.9 adds no migration and extends that metadata-only idempotency foundation only to Admin Music test generation. Phase 4.10 adds no migration and extends it only to Admin Compare. Phase 4.11 adds no migration and audits/designs Admin Live-Agent budget enforcement only. Phase 4.12 adds no migration and extends the metadata-only attempt foundation only to Admin Live-Agent stream sessions with required `Idempotency-Key`, caller-policy propagation, duplicate stream suppression, and observable stream completion/failure tracking. Phase 4.13 adds no migration and retires the synchronous Admin Video Debug route from normal provider-cost operations as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path. Phase 4.14 adds no migration and classifies Admin Image branches. Phase 4.15 adds no migration and enforces Cloudflare master runtime budget kill switches. Phase 4.15.1 adds additive migration `0052` and D1 app-level switch state/history. Phase 4.16 remains completed and documents/reports live platform budget cap design and countability. Phase 4.17 adds additive migration `0053`, D1 daily/monthly cap limits and usage events, admin-only cap APIs, and a compact Admin Control Plane cap panel for `platform_admin_lab_budget` only. Phase 4.19 adds additive migration `0054`, admin-only repair APIs/UI, and `platform_budget_repair_actions` audit rows. Phase 4.20 adds no migration and adds read-only repair evidence report/export APIs/UI. Phase 4.21 adds additive migration `0055`, `platform_budget_evidence_archives`, admin-only archive APIs/UI, and sanitized `AUDIT_ARCHIVE` objects under `platform-budget-evidence/`; cleanup is bounded and approved-prefix-only. These phases do not call providers in tests, call Stripe, enable live billing, implement customer billing, or make production/live billing ready.
 
 Phase 4.15 budget-switch operator checklist records intended state only; do not paste values or secrets:
 
@@ -84,6 +84,7 @@ Phase 4.15.1 Admin AI Budget Switch Control Plane checklist records app-level D1
 - Phase 4.17 cap migration `0053_add_platform_budget_caps.sql` is applied before auth Worker deploys that depend on cap tables.
 - Phase 4.19 repair migration `0054_add_platform_budget_repair_actions.sql` is applied before auth Worker deploys that record repair action audit rows.
 - Phase 4.20 repair evidence reports/exports are reviewed as bounded, sanitized, read-only operator evidence; no repair is applied by report/export endpoints.
+- Phase 4.21 archive migration `0055_add_platform_budget_evidence_archives.sql` is applied before auth Worker deploys that create/list/expire/cleanup platform budget evidence archives.
 
 Phase 4.16 and Phase 4.17 live platform budget-cap evidence checklist records status only; do not paste secret values:
 
@@ -149,7 +150,7 @@ npm run readiness:evidence
 npm run readiness:evidence -- --markdown
 ```
 
-Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0054_add_platform_budget_repair_actions.sql` before deploying current auth Worker code or running API smoke checks.
+Expected current deploy units from `npm run release:plan` are the auth schema migration, auth Worker, and static/pages if the Admin UI changed. Current staging/auth D1 evidence must now be through `0055_add_platform_budget_evidence_archives.sql` before deploying current auth Worker code or running API smoke checks.
 
 Staging read-only evidence example with explicit URLs:
 
@@ -211,7 +212,7 @@ Local main-release gate:
 npm run check:main-release-readiness
 ```
 
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0054_add_platform_budget_repair_actions.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0054` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0055_add_platform_budget_evidence_archives.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0055` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
 
 For local planning evidence only:
 
@@ -247,7 +248,7 @@ This evidence does not prove later admin video job controls, OpenClaw/News Pulse
 
 These are not run automatically by this framework:
 
-- Remote D1 migration status in staging/production through `0054_add_platform_budget_repair_actions.sql`.
+- Remote D1 migration status in staging/production through `0055_add_platform_budget_evidence_archives.sql`.
 - Cloudflare Worker binding/resource presence in staging/production.
 - Cloudflare secret presence in staging/production.
 - Live health/security-header checks against staging/production URLs.
@@ -319,7 +320,7 @@ Unacceptable evidence includes:
 Until filled evidence proves otherwise, these remain unproven:
 
 - Production Cloudflare resource, binding, secret, route, WAF, header, RUM, and alert state.
-- Remote D1 migration status through `0054_add_platform_budget_repair_actions.sql`.
+- Remote D1 migration status through `0055_add_platform_budget_evidence_archives.sql`.
 - Stripe Testmode checkout/webhook behavior in staging.
 - Live credit-pack canary behavior.
 - BITBI Pro subscription lifecycle behavior.

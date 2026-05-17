@@ -9,10 +9,15 @@ import {
     apiAdminAiListFailedVideoJobs,
     apiAdminAiListVideoJobPoisonMessages,
     apiAdminAiPlatformBudgetCaps,
+    apiAdminAiPlatformBudgetEvidenceArchives,
     apiAdminAiPlatformBudgetReconciliation,
     apiAdminAiPlatformBudgetRepairReport,
     apiAdminAiPlatformBudgetRepairReportExport,
     apiAdminAiPlatformBudgetUsage,
+    apiAdminAiCleanupExpiredPlatformBudgetEvidenceArchives,
+    apiAdminAiCreatePlatformBudgetEvidenceArchive,
+    apiAdminAiDownloadPlatformBudgetEvidenceArchive,
+    apiAdminAiExpirePlatformBudgetEvidenceArchive,
     apiAdminAiRepairPlatformBudgetCandidate,
     apiAdminAiUpdatePlatformBudgetCap,
     apiAdminAiUpdateBudgetSwitch,
@@ -1649,6 +1654,199 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
     }
 
+    function filenameFromContentDisposition(value, fallback) {
+        const text = String(value || '');
+        const match = text.match(/filename="?([^";]+)"?/i);
+        return match?.[1] || fallback;
+    }
+
+    async function loadPlatformBudgetEvidenceArchives() {
+        const summaryNode = byId('platformBudgetEvidenceArchivesSummary');
+        const list = byId('platformBudgetEvidenceArchivesList');
+        setState('platformBudgetEvidenceArchivesState', 'Loading evidence archives...');
+        clear(summaryNode);
+        clear(list);
+        const res = await apiAdminAiPlatformBudgetEvidenceArchives({ limit: 25 });
+        if (!res.ok) {
+            setState('platformBudgetEvidenceArchivesState', '');
+            renderUnavailable(list, res, 'Platform budget evidence archives unavailable.');
+            return;
+        }
+        const archives = Array.isArray(res.data?.archives) ? res.data.archives : [];
+        const createdCount = archives.filter((archive) => archive.archiveStatus === 'created').length;
+        const expiredCount = archives.filter((archive) => archive.archiveStatus === 'expired').length;
+        const deletedCount = archives.filter((archive) => archive.archiveStatus === 'deleted').length;
+        if (summaryNode) {
+            summaryNode.appendChild(detailRows([
+                ['Scope', res.data?.budgetScope || 'platform_admin_lab_budget'],
+                ['Archives returned', archives.length],
+                ['Created', createdCount],
+                ['Expired', expiredCount],
+                ['Deleted', deletedCount],
+                ['Storage', 'AUDIT_ARCHIVE / platform-budget-evidence/'],
+                ['Sanitized', 'Yes'],
+            ]));
+        }
+        setState('platformBudgetEvidenceArchivesState', 'Archives are sanitized operator evidence snapshots. No repair, provider call, Stripe call, credit mutation, or source-row mutation is performed.');
+        if (!archives.length) {
+            list.appendChild(el('p', 'admin-shell__desc', 'No platform budget evidence archives were returned for the bounded list.'));
+            return;
+        }
+        const { wrap, tbody } = table(['Archive', 'Status', 'Format', 'Created', 'Expires', 'Summary', 'Actions']);
+        for (const archive of archives.slice(0, 25)) {
+            const tr = document.createElement('tr');
+            addCell(tr, shortId(archive.id));
+            addCell(tr, badge(archive.archiveStatus || 'unknown', archive.archiveStatus === 'created' ? 'active' : 'disabled'));
+            addCell(tr, archive.format || '-');
+            addCell(tr, formatDate(archive.createdAt));
+            addCell(tr, formatDate(archive.expiresAt));
+            addCell(tr, `${archive.summary?.totalRepairActions ?? 0} repairs; ${archive.summary?.createdUsageEventCount ?? 0} usage events`);
+            const actions = el('div', 'admin-control-chip-row');
+            if (archive.archiveStatus === 'created') {
+                const downloadButton = el('button', 'btn-action btn-action--secondary', 'Download');
+                downloadButton.type = 'button';
+                downloadButton.addEventListener('click', () => downloadPlatformBudgetEvidenceArchive(archive, downloadButton));
+                const expireButton = el('button', 'btn-action btn-action--secondary', 'Expire');
+                expireButton.type = 'button';
+                expireButton.addEventListener('click', () => expirePlatformBudgetEvidenceArchive(archive, expireButton));
+                actions.append(downloadButton, expireButton);
+            } else {
+                actions.appendChild(el('span', 'admin-shell__desc', 'No download'));
+            }
+            addCell(tr, actions);
+            tbody.appendChild(tr);
+        }
+        list.appendChild(wrap);
+        list.appendChild(el('p', 'admin-shell__desc', 'Archive metadata omits private R2 keys, raw idempotency keys, prompts, provider bodies, Stripe data, Cloudflare tokens, private keys, repair execution controls, credit actions, and provider actions.'));
+    }
+
+    async function createPlatformBudgetEvidenceArchive(button) {
+        const format = byId('platformBudgetEvidenceArchiveFormat')?.value || 'json';
+        const archiveType = byId('platformBudgetEvidenceArchiveType')?.value || 'repair_report';
+        const retentionDays = Number(byId('platformBudgetEvidenceArchiveRetentionDays')?.value || 90);
+        const reason = byId('platformBudgetEvidenceArchiveReason')?.value?.trim() || '';
+        const includeDetails = byId('platformBudgetEvidenceArchiveIncludeDetails')?.checked === true;
+        const includeCandidates = byId('platformBudgetEvidenceArchiveIncludeCandidates')?.checked === true;
+        if (!reason) {
+            setState('platformBudgetEvidenceArchivesState', 'Archive creation cancelled: reason is required.', 'error');
+            return;
+        }
+        if (!Number.isInteger(retentionDays) || retentionDays <= 0 || retentionDays > 365) {
+            setState('platformBudgetEvidenceArchivesState', 'Archive creation cancelled: retention days must be between 1 and 365.', 'error');
+            return;
+        }
+        const confirmed = window.confirm('Create a sanitized platform budget evidence archive? No repair is applied, and no provider, Stripe, credit, Cloudflare, or source-row action is performed.');
+        if (!confirmed) {
+            setState('platformBudgetEvidenceArchivesState', 'Archive creation cancelled.', 'neutral');
+            return;
+        }
+        setSubmitting(button, true);
+        setState('platformBudgetEvidenceArchivesState', 'Creating sanitized evidence archive...');
+        try {
+            const res = await apiAdminAiCreatePlatformBudgetEvidenceArchive({
+                budgetScope: 'platform_admin_lab_budget',
+                format,
+                archiveType,
+                retentionDays,
+                reason,
+                includeDetails,
+                includeCandidates,
+                filters: {
+                    limit: 50,
+                    includeDetails,
+                    includeCandidates,
+                },
+            }, { idempotencyKey: createIdempotencyKey('platform-budget-evidence-archive') });
+            if (!res.ok) {
+                setState('platformBudgetEvidenceArchivesState', apiUnavailableMessage(res, 'Evidence archive creation failed.'), 'error');
+                notify('Evidence archive creation failed.', 'error');
+                return;
+            }
+            notify('Evidence archive created.', 'success');
+            await loadPlatformBudgetEvidenceArchives();
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    async function downloadPlatformBudgetEvidenceArchive(archive, button) {
+        setSubmitting(button, true);
+        setState('platformBudgetEvidenceArchivesState', 'Preparing archived evidence download...');
+        try {
+            const res = await apiAdminAiDownloadPlatformBudgetEvidenceArchive(archive.id);
+            if (!res.ok) {
+                setState('platformBudgetEvidenceArchivesState', apiUnavailableMessage(res, 'Evidence archive download failed.'), 'error');
+                notify('Evidence archive download failed.', 'error');
+                return;
+            }
+            const fallback = `platform-budget-evidence-${archive.id}.${archive.format === 'markdown' ? 'md' : 'json'}`;
+            downloadTextFile(filenameFromContentDisposition(res.filename, fallback), res.text || '', res.contentType || 'application/json');
+            setState('platformBudgetEvidenceArchivesState', 'Evidence archive downloaded. No repair was applied.');
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    async function expirePlatformBudgetEvidenceArchive(archive, button) {
+        const reason = window.prompt('Enter an operator reason to expire this evidence archive. The archive object is not deleted until cleanup.', '');
+        if (!reason || !reason.trim()) {
+            setState('platformBudgetEvidenceArchivesState', 'Archive expiry cancelled: reason is required.', 'error');
+            return;
+        }
+        const confirmed = window.confirm('Expire this archive metadata? This does not repair budget data, mutate credits, or call providers/Stripe.');
+        if (!confirmed) {
+            setState('platformBudgetEvidenceArchivesState', 'Archive expiry cancelled.', 'neutral');
+            return;
+        }
+        setSubmitting(button, true);
+        setState('platformBudgetEvidenceArchivesState', 'Expiring evidence archive...');
+        try {
+            const res = await apiAdminAiExpirePlatformBudgetEvidenceArchive(archive.id, {
+                reason: reason.trim(),
+            }, { idempotencyKey: createIdempotencyKey('platform-budget-evidence-archive-expire') });
+            if (!res.ok) {
+                setState('platformBudgetEvidenceArchivesState', apiUnavailableMessage(res, 'Evidence archive expiry failed.'), 'error');
+                notify('Evidence archive expiry failed.', 'error');
+                return;
+            }
+            notify('Evidence archive expired.', 'success');
+            await loadPlatformBudgetEvidenceArchives();
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    async function cleanupExpiredPlatformBudgetEvidenceArchives(button) {
+        const reason = window.prompt('Enter an operator reason for bounded expired archive cleanup.', '');
+        if (!reason || !reason.trim()) {
+            setState('platformBudgetEvidenceArchivesState', 'Archive cleanup cancelled: reason is required.', 'error');
+            return;
+        }
+        const confirmed = window.confirm('Cleanup expired platform budget evidence archives? Cleanup is bounded and restricted to the platform-budget-evidence/ prefix.');
+        if (!confirmed) {
+            setState('platformBudgetEvidenceArchivesState', 'Archive cleanup cancelled.', 'neutral');
+            return;
+        }
+        setSubmitting(button, true);
+        setState('platformBudgetEvidenceArchivesState', 'Cleaning up expired evidence archives...');
+        try {
+            const res = await apiAdminAiCleanupExpiredPlatformBudgetEvidenceArchives({
+                budgetScope: 'platform_admin_lab_budget',
+                limit: 25,
+                reason: reason.trim(),
+            }, { idempotencyKey: createIdempotencyKey('platform-budget-evidence-archive-cleanup') });
+            if (!res.ok) {
+                setState('platformBudgetEvidenceArchivesState', apiUnavailableMessage(res, 'Evidence archive cleanup failed.'), 'error');
+                notify('Evidence archive cleanup failed.', 'error');
+                return;
+            }
+            notify(`Evidence archive cleanup complete (${res.data?.cleanup?.deletedCount ?? 0} deleted).`, 'success');
+            await loadPlatformBudgetEvidenceArchives();
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
     async function loadAiAttemptDetail(attemptId) {
         const detail = byId('aiAttemptDetail');
         detail.hidden = false;
@@ -1933,6 +2131,13 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         byId('platformBudgetRepairReportExportJson')?.addEventListener('click', (event) => {
             exportPlatformBudgetRepairReportJson(event.currentTarget);
         });
+        byId('platformBudgetEvidenceArchivesRefresh')?.addEventListener('click', loadPlatformBudgetEvidenceArchives);
+        byId('platformBudgetEvidenceArchiveCreate')?.addEventListener('click', (event) => {
+            createPlatformBudgetEvidenceArchive(event.currentTarget);
+        });
+        byId('platformBudgetEvidenceArchiveCleanup')?.addEventListener('click', (event) => {
+            cleanupExpiredPlatformBudgetEvidenceArchives(event.currentTarget);
+        });
         byId('lifecycleRequestsRefresh')?.addEventListener('click', loadLifecycleRequests);
         byId('lifecycleArchivesRefresh')?.addEventListener('click', loadLifecycleArchives);
         byId('operationsRefresh')?.addEventListener('click', loadOperations);
@@ -1967,6 +2172,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             loadPlatformBudgetCaps(),
             loadPlatformBudgetReconciliation(),
             loadPlatformBudgetRepairReport(),
+            loadPlatformBudgetEvidenceArchives(),
         ]);
         if (sectionName === 'lifecycle') await loadLifecycle();
         if (sectionName === 'operations') await loadOperations();
