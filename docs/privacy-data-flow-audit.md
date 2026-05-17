@@ -42,8 +42,9 @@ manual-review workflow design and a local planner only. Phase 6.12 designs
 manual-review state schema, Phase 6.13 adds empty review-state tables only,
 Phase 6.14 adds local-only review import dry-run planning, Phase 6.15 adds
 an admin-approved review-item import executor, Phase 6.16 adds read-only
-review queue/evidence APIs, and Phase 6.17 adds admin-approved review-status
-updates on review items/events only. These phases do
+review queue/evidence APIs, Phase 6.17 adds admin-approved review-status
+updates on review items/events only, and Phase 6.18 adds Admin queue/status
+visibility for review-state rows only. These phases do
 not backfill old owner metadata, rewrite existing D1 source rows, update ownership metadata,
 assign organization ownership, move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
@@ -72,8 +73,9 @@ blocked, Phase 6.11 defines a manual-review workflow without execution,
 Phase 6.12 designs review-state tables/events, Phase 6.13 adds those empty
 tables without importing review rows, Phase 6.14 dry-runs review import
 planning without D1/R2 mutation, Phase 6.15 adds a review-item/event-only
-import executor, Phase 6.16 adds read-only queue/evidence APIs, and Phase 6.17
-adds review-status updates on review items/events only. Existing generated assets
+import executor, Phase 6.16 adds read-only queue/evidence APIs, Phase 6.17
+adds review-status updates on review items/events only, and Phase 6.18 adds
+Admin queue/status visibility for review-state rows only. Existing generated assets
 are not backfilled, source asset rows and ownership metadata are not updated, and
 assets are not migrated to organization ownership.
 

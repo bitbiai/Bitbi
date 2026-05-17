@@ -495,6 +495,7 @@ export async function buildTenantAssetManualReviewQueueSummary(env) {
       rejectedEventsCount,
       supersededEventsCount,
       latestCreatedEvent,
+      latestStatusEvent,
       reviewStatusRollup,
       issueCategoryRollup,
       severityRollup,
@@ -513,6 +514,11 @@ export async function buildTenantAssetManualReviewQueueSummary(env) {
            FROM ai_asset_manual_review_events
           WHERE event_type = ?`
       ).bind("created").first(),
+      env.DB.prepare(
+        `SELECT MAX(created_at) AS latest
+           FROM ai_asset_manual_review_events
+          WHERE event_type IN (?, ?, ?, ?)`
+      ).bind("status_changed", "deferred", "rejected", "superseded").first(),
       rollupRows(env, "review_status", TENANT_ASSET_MANUAL_REVIEW_STATUSES),
       rollupRows(env, "issue_category", TENANT_ASSET_MANUAL_REVIEW_ISSUE_CATEGORIES),
       rollupRows(env, "severity", TENANT_ASSET_MANUAL_REVIEW_SEVERITIES),
@@ -540,6 +546,7 @@ export async function buildTenantAssetManualReviewQueueSummary(env) {
       terminalApprovedCount,
       terminalBlockedCount,
       mostRecentImportTimestamp: latestCreatedEvent?.latest || null,
+      latestStatusUpdateTimestamp: latestStatusEvent?.latest || null,
       reviewStatusRollup,
       issueCategoryRollup,
       severityRollup,
@@ -670,6 +677,7 @@ export function exportTenantAssetManualReviewEvidenceReportMarkdown(report) {
     "terminalApprovedCount",
     "terminalBlockedCount",
     "mostRecentImportTimestamp",
+    "latestStatusUpdateTimestamp",
     "statusWorkflowAvailable",
     "accessSwitchReady",
     "backfillReady",

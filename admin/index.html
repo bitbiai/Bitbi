@@ -257,7 +257,7 @@
                     </div>
                     <div class="admin-control-hero__badges" aria-label="Control plane status">
                         <span class="badge badge--legacy">Review required</span>
-                        <span class="badge badge--legacy">Staging verification required</span>
+                        <span class="badge badge--legacy">Main-only verification required</span>
                         <span class="badge badge--disabled">Production blocked</span>
                         <span class="badge badge--user">Testmode only</span>
                     </div>
@@ -857,6 +857,88 @@
                         <div id="videoFailedState" class="admin-state">Loading failed jobs...</div>
                         <div id="videoFailedList"></div>
                     </div>
+                </div>
+                <div class="admin-control-subsection">
+                    <div class="admin-control-subsection__header">
+                        <div>
+                            <h3 class="admin-section-title">Tenant Asset Manual Review Queue</h3>
+                            <p class="admin-shell__desc">AI folders/images owner-map review evidence and review-status workflow. Status changes update review-state rows only; ownership backfill and access-switching remain blocked.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges" aria-label="Tenant asset manual-review safety">
+                            <span class="badge badge--disabled">Access switch blocked</span>
+                            <span class="badge badge--disabled">Backfill blocked</span>
+                            <span class="badge badge--legacy">Tenant isolation not claimed</span>
+                            <span class="badge badge--user">No R2 action</span>
+                            <button type="button" id="tenantReviewRefresh" class="btn-action">Refresh</button>
+                            <button type="button" id="tenantReviewExportJson" class="btn-action btn-action--secondary">Export JSON</button>
+                        </div>
+                    </div>
+                    <div id="tenantReviewState" class="admin-state" aria-live="polite">Loading tenant asset manual-review evidence...</div>
+                    <div id="tenantReviewSummary"></div>
+                    <form id="tenantReviewFilter" class="admin-control-filter glass glass-card">
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Review status</span>
+                            <select id="tenantReviewStatusFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="pending_review">Pending review</option>
+                                <option value="review_in_progress">Review in progress</option>
+                                <option value="blocked_public_unsafe">Blocked public unsafe</option>
+                                <option value="blocked_derivative_risk">Blocked derivative risk</option>
+                                <option value="approved_legacy_unclassified">Approved legacy unclassified</option>
+                                <option value="deferred">Deferred</option>
+                                <option value="rejected">Rejected</option>
+                                <option value="superseded">Superseded</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Issue category</span>
+                            <select id="tenantReviewCategoryFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="metadata_missing">Metadata missing</option>
+                                <option value="public_unsafe">Public unsafe</option>
+                                <option value="derivative_risk">Derivative risk</option>
+                                <option value="dual_read_unsafe">Dual-read unsafe</option>
+                                <option value="manual_review_needed">Manual review needed</option>
+                                <option value="relationship_review">Relationship review</option>
+                                <option value="safe_observe_only">Safe observe only</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Severity</span>
+                            <select id="tenantReviewSeverityFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="critical">Critical</option>
+                                <option value="warning">Warning</option>
+                                <option value="info">Info</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Priority</span>
+                            <select id="tenantReviewPriorityFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="urgent">Urgent</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Domain</span>
+                            <select id="tenantReviewDomainFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="ai_folders">AI folders</option>
+                                <option value="ai_images">AI images</option>
+                                <option value="public_gallery">Public gallery</option>
+                                <option value="derivative">Derivative</option>
+                                <option value="relationship">Relationship</option>
+                            </select>
+                        </label>
+                        <button type="submit" class="btn-action">Apply</button>
+                    </form>
+                    <div id="tenantReviewItemsState" class="admin-state" aria-live="polite">Loading manual-review queue...</div>
+                    <div id="tenantReviewList"></div>
+                    <div id="tenantReviewDetail" class="admin-control-detail glass glass-card" hidden></div>
+                    <p class="admin-shell__desc">This panel has no backfill, access-switch, ownership update, source asset update, R2, provider, Stripe, credit, billing, or delete controls.</p>
                 </div>
             </div>
 

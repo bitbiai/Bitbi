@@ -30,7 +30,7 @@ Phase 6.11 adds the design-only manual review workflow and plan:
 - `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`
 - `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`
 
-The workflow defines review categories and statuses only. No review execution endpoint, Admin UI, ownership backfill, D1 ownership row rewrite, R2 listing/mutation, or access-check switch has occurred.
+The workflow defines review categories and statuses. Later phases added review-state schema, import/status endpoints, read-only evidence APIs, and Admin Control Plane visibility, but no ownership backfill, D1 source ownership row rewrite, R2 listing/mutation, or access-check switch has occurred.
 
 Phase 6.12 adds review-state schema planning:
 
@@ -72,7 +72,14 @@ Phase 6.17 adds the admin-approved status workflow endpoint:
 - `POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status`
 - helper: `workers/auth/src/lib/tenant-asset-manual-review-status.js`
 
-The endpoint requires admin auth, production MFA through route policy, same-origin protection, rate limiting, `Idempotency-Key`, `confirm: true`, and a bounded `reason`. It updates only review item status/review metadata and appends sanitized events. It does not update source asset rows, ownership metadata, public visibility, access checks, backfill ownership, add Admin UI, or list/mutate R2. Queue evidence reports now include status-change event counts, terminal approved/blocked counts, and keep `accessSwitchReady=false`, `backfillReady=false`, `tenantIsolationClaimed=false`, and `productionReadiness=blocked`.
+The endpoint requires admin auth, production MFA through route policy, same-origin protection, rate limiting, `Idempotency-Key`, `confirm: true`, and a bounded `reason`. It updates only review item status/review metadata and appends sanitized events. It does not update source asset rows, ownership metadata, public visibility, access checks, backfill ownership, or list/mutate R2. Queue evidence reports include status-change event counts, terminal approved/blocked counts, and keep `accessSwitchReady=false`, `backfillReady=false`, `tenantIsolationClaimed=false`, and `productionReadiness=blocked`.
+
+Phase 6.18 adds operator evidence/Admin visibility for the queue:
+
+- `GET /api/admin/tenant-assets/folders-images/manual-review/evidence` now includes the latest status update timestamp in addition to status/event rollups.
+- Admin Control Plane includes a compact "Tenant Asset Manual Review Queue" panel with refresh, JSON export, filters, safe item detail, event history, readiness badges, and review-status controls that call only the Phase 6.17 endpoint.
+- The panel intentionally contains no backfill, access-switch, source-asset update, delete, R2, provider, Stripe, credit, or billing controls.
+- Status controls remain review-state only and do not approve ownership backfill, access-check switching, tenant isolation, or production readiness.
 
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
@@ -102,6 +109,6 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 
 10. If using the Phase 6.15 import executor, first run dry-run mode, then execute only with an admin-approved reason and `Idempotency-Key`; inspect the resulting rows through the Phase 6.16 read-only queue/evidence endpoints before any status workflow, backfill design, or access-check migration.
 
-11. If using the Phase 6.17 status workflow, change only review statuses with explicit reasons and idempotency, then export updated queue evidence. Status changes are operator evidence only and do not approve backfill or access-check switching.
+11. If using the Phase 6.17 status workflow or Phase 6.18 Admin panel, change only review statuses with explicit reasons and idempotency, then export updated queue evidence. Status changes are operator evidence only and do not approve backfill or access-check switching.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

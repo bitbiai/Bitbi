@@ -501,6 +501,107 @@ export function apiAdminAiPlatformBudgetEvidenceArchives({ limit = 25, status, a
     return request('GET', '/admin/ai/platform-budget-evidence-archives' + qs, undefined, options);
 }
 
+export function apiAdminTenantAssetManualReviewEvidence({ limit = 25, includeItems = true } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    params.set('includeItems', includeItems === false ? 'false' : 'true');
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/tenant-assets/folders-images/manual-review/evidence' + qs, undefined, options);
+}
+
+export async function apiAdminTenantAssetManualReviewEvidenceExport({
+    format = 'json',
+    limit = 50,
+    includeItems = true,
+} = {}, options = {}) {
+    const params = new URLSearchParams();
+    params.set('format', format);
+    params.set('limit', String(limit || 50));
+    params.set('includeItems', includeItems === false ? 'false' : 'true');
+    const exportPath = '/admin/tenant-assets/folders-images/manual-review/evidence/export';
+    try {
+        const res = await fetch(BASE + exportPath + '?' + params, {
+            method: 'GET',
+            credentials: 'include',
+            headers: options.headers || {},
+        });
+        const text = await res.text();
+        if (res.ok) {
+            return {
+                ok: true,
+                text,
+                status: res.status,
+                contentType: res.headers.get('content-type') || '',
+                filename: res.headers.get('content-disposition') || '',
+            };
+        }
+        let data = null;
+        try { data = JSON.parse(text); } catch { data = null; }
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
+}
+
+export function apiAdminTenantAssetManualReviewItems({
+    limit = 25,
+    offset,
+    reviewStatus,
+    issueCategory,
+    severity,
+    priority,
+    assetDomain,
+    assetId,
+    includeEvents,
+} = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    if (reviewStatus) params.set('reviewStatus', String(reviewStatus));
+    if (issueCategory) params.set('issueCategory', String(issueCategory));
+    if (severity) params.set('severity', String(severity));
+    if (priority) params.set('priority', String(priority));
+    if (assetDomain) params.set('assetDomain', String(assetDomain));
+    if (assetId) params.set('assetId', String(assetId));
+    if (includeEvents) params.set('includeEvents', 'true');
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/tenant-assets/folders-images/manual-review/items' + qs, undefined, options);
+}
+
+export function apiAdminTenantAssetManualReviewItem(itemId, { includeEvents = true } = {}, options) {
+    const params = new URLSearchParams();
+    if (includeEvents) params.set('includeEvents', 'true');
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(itemId)}${qs}`, undefined, options);
+}
+
+export function apiAdminTenantAssetManualReviewItemEvents(itemId, { limit = 25 } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(itemId)}/events${qs}`, undefined, options);
+}
+
+export function apiAdminUpdateTenantAssetManualReviewStatus(itemId, {
+    newStatus,
+    reason,
+    confirm,
+    metadata,
+    idempotencyKey,
+} = {}) {
+    return request('POST', `/admin/tenant-assets/folders-images/manual-review/items/${encodeURIComponent(itemId)}/status`, {
+        newStatus,
+        reason,
+        confirm: confirm === true,
+        metadata,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminAiCreatePlatformBudgetEvidenceArchive(payload = {}, { idempotencyKey } = {}) {
     return request('POST', '/admin/ai/platform-budget-evidence-archives', payload, {
         headers: { 'Idempotency-Key': idempotencyKey },

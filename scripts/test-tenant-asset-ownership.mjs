@@ -305,7 +305,7 @@ assert.equal(foldersImagesReport.manualReviewWorkflow.plannerScript, "scripts/pl
 assert.equal(foldersImagesReport.manualReviewWorkflow.designOnly, true);
 assert.equal(foldersImagesReport.manualReviewWorkflow.reviewExecutionAdded, true);
 assert.equal(foldersImagesReport.manualReviewWorkflow.endpointAdded, true);
-assert.equal(foldersImagesReport.manualReviewWorkflow.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewWorkflow.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewWorkflow.migrationAdded, false);
 assert.equal(foldersImagesReport.manualReviewWorkflow.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewWorkflow.backfillPerformed, false);
@@ -317,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.18 — Manual Review Status Operator Evidence"
+  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -350,7 +350,7 @@ assert.equal(
   foldersImagesReport.manualReviewStateSchema.importEndpoint,
   "/api/admin/tenant-assets/folders-images/manual-review/import"
 );
-assert.equal(foldersImagesReport.manualReviewStateSchema.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewStateSchema.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewStateSchema.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.backfillPerformed, false);
 assert.equal(foldersImagesReport.manualReviewStateSchema.backfillNotStarted, true);
@@ -364,7 +364,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.18 — Manual Review Status Operator Evidence"
+  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -380,7 +380,7 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "Phase 6.18 — Manual Review Status Operator Evidence"
+  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
 assert.equal(
@@ -401,7 +401,7 @@ assert.equal(foldersImagesReport.manualReviewImportExecutor.sourceAssetRowsMutat
 assert.equal(foldersImagesReport.manualReviewImportExecutor.ownershipBackfillPerformed, false);
 assert.equal(foldersImagesReport.manualReviewImportExecutor.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewImportExecutor.r2LiveListed, false);
-assert.equal(foldersImagesReport.manualReviewImportExecutor.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewImportExecutor.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewImportExecutor.migrationAdded, false);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.status, "manual_review_queue_read_api_added");
 assert.equal(
@@ -417,11 +417,11 @@ assert.equal(foldersImagesReport.manualReviewQueueReadApi.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.sourceAssetRowsMutated, false);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.r2LiveListed, false);
-assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.productionReadiness, "blocked");
 assert.equal(
   foldersImagesReport.manualReviewQueueReadApi.recommendedNextPhase,
-  "Phase 6.18 — Manual Review Status Operator Evidence"
+  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
 );
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.status, "manual_review_status_workflow_added");
 assert.equal(
@@ -441,12 +441,27 @@ assert.equal(foldersImagesReport.manualReviewStatusWorkflow.ownershipMetadataUpd
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.ownershipBackfillPerformed, false);
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.r2LiveListed, false);
-assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, false);
+assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, true);
 assert.equal(
   foldersImagesReport.manualReviewStatusWorkflow.recommendedNextPhase,
-  "Phase 6.18 — Manual Review Status Operator Evidence"
+  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.18 — Manual Review Status Operator Evidence");
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.status, "manual_review_status_operator_evidence_added");
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.adminVisibilityAdded, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.clientWrappersAdded, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.evidenceIncludesStatusRollups, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.evidenceIncludesLatestStatusUpdateTimestamp, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.statusControlsReviewStateOnly, true);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.sourceAssetRowsMutated, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.ownershipMetadataUpdated, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.ownershipBackfillPerformed, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.accessChecksChanged, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.r2LiveListed, false);
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidence.recommendedNextPhase,
+  "Phase 6.19 — Manual Review Status Operator Evidence Collection"
+);
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.19 — Manual Review Status Operator Evidence Collection");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -971,6 +986,9 @@ assert(focusedMarkdown.includes("/api/admin/tenant-assets/folders-images/manual-
 assert(focusedMarkdown.includes("Manual Review Status Workflow"));
 assert(focusedMarkdown.includes("manual_review_status_workflow_added"));
 assert(focusedMarkdown.includes("/api/admin/tenant-assets/folders-images/manual-review/items/:id/status"));
-assert(focusedMarkdown.includes("Phase 6.18"));
+assert(focusedMarkdown.includes("Manual Review Status Operator Evidence"));
+assert(focusedMarkdown.includes("manual_review_status_operator_evidence_added"));
+assert(focusedMarkdown.includes("admin/index.html#operations"));
+assert(focusedMarkdown.includes("Phase 6.19"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

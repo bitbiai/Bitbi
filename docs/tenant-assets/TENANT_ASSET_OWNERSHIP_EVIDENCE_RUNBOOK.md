@@ -208,4 +208,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. The next recommended phase is Phase 6.18 - Manual Review Status Operator Evidence, with no access-check switch, ownership backfill, source asset row update, ownership metadata update, or R2 action by default.
+Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. The next recommended phase is Phase 6.19 - Manual Review Status Operator Evidence Collection, with no access-check switch, ownership backfill, source asset row update, ownership metadata update, or R2 action by default.

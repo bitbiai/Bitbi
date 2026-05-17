@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. Phase 6.14 adds local-only review-item import dry-run planning. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only queue/evidence APIs for imported review rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. These phases do not update ownership metadata, backfill rows, switch access checks, add Admin UI, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
+Phase 6.12 designed the manual-review state schema for AI folders/images owner-map issues. Phase 6.13 adds the additive schema foundation in `0057_add_ai_asset_manual_review_state.sql` only. Phase 6.14 adds local-only review-item import dry-run planning. Phase 6.15 adds an admin-approved import executor that can create only manual-review items/events and defaults to dry-run. Phase 6.16 adds read-only queue/evidence APIs for imported review rows. Phase 6.17 adds an admin-approved status workflow that updates only review item status fields and appends review events. Phase 6.18 adds status operator evidence rollups, Admin Control Plane visibility, API client wrappers, and review-status controls that operate only on review-state rows. These phases do not update ownership metadata, backfill rows, switch access checks, list/move/delete R2 objects, call providers, call Stripe, call Cloudflare APIs, mutate credits or billing, claim tenant isolation, or claim production readiness.
 
 ## Purpose
 
@@ -317,17 +317,18 @@ Possible future endpoints, not implemented in Phase 6.17:
 
 Future endpoints must not apply ownership changes, backfill rows, switch access checks, list/mutate R2, call providers, call Stripe, mutate Cloudflare, change public visibility, or change credits/billing.
 
-## Future UI Design
+## Admin UI Design
 
-Possible future Admin UI panel, not implemented in Phase 6.13:
+Phase 6.18 implements a compact Admin Control Plane panel for manual-review visibility and review-status operations:
 
-- review queue with filters by category/status/severity/priority;
+- review queue with filters by category/status/severity/priority/domain;
 - summary counts matching the evidence report;
 - safe item details only;
-- status update controls for allowed transitions;
-- bounded review notes;
 - event history;
-- "no access switch" and "no backfill" badges.
+- status update controls for allowed transitions only;
+- bounded reason and confirmation for status updates;
+- generated `Idempotency-Key` for status updates;
+- "access switch blocked", "backfill blocked", "tenant isolation not claimed", "no R2 action", and "review-state only" badges.
 
 The UI must not include:
 
@@ -365,11 +366,13 @@ Confirmed execution must not:
 - update `ai_folders` or `ai_images` ownership metadata;
 - list/move/delete R2 objects.
 
+Phase 6.18 adds Admin Control Plane visibility and operator evidence rollups for the existing queue/status workflow. It does not add a migration, import executor changes, review-note workflow, ownership metadata updates, ownership backfill, access switching, source asset mutation, R2 operations, provider calls, Stripe calls, Cloudflare API calls, or credit/billing changes.
+
 Recommended next phase:
 
-`Phase 6.18 - Manual Review Status Operator Evidence`
+`Phase 6.19 - Manual Review Status Operator Evidence Collection`
 
-Later phases may separately collect status operator evidence, add Admin UI, and eventually design non-destructive ownership metadata backfill. Each must be dry-run-first where applicable and explicitly approved.
+Later phases may separately collect status operator evidence from live-main operator use and eventually design non-destructive ownership metadata backfill readiness. Each must be dry-run-first where applicable and explicitly approved.
 
 ## Validation And Test Plan
 

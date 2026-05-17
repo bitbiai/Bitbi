@@ -37,6 +37,11 @@ import {
     apiAdminOrganization,
     apiAdminOrganizationBilling,
     apiAdminOrganizations,
+    apiAdminTenantAssetManualReviewEvidence,
+    apiAdminTenantAssetManualReviewEvidenceExport,
+    apiAdminTenantAssetManualReviewItem,
+    apiAdminTenantAssetManualReviewItems,
+    apiAdminUpdateTenantAssetManualReviewStatus,
     apiAdminUsers,
     apiAdminUserBilling,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
@@ -77,6 +82,52 @@ const STATUS_VARIANTS = {
     expired: 'disabled',
 };
 
+const TENANT_REVIEW_STATUSES = [
+    'pending_review',
+    'review_in_progress',
+    'approved_personal_user_asset',
+    'approved_organization_asset',
+    'approved_legacy_unclassified',
+    'approved_platform_admin_test_asset',
+    'blocked_public_unsafe',
+    'blocked_derivative_risk',
+    'blocked_relationship_conflict',
+    'blocked_missing_evidence',
+    'needs_legal_privacy_review',
+    'deferred',
+    'rejected',
+    'superseded',
+];
+
+const TENANT_REVIEW_STATUS_TRANSITIONS = {
+    pending_review: ['review_in_progress', 'deferred', 'rejected', 'needs_legal_privacy_review'],
+    review_in_progress: [
+        'approved_personal_user_asset',
+        'approved_organization_asset',
+        'approved_legacy_unclassified',
+        'approved_platform_admin_test_asset',
+        'blocked_public_unsafe',
+        'blocked_derivative_risk',
+        'blocked_relationship_conflict',
+        'blocked_missing_evidence',
+        'deferred',
+        'rejected',
+        'needs_legal_privacy_review',
+    ],
+    deferred: ['pending_review'],
+    needs_legal_privacy_review: ['review_in_progress'],
+    approved_personal_user_asset: ['superseded'],
+    approved_organization_asset: ['superseded'],
+    approved_legacy_unclassified: ['superseded'],
+    approved_platform_admin_test_asset: ['superseded'],
+    blocked_public_unsafe: ['superseded'],
+    blocked_derivative_risk: ['superseded'],
+    blocked_relationship_conflict: ['superseded'],
+    blocked_missing_evidence: ['superseded'],
+    rejected: ['superseded'],
+    superseded: [],
+};
+
 const SENSITIVE_KEY_PATTERN = /secret|token|password|hash|signature|raw|payload|request_?fingerprint|idempotency|r2_?key|private_?key|mfa|recovery|webhook_?secret|stripe_?secret|service_?auth|card|payment_?method|credential|authorization|cookie|session/i;
 const SENSITIVE_VALUE_PATTERN = /\b(?:sk_(?:live|test)|rk_(?:live|test)|whsec|Bearer\s+|Stripe-Signature|authorization=|secret=|token=|password=|pm_[A-Za-z0-9]|card=)[A-Za-z0-9_:=+./-]*/i;
 
@@ -111,6 +162,26 @@ function badge(label, variant = 'user') {
 
 function variantFor(value) {
     return STATUS_VARIANTS[String(value || '').toLowerCase()] || 'user';
+}
+
+function readableToken(value) {
+    const text = String(value || '').trim();
+    if (!text) return '-';
+    return text.replace(/_/g, ' ');
+}
+
+function tenantReviewStatusVariant(value) {
+    const status = String(value || '').toLowerCase();
+    if (status.startsWith('approved_')) return 'active';
+    if (status.startsWith('blocked_') || status === 'rejected') return 'disabled';
+    if (status === 'review_in_progress' || status === 'needs_legal_privacy_review') return 'legacy';
+    if (status === 'superseded') return 'legacy';
+    if (status === 'deferred') return 'user';
+    return 'user';
+}
+
+function allowedTenantReviewTransitions(status) {
+    return TENANT_REVIEW_STATUS_TRANSITIONS[String(status || '')] || [];
 }
 
 function shortId(value) {
@@ -278,7 +349,9 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         userGrant: null,
     };
     let selectedBillingReviewId = '';
+    let selectedTenantReviewItemId = '';
     let billingReviewResolutionSubmitting = false;
+    let tenantReviewStatusSubmitting = false;
 
     function notify(message, type = 'success') {
         if (typeof showToast === 'function') showToast(message, type);
@@ -463,6 +536,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             capabilityProbe('AI budget controls', () => apiAdminAiBudgetSwitches()),
             capabilityProbe('Data lifecycle', () => apiAdminDataLifecycleRequests({ limit: 1 })),
             capabilityProbe('Export archives', () => apiAdminDataLifecycleArchives({ limit: 1 })),
+            capabilityProbe('Tenant asset manual review', () => apiAdminTenantAssetManualReviewEvidence({ limit: 1, includeItems: false })),
         ]);
 
         renderCards(container, [
@@ -511,9 +585,16 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 href: '#lifecycle',
             },
             {
+                title: 'Tenant Asset Manual Review',
+                badge: { label: probes[7].status, variant: probes[7].variant },
+                copy: 'Inspect AI folders/images manual-review queue evidence and record review-status decisions. Ownership backfill and access switching remain blocked.',
+                href: '#operations',
+                cta: 'Open queue',
+            },
+            {
                 title: 'Operational Readiness',
                 badge: { label: 'Production blocked', variant: 'disabled' },
-                copy: 'Release preflight is green, but live Cloudflare validation, migrations, and staging verification remain deployment prerequisites.',
+                copy: 'Release preflight is green, but live Cloudflare validation, migration verification, and main-only operator evidence remain deployment prerequisites.',
                 href: '#readiness',
             },
         ]);
@@ -1982,8 +2063,311 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         holder.appendChild(wrap);
     }
 
+    function tenantReviewSummaryCards(summary = {}) {
+        return [
+            {
+                title: 'Review Queue',
+                badge: { label: `${summary.totalReviewItems ?? 0} items`, variant: 'user' },
+                copy: 'Manual-review rows only. This queue does not change ownership metadata or runtime access checks.',
+                meta: [
+                    ['Pending', summary.reviewStatusRollup?.pending_review ?? 0],
+                    ['In progress', summary.reviewStatusRollup?.review_in_progress ?? 0],
+                    ['Critical', summary.severityRollup?.critical ?? 0],
+                ],
+            },
+            {
+                title: 'Blocked Review Signals',
+                badge: { label: 'Access blocked', variant: 'disabled' },
+                copy: 'Blocked categories remain evidence for human review only.',
+                meta: [
+                    ['Public unsafe', summary.issueCategoryRollup?.public_unsafe ?? 0],
+                    ['Derivative risk', summary.issueCategoryRollup?.derivative_risk ?? 0],
+                    ['Terminal blocked', summary.terminalBlockedCount ?? 0],
+                ],
+            },
+            {
+                title: 'Status Evidence',
+                badge: { label: 'Review-state only', variant: 'legacy' },
+                copy: 'Status events are audit evidence. They do not approve backfill, tenant isolation, or production readiness.',
+                meta: [
+                    ['Status changes', summary.statusChangedEventsCount ?? 0],
+                    ['Terminal approved', summary.terminalApprovedCount ?? 0],
+                    ['Latest status update', formatDate(summary.latestStatusUpdateTimestamp)],
+                ],
+            },
+        ];
+    }
+
+    function tenantReviewFilters() {
+        return {
+            limit: 25,
+            reviewStatus: byId('tenantReviewStatusFilter')?.value || undefined,
+            issueCategory: byId('tenantReviewCategoryFilter')?.value || undefined,
+            severity: byId('tenantReviewSeverityFilter')?.value || undefined,
+            priority: byId('tenantReviewPriorityFilter')?.value || undefined,
+            assetDomain: byId('tenantReviewDomainFilter')?.value || undefined,
+        };
+    }
+
+    async function loadTenantAssetManualReviewEvidence() {
+        const summaryNode = byId('tenantReviewSummary');
+        setState('tenantReviewState', 'Loading tenant asset manual-review evidence...');
+        clear(summaryNode);
+        const res = await apiAdminTenantAssetManualReviewEvidence({ limit: 10, includeItems: false });
+        if (!res.ok) {
+            setState('tenantReviewState', '');
+            renderUnavailable(summaryNode, res, 'Tenant asset manual-review evidence unavailable.');
+            return null;
+        }
+        const report = res.data?.report || {};
+        const summary = report.summary || {};
+        renderCards(summaryNode, tenantReviewSummaryCards(summary));
+        const safety = el('div', 'admin-control-chip-row');
+        safety.append(
+            badge('Access switch blocked', 'disabled'),
+            badge('Backfill blocked', 'disabled'),
+            badge('Tenant isolation not claimed', 'legacy'),
+            badge('No R2 action', 'user'),
+            badge('Review-state only', 'user'),
+        );
+        summaryNode.appendChild(safety);
+        const statusText = [
+            `Total ${summary.totalReviewItems ?? 0} review item${Number(summary.totalReviewItems || 0) === 1 ? '' : 's'}`,
+            `events ${summary.totalEvents ?? 0}`,
+            `latest import ${formatDate(summary.mostRecentImportTimestamp)}`,
+            `latest status ${formatDate(summary.latestStatusUpdateTimestamp)}`,
+        ].join(' | ');
+        setState('tenantReviewState', statusText);
+        return report;
+    }
+
+    function renderTenantReviewEvents(container, events) {
+        const safeEvents = Array.isArray(events) ? events : [];
+        if (!safeEvents.length) {
+            container.appendChild(el('p', 'admin-shell__desc', 'No bounded event history returned for this item.'));
+            return;
+        }
+        const { wrap, tbody } = table(['Event', 'Old', 'New', 'Actor', 'Reason', 'Created']);
+        for (const event of safeEvents.slice(0, 25)) {
+            const tr = document.createElement('tr');
+            addCell(tr, readableToken(event.eventType));
+            addCell(tr, readableToken(event.oldStatus));
+            addCell(tr, readableToken(event.newStatus));
+            addCell(tr, event.actorUserIdPresent ? 'Recorded' : '-');
+            addCell(tr, event.reasonPresent ? 'Recorded' : '-');
+            addCell(tr, formatDate(event.createdAt));
+            tbody.appendChild(tr);
+        }
+        container.appendChild(wrap);
+    }
+
+    function appendTenantReviewStatusForm(container, item) {
+        const allowed = allowedTenantReviewTransitions(item.reviewStatus);
+        if (!allowed.length) {
+            container.appendChild(el('p', 'admin-shell__desc', 'This review status has no outgoing transition in the Phase 6.17 workflow.'));
+            return;
+        }
+        const form = el('form', 'admin-control-form');
+        form.id = 'tenantReviewStatusForm';
+
+        const statusField = el('label', 'admin-ai__field');
+        statusField.appendChild(el('span', 'admin-ai__label', 'Next status'));
+        const select = document.createElement('select');
+        select.id = 'tenantReviewNextStatus';
+        select.className = 'admin-ai__input';
+        select.required = true;
+        for (const status of allowed.filter((value) => TENANT_REVIEW_STATUSES.includes(value))) {
+            const option = document.createElement('option');
+            option.value = status;
+            option.textContent = readableToken(status);
+            select.appendChild(option);
+        }
+        statusField.appendChild(select);
+
+        const reasonField = el('label', 'admin-ai__field');
+        reasonField.appendChild(el('span', 'admin-ai__label', 'Operator reason'));
+        const reason = document.createElement('textarea');
+        reason.id = 'tenantReviewStatusReason';
+        reason.className = 'admin-ai__textarea';
+        reason.rows = 3;
+        reason.maxLength = 500;
+        reason.required = true;
+        reason.placeholder = 'Record the manual review decision. This does not backfill ownership or change access checks.';
+        reasonField.appendChild(reason);
+
+        const confirmField = el('label', 'admin-ai__field admin-ai__field--inline');
+        const checkbox = document.createElement('input');
+        checkbox.id = 'tenantReviewStatusConfirm';
+        checkbox.type = 'checkbox';
+        checkbox.required = true;
+        confirmField.appendChild(checkbox);
+        confirmField.appendChild(el('span', null, 'I confirm this changes review-state rows only; it does not update assets, ownership metadata, access checks, R2, credits, or billing.'));
+
+        const submit = el('button', 'admin-ai__run', 'Update Review Status');
+        submit.type = 'submit';
+        const state = el('div', 'admin-state');
+        state.id = 'tenantReviewStatusUpdateState';
+        state.setAttribute('aria-live', 'polite');
+
+        form.append(statusField, reasonField, confirmField, submit, state);
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (tenantReviewStatusSubmitting) return;
+            const newStatus = select.value;
+            const reasonText = reason.value.trim();
+            if (!newStatus || !reasonText || !checkbox.checked) {
+                state.dataset.state = 'error';
+                state.textContent = 'Next status, reason, and confirmation are required.';
+                return;
+            }
+            const confirmed = window.confirm('Update this manual-review status? This records review-state evidence only and does not backfill ownership or change access behavior.');
+            if (!confirmed) {
+                state.dataset.state = 'neutral';
+                state.textContent = 'Status update cancelled.';
+                return;
+            }
+            tenantReviewStatusSubmitting = true;
+            setSubmitting(submit, true);
+            state.dataset.state = 'neutral';
+            state.textContent = 'Recording review status update...';
+            try {
+                const res = await apiAdminUpdateTenantAssetManualReviewStatus(item.id, {
+                    newStatus,
+                    reason: reasonText,
+                    confirm: true,
+                    metadata: {
+                        source: 'admin_control_plane',
+                        phase: '6.18',
+                    },
+                    idempotencyKey: createIdempotencyKey('tenant-review-status'),
+                });
+                if (!res.ok) {
+                    state.dataset.state = 'error';
+                    state.textContent = apiUnavailableMessage(res, 'Manual-review status update failed.');
+                    notify('Manual-review status update failed.', 'error');
+                    return;
+                }
+                state.dataset.state = 'success';
+                state.textContent = 'Manual-review status updated. No source asset rows were changed.';
+                notify('Manual-review status updated.', 'success');
+                await Promise.all([
+                    loadTenantAssetManualReviewEvidence(),
+                    loadTenantAssetManualReviewItems(),
+                    loadTenantAssetManualReviewDetail(item.id),
+                ]);
+                setState('tenantReviewState', 'Manual-review status updated. No source asset rows were changed.', 'success');
+            } finally {
+                tenantReviewStatusSubmitting = false;
+                setSubmitting(submit, false);
+            }
+        });
+        container.appendChild(el('h3', 'admin-section-title', 'Review Status Update'));
+        container.appendChild(el('p', 'admin-shell__desc', 'Status changes write only manual-review item/event rows. There is no backfill, access switch, source asset update, R2 action, provider call, Stripe call, or credit/billing action.'));
+        container.appendChild(form);
+    }
+
+    async function loadTenantAssetManualReviewDetail(itemId) {
+        const detail = byId('tenantReviewDetail');
+        if (!detail) return;
+        detail.hidden = false;
+        detail.textContent = 'Loading manual-review item detail...';
+        const res = await apiAdminTenantAssetManualReviewItem(itemId, { includeEvents: true });
+        clear(detail);
+        if (!res.ok) {
+            renderUnavailable(detail, res, 'Manual-review item detail unavailable.');
+            return;
+        }
+        const item = res.data?.item || {};
+        selectedTenantReviewItemId = item.id || itemId;
+        detail.appendChild(el('h3', 'admin-section-title', 'Tenant Asset Manual Review Detail'));
+        detail.appendChild(detailRows([
+            ['Review item', shortId(item.id)],
+            ['Asset domain', item.assetDomain || '-'],
+            ['Asset', shortId(item.assetId)],
+            ['Issue category', readableToken(item.issueCategory)],
+            ['Review status', readableToken(item.reviewStatus)],
+            ['Severity', item.severity || '-'],
+            ['Priority', item.priority || '-'],
+            ['Evidence source', item.evidenceSourcePath || '-'],
+            ['Created', formatDate(item.createdAt)],
+            ['Updated', formatDate(item.updatedAt)],
+            ['Reviewed at', formatDate(item.reviewedAt)],
+            ['Safe notes', item.safeNotes || '-'],
+        ]));
+        detail.appendChild(el('h3', 'admin-section-title', 'Event History'));
+        renderTenantReviewEvents(detail, item.events);
+        appendTenantReviewStatusForm(detail, item);
+    }
+
+    async function loadTenantAssetManualReviewItems() {
+        const list = byId('tenantReviewList');
+        setState('tenantReviewItemsState', 'Loading manual-review queue...');
+        clear(list);
+        const res = await apiAdminTenantAssetManualReviewItems(tenantReviewFilters());
+        if (!res.ok) {
+            setState('tenantReviewItemsState', '');
+            renderUnavailable(list, res, 'Manual-review queue unavailable.');
+            return;
+        }
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        if (!items.length) {
+            setState('tenantReviewItemsState', 'No manual-review items found for the selected filters.');
+            return;
+        }
+        setState('tenantReviewItemsState', `Showing ${items.length} of ${res.data?.total ?? items.length} review item${items.length === 1 ? '' : 's'}.`);
+        const { wrap, tbody } = table(['Status', 'Category', 'Severity', 'Priority', 'Domain', 'Updated', 'Actions']);
+        for (const item of items) {
+            const tr = document.createElement('tr');
+            addCell(tr, badge(readableToken(item.reviewStatus), tenantReviewStatusVariant(item.reviewStatus)));
+            addCell(tr, readableToken(item.issueCategory));
+            addCell(tr, badge(item.severity || '-', item.severity === 'critical' ? 'disabled' : variantFor(item.severity)));
+            addCell(tr, item.priority || '-');
+            addCell(tr, item.assetDomain || '-');
+            addCell(tr, formatDate(item.updatedAt || item.createdAt));
+            const button = el('button', 'btn-action', 'Inspect Review');
+            button.type = 'button';
+            button.addEventListener('click', () => loadTenantAssetManualReviewDetail(item.id));
+            addCell(tr, button);
+            tbody.appendChild(tr);
+        }
+        list.appendChild(wrap);
+        if (!selectedTenantReviewItemId && items[0]?.id) {
+            loadTenantAssetManualReviewDetail(items[0].id);
+        }
+    }
+
+    async function loadTenantAssetManualReviewQueue() {
+        await Promise.all([
+            loadTenantAssetManualReviewEvidence(),
+            loadTenantAssetManualReviewItems(),
+        ]);
+    }
+
+    async function exportTenantAssetManualReviewEvidenceJson(button) {
+        setSubmitting(button, true);
+        setState('tenantReviewState', 'Preparing tenant asset manual-review JSON export...');
+        try {
+            const res = await apiAdminTenantAssetManualReviewEvidenceExport({
+                format: 'json',
+                limit: 50,
+                includeItems: true,
+            });
+            if (!res.ok) {
+                setState('tenantReviewState', apiUnavailableMessage(res, 'Tenant asset manual-review evidence export failed.'), 'error');
+                notify('Tenant asset evidence export failed.', 'error');
+                return;
+            }
+            const fallback = `tenant-asset-manual-review-evidence-${new Date().toISOString().slice(0, 10)}.json`;
+            downloadTextFile(filenameFromContentDisposition(res.filename, fallback), res.text || '{}\n', res.contentType || 'application/json');
+            setState('tenantReviewState', 'Manual-review evidence JSON export prepared. No backfill or access switch was performed.');
+            notify('Tenant asset evidence export prepared.', 'success');
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
     async function loadOperations() {
-        await Promise.all([loadPoisonMessages(), loadFailedJobs()]);
+        await Promise.all([loadPoisonMessages(), loadFailedJobs(), loadTenantAssetManualReviewQueue()]);
     }
 
     async function loadPoisonMessages() {
@@ -2062,7 +2446,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Production Status',
                 badge: { label: 'Blocked', variant: 'disabled' },
-                copy: 'Live Cloudflare validation, dashboard-managed WAF/header checks, staging migrations, Stripe Testmode endpoint verification, and staging flow tests are still required.',
+                copy: 'Live Cloudflare validation, dashboard-managed WAF/header checks, migration verification, Stripe Testmode endpoint verification, and main-only flow evidence are still required.',
             },
             {
                 title: 'No Secret Editing',
@@ -2149,6 +2533,15 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         byId('lifecycleRequestsRefresh')?.addEventListener('click', loadLifecycleRequests);
         byId('lifecycleArchivesRefresh')?.addEventListener('click', loadLifecycleArchives);
         byId('operationsRefresh')?.addEventListener('click', loadOperations);
+        byId('tenantReviewRefresh')?.addEventListener('click', loadTenantAssetManualReviewQueue);
+        byId('tenantReviewExportJson')?.addEventListener('click', (event) => {
+            exportTenantAssetManualReviewEvidenceJson(event.currentTarget);
+        });
+        byId('tenantReviewFilter')?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            selectedTenantReviewItemId = '';
+            loadTenantAssetManualReviewItems();
+        });
     }
 
     async function load(sectionName) {

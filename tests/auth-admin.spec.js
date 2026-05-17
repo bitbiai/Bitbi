@@ -1686,6 +1686,8 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.platformBudgetEvidenceArchiveDownloadRequests = captures.platformBudgetEvidenceArchiveDownloadRequests || [];
   captures.platformBudgetEvidenceArchiveExpireRequests = captures.platformBudgetEvidenceArchiveExpireRequests || [];
   captures.platformBudgetEvidenceArchiveCleanupRequests = captures.platformBudgetEvidenceArchiveCleanupRequests || [];
+  captures.tenantReviewEvidenceExportRequests = captures.tenantReviewEvidenceExportRequests || [];
+  captures.tenantReviewStatusUpdateRequests = captures.tenantReviewStatusUpdateRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -2889,6 +2891,288 @@ async function mockAdminControlPlane(page, captures = {}) {
       return;
     }
     await route.fallback();
+  });
+
+  const tenantReviewItems = captures.tenantReviewItems || [
+    {
+      id: 'ta_mri_static_pending_1',
+      assetDomain: 'ai_images',
+      assetId: 'img_static_1',
+      issueCategory: 'metadata_missing',
+      reviewStatus: 'pending_review',
+      severity: 'warning',
+      priority: 'medium',
+      evidenceSourcePath: 'current_evidence_report',
+      safeNotes: 'Existing row has no ownership metadata; classify before any backfill or access switch.',
+      createdAt: '2026-05-17T13:00:00.000Z',
+      updatedAt: '2026-05-17T13:00:00.000Z',
+      reviewedAt: null,
+    },
+    {
+      id: 'ta_mri_static_public_1',
+      assetDomain: 'public_gallery',
+      assetId: 'img_static_public_1',
+      issueCategory: 'public_unsafe',
+      reviewStatus: 'blocked_public_unsafe',
+      severity: 'critical',
+      priority: 'high',
+      evidenceSourcePath: 'current_evidence_report',
+      safeNotes: 'Public/gallery attribution and visibility must be reviewed before any ownership access switch.',
+      createdAt: '2026-05-17T13:01:00.000Z',
+      updatedAt: '2026-05-17T13:01:00.000Z',
+      reviewedAt: null,
+    },
+    {
+      id: 'ta_mri_static_derivative_1',
+      assetDomain: 'derivative',
+      assetId: 'img_static_derivative_1',
+      issueCategory: 'derivative_risk',
+      reviewStatus: 'blocked_derivative_risk',
+      severity: 'warning',
+      priority: 'medium',
+      evidenceSourcePath: 'current_evidence_report',
+      safeNotes: 'Parent image ownership must be reviewed before derivative/poster/thumb inheritance.',
+      createdAt: '2026-05-17T13:02:00.000Z',
+      updatedAt: '2026-05-17T13:02:00.000Z',
+      reviewedAt: null,
+    },
+  ];
+  const tenantReviewEvents = captures.tenantReviewEvents || [
+    {
+      id: 'ta_mre_static_created_1',
+      reviewItemId: 'ta_mri_static_pending_1',
+      eventType: 'created',
+      oldStatus: null,
+      newStatus: 'pending_review',
+      actorUserIdPresent: true,
+      actorEmailPresent: false,
+      reasonPresent: true,
+      idempotencyKeyStoredAsHash: true,
+      requestHashStored: true,
+      eventMetadataSummary: { source: 'static_test', rawPrompt: '[redacted]' },
+      createdAt: '2026-05-17T13:00:00.000Z',
+    },
+    {
+      id: 'ta_mre_static_created_2',
+      reviewItemId: 'ta_mri_static_public_1',
+      eventType: 'created',
+      oldStatus: null,
+      newStatus: 'blocked_public_unsafe',
+      actorUserIdPresent: true,
+      actorEmailPresent: false,
+      reasonPresent: true,
+      idempotencyKeyStoredAsHash: true,
+      requestHashStored: true,
+      eventMetadataSummary: { source: 'static_test' },
+      createdAt: '2026-05-17T13:01:00.000Z',
+    },
+  ];
+
+  function tenantReviewRollup(items, key, values) {
+    return values.reduce((acc, value) => {
+      acc[value] = items.filter((item) => item[key] === value).length;
+      return acc;
+    }, {});
+  }
+
+  function tenantReviewEvidenceReport() {
+    const statusChangedEvents = tenantReviewEvents.filter((event) => event.eventType === 'status_changed');
+    const deferredEvents = tenantReviewEvents.filter((event) => event.eventType === 'deferred');
+    const rejectedEvents = tenantReviewEvents.filter((event) => event.eventType === 'rejected');
+    const supersededEvents = tenantReviewEvents.filter((event) => event.eventType === 'superseded');
+    const statusEvents = statusChangedEvents.concat(deferredEvents, rejectedEvents, supersededEvents);
+    return {
+      ok: true,
+      report: {
+        ok: true,
+        available: true,
+        reportVersion: 'tenant-asset-manual-review-queue-report-v1',
+        generatedAt: '2026-05-17T13:10:00.000Z',
+        source: 'local_d1_read_only',
+        domain: 'folders_images_manual_review',
+        runtimeBehaviorChanged: false,
+        accessChecksChanged: false,
+        tenantIsolationClaimed: false,
+        backfillPerformed: false,
+        sourceAssetRowsMutated: false,
+        reviewStatusesChanged: statusEvents.length > 0,
+        r2LiveListed: false,
+        productionReadiness: 'blocked',
+        summary: {
+          totalReviewItems: tenantReviewItems.length,
+          totalEvents: tenantReviewEvents.length,
+          createdEventsCount: tenantReviewEvents.filter((event) => event.eventType === 'created').length,
+          statusChangedEventsCount: statusChangedEvents.length,
+          deferredEventsCount: deferredEvents.length,
+          rejectedEventsCount: rejectedEvents.length,
+          supersededEventsCount: supersededEvents.length,
+          terminalApprovedCount: tenantReviewItems.filter((item) => String(item.reviewStatus || '').startsWith('approved_')).length,
+          terminalBlockedCount: tenantReviewItems.filter((item) => String(item.reviewStatus || '').startsWith('blocked_')).length,
+          mostRecentImportTimestamp: '2026-05-17T13:02:00.000Z',
+          latestStatusUpdateTimestamp: statusEvents.map((event) => event.createdAt).sort().at(-1) || null,
+          reviewStatusRollup: tenantReviewRollup(tenantReviewItems, 'reviewStatus', [
+            'pending_review',
+            'review_in_progress',
+            'approved_personal_user_asset',
+            'approved_organization_asset',
+            'approved_legacy_unclassified',
+            'approved_platform_admin_test_asset',
+            'blocked_public_unsafe',
+            'blocked_derivative_risk',
+            'blocked_relationship_conflict',
+            'blocked_missing_evidence',
+            'needs_legal_privacy_review',
+            'deferred',
+            'rejected',
+            'superseded',
+          ]),
+          issueCategoryRollup: tenantReviewRollup(tenantReviewItems, 'issueCategory', [
+            'metadata_missing',
+            'public_unsafe',
+            'derivative_risk',
+            'dual_read_unsafe',
+            'manual_review_needed',
+            'relationship_review',
+            'safe_observe_only',
+          ]),
+          severityRollup: tenantReviewRollup(tenantReviewItems, 'severity', ['info', 'warning', 'critical']),
+          priorityRollup: tenantReviewRollup(tenantReviewItems, 'priority', ['low', 'medium', 'high', 'urgent']),
+          sourceEvidencePaths: [{ evidenceSourcePath: 'current_evidence_report', count: tenantReviewItems.length }],
+          statusWorkflowAvailable: true,
+          accessSwitchReady: false,
+          backfillReady: false,
+          tenantIsolationClaimed: false,
+        },
+        items: tenantReviewItems,
+      },
+    };
+  }
+
+  function filteredTenantReviewItems(url) {
+    const params = url.searchParams;
+    return tenantReviewItems.filter((item) => (
+      (!params.get('reviewStatus') || item.reviewStatus === params.get('reviewStatus')) &&
+      (!params.get('issueCategory') || item.issueCategory === params.get('issueCategory')) &&
+      (!params.get('severity') || item.severity === params.get('severity')) &&
+      (!params.get('priority') || item.priority === params.get('priority')) &&
+      (!params.get('assetDomain') || item.assetDomain === params.get('assetDomain'))
+    ));
+  }
+
+  await page.route(/\/api\/admin\/tenant-assets\/folders-images\/manual-review\/evidence\/export(?:\?.*)?$/, async (route) => {
+    captures.tenantReviewEvidenceExportRequests.push({ url: route.request().url() });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'content-disposition': 'attachment; filename="tenant-asset-manual-review-evidence-static.json"',
+      },
+      body: JSON.stringify(tenantReviewEvidenceReport().report),
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/folders-images\/manual-review\/evidence(?:\?.*)?$/, async (route) => {
+    await fulfillJson(route, tenantReviewEvidenceReport());
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/folders-images\/manual-review\/items\/[^/]+\/status$/, async (route) => {
+    const request = route.request();
+    const itemId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    const item = tenantReviewItems.find((entry) => entry.id === itemId);
+    const body = request.postDataJSON();
+    captures.tenantReviewStatusUpdateRequests.push({
+      idempotencyKey: request.headers()['idempotency-key'],
+      itemId,
+      body,
+    });
+    if (!item) {
+      await fulfillJson(route, { ok: false, code: 'tenant_asset_manual_review_item_not_found' }, 404);
+      return;
+    }
+    const oldStatus = item.reviewStatus;
+    item.reviewStatus = body.newStatus;
+    item.reviewedAt = '2026-05-17T13:12:00.000Z';
+    item.updatedAt = '2026-05-17T13:12:00.000Z';
+    const event = {
+      id: 'ta_mre_static_status_1',
+      reviewItemId: item.id,
+      eventType: body.newStatus === 'deferred' ? 'deferred' : body.newStatus === 'rejected' ? 'rejected' : 'status_changed',
+      oldStatus,
+      newStatus: body.newStatus,
+      actorUserIdPresent: true,
+      actorEmailPresent: false,
+      reasonPresent: true,
+      idempotencyKeyStoredAsHash: true,
+      requestHashStored: true,
+      eventMetadataSummary: { source: 'admin_control_plane', secretToken: '[redacted]' },
+      createdAt: '2026-05-17T13:12:00.000Z',
+    };
+    tenantReviewEvents.push(event);
+    await fulfillJson(route, {
+      ok: true,
+      statusUpdate: {
+        reportVersion: 'tenant-asset-manual-review-status-v1',
+        itemId: item.id,
+        previousStatus: oldStatus,
+        newStatus: body.newStatus,
+        eventType: event.eventType,
+        idempotency: { required: true, storedAs: 'sha256', replayed: false },
+        item,
+        event,
+        noBackfill: true,
+        noAccessSwitch: true,
+        noSourceAssetMutation: true,
+        noR2Operation: true,
+        runtimeBehaviorChanged: false,
+        accessChecksChanged: false,
+        tenantIsolationClaimed: false,
+        backfillPerformed: false,
+        sourceAssetRowsMutated: false,
+        ownershipMetadataUpdated: false,
+        r2LiveListed: false,
+        productionReadiness: 'blocked',
+      },
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/folders-images\/manual-review\/items\/[^/]+\/events(?:\?.*)?$/, async (route) => {
+    const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) || '');
+    await fulfillJson(route, {
+      ok: true,
+      reviewItemId: itemId,
+      available: true,
+      events: tenantReviewEvents.filter((event) => event.reviewItemId === itemId),
+      limit: 25,
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/folders-images\/manual-review\/items\/[^/]+(?:\?.*)?$/, async (route) => {
+    const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() || '');
+    const item = tenantReviewItems.find((entry) => entry.id === itemId);
+    if (!item) {
+      await fulfillJson(route, { ok: false, code: 'tenant_asset_manual_review_item_not_found' }, 404);
+      return;
+    }
+    await fulfillJson(route, {
+      ok: true,
+      item: {
+        ...item,
+        events: tenantReviewEvents.filter((event) => event.reviewItemId === item.id),
+      },
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/folders-images\/manual-review\/items(?:\?.*)?$/, async (route) => {
+    const items = filteredTenantReviewItems(new URL(route.request().url()));
+    await fulfillJson(route, {
+      ok: true,
+      available: true,
+      total: items.length,
+      limit: 25,
+      offset: 0,
+      items,
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      sourceAssetRowsMutated: false,
+      reviewStatusesChanged: false,
+      r2LiveListed: false,
+    });
   });
 
   await page.route('**/api/admin/data-lifecycle/requests?*', async (route) => {
@@ -9116,6 +9400,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Billing / Credits');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Usage Attempts');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Budget Controls');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Tenant Asset Manual Review');
     await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
 
     await clickAdminNavSection(page, 'security');
@@ -9366,6 +9651,44 @@ test.describe('Admin Control Plane', () => {
     await clickAdminNavSection(page, 'operations');
     await expect(page.locator('#sectionOperations')).toContainText('max_attempts');
     await expect(page.locator('#sectionOperations')).toContainText('provider_failed');
+    await expect(page.locator('#sectionOperations')).toContainText('Tenant Asset Manual Review Queue');
+    await expect(page.locator('#tenantReviewSummary')).toContainText('Access switch blocked');
+    await expect(page.locator('#tenantReviewSummary')).toContainText('Backfill blocked');
+    await expect(page.locator('#tenantReviewSummary')).toContainText('Review-state only');
+    await expect(page.locator('#tenantReviewList')).toContainText('metadata missing');
+    await expect(page.locator('#tenantReviewList')).toContainText('public unsafe');
+    await expect(page.locator('#tenantReviewList')).toContainText('derivative risk');
+    await expect(page.locator('#tenantReviewDetail')).toContainText('Review Status Update');
+    await expect(page.locator('#tenantReviewDetail')).not.toContainText('should-not-render');
+    await expect(page.locator('#sectionOperations').getByRole('button', { name: /backfill|access switch|r2|delete|provider|stripe|credit/i })).toHaveCount(0);
+    const tenantEvidenceDownload = page.waitForEvent('download', { timeout: 3000 }).catch(() => null);
+    await page.locator('#tenantReviewExportJson').click();
+    await expect.poll(() => captures.tenantReviewEvidenceExportRequests.length).toBe(1);
+    const downloadedTenantEvidence = await tenantEvidenceDownload;
+    if (downloadedTenantEvidence) {
+      await downloadedTenantEvidence.cancel();
+    }
+    await page.locator('#tenantReviewStatusReason').fill('Move metadata-missing item into review for static test');
+    await page.locator('#tenantReviewStatusConfirm').check();
+    page.once('dialog', (dialog) => {
+      expect(dialog.message()).toContain('does not backfill ownership');
+      dialog.accept();
+    });
+    await page.locator('#tenantReviewStatusForm').getByRole('button', { name: 'Update Review Status' }).click();
+    await expect(page.locator('#tenantReviewState')).toContainText('Manual-review status updated');
+    expect(captures.tenantReviewStatusUpdateRequests).toHaveLength(1);
+    expect(captures.tenantReviewStatusUpdateRequests[0].idempotencyKey).toMatch(/^tenant-review-status-/);
+    expect(captures.tenantReviewStatusUpdateRequests[0].body).toMatchObject({
+      newStatus: 'review_in_progress',
+      reason: 'Move metadata-missing item into review for static test',
+      confirm: true,
+      metadata: {
+        source: 'admin_control_plane',
+        phase: '6.18',
+      },
+    });
+    await expect(page.locator('#tenantReviewSummary')).toContainText('Status changes');
+    await expect(page.locator('#tenantReviewDetail')).toContainText('review in progress');
 
     await clickAdminNavSection(page, 'readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Production Status');
@@ -9552,7 +9875,7 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(8);
+    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(9);
     const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
     );

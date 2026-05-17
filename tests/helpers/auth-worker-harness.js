@@ -6606,6 +6606,17 @@ class MockD1 {
       return { latest };
     }
 
+    if (query === 'SELECT MAX(created_at) AS latest FROM ai_asset_manual_review_events WHERE event_type IN (?, ?, ?, ?)') {
+      const eventTypes = new Set(bindings);
+      const latest = this.state.aiAssetManualReviewEvents
+        .filter((row) => eventTypes.has(row.event_type))
+        .map((row) => row.created_at)
+        .filter(Boolean)
+        .sort()
+        .at(-1) || null;
+      return { latest };
+    }
+
     if (query === 'SELECT id, review_status, issue_category, evidence_source_path FROM ai_asset_manual_review_items WHERE id = ? LIMIT 1') {
       const [id] = bindings;
       const row = this.state.aiAssetManualReviewItems.find((entry) => entry.id === id);

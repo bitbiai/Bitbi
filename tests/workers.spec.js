@@ -2359,6 +2359,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     const evidenceBody = await evidence.json();
     expect(evidenceBody.report.summary.statusWorkflowAvailable).toBe(true);
     expect(evidenceBody.report.summary.statusChangedEventsCount).toBeGreaterThanOrEqual(3);
+    expect(evidenceBody.report.summary.latestStatusUpdateTimestamp).toBeTruthy();
     expect(evidenceBody.report.summary.terminalApprovedCount).toBeGreaterThanOrEqual(1);
     expect(evidenceBody.report.summary.terminalBlockedCount).toBeGreaterThanOrEqual(1);
     expect(evidenceBody.report.summary.accessSwitchReady).toBe(false);

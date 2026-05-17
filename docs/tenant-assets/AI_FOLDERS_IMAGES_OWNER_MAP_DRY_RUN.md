@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0057_add_ai_asset_manual_review_state.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the runbook/template/checklist for collecting operator evidence from those endpoints. Phase 6.9 adds the main-only evidence package directory. Phase 6.10 reviews the real main evidence summary and records `needs_manual_review`; access-check switching and ownership backfill remain blocked. Phase 6.11 adds manual-review workflow design and a local planner for those high-risk findings. Phase 6.12 adds manual-review state schema design. Phase 6.13 adds empty manual-review state tables/indexes only. Phase 6.14 adds a local import dry run for proposed review items/buckets. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and can create only review items/events when confirmed. Phase 6.16 adds read-only review queue/evidence APIs. Phase 6.17 adds admin-approved review status updates that write only review item status fields and review events. These phases do not backfill ownership, update source asset rows, update ownership metadata, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the runbook/template/checklist for collecting operator evidence from those endpoints. Phase 6.9 adds the main-only evidence package directory. Phase 6.10 reviews the real main evidence summary and records `needs_manual_review`; access-check switching and ownership backfill remain blocked. Phase 6.11 adds manual-review workflow design and a local planner for those high-risk findings. Phase 6.12 adds manual-review state schema design. Phase 6.13 adds empty manual-review state tables/indexes only. Phase 6.14 adds a local import dry run for proposed review items/buckets. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and can create only review items/events when confirmed. Phase 6.16 adds read-only review queue/evidence APIs. Phase 6.17 adds admin-approved review status updates that write only review item status fields and review events. Phase 6.18 adds status operator evidence rollups plus Admin Control Plane queue visibility/status controls for review-state rows only. These phases do not backfill ownership, update source asset rows, update ownership metadata, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Schema Summary
 
@@ -52,7 +52,7 @@ npm run tenant-assets:dry-run-review-import -- --input docs/tenant-assets/eviden
 
 Without fixtures, the focused dry run reports source/schema/rule readiness. With the synthetic fixture, it emits deterministic candidate classifications.
 
-The Phase 6.14 review-import dry run is separate from ownership classification. The committed Markdown evidence summary produces aggregate buckets only; item-level proposed review candidates require bounded JSON evidence with detail arrays. Phase 6.15 operationalizes the import path only for manual-review queue creation: dry-run by default, confirmed admin execution only, and writes limited to review items/events. Phase 6.16 operationalizes inspection only through read-only queue/evidence endpoints and exports.
+The Phase 6.14 review-import dry run is separate from ownership classification. The committed Markdown evidence summary produces aggregate buckets only; item-level proposed review candidates require bounded JSON evidence with detail arrays. Phase 6.15 operationalizes the import path only for manual-review queue creation: dry-run by default, confirmed admin execution only, and writes limited to review items/events. Phase 6.16 operationalizes inspection only through read-only queue/evidence endpoints and exports. Phase 6.18 adds Admin visibility and status controls for the review queue only; it does not add any backfill/access-switch/source-asset/R2 action.
 
 ## Classification Rules
 
@@ -206,6 +206,15 @@ The focused dry run now reports `manual_review_status_workflow_added`.
 - Queue evidence reports status-change event counts and terminal approved/blocked counts, while `accessSwitchReady=false`, `backfillReady=false`, and `tenantIsolationClaimed=false`.
 - Phase 6.17 adds no Admin UI, note endpoint, ownership backfill, access switch, source asset row update, ownership metadata update, R2 operation, provider call, Stripe call, Cloudflare API call, credit/billing mutation, or tenant-isolation claim.
 
+## Phase 6.18 Operator Evidence And Admin Visibility
+
+The focused dry run now reports `manual_review_status_operator_evidence_added` and `admin_visibility_added`.
+
+- Queue evidence reports include status-event rollups plus the latest status update timestamp while keeping `accessSwitchReady=false`, `backfillReady=false`, and `tenantIsolationClaimed=false`.
+- Admin Control Plane includes a compact Tenant Asset Manual Review Queue panel with safe summary cards, filters, JSON export, item detail, event history, and readiness badges.
+- Status controls call only the review-status endpoint, require confirmation/reason/idempotency, and mutate only review item status plus review events.
+- Phase 6.18 adds no migration, ownership backfill, access switch, source asset row update, ownership metadata update, R2 operation, provider call, Stripe call, Cloudflare API call, credit/billing mutation, or tenant-isolation claim.
+
 ## Remaining Migration Blockers
 
 - Existing pre-Phase-6.5 rows remain null/unclassified until a future owner-map/backfill phase.
@@ -224,6 +233,6 @@ Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGE
 - Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
 - Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-## Recommended Phase 6.18
+## Recommended Phase 6.19
 
-Phase 6.18 should be **Manual Review Status Operator Evidence**. It should collect and review status-change evidence before any backfill planning or access-check migration, and it should still avoid access-check switching, old-row ownership backfill, repair execution, source asset row updates, ownership metadata updates, and R2 mutation.
+Phase 6.19 should be **Manual Review Status Operator Evidence Collection**. It should collect and archive real operator status-change evidence before any backfill planning or access-check migration, and it should still avoid access-check switching, old-row ownership backfill, repair execution, source asset row updates, ownership metadata updates, and R2 mutation.

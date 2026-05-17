@@ -138,4 +138,4 @@ Record operator confirmation:
 
 ## 11. Next Recommended Phase
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 should collect status operator evidence and still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, and R2 actions unless separately approved.
+Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 should collect status operator evidence and still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, and R2 actions unless separately approved.

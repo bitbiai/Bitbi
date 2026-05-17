@@ -343,4 +343,6 @@ Phase 6.16 adds read-only queue/evidence endpoints for inspecting imported revie
 
 Phase 6.17 adds the admin-approved status endpoint for review items only. It requires idempotency, confirmation, and a bounded reason, writes only review item status fields plus events, and does not backfill ownership, switch access checks, mutate source asset rows, update ownership metadata, or list/mutate R2.
 
-Next recommended phase: Phase 6.18 — Manual Review Status Operator Evidence.
+Phase 6.18 adds status operator evidence rollups plus Admin Control Plane visibility/status controls for the manual-review queue. The UI controls call only the review-status endpoint, require confirmation and reason, and expose no backfill/access-switch/source-asset/R2/provider/Stripe/credit/billing actions.
+
+Next recommended phase: Phase 6.19 — Manual Review Status Operator Evidence Collection.
