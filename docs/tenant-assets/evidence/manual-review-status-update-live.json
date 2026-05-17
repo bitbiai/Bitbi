@@ -1,0 +1,10 @@
+{
+  "itemId": "HIER_ITEM_ID_EINFÜGEN",
+  "idempotencyKey": "83b4c451-1a73-4765-8521-e7f8eab5a8b5",
+  "response": {
+    "ok": false,
+    "error": "Manual-review item was not found.",
+    "code": "tenant_asset_manual_review_item_not_found",
+    "fields": {}
+  }
+}
