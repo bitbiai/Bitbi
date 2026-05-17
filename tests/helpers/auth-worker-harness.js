@@ -5092,6 +5092,46 @@ class MockD1 {
       };
     }
 
+    if (query.startsWith('INSERT INTO ai_folders (') && query.includes('asset_owner_type')) {
+      const [
+        id,
+        userId,
+        name,
+        slug,
+        createdAt,
+        assetOwnerType,
+        owningUserId,
+        owningOrganizationId,
+        createdByUserId,
+        ownershipStatus,
+        ownershipSource,
+        ownershipConfidence,
+        ownershipMetadataJson,
+        ownershipAssignedAt,
+      ] = bindings;
+      const conflict = this.state.aiFolders.find((row) => row.user_id === userId && row.slug === slug);
+      if (conflict) {
+        throw new Error('UNIQUE constraint failed: ai_folders.user_id, ai_folders.slug');
+      }
+      this.state.aiFolders.push(normalizeAiFolderRow({
+        id,
+        user_id: userId,
+        name,
+        slug,
+        created_at: createdAt,
+        asset_owner_type: assetOwnerType,
+        owning_user_id: owningUserId,
+        owning_organization_id: owningOrganizationId,
+        created_by_user_id: createdByUserId,
+        ownership_status: ownershipStatus,
+        ownership_source: ownershipSource,
+        ownership_confidence: ownershipConfidence,
+        ownership_metadata_json: ownershipMetadataJson,
+        ownership_assigned_at: ownershipAssignedAt,
+      }));
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === 'INSERT INTO ai_folders (id, user_id, name, slug, created_at) VALUES (?, ?, ?, ?, ?)') {
       const [id, userId, name, slug, createdAt] = bindings;
       const conflict = this.state.aiFolders.find((row) => row.user_id === userId && row.slug === slug);
@@ -5479,6 +5519,106 @@ class MockD1 {
         }
       }
       return { success: true, meta: { changes } };
+    }
+
+    if (query.startsWith('INSERT INTO ai_images (') && query.includes('asset_owner_type') && query.includes(' SELECT ')) {
+      const [
+        id,
+        userId,
+        folderId,
+        r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        sizeBytes,
+        createdAt,
+        assetOwnerType,
+        owningUserId,
+        owningOrganizationId,
+        createdByUserId,
+        ownershipStatus,
+        ownershipSource,
+        ownershipConfidence,
+        ownershipMetadataJson,
+        ownershipAssignedAt,
+        existsFolderId,
+        existsUserId,
+      ] = bindings;
+      const folder = this.state.aiFolders.find(
+        (row) => row.id === existsFolderId && row.user_id === existsUserId && row.status === 'active'
+      );
+      if (!folder) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      this.state.aiImages.push(normalizeAiImageRow({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        size_bytes: sizeBytes,
+        created_at: createdAt,
+        asset_owner_type: assetOwnerType,
+        owning_user_id: owningUserId,
+        owning_organization_id: owningOrganizationId,
+        created_by_user_id: createdByUserId,
+        ownership_status: ownershipStatus,
+        ownership_source: ownershipSource,
+        ownership_confidence: ownershipConfidence,
+        ownership_metadata_json: ownershipMetadataJson,
+        ownership_assigned_at: ownershipAssignedAt,
+      }));
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO ai_images (') && query.includes('asset_owner_type') && query.includes(' VALUES ')) {
+      const [
+        id,
+        userId,
+        folderId,
+        r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        sizeBytes,
+        createdAt,
+        assetOwnerType,
+        owningUserId,
+        owningOrganizationId,
+        createdByUserId,
+        ownershipStatus,
+        ownershipSource,
+        ownershipConfidence,
+        ownershipMetadataJson,
+        ownershipAssignedAt,
+      ] = bindings;
+      this.state.aiImages.push(normalizeAiImageRow({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        size_bytes: sizeBytes,
+        created_at: createdAt,
+        asset_owner_type: assetOwnerType,
+        owning_user_id: owningUserId,
+        owning_organization_id: owningOrganizationId,
+        created_by_user_id: createdByUserId,
+        ownership_status: ownershipStatus,
+        ownership_source: ownershipSource,
+        ownership_confidence: ownershipConfidence,
+        ownership_metadata_json: ownershipMetadataJson,
+        ownership_assigned_at: ownershipAssignedAt,
+      }));
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) SELECT')) {

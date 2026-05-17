@@ -177,11 +177,19 @@ assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.ownershipSources.
 assert(foldersImagesReport.schemaReadiness.proposedOwnerValues.ownershipConfidences.includes("none"));
 assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("schema_added_not_backfilled"));
 assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("access_checks_not_changed"));
-assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("write_paths_not_assigned"));
+assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("write_paths_assigned_for_new_rows"));
 assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("backfill_not_started"));
 assert(foldersImagesReport.schemaReadiness.migrationReadiness.includes("owner_map_not_complete"));
 assert.equal(foldersImagesReport.schemaReadiness.currentlyMissingFields.ai_folders.length, 0);
 assert.equal(foldersImagesReport.schemaReadiness.currentlyMissingFields.ai_images.length, 0);
+assert.equal(foldersImagesReport.writePathAssignment.status, "write_paths_assigned_for_new_rows");
+assert(foldersImagesReport.writePathAssignment.assigned.some((entry) => entry.id === "folder_personal_context"));
+assert(foldersImagesReport.writePathAssignment.assigned.some((entry) => entry.id === "image_save_personal_context"));
+assert(foldersImagesReport.writePathAssignment.assigned.every((entry) => entry.ownerClass === "personal_user_asset"));
+assert(foldersImagesReport.writePathAssignment.notAssigned.some((entry) => entry.id === "org_scoped_image_save_context"));
+assert(foldersImagesReport.writePathAssignment.notAssigned.some((entry) => entry.reason.includes("weak client hints are ignored")));
+assert.equal(foldersImagesReport.writePathAssignment.accessChecksChanged, false);
+assert.equal(foldersImagesReport.writePathAssignment.backfillStarted, false);
 
 const accessImpactIds = new Set(foldersImagesReport.accessImpactMatrix.map((entry) => entry.id));
 for (const expected of [
@@ -212,9 +220,12 @@ assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("Do not i
 assert(foldersImagesReport.backfillPolicy.some((rule) => rule.includes("Public ambiguous rows are unsafe_to_migrate")));
 assert.equal(foldersImagesReport.schemaAccessImpact.phase63BehaviorChange, false);
 assert.equal(foldersImagesReport.schemaAccessImpact.phase64BehaviorChange, false);
+assert.equal(foldersImagesReport.schemaAccessImpact.phase65AccessBehaviorChange, false);
 assert(foldersImagesReport.schemaAccessImpact.routesNeedingFutureAccessUpdates.includes("image_list_read"));
+assert(foldersImagesReport.schemaAccessImpact.writePathsAssignedForNewRows.includes("folder_personal_context"));
+assert(foldersImagesReport.schemaAccessImpact.writePathsAssignedForNewRows.includes("image_save_personal_context"));
 assert(foldersImagesReport.schemaAccessImpact.writePathsNeedingFutureOwnershipAssignment.includes("org_scoped_generation"));
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images");
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.6 — Ownership Metadata Read Diagnostics / Dual-read Safety Checks");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -308,6 +319,8 @@ assert(focusedMarkdown.includes("# AI Folders & Images Owner-Map Dry Run"));
 assert(focusedMarkdown.includes("No owner backfill SQL is emitted."));
 assert(focusedMarkdown.includes("asset_owner_type"));
 assert(focusedMarkdown.includes("image_list_read"));
+assert(focusedMarkdown.includes("Write Path Assignment"));
+assert(focusedMarkdown.includes("image_save_personal_context"));
 assert(focusedMarkdown.includes("image_public_ambiguous"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

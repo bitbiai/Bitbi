@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phase 6.4 adds the planned nullable metadata columns and simple lookup/review indexes through migration `0056_add_ai_folder_image_ownership_metadata.sql`. It does not rewrite existing D1 rows, backfill ownership metadata, assign metadata on writes, move/list/delete R2 objects, change access checks, change image generation, change folder behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phase 6.4 adds the planned nullable metadata columns and simple lookup/review indexes through migration `0056_add_ai_folder_image_ownership_metadata.sql`. Phase 6.5 starts assigning that metadata only on new personal folder/image writes. It does not rewrite existing D1 rows, backfill ownership metadata, move/list/delete R2 objects, change access checks, change image generation behavior, change folder access behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Data Model
 
@@ -13,7 +13,7 @@ Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phas
 - Defined by `0007_add_image_studio.sql` and `0009_add_folder_status.sql`.
 - Columns today: `id`, `user_id`, `name`, `slug`, `created_at`, `status`.
 - Current owner signal: `user_id`.
-- Phase 6.4 schema fields now exist as nullable/inert metadata; they are not backfilled or enforced.
+- Phase 6.4 schema fields now exist as nullable metadata. Phase 6.5 assigns them for new personal folder writes only; old rows remain nullable/unclassified and access checks still use `user_id`.
 - No parent folder, public visibility, organization, or tenant quota fields exist.
 
 ### `ai_images`
@@ -23,7 +23,7 @@ Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phas
 - Derivative/object fields: `thumb_key`, `medium_key`, MIME/dimension fields, derivative status/version/timestamps, and `size_bytes`.
 - Publication fields: `visibility`, `published_at`.
 - Current owner signal: `user_id`.
-- Phase 6.4 schema fields now exist as nullable/inert metadata; they are not backfilled or enforced.
+- Phase 6.4 schema fields now exist as nullable metadata. Phase 6.5 assigns them for new personal saved-image writes only; old rows remain nullable/unclassified and access checks still use `user_id`.
 
 ## Current Access Model
 
@@ -38,7 +38,7 @@ Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phas
 
 ## Proposed Additive Schema
 
-Phase 6.4 adds these metadata columns to both `ai_folders` and `ai_images`. They are nullable and compatibility-only in this phase.
+Phase 6.4 adds these metadata columns to both `ai_folders` and `ai_images`. Phase 6.5 writes them for new personal rows only; existing rows can still be null and no read/access check depends on them yet.
 
 | Field | Purpose |
 | --- | --- |
@@ -118,20 +118,29 @@ Phase 6.4 added simple single-column indexes for `owning_user_id`, `owning_organ
 | Explicit unmetered admin image test | `platform_admin_test_asset`. |
 | Derivative generation | Inherits parent `ai_images` owner metadata. |
 
-Do not implement these write-path rules in Phase 6.4.
+Phase 6.5 implements only the personal folder create and personal saved-image write assignments. Server-verified organization folder/image writes, admin retained image outputs, and access-check changes remain future work.
+
+## Phase 6.5 New-Write Assignment
+
+- `POST /api/ai/folders` writes `personal_user_asset`, `owning_user_id = session.user.id`, `created_by_user_id = session.user.id`, `ownership_status = current`, `ownership_source = new_write_personal`, `ownership_confidence = high`, and bounded sanitized metadata.
+- `POST /api/ai/images/save` writes the same personal ownership metadata for new saved `ai_images` rows. Folder-bound saves still require the existing user-owned folder check.
+- Client-provided organization hints are ignored for ownership. There is no server-verified org-scoped saved-image ownership assignment in this phase.
+- Derivative keys remain part of the parent image row and inherit parent ownership by metadata note only; no R2 keys are moved or renamed.
+- Publishing/unpublishing does not change ownership metadata.
+- Old/null rows remain compatible and readable through existing `user_id` checks.
 
 ## Access-Check Impact Matrix
 
 | Area | Current access basis | Proposed access basis | Phase 6.3 behavior change | Future phase | Tests required |
 | --- | --- | --- | --- | --- | --- |
-| Image list/read | `ai_images.user_id = session.user.id` | Personal owner or active org membership read role | no | 6.5 | Personal unchanged, org member allowed, non-member denied |
-| Image create/save | session user and optional user-owned folder | Explicit personal/org context assigns owner metadata | no | 6.5 | Personal save, org save, weak org rejected |
-| Image rename/move | image and folder matched by `user_id` | Asset and folder owner metadata match; org mutation role | no | 6.5 | No cross-scope moves, org admin move |
+| Image list/read | `ai_images.user_id = session.user.id` | Personal owner or active org membership read role | no | 6.6 | Personal unchanged, org member allowed, non-member denied |
+| Image create/save | session user and optional user-owned folder | Explicit personal/org context assigns owner metadata | no access change; Phase 6.5 writes personal metadata only | 6.5/6.6 | Personal save metadata, org save later, weak org rejected |
+| Image rename/move | image and folder matched by `user_id` | Asset and folder owner metadata match; org mutation role | no | 6.6 | No cross-scope moves, org admin move |
 | Image delete | `user_id` match and cleanup queued from row keys | Personal owner or org mutation role; cleanup remains row-key based | no | 6.7 | Role-safe delete, cleanup prefix safety |
 | Image publish/unpublish | `user_id` match | Personal owner or org publisher role; ownership unchanged | no | 6.6 | Publication does not change owner |
-| Image media/derivatives | `id` plus `user_id` | Personal owner or org read membership; derivative inherits parent | no | 6.5 | Member access, non-member denied, derivative owner inherited |
-| Folder list/read | `ai_folders.user_id` | Personal owner or org membership; counts owner-scope filtered | no | 6.5 | Personal counts, org counts, no mixed owner leakage |
-| Folder create/update/delete | `ai_folders.user_id` | Owner-scope and role-aware checks | no | 6.5 | Personal unchanged, org context create, role-safe delete |
+| Image media/derivatives | `id` plus `user_id` | Personal owner or org read membership; derivative inherits parent | no | 6.6 | Member access, non-member denied, derivative owner inherited |
+| Folder list/read | `ai_folders.user_id` | Personal owner or org membership; counts owner-scope filtered | no | 6.6 | Personal counts, org counts, no mixed owner leakage |
+| Folder create/update/delete | `ai_folders.user_id` | Owner-scope and role-aware checks | no access change; Phase 6.5 writes personal metadata only on create | 6.5/6.6 | Personal create metadata, org context later, role-safe delete |
 | Public gallery | `visibility = public`, profile join by `user_id` | Visibility plus owner-aware publisher attribution | no | 6.6 | Personal unchanged, org publisher, ambiguous public rows blocked/reviewed |
 | Avatar from saved image | source image selected by `ai_images.user_id` | Personal image owner or explicit org avatar policy | no | 6.6 | Personal unchanged, org image not silently personal avatar |
 | Admin storage | target-user centered admin queries/mutations | Owner class surfaced; future mutations choose user/org scope explicitly | no | 6.8 | Admin sees owner status, no accidental org mutation through user path |
@@ -158,7 +167,7 @@ Preferred target: one owner scope per folder. An `ai_images.folder_id` row must 
 
 ## Storage Quota Impact
 
-Phase 6.4 does not change `user_asset_storage_usage`. Future organization assets need separate organization storage counters before any bytes are reassigned. The migration must avoid double-counting rows during a transition where legacy `user_id` remains present for compatibility.
+Phase 6.5 does not change `user_asset_storage_usage`. Future organization assets need separate organization storage counters before any bytes are reassigned. The migration must avoid double-counting rows during a transition where legacy `user_id` remains present for compatibility.
 
 ## Lifecycle Export Delete Impact
 
@@ -172,7 +181,7 @@ Current lifecycle plans are user-subject plans. Future organization assets requi
 
 ## Admin Inspection Impact
 
-Admin storage tooling should eventually show owner type, owning user, owning organization, creator, status, source, confidence, and ambiguity reason. Phase 6.4 does not change admin storage endpoints.
+Admin storage tooling should eventually show owner type, owning user, owning organization, creator, status, source, confidence, and ambiguity reason. Phase 6.5 does not change admin storage endpoints.
 
 ## Migration And Backfill Constraints
 
@@ -208,10 +217,10 @@ Future implementation tests should cover:
 | Phase | Scope |
 | --- | --- |
 | 6.4 | Additive ownership metadata schema for `ai_folders` and `ai_images`; implemented with no backfill and no access behavior change. |
-| 6.5 | Write-path metadata assignment and compatibility helpers behind tests. |
-| 6.6 | Role-aware read/write access checks and public gallery attribution plan. |
+| 6.5 | Write-path metadata assignment for new personal `ai_folders` and `ai_images` rows only; no backfill and no access behavior change. |
+| 6.6 | Ownership metadata read diagnostics / dual-read safety checks; no access behavior switch until explicitly planned. |
 | 6.7 | Lifecycle/export/delete and quota integration design/implementation. |
 | 6.8 | Admin inspection and real-row owner-map report. |
 | 6.9 | Operator-approved non-destructive ownership metadata backfill. |
 
-Recommended next phase: **Phase 6.5 - Write-path Ownership Assignment for New AI Folders & Images**.
+Recommended next phase: **Phase 6.6 - Ownership Metadata Read Diagnostics / Dual-read Safety Checks**.

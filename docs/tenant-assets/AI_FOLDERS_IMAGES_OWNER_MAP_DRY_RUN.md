@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks only. These phases do not backfill ownership, assign metadata on writes, move/delete/copy/list R2 objects, change folder/image generation behavior, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Schema Summary
 
@@ -14,7 +14,7 @@ Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the s
 - Core columns: `id`, `user_id`, `name`, `slug`, `created_at`, `status`.
 - Phase 6.4 nullable metadata columns: `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, `ownership_assigned_at`.
 - Current owner field: `user_id`.
-- Active organization owner assignment: none yet; `owning_organization_id` exists but is not backfilled or assigned on writes.
+- Active organization owner assignment: none yet; `owning_organization_id` exists but is not backfilled or assigned by current folder writes. New folder writes are marked personal with high-confidence write-path metadata.
 - Parent folder field: none.
 - Visibility/publication field: none; folders are private user containers.
 - Current routes use `user_id` and `status = 'active'` for list/create/rename/delete/move checks.
@@ -25,7 +25,7 @@ Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the s
 - Core columns: `id`, `user_id`, `folder_id`, `r2_key`, `prompt`, `model`, `steps`, `seed`, `created_at`.
 - Derived/object fields: `thumb_key`, `medium_key`, mime/dimension fields, derivative status/version/timestamps, `size_bytes`.
 - Publication fields: `visibility`, `published_at`.
-- Active organization owner assignment: none yet; `owning_organization_id` exists but is not backfilled or assigned on writes.
+- Active organization owner assignment: none yet; `owning_organization_id` exists but is not backfilled or assigned by the saved-image write path. New saved-image rows are marked personal with high-confidence write-path metadata.
 - Private routes check `id` plus `user_id`.
 - Public Mempics routes select `visibility = 'public'` rows and join `profiles` by `ai_images.user_id`.
 
@@ -106,12 +106,20 @@ The synthetic fixture covers:
 ## Current Schema Foundation
 
 - Phase 6.4 migration `0056_add_ai_folder_image_ownership_metadata.sql` adds nullable `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at` columns on `ai_folders` and `ai_images`.
-- The focused dry-run now reports `schema_added_not_backfilled`, `access_checks_not_changed`, `write_paths_not_assigned`, `backfill_not_started`, and `owner_map_not_complete`.
+- The focused dry-run now reports `schema_added_not_backfilled`, `write_paths_assigned_for_new_rows`, `access_checks_not_changed`, `backfill_not_started`, and `owner_map_not_complete`.
 - Existing rows are not backfilled and current route access still uses existing `user_id` checks.
+
+## Phase 6.5 Write-Path Assignment
+
+- New `POST /api/ai/folders` rows are assigned `personal_user_asset` ownership metadata from the authenticated user.
+- New `POST /api/ai/images/save` rows are assigned `personal_user_asset` ownership metadata from the authenticated user.
+- Weak client organization hints are ignored; organization-owned saved-image/folder assignment requires a future server-verified org-scoped write path.
+- No existing rows are updated, no R2 keys are listed/moved/deleted, and gallery/media/lifecycle/quota behavior is unchanged.
 
 ## Remaining Migration Blockers
 
-- New write paths do not yet assign ownership metadata.
+- Existing pre-Phase-6.5 rows remain null/unclassified until a future owner-map/backfill phase.
+- Organization-scoped saved-image/folder ownership assignment is not implemented because the current write paths do not provide reliable server-verified org ownership evidence.
 - R2 keys encode legacy user paths but do not prove tenant ownership.
 - Public gallery attribution is user/profile-only.
 - Data lifecycle/export/delete is user-subject-only.
@@ -124,14 +132,14 @@ Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGE
 
 - Proposed future columns use `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
 - Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
-- Phase 6.4 adds the migration only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
+- Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-## Recommended Phase 6.5
+## Recommended Phase 6.6
 
-Phase 6.5 should be **Write-path Ownership Assignment for New AI Folders & Images**:
+Phase 6.6 should be **Ownership Metadata Read Diagnostics / Dual-read Safety Checks**:
 
-- assign nullable ownership metadata on new personal and org-context folder/image writes only
-- preserve existing reads/access behavior initially
+- compare existing `user_id` access decisions with new ownership metadata where present
+- report null/legacy folder/image rows without changing behavior
 - keep weak org signals rejected
-- do not backfill legacy rows
+- do not backfill legacy rows or switch access checks
 - keep public gallery, quota, lifecycle, and R2 behavior unchanged unless explicitly planned

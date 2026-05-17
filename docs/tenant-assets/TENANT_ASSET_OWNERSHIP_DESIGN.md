@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable ownership metadata columns to `ai_folders` and `ai_images` only. These phases do not rewrite existing D1 ownership rows, backfill owner metadata, assign ownership on writes, move or delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
+Phase 6.1 is design and dry-run only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images` only. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable ownership metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those columns only on new personal folder/image writes. These phases do not rewrite existing D1 ownership rows, backfill old owner metadata, move or delete R2 objects, change generation behavior, change access checks, change public gallery behavior, mutate credits, call providers, call Stripe, call Cloudflare APIs, or claim full tenant isolation.
 
 ## Current Problem
 
@@ -127,7 +127,7 @@ Current lifecycle planning is user-centered. Organization asset export/delete re
 - No lifecycle/delete executor change.
 - No full tenant isolation claim.
 
-Phase 6.4 changes this schema status only for `ai_folders` and `ai_images`: migration `0056_add_ai_folder_image_ownership_metadata.sql` adds nullable owner metadata columns and indexes, but no row backfill, write assignment, access check, gallery, quota, lifecycle, R2, billing, or generation behavior changes.
+Phase 6.4 changes this schema status only for `ai_folders` and `ai_images`: migration `0056_add_ai_folder_image_ownership_metadata.sql` adds nullable owner metadata columns and indexes. Phase 6.5 begins filling those columns only for new personal folder/image writes, with no row backfill, organization ownership assignment, access check, gallery, quota, lifecycle, R2, billing, or generation behavior changes.
 
 ## Phase 6.2 Owner-Map Dry Run
 
@@ -147,8 +147,18 @@ Phase 6.3 adds the planning document `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEM
 
 - Proposed future metadata for both `ai_folders` and `ai_images`: `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
 - Read/access impact remains planned only; existing `user_id` checks, public gallery reads, lifecycle/export/delete behavior, and storage quota behavior are unchanged.
-- Phase 6.4 now marks the focused report `schema_added_not_backfilled`; access checks remain unchanged, write paths are not assigned, backfill has not started, and the owner map is not complete.
-- Recommended next step: Phase 6.5 new-write ownership assignment only, with no broad backfill and no runtime access behavior change.
+- Phase 6.4 now marks the focused report `schema_added_not_backfilled`; Phase 6.5 marks personal folder/image write paths as assigned for new rows only. Access checks remain unchanged, org-owned write assignment is still future work, backfill has not started, and the owner map is not complete.
+- Recommended next step: Phase 6.6 read diagnostics / dual-read safety checks only, with no broad backfill and no runtime access behavior change.
+
+## Phase 6.5 New-Write Assignment
+
+Phase 6.5 updates only the new write paths for `ai_folders` and `ai_images`.
+
+- New personal folders are written as `personal_user_asset` with high-confidence `new_write_personal` metadata.
+- New personal saved images are written as `personal_user_asset` with high-confidence `new_write_personal` metadata.
+- Existing rows remain null/unclassified until a future reviewed backfill.
+- Client-supplied organization hints do not create organization ownership.
+- Access checks, public gallery reads, media serving, lifecycle/export/delete, quota accounting, billing, credits, and R2 keys remain unchanged.
 
 ## Admin Inspection Requirements
 
@@ -173,8 +183,8 @@ Admin inspection should remain sanitized and should not expose raw prompts, prov
 | 6.2 | AI folders/images owner-map dry run | Implemented as source/fixture dry run only; no schema, backfill, R2 mutation, or access-check change. |
 | 6.3 | AI folders/images ownership schema proposal and access-check impact plan | Implemented as design/check output only; no migration, backfill, or access behavior change. |
 | 6.4 | Additive ownership metadata schema for folders/images | Implemented as nullable columns and compatibility tests only; no backfill or access behavior change. |
-| 6.5 | Write-path metadata assignment and owner-scope helpers | Assign metadata for new writes behind tests; preserve compatibility. |
-| 6.6 | Role-aware access checks and public gallery attribution | Add organization-aware access and publisher policy deliberately. |
+| 6.5 | Write-path metadata assignment for new folders/images | Implemented for new personal folder/image rows only; no backfill or access behavior change. |
+| 6.6 | Ownership metadata read diagnostics and dual-read safety checks | Compare legacy `user_id` access with new metadata where present; no access switch yet. |
 | 6.7 | Export/delete/lifecycle and quota integration | Add organization subject plans and quota counters after owner model is stable. |
 | 6.8 | Admin inspection plus R2 owner-map and orphan report | Bounded local/staging object reconciliation; no deletes. |
 | 6.9 | Bounded non-destructive backfill | Operator-approved metadata only after dry-run proof. |

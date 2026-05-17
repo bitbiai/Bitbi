@@ -691,6 +691,22 @@ async function createAdminAiContractHarness(options = {}) {
 
 const ADMIN_AI_CHARGE_ORG_ID = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
+function parseOwnershipMetadata(row) {
+  expect(typeof row.ownership_metadata_json).toBe('string');
+  return JSON.parse(row.ownership_metadata_json);
+}
+
+function expectPersonalOwnership(row, userId) {
+  expect(row.asset_owner_type).toBe('personal_user_asset');
+  expect(row.owning_user_id).toBe(userId);
+  expect(row.owning_organization_id).toBeNull();
+  expect(row.created_by_user_id).toBe(userId);
+  expect(row.ownership_status).toBe('current');
+  expect(row.ownership_source).toBe('new_write_personal');
+  expect(row.ownership_confidence).toBe('high');
+  expect(Date.parse(row.ownership_assigned_at)).not.toBeNaN();
+}
+
 test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
   const ownershipColumns = [
     'asset_owner_type',
@@ -703,6 +719,28 @@ test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
     'ownership_metadata_json',
     'ownership_assigned_at',
   ];
+
+  function expectNullOwnership(row) {
+    for (const column of ownershipColumns) {
+      expect(row[column]).toBeNull();
+    }
+  }
+
+  function parseOwnershipMetadata(row) {
+    expect(typeof row.ownership_metadata_json).toBe('string');
+    return JSON.parse(row.ownership_metadata_json);
+  }
+
+  function expectPersonalOwnership(row, userId) {
+    expect(row.asset_owner_type).toBe('personal_user_asset');
+    expect(row.owning_user_id).toBe(userId);
+    expect(row.owning_organization_id).toBeNull();
+    expect(row.created_by_user_id).toBe(userId);
+    expect(row.ownership_status).toBe('current');
+    expect(row.ownership_source).toBe('new_write_personal');
+    expect(row.ownership_confidence).toBe('high');
+    expect(Date.parse(row.ownership_assigned_at)).not.toBeNaN();
+  }
 
   test('migration adds nullable ownership metadata columns and indexes only', () => {
     const migrationPath = path.join(
@@ -740,10 +778,14 @@ test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
     const ownership = await loadTenantAssetOwnershipModule();
 
     expect(ownership.TENANT_ASSET_OWNER_TYPES).toContain('organization_asset');
+    expect(ownership.TENANT_ASSET_OWNER_TYPE.PERSONAL_USER_ASSET).toBe('personal_user_asset');
     expect(ownership.TENANT_ASSET_OWNER_TYPES).toContain('audit_archive_asset');
     expect(ownership.TENANT_ASSET_OWNERSHIP_STATUSES).toContain('unsafe_to_migrate');
+    expect(ownership.TENANT_ASSET_OWNERSHIP_STATUS.CURRENT).toBe('current');
     expect(ownership.TENANT_ASSET_OWNERSHIP_SOURCES).toContain('new_write_org_context');
+    expect(ownership.TENANT_ASSET_OWNERSHIP_SOURCE.NEW_WRITE_PERSONAL).toBe('new_write_personal');
     expect(ownership.TENANT_ASSET_OWNERSHIP_CONFIDENCES).toEqual(['high', 'medium', 'low', 'none']);
+    expect(ownership.TENANT_ASSET_OWNERSHIP_CONFIDENCE.HIGH).toBe('high');
 
     expect(ownership.normalizeTenantAssetOwnerType(' organization_asset ')).toBe('organization_asset');
     expect(ownership.normalizeTenantAssetOwnerType('other')).toBeNull();
@@ -760,12 +802,53 @@ test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
     expect(metadata).not.toContain('do not expose');
     expect(metadata).not.toContain('secret provider body');
     expect(metadata).toContain('[redacted]');
+
+    const fields = ownership.buildPersonalUserAssetOwnershipFields({
+      userId: 'owner-user',
+      assignedAt: '2026-05-17T10:00:00.000Z',
+      metadata: { route_or_domain: 'test' },
+    });
+    expect(fields.assetOwnerType).toBe('personal_user_asset');
+    expect(fields.owningUserId).toBe('owner-user');
+    expect(fields.owningOrganizationId).toBeNull();
+    expect(fields.createdByUserId).toBe('owner-user');
+    expect(fields.ownershipStatus).toBe('current');
+    expect(fields.ownershipSource).toBe('new_write_personal');
+    expect(fields.ownershipConfidence).toBe('high');
+    expect(fields.ownershipAssignedAt).toBe('2026-05-17T10:00:00.000Z');
   });
 
-  test('existing folder/image/gallery/media behavior works with null ownership metadata', async () => {
+  test('old folder/image/gallery/media behavior still works with null ownership metadata', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const user = createContractUser({ id: 'tenant-schema-user', role: 'user' });
-    const env = createAuthTestEnv({ users: [user] });
+    const oldFolder = {
+      id: '0de0f001',
+      user_id: user.id,
+      name: 'Old Folder',
+      slug: 'old-folder',
+      status: 'active',
+      created_at: '2026-05-17T09:00:00.000Z',
+    };
+    const oldImage = {
+      id: '0de0a001',
+      user_id: user.id,
+      folder_id: oldFolder.id,
+      r2_key: `users/${user.id}/folders/old-folder/old.png`,
+      prompt: 'old schema compatibility image',
+      model: '@cf/test-model',
+      steps: 4,
+      seed: null,
+      size_bytes: 68,
+      created_at: '2026-05-17T09:05:00.000Z',
+    };
+    const env = createAuthTestEnv({
+      users: [user],
+      aiFolders: [oldFolder],
+      aiImages: [oldImage],
+    });
+    await env.USER_IMAGES.put(oldImage.r2_key, new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer, {
+      httpMetadata: { contentType: 'image/png' },
+    });
     const token = await seedSession(env, user.id);
     const headers = {
       Origin: 'https://bitbi.ai',
@@ -773,19 +856,10 @@ test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
       'CF-Connecting-IP': '203.0.113.221',
     };
 
-    const createFolder = await authWorker.fetch(
-      authJsonRequest('/api/ai/folders', 'POST', { name: 'Tenant Schema Smoke' }, headers),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(createFolder.status).toBe(201);
-    const folderBody = await createFolder.json();
-    const folderId = folderBody.data.id;
+    const folderId = oldFolder.id;
     const folderRow = env.DB.state.aiFolders.find((row) => row.id === folderId);
     expect(folderRow).toBeTruthy();
-    for (const column of ownershipColumns) {
-      expect(folderRow[column]).toBeNull();
-    }
+    expectNullOwnership(folderRow);
 
     const listFolders = await authWorker.fetch(
       authJsonRequest('/api/ai/folders', 'GET', undefined, headers),
@@ -802,25 +876,12 @@ test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
     );
     expect(renameFolder.status).toBe(200);
     expect(env.DB.state.aiFolders.find((row) => row.id === folderId).slug).toBe('tenant-schema-renamed');
+    expectNullOwnership(env.DB.state.aiFolders.find((row) => row.id === folderId));
 
-    const saveImage = await authWorker.fetch(
-      authJsonRequest('/api/ai/images/save', 'POST', {
-        folder_id: folderId,
-        imageData: ONE_PIXEL_PNG_DATA_URI,
-        prompt: 'schema compatibility image',
-        model: '@cf/test-model',
-        steps: 4,
-      }, headers),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(saveImage.status).toBe(201);
-    const imageRow = env.DB.state.aiImages.find((row) => row.user_id === user.id);
+    const imageRow = env.DB.state.aiImages.find((row) => row.id === oldImage.id);
     expect(imageRow).toBeTruthy();
     expect(imageRow.folder_id).toBe(folderId);
-    for (const column of ownershipColumns) {
-      expect(imageRow[column]).toBeNull();
-    }
+    expectNullOwnership(imageRow);
 
     const listImages = await authWorker.fetch(
       authJsonRequest('/api/ai/images', 'GET', undefined, headers),
@@ -852,6 +913,136 @@ test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
     );
     expect(publicGallery.status).toBe(200);
     expect((await publicGallery.json()).data.items.some((item) => item.id === imageRow.id)).toBe(true);
+  });
+});
+
+test.describe('Phase 6.5 AI folder/image new-write ownership metadata', () => {
+  test('new personal folder writes high-confidence personal ownership metadata without changing folder behavior', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'tenant-write-folder-user', role: 'user' });
+    const env = createAuthTestEnv({ users: [user] });
+    const token = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+      'CF-Connecting-IP': '203.0.113.222',
+    };
+
+    const createFolder = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'POST', { name: 'Tenant Write Folder' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createFolder.status).toBe(201);
+    const folderId = (await createFolder.json()).data.id;
+    const folderRow = env.DB.state.aiFolders.find((row) => row.id === folderId);
+    expect(folderRow).toBeTruthy();
+    expectPersonalOwnership(folderRow, user.id);
+    const metadata = parseOwnershipMetadata(folderRow);
+    expect(metadata.phase).toBe('6.5');
+    expect(metadata.assigned_by).toBe('write_path');
+    expect(metadata.route_or_domain).toBe('ai_folders.create');
+    expect(metadata.source_operation).toBe('folder_create');
+    expect(metadata.org_context_verified).toBe(false);
+    expect(JSON.stringify(metadata)).not.toMatch(/prompt|provider|secret|token|cookie|authorization/i);
+
+    const listFolders = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'GET', undefined, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listFolders.status).toBe(200);
+    expect((await listFolders.json()).data.folders.some((folder) => folder.id === folderId)).toBe(true);
+
+    const renameFolder = await authWorker.fetch(
+      authJsonRequest(`/api/ai/folders/${folderId}`, 'PATCH', { name: 'Tenant Write Folder Renamed' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(renameFolder.status).toBe(200);
+    expectPersonalOwnership(env.DB.state.aiFolders.find((row) => row.id === folderId), user.id);
+  });
+
+  test('new personal saved image writes ownership metadata and ignores weak client org signals', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'tenant-write-image-user', role: 'user' });
+    const env = createAuthTestEnv({ users: [user] });
+    const token = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+      'CF-Connecting-IP': '203.0.113.223',
+    };
+
+    const createFolder = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'POST', { name: 'Tenant Image Folder' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createFolder.status).toBe(201);
+    const folderId = (await createFolder.json()).data.id;
+
+    const saveImage = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        folder_id: folderId,
+        organization_id: 'org_client_only_should_not_assign',
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'new write ownership image',
+        model: '@cf/test-model',
+        steps: 4,
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(saveImage.status).toBe(201);
+    const imageId = (await saveImage.json()).data.id;
+    const imageRow = env.DB.state.aiImages.find((row) => row.id === imageId);
+    expect(imageRow).toBeTruthy();
+    expect(imageRow.folder_id).toBe(folderId);
+    expectPersonalOwnership(imageRow, user.id);
+    const metadata = parseOwnershipMetadata(imageRow);
+    expect(metadata.phase).toBe('6.5');
+    expect(metadata.assigned_by).toBe('write_path');
+    expect(metadata.route_or_domain).toBe('ai_images.save');
+    expect(metadata.source_operation).toBe('direct_image_save');
+    expect(metadata.org_context_verified).toBe(false);
+    expect(metadata.client_org_context_ignored).toBe(true);
+    expect(metadata.derivatives_inherit_parent).toBe(true);
+    expect(metadata.folder_id_present).toBe(true);
+    expect(JSON.stringify(metadata)).not.toContain('org_client_only_should_not_assign');
+    expect(JSON.stringify(metadata)).not.toContain('new write ownership image');
+    expect(JSON.stringify(metadata)).not.toMatch(/provider|secret|token|cookie|authorization|idempotency/i);
+
+    const listImages = await authWorker.fetch(
+      authJsonRequest('/api/ai/images', 'GET', undefined, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listImages.status).toBe(200);
+    expect((await listImages.json()).data.images.some((image) => image.id === imageId)).toBe(true);
+
+    const privateMedia = await authWorker.fetch(
+      authJsonRequest(`/api/ai/images/${imageId}/file`, 'GET', undefined, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(privateMedia.status).toBe(200);
+
+    Object.assign(imageRow, {
+      visibility: 'public',
+      published_at: '2026-05-17T10:30:00.000Z',
+      derivatives_status: 'ready',
+      derivatives_version: 1,
+      thumb_key: `users/${user.id}/derivatives/v1/${imageRow.id}/thumb.webp`,
+      medium_key: `users/${user.id}/derivatives/v1/${imageRow.id}/medium.webp`,
+    });
+    const publicGallery = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics?limit=10'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicGallery.status).toBe(200);
+    expect((await publicGallery.json()).data.items.some((item) => item.id === imageId)).toBe(true);
   });
 });
 

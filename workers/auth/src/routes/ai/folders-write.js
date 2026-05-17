@@ -5,6 +5,7 @@ import {
   readJsonBodyOrResponse,
 } from "../../lib/request.js";
 import { nowIso, randomTokenHex } from "../../lib/tokens.js";
+import { buildPersonalUserAssetOwnershipFields } from "../../lib/tenant-asset-ownership.js";
 import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import {
   hasControlCharacters,
@@ -46,11 +47,42 @@ export async function handleCreateFolder(ctx) {
   const slug = slugify(name);
   const id = randomTokenHex(16);
   const now = nowIso();
+  const ownership = buildPersonalUserAssetOwnershipFields({
+    userId: session.user.id,
+    assignedAt: now,
+    metadata: {
+      phase: "6.5",
+      assigned_by: "write_path",
+      route_or_domain: "ai_folders.create",
+      source_operation: "folder_create",
+      org_context_verified: false,
+    },
+  });
 
   try {
     await env.DB.prepare(
-      "INSERT INTO ai_folders (id, user_id, name, slug, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).bind(id, session.user.id, name, slug, now).run();
+      `INSERT INTO ai_folders (
+         id, user_id, name, slug, created_at,
+         asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id,
+         ownership_status, ownership_source, ownership_confidence,
+         ownership_metadata_json, ownership_assigned_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      id,
+      session.user.id,
+      name,
+      slug,
+      now,
+      ownership.assetOwnerType,
+      ownership.owningUserId,
+      ownership.owningOrganizationId,
+      ownership.createdByUserId,
+      ownership.ownershipStatus,
+      ownership.ownershipSource,
+      ownership.ownershipConfidence,
+      ownership.ownershipMetadataJson,
+      ownership.ownershipAssignedAt
+    ).run();
   } catch (e) {
     if (String(e).includes("UNIQUE")) {
       return json({ ok: false, error: "A folder with that name already exists." }, { status: 409 });

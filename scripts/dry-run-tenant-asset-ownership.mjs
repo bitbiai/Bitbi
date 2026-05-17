@@ -56,7 +56,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.5 candidate: assign ownership metadata on new writes only; no backfill.",
+    futurePhase: "Phase 6.6 candidate: add read diagnostics for new-row ownership metadata while old rows remain unbackfilled.",
   },
   {
     id: "ai_text_assets",
@@ -116,7 +116,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.5 candidate: assign ownership metadata on new folder writes only; no backfill.",
+    futurePhase: "Phase 6.6 candidate: add read diagnostics for new-row ownership metadata while old rows remain unbackfilled.",
   },
   {
     id: "ai_video_jobs",
@@ -214,7 +214,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.5 after target owner columns are decided.",
+    futurePhase: "Phase 6.7 after read diagnostics prove owner metadata and organization quota design is approved.",
   },
   {
     id: "data_lifecycle",
@@ -376,12 +376,12 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.5",
     title: "Write-path metadata assignment",
-    scope: "Assign owner metadata for new personal/org/admin writes after schema exists; no historical backfill.",
+    scope: "Assign owner metadata for new personal folder/image writes after schema exists; no historical backfill and no access-check switch.",
   },
   {
     phase: "6.6",
-    title: "Role-aware access and public gallery attribution",
-    scope: "Introduce owner-aware read/write checks and public attribution after new rows carry metadata.",
+    title: "Ownership metadata read diagnostics and dual-read safety checks",
+    scope: "Compare existing user_id access with new ownership metadata in read-only evidence before any authorization switch.",
   },
   {
     phase: "6.7",
@@ -596,7 +596,7 @@ const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
     proposedAccessBasis: "Personal assets keep owning_user_id check; organization assets require active organization membership and allowed read role.",
     changeRisk: "high",
     phase63BehaviorChange: "no",
-    futurePhase: "6.5",
+    futurePhase: "6.6",
     testsRequired: ["personal image list unchanged", "organization member can list org images", "non-member cannot list org images"],
   },
   {
@@ -606,7 +606,7 @@ const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
     proposedAccessBasis: "Future writes assign owner metadata from explicit personal or organization context before insert.",
     changeRisk: "high",
     phase63BehaviorChange: "no",
-    futurePhase: "6.5",
+    futurePhase: "6.6",
     testsRequired: ["personal save writes personal metadata", "org-context save writes organization metadata", "weak org context rejected"],
   },
   {
@@ -616,7 +616,7 @@ const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
     proposedAccessBasis: "Asset and folder owner metadata must match; organization moves require membership and mutation role.",
     changeRisk: "high",
     phase63BehaviorChange: "no",
-    futurePhase: "6.5",
+    futurePhase: "6.6",
     testsRequired: ["cannot move personal image into org folder", "cannot move org image into personal folder", "org admin can move org image"],
   },
   {
@@ -646,7 +646,7 @@ const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
     proposedAccessBasis: "Personal owner or organization read membership; derivative generation inherits parent owner.",
     changeRisk: "high",
     phase63BehaviorChange: "no",
-    futurePhase: "6.5",
+    futurePhase: "6.6",
     testsRequired: ["personal media unchanged", "org media member access", "non-member denied", "derivative inherits parent owner"],
   },
   {
@@ -656,7 +656,7 @@ const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
     proposedAccessBasis: "Personal folder owner or organization membership; counts must be owner-scope filtered.",
     changeRisk: "high",
     phase63BehaviorChange: "no",
-    futurePhase: "6.5",
+    futurePhase: "6.6",
     testsRequired: ["personal folder counts unchanged", "org folder counts use org scope", "mixed owner folder hidden/rejected"],
   },
   {
@@ -666,7 +666,7 @@ const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
     proposedAccessBasis: "Future create assigns personal/org owner metadata; update/delete require matching owner scope and role.",
     changeRisk: "high",
     phase63BehaviorChange: "no",
-    futurePhase: "6.5",
+    futurePhase: "6.6",
     testsRequired: ["personal folder create unchanged", "org folder create with org context", "folder delete scope-safe"],
   },
   {
@@ -783,6 +783,66 @@ function readText(repoRoot, relativePath) {
 
 function fileExists(repoRoot, relativePath) {
   return fs.existsSync(path.join(repoRoot, relativePath));
+}
+
+function buildFoldersImagesWritePathAssignment(repoRoot) {
+  const foldersWrite = readText(repoRoot, "workers/auth/src/routes/ai/folders-write.js");
+  const imagesWrite = readText(repoRoot, "workers/auth/src/routes/ai/images-write.js");
+  const folderPersonalAssigned = (
+    foldersWrite.includes("buildPersonalUserAssetOwnershipFields") &&
+    foldersWrite.includes("ownership_metadata_json") &&
+    foldersWrite.includes("ai_folders.create")
+  );
+  const imagePersonalAssigned = (
+    imagesWrite.includes("buildPersonalUserAssetOwnershipFields") &&
+    imagesWrite.includes("ownership_metadata_json") &&
+    imagesWrite.includes("ai_images.save")
+  );
+  return {
+    status: folderPersonalAssigned && imagePersonalAssigned
+      ? "write_paths_assigned_for_new_rows"
+      : "write_paths_not_assigned",
+    assigned: [
+      ...(folderPersonalAssigned ? [{
+        id: "folder_personal_context",
+        route: "POST /api/ai/folders",
+        table: "ai_folders",
+        ownerClass: "personal_user_asset",
+        source: "new_write_personal",
+        confidence: "high",
+      }] : []),
+      ...(imagePersonalAssigned ? [{
+        id: "image_save_personal_context",
+        route: "POST /api/ai/images/save",
+        table: "ai_images",
+        ownerClass: "personal_user_asset",
+        source: "new_write_personal",
+        confidence: "high",
+      }] : []),
+    ],
+    notAssigned: [
+      {
+        id: "org_scoped_folder_context",
+        reason: "No intentional server-verified org-scoped folder creation path exists yet.",
+      },
+      {
+        id: "org_scoped_image_save_context",
+        reason: "Saved image rows do not yet receive a server-verified organization owner context; weak client hints are ignored.",
+      },
+      {
+        id: "admin_platform_image_output",
+        reason: "Admin image test output is not persisted to ai_images by this phase.",
+      },
+      {
+        id: "legacy_existing_rows",
+        reason: "Existing ai_folders and ai_images rows remain null/unclassified until a future dry-run-first backfill phase.",
+      },
+    ],
+    accessChecksChanged: false,
+    publicGalleryChanged: false,
+    r2KeyBehaviorChanged: false,
+    backfillStarted: false,
+  };
 }
 
 function evidenceForDomain(repoRoot, domain) {
@@ -1199,6 +1259,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const { domains, findings } = buildFoldersImagesSourceEvidence(repoRoot);
   const ownershipMigrationExists = fileExists(repoRoot, FOLDERS_IMAGES_OWNERSHIP_MIGRATION);
   const schemaReadinessStatus = ownershipMigrationExists ? "schema_added_not_backfilled" : "ready_for_schema";
+  const writePathAssignment = buildFoldersImagesWritePathAssignment(repoRoot);
   const proposedSchema = Object.fromEntries(
     Object.entries(FOLDERS_IMAGES_PROPOSED_SCHEMA).map(([table, schema]) => [
       table,
@@ -1260,11 +1321,12 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       migrationReadiness: [
         schemaReadinessStatus,
         "access_checks_not_changed",
-        "write_paths_not_assigned",
+        writePathAssignment.status,
         "backfill_not_started",
         "owner_map_not_complete",
       ],
     },
+    writePathAssignment,
     accessImpactMatrix: FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX,
     futureWritePathRules: FOLDERS_IMAGES_WRITE_PATH_RULES,
     backfillPolicy: FOLDERS_IMAGES_BACKFILL_POLICY,
@@ -1315,17 +1377,22 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     },
     schemaAccessImpact: {
       routesNeedingFutureAccessUpdates: FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX.map((entry) => entry.id),
-      writePathsNeedingFutureOwnershipAssignment: FOLDERS_IMAGES_WRITE_PATH_RULES.map((entry) => entry.id),
+      writePathsAssignedForNewRows: writePathAssignment.assigned.map((entry) => entry.id),
+      writePathsStillNotAssigned: writePathAssignment.notAssigned.map((entry) => entry.id),
+      writePathsNeedingFutureOwnershipAssignment: FOLDERS_IMAGES_WRITE_PATH_RULES
+        .map((entry) => entry.id)
+        .filter((id) => id !== "folder_personal_context" && id !== "personal_generation"),
       lifecycleExportDeleteGap: "organization-owned folder/image lifecycle plans are not implemented",
       storageQuotaGap: "organization storage counters are not implemented",
       publicGalleryGap: "organization publisher attribution is not implemented",
       phase63BehaviorChange: false,
       phase64BehaviorChange: false,
+      phase65AccessBehaviorChange: false,
     },
     blockedUntil: [
-      ownershipMigrationExists
-        ? "Write paths assign ownership metadata for new rows."
-        : "An additive ownership metadata schema is approved.",
+      writePathAssignment.status === "write_paths_assigned_for_new_rows"
+        ? "Read diagnostics compare existing user_id access with new ownership metadata before any access-check switch."
+        : "Write paths assign ownership metadata for new rows.",
       "A local/staging owner-map report validates real row counts and ambiguity rates.",
       "Organization ownership is backed by explicit row-level evidence, not UI active organization context.",
       "Public gallery attribution and lifecycle/export/delete impacts are designed.",
@@ -1338,8 +1405,10 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "Source-only mode reports domain/rule readiness, not row counts.",
       "No runtime access behavior changes are made.",
     ],
-    recommendedNextPhase: ownershipMigrationExists
-      ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
+    recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
+      ? "Phase 6.6 — Ownership Metadata Read Diagnostics / Dual-read Safety Checks"
+      : ownershipMigrationExists
+        ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
   };
 }
@@ -1393,7 +1462,7 @@ export function buildTenantAssetOwnershipDryRunReport(repoRoot = process.cwd(), 
     findings,
     lifecycleGaps,
     blockedUntil: [
-      "Target owner columns and owner classes are approved.",
+      "Read-only diagnostics prove new ownership metadata matches legacy access behavior where present.",
       "A local/staging owner-map report proves candidate ownership for one low-risk domain.",
       "R2 key ownership is reconciled against D1 rows without object moves or deletes.",
       "Lifecycle/export/delete plans support organization subjects.",
@@ -1460,8 +1529,10 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Derivative-risk candidates: ${report.summary.derivativeRiskCandidateCount}`,
     `- Schema readiness: ${report.schemaReadiness?.status || "not_reported"}`,
     `- Ownership migration added: ${report.schemaReadiness?.migrationAdded ? "yes" : "no"}`,
+    `- Write path assignment: ${report.writePathAssignment?.status || "not_reported"}`,
     `- Phase 6.3 behavior change: ${report.schemaAccessImpact?.phase63BehaviorChange === false ? "no" : "review"}`,
     `- Phase 6.4 behavior change: ${report.schemaAccessImpact?.phase64BehaviorChange === false ? "no" : "review"}`,
+    `- Phase 6.5 access behavior change: ${report.schemaAccessImpact?.phase65AccessBehaviorChange === false ? "no" : "review"}`,
     "",
     "## Proposed Schema Fields",
     "",
@@ -1470,6 +1541,18 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     ...Object.entries(report.schemaReadiness?.proposedSchema || {}).map(([table, plan]) => (
       `| ${table} | ${(plan.currentlyMissingFields || []).join(", ") || "none"} | ${plan.migrationFile || "not added"} |`
     )),
+    "",
+    "## Write Path Assignment",
+    "",
+    "| Write path | Route | Table | Owner class | Source |",
+    "| --- | --- | --- | --- | --- |",
+    ...(report.writePathAssignment?.assigned || []).map((entry) => (
+      `| ${entry.id} | ${entry.route} | ${entry.table} | ${entry.ownerClass} | ${entry.source} |`
+    )),
+    "",
+    "Remaining gaps:",
+    "",
+    ...(report.writePathAssignment?.notAssigned || []).map((entry) => `- ${entry.id}: ${entry.reason}`),
     "",
     "## Access Impact",
     "",

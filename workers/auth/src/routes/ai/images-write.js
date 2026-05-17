@@ -11,6 +11,7 @@ import {
   reserveUserAssetStorage,
 } from "../../lib/asset-storage-quota.js";
 import { nowIso, randomTokenHex } from "../../lib/tokens.js";
+import { buildPersonalUserAssetOwnershipFields } from "../../lib/tenant-asset-ownership.js";
 import {
   evaluateSharedRateLimit,
   rateLimitResponse,
@@ -58,6 +59,7 @@ const MAX_PROVIDER_IMAGE_FETCH_BYTES = 25 * 1024 * 1024;
 const GPT_IMAGE_2_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const GPT_IMAGE_2_REFERENCE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_SAVE_REFERENCE_LENGTH = 500;
+const ORG_CONTEXT_FIELDS = ["organization_id", "organizationId"];
 
 async function enforceAiImageWriteRateLimit(ctx, userId, {
   scope = "ai-image-write-user",
@@ -90,6 +92,11 @@ function decodeBase64ToBytes(base64) {
     bytes[i] = raw.charCodeAt(i);
   }
   return bytes;
+}
+
+function hasClientOrgContextSignal(body) {
+  if (!body || typeof body !== "object") return false;
+  return ORG_CONTEXT_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(body, field));
 }
 
 function encodeBytesToBase64(bytes) {
@@ -1247,21 +1254,86 @@ export async function handleSaveImage(ctx) {
   const model = String(body.model || MODEL).slice(0, 100);
   const steps = body.steps ? Math.floor(Number(body.steps)) : null;
   const seed = body.seed !== undefined && body.seed !== null ? Math.floor(Number(body.seed)) : null;
+  const ownership = buildPersonalUserAssetOwnershipFields({
+    userId: session.user.id,
+    assignedAt: now,
+    metadata: {
+      phase: "6.5",
+      assigned_by: "write_path",
+      route_or_domain: "ai_images.save",
+      source_operation: tempKey ? "generated_image_save_reference" : "direct_image_save",
+      org_context_verified: false,
+      client_org_context_ignored: hasClientOrgContextSignal(body),
+      derivatives_inherit_parent: true,
+      folder_id_present: Boolean(folderId),
+    },
+  });
 
   let insertResult;
   try {
     if (folderId) {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        `INSERT INTO ai_images (
+           id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at,
+           asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id,
+           ownership_status, ownership_source, ownership_confidence,
+           ownership_metadata_json, ownership_assigned_at
+         )
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
-      ).bind(imageId, session.user.id, folderId, r2Key, prompt, model, steps, seed, imageBytes.byteLength, now,
-        folderId, session.user.id).run();
+      ).bind(
+        imageId,
+        session.user.id,
+        folderId,
+        r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        imageBytes.byteLength,
+        now,
+        ownership.assetOwnerType,
+        ownership.owningUserId,
+        ownership.owningOrganizationId,
+        ownership.createdByUserId,
+        ownership.ownershipStatus,
+        ownership.ownershipSource,
+        ownership.ownershipConfidence,
+        ownership.ownershipMetadataJson,
+        ownership.ownershipAssignedAt,
+        folderId,
+        session.user.id
+      ).run();
     } else {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(imageId, session.user.id, null, r2Key, prompt, model, steps, seed, imageBytes.byteLength, now).run();
+        `INSERT INTO ai_images (
+           id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at,
+           asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id,
+           ownership_status, ownership_source, ownership_confidence,
+           ownership_metadata_json, ownership_assigned_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        imageId,
+        session.user.id,
+        null,
+        r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        imageBytes.byteLength,
+        now,
+        ownership.assetOwnerType,
+        ownership.owningUserId,
+        ownership.owningOrganizationId,
+        ownership.createdByUserId,
+        ownership.ownershipStatus,
+        ownership.ownershipSource,
+        ownership.ownershipConfidence,
+        ownership.ownershipMetadataJson,
+        ownership.ownershipAssignedAt
+      ).run();
     }
   } catch (e) {
     try { await env.USER_IMAGES.delete(r2Key); } catch {}

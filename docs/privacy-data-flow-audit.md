@@ -31,8 +31,9 @@ Phase 6.1 adds tenant asset ownership design, inventory, risk matrix, and
 source-only dry-run scripts only. Phase 6.2 adds a focused `ai_folders` /
 `ai_images` owner-map dry run with synthetic fixture evidence. Phase 6.3 adds
 the schema/access impact plan. Phase 6.4 adds nullable ownership metadata
-columns for those two tables only. These phases do not rewrite existing D1
-ownership rows, backfill owner metadata, assign metadata on writes, move or
+columns for those two tables only. Phase 6.5 assigns those columns only on new
+personal folder/image writes. These phases do not rewrite existing D1 ownership
+rows, backfill old owner metadata, assign organization ownership, move or
 delete R2 objects, alter access checks, alter lifecycle/export/delete behavior,
 change quota accounting, change public gallery behavior, change member/org
 generation, or prove full tenant isolation.
@@ -50,9 +51,10 @@ planning/export archives, Cloudflare R2/D1/Queues/Durable Objects, and
 Cloudflare Workers AI / AI Gateway model calls.
 Tenant-owned asset migration remains future work: Phase 6.1 identifies current
 user-owned media tables and R2 key patterns, Phase 6.2 maps folder/image
-owner-class candidates, Phase 6.3 proposes the metadata/access plan, and Phase
-6.4 adds inert nullable columns, but existing generated assets are not yet
-migrated to organization ownership.
+owner-class candidates, Phase 6.3 proposes the metadata/access plan, Phase 6.4
+adds nullable columns, and Phase 6.5 assigns new personal folder/image write
+metadata. Existing generated assets are not backfilled and are not migrated to
+organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform
