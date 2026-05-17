@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phase 6.4 adds the planned nullable metadata columns and simple lookup/review indexes through migration `0056_add_ai_folder_image_ownership_metadata.sql`. Phase 6.5 starts assigning that metadata only on new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks. Phase 6.7 exposes those diagnostics through a bounded admin-only evidence report and JSON/Markdown export. These phases do not rewrite existing D1 rows, backfill ownership metadata, move/list/delete R2 objects, change access checks, change image generation behavior, change folder access behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.3 was schema/access planning only for `ai_folders` and `ai_images`. Phase 6.4 adds the planned nullable metadata columns and simple lookup/review indexes through migration `0056_add_ai_folder_image_ownership_metadata.sql`. Phase 6.5 starts assigning that metadata only on new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks. Phase 6.7 exposes those diagnostics through a bounded admin-only evidence report and JSON/Markdown export. Phase 6.8 adds the operator evidence runbook/template/checklist for collecting that report. These phases do not rewrite existing D1 rows, backfill ownership metadata, move/list/delete R2 objects, change access checks, change image generation behavior, change folder access behavior, change public gallery behavior, change lifecycle/export/delete behavior, change quota accounting, mutate billing/credits, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Data Model
 
@@ -144,6 +144,13 @@ Phase 6.5 implements only the personal folder create and personal saved-image wr
 - Report sections include summary counts, classification rollups, dual-read safety rollups, folder/image evidence, relationship evidence, public-gallery evidence, derivative evidence, and a manual-review queue.
 - The report is read-only evidence only. It does not authorize requests, switch access checks, backfill rows, update ownership metadata, list R2, expose prompts/private R2 keys, call providers, call Stripe, mutate credits, or claim production or tenant-isolation readiness.
 
+## Phase 6.8 Evidence Collection Runbook
+
+- `TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` defines safe operator steps for the Phase 6.7 evidence/export endpoints.
+- `TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md` records endpoint filters, summary counts, sanitization checks, risk decision, and no-mutation statements.
+- `TENANT_ASSET_OWNERSHIP_MAIN_ONLY_CHECKLIST.md` covers direct-main evidence discipline.
+- Phase 6.8 adds no migration, endpoint, Admin UI, runtime route change, ownership backfill, access-check switch, D1/R2 mutation, R2 listing, provider call, Stripe call, or tenant-isolation claim.
+
 ## Access-Check Impact Matrix
 
 | Area | Current access basis | Proposed access basis | Phase 6.3 behavior change | Future phase | Tests required |
@@ -235,7 +242,8 @@ Future implementation tests should cover:
 | 6.5 | Write-path metadata assignment for new personal `ai_folders` and `ai_images` rows only; no backfill and no access behavior change. |
 | 6.6 | Ownership metadata read diagnostics / dual-read safety checks; implemented as simulated evidence only. |
 | 6.7 | Tenant asset ownership admin evidence report for folders/images; implemented as read-only bounded JSON/Markdown evidence. |
-| 6.8 | Staging owner-map evidence collection for folders/images. |
-| 6.9 | Operator-approved non-destructive ownership metadata backfill. |
+| 6.8 | Evidence collection runbook/template/checklist for the Phase 6.7 folders/images report. |
+| 6.9 | Staging/main owner-map evidence collection for folders/images. |
+| 6.10 | Operator-approved non-destructive ownership metadata backfill, only after reviewed evidence. |
 
-Recommended next phase: **Phase 6.8 - Staging Owner-Map Evidence Collection for AI Folders & Images**.
+Recommended next phase: **Phase 6.9 - Staging/Main Owner-Map Evidence Collection for AI Folders & Images**.

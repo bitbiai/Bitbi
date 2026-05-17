@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.8 candidate: collect bounded staging owner-map evidence before access/backfill work.",
+    futurePhase: "Phase 6.9 candidate: collect bounded staging/main owner-map evidence before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.8 candidate: collect bounded staging owner-map evidence before access/backfill work.",
+    futurePhase: "Phase 6.9 candidate: collect bounded staging/main owner-map evidence before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -218,7 +218,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.8 after admin evidence and staging owner-map data prove owner metadata and organization quota design is approved.",
+    futurePhase: "Phase 6.9 after admin evidence and staging/main owner-map data prove owner metadata and organization quota design is approved.",
   },
   {
     id: "data_lifecycle",
@@ -243,7 +243,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "audit_archive_asset",
     risk: "high",
     findings: ["lifecycle_user_only", "organization_export_delete_gap"],
-    futurePhase: "Phase 6.8 after owner mapping is proven.",
+    futurePhase: "Phase 6.9 after owner mapping is proven.",
   },
   {
     id: "news_pulse_visuals",
@@ -269,7 +269,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "platform_background_asset",
     risk: "medium",
     findings: ["platform_background_asset_classification_needed"],
-    futurePhase: "Phase 6.8 out-of-scope for tenant-owned member assets.",
+    futurePhase: "Phase 6.9 out-of-scope for tenant-owned member assets.",
   },
 ]);
 
@@ -394,16 +394,21 @@ const FUTURE_PHASES = Object.freeze([
   },
   {
     phase: "6.8",
-    title: "Staging owner-map evidence collection",
-    scope: "Collect bounded staging row evidence and compare admin report output against approved owner-map expectations; no access switch or backfill.",
+    title: "Tenant asset ownership evidence collection runbook",
+    scope: "Implemented as operator runbook/template/checklist for collecting Phase 6.7 evidence; no access switch or backfill.",
   },
   {
     phase: "6.9",
+    title: "Staging/main owner-map evidence collection",
+    scope: "Collect bounded real-row evidence and compare admin report output against approved owner-map expectations; no access switch or backfill.",
+  },
+  {
+    phase: "6.10",
     title: "Bounded non-destructive backfill",
     scope: "Operator-approved metadata backfill only after dry-run evidence.",
   },
   {
-    phase: "6.10",
+    phase: "6.11",
     title: "Destructive cleanup gate",
     scope: "Only after owner-map proof, backups, and explicit approval.",
   },
@@ -700,7 +705,7 @@ const FOLDERS_IMAGES_ACCESS_IMPACT_MATRIX = Object.freeze([
     proposedAccessBasis: "Admin inspection must surface owner class and ambiguity; future mutations must choose user or organization scope explicitly.",
     changeRisk: "high",
     phase63BehaviorChange: "no",
-    futurePhase: "6.8",
+    futurePhase: "6.9",
     testsRequired: ["admin sees owner metadata", "admin cannot accidentally mutate org asset through user-only scope"],
   },
   {
@@ -1478,7 +1483,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "No runtime access behavior changes are made.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? "Phase 6.8 — Staging Owner-Map Evidence Collection for AI Folders & Images"
+      ? "Phase 6.9 — Staging/Main Owner-Map Evidence Collection for AI Folders & Images"
       : ownershipMigrationExists
         ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",

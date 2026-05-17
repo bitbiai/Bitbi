@@ -2,7 +2,7 @@
 
 Date: 2026-04-24
 
-Last reconciled: 2026-05-17 for Phase 6.7 admin AI folders/images ownership evidence report.
+Last reconciled: 2026-05-17 for Phase 6.8 tenant asset ownership evidence collection runbook/template.
 
 Purpose: current remediation tracker. Historical long-form action history is preserved in `docs/audits/archive/AUDIT_ACTION_PLAN_PRE_DOC1.md` and root phase reports.
 
@@ -19,7 +19,7 @@ This plan is not production approval, live billing readiness, legal compliance c
 | P0 | Documentation currentness | Guarded | Keep active docs short, update `docs/audits/README.md`, and run `check:doc-currentness`. |
 | P1 | Admin/platform AI budgets | Partial scoped foundation | Verify Phase 4.15.1 through 4.21 evidence; choose next budget scope or internal caller-policy gap deliberately. |
 | P1 | Billing operations | Partial | Move from review metadata/read-only reconciliation to approved operator remediation only after product/legal/accounting approval. |
-| P1 | Tenant ownership | New personal folder/image writes assigned; read diagnostics and admin evidence report added; old rows unbackfilled | Use `docs/tenant-assets/`, `npm run dry-run:tenant-assets:images`, and `/api/admin/tenant-assets/folders-images/evidence`; next collect staging evidence only, with no backfill or access change. |
+| P1 | Tenant ownership | New personal folder/image writes assigned; read diagnostics, admin evidence report, and evidence collection runbook/template added; old rows unbackfilled | Use `docs/tenant-assets/`, `npm run dry-run:tenant-assets:images`, `/api/admin/tenant-assets/folders-images/evidence`, and the Phase 6.8 evidence template; next collect staging/main evidence only, with no backfill or access change. |
 | P1 | Privacy/data lifecycle | Partial | Complete legal-approved retention/delete/export policy and self-service flows. |
 | P2 | Ops maturity | Partial | Record restore drill, live alert, Cloudflare dashboard drift, load, and canary evidence. |
 | P2 | Quality gates | Partial | Add staged type/lint/SAST/SBOM/dependency gates without broad rewrites. |
@@ -31,7 +31,7 @@ This plan is not production approval, live billing readiness, legal compliance c
 - Phase 3 member image/music/video AI Cost Gateway coverage and AI cost policy baseline guard.
 - Phase 4 admin/platform AI budget metadata, idempotency, switches, first `platform_admin_lab_budget` cap foundation, reconciliation, explicit repair, report/export, and evidence archive workflows.
 - Phase 5.1 Admin Control Plane navigation/discoverability consolidation.
-- Phase 6.1 tenant asset ownership design, inventory, risk matrix, Phase 6.2 `ai_folders`/`ai_images` owner-map dry-run/test scripts, Phase 6.3 schema/access impact plan, Phase 6.4 nullable ownership metadata schema, Phase 6.5 new personal folder/image write metadata assignment, Phase 6.6 read-only dual-read diagnostics, and Phase 6.7 admin-only evidence report/export with no old-row backfill, R2 listing/mutation, access-check, gallery, quota, lifecycle, or billing behavior mutation.
+- Phase 6.1 tenant asset ownership design, inventory, risk matrix, Phase 6.2 `ai_folders`/`ai_images` owner-map dry-run/test scripts, Phase 6.3 schema/access impact plan, Phase 6.4 nullable ownership metadata schema, Phase 6.5 new personal folder/image write metadata assignment, Phase 6.6 read-only dual-read diagnostics, Phase 6.7 admin-only evidence report/export, and Phase 6.8 evidence collection docs with no old-row backfill, R2 listing/mutation, access-check, gallery, quota, lifecycle, or billing behavior mutation.
 
 ## Immediate Checklist Before Any Release Claim
 

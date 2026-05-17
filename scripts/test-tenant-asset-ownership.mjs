@@ -245,7 +245,7 @@ assert.equal(foldersImagesReport.adminEvidenceReport.accessChecksChanged, false)
 assert.equal(foldersImagesReport.adminEvidenceReport.backfillPerformed, false);
 assert.equal(foldersImagesReport.adminEvidenceReport.r2LiveListed, false);
 assert(foldersImagesReport.adminEvidenceReport.manualReviewRollup.totalReviewSignals >= 1);
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.8 — Staging Owner-Map Evidence Collection for AI Folders & Images");
+assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.9 — Staging/Main Owner-Map Evidence Collection for AI Folders & Images");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));

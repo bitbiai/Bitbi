@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan. Phase 6.4 adds nullable ownership metadata columns for those two tables only. Phase 6.5 assigns metadata only for new personal folder/image writes. Phase 6.6 adds read-only simulated dual-read diagnostics. Phase 6.7 exposes those diagnostics through a bounded admin evidence report/export. These phases do not backfill ownership, assign organization ownership, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
+Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan. Phase 6.4 adds nullable ownership metadata columns for those two tables only. Phase 6.5 assigns metadata only for new personal folder/image writes. Phase 6.6 adds read-only simulated dual-read diagnostics. Phase 6.7 exposes those diagnostics through a bounded admin evidence report/export. Phase 6.8 adds the operator evidence runbook/template/checklist for collecting that report on main/live. These phases do not backfill ownership, assign organization ownership, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
 
 | Risk | Severity | Evidence source | Affected tables/routes | Proposed mitigation | Safe dry-run signal | Future phase |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -89,3 +89,12 @@ Phase 6.7 adds admin evidence only:
 - `GET /api/admin/tenant-assets/folders-images/evidence/export` supports sanitized JSON and Markdown exports
 - report rollups surface metadata-missing rows, unsafe-to-switch rows, relationship conflicts, public-gallery risk, derivative risk, and manual-review counts
 - reports do not backfill ownership, update rows, authorize requests, list R2, expose prompts/private R2 keys, change access checks, or claim tenant isolation
+
+## Phase 6.8 Result
+
+Phase 6.8 adds evidence collection guidance only:
+
+- `TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` defines operator steps for the Phase 6.7 endpoints
+- `TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md` records summary counts, sanitization checks, and explicit no-mutation confirmations
+- `TENANT_ASSET_OWNERSHIP_MAIN_ONLY_CHECKLIST.md` covers main-only collection discipline
+- no endpoint, UI, migration, access switch, old-row rewrite, ownership backfill, R2 listing/mutation, provider call, Stripe call, Cloudflare mutation, credit/billing mutation, or tenant-isolation claim is added

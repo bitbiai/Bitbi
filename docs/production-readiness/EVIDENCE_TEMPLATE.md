@@ -18,6 +18,8 @@ Do not paste secret values, raw webhook secrets/signatures, API keys, private ke
 
 Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit restart state. Record platform budget reconciliation, repair, report/export, archive, and Admin Control Plane smoke evidence as separate evidence sections. Confirm no report/export/archive endpoint applied repair, mutated usage/source rows, called providers, called Stripe, changed credits, or changed member/org billing. Phase 5.1 Admin Control Plane evidence is UI/navigation-only and must not be treated as backend readiness or live billing approval.
 
+For tenant asset ownership evidence, use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md` and `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`. Phase 6.8 evidence collection records do not prove full tenant isolation, do not switch access checks, do not backfill old rows, and do not list or mutate R2.
+
 ## 1. Repo Baseline
 
 | Item | Evidence |
@@ -315,6 +317,22 @@ This section records Phase 4.8.2 API-first operator evidence, Phase 4.9 Admin Mu
 | Scheduled cleanup logs count-only safe metadata and does not break unrelated scheduled tasks |  | BLOCKED |  |
 | No provider calls, credit mutations, billing ledger mutations, R2 deletes, or destructive row deletes occurred |  | BLOCKED |  |
 
+## 18B. Tenant Asset Ownership Evidence Collection
+
+Use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_MAIN_ONLY_CHECKLIST.md` for the full operator record. This section records only the summary attachment state.
+
+| Evidence Item | Environment | Result | Evidence |
+| --- | --- | --- | --- |
+| Remote auth D1 migration evidence through `0056_add_ai_folder_image_ownership_metadata.sql` recorded before dependent Auth Worker deploy |  | BLOCKED |  |
+| Phase 6.7 tenant asset evidence endpoint `/api/admin/tenant-assets/folders-images/evidence` called by approved admin with MFA |  | BLOCKED |  |
+| JSON export from `/api/admin/tenant-assets/folders-images/evidence/export?format=json` saved to private operator evidence storage |  | BLOCKED |  |
+| Optional Markdown export saved, if used |  | BLOCKED |  |
+| Evidence template records folders/images scanned, metadata missing, metadata conflicts, relationship conflicts, orphan references, public unsafe, derivative risk, manual review, dual-read safe, and dual-read unsafe counts |  | BLOCKED |  |
+| Evidence confirms `runtimeBehaviorChanged=false`, `accessChecksChanged=false`, `backfillPerformed=false`, and `r2LiveListed=false` |  | BLOCKED |  |
+| Evidence confirms no raw prompts, private R2 keys, signed URLs, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, or raw idempotency keys are present |  | BLOCKED |  |
+| Risk decision recorded as `safe_to_continue_design_only`, `needs_more_evidence`, `unsafe_for_access_switch`, or `blocked` |  | BLOCKED |  |
+| No ownership backfill, D1 row rewrite, access-check switch, R2 listing/mutation, provider call, Stripe call, Cloudflare mutation, credit mutation, or billing mutation occurred |  | BLOCKED |  |
+
 ## 19. Live Credit-Pack Canary Evidence, If Intentionally Enabled
 
 Leave this section BLOCKED unless an approved bounded live canary occurred.
@@ -377,6 +395,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 - Phase 2.3 review queue UI/resolution refund/dispute/chargeback/failed-payment/expired-checkout evidence:
 - Phase 2.4 read-only local billing reconciliation report evidence:
 - Phase 6.4 tenant folder/image ownership metadata schema evidence, with no backfill/access-change claim:
+- Phase 6.8 tenant asset ownership evidence runbook/template record:
 - Automated billing remediation evidence:
 - Restore drill evidence:
 - Alert/WAF/static header/RUM evidence:
@@ -388,7 +407,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, Phase 4.9 Admin Music metadata-only idempotency, Phase 4.10 Admin Compare metadata-only idempotency, Phase 4.12 Admin Live-Agent metadata-only stream-session idempotency, Phase 4.13 sync video debug retirement classification, Phase 4.14 Admin Image branch classification, Phase 4.15 Cloudflare master runtime budget-switch enforcement, Phase 4.15.1 D1 app-switch control, Phase 4.17 platform cap foundation, Phase 4.20 repair report/export, Phase 4.21 archive/retention workflow, and Phase 6.4 nullable folder/image ownership schema are not live billing readiness, automated accounting reconciliation, automated remediation, customer billing, full tenant isolation, or full AI budget enforcement. A human approver must verify migrations through `0056_add_ai_folder_image_ownership_metadata.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata/cap behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection/cap behavior, Admin Music duplicate-suppression/conflict/cap behavior, Admin Compare duplicate-suppression/conflict/cap behavior, Admin Live-Agent duplicate-suppression/conflict/finalization/cap behavior, sync video debug disabled-by-default behavior, Admin Image charged/explicit-unmetered/blocked behavior, runtime budget-switch intended state, D1 app-switch effective-state behavior, repair report/export evidence, archive create/download/expire/cleanup evidence, tenant schema compatibility/no-backfill evidence, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, Phase 4.9 Admin Music metadata-only idempotency, Phase 4.10 Admin Compare metadata-only idempotency, Phase 4.12 Admin Live-Agent metadata-only stream-session idempotency, Phase 4.13 sync video debug retirement classification, Phase 4.14 Admin Image branch classification, Phase 4.15 Cloudflare master runtime budget-switch enforcement, Phase 4.15.1 D1 app-switch control, Phase 4.17 platform cap foundation, Phase 4.20 repair report/export, Phase 4.21 archive/retention workflow, Phase 6.4 nullable folder/image ownership schema, and Phase 6.8 tenant asset evidence collection records are not live billing readiness, automated accounting reconciliation, automated remediation, customer billing, full tenant isolation, or full AI budget enforcement. A human approver must verify migrations through `0056_add_ai_folder_image_ownership_metadata.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata/cap behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection/cap behavior, Admin Music duplicate-suppression/conflict/cap behavior, Admin Compare duplicate-suppression/conflict/cap behavior, Admin Live-Agent duplicate-suppression/conflict/finalization/cap behavior, sync video debug disabled-by-default behavior, Admin Image charged/explicit-unmetered/blocked behavior, runtime budget-switch intended state, D1 app-switch effective-state behavior, repair report/export evidence, archive create/download/expire/cleanup evidence, tenant schema compatibility/no-backfill evidence, tenant asset evidence collection records, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 
