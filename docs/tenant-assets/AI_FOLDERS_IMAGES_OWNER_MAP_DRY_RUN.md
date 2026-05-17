@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. These phases do not backfill ownership, move/delete/copy/list R2 objects, change folder/image access checks, change public gallery behavior, change lifecycle/export/delete behavior, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
 
 ## Current Schema Summary
 
@@ -129,6 +129,18 @@ The focused dry run now embeds `readDiagnostics` from `workers/auth/src/lib/tena
 - Derivative keys inherit parent ownership only in target design; diagnostics flag derivative risk when parent ownership is missing or conflicted.
 - Diagnostics never authorize requests, backfill rows, list R2, or change runtime access checks.
 
+## Phase 6.7 Admin Evidence Report
+
+The focused dry run now reports the admin evidence surface as ready:
+
+- Evidence endpoint: `GET /api/admin/tenant-assets/folders-images/evidence`.
+- Export endpoint: `GET /api/admin/tenant-assets/folders-images/evidence/export`.
+- Export formats: JSON and Markdown.
+- Evidence is bounded, local-D1-only, sanitized, and read-only.
+- Manual-review rollups surface unsafe-to-switch, metadata-conflict, relationship-conflict, public-unsafe, and derivative-risk signals.
+
+The admin report does not apply backfills, switch access checks, update rows, list R2, expose prompts/private R2 keys, call providers, call Stripe, mutate credits, or claim tenant isolation.
+
 ## Remaining Migration Blockers
 
 - Existing pre-Phase-6.5 rows remain null/unclassified until a future owner-map/backfill phase.
@@ -147,6 +159,6 @@ Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGE
 - Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
 - Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
 
-## Recommended Phase 6.7
+## Recommended Phase 6.8
 
-Phase 6.7 should be **Tenant Asset Ownership Admin Evidence Report for Folders/Images** or a staging owner-map evidence collection phase. It should surface the read diagnostics to operators without switching access checks or backfilling old rows.
+Phase 6.8 should be **Staging Owner-Map Evidence Collection for AI Folders & Images**. It should compare bounded staging rows against the admin evidence report and approved owner-map expectations without switching access checks or backfilling old rows.

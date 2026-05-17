@@ -2,7 +2,7 @@
 
 Date: 2026-05-17
 
-Scope: concise current-state summary after Alpha Audit remediation through Phase 6.6 and DOC-1. Detailed phase history is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, and root `PHASE*.md` reports.
+Scope: concise current-state summary after Alpha Audit remediation through Phase 6.7 and DOC-1. Detailed phase history is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, and root `PHASE*.md` reports.
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
@@ -16,7 +16,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Operations | Runbooks, checks, release plan/preflight, and health/header scripts exist; live evidence remains missing. |
 | Billing | Credit ledgers, guarded Stripe Testmode/live scaffolding, review queue, reconciliation, and evidence tools exist; no full live billing readiness. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway/budget/switch/cap evidence foundations; remaining scopes are explicit future work. |
-| Tenant model | Organizations/RBAC exist; Phase 6.1 adds tenant asset design, Phase 6.2 adds `ai_folders`/`ai_images` owner-map dry-run, Phase 6.3 adds schema/access planning, Phase 6.4 adds nullable ownership metadata schema, Phase 6.5 assigns metadata only for new personal folder/image writes, and Phase 6.6 adds read-only diagnostics; full tenant-owned asset migration remains open. |
+| Tenant model | Organizations/RBAC exist; Phase 6.1 adds tenant asset design, Phase 6.2 adds `ai_folders`/`ai_images` owner-map dry-run, Phase 6.3 adds schema/access planning, Phase 6.4 adds nullable ownership metadata schema, Phase 6.5 assigns metadata only for new personal folder/image writes, Phase 6.6 adds read-only diagnostics, and Phase 6.7 adds admin evidence report/export; full tenant-owned asset migration remains open. |
 | Privacy/data lifecycle | Inventory, retention, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
 | Admin Control Plane | Consolidated navigation exposes implemented billing, lifecycle, AI, budget, repair, report, archive, and readiness tools. |
 
@@ -29,7 +29,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Member image/music/video AI Cost Gateway flows have required idempotency and no-double-debit protections.
 - Admin/platform AI budget controls cover classified paths with Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, reconciliation, explicit repair, reports, and evidence archives.
 - Data lifecycle export/archive/cleanup foundations exist; destructive deletion remains intentionally constrained.
-- Tenant asset ownership design, inventory, risk matrix, focused folder/image owner-map dry-run scripts, schema/access impact plan, nullable metadata columns, new personal folder/image write metadata assignment, and read-only dual-read diagnostics exist without old-row ownership backfill, organization ownership assignment, or access changes.
+- Tenant asset ownership design, inventory, risk matrix, focused folder/image owner-map dry-run scripts, schema/access impact plan, nullable metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, and admin evidence report/export exist without old-row ownership backfill, organization ownership assignment, R2 live listing, or access changes.
 
 ## Production Blockers
 

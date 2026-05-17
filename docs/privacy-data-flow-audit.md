@@ -33,7 +33,8 @@ source-only dry-run scripts only. Phase 6.2 adds a focused `ai_folders` /
 the schema/access impact plan. Phase 6.4 adds nullable ownership metadata
 columns for those two tables only. Phase 6.5 assigns those columns only on new
 personal folder/image writes. Phase 6.6 adds read-only dual-read diagnostics
-for the same folder/image domain. These phases do not rewrite existing D1
+for the same folder/image domain. Phase 6.7 adds admin-only bounded evidence
+reports/exports over those diagnostics. These phases do not rewrite existing D1
 ownership rows, backfill old owner metadata, assign organization ownership,
 move/list/delete R2 objects, alter access checks, alter lifecycle/export/delete
 behavior, change quota accounting, change public gallery behavior, change
@@ -54,8 +55,9 @@ Tenant-owned asset migration remains future work: Phase 6.1 identifies current
 user-owned media tables and R2 key patterns, Phase 6.2 maps folder/image
 owner-class candidates, Phase 6.3 proposes the metadata/access plan, Phase 6.4
 adds nullable columns, Phase 6.5 assigns new personal folder/image write
-metadata, and Phase 6.6 adds simulated read diagnostics. Existing generated
-assets are not backfilled and are not migrated to organization ownership.
+metadata, Phase 6.6 adds simulated read diagnostics, and Phase 6.7 exposes
+bounded admin evidence reports/exports. Existing generated assets are not
+backfilled and are not migrated to organization ownership.
 
 Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform

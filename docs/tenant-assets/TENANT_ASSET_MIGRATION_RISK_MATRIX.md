@@ -4,11 +4,11 @@ Date: 2026-05-17
 
 Current release truth: latest auth D1 migration is `0056_add_ai_folder_image_ownership_metadata.sql`.
 
-Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan. Phase 6.4 adds nullable ownership metadata columns for those two tables only. Phase 6.5 assigns metadata only for new personal folder/image writes. Phase 6.6 adds read-only simulated dual-read diagnostics. These phases do not backfill ownership, assign organization ownership, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
+Phase 6.1 adds risk evidence only. Phase 6.2 adds a focused owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan. Phase 6.4 adds nullable ownership metadata columns for those two tables only. Phase 6.5 assigns metadata only for new personal folder/image writes. Phase 6.6 adds read-only simulated dual-read diagnostics. Phase 6.7 exposes those diagnostics through a bounded admin evidence report/export. These phases do not backfill ownership, assign organization ownership, move/list/delete R2 objects, call providers, call Stripe, mutate Cloudflare, change access checks, change generation/gallery/lifecycle/quota behavior, or claim full tenant isolation.
 
 | Risk | Severity | Evidence source | Affected tables/routes | Proposed mitigation | Safe dry-run signal | Future phase |
 | --- | --- | --- | --- | --- | --- | --- |
-| Ownership ambiguity | High | `ai_images.user_id`, `ai_text_assets.user_id`, `ai_folders.user_id` remain the active access owner signal. Phase 6.2 fixture dry-run shows user-only rows are only medium-confidence personal candidates. Phase 6.5 assigns high-confidence personal owner metadata only for new folder/image writes; Phase 6.6 flags old/null and conflicting rows without changing access. | `ai_images`, `ai_text_assets`, `ai_folders`, private asset routes. | Prove owner-map before backfill and keep read diagnostics clean before access changes. | Count rows lacking target owner classification and simulated dual-read conflicts. | 6.6 diagnostics, later backfill |
+| Ownership ambiguity | High | `ai_images.user_id`, `ai_text_assets.user_id`, `ai_folders.user_id` remain the active access owner signal. Phase 6.2 fixture dry-run shows user-only rows are only medium-confidence personal candidates. Phase 6.5 assigns high-confidence personal owner metadata only for new folder/image writes; Phase 6.6 flags old/null and conflicting rows; Phase 6.7 surfaces bounded admin evidence without changing access. | `ai_images`, `ai_text_assets`, `ai_folders`, private asset routes. | Prove owner-map before backfill and keep read diagnostics clean before access changes. | Count rows lacking target owner classification and simulated dual-read conflicts. | 6.7 evidence, later staging/backfill |
 | Org-billed asset stored as user-owned | High | Org-scoped generation attempts and credit ledgers exist separately from saved asset rows. Phase 6.5 ignores weak client org hints and does not create org-owned saved images without server-verified evidence. | `ai_usage_attempts`, `usage_events`, `ai_images`, `ai_text_assets`. | Link future saved assets to owning org only from server-verified org context, or mark personal explicitly. | Compare org attempt/usage rows to saved asset creation evidence where available. | Future org write-path phase |
 | Public asset attribution is user-only | High | Public routes join `profiles` by asset `user_id`. | `/api/gallery/mempics`, `/api/gallery/memvids`, `/api/gallery/memtracks`. | Add publisher owner class and organization publisher policy. | List public rows with no organization attribution field. | 6.6 |
 | R2 key orphan/owner mismatch | High | R2 keys encode user ids but D1 is source of truth. | `USER_IMAGES`, `PRIVATE_MEDIA`, lifecycle cleanup. | Build bounded owner-map and orphan report before any object action. | Report key patterns and missing D1/R2 reconciliation status. | 6.8 |
@@ -80,3 +80,12 @@ Phase 6.6 adds diagnostics only:
 - organization-owned and platform-admin-test fixture rows remain manual-review items because role-aware policies are not implemented
 - derivative keys are not listed in R2 and inherit parent ownership only as target design evidence
 - no access checks, ownership rows, R2 objects, quota, lifecycle, gallery, billing, credits, or provider behavior changed
+
+## Phase 6.7 Result
+
+Phase 6.7 adds admin evidence only:
+
+- `GET /api/admin/tenant-assets/folders-images/evidence` returns bounded local-D1 ownership diagnostics for operators
+- `GET /api/admin/tenant-assets/folders-images/evidence/export` supports sanitized JSON and Markdown exports
+- report rollups surface metadata-missing rows, unsafe-to-switch rows, relationship conflicts, public-gallery risk, derivative risk, and manual-review counts
+- reports do not backfill ownership, update rows, authorize requests, list R2, expose prompts/private R2 keys, change access checks, or claim tenant isolation

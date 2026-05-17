@@ -1046,6 +1046,257 @@ test.describe('Phase 6.5 AI folder/image new-write ownership metadata', () => {
   });
 });
 
+test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
+  async function createTenantEvidenceHarness({ user = createAdminUser('tenant-evidence-admin'), missingTables = [] } = {}) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [user],
+      missingTables,
+      aiFolders: [
+        {
+          id: 'folder-safe',
+          user_id: 'tenant-evidence-user',
+          name: 'Safe personal folder',
+          slug: 'safe-personal-folder',
+          status: 'active',
+          asset_owner_type: 'personal_user_asset',
+          owning_user_id: 'tenant-evidence-user',
+          created_by_user_id: 'tenant-evidence-user',
+          ownership_status: 'current',
+          ownership_source: 'new_write_personal',
+          ownership_confidence: 'high',
+          ownership_assigned_at: '2026-05-17T10:00:00.000Z',
+          created_at: '2026-05-17T10:00:00.000Z',
+        },
+        {
+          id: 'folder-missing',
+          user_id: 'tenant-legacy-user',
+          name: 'Legacy folder',
+          slug: 'legacy-folder',
+          status: 'active',
+          created_at: '2026-05-17T09:00:00.000Z',
+        },
+        {
+          id: 'folder-conflict',
+          user_id: 'tenant-folder-owner',
+          name: 'Conflict folder',
+          slug: 'conflict-folder',
+          status: 'active',
+          asset_owner_type: 'personal_user_asset',
+          owning_user_id: 'different-folder-owner',
+          created_by_user_id: 'tenant-folder-owner',
+          ownership_status: 'current',
+          ownership_source: 'manual_review',
+          ownership_confidence: 'medium',
+          ownership_assigned_at: '2026-05-17T08:00:00.000Z',
+          created_at: '2026-05-17T08:00:00.000Z',
+        },
+      ],
+      aiImages: [
+        {
+          id: 'image-safe',
+          user_id: 'tenant-evidence-user',
+          folder_id: 'folder-safe',
+          visibility: 'private',
+          r2_key: 'users/tenant-evidence-user/folders/safe/raw-private-image.png',
+          thumb_key: 'users/tenant-evidence-user/derivatives/v1/image-safe/thumb.webp',
+          medium_key: 'users/tenant-evidence-user/derivatives/v1/image-safe/medium.webp',
+          prompt: 'raw prompt should never be reported',
+          asset_owner_type: 'personal_user_asset',
+          owning_user_id: 'tenant-evidence-user',
+          created_by_user_id: 'tenant-evidence-user',
+          ownership_status: 'current',
+          ownership_source: 'new_write_personal',
+          ownership_confidence: 'high',
+          ownership_assigned_at: '2026-05-17T10:10:00.000Z',
+          created_at: '2026-05-17T10:10:00.000Z',
+        },
+        {
+          id: 'image-public-missing',
+          user_id: 'tenant-legacy-user',
+          folder_id: 'folder-missing',
+          visibility: 'public',
+          published_at: '2026-05-17T10:05:00.000Z',
+          r2_key: 'users/tenant-legacy-user/folders/public/raw-public-image.png',
+          prompt: 'public raw prompt should never be reported',
+          created_at: '2026-05-17T10:05:00.000Z',
+        },
+        {
+          id: 'image-relationship-conflict',
+          user_id: 'tenant-image-owner',
+          folder_id: 'folder-conflict',
+          visibility: 'private',
+          r2_key: 'users/tenant-image-owner/folders/conflict/raw-conflict-image.png',
+          asset_owner_type: 'personal_user_asset',
+          owning_user_id: 'tenant-image-owner',
+          created_by_user_id: 'tenant-image-owner',
+          ownership_status: 'current',
+          ownership_source: 'new_write_personal',
+          ownership_confidence: 'high',
+          ownership_assigned_at: '2026-05-17T10:03:00.000Z',
+          created_at: '2026-05-17T10:03:00.000Z',
+        },
+        {
+          id: 'image-orphan',
+          user_id: 'tenant-evidence-user',
+          folder_id: 'folder-does-not-exist',
+          visibility: 'private',
+          r2_key: 'users/tenant-evidence-user/folders/missing/raw-orphan-image.png',
+          asset_owner_type: 'personal_user_asset',
+          owning_user_id: 'tenant-evidence-user',
+          created_by_user_id: 'tenant-evidence-user',
+          ownership_status: 'current',
+          ownership_source: 'new_write_personal',
+          ownership_confidence: 'high',
+          ownership_assigned_at: '2026-05-17T10:01:00.000Z',
+          created_at: '2026-05-17T10:01:00.000Z',
+        },
+      ],
+    });
+    const authHeaders = {
+      Origin: 'https://bitbi.ai',
+      'CF-Connecting-IP': '203.0.113.67',
+    };
+    const token = await seedSession(env, user.id);
+    authHeaders.Cookie = `bitbi_session=${token}`;
+    return { authWorker, env, authHeaders };
+  }
+
+  test('admin can fetch bounded sanitized folders/images ownership evidence without mutations', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const beforeState = JSON.stringify(env.DB.state);
+    const beforeRunCalls = env.DB.runCalls.length;
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/evidence?limit=3&includeDetails=true', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.report).toMatchObject({
+      available: true,
+      source: 'local_d1_read_only',
+      domain: 'folders_images',
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      tenantIsolationClaimed: false,
+      backfillPerformed: false,
+      r2LiveListed: false,
+      productionReadiness: 'blocked',
+      summary: expect.objectContaining({
+        totalFoldersScanned: 3,
+        totalImagesScanned: 3,
+        foldersWithOwnershipMetadata: 2,
+        foldersWithNullOwnershipMetadata: 1,
+        simulatedDualReadUnsafeCount: expect.any(Number),
+        needsManualReviewCount: expect.any(Number),
+      }),
+      classificationRollup: expect.objectContaining({
+        metadata_missing: expect.any(Number),
+      }),
+      dualReadSafetyRollup: expect.objectContaining({
+        unsafe: expect.any(Number),
+        metadataMissing: expect.any(Number),
+      }),
+    });
+    expect(body.report.folderEvidence.length).toBeLessThanOrEqual(3);
+    expect(body.report.imageEvidence.length).toBeLessThanOrEqual(3);
+    expect(body.report.manualReviewQueue.length).toBeGreaterThan(0);
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('raw prompt should never be reported');
+    expect(serialized).not.toContain('public raw prompt should never be reported');
+    expect(serialized).not.toContain('users/tenant-evidence-user/folders/safe/raw-private-image.png');
+    expect(serialized).not.toContain('users/tenant-legacy-user/folders/public/raw-public-image.png');
+    expect(serialized).not.toContain('Bearer ');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('sk_live_');
+    expect(serialized).not.toContain('whsec_');
+    expect(env.DB.runCalls.length).toBe(beforeRunCalls);
+    expect(JSON.stringify(env.DB.state)).toBe(beforeState);
+  });
+
+  test('tenant asset evidence endpoint denies non-admin users and validates filters', async () => {
+    const nonAdmin = await createTenantEvidenceHarness({
+      user: createContractUser({ id: 'tenant-evidence-member', role: 'user' }),
+    });
+    const denied = await nonAdmin.authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/evidence', 'GET', undefined, nonAdmin.authHeaders),
+      nonAdmin.env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const invalid = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/evidence?classification=apply_backfill', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalid.status).toBe(400);
+    const invalidBody = await invalid.json();
+    expect(invalidBody).toEqual(expect.objectContaining({
+      ok: false,
+      code: 'tenant_asset_evidence_filter_invalid',
+    }));
+  });
+
+  test('tenant asset evidence export supports sanitized JSON and Markdown', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+
+    const exportJson = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/evidence/export?format=json&limit=4', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportJson.status).toBe(200);
+    expect(exportJson.headers.get('content-type')).toContain('application/json');
+    expect(exportJson.headers.get('content-disposition')).toContain('tenant-asset-ownership-evidence-');
+    const exportBody = await exportJson.json();
+    expect(exportBody.reportVersion).toBe('tenant-asset-ownership-evidence-report-v1');
+    expect(JSON.stringify(exportBody)).not.toContain('raw-private-image.png');
+
+    const exportMarkdown = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/evidence/export?format=markdown&limit=4', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportMarkdown.status).toBe(200);
+    expect(exportMarkdown.headers.get('content-type')).toContain('text/markdown');
+    const markdown = await exportMarkdown.text();
+    expect(markdown).toContain('Tenant Asset Ownership Evidence Report');
+    expect(markdown).toContain('Access checks changed: no');
+    expect(markdown).not.toContain('raw-private-image.png');
+    expect(markdown).not.toContain('raw prompt should never be reported');
+  });
+
+  test('missing ownership tables return safe unavailable evidence status', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      missingTables: ['ai_images'],
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/folders-images/evidence', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.report).toEqual(expect.objectContaining({
+      ok: false,
+      available: false,
+      code: 'tenant_asset_evidence_schema_unavailable',
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      r2LiveListed: false,
+    }));
+  });
+});
+
 function seedAdminImageChargeOrg(env, {
   orgId = ADMIN_AI_CHARGE_ORG_ID,
   creditBalance = 100,
@@ -1895,6 +2146,24 @@ test.describe('Phase 1-E auth route policy registry', () => {
       mfa: 'admin-production-required',
       csrf: 'same-origin-required',
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER', 'AUDIT_ARCHIVE']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.evidence.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-evidence-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/evidence/export')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.folders-images.evidence.export',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-evidence-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.cleanup-expired',

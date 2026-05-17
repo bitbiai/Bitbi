@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.7 candidate: surface read diagnostics to operators or collect bounded staging owner-map evidence before access/backfill work.",
+    futurePhase: "Phase 6.8 candidate: collect bounded staging owner-map evidence before access/backfill work.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.7 candidate: surface read diagnostics to operators or collect bounded staging owner-map evidence before access/backfill work.",
+    futurePhase: "Phase 6.8 candidate: collect bounded staging owner-map evidence before access/backfill work.",
   },
   {
     id: "ai_video_jobs",
@@ -218,7 +218,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["quota_accounting_user_only", "organization_storage_quota_missing"],
-    futurePhase: "Phase 6.7 after read diagnostics prove owner metadata and organization quota design is approved.",
+    futurePhase: "Phase 6.8 after admin evidence and staging owner-map data prove owner metadata and organization quota design is approved.",
   },
   {
     id: "data_lifecycle",
@@ -243,7 +243,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "audit_archive_asset",
     risk: "high",
     findings: ["lifecycle_user_only", "organization_export_delete_gap"],
-    futurePhase: "Phase 6.7 after owner mapping is proven.",
+    futurePhase: "Phase 6.8 after owner mapping is proven.",
   },
   {
     id: "news_pulse_visuals",
@@ -389,13 +389,13 @@ const FUTURE_PHASES = Object.freeze([
   },
   {
     phase: "6.7",
-    title: "Tenant asset ownership admin evidence or staging owner-map evidence",
-    scope: "Surface folders/images read diagnostics to operators or collect bounded real-row evidence; no access switch or backfill.",
+    title: "Tenant asset ownership admin evidence report",
+    scope: "Implemented as bounded admin-only folders/images evidence report and JSON/Markdown export; no access switch or backfill.",
   },
   {
     phase: "6.8",
-    title: "Export/delete/lifecycle, quota, and R2 owner-map integration",
-    scope: "Extend lifecycle/quota planning and bounded object-key evidence after owner model is proven; no deletes.",
+    title: "Staging owner-map evidence collection",
+    scope: "Collect bounded staging row evidence and compare admin report output against approved owner-map expectations; no access switch or backfill.",
   },
   {
     phase: "6.9",
@@ -1300,6 +1300,12 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     includePublic: true,
     includeRelationships: true,
   });
+  const manualReviewSignalCount = readDiagnostics.summary.needsManualReviewCount
+    + readDiagnostics.summary.simulatedDualReadUnsafeCount
+    + readDiagnostics.summary.metadataConflictCount
+    + readDiagnostics.summary.relationshipConflictCount
+    + readDiagnostics.summary.publicImagesWithMissingOrAmbiguousOwnership
+    + readDiagnostics.summary.derivativeOwnershipRisks;
 
   return {
     reportVersion: "tenant-folders-images-owner-map-dry-run-v1",
@@ -1408,6 +1414,10 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       phase66AccessBehaviorChange: false,
       readDiagnosticsAdded: true,
       dualReadSafetySimulated: true,
+      adminEvidenceReportReady: true,
+      adminEvidenceEndpoint: "/api/admin/tenant-assets/folders-images/evidence",
+      adminEvidenceExportEndpoint: "/api/admin/tenant-assets/folders-images/evidence/export",
+      adminEvidenceExportFormats: ["json", "markdown"],
       readDiagnosticsSummary: {
         simulatedDualReadSafeCount: readDiagnostics.summary.simulatedDualReadSafeCount,
         simulatedDualReadUnsafeCount: readDiagnostics.summary.simulatedDualReadUnsafeCount,
@@ -1419,6 +1429,36 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         relationshipConflictCount: readDiagnostics.summary.relationshipConflictCount,
         publicUnsafeCount: readDiagnostics.summary.publicImagesWithMissingOrAmbiguousOwnership,
         derivativeRiskCount: readDiagnostics.summary.derivativeOwnershipRisks,
+      },
+      manualReviewRollup: {
+        needsManualReviewCount: readDiagnostics.summary.needsManualReviewCount,
+        unsafeToSwitchCount: readDiagnostics.summary.simulatedDualReadUnsafeCount,
+        metadataConflictCount: readDiagnostics.summary.metadataConflictCount,
+        relationshipConflictCount: readDiagnostics.summary.relationshipConflictCount,
+        publicUnsafeCount: readDiagnostics.summary.publicImagesWithMissingOrAmbiguousOwnership,
+        derivativeRiskCount: readDiagnostics.summary.derivativeOwnershipRisks,
+        totalReviewSignals: manualReviewSignalCount,
+      },
+    },
+    adminEvidenceReport: {
+      status: "admin_evidence_report_ready",
+      readOnly: true,
+      endpoint: "/api/admin/tenant-assets/folders-images/evidence",
+      exportEndpoint: "/api/admin/tenant-assets/folders-images/evidence/export",
+      exportFormats: ["json", "markdown"],
+      routePolicyRequired: true,
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      backfillPerformed: false,
+      r2LiveListed: false,
+      manualReviewRollup: {
+        needsManualReviewCount: readDiagnostics.summary.needsManualReviewCount,
+        unsafeToSwitchCount: readDiagnostics.summary.simulatedDualReadUnsafeCount,
+        metadataConflictCount: readDiagnostics.summary.metadataConflictCount,
+        relationshipConflictCount: readDiagnostics.summary.relationshipConflictCount,
+        publicUnsafeCount: readDiagnostics.summary.publicImagesWithMissingOrAmbiguousOwnership,
+        derivativeRiskCount: readDiagnostics.summary.derivativeOwnershipRisks,
+        totalReviewSignals: manualReviewSignalCount,
       },
     },
     blockedUntil: [
@@ -1438,7 +1478,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "No runtime access behavior changes are made.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? "Phase 6.7 — Tenant Asset Ownership Admin Evidence Report for Folders/Images"
+      ? "Phase 6.8 — Staging Owner-Map Evidence Collection for AI Folders & Images"
       : ownershipMigrationExists
         ? "Phase 6.5 — Write-path Ownership Assignment for New AI Folders & Images"
       : "Phase 6.4 — Additive Ownership Metadata Schema for AI Folders & Images",
@@ -1567,6 +1607,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Phase 6.5 access behavior change: ${report.schemaAccessImpact?.phase65AccessBehaviorChange === false ? "no" : "review"}`,
     `- Phase 6.6 access behavior change: ${report.schemaAccessImpact?.phase66AccessBehaviorChange === false ? "no" : "review"}`,
     `- Read diagnostics added: ${report.schemaAccessImpact?.readDiagnosticsAdded ? "yes" : "no"}`,
+    `- Admin evidence report ready: ${report.schemaAccessImpact?.adminEvidenceReportReady ? "yes" : "no"}`,
     `- Simulated dual-read safe items: ${report.readDiagnostics?.summary?.simulatedDualReadSafeCount ?? 0}`,
     `- Simulated dual-read unsafe items: ${report.readDiagnostics?.summary?.simulatedDualReadUnsafeCount ?? 0}`,
     "",
@@ -1629,6 +1670,14 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     ].map((item) => (
       `| ${item.domain} | ${item.sourceId || item.id} | ${item.classification} | ${item.severity} | ${item.reason} |`
     )),
+    "",
+    "## Admin Evidence Report",
+    "",
+    `- Status: ${report.adminEvidenceReport?.status || "not_ready"}`,
+    `- Endpoint: ${report.adminEvidenceReport?.endpoint || "not_added"}`,
+    `- Export endpoint: ${report.adminEvidenceReport?.exportEndpoint || "not_added"}`,
+    `- Export formats: ${(report.adminEvidenceReport?.exportFormats || []).join(", ") || "none"}`,
+    `- Manual review signals: ${report.adminEvidenceReport?.manualReviewRollup?.totalReviewSignals ?? 0}`,
     "",
     "## Safety",
     "",

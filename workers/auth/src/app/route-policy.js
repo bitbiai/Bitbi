@@ -480,6 +480,18 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
     rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
   }),
+  adminRead("admin.tenant-assets.folders-images.evidence.read", "/api/admin/tenant-assets/folders-images/evidence", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-evidence-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.7 read-only tenant asset ownership evidence report for ai_folders and ai_images. It compares legacy user_id signals with ownership metadata using bounded local D1 reads only; no access-check switch, backfill, D1 mutation, R2 listing, provider call, Stripe call, credit mutation, or billing behavior change.",
+  }),
+  adminRead("admin.tenant-assets.folders-images.evidence.export", "/api/admin/tenant-assets/folders-images/evidence/export", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-evidence-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.7 bounded sanitized tenant asset ownership evidence export for ai_folders and ai_images. Supports JSON and Markdown, omits prompts and private R2 keys, and performs no access, data, R2, provider, Stripe, credit, or billing mutation.",
+  }),
 
   adminRead("admin.mfa.status", "/api/admin/mfa/status", "admin-mfa", {
     mfa: "admin-bootstrap-allowed",

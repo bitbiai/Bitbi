@@ -902,6 +902,12 @@ class MockD1 {
     if (this.missingTables.has('ai_video_jobs') && query.includes('ai_video_jobs')) {
       throw new Error('no such table: ai_video_jobs');
     }
+    if (this.missingTables.has('ai_folders') && query.includes('ai_folders')) {
+      throw new Error('no such table: ai_folders');
+    }
+    if (this.missingTables.has('ai_images') && query.includes('ai_images')) {
+      throw new Error('no such table: ai_images');
+    }
     if (this.missingTables.has('ai_video_job_poison_messages') && query.includes('ai_video_job_poison_messages')) {
       throw new Error('no such table: ai_video_job_poison_messages');
     }
@@ -5060,6 +5066,32 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query === 'SELECT id, user_id, status, asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id, ownership_status, ownership_source, ownership_confidence, ownership_assigned_at, created_at FROM ai_folders ORDER BY created_at DESC, id DESC LIMIT ?') {
+      const [limit] = bindings;
+      const rows = this.state.aiFolders
+        .slice()
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, Number(limit) || 50)
+        .map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          status: row.status ?? 'active',
+          asset_owner_type: row.asset_owner_type ?? null,
+          owning_user_id: row.owning_user_id ?? null,
+          owning_organization_id: row.owning_organization_id ?? null,
+          created_by_user_id: row.created_by_user_id ?? null,
+          ownership_status: row.ownership_status ?? null,
+          ownership_source: row.ownership_source ?? null,
+          ownership_confidence: row.ownership_confidence ?? null,
+          ownership_assigned_at: row.ownership_assigned_at ?? null,
+          created_at: row.created_at,
+        }));
+      return { results: rows };
+    }
+
     if (query === 'SELECT folder_id, COUNT(*) AS cnt FROM ai_images WHERE user_id = ? GROUP BY folder_id') {
       const [userId] = bindings;
       const counts = new Map();
@@ -6326,6 +6358,37 @@ class MockD1 {
           created_at: row.created_at,
           thumb_key: row.thumb_key ?? null,
           medium_key: row.medium_key ?? null,
+        }));
+      return { results: rows };
+    }
+
+    if (query === 'SELECT id, user_id, folder_id, visibility, published_at, r2_key, thumb_key, medium_key, asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id, ownership_status, ownership_source, ownership_confidence, ownership_assigned_at, created_at FROM ai_images ORDER BY created_at DESC, id DESC LIMIT ?') {
+      const [limit] = bindings;
+      const rows = this.state.aiImages
+        .slice()
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, Number(limit) || 50)
+        .map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          folder_id: row.folder_id ?? null,
+          visibility: row.visibility ?? 'private',
+          published_at: row.published_at ?? null,
+          r2_key: row.r2_key ?? null,
+          thumb_key: row.thumb_key ?? null,
+          medium_key: row.medium_key ?? null,
+          asset_owner_type: row.asset_owner_type ?? null,
+          owning_user_id: row.owning_user_id ?? null,
+          owning_organization_id: row.owning_organization_id ?? null,
+          created_by_user_id: row.created_by_user_id ?? null,
+          ownership_status: row.ownership_status ?? null,
+          ownership_source: row.ownership_source ?? null,
+          ownership_confidence: row.ownership_confidence ?? null,
+          ownership_assigned_at: row.ownership_assigned_at ?? null,
+          created_at: row.created_at,
         }));
       return { results: rows };
     }
