@@ -2,9 +2,9 @@
 
 Date: 2026-05-17
 
-Scope: concise current-state summary after Alpha Audit remediation through Phase 6.22 and DOC-1. Detailed phase history is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, and root `PHASE*.md` reports.
+Scope: concise current-state summary after Alpha Audit remediation through Phase 6.23 and DOC-1. Detailed phase history is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, and root `PHASE*.md` reports.
 
-Current release truth: latest auth D1 migration is `0057_add_ai_asset_manual_review_state.sql`.
+Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
 This report is not production readiness, live billing readiness, legal compliance certification, full tenant isolation, or full SaaS maturity evidence.
 
@@ -16,7 +16,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Operations | Runbooks, checks, release plan/preflight, and health/header scripts exist; live evidence remains missing. |
 | Billing | Credit ledgers, guarded Stripe Testmode/live scaffolding, review queue, reconciliation, and evidence tools exist; no full live billing readiness. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway/budget/switch/cap evidence foundations; remaining scopes are explicit future work. |
-| Tenant model | Organizations/RBAC exist; Phase 6.1 adds tenant asset design, Phase 6.2 adds `ai_folders`/`ai_images` owner-map dry-run, Phase 6.3 adds schema/access planning, Phase 6.4 adds nullable ownership metadata schema, Phase 6.5 assigns metadata only for new personal folder/image writes, Phase 6.6 adds read-only diagnostics, Phase 6.7 adds admin evidence report/export, Phase 6.8 adds evidence collection runbook/template/checklist, Phase 6.9 adds a main-only evidence package, Phase 6.10 reviews real main evidence with manual review required, Phase 6.11 adds manual-review workflow design, Phase 6.12 designs review-state schema, Phase 6.13 adds empty review-state tables only, Phase 6.14 adds review import dry-run planning, Phase 6.15 adds an admin-approved review-item import executor that writes review items/events only, Phase 6.16 adds read-only queue/evidence APIs, Phase 6.17 adds admin-approved review-status updates on review items/events only, Phase 6.18 adds Admin queue/status visibility for review-state rows only, Phase 6.19 adds operator evidence collection docs, Phase 6.20 reviews live/main operator evidence with `operator_evidence_collected_needs_more_idempotency`, Phase 6.21 adds legacy media reset dry-run/export planning, and Phase 6.22 adds reset executor design only; full tenant-owned asset migration remains open. |
+| Tenant model | Organizations/RBAC exist; folder/image ownership metadata is assigned only on new personal writes; manual-review import/queue/status workflows exist for review-state rows; Phase 6.21 adds legacy media reset dry-run/export planning, Phase 6.22 designs the reset executor, and Phase 6.23 adds reset action tracking plus a dry-run-default admin-approved executor path. Full tenant-owned asset migration remains open; backfill/access switch/tenant isolation remain blocked. |
 | Privacy/data lifecycle | Inventory, retention, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
 | Admin Control Plane | Consolidated navigation exposes implemented billing, lifecycle, AI, budget, repair, report, archive, and readiness tools. |
 
@@ -29,11 +29,11 @@ This report is not production readiness, live billing readiness, legal complianc
 - Member image/music/video AI Cost Gateway flows have required idempotency and no-double-debit protections.
 - Admin/platform AI budget controls cover classified paths with Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, reconciliation, explicit repair, reports, and evidence archives.
 - Data lifecycle export/archive/cleanup foundations exist; destructive deletion remains intentionally constrained.
-- Tenant asset ownership design, inventory, risk matrix, focused folder/image owner-map dry-run scripts, schema/access impact plan, nullable metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin evidence report/export, evidence collection docs, Phase 6.9 main evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, Phase 6.12 review-state schema design, Phase 6.13 empty review-state tables, Phase 6.14 review import dry-run planning, Phase 6.15 admin-approved review-item import executor, Phase 6.16 read-only queue/evidence APIs, Phase 6.17 admin-approved review-status workflow, Phase 6.18 Admin Control Plane queue/status visibility, Phase 6.19 operator evidence package, Phase 6.20 operator evidence decision update, Phase 6.21 legacy media reset dry-run/export, and Phase 6.22 reset executor design exist without old-row ownership backfill, organization ownership assignment, source asset row updates, ownership metadata updates, review row/status changes by Codex/tests, media deletion, reset executor, endpoint, UI, migration, R2 live listing, or access changes.
+- Tenant asset ownership design, focused folder/image dry-run/evidence, nullable metadata for new personal writes, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, and Phase 6.23 reset action/event tracking plus executor endpoints exist without old-row ownership backfill, organization ownership assignment, ownership metadata updates, access-switching, live/main reset execution by Codex/tests, live R2 listing, UI changes, or billing/credit mutation.
 
 ## Production Blockers
 
-- Apply auth migrations through `0057_add_ai_asset_manual_review_state.sql`.
+- Apply auth migrations through `0058_add_legacy_media_reset_actions.sql`.
 - Verify all required Worker secrets and bindings without exposing values.
 - Verify D1/R2/Queues/Durable Objects/service bindings against live or staging resources.
 - Record Stripe Testmode/live canary evidence only with explicit operator flags.

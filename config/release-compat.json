@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0057_add_ai_asset_manual_review_state.sql",
+        "latest": "0058_add_legacy_media_reset_actions.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

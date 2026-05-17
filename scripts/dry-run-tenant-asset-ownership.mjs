@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.23 should add action tracking schema only if the Phase 6.22 executor design is approved; no access/backfill/source asset work is approved.",
+    futurePhase: "Phase 6.24 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.23 should add action tracking schema only if the Phase 6.22 executor design is approved; no access/backfill/source asset work is approved.",
+    futurePhase: "Phase 6.24 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
   },
   {
     id: "ai_video_jobs",
@@ -1469,6 +1469,8 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const legacyMediaResetDryRunDocFile = "docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_DRY_RUN.md";
   const legacyMediaResetExecutorDesignDocFile = "docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md";
   const legacyMediaResetDryRunHelper = "workers/auth/src/lib/tenant-asset-legacy-media-reset.js";
+  const legacyMediaResetExecutorHelper = "workers/auth/src/lib/tenant-asset-legacy-media-reset-executor.js";
+  const legacyMediaResetActionMigrationFile = "workers/auth/migrations/0058_add_legacy_media_reset_actions.sql";
   const tenantAssetsAdminRouteFile = "workers/auth/src/routes/admin-tenant-assets.js";
   const routePolicyFile = "workers/auth/src/app/route-policy.js";
   const realMainEvidenceFound = fileExists(repoRoot, evidenceSummaryFile);
@@ -1505,6 +1507,10 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     && readText(repoRoot, tenantAssetsAdminRouteFile).includes("TENANT_ASSET_LEGACY_MEDIA_RESET_DRY_RUN_ENDPOINT")
     && readText(repoRoot, routePolicyFile).includes("admin.tenant-assets.legacy-media-reset.dry-run");
   const legacyMediaResetExecutorDesigned = fileExists(repoRoot, legacyMediaResetExecutorDesignDocFile);
+  const legacyMediaResetExecutorAdded = fileExists(repoRoot, legacyMediaResetExecutorHelper)
+    && fileExists(repoRoot, legacyMediaResetActionMigrationFile)
+    && readText(repoRoot, tenantAssetsAdminRouteFile).includes("TENANT_ASSET_LEGACY_MEDIA_RESET_EXECUTE_ENDPOINT")
+    && readText(repoRoot, routePolicyFile).includes("admin.tenant-assets.legacy-media-reset.execute");
   const mainEvidenceStatus = realMainEvidenceFound
     ? "needs_manual_review"
     : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
@@ -1517,8 +1523,10 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       : "not_recorded";
   const manualReviewOperatorEvidenceNextPhase = manualReviewOperatorEvidenceFilesFound
     ? legacyMediaResetDryRunAdded
-      ? legacyMediaResetExecutorDesigned
-        ? "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
+      ? legacyMediaResetExecutorAdded
+        ? "Phase 6.24 — Legacy Media Reset Operator Dry-run Evidence"
+        : legacyMediaResetExecutorDesigned
+        ? "Phase 6.23 — Admin-approved Legacy Media Reset Action Tracking + Executor"
         : "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
       : manualReviewOperatorEvidenceStatus === "operator_evidence_collected_blocked"
         ? "Phase 6.21 — Legacy Personal Media Reset / Safe Asset Retirement Dry Run"
@@ -2094,18 +2102,20 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       r2ObjectsMutated: false,
       futureExecutorRequired: true,
       recommendedNextPhase: legacyMediaResetDryRunAdded
-        ? legacyMediaResetExecutorDesigned
-          ? "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
+        ? legacyMediaResetExecutorAdded
+          ? "Phase 6.24 — Legacy Media Reset Operator Dry-run Evidence"
+          : legacyMediaResetExecutorDesigned
+          ? "Phase 6.23 — Admin-approved Legacy Media Reset Action Tracking + Executor"
           : "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
         : "Phase 6.21 — Legacy Personal Media Reset / Safe Asset Retirement Dry Run",
     },
     legacyMediaResetExecutorDesign: {
       status: legacyMediaResetExecutorDesigned ? "legacy_media_reset_executor_designed" : "not_recorded",
       doc: legacyMediaResetExecutorDesigned ? legacyMediaResetExecutorDesignDocFile : null,
-      executorImplemented: false,
-      endpointAdded: false,
+      executorImplemented: legacyMediaResetExecutorAdded,
+      endpointAdded: legacyMediaResetExecutorAdded,
       uiAdded: false,
-      migrationAdded: false,
+      migrationAdded: legacyMediaResetExecutorAdded,
       deletionPerformed: false,
       sourceAssetRowsMutated: false,
       ownershipMetadataUpdated: false,
@@ -2137,10 +2147,58 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         "GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/evidence",
         "GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/export",
       ],
-      futureActionTrackingSchemaNeeded: true,
+      futureActionTrackingSchemaNeeded: !legacyMediaResetExecutorAdded,
       recommendedNextPhase: legacyMediaResetExecutorDesigned
-        ? "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
+        ? legacyMediaResetExecutorAdded
+          ? "Phase 6.24 — Legacy Media Reset Operator Dry-run Evidence"
+          : "Phase 6.23 — Admin-approved Legacy Media Reset Action Tracking + Executor"
         : "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design",
+    },
+    legacyMediaResetExecutor: {
+      status: legacyMediaResetExecutorAdded ? "legacy_media_reset_executor_added" : "not_recorded",
+      helper: legacyMediaResetExecutorAdded ? legacyMediaResetExecutorHelper : null,
+      migration: legacyMediaResetExecutorAdded ? legacyMediaResetActionMigrationFile : null,
+      executeEndpoint: legacyMediaResetExecutorAdded
+        ? "/api/admin/tenant-assets/legacy-media-reset/execute"
+        : null,
+      actionEndpoints: legacyMediaResetExecutorAdded
+        ? [
+          "GET /api/admin/tenant-assets/legacy-media-reset/actions",
+          "GET /api/admin/tenant-assets/legacy-media-reset/actions/:id",
+          "GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/evidence",
+          "GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/export",
+        ]
+        : [],
+      executorDryRunDefault: true,
+      actionTrackingAdded: legacyMediaResetExecutorAdded,
+      firstPassDomainsLimited: [
+        "ai_images",
+        "ai_folders",
+        "ai_image_derivatives",
+        "public_gallery_references",
+      ],
+      deferredDomains: [
+        "ai_text_assets",
+        "music_assets",
+        "video_assets",
+        "profile_avatars",
+        "data_lifecycle_exports",
+        "audit_archive",
+        "unknown_media_tables",
+      ],
+      manualReviewSupersessionDeferred: true,
+      liveExecutionPerformedByScript: false,
+      deletionPerformedByScript: false,
+      ownershipBackfillPerformed: false,
+      accessChecksChanged: false,
+      sourceMutationOutsideConfirmedExecutor: false,
+      r2LiveListed: false,
+      noBillingCreditMutation: true,
+      recommendedNextPhase: legacyMediaResetExecutorAdded
+        ? "Phase 6.24 — Legacy Media Reset Operator Dry-run Evidence"
+        : legacyMediaResetExecutorDesigned
+          ? "Phase 6.23 — Admin-approved Legacy Media Reset Action Tracking + Executor"
+          : "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design",
     },
     blockedUntil: [
       writePathAssignment.status === "write_paths_assigned_for_new_rows"
@@ -2167,7 +2225,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "Public gallery attribution and lifecycle/export/delete impacts are designed.",
       "Operator evidence is reviewed before any backfill.",
       legacyMediaResetDryRunAdded
-        ? legacyMediaResetExecutorDesigned
+        ? legacyMediaResetExecutorAdded
+          ? "Legacy media reset executor is added but requires live/main dry-run operator evidence before any confirmed reset execution is considered."
+          : legacyMediaResetExecutorDesigned
           ? "Legacy media reset executor is design-only; action tracking schema and a separately approved executor phase are required before any deletion, depublish, R2 cleanup, quota recalculation, or manual-review supersede action."
           : "Legacy media reset has dry-run evidence only; a future executor design is required before any deletion, depublish, R2 cleanup, quota recalculation, or manual-review supersede action."
         : "Legacy media reset dry-run evidence is collected before any deletion executor is considered.",
@@ -2182,8 +2242,10 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
       ? legacyMediaResetDryRunAdded
-        ? legacyMediaResetExecutorDesigned
-          ? "Phase 6.23 — Legacy Media Reset Action Tracking Schema"
+        ? legacyMediaResetExecutorAdded
+          ? "Phase 6.24 — Legacy Media Reset Operator Dry-run Evidence"
+          : legacyMediaResetExecutorDesigned
+          ? "Phase 6.23 — Admin-approved Legacy Media Reset Action Tracking + Executor"
           : "Phase 6.22 — Admin-approved Legacy Media Reset Executor Design"
         : mainEvidenceNextPhase
       : ownershipMigrationExists
@@ -2529,6 +2591,22 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Future action tracking schema needed: ${report.legacyMediaResetExecutorDesign?.futureActionTrackingSchemaNeeded ? "yes" : "no"}`,
     `- Recommended next phase: ${report.legacyMediaResetExecutorDesign?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
+    "## Legacy Media Reset Executor",
+    "",
+    `- Status: ${report.legacyMediaResetExecutor?.status || "not_recorded"}`,
+    `- Helper: ${report.legacyMediaResetExecutor?.helper || "not_recorded"}`,
+    `- Migration: ${report.legacyMediaResetExecutor?.migration || "not_recorded"}`,
+    `- Execute endpoint: ${report.legacyMediaResetExecutor?.executeEndpoint || "not_recorded"}`,
+    `- Action endpoints: ${(report.legacyMediaResetExecutor?.actionEndpoints || []).join(", ") || "none"}`,
+    `- Dry-run default: ${report.legacyMediaResetExecutor?.executorDryRunDefault ? "yes" : "no"}`,
+    `- Action tracking added: ${report.legacyMediaResetExecutor?.actionTrackingAdded ? "yes" : "no"}`,
+    `- First-pass domains: ${(report.legacyMediaResetExecutor?.firstPassDomainsLimited || []).join(", ") || "none"}`,
+    `- Deferred domains: ${(report.legacyMediaResetExecutor?.deferredDomains || []).join(", ") || "none"}`,
+    `- Manual review supersession deferred: ${report.legacyMediaResetExecutor?.manualReviewSupersessionDeferred ? "yes" : "no"}`,
+    `- Live execution performed by script: ${report.legacyMediaResetExecutor?.liveExecutionPerformedByScript ? "yes" : "no"}`,
+    `- Deletion performed by script: ${report.legacyMediaResetExecutor?.deletionPerformedByScript ? "yes" : "no"}`,
+    `- Recommended next phase: ${report.legacyMediaResetExecutor?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    "",
     "## Safety",
     "",
     "- This dry-run performs no D1 writes.",
@@ -2539,6 +2617,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     "- Phase 6.20 operator evidence decision is collected-but-blocked until idempotency replay/conflict evidence is complete.",
     "- Phase 6.21 legacy media reset dry-run performs D1-only inventory and no deletion, review mutation, R2 listing, or R2 mutation.",
     "- Phase 6.22 legacy media reset executor design adds no executor, endpoint, UI, migration, deletion, source mutation, review mutation, R2 action, backfill, or access switch.",
+    "- Phase 6.23 legacy media reset executor defaults to dry-run and local scripts do not execute deletion, list live R2, backfill ownership, switch access checks, or mutate billing/credits.",
     "- No R2 writes, moves, deletes, copies, or live listings.",
     "- No Cloudflare, Stripe, GitHub, or provider calls.",
     "- No owner backfill SQL is emitted.",

@@ -111,7 +111,18 @@ Phase 6.22 adds the design-only reset executor plan:
 
 - `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md`
 
-The design defines future allowed/deferred domains, endpoint shape, deletion order, public/gallery handling, derivative/R2 safety, audit/idempotency, action tracking, partial-failure, and verification requirements. It adds no executor, endpoint, UI, migration, deletion, source mutation, review-row mutation, R2 action, ownership backfill, or access switch. Future Phase 6.23 may add action-tracking schema only if separately approved.
+The design defines future allowed/deferred domains, endpoint shape, deletion order, public/gallery handling, derivative/R2 safety, audit/idempotency, action tracking, partial-failure, and verification requirements. It adds no executor, endpoint, UI, migration, deletion, source mutation, review-row mutation, R2 action, ownership backfill, or access switch.
+
+Phase 6.23 adds legacy media reset action tracking and the admin-approved executor path:
+
+- `workers/auth/migrations/0058_add_legacy_media_reset_actions.sql`
+- `POST /api/admin/tenant-assets/legacy-media-reset/execute`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/evidence`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/export`
+
+The executor defaults to dry-run. Confirmed execution is limited to `ai_images`, `ai_folders`, `ai_image_derivatives`, and `public_gallery_references`; video/music/text/profile/avatar/export/audit/unknown domains are rejected. It requires admin auth, production MFA, same-origin protection, `Idempotency-Key`, `confirm: true`, bounded `reason`, and explicit public/removal/no-credit/irreversible-deletion acknowledgements. Codex/tests did not execute the reset against live/main data, run remote migrations, deploy, backfill ownership, switch access checks, mutate billing/credits, or list/mutate live R2.
 
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 

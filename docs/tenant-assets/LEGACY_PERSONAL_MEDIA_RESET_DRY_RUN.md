@@ -2,7 +2,7 @@
 
 Date: 2026-05-17
 
-Phase 6.21 adds a bounded, admin-only, read-only dry-run report for evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths may be cleaner than ownership backfill. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` as design-only follow-up; it does not add an executor, endpoint, UI, migration, deletion, source mutation, review-row mutation, R2 action, backfill, or access switch.
+Phase 6.21 adds a bounded, admin-only, read-only dry-run report for evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths may be cleaner than ownership backfill. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` as design-only follow-up. Phase 6.23 adds action tracking and an admin-approved executor path, but the executor remains dry-run by default and Codex/tests did not execute it against live/main data.
 
 This phase is evidence and planning only. It does not delete media, depublish public rows, update source asset rows, update manual-review rows, backfill ownership, change access checks, list live R2, or mutate R2.
 
@@ -95,8 +95,21 @@ A later executor, if approved, must:
 - recalculate or verify storage quota;
 - supersede manual-review rows only in a separately approved phase.
 
+## Phase 6.23 Executor Foundation
+
+Phase 6.23 adds:
+
+- migration `0058_add_legacy_media_reset_actions.sql`;
+- `POST /api/admin/tenant-assets/legacy-media-reset/execute`;
+- read-only action/evidence endpoints under `/api/admin/tenant-assets/legacy-media-reset/actions`;
+- executor helper `workers/auth/src/lib/tenant-asset-legacy-media-reset-executor.js`.
+
+The executor is limited to first-pass `ai_images`, `ai_folders`, `ai_image_derivatives`, and `public_gallery_references`. Video, music, text assets, profile avatars, data lifecycle exports, audit archives, unknown media tables, and manual-review supersession remain deferred. Execution requires admin auth, production MFA, same-origin protection, `Idempotency-Key`, `confirm: true`, bounded `reason`, and deletion/public/no-credit acknowledgements.
+
 ## Safety Statement
 
 Phase 6.21 performs no deletion, no ownership backfill, no access-check switch, no source asset mutation, no ownership metadata update, no review row mutation, no public/gallery mutation, no storage quota mutation, no R2 listing/move/copy/delete/rewrite, no provider call, no Stripe call, no Cloudflare API call, no credit/billing mutation, no deployment, and no tenant-isolation or production-readiness claim.
 
-Recommended next phase: `Phase 6.23 — Legacy Media Reset Action Tracking Schema`.
+Phase 6.23 adds executor code and action/audit tables but Codex/tests performed no live/main D1 source row rewrite, no live/main media deletion, no live/main R2 action, no remote migration, and no deployment.
+
+Recommended next phase: `Phase 6.24 — Legacy Media Reset Operator Dry-run Evidence`.

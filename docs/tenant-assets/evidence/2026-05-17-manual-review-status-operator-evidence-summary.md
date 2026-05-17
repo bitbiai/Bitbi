@@ -109,6 +109,6 @@ Manual-review workflow evidence is sufficient to show the review queue can be po
 
 ## Next Phase
 
-Recommended: `Phase 6.23 - Legacy Media Reset Action Tracking Schema`, after reviewing the Phase 6.22 design-only reset executor plan.
+Recommended: `Phase 6.24 - Legacy Media Reset Operator Dry-run Evidence`, after the Phase 6.23 action tracking/executor foundation.
 
-Phase 6.21 adds legacy media reset planning only. Phase 6.22 adds executor design only and no endpoint, UI, migration, deletion, or mutation. A later idempotency-evidence completion phase may still be needed before any backfill-readiness report. All future work must still avoid backfill, access-check switching, source asset mutation, ownership metadata updates, review-row mutation unless separately approved, R2 actions, provider calls, Stripe calls, Cloudflare mutations, and billing/credit mutations.
+Phase 6.21 adds legacy media reset planning only. Phase 6.22 adds executor design. Phase 6.23 adds action/event tracking and a dry-run-default executor path but Codex/tests did not execute it against live/main data. A later idempotency-evidence completion phase may still be needed before any backfill-readiness report. All future work must still avoid backfill, access-check switching, source asset mutation outside an explicitly approved executor, ownership metadata updates, review-row mutation unless separately approved, live R2 actions, provider calls, Stripe calls, Cloudflare mutations, and billing/credit mutations.

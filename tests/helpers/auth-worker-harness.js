@@ -63,6 +63,46 @@ function normalizeManualReviewEventRow(row) {
   };
 }
 
+function normalizeMediaResetActionRow(row) {
+  return {
+    id: row.id,
+    dry_run: Number(row.dry_run ?? 1),
+    status: row.status,
+    requested_domains_json: row.requested_domains_json || '{"domains":[]}',
+    normalized_request_hash: row.normalized_request_hash,
+    idempotency_key_hash: row.idempotency_key_hash ?? null,
+    operator_user_id: row.operator_user_id ?? null,
+    operator_email: row.operator_email ?? null,
+    reason: row.reason ?? null,
+    acknowledgements_json: row.acknowledgements_json || '{}',
+    evidence_report_generated_at: row.evidence_report_generated_at ?? null,
+    evidence_snapshot_hash: row.evidence_snapshot_hash ?? null,
+    before_summary_json: row.before_summary_json || '{}',
+    result_summary_json: row.result_summary_json || '{}',
+    error_summary_json: row.error_summary_json ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    completed_at: row.completed_at ?? null,
+  };
+}
+
+function normalizeMediaResetActionEventRow(row) {
+  return {
+    id: row.id,
+    action_id: row.action_id,
+    event_type: row.event_type,
+    status: row.status ?? null,
+    domain: row.domain ?? null,
+    item_count: Number(row.item_count || 0),
+    r2_key_type_counts_json: row.r2_key_type_counts_json ?? null,
+    safe_summary_json: row.safe_summary_json ?? null,
+    error_summary_json: row.error_summary_json ?? null,
+    actor_user_id: row.actor_user_id ?? null,
+    actor_email: row.actor_email ?? null,
+    created_at: row.created_at,
+  };
+}
+
 function countInlinePlaceholders(query, pattern) {
   const match = query.match(pattern);
   if (!match || !match[1]) return 0;
@@ -870,6 +910,8 @@ class MockD1 {
       platformBudgetEvidenceArchives: [],
       aiAssetManualReviewItems: [],
       aiAssetManualReviewEvents: [],
+      tenantAssetMediaResetActions: [],
+      tenantAssetMediaResetActionEvents: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -890,6 +932,8 @@ class MockD1 {
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
     this.state.aiAssetManualReviewItems = (this.state.aiAssetManualReviewItems || []).map((row) => normalizeManualReviewItemRow(row));
     this.state.aiAssetManualReviewEvents = (this.state.aiAssetManualReviewEvents || []).map((row) => normalizeManualReviewEventRow(row));
+    this.state.tenantAssetMediaResetActions = (this.state.tenantAssetMediaResetActions || []).map((row) => normalizeMediaResetActionRow(row));
+    this.state.tenantAssetMediaResetActionEvents = (this.state.tenantAssetMediaResetActionEvents || []).map((row) => normalizeMediaResetActionEventRow(row));
     this.state.aiVideoJobs = (this.state.aiVideoJobs || []).map((row) => normalizeAiVideoJobRow(row));
     this.state.aiTextAssets = (this.state.aiTextAssets || []).map((row) => ({
       visibility: 'private',
@@ -971,6 +1015,12 @@ class MockD1 {
       (this.missingTables.has('ai_asset_manual_review_events') && query.includes('ai_asset_manual_review_events'))
     ) {
       throw new Error('no such table: ai_asset_manual_review_items');
+    }
+    if (
+      (this.missingTables.has('tenant_asset_media_reset_actions') && query.includes('tenant_asset_media_reset_actions')) ||
+      (this.missingTables.has('tenant_asset_media_reset_action_events') && query.includes('tenant_asset_media_reset_action_events'))
+    ) {
+      throw new Error('no such table: tenant_asset_media_reset_actions');
     }
     if (this.missingTables.has('ai_video_job_poison_messages') && query.includes('ai_video_job_poison_messages')) {
       throw new Error('no such table: ai_video_job_poison_messages');
@@ -6621,6 +6671,264 @@ class MockD1 {
     }
     if (query === 'SELECT COALESCE(SUM(used_bytes), 0) AS total FROM user_asset_storage_usage') {
       return { total: this.state.userAssetStorageUsage.reduce((sum, row) => sum + Number(row.used_bytes || 0), 0) };
+    }
+
+    const missingOwnershipMetadata = (row) => !hasOwnershipMetadata(row);
+
+    if (query === 'SELECT id, user_id, folder_id, visibility, published_at, r2_key, thumb_key, medium_key, size_bytes, created_at FROM ai_images WHERE asset_owner_type IS NULL OR ownership_status IS NULL OR (owning_user_id IS NULL AND owning_organization_id IS NULL) ORDER BY created_at DESC, id DESC LIMIT ?') {
+      const [limit] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => missingOwnershipMetadata(row))
+          .slice()
+          .sort((a, b) => (
+            String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+            String(b.id || '').localeCompare(String(a.id || ''))
+          ))
+          .slice(0, Number(limit) || 25)
+          .map((row) => ({
+            id: row.id,
+            user_id: row.user_id,
+            folder_id: row.folder_id ?? null,
+            visibility: row.visibility || 'private',
+            published_at: row.published_at ?? null,
+            r2_key: row.r2_key ?? null,
+            thumb_key: row.thumb_key ?? null,
+            medium_key: row.medium_key ?? null,
+            size_bytes: row.size_bytes ?? null,
+            created_at: row.created_at ?? null,
+          })),
+      };
+    }
+
+    if (query === 'SELECT id, user_id, status, created_at FROM ai_folders WHERE asset_owner_type IS NULL OR ownership_status IS NULL OR (owning_user_id IS NULL AND owning_organization_id IS NULL) ORDER BY created_at DESC, id DESC LIMIT ?') {
+      const [limit] = bindings;
+      return {
+        results: this.state.aiFolders
+          .filter((row) => missingOwnershipMetadata(row))
+          .slice()
+          .sort((a, b) => (
+            String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+            String(b.id || '').localeCompare(String(a.id || ''))
+          ))
+          .slice(0, Number(limit) || 25)
+          .map((row) => ({
+            id: row.id,
+            user_id: row.user_id,
+            status: row.status || 'active',
+            created_at: row.created_at ?? null,
+          })),
+      };
+    }
+
+    if (query === 'SELECT id FROM ai_images WHERE folder_id = ?') {
+      const [folderId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.folder_id === folderId)
+          .map((row) => ({ id: row.id })),
+      };
+    }
+
+    if (query === 'SELECT COUNT(*) AS total FROM ai_images WHERE folder_id = ?') {
+      const [folderId] = bindings;
+      return { total: this.state.aiImages.filter((row) => row.folder_id === folderId).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS total FROM ai_text_assets WHERE folder_id = ?') {
+      const [folderId] = bindings;
+      return { total: this.state.aiTextAssets.filter((row) => row.folder_id === folderId).length };
+    }
+
+    const mediaResetActionSelectPrefix = 'SELECT id, dry_run, status, requested_domains_json, normalized_request_hash, idempotency_key_hash, operator_user_id, operator_email, reason, acknowledgements_json, evidence_report_generated_at, evidence_snapshot_hash, before_summary_json, result_summary_json, error_summary_json, created_at, updated_at, completed_at FROM tenant_asset_media_reset_actions';
+
+    if (query.startsWith(`${mediaResetActionSelectPrefix} WHERE idempotency_key_hash = ?`)) {
+      const [idempotencyKeyHash] = bindings;
+      const row = this.state.tenantAssetMediaResetActions
+        .filter((entry) => entry.idempotency_key_hash === idempotencyKeyHash)
+        .sort((a, b) => (
+          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+          String(a.id || '').localeCompare(String(b.id || ''))
+        ))[0];
+      return row ? normalizeMediaResetActionRow(row) : null;
+    }
+
+    if (query.startsWith(`${mediaResetActionSelectPrefix} WHERE id = ? LIMIT 1`)) {
+      const [id] = bindings;
+      const row = this.state.tenantAssetMediaResetActions.find((entry) => entry.id === id);
+      return row ? normalizeMediaResetActionRow(row) : null;
+    }
+
+    if (query.startsWith(mediaResetActionSelectPrefix)) {
+      const limit = Number(bindings.at(-2)) || 25;
+      const offset = Number(bindings.at(-1)) || 0;
+      let rows = this.state.tenantAssetMediaResetActions.slice();
+      if (query.includes('WHERE status = ?')) {
+        const [status] = bindings;
+        rows = rows.filter((row) => row.status === status);
+      }
+      return {
+        results: rows
+          .sort((a, b) => (
+            String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+            String(b.id || '').localeCompare(String(a.id || ''))
+          ))
+          .slice(offset, offset + limit)
+          .map((row) => normalizeMediaResetActionRow(row)),
+      };
+    }
+
+    if (query.startsWith('INSERT INTO tenant_asset_media_reset_actions (')) {
+      const [
+        id,
+        dry_run,
+        status,
+        requested_domains_json,
+        normalized_request_hash,
+        idempotency_key_hash,
+        operator_user_id,
+        operator_email,
+        reason,
+        acknowledgements_json,
+        evidence_report_generated_at,
+        evidence_snapshot_hash,
+        before_summary_json,
+        result_summary_json,
+        error_summary_json,
+        created_at,
+        updated_at,
+        completed_at,
+      ] = bindings;
+      if (this.state.tenantAssetMediaResetActions.some((row) => row.id === id)) {
+        throw new Error('UNIQUE constraint failed: tenant_asset_media_reset_actions.id');
+      }
+      this.state.tenantAssetMediaResetActions.push(normalizeMediaResetActionRow({
+        id,
+        dry_run,
+        status,
+        requested_domains_json,
+        normalized_request_hash,
+        idempotency_key_hash,
+        operator_user_id,
+        operator_email,
+        reason,
+        acknowledgements_json,
+        evidence_report_generated_at,
+        evidence_snapshot_hash,
+        before_summary_json,
+        result_summary_json,
+        error_summary_json,
+        created_at,
+        updated_at,
+        completed_at,
+      }));
+      this._lastChanges = 1;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE tenant_asset_media_reset_actions SET status = ?,')) {
+      const [status, result_summary_json, error_summary_json, updated_at, completed_at, id] = bindings;
+      const row = this.state.tenantAssetMediaResetActions.find((entry) => entry.id === id);
+      if (!row) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      row.status = status;
+      row.result_summary_json = result_summary_json || '{}';
+      row.error_summary_json = error_summary_json ?? null;
+      row.updated_at = updated_at;
+      row.completed_at = completed_at ?? null;
+      this._lastChanges = 1;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO tenant_asset_media_reset_action_events (')) {
+      const [
+        id,
+        action_id,
+        event_type,
+        status,
+        domain,
+        item_count,
+        r2_key_type_counts_json,
+        safe_summary_json,
+        error_summary_json,
+        actor_user_id,
+        actor_email,
+        created_at,
+      ] = bindings;
+      if (this.state.tenantAssetMediaResetActionEvents.some((row) => row.id === id)) {
+        throw new Error('UNIQUE constraint failed: tenant_asset_media_reset_action_events.id');
+      }
+      this.state.tenantAssetMediaResetActionEvents.push(normalizeMediaResetActionEventRow({
+        id,
+        action_id,
+        event_type,
+        status,
+        domain,
+        item_count,
+        r2_key_type_counts_json,
+        safe_summary_json,
+        error_summary_json,
+        actor_user_id,
+        actor_email,
+        created_at,
+      }));
+      this._lastChanges = 1;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT id, action_id, event_type, status, domain, item_count, r2_key_type_counts_json, safe_summary_json, error_summary_json, actor_user_id, actor_email, created_at FROM tenant_asset_media_reset_action_events WHERE action_id = ?')) {
+      const [actionId, limit] = bindings;
+      return {
+        results: this.state.tenantAssetMediaResetActionEvents
+          .filter((row) => row.action_id === actionId)
+          .sort((a, b) => (
+            String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+            String(a.id || '').localeCompare(String(b.id || ''))
+          ))
+          .slice(0, Number(limit) || 100)
+          .map((row) => normalizeMediaResetActionEventRow(row)),
+      };
+    }
+
+    if (query.startsWith("UPDATE ai_images SET visibility = 'private', published_at = NULL WHERE id IN (")) {
+      const ids = new Set(bindings);
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (ids.has(row.id) && (row.visibility || 'private') === 'public') {
+          row.visibility = 'private';
+          row.published_at = null;
+          changes += 1;
+        }
+      }
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (query.startsWith('DELETE FROM ai_images WHERE user_id = ? AND id IN (')) {
+      const [userId, ...ids] = bindings;
+      const idSet = new Set(ids);
+      const before = this.state.aiImages.length;
+      this.state.aiImages = this.state.aiImages.filter((row) => !(row.user_id === userId && idSet.has(row.id)));
+      const changes = before - this.state.aiImages.length;
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (query.startsWith('DELETE FROM ai_folders WHERE id = ? AND user_id = ? AND NOT EXISTS')) {
+      const [folderId, userId] = bindings;
+      const hasImages = this.state.aiImages.some((row) => row.folder_id === folderId);
+      const hasText = this.state.aiTextAssets.some((row) => row.folder_id === folderId);
+      if (hasImages || hasText) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      const before = this.state.aiFolders.length;
+      this.state.aiFolders = this.state.aiFolders.filter((row) => !(row.id === folderId && row.user_id === userId));
+      const changes = before - this.state.aiFolders.length;
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
     }
 
     const manualReviewItemSelectPrefix = 'SELECT id, asset_domain, asset_id, related_asset_id, source_table, source_row_id, issue_category, review_status, severity, priority, legacy_owner_user_id, proposed_asset_owner_type, proposed_owning_user_id, proposed_owning_organization_id, proposed_ownership_status, proposed_ownership_source, proposed_ownership_confidence, evidence_source_path, evidence_report_generated_at, evidence_summary_json, safe_notes, assigned_to_user_id, reviewed_by_user_id, reviewed_at, created_by_user_id, created_at, updated_at, superseded_by_id, metadata_json FROM ai_asset_manual_review_items';

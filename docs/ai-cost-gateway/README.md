@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Status: current index for AI cost controls. Detailed phase history belongs in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` and historical phase reports, not here.
 
-Current release truth: latest auth D1 migration is `0057_add_ai_asset_manual_review_state.sql`.
+Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
 Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 

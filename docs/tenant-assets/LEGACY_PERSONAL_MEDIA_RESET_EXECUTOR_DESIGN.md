@@ -2,11 +2,13 @@
 
 Date: 2026-05-17
 
-Phase 6.22 designs a future admin-approved legacy media reset executor for old personal/admin-created media. It is a design-only phase. No executor, endpoint, UI, migration, deletion, source-row mutation, review-row mutation, ownership backfill, access-check switch, R2 listing, or R2 mutation is implemented here.
+Phase 6.22 designed a future admin-approved legacy media reset executor for old personal/admin-created media. Phase 6.23 implements the approved first-pass action tracking schema and executor endpoints from that design. The executor defaults to dry-run; confirmed execution is admin/MFA/same-origin protected and requires `Idempotency-Key`, `confirm`, bounded `reason`, and explicit acknowledgements.
+
+Phase 6.23 adds implementation capability only. Codex/tests did not run the executor against live/main data, did not run remote migrations, did not deploy, did not backfill ownership, did not switch access checks, did not mutate billing/credits, and did not list/mutate live R2.
 
 ## Purpose
 
-The operator is evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths is safer than backfilling legacy ownership metadata. Phase 6.21 added a read-only D1 dry-run inventory. Phase 6.22 defines how a future executor would need to behave if a later phase is explicitly approved.
+The operator is evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths is safer than backfilling legacy ownership metadata. Phase 6.21 added a read-only D1 dry-run inventory. Phase 6.22 defined how a future executor would need to behave. Phase 6.23 implements the narrow first-pass executor foundation for `ai_images`, `ai_folders`, `ai_image_derivatives`, and `public_gallery_references`.
 
 The design goal is to make future deletion/retirement bounded, auditable, idempotent, reversible where possible before final deletion, and separated from ownership backfill or access-check migration.
 
@@ -27,13 +29,13 @@ This design covers:
 
 ## Non-Goals
 
-Phase 6.22 does not:
+Phase 6.23 does not:
 
-- implement `POST /api/admin/tenant-assets/legacy-media-reset/execute`;
-- add action-tracking tables or a D1 migration;
+- add UI;
+- execute the reset against live/main data;
 - delete, depublish, rewrite, or retire any source rows;
 - update ownership metadata;
-- update manual-review rows or statuses;
+- update manual-review rows or statuses; manual-review supersession remains deferred;
 - backfill ownership;
 - switch access checks;
 - list, move, copy, rewrite, or delete live R2 objects;
@@ -79,7 +81,7 @@ Required evidence before execution:
 
 ## Future Endpoint Design
 
-Future endpoints, not implemented in Phase 6.22:
+Phase 6.23 implements these admin-only endpoints:
 
 - `POST /api/admin/tenant-assets/legacy-media-reset/execute`
 - `GET /api/admin/tenant-assets/legacy-media-reset/actions`
@@ -87,7 +89,7 @@ Future endpoints, not implemented in Phase 6.22:
 - `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/evidence`
 - `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/export`
 
-Future POST route policy:
+POST route policy:
 
 - admin-only;
 - production MFA required;
@@ -99,7 +101,7 @@ Future POST route policy:
 - `Idempotency-Key` required;
 - no public route exposure.
 
-Future request fields:
+POST request fields:
 
 - `dryRun`: boolean, default `true`;
 - `confirm`: required `true` for execution;
@@ -113,7 +115,7 @@ Future request fields:
 - `acknowledgeNoCreditRefund`, required because media reset is not a billing/credit refund path;
 - `acknowledgeIrreversibleDeletion`, required for execution.
 
-Future response fields:
+Response fields:
 
 - action id;
 - dry-run/execution mode;
@@ -219,16 +221,16 @@ Recommended design:
 - never delete review items/events;
 - keep supersession separate from ownership backfill or access-switch approval.
 
-## Future Action And Audit Schema Proposal
+## Action And Audit Schema
 
-Phase 6.22 does not add a migration. A future schema phase should add action tracking before execution unless an existing audit/action table is intentionally reused.
+Phase 6.23 adds additive migration `0058_add_legacy_media_reset_actions.sql`.
 
-Proposed future tables:
+Tables:
 
 - `tenant_asset_media_reset_actions`
 - `tenant_asset_media_reset_action_events`
 
-Proposed action fields:
+Action fields:
 
 - action id;
 - dry-run flag;
@@ -245,7 +247,7 @@ Proposed action fields:
 - error summary JSON;
 - created, updated, completed timestamps.
 
-Proposed event types:
+Event types:
 
 - `created`;
 - `dry_run_completed`;
@@ -260,7 +262,7 @@ Proposed event types:
 
 ## Idempotency Model
 
-Future writes must require `Idempotency-Key`.
+Writes require `Idempotency-Key`.
 
 Rules:
 
@@ -317,7 +319,7 @@ Verification cannot claim tenant isolation, access-switch readiness, ownership b
 
 ## Future Admin UI Design
 
-A future UI may show:
+Phase 6.23 adds no UI. A future UI may show:
 
 - dry-run summary;
 - domain checkboxes;
@@ -339,7 +341,7 @@ The UI must not include:
 
 ## Testing Strategy
 
-Future implementation tests must cover:
+Phase 6.23 implementation tests cover:
 
 - dry-run default writes no rows;
 - execution requires admin, production MFA, same-origin, confirmation, reason, acknowledgements, and idempotency;
@@ -357,16 +359,16 @@ Future implementation tests must cover:
 
 ## Release And Deploy Prerequisites
 
-If a future phase implements this design:
+For Phase 6.23:
 
 - remote D1 migration `0056_add_ai_folder_image_ownership_metadata.sql` must be applied;
 - remote D1 migration `0057_add_ai_asset_manual_review_state.sql` must be applied if review impact is read;
-- any future action-tracking migration must be applied before the Auth Worker code that writes action rows;
+- remote D1 migration `0058_add_legacy_media_reset_actions.sql` must be applied before the Auth Worker code that writes reset action rows;
 - Auth Worker deployment must follow migration application;
-- Static/Pages deployment is needed only if a future UI is added.
+- Static/Pages deployment is not needed because Phase 6.23 adds no UI.
 
-## Phase 6.22 Safety Statement
+## Phase 6.23 Safety Statement
 
-Phase 6.22 is executor design only. It adds no executor, no endpoint, no UI, no migration, no delete command, no R2 command, no D1 mutation, no review-row mutation, no ownership backfill, no access-check switch, no provider call, no Stripe call, no Cloudflare API call, no GitHub mutation, no billing/credit mutation, no deployment, and no production-readiness or tenant-isolation claim.
+Phase 6.23 adds action tracking and an admin-approved executor path but Codex/tests performed no live/main reset execution. It adds no UI, performs no ownership backfill, switches no access checks, mutates no billing/credits, calls no providers/Stripe/Cloudflare/GitHub APIs, runs no remote migrations, deploys nothing, and makes no production-readiness or tenant-isolation claim. Manual-review supersession is deferred.
 
-Recommended next phase: `Phase 6.23 - Legacy Media Reset Action Tracking Schema`.
+Recommended next phase: `Phase 6.24 - Legacy Media Reset Operator Dry-run Evidence`.

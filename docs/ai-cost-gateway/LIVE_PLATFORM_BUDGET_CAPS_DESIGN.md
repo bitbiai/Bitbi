@@ -1,6 +1,6 @@
 # Live Platform Budget Caps Design
 
-Current release truth: latest auth D1 migration is `0057_add_ai_asset_manual_review_state.sql`.
+Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
 Status: Phase 4.16 design/evidence is preserved, Phase 4.17 implements the first narrow `platform_admin_lab_budget` cap foundation, Phase 4.18 adds read-only reconciliation/repair evidence for that foundation, Phase 4.19 adds an explicit admin-approved repair executor for selected safe candidates, Phase 4.20 adds read-only operator repair evidence reporting/export, and Phase 4.21 adds sanitized evidence archives under `AUDIT_ARCHIVE` with retention metadata. Phase 4.21 adds local migration `0055_add_platform_budget_evidence_archives.sql` and does not change runtime provider route behavior or repair execution semantics. No provider call, Stripe call, Cloudflare/GitHub mutation, remote migration, member/org billing change, credit clawback, or live billing enablement is performed by this document or by tests. Other budget scopes remain future work.
 

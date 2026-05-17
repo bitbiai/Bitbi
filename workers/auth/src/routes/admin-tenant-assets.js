@@ -56,6 +56,16 @@ import {
   legacyMediaResetDryRunOptionsFromSearch,
   serializeLegacyMediaResetDryRunReport,
 } from "../lib/tenant-asset-legacy-media-reset.js";
+import {
+  TENANT_ASSET_LEGACY_MEDIA_RESET_ACTIONS_ENDPOINT,
+  TENANT_ASSET_LEGACY_MEDIA_RESET_EXECUTE_ENDPOINT,
+  executeLegacyMediaResetAction,
+  exportLegacyMediaResetActionEvidence,
+  getLegacyMediaResetAction,
+  getLegacyMediaResetActionEvidence,
+  legacyMediaResetActionOptionsFromSearch,
+  listLegacyMediaResetActions,
+} from "../lib/tenant-asset-legacy-media-reset-executor.js";
 import { withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
 
 const TENANT_ASSET_EVIDENCE_RATE_LIMIT = "admin-tenant-asset-evidence-ip";
@@ -308,6 +318,37 @@ function legacyMediaResetExportResponse(report, { format, correlationId }) {
   }), correlationId);
 }
 
+function legacyMediaResetActionEvidenceExportResponse(report, { format, correlationId }) {
+  const safeGenerated = String(report.generatedAt || new Date().toISOString())
+    .replace(/[^0-9A-Za-z.-]/g, "-")
+    .slice(0, 40);
+  const actionId = String(report.action?.id || "legacy-media-reset-action")
+    .replace(/[^0-9A-Za-z._-]/g, "-")
+    .slice(0, 80);
+  if (format === "markdown") {
+    return withCorrelationId(new Response(exportLegacyMediaResetActionEvidence(report, { format }), {
+      status: 200,
+      headers: {
+        "content-type": "text/markdown; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "content-disposition": `attachment; filename="${actionId}-evidence-${safeGenerated}.md"`,
+      },
+    }), correlationId);
+  }
+  return withCorrelationId(new Response(exportLegacyMediaResetActionEvidence(report, { format: "json" }), {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "content-disposition": `attachment; filename="${actionId}-evidence-${safeGenerated}.json"`,
+    },
+  }), correlationId);
+}
+
 export async function handleAdminTenantAssets(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
   if (!pathname.startsWith("/api/admin/tenant-assets/")) {
@@ -368,6 +409,89 @@ export async function handleAdminTenantAssets(ctx) {
         });
       }
       return withCorrelationId(json({ ok: true, report: serializeLegacyMediaResetDryRunReport(report) }), correlationId);
+    } catch (error) {
+      return legacyMediaResetErrorResponse(error, correlationId);
+    }
+  }
+
+  // POST /api/admin/tenant-assets/legacy-media-reset/execute
+  // route-policy: admin.tenant-assets.legacy-media-reset.execute
+  if (pathname === TENANT_ASSET_LEGACY_MEDIA_RESET_EXECUTE_ENDPOINT && method === "POST") {
+    const limited = await enforceTenantAssetLegacyMediaResetRateLimit(ctx);
+    if (limited) return limited;
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    try {
+      const result = await executeLegacyMediaResetAction(env, {
+        request: parsed.body,
+        adminUser: admin.user,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+      });
+      return withCorrelationId(json({ ok: true, reset: result }), correlationId);
+    } catch (error) {
+      return legacyMediaResetErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ASSET_LEGACY_MEDIA_RESET_ACTIONS_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetLegacyMediaResetRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const actions = await listLegacyMediaResetActions(env, legacyMediaResetActionOptionsFromSearch(url.searchParams));
+      return withCorrelationId(json({ ok: true, ...actions }), correlationId);
+    } catch (error) {
+      return legacyMediaResetErrorResponse(error, correlationId);
+    }
+  }
+
+  const legacyMediaResetActionEvidenceExportMatch = pathname.match(/^\/api\/admin\/tenant-assets\/legacy-media-reset\/actions\/([^/]+)\/export$/);
+  if (legacyMediaResetActionEvidenceExportMatch && method === "GET") {
+    const limited = await enforceTenantAssetLegacyMediaResetRateLimit(ctx);
+    if (limited) return limited;
+    const actionId = decodePathSegment(legacyMediaResetActionEvidenceExportMatch[1]);
+    if (!actionId) return withCorrelationId(json({ ok: false, error: "Not found.", code: "not_found" }, { status: 404 }), correlationId);
+    try {
+      const options = legacyMediaResetActionOptionsFromSearch(url.searchParams, {
+        format: url.searchParams.get("format") || "json",
+      });
+      const report = await getLegacyMediaResetActionEvidence(env, actionId);
+      if (!report) return withCorrelationId(json({ ok: false, error: "Not found.", code: "not_found" }, { status: 404 }), correlationId);
+      return legacyMediaResetActionEvidenceExportResponse(report, {
+        format: options.format,
+        correlationId,
+      });
+    } catch (error) {
+      return legacyMediaResetErrorResponse(error, correlationId);
+    }
+  }
+
+  const legacyMediaResetActionEvidenceMatch = pathname.match(/^\/api\/admin\/tenant-assets\/legacy-media-reset\/actions\/([^/]+)\/evidence$/);
+  if (legacyMediaResetActionEvidenceMatch && method === "GET") {
+    const limited = await enforceTenantAssetLegacyMediaResetRateLimit(ctx);
+    if (limited) return limited;
+    const actionId = decodePathSegment(legacyMediaResetActionEvidenceMatch[1]);
+    if (!actionId) return withCorrelationId(json({ ok: false, error: "Not found.", code: "not_found" }, { status: 404 }), correlationId);
+    try {
+      const report = await getLegacyMediaResetActionEvidence(env, actionId);
+      if (!report) return withCorrelationId(json({ ok: false, error: "Not found.", code: "not_found" }, { status: 404 }), correlationId);
+      return withCorrelationId(json({ ok: true, report }), correlationId);
+    } catch (error) {
+      return legacyMediaResetErrorResponse(error, correlationId);
+    }
+  }
+
+  const legacyMediaResetActionMatch = pathname.match(/^\/api\/admin\/tenant-assets\/legacy-media-reset\/actions\/([^/]+)$/);
+  if (legacyMediaResetActionMatch && method === "GET") {
+    const limited = await enforceTenantAssetLegacyMediaResetRateLimit(ctx);
+    if (limited) return limited;
+    const actionId = decodePathSegment(legacyMediaResetActionMatch[1]);
+    if (!actionId) return withCorrelationId(json({ ok: false, error: "Not found.", code: "not_found" }, { status: 404 }), correlationId);
+    try {
+      const action = await getLegacyMediaResetAction(env, actionId, {
+        includeEvents: url.searchParams.get("includeEvents") === "true" || url.searchParams.get("include_events") === "true",
+      });
+      if (!action) return withCorrelationId(json({ ok: false, error: "Not found.", code: "not_found" }, { status: 404 }), correlationId);
+      return withCorrelationId(json({ ok: true, ...action }), correlationId);
     } catch (error) {
       return legacyMediaResetErrorResponse(error, correlationId);
     }

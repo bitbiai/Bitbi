@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Purpose: compact current checkpoint for the next audit pass. The pre-DOC-1 long-form audit text is preserved in `docs/audits/archive/AUDIT_NEXT_LEVEL_PRE_DOC1.md`.
 
-Current release truth: latest auth D1 migration is `0057_add_ai_asset_manual_review_state.sql`.
+Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
 This checkpoint is not production readiness, live billing readiness, legal compliance certification, or full SaaS maturity evidence.
 
@@ -21,7 +21,7 @@ This checkpoint is not production readiness, live billing readiness, legal compl
 
 | Area | Current signal | Follow-up |
 | --- | --- | --- |
-| Release contract | `config/release-compat.json` latest auth migration is `0057_add_ai_asset_manual_review_state.sql`. | Keep current docs aligned. |
+| Release contract | `config/release-compat.json` latest auth migration is `0058_add_legacy_media_reset_actions.sql`. | Keep current docs aligned. |
 | Route policy | Registry/checks cover high-risk routes. | Do not treat registry as central enforcement yet. |
 | Billing | Review/reconciliation/evidence tools exist. | Implement approved remediation workflow separately. |
 | AI cost | Budget switches, app switches, first caps, repair/report/archive evidence exist for scoped admin-lab paths. | Verify evidence, then choose one next scope. |

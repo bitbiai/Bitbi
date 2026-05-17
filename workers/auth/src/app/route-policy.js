@@ -504,6 +504,36 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Phase 6.21 bounded sanitized JSON/Markdown export for legacy media reset dry-run evidence. It uses D1-only counts, omits prompts/private R2 keys/raw metadata, and performs no deletion, R2 listing/mutation, ownership backfill, source row update, access switch, provider call, Stripe call, credit mutation, or billing behavior change.",
   }),
+  adminJsonWrite("admin.tenant-assets.legacy-media-reset.execute", "POST", "/api/admin/tenant-assets/legacy-media-reset/execute", "privacy", "smallJson", "admin-tenant-asset-legacy-media-reset-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "USER_IMAGES"],
+    sensitivity: "high",
+    audit: { event: "tenant_asset_legacy_media_reset_execute_requested" },
+    notes: "Phase 6.23 admin-approved legacy media reset executor. Defaults to dry-run; confirmed execution requires Idempotency-Key, confirm=true, bounded reason, explicit public/no-credit/irreversible acknowledgements, admin MFA, same-origin JSON, and fail-closed rate limiting. It is limited to first-pass ai_folders/ai_images/derivative/public references, rejects video/music/text/profile/avatar/export/audit domains, performs no ownership backfill, no access switch, no billing/credit mutation, no provider/Stripe/Cloudflare API calls, and never lists R2 or exposes raw R2 keys.",
+  }),
+  adminRead("admin.tenant-assets.legacy-media-reset.actions.list", "/api/admin/tenant-assets/legacy-media-reset/actions", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-legacy-media-reset-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.23 read-only sanitized legacy media reset action list. It reads action/audit rows only and performs no deletion, source asset mutation, R2 action, ownership backfill, access switch, provider call, Stripe call, credit mutation, or billing behavior change.",
+  }),
+  adminRead("admin.tenant-assets.legacy-media-reset.actions.read", "/api/admin/tenant-assets/legacy-media-reset/actions/:id", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-legacy-media-reset-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.23 read-only sanitized legacy media reset action detail endpoint. It hides raw idempotency keys, request hashes, and private R2 keys.",
+  }),
+  adminRead("admin.tenant-assets.legacy-media-reset.actions.evidence", "/api/admin/tenant-assets/legacy-media-reset/actions/:id/evidence", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-legacy-media-reset-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.23 read-only legacy media reset action evidence report. It reports action/event counts and keeps accessSwitchReady=false, backfillReady=false, tenantIsolationClaimed=false, and productionReadiness=blocked.",
+  }),
+  adminRead("admin.tenant-assets.legacy-media-reset.actions.export", "/api/admin/tenant-assets/legacy-media-reset/actions/:id/export", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-legacy-media-reset-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Phase 6.23 bounded sanitized JSON/Markdown export for legacy media reset action evidence. It exposes no raw private R2 keys or raw idempotency keys.",
+  }),
   adminJsonWrite("admin.tenant-assets.folders-images.manual-review.import", "POST", "/api/admin/tenant-assets/folders-images/manual-review/import", "privacy", "smallJson", "admin-tenant-asset-manual-review-import-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     sensitivity: "high",

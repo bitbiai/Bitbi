@@ -18,7 +18,7 @@ Do not paste secret values, raw webhook secrets/signatures, API keys, private ke
 
 Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit restart state. Record platform budget reconciliation, repair, report/export, archive, and Admin Control Plane smoke evidence as separate evidence sections. Confirm no report/export/archive endpoint applied repair, mutated usage/source rows, called providers, called Stripe, changed credits, or changed member/org billing. Phase 5.1 Admin Control Plane evidence is UI/navigation-only and must not be treated as backend readiness or live billing approval.
 
-For tenant asset ownership evidence, use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`, `docs/tenant-assets/evidence/`, `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`, `docs/tenant-assets/evidence/2026-05-17-manual-review-status-operator-evidence-summary.md`, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_DRY_RUN.md`, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md`, `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`, `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`, `npm run tenant-assets:dry-run-review-import`, the Phase 6.15 import endpoint if used, the Phase 6.16 queue/evidence endpoints, the Phase 6.17 status endpoint if used, the Phase 6.18 Admin Control Plane queue/status evidence, and the Phase 6.21 reset dry-run endpoint if used. Phase 6.10/6.11/6.12 decision, workflow, and schema-design records plus Phase 6.13 empty review-state tables, Phase 6.14 import dry-run planning, Phase 6.15 review-item import, Phase 6.16 read-only queue evidence, Phase 6.17 review-status updates, Phase 6.18 Admin visibility, Phase 6.19 operator evidence docs, Phase 6.20 decision update, Phase 6.21 reset dry-run, and Phase 6.22 reset executor design do not prove full tenant isolation, do not switch access checks, do not backfill old rows, do not delete media, do not add a reset executor, do not update source asset rows or ownership metadata, and do not list or mutate R2. The current Phase 6.20 status is `operator_evidence_collected_needs_more_idempotency`; Phase 6.21 is dry-run planning only; Phase 6.22 is executor design only.
+For tenant asset ownership evidence, use `docs/tenant-assets/`, `docs/tenant-assets/evidence/`, manual-review import/queue/status endpoints, `/api/admin/tenant-assets/legacy-media-reset/dry-run`, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md`, and the Phase 6.23 reset executor/action endpoints if used. These records do not prove full tenant isolation, do not switch access checks, do not backfill old rows, do not update ownership metadata, and do not list or mutate live R2. The current Phase 6.20 status is `operator_evidence_collected_needs_more_idempotency`; Phase 6.23 adds a dry-run-default reset executor path but Codex/tests did not execute it against live/main data.
 
 ## 1. Repo Baseline
 
@@ -39,9 +39,9 @@ Record the exact branch, commit, and whether the worktree was clean. If dirty, s
 
 ## 3. Migration Status Through Latest Auth Migration
 
-Latest auth D1 migration required by release config: `0057_add_ai_asset_manual_review_state.sql`.
+Latest auth D1 migration required by release config: `0058_add_legacy_media_reset_actions.sql`.
 
-| Environment | Database | Evidence Through `0057` | Operator | Date | Result |
+| Environment | Database | Evidence Through `0058` | Operator | Date | Result |
 | --- | --- | --- | --- | --- | --- |
 | staging | `bitbi-auth-db` |  |  |  | BLOCKED |
 | production | `bitbi-auth-db` |  |  |  | BLOCKED |
@@ -222,7 +222,7 @@ Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` for t
 | Auth Worker deployed commit |  | BLOCKED |
 | Static deployed commit |  | BLOCKED |
 | Release plan attached and expected deploy units are auth Worker plus static/pages |  | BLOCKED |
-| Staging auth D1 migration evidence through `0057_add_ai_asset_manual_review_state.sql` |  | BLOCKED |
+| Staging auth D1 migration evidence through `0058_add_legacy_media_reset_actions.sql` |  | BLOCKED |
 | Admin authentication and MFA prerequisites verified |  | BLOCKED |
 | Billing Review Queue API smoke: admin-only list/filter with sanitized fields |  | BLOCKED |
 | Billing Review Detail API smoke: safe identifiers, no raw payload/signature/secret/card data |  | BLOCKED |
@@ -249,7 +249,7 @@ Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/productio
 | Release plan output attached |  | BLOCKED |
 | Auth Worker deploy evidence and deployed commit/version |  | BLOCKED |
 | Static/pages deploy evidence and deployed commit/build |  | BLOCKED |
-| Production D1 migration evidence through `0057_add_ai_asset_manual_review_state.sql` |  | BLOCKED |
+| Production D1 migration evidence through `0058_add_legacy_media_reset_actions.sql` |  | BLOCKED |
 | Live readiness evidence collector output with explicit URLs |  | BLOCKED |
 | Manual admin login/MFA smoke evidence |  | BLOCKED |
 | Manual billing review queue list/filter evidence |  | BLOCKED |
@@ -323,7 +323,7 @@ Use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenan
 
 | Evidence Item | Environment | Result | Evidence |
 | --- | --- | --- | --- |
-| Remote auth D1 migration evidence through `0057_add_ai_asset_manual_review_state.sql` recorded before dependent Auth Worker deploy |  | BLOCKED |  |
+| Remote auth D1 migration evidence through `0058_add_legacy_media_reset_actions.sql` recorded before dependent Auth Worker deploy |  | BLOCKED |  |
 | Phase 6.7 tenant asset evidence endpoint `/api/admin/tenant-assets/folders-images/evidence` called by approved admin with MFA |  | BLOCKED |  |
 | JSON export from `/api/admin/tenant-assets/folders-images/evidence/export?format=json` saved to private operator evidence storage |  | BLOCKED |  |
 | Optional Markdown export saved, if used |  | BLOCKED |  |
@@ -337,6 +337,7 @@ Use `docs/tenant-assets/TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`, `docs/tenan
 | Phase 6.20 manual-review status operator evidence decision records sanitized live/main import, queue, status, idempotency, Admin panel, and export evidence, or explicitly records missing replay/conflict evidence with `operator_evidence_collected_needs_more_idempotency` |  | BLOCKED |  |
 | Phase 6.21 legacy media reset dry-run/export records D1-only reset planning and confirms no deletion, source mutation, review-row mutation, R2 listing/mutation, backfill, or access switch |  | BLOCKED |  |
 | Phase 6.22 legacy media reset executor design records future executor constraints and confirms no executor, endpoint, UI, migration, deletion, D1/R2 mutation, review-row mutation, backfill, or access switch |  | BLOCKED |  |
+| Phase 6.23 legacy media reset executor/action endpoints are present and dry-run by default; Phase 6.24 operator dry-run evidence is captured before any confirmed reset execution |  | BLOCKED |  |
 | Evidence confirms `runtimeBehaviorChanged=false`, `accessChecksChanged=false`, `backfillPerformed=false`, and `r2LiveListed=false` |  | BLOCKED |  |
 | Evidence confirms no raw prompts, private R2 keys, signed URLs, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, or raw idempotency keys are present |  | BLOCKED |  |
 | Risk decision recorded as `safe_to_continue_design_only`, `needs_more_evidence`, `unsafe_for_access_switch`, or `blocked` |  | BLOCKED |  |
@@ -394,7 +395,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 ## 23. Blockers
 
 - Production Cloudflare live validation:
-- Remote migration evidence through `0057_add_ai_asset_manual_review_state.sql`:
+- Remote migration evidence through `0058_add_legacy_media_reset_actions.sql`:
 - Admin AI usage-attempt cleanup/inspection evidence:
 - Phase 3.4 member personal image gateway main-only evidence:
 - Stripe Testmode checkout/webhook evidence:
@@ -408,7 +409,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 - Phase 6.13 tenant asset manual-review state schema record, with no review-row import/backfill/access-switch claim:
 - Phase 6.14 tenant asset manual-review import dry-run record, with aggregate-only or item-level JSON evidence notes:
 - Phase 6.15 tenant asset manual-review import executor evidence, if used, showing dry-run/confirmed counts and no source asset mutation:
-- Phase 6.16 tenant asset manual-review queue/evidence export, Phase 6.17 status-change evidence if used, Phase 6.18 Admin Control Plane queue/status evidence, Phase 6.20 operator evidence decision, Phase 6.21 reset dry-run/export if used, and Phase 6.22 reset executor design, showing collected or incomplete-idempotency status, reset planning/design status, and no source mutation:
+- Phase 6.16 tenant asset manual-review queue/evidence export, Phase 6.17 status-change evidence if used, Phase 6.18 Admin Control Plane queue/status evidence, Phase 6.20 operator evidence decision, Phase 6.21 reset dry-run/export if used, Phase 6.22 reset executor design, and Phase 6.23 reset action/executor dry-run evidence, showing collected or incomplete-idempotency status, reset planning/design/action status, and no source mutation outside any separately approved confirmed executor:
 - Automated billing remediation evidence:
 - Restore drill evidence:
 - Alert/WAF/static header/RUM evidence:
@@ -420,7 +421,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, Phase 2.6 main-only release evidence processes, Phase 4.8.2 admin usage-attempt cleanup/inspection, Phase 4.9 Admin Music metadata-only idempotency, Phase 4.10 Admin Compare metadata-only idempotency, Phase 4.12 Admin Live-Agent metadata-only stream-session idempotency, Phase 4.13 sync video debug retirement classification, Phase 4.14 Admin Image branch classification, Phase 4.15 Cloudflare master runtime budget-switch enforcement, Phase 4.15.1 D1 app-switch control, Phase 4.17 platform cap foundation, Phase 4.20 repair report/export, Phase 4.21 archive/retention workflow, Phase 6.4 nullable folder/image ownership schema, Phase 6.8 tenant asset evidence collection records, Phase 6.13 tenant asset review-state schema foundation, Phase 6.14 tenant asset import dry-run planning, Phase 6.15 review-item import execution evidence, Phase 6.16 read-only queue evidence, Phase 6.17 review-status evidence, Phase 6.18 Admin queue/status evidence, Phase 6.20 operator evidence decision, Phase 6.21 reset dry-run planning, and Phase 6.22 reset executor design are not live billing readiness, automated accounting reconciliation, automated remediation, customer billing, full tenant isolation, media-deletion approval, reset-executor readiness, or full AI budget enforcement. A human approver must verify migrations through `0057_add_ai_asset_manual_review_state.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, admin async video job budget metadata/cap behavior, News Pulse visual budget metadata behavior, admin text/embeddings attempt cleanup/inspection/cap behavior, Admin Music duplicate-suppression/conflict/cap behavior, Admin Compare duplicate-suppression/conflict/cap behavior, Admin Live-Agent duplicate-suppression/conflict/finalization/cap behavior, sync video debug disabled-by-default behavior, Admin Image charged/explicit-unmetered/blocked behavior, runtime budget-switch intended state, D1 app-switch effective-state behavior, repair report/export evidence, archive create/download/expire/cleanup evidence, tenant schema compatibility/no-backfill evidence, tenant asset evidence collection records, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Tenant asset schema, manual-review import/queue/status evidence, reset dry-run planning, reset executor design, and Phase 6.23 reset action/executor presence are not live billing readiness, automated accounting reconciliation, automated remediation, customer billing, full tenant isolation, media-deletion approval, confirmed reset readiness, or full AI budget enforcement. A human approver must verify migrations through `0058_add_legacy_media_reset_actions.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, provider-cost/budget evidence, repair/archive evidence, tenant schema compatibility/no-backfill evidence, reset operator dry-run evidence, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

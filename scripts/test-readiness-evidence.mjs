@@ -21,12 +21,12 @@ const evidence = await collectReadinessEvidence({
 const markdown = renderReadinessEvidenceMarkdown(evidence);
 
 assert.equal(evidence.verdict, "BLOCKED");
-assert.equal(evidence.release.latestAuthMigration, "0057_add_ai_asset_manual_review_state.sql");
+assert.equal(evidence.release.latestAuthMigration, "0058_add_legacy_media_reset_actions.sql");
 assert.equal(evidence.localChecks.mode, "skipped");
 assert.equal(evidence.liveChecks.mode, "skipped");
 assert(markdown.includes("Final verdict: **BLOCKED**"));
 assert(markdown.includes("Latest auth D1 migration"));
-assert(markdown.includes("0057_add_ai_asset_manual_review_state.sql"));
+assert(markdown.includes("0058_add_legacy_media_reset_actions.sql"));
 assert(markdown.includes("`SESSION_SECRET` | present (value redacted)"));
 assert(markdown.includes("`STRIPE_SECRET_KEY` | present (value redacted)"));
 assert(markdown.includes("`STRIPE_WEBHOOK_SECRET` | missing"));
@@ -105,7 +105,7 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
   assert(liveMarkdown.includes("Operator review required: **true**"));
   assert(liveMarkdown.includes("Final verdict: **BLOCKED**"));
   assert(liveMarkdown.includes("Latest auth D1 migration"));
-  assert(liveMarkdown.includes("0057_add_ai_asset_manual_review_state.sql"));
+  assert(liveMarkdown.includes("0058_add_legacy_media_reset_actions.sql"));
   assert(liveMarkdown.includes("`Cache-Control`: `no-store`"));
   assert(!liveMarkdown.includes(secretValue));
   assert(!liveMarkdown.includes("Set-Cookie"));

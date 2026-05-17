@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-17
 
-Latest auth migration: `0057_add_ai_asset_manual_review_state.sql`
+Latest auth migration: `0058_add_legacy_media_reset_actions.sql`
 
 Production readiness: BLOCKED
 
@@ -18,16 +18,16 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Member image/music/video AI Cost Gateway flows are migrated with required idempotency and duplicate-provider suppression.
 - Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, read-only reconciliation, explicit admin-approved repair, report/export, and sanitized archives.
 - Admin Control Plane navigation now surfaces the implemented operator panels without changing backend behavior.
-- Phase 6.1 tenant asset ownership design/inventory/risk docs exist; Phase 6.2 adds the focused `ai_folders`/`ai_images` owner-map dry run; Phase 6.3 adds the schema/access plan; Phase 6.4 adds nullable ownership metadata schema; Phase 6.5 assigns metadata only on new personal folder/image writes; Phase 6.6 adds read-only dual-read diagnostics; Phase 6.7 adds admin-only evidence report/export; Phase 6.8 adds evidence collection runbook/template/checklist only; Phase 6.9 adds the main-only evidence package; Phase 6.10 reviews real main evidence, records `needs_manual_review`, and keeps access-check switching/backfill blocked; Phase 6.11 adds manual-review workflow design only; Phase 6.12 adds manual-review state schema design; Phase 6.13 adds additive review-state tables only; Phase 6.14 adds local-only review import dry-run planning; Phase 6.15 adds an admin-approved review-item import executor that writes review items/events only when confirmed; Phase 6.16 adds read-only review queue/evidence APIs; Phase 6.17 adds an admin-approved review-status workflow that updates review item status and review events only; Phase 6.18 adds status operator evidence and Admin Control Plane queue visibility/status controls for review-state rows only; Phase 6.19 adds operator evidence runbook/template docs; Phase 6.20 reviews live/main operator evidence and records `operator_evidence_collected_needs_more_idempotency`; Phase 6.21 adds legacy media reset dry-run/export planning; Phase 6.22 adds reset executor design only, with no old-row backfill, source asset mutation, ownership metadata update, media deletion, reset endpoint/UI/migration, R2 action, review row/status change by Codex/tests, or access behavior change.
+- Phase 6.1-6.20 add tenant asset ownership/manual-review evidence foundations. Phase 6.21 adds legacy media reset dry-run/export planning. Phase 6.22 adds reset executor design. Phase 6.23 adds reset action/event tracking plus a dry-run-default admin-approved executor path, with no old-row ownership backfill, ownership metadata update, access switch, live/main reset execution by Codex/tests, live R2 listing/mutation, billing/credit mutation, or tenant-isolation claim.
 - Historical phase reports and pre-DOC-1 long-form docs are archived/indexed instead of expanded in active docs.
 
 ## Current Open Blockers
 
-- Remote migrations through `0057` must be applied before dependent auth Worker deploys.
+- Remote migrations through `0058` must be applied before dependent auth Worker deploys.
 - Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drills, and rollback evidence are not recorded here.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.
 - Billing remediation, refund/dispute/accounting/legal workflows remain incomplete.
-- Tenant-owned asset migration implementation and self-service privacy flows remain incomplete; Phase 6.7 evidence reports, Phase 6.8 collection docs, Phase 6.9 evidence package, Phase 6.10 main evidence decision, Phase 6.11 manual-review workflow, Phase 6.12 review-state schema design, Phase 6.13 review-state schema foundation, Phase 6.14 import dry-run planning, Phase 6.15 review-item import executor, Phase 6.16 read-only queue/evidence APIs, Phase 6.17 review-status workflow, Phase 6.18 Admin queue/status visibility, Phase 6.19 operator evidence package, Phase 6.20 decision update, Phase 6.21 reset dry-run, and Phase 6.22 reset executor design do not migrate old ownership rows, assign organization ownership, change access checks, update source asset rows or ownership metadata, change review statuses by themselves, delete media, add a reset executor, or move/list/delete R2 objects.
+- Tenant-owned asset migration implementation and self-service privacy flows remain incomplete; Phase 6.23 adds only a bounded reset executor path and action tracking. It does not prove live/main reset safety, migrate old ownership rows, assign organization ownership, change access checks, update ownership metadata, backfill ownership, or approve production readiness.
 - Remaining AI budget scopes/internal provider routes are future work.
 
 ## Deployment Requirements
@@ -48,7 +48,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 
 ## Next Recommended Step
 
-Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as the current Phase 6.10 decision, `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` for the review design/status workflow, `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md` for the Phase 6.12/6.13 schema plan/foundation, `npm run tenant-assets:dry-run-review-import` for Phase 6.14 planning, `POST /api/admin/tenant-assets/folders-images/manual-review/import` for Phase 6.15 review-item import, `/api/admin/tenant-assets/folders-images/manual-review/evidence` for Phase 6.16/6.18 queue/status evidence, `POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status` for Phase 6.17 review-status changes, `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md` for the Phase 6.20 operator evidence decision, `/api/admin/tenant-assets/legacy-media-reset/dry-run` for Phase 6.21 reset planning, and `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` for Phase 6.22 executor design. Current status is `operator_evidence_collected_needs_more_idempotency`; the next tenant-asset step should add reset action tracking schema only if separately approved, with no deletion execution, broad backfill, or access behavior change.
+Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as the current Phase 6.10 decision, manual-review docs/endpoints for review queue evidence, `/api/admin/tenant-assets/legacy-media-reset/dry-run` for Phase 6.21 reset planning, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` for the Phase 6.22 design, and `POST /api/admin/tenant-assets/legacy-media-reset/execute` plus `/legacy-media-reset/actions` for Phase 6.23 reset action tracking/executor evidence. Current status is `operator_evidence_collected_needs_more_idempotency`; the next tenant-asset step is Phase 6.24 reset operator dry-run evidence, with no live deletion execution, broad backfill, or access behavior change.
 
 ## Historical Evidence Links
 

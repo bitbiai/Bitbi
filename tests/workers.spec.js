@@ -161,6 +161,13 @@ async function loadTenantAssetLegacyMediaResetModule() {
   return import(modulePath);
 }
 
+async function loadTenantAssetLegacyMediaResetExecutorModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-legacy-media-reset-executor.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadServiceAuthModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/service-auth.mjs')
@@ -2664,6 +2671,370 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(markdown).not.toContain('DELETE FROM');
     expect(markdown).not.toContain('wrangler r2');
   });
+
+  test('legacy media reset action tracking migration is additive and empty', () => {
+    const migrationPath = path.join(
+      process.cwd(),
+      'workers/auth/migrations/0058_add_legacy_media_reset_actions.sql'
+    );
+    const migration = fs.readFileSync(migrationPath, 'utf8');
+
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS tenant_asset_media_reset_actions');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS tenant_asset_media_reset_action_events');
+    for (const column of [
+      'id TEXT PRIMARY KEY',
+      'dry_run INTEGER NOT NULL DEFAULT 1',
+      'status TEXT NOT NULL',
+      'requested_domains_json TEXT NOT NULL',
+      'normalized_request_hash TEXT NOT NULL',
+      'idempotency_key_hash TEXT',
+      'evidence_snapshot_hash TEXT',
+      'before_summary_json TEXT',
+      'result_summary_json TEXT',
+      'error_summary_json TEXT',
+      'completed_at TEXT',
+      'action_id TEXT NOT NULL',
+      'event_type TEXT NOT NULL',
+      'r2_key_type_counts_json TEXT',
+      'safe_summary_json TEXT',
+    ]) {
+      expect(migration).toContain(column);
+    }
+    for (const indexName of [
+      'idx_tenant_asset_media_reset_actions_status_created_at',
+      'idx_tenant_asset_media_reset_actions_idempotency',
+      'idx_tenant_asset_media_reset_actions_request_hash',
+      'idx_tenant_asset_media_reset_action_events_action_created_at',
+      'idx_tenant_asset_media_reset_action_events_type',
+    ]) {
+      expect(migration).toContain(`CREATE INDEX IF NOT EXISTS ${indexName}`);
+    }
+    expect(migration).not.toMatch(/\bDROP\b/i);
+    expect(migration).not.toMatch(/\bDELETE\s+FROM\s+ai_(folders|images|text_assets)\b/i);
+    expect(migration).not.toMatch(/\bUPDATE\s+ai_(folders|images|text_assets)\b/i);
+    expect(migration).not.toMatch(/\bINSERT\s+INTO\s+ai_(folders|images|text_assets|asset_manual_review)/i);
+  });
+
+  test('legacy media reset executor helper normalizes requests and rejects deferred domains', async () => {
+    const executor = await loadTenantAssetLegacyMediaResetExecutorModule();
+    const request = executor.normalizeLegacyMediaResetActionRequest({
+      dryRun: 'true',
+      limit: '500',
+      includePublic: 'true',
+    });
+    expect(request.dryRun).toBe(true);
+    expect(request.limit).toBe(50);
+    expect(request.domains).toEqual([
+      'ai_folders',
+      'ai_image_derivatives',
+      'ai_images',
+      'public_gallery_references',
+    ]);
+    expect(() => executor.normalizeLegacyMediaResetActionRequest({
+      domains: ['video_assets'],
+    })).toThrow(/deferred/);
+    expect(() => executor.normalizeLegacyMediaResetActionRequest({
+      dryRun: false,
+      confirm: true,
+      acknowledgeNoCreditRefund: true,
+      acknowledgeIrreversibleDeletion: true,
+    })).toThrow(/Required legacy media reset field/);
+  });
+
+  test('legacy media reset execute endpoint is dry-run by default and enforces approval preconditions', async () => {
+    const nonAdmin = await createTenantEvidenceHarness({
+      user: createContractUser({ id: 'legacy-reset-exec-member', role: 'user' }),
+    });
+    const denied = await nonAdmin.authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        { dryRun: true },
+        { ...nonAdmin.authHeaders, 'Idempotency-Key': 'legacy-reset-dry-run-001' }
+      ),
+      nonAdmin.env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    const beforeState = JSON.stringify({
+      aiFolders: env.DB.state.aiFolders,
+      aiImages: env.DB.state.aiImages,
+      reviewItems: env.DB.state.aiAssetManualReviewItems,
+      actions: env.DB.state.tenantAssetMediaResetActions,
+    });
+
+    const missingKey = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        { dryRun: true },
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+
+    const dryRun = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        { dryRun: true, limit: 5 },
+        { ...authHeaders, 'Idempotency-Key': 'legacy-reset-dry-run-002' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRun.status).toBe(200);
+    const dryRunBody = await dryRun.json();
+    expect(dryRunBody.reset).toMatchObject({
+      dryRun: true,
+      execute: false,
+      noBackfill: true,
+      noAccessSwitch: true,
+      r2LiveListed: false,
+      r2ObjectsMutated: false,
+      productionReadiness: 'blocked',
+    });
+    expect(dryRunBody.reset.summary.proposedImageRetireCount).toBeGreaterThan(0);
+    expect(env.DB.state.tenantAssetMediaResetActions).toHaveLength(0);
+    expect(JSON.stringify({
+      aiFolders: env.DB.state.aiFolders,
+      aiImages: env.DB.state.aiImages,
+      reviewItems: env.DB.state.aiAssetManualReviewItems,
+      actions: env.DB.state.tenantAssetMediaResetActions,
+    })).toBe(beforeState);
+
+    const missingConfirm = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        {
+          dryRun: false,
+          reason: 'approved local test reset only',
+          acknowledgeNoCreditRefund: true,
+          acknowledgeIrreversibleDeletion: true,
+          acknowledgePublicContentRemoval: true,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'legacy-reset-precondition-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingConfirm.status).toBe(400);
+
+    const missingPublicAck = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          reason: 'approved local test reset only',
+          acknowledgeNoCreditRefund: true,
+          acknowledgeIrreversibleDeletion: true,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'legacy-reset-precondition-002' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingPublicAck.status).toBe(400);
+
+    const unsupported = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        { dryRun: true, domains: ['video_assets'] },
+        { ...authHeaders, 'Idempotency-Key': 'legacy-reset-precondition-003' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unsupported.status).toBe(400);
+  });
+
+  test('confirmed legacy media reset retires only first-pass local rows and records sanitized action evidence', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      aiTextAssets: [{
+        id: 'deferred-text-asset',
+        user_id: 'tenant-legacy-user',
+        folder_id: null,
+        r2_key: 'users/tenant-legacy-user/text/deferred.txt',
+        title: 'Deferred text',
+        file_name: 'deferred.txt',
+        source_module: 'text',
+        size_bytes: 123,
+        created_at: '2026-05-17T11:20:00.000Z',
+      }],
+      aiVideoJobs: [{
+        id: 'deferred-video-job',
+        user_id: 'tenant-legacy-user',
+        scope: 'member',
+        status: 'succeeded',
+        output_r2_key: 'users/tenant-legacy-user/video/deferred.mp4',
+        output_size_bytes: 4096,
+        created_at: '2026-05-17T11:25:00.000Z',
+        updated_at: '2026-05-17T11:25:00.000Z',
+      }],
+      userAssetStorageUsage: [{
+        user_id: 'tenant-legacy-user',
+        used_bytes: 20000,
+        updated_at: '2026-05-17T11:00:00.000Z',
+      }],
+    });
+    env.DB.state.aiImages.push({
+      id: 'image-legacy-derivative',
+      user_id: 'tenant-legacy-user',
+      folder_id: null,
+      visibility: 'private',
+      r2_key: 'users/tenant-legacy-user/folders/legacy/raw-derivative-image.png',
+      thumb_key: 'users/tenant-legacy-user/derivatives/v1/image-legacy-derivative/thumb.webp',
+      medium_key: 'users/tenant-legacy-user/derivatives/v1/image-legacy-derivative/medium.webp',
+      prompt: 'legacy derivative prompt must not appear',
+      model: '@cf/test-model',
+      size_bytes: 2048,
+      created_at: '2026-05-17T09:30:00.000Z',
+    });
+    env.DB.state.aiImages = env.DB.state.aiImages.map((row) => ({ visibility: 'private', published_at: null, ...row }));
+    const beforeTextAssets = JSON.stringify(env.DB.state.aiTextAssets);
+    const beforeVideoJobs = JSON.stringify(env.DB.state.aiVideoJobs);
+    const beforeReviewItems = JSON.stringify(env.DB.state.aiAssetManualReviewItems);
+    const beforeOwnershipSafeImage = JSON.stringify(env.DB.state.aiImages.find((row) => row.id === 'image-safe'));
+    const requestBody = {
+      dryRun: false,
+      confirm: true,
+      limit: 10,
+      reason: 'retire first-pass legacy media rows in local harness only',
+      domains: ['ai_images', 'ai_folders', 'ai_image_derivatives', 'public_gallery_references'],
+      acknowledgePublicContentRemoval: true,
+      acknowledgeNoCreditRefund: true,
+      acknowledgeIrreversibleDeletion: true,
+    };
+    const headers = { ...authHeaders, 'Idempotency-Key': 'legacy-reset-execute-001' };
+
+    const executed = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/execute', 'POST', requestBody, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    const executedBody = await executed.json();
+    expect(executed.status, JSON.stringify(executedBody)).toBe(200);
+    expect(executedBody.reset).toMatchObject({
+      dryRun: false,
+      execute: true,
+      noBackfill: true,
+      noAccessSwitch: true,
+      noBillingOrCreditMutation: true,
+      r2LiveListed: false,
+      tenantIsolationClaimed: false,
+      productionReadiness: 'blocked',
+    });
+    expect(executedBody.reset.action.status).toMatch(/completed|partial/);
+    expect(executedBody.reset.action.resultSummary.imagesRetired).toBeGreaterThanOrEqual(2);
+    expect(executedBody.reset.action.resultSummary.publicRefsRetired).toBeGreaterThanOrEqual(1);
+    expect(executedBody.reset.action.resultSummary.derivativeReferencesRetired).toBeGreaterThanOrEqual(2);
+    expect(executedBody.reset.events.some((event) => event.eventType === 'execution_started')).toBe(true);
+    expect(executedBody.reset.events.some((event) => event.eventType === 'source_rows_retired')).toBe(true);
+    expect(env.DB.state.tenantAssetMediaResetActions).toHaveLength(1);
+    expect(env.DB.state.tenantAssetMediaResetActionEvents.length).toBeGreaterThanOrEqual(4);
+    expect(env.DB.state.aiImages.some((row) => row.id === 'image-public-missing')).toBe(false);
+    expect(env.DB.state.aiImages.some((row) => row.id === 'image-legacy-derivative')).toBe(false);
+    expect(JSON.stringify(env.DB.state.aiImages.find((row) => row.id === 'image-safe'))).toBe(beforeOwnershipSafeImage);
+    expect(JSON.stringify(env.DB.state.aiTextAssets)).toBe(beforeTextAssets);
+    expect(JSON.stringify(env.DB.state.aiVideoJobs)).toBe(beforeVideoJobs);
+    expect(JSON.stringify(env.DB.state.aiAssetManualReviewItems)).toBe(beforeReviewItems);
+    expect(env.USER_IMAGES.listCalls).toHaveLength(0);
+    expect(env.USER_IMAGES.deleteCalls.length).toBeGreaterThanOrEqual(3);
+
+    const serialized = JSON.stringify(executedBody);
+    expect(serialized).not.toContain('legacy-reset-execute-001');
+    expect(serialized).not.toContain('raw-public-image.png');
+    expect(serialized).not.toContain('raw-derivative-image.png');
+    expect(serialized).not.toContain('deferred.mp4');
+    expect(serialized).not.toContain('deferred.txt');
+    expect(serialized).not.toContain('legacy derivative prompt must not appear');
+    expect(serialized).not.toContain('Bearer ');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('sk_live_');
+
+    const replay = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/execute', 'POST', requestBody, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(replay.status).toBe(200);
+    const replayBody = await replay.json();
+    expect(replayBody.reset.replayed).toBe(true);
+    expect(env.DB.state.tenantAssetMediaResetActions).toHaveLength(1);
+
+    const conflict = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        { ...requestBody, reason: 'different reason should conflict' },
+        headers
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
+
+    const list = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/actions', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(list.status).toBe(200);
+    const listBody = await list.json();
+    expect(listBody.items).toHaveLength(1);
+    const actionId = listBody.items[0].id;
+
+    const detail = await authWorker.fetch(
+      authJsonRequest(`/api/admin/tenant-assets/legacy-media-reset/actions/${encodeURIComponent(actionId)}?includeEvents=true`, 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(detailBody.action.id).toBe(actionId);
+    expect(detailBody.events.length).toBeGreaterThanOrEqual(4);
+
+    const evidence = await authWorker.fetch(
+      authJsonRequest(`/api/admin/tenant-assets/legacy-media-reset/actions/${encodeURIComponent(actionId)}/evidence`, 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(evidence.status).toBe(200);
+    const evidenceBody = await evidence.json();
+    expect(evidenceBody.report.summary.accessSwitchReady).toBe(false);
+    expect(evidenceBody.report.summary.backfillReady).toBe(false);
+    expect(evidenceBody.report.safety.rawR2KeysExposed).toBe(false);
+
+    const exportJson = await authWorker.fetch(
+      authJsonRequest(`/api/admin/tenant-assets/legacy-media-reset/actions/${encodeURIComponent(actionId)}/export?format=json`, 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportJson.status).toBe(200);
+    expect(exportJson.headers.get('content-disposition')).toContain(`${actionId}-evidence-`);
+    const exportBody = await exportJson.json();
+    expect(exportBody.action.id).toBe(actionId);
+
+    const exportMarkdown = await authWorker.fetch(
+      authJsonRequest(`/api/admin/tenant-assets/legacy-media-reset/actions/${encodeURIComponent(actionId)}/export?format=markdown`, 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(exportMarkdown.status).toBe(200);
+    const markdown = await exportMarkdown.text();
+    expect(markdown).toContain('Legacy Media Reset Action Evidence');
+    expect(markdown).toContain('Access switch ready: no');
+    expect(markdown).not.toContain('raw-public-image.png');
+  });
 });
 
 function seedAdminImageChargeOrg(env, {
@@ -3551,6 +3922,42 @@ test.describe('Phase 1-E auth route policy registry', () => {
       csrf: 'safe-method',
       rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-legacy-media-reset-ip', failClosed: true }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/tenant-assets/legacy-media-reset/execute')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.execute',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json' }),
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-legacy-media-reset-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER', 'USER_IMAGES']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/actions')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.actions.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-legacy-media-reset-ip', failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/actions/tamra_123')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.actions.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/actions/tamra_123/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.actions.evidence',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/actions/tamra_123/export')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.actions.export',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
     }));
     expect(getRoutePolicy('POST', '/api/admin/tenant-assets/folders-images/manual-review/import')).toEqual(expect.objectContaining({
       id: 'admin.tenant-assets.folders-images.manual-review.import',

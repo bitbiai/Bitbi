@@ -14,7 +14,7 @@ This checklist is for owner-run evidence collection from `main` after the Phase 
 | Reviewed commit SHA recorded |  | blocked |
 | Local validation completed |  | blocked |
 | Release plan reviewed |  | blocked |
-| Remote auth D1 migration `0057_add_ai_asset_manual_review_state.sql` verified before Auth Worker deploy |  | blocked |
+| Remote auth D1 migration `0058_add_legacy_media_reset_actions.sql` verified before Auth Worker deploy |  | blocked |
 | Auth Worker containing Phase 6.7 endpoint deployed by operator if not already live |  | blocked |
 | No static/Admin UI deploy is required for Phase 6.8 docs-only work |  | blocked |
 | Admin account and MFA path confirmed |  | blocked |
@@ -105,4 +105,4 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`; Phase 6.20 updates that decision from pending to evidence-backed `operator_evidence_collected_needs_more_idempotency`.
 
-Current Phase 6.20 status is `operator_evidence_collected_needs_more_idempotency`: sanitized live/main import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but same-key replay/conflict idempotency evidence and a successful standalone status-update response remain pending. Phase 6.21 adds read-only legacy media reset dry-run/export planning, with no deletion, access-check switch, ownership backfill, source asset row update, ownership metadata update, review row mutation, or R2 action. Phase 6.22 adds reset executor design only; the next recommended reset-planning phase is Phase 6.23 legacy media reset action tracking schema.
+Current Phase 6.20 status is `operator_evidence_collected_needs_more_idempotency`: sanitized live/main import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but same-key replay/conflict idempotency evidence and a successful standalone status-update response remain pending. Phase 6.21 adds read-only legacy media reset dry-run/export planning. Phase 6.22 adds reset executor design. Phase 6.23 adds reset action/event tracking plus a dry-run-default executor path; the next recommended reset-planning phase is Phase 6.24 legacy media reset operator dry-run evidence.

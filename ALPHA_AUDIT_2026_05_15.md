@@ -6,7 +6,7 @@ Last reconciled: 2026-05-17 for Phase 6.14 tenant asset ownership manual-review 
 
 This is the active Alpha Audit scorecard. It summarizes current risk and links to the preserved evidence. It is not a production deploy approval, live billing readiness claim, full SaaS maturity claim, full tenant-isolation claim, or legal compliance certification.
 
-Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0057_add_ai_asset_manual_review_state.sql`.
+Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0058_add_legacy_media_reset_actions.sql`.
 
 ## Current Summary
 
@@ -71,7 +71,7 @@ Historical phase detail is preserved in:
 ## Roadmap
 
 1. Keep production/live billing claims blocked until evidence is recorded.
-2. Apply and verify auth migrations through `0057` before auth Worker deployment.
+2. Apply and verify auth migrations through `0058` before auth Worker deployment.
 3. Collect main-only evidence for AI budget switches, platform caps, reconciliation, repair, report/export, archive workflows, and tenant asset ownership.
 4. Choose one next implementation track: Phase 6.15 item-level review import evidence/executor design for tenant assets, next AI budget scope, internal caller-policy hardening, billing remediation workflow, or production evidence.
 

@@ -11,7 +11,7 @@ The active workflow is **main-only**. There is no required separate staging envi
 ## Prerequisites
 
 - The reviewed Auth Worker code containing the Phase 6.7 tenant asset evidence endpoints is deployed by the operator, if not already live.
-- Remote auth D1 migration status is verified through `0057_add_ai_asset_manual_review_state.sql` before deploying Auth Worker code that depends on the current schema foundation.
+- Remote auth D1 migration status is verified through `0058_add_legacy_media_reset_actions.sql` before deploying Auth Worker code that depends on the current schema foundation.
 - The operator has a platform admin account and completes admin MFA where required.
 - Evidence is saved in an operator-approved private evidence location. Do not commit live evidence files if they contain user ids or production row identifiers.
 - Sanitized in-repo summaries, pending records, or approved redacted exports belong under `docs/tenant-assets/evidence/`.
@@ -210,4 +210,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Next Recommended Phase
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds operator evidence collection docs. Phase 6.20 reviews committed live/main operator evidence and leaves the decision at `operator_evidence_collected_needs_more_idempotency`. Phase 6.21 adds read-only legacy media reset dry-run/export planning, with no deletion, access-check switch, ownership backfill, source asset row update, ownership metadata update, review row mutation, or R2 action. Phase 6.22 adds reset executor design only; the next recommended reset-planning phase is Phase 6.23 - Legacy Media Reset Action Tracking Schema.
+Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds operator evidence collection docs. Phase 6.20 reviews committed live/main operator evidence and leaves the decision at `operator_evidence_collected_needs_more_idempotency`. Phase 6.21 adds read-only legacy media reset dry-run/export planning. Phase 6.22 adds reset executor design. Phase 6.23 adds reset action/event tracking and a dry-run-default executor path; the next recommended reset-planning phase is Phase 6.24 - Legacy Media Reset Operator Dry-run Evidence.

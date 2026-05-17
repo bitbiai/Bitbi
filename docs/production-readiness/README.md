@@ -4,9 +4,9 @@ Last updated: 2026-05-17
 
 Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
 
-The latest auth D1 migration declared by `config/release-compat.json` is `0057_add_ai_asset_manual_review_state.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
+The latest auth D1 migration declared by `config/release-compat.json` is `0058_add_legacy_media_reset_actions.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
-Current audit/restart status is summarized in `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`. DOC-1 keeps this file focused on evidence requirements rather than phase chronology. Operators must record budget switch, cap, reconciliation, repair, report/export, archive, tenant asset dry-run/schema/new-write/read-diagnostics/admin-evidence evidence, tenant asset main-only evidence package records, review-item import/queue/status evidence, Admin Control Plane smoke evidence, Phase 6.20 manual-review operator evidence, Phase 6.21 legacy media reset dry-run evidence, and Phase 6.22 reset executor design review before enabling admin/platform provider-cost flags for a canary. Evidence workflows do not apply repairs automatically, mutate source attempts/jobs or source asset rows, call providers, call Stripe, change member/org billing, delete media, backfill or enforce asset ownership, change access checks, update ownership metadata, move/list/delete R2 objects, add a reset executor, or make production/live billing ready. Phase 6.20 records `operator_evidence_collected_needs_more_idempotency`; Phase 6.21 is dry-run planning only; Phase 6.22 is executor design only. None proves tenant isolation, access-switch readiness, ownership backfill readiness, reset executor readiness, or production readiness.
+Current audit/restart status is summarized in `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`. DOC-1 keeps this file focused on evidence requirements rather than phase chronology. Operators must record budget switch, cap, reconciliation, repair, report/export, archive, tenant asset dry-run/schema/new-write/read-diagnostics/admin-evidence evidence, tenant asset main-only evidence package records, review-item import/queue/status evidence, Admin Control Plane smoke evidence, Phase 6.20 manual-review operator evidence, Phase 6.21 legacy media reset dry-run evidence, Phase 6.22 reset executor design review, and Phase 6.24 reset executor dry-run evidence before enabling admin/platform provider-cost flags for a canary. Evidence workflows do not apply repairs automatically, mutate source attempts/jobs or source asset rows, call providers, call Stripe, change member/org billing, backfill or enforce asset ownership, change access checks, update ownership metadata, move/list/delete live R2 objects, or make production/live billing ready. Phase 6.23 adds reset action tracking and a dry-run-default executor path, but Codex/tests did not execute it against live/main data. None proves tenant isolation, access-switch readiness, ownership backfill readiness, confirmed reset readiness, or production readiness.
 
 ## Evidence Rule
 
@@ -22,7 +22,7 @@ Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The 
 | --- | --- | --- | --- | --- |
 | Repo baseline: branch, commit, worktree, release latest migration | Repo maintainer | Local repo | None | No secrets involved. |
 | Local release checks | Repo maintainer | Local repo / CI | None | Commands must not print secrets. |
-| Auth D1 migration status through `0057_add_ai_asset_manual_review_state.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
+| Auth D1 migration status through `0058_add_legacy_media_reset_actions.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
 | Auth Worker bindings: D1, R2, Queues, Durable Object, AI, Images, service bindings | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names and present/missing only. |
 | AI Worker bindings and Durable Object migration | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding/migration names and present/missing only. |
 | Contact Worker Durable Object binding | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names only. |
@@ -74,7 +74,7 @@ Phase 4.15 budget-switch operator checklist records intended state only; do not 
 - `ENABLE_ADMIN_AI_COMPARE_BUDGET`
 - `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET`
 
-Phase 6.19 adds operator evidence runbook/template docs for the AI folders/images manual-review import, queue, status, idempotency, Admin panel, and export workflow. Phase 6.20 reviews real live/main operator evidence and records `operator_evidence_collected_needs_more_idempotency`: dry-run import, confirmed import, and queue export evidence exist, while replay/conflict and successful standalone status-update idempotency evidence remain incomplete. Phase 6.21 adds legacy media reset dry-run/export planning only. Phase 6.22 adds reset executor design only. These phases do not run imports/status updates by Codex, delete media, backfill ownership, update source asset rows or ownership metadata, switch access checks, add a reset executor/endpoint/UI/migration, list/mutate R2, call providers, call Stripe, mutate Cloudflare, or make production/live billing ready.
+Phase 6.19 adds operator evidence runbook/template docs for the AI folders/images manual-review import, queue, status, idempotency, Admin panel, and export workflow. Phase 6.20 reviews real live/main operator evidence and records `operator_evidence_collected_needs_more_idempotency`: dry-run import, confirmed import, and queue export evidence exist, while replay/conflict and successful standalone status-update idempotency evidence remain incomplete. Phase 6.21 adds legacy media reset dry-run/export planning only. Phase 6.22 designs the reset executor. Phase 6.23 adds reset action/audit tracking plus a dry-run-default admin-approved executor path for first-pass folders/images/derivatives/public references. These phases do not run imports/status updates by Codex, execute live/main media deletion by Codex/tests, backfill ownership, update source asset ownership metadata, switch access checks, list/mutate live R2, call providers, call Stripe, mutate Cloudflare, or make production/live billing ready.
 
 Phase 4.15.1 Admin AI Budget Switch Control Plane checklist records app-level D1 state only:
 
@@ -88,7 +88,7 @@ Phase 4.15.1 Admin AI Budget Switch Control Plane checklist records app-level D1
 - Phase 4.19 repair migration `0054_add_platform_budget_repair_actions.sql` is applied before auth Worker deploys that record repair action audit rows.
 - Phase 4.20 repair evidence reports/exports are reviewed as bounded, sanitized, read-only operator evidence; no repair is applied by report/export endpoints.
 - Phase 4.21 archive migration `0055_add_platform_budget_evidence_archives.sql` is applied before auth Worker deploys that create/list/expire/cleanup platform budget evidence archives.
-- Phase 6.4 ownership metadata migration `0056_add_ai_folder_image_ownership_metadata.sql` and Phase 6.13 review-state migration `0057_add_ai_asset_manual_review_state.sql` are applied before auth Worker deploys that depend on the nullable folder/image ownership columns or review-state tables.
+- Phase 6.4 ownership metadata migration `0056_add_ai_folder_image_ownership_metadata.sql`, Phase 6.13 review-state migration `0057_add_ai_asset_manual_review_state.sql`, and Phase 6.23 reset action migration `0058_add_legacy_media_reset_actions.sql` are applied before auth Worker deploys that depend on those tables.
 
 Phase 4.16 and Phase 4.17 live platform budget-cap evidence checklist records status only; do not paste secret values:
 
@@ -154,7 +154,7 @@ npm run readiness:evidence
 npm run readiness:evidence -- --markdown
 ```
 
-Expected current deploy units from `npm run release:plan` are the auth schema migration, auth Worker, and static/pages if the Admin UI changed. Current staging/auth D1 evidence must now be through `0057_add_ai_asset_manual_review_state.sql` before deploying current auth Worker code or running API smoke checks.
+Expected current deploy units from `npm run release:plan` are the auth schema migration and auth Worker, plus static/pages only if UI changed. Current staging/auth D1 evidence must now be through `0058_add_legacy_media_reset_actions.sql` before deploying current auth Worker code or running API smoke checks.
 
 Staging read-only evidence example with explicit URLs:
 
@@ -216,7 +216,7 @@ Local main-release gate:
 npm run check:main-release-readiness
 ```
 
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0057_add_ai_asset_manual_review_state.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0057` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0058_add_legacy_media_reset_actions.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0058` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
 
 For local planning evidence only:
 
@@ -250,13 +250,13 @@ This evidence does not prove later admin video job controls, OpenClaw/News Pulse
 
 ## Tenant Asset Ownership Main-Only Decision
 
-Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` for the current AI folders/images owner-map evidence decision. As of Phase 6.10, the decision reviews `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`, records `needs_manual_review`, and keeps ownership access-check switching, old-row backfill, and tenant-isolation claims blocked. Phase 6.11 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md` for design-only review planning. Phase 6.12 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`; Phase 6.13 adds the empty review-state tables in migration `0057`; Phase 6.14 adds `npm run tenant-assets:dry-run-review-import` for aggregate/item-level import planning; Phase 6.15 adds the admin-approved review-item import executor; Phase 6.16 adds queue evidence APIs; Phase 6.17 adds status updates; Phase 6.18 adds status evidence rollups and Admin Control Plane visibility/status controls; Phase 6.20 records live/main operator evidence with idempotency completion still needed; Phase 6.21 adds legacy media reset dry-run/export planning; Phase 6.22 adds reset executor design only. These records do not mutate D1/R2 beyond schema/review-item-event writes performed by operator-approved earlier phases, list live R2, delete media, add a reset executor, change access checks, backfill ownership, mutate source asset rows, update ownership metadata, or prove production readiness.
+Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` for the current AI folders/images owner-map evidence decision. As of Phase 6.10, the decision reviews `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`, records `needs_manual_review`, and keeps ownership access-check switching, old-row backfill, and tenant-isolation claims blocked. Phase 6.11 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md` for design-only review planning. Phase 6.12 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`; Phase 6.13 adds the empty review-state tables in migration `0057`; Phase 6.14 adds `npm run tenant-assets:dry-run-review-import` for aggregate/item-level import planning; Phase 6.15 adds the admin-approved review-item import executor; Phase 6.16 adds queue evidence APIs; Phase 6.17 adds status updates; Phase 6.18 adds status evidence rollups and Admin Control Plane visibility/status controls; Phase 6.20 records live/main operator evidence with idempotency completion still needed; Phase 6.21 adds legacy media reset dry-run/export planning; Phase 6.22 designs the reset executor; Phase 6.23 adds reset action/audit tracking plus the dry-run-default admin-approved executor path. These records do not mutate D1/R2 beyond schema/review-item-event writes performed by operator-approved earlier phases and future explicitly confirmed reset execution, list live R2, change access checks, backfill ownership, update ownership metadata, or prove production readiness.
 
 ## Live/Staging Credential Checks
 
 These are not run automatically by this framework:
 
-- Remote D1 migration status in staging/production through `0057_add_ai_asset_manual_review_state.sql`.
+- Remote D1 migration status in staging/production through `0058_add_legacy_media_reset_actions.sql`.
 - Cloudflare Worker binding/resource presence in staging/production.
 - Cloudflare secret presence in staging/production.
 - Live health/security-header checks against staging/production URLs.
@@ -328,7 +328,7 @@ Unacceptable evidence includes:
 Until filled evidence proves otherwise, these remain unproven:
 
 - Production Cloudflare resource, binding, secret, route, WAF, header, RUM, and alert state.
-- Remote D1 migration status through `0057_add_ai_asset_manual_review_state.sql`.
+- Remote D1 migration status through `0058_add_legacy_media_reset_actions.sql`.
 - Stripe Testmode checkout/webhook behavior in staging.
 - Live credit-pack canary behavior.
 - BITBI Pro subscription lifecycle behavior.

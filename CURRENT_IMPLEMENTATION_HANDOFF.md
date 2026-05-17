@@ -9,9 +9,9 @@ Purpose: concise restart point for future Codex sessions. This file is current s
 | Item | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest completed implementation phase | Phase 6.21 legacy personal media reset dry-run |
+| Latest completed implementation phase | Phase 6.23 legacy media reset action tracking and executor |
 | Latest documentation phase | DOC-1 documentation diet and archive consolidation |
-| Latest auth D1 migration | `0057_add_ai_asset_manual_review_state.sql` |
+| Latest auth D1 migration | `0058_add_legacy_media_reset_actions.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
 | Production readiness | BLOCKED |
 | Live billing readiness | BLOCKED |
@@ -34,11 +34,11 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
 - Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
 - Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, source/schema inventory, risk matrix, focused `ai_folders`/`ai_images` owner-map dry-run scripts, schema/access impact plan, nullable ownership metadata columns, new personal folder/image write metadata assignment, read-only dual-read diagnostics, admin-only evidence report/export, Phase 6.8 evidence runbook/template/checklist, Phase 6.9 main-only evidence package, Phase 6.10 real main evidence decision, Phase 6.11 manual-review workflow design, Phase 6.12 manual-review state schema design, Phase 6.13 empty review-state tables, Phase 6.14 review import dry-run planning, Phase 6.15 admin-approved review-item import executor, Phase 6.16 read-only queue/evidence APIs, Phase 6.17 admin-approved review-status workflow, Phase 6.18 Admin Control Plane queue/status visibility, Phase 6.19 operator evidence runbook/template, Phase 6.20 operator evidence decision update, and Phase 6.21 legacy media reset dry-run/export planning exist. Current manual-review operator status is `operator_evidence_collected_needs_more_idempotency`. No old-row ownership backfill, organization ownership assignment, source asset row update, ownership metadata update, review status change by Codex/tests, media deletion, access-check switch, or R2 objects were migrated/listed live.
+- Tenant-owned asset migration design, focused folder/image dry-run/evidence, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision update, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, and Phase 6.23 reset action/event tracking plus dry-run-default executor endpoints exist. Current manual-review operator status is `operator_evidence_collected_needs_more_idempotency`. No old-row ownership backfill, organization ownership assignment, ownership metadata update, live/main reset execution by Codex/tests, access-check switch, billing/credit mutation, or live R2 listing/mutation occurred.
 
 ## Current Blockers
 
-- Remote auth migrations through `0057_add_ai_asset_manual_review_state.sql` must be applied before deploying auth Worker code that depends on those tables.
+- Remote auth migrations through `0058_add_legacy_media_reset_actions.sql` must be applied before deploying auth Worker code that depends on reset action tracking.
 - Required Worker secrets and bindings must be verified without printing values.
 - Stripe Testmode, live credit-pack, and BITBI Pro subscription canaries require explicit operator flags and evidence; live billing remains blocked.
 - Cloudflare WAF/static headers/RUM/alerts remain dashboard-managed or manual evidence items.
@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. If approved, implement Phase 6.23 as legacy media reset action tracking schema after reviewing the Phase 6.22 executor design; keep it separate from deletion execution, ownership backfill, access switching, source asset row updates, ownership metadata updates, review row/status changes by Codex/tests, and R2 actions.
+1. Collect Phase 6.24 legacy media reset operator dry-run evidence from the new executor before any confirmed reset execution; keep it separate from ownership backfill, access switching, ownership metadata updates, review status changes by Codex/tests, and live R2 actions.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.23 reset action tracking schema, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.24 reset operator dry-run evidence, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 
