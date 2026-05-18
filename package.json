@@ -64,5 +64,8 @@
   },
   "dependencies": {
     "viem": "^2.47.17"
+  },
+  "overrides": {
+    "ws": "8.20.1"
   }
 }
