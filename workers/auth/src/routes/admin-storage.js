@@ -4,7 +4,7 @@ import {
   readJsonBodyOrResponse,
 } from "../lib/request.js";
 import { enqueueAdminAuditEvent } from "../lib/activity.js";
-import { nowIso } from "../lib/tokens.js";
+import { nowIso, sha256Hex } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
 import {
   getClientIp,
@@ -15,6 +15,7 @@ import {
 } from "../lib/rate-limit.js";
 import {
   getUserAssetStorageUsageSnapshot,
+  buildUserAssetStorageReconciliation,
 } from "../lib/asset-storage-quota.js";
 import {
   decodePaginationCursor,
@@ -48,6 +49,8 @@ const ADMIN_ASSET_FILE_KIND_RANK = 1;
 const MAX_FOLDER_NAME_LENGTH = 100;
 const MAX_IMAGE_NAME_LENGTH = 1000;
 const MAX_FILE_ASSET_NAME_LENGTH = 120;
+const MIN_DELETE_REASON_LENGTH = 8;
+const MAX_DELETE_REASON_LENGTH = 500;
 const AI_IMAGE_LIST_COLUMNS =
   "id, folder_id, prompt, model, steps, seed, created_at, size_bytes, visibility, published_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version";
 
@@ -351,6 +354,22 @@ async function handleGetUserStorage(ctx, targetUserId) {
   });
 }
 
+async function handleGetUserStorageReconciliation(ctx, targetUserId) {
+  const { env } = ctx;
+  const targetUser = await getTargetUser(env, targetUserId);
+  if (!targetUser) {
+    return json({ ok: false, error: "User not found." }, { status: 404 });
+  }
+
+  return json({
+    ok: true,
+    data: {
+      user: targetUser,
+      reconciliation: await buildUserAssetStorageReconciliation(env, targetUser.id),
+    },
+  });
+}
+
 function parseByteRange(rangeHeader, size) {
   const totalSize = Number(size);
   if (!rangeHeader || !Number.isFinite(totalSize) || totalSize <= 0) return null;
@@ -490,6 +509,74 @@ async function auditStorageEvent(ctx, adminUser, action, targetUser, meta = {}) 
       allowDirectFallback: true,
     }
   );
+}
+
+function normalizeDeleteReason(value) {
+  const reason = String(value || "").replace(/\s+/g, " ").trim();
+  if (reason.length < MIN_DELETE_REASON_LENGTH) return null;
+  return reason.slice(0, MAX_DELETE_REASON_LENGTH);
+}
+
+async function requireAdminStorageDeleteGuard(ctx, body, {
+  confirmation,
+  targetUserId,
+  assetId = null,
+  folderId = null,
+} = {}) {
+  const idempotencyKey = ctx.request.headers.get("Idempotency-Key");
+  if (!idempotencyKey) {
+    return {
+      response: json({
+        ok: false,
+        error: "Idempotency-Key is required for admin storage delete operations.",
+        code: "admin_storage_delete_idempotency_required",
+      }, { status: 428 }),
+    };
+  }
+  if (String(idempotencyKey).length > 200) {
+    return {
+      response: json({
+        ok: false,
+        error: "Idempotency-Key is too long.",
+        code: "admin_storage_delete_idempotency_invalid",
+      }, { status: 400 }),
+    };
+  }
+  if (body?.confirm !== true || body?.confirmation !== confirmation) {
+    return {
+      response: json({
+        ok: false,
+        error: "Explicit confirmation is required before admin storage deletion.",
+        code: "admin_storage_delete_confirmation_required",
+      }, { status: 409 }),
+    };
+  }
+  const bodyUserId = body?.targetUserId || body?.target_user_id || body?.userId || body?.user_id || null;
+  const bodyAssetId = body?.assetId || body?.asset_id || null;
+  const bodyFolderId = body?.folderId || body?.folder_id || null;
+  if ((bodyUserId && bodyUserId !== targetUserId) || (assetId && bodyAssetId && bodyAssetId !== assetId) || (folderId && bodyFolderId && bodyFolderId !== folderId)) {
+    return {
+      response: json({
+        ok: false,
+        error: "Delete confirmation target does not match the selected resource.",
+        code: "admin_storage_delete_target_mismatch",
+      }, { status: 409 }),
+    };
+  }
+  const reason = normalizeDeleteReason(body?.reason);
+  if (!reason) {
+    return {
+      response: json({
+        ok: false,
+        error: `A deletion reason of at least ${MIN_DELETE_REASON_LENGTH} characters is required.`,
+        code: "admin_storage_delete_reason_required",
+      }, { status: 400 }),
+    };
+  }
+  return {
+    reason,
+    idempotencyKeyHash: await sha256Hex(String(idempotencyKey)),
+  };
 }
 
 async function handleRenameUserAsset(ctx, session, targetUserId, assetId) {
@@ -642,10 +729,26 @@ async function handleUpdateUserAssetVisibility(ctx, session, targetUserId, asset
 }
 
 async function handleDeleteUserAsset(ctx, session, targetUserId, assetId) {
-  const { env } = ctx;
+  const { request, env } = ctx;
   const targetUser = await getTargetUser(env, targetUserId);
   if (!targetUser) return json({ ok: false, error: "User not found." }, { status: 404 });
   if (!isHexAssetId(assetId)) return json({ ok: false, error: "Invalid asset ID." }, { status: 400 });
+  if (!request.headers.get("Idempotency-Key")) {
+    const guard = await requireAdminStorageDeleteGuard(ctx, null, {
+      confirmation: "delete_user_asset",
+      targetUserId: targetUser.id,
+      assetId,
+    });
+    return guard.response;
+  }
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const guard = await requireAdminStorageDeleteGuard(ctx, parsed.body, {
+    confirmation: "delete_user_asset",
+    targetUserId: targetUser.id,
+    assetId,
+  });
+  if (guard.response) return guard.response;
   try {
     const result = await deleteUserAiAssets({
       env,
@@ -654,6 +757,9 @@ async function handleDeleteUserAsset(ctx, session, targetUserId, assetId) {
     });
     await auditStorageEvent(ctx, session.user, "admin_user_asset_deleted", targetUser, {
       asset_id: assetId,
+      reason: guard.reason,
+      idempotency_key_hash: guard.idempotencyKeyHash,
+      raw_idempotency_key_included: false,
     });
     return json({ ok: true, data: { deleted: result.deleted } });
   } catch (error) {
@@ -702,10 +808,26 @@ async function handleRenameUserFolder(ctx, session, targetUserId, folderId) {
 }
 
 async function handleDeleteUserFolder(ctx, session, targetUserId, folderId) {
-  const { env } = ctx;
+  const { request, env } = ctx;
   const targetUser = await getTargetUser(env, targetUserId);
   if (!targetUser) return json({ ok: false, error: "User not found." }, { status: 404 });
   if (!isHexAssetId(folderId)) return json({ ok: false, error: "Invalid folder ID." }, { status: 400 });
+  if (!request.headers.get("Idempotency-Key")) {
+    const guard = await requireAdminStorageDeleteGuard(ctx, null, {
+      confirmation: "delete_user_folder",
+      targetUserId: targetUser.id,
+      folderId,
+    });
+    return guard.response;
+  }
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const guard = await requireAdminStorageDeleteGuard(ctx, parsed.body, {
+    confirmation: "delete_user_folder",
+    targetUserId: targetUser.id,
+    folderId,
+  });
+  if (guard.response) return guard.response;
   try {
     await deleteUserAiFolder({
       env,
@@ -714,6 +836,9 @@ async function handleDeleteUserFolder(ctx, session, targetUserId, folderId) {
     });
     await auditStorageEvent(ctx, session.user, "admin_user_folder_deleted", targetUser, {
       folder_id: folderId,
+      reason: guard.reason,
+      idempotency_key_hash: guard.idempotencyKeyHash,
+      raw_idempotency_key_included: false,
     });
     return json({ ok: true });
   } catch (error) {
@@ -727,6 +852,7 @@ export async function handleAdminStorage(ctx) {
   if (!storageRouteMatch(pathname)) return null;
   const isAdminStorageRoute =
     /^\/api\/admin\/users\/[^/]+\/storage$/.test(pathname)
+    || /^\/api\/admin\/users\/[^/]+\/storage\/reconciliation$/.test(pathname)
     || /^\/api\/admin\/users\/[^/]+\/assets\/[a-f0-9]+\/file$/.test(pathname)
     || /^\/api\/admin\/users\/[^/]+\/assets\/[a-f0-9]+\/rename$/.test(pathname)
     || /^\/api\/admin\/users\/[^/]+\/assets\/[a-f0-9]+\/folder$/.test(pathname)
@@ -744,6 +870,14 @@ export async function handleAdminStorage(ctx) {
     const limited = await enforceAdminStorageRateLimit(ctx);
     if (limited) return limited;
     return handleGetUserStorage(ctx, decodeURIComponent(storageMatch[1]));
+  }
+
+  const reconciliationMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/storage\/reconciliation$/);
+  // route-policy: admin.users.storage.reconciliation
+  if (reconciliationMatch && method === "GET") {
+    const limited = await enforceAdminStorageRateLimit(ctx);
+    if (limited) return limited;
+    return handleGetUserStorageReconciliation(ctx, decodeURIComponent(reconciliationMatch[1]));
   }
 
   const fileMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/assets\/([a-f0-9]+)\/file$/);

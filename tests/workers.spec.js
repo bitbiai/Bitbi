@@ -1465,6 +1465,102 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(JSON.stringify(env.DB.state)).toBe(beforeState);
   });
 
+  test('admin can fetch cross-domain tenant asset evidence without R2 or D1 mutations', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      aiTextAssets: [
+        {
+          id: 'text-domain-asset',
+          user_id: 'tenant-evidence-user',
+          folder_id: 'folder-safe',
+          r2_key: 'users/tenant-evidence-user/private/raw-text-asset.txt',
+          poster_r2_key: 'users/tenant-evidence-user/private/raw-poster.webp',
+          source_module: 'music',
+          visibility: 'public',
+          size_bytes: 512,
+          poster_size_bytes: 128,
+          created_at: '2026-05-17T11:00:00.000Z',
+        },
+      ],
+      aiVideoJobs: [{
+        id: 'video-domain-job',
+        user_id: 'tenant-evidence-user',
+        output_r2_key: 'users/tenant-evidence-user/video/raw-output.mp4',
+        poster_r2_key: 'users/tenant-evidence-user/video/raw-output-poster.webp',
+        status: 'succeeded',
+        created_at: '2026-05-17T11:10:00.000Z',
+      }],
+      userAssetStorageUsage: [{ user_id: 'tenant-evidence-user', used_bytes: 640 }],
+    });
+    const beforeState = JSON.stringify(env.DB.state);
+    const beforeRunCalls = env.DB.runCalls.length;
+    const beforeR2ListCalls = env.USER_IMAGES.listCalls.length;
+    const beforeR2DeleteCalls = env.USER_IMAGES.deleteCalls.length;
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/domains/evidence', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.report).toEqual(expect.objectContaining({
+      reportVersion: 'tenant-asset-domain-evidence-v1',
+      source: 'repo_registry_plus_local_d1_read_only',
+      noBackfill: true,
+      noAccessSwitch: true,
+      tenantIsolationClaimed: false,
+      productionReadiness: 'blocked',
+      liveBillingReadiness: 'blocked',
+      r2LiveListed: false,
+      r2ObjectsMutated: false,
+      d1Mutated: false,
+    }));
+    const domainIds = body.report.domains.map((domain) => domain.id);
+    expect(domainIds).toEqual(expect.arrayContaining([
+      'ai_folders',
+      'ai_images',
+      'ai_image_derivatives',
+      'ai_text_assets',
+      'text_asset_posters',
+      'member_music_audio_assets',
+      'member_video_assets',
+      'generated_video_outputs',
+      'public_gallery_mempics',
+      'public_gallery_memvids',
+      'public_gallery_memtracks',
+      'profile_avatars',
+      'private_media',
+      'public_media',
+      'data_lifecycle_exports',
+      'audit_evidence_archives',
+      'r2_user_images',
+      'r2_private_media',
+      'r2_audit_archive',
+      'storage_quota_usage',
+      'manual_review_records',
+      'legacy_media_reset_records',
+      'unknown_legacy_media',
+    ]));
+    const textDomain = body.report.domains.find((domain) => domain.id === 'ai_text_assets');
+    expect(textDomain.metrics).toEqual(expect.objectContaining({
+      totalRows: 1,
+      publicRows: 1,
+      d1RecordedBytes: 512,
+      posterBytes: 128,
+    }));
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('raw-text-asset.txt');
+    expect(serialized).not.toContain('raw-output.mp4');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('Bearer ');
+    expect(env.USER_IMAGES.listCalls.length).toBe(beforeR2ListCalls);
+    expect(env.USER_IMAGES.deleteCalls.length).toBe(beforeR2DeleteCalls);
+    expect(env.DB.runCalls.length).toBe(beforeRunCalls);
+    expect(JSON.stringify(env.DB.state)).toBe(beforeState);
+  });
+
   test('tenant asset evidence endpoint denies non-admin users and validates filters', async () => {
     const nonAdmin = await createTenantEvidenceHarness({
       user: createContractUser({ id: 'tenant-evidence-member', role: 'user' }),
@@ -4106,6 +4202,15 @@ test.describe('Phase 1-E auth route policy registry', () => {
     }));
     expect(getRoutePolicy('GET', '/api/admin/tenant-assets/folders-images/evidence/export')).toEqual(expect.objectContaining({
       id: 'admin.tenant-assets.folders-images.evidence.export',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-evidence-ip', failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/domains/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.domains.evidence.read',
       auth: 'admin',
       mfa: 'admin-production-required',
       sensitivity: 'high',
@@ -16425,6 +16530,96 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('GET /api/admin/users/:id/storage/reconciliation returns D1-only dry-run storage accounting', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('storage-reconciliation-admin');
+      const member = createContractUser({ id: 'storage-reconciliation-user', role: 'user' });
+      const env = createAuthTestEnv({
+        users: [admin, member],
+        aiFolders: [{
+          id: 'f22dbabe',
+          user_id: member.id,
+          name: 'Evidence',
+          slug: 'evidence',
+          status: 'active',
+          created_at: nowIso(),
+        }],
+        aiImages: [
+          {
+            id: 'c222cafe',
+            user_id: member.id,
+            folder_id: 'f22dbabe',
+            r2_key: `users/${member.id}/folders/evidence/private-image.png`,
+            size_bytes: 1000,
+            visibility: 'private',
+            created_at: nowIso(),
+          },
+          {
+            id: 'd222cafe',
+            user_id: member.id,
+            folder_id: 'missing-folder',
+            r2_key: `users/${member.id}/folders/missing/orphan.png`,
+            size_bytes: null,
+            visibility: 'public',
+            created_at: nowIso(),
+          },
+        ],
+        aiTextAssets: [{
+          id: 'e222cafe',
+          user_id: member.id,
+          folder_id: null,
+          r2_key: `users/${member.id}/folders/root/audio.mp3`,
+          poster_r2_key: `users/${member.id}/folders/root/audio-poster.webp`,
+          source_module: 'music',
+          size_bytes: 3000,
+          poster_size_bytes: 250,
+          visibility: 'private',
+          created_at: nowIso(),
+        }],
+        userAssetStorageUsage: [{ user_id: member.id, used_bytes: 5000, updated_at: nowIso() }],
+      });
+      const adminToken = await seedSession(env, admin.id);
+      const beforeState = JSON.stringify(env.DB.state);
+
+      const res = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${member.id}/storage/reconciliation`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'CF-Connecting-IP': '203.0.113.199',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.reconciliation).toEqual(expect.objectContaining({
+        mode: 'dry_run_read_only',
+        source: 'local_d1_metadata_only',
+        recordedUsageBytes: 5000,
+        knownAssetBytes: 4250,
+        deltaBytes: 750,
+        missingByteMetadataCount: 1,
+        orphanMetadataCount: 1,
+        recommendation: 'needs_review',
+        noR2Listing: true,
+        noR2Mutation: true,
+        d1Mutated: false,
+        tenantIsolationClaimed: false,
+      }));
+      expect(body.data.reconciliation.assetCountsByType).toEqual(expect.objectContaining({
+        image: 2,
+        music: 1,
+      }));
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('private-image.png');
+      expect(serialized).not.toContain('audio.mp3');
+      expect(env.USER_IMAGES.headCalls).toHaveLength(0);
+      expect(env.USER_IMAGES.listCalls).toHaveLength(0);
+      expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
+      expect(JSON.stringify(env.DB.state)).toBe(beforeState);
+    });
+
     test('admin storage asset actions stay scoped to the selected target user', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('storage-action-admin');
@@ -16504,9 +16699,16 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.aiImages.find((row) => row.id === 'a111cafe').folder_id).toBe('f11dbabe');
 
       const wrongTargetDelete = await authWorker.fetch(
-        authJsonRequest(`/api/admin/users/${target.id}/assets/b111cafe`, 'DELETE', undefined, {
+        authJsonRequest(`/api/admin/users/${target.id}/assets/b111cafe`, 'DELETE', {
+          confirm: true,
+          confirmation: 'delete_user_asset',
+          reason: 'verify wrong target remains denied',
+          targetUserId: target.id,
+          assetId: 'b111cafe',
+        }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'admin-storage-delete-wrong-target',
         }),
         env,
         createExecutionContext().execCtx
@@ -16514,10 +16716,54 @@ test.describe('Worker routes', () => {
       expect(wrongTargetDelete.status).toBe(404);
       expect(env.DB.state.aiImages.find((row) => row.id === 'b111cafe')).toBeTruthy();
 
-      const deleteOwned = await authWorker.fetch(
+      const deleteWithoutIdempotency = await authWorker.fetch(
         authJsonRequest(`/api/admin/users/${target.id}/assets/a111cafe`, 'DELETE', undefined, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(deleteWithoutIdempotency.status).toBe(428);
+      await expect(deleteWithoutIdempotency.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'admin_storage_delete_idempotency_required',
+      }));
+      expect(env.DB.state.aiImages.find((row) => row.id === 'a111cafe')).toBeTruthy();
+      expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
+
+      const deleteWithoutConfirmation = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/assets/a111cafe`, 'DELETE', {
+          reason: 'missing confirmation should fail',
+          targetUserId: target.id,
+          assetId: 'a111cafe',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'admin-storage-delete-missing-confirmation',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(deleteWithoutConfirmation.status).toBe(409);
+      await expect(deleteWithoutConfirmation.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'admin_storage_delete_confirmation_required',
+      }));
+      expect(env.DB.state.aiImages.find((row) => row.id === 'a111cafe')).toBeTruthy();
+      expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
+
+      const deleteOwned = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/assets/a111cafe`, 'DELETE', {
+          confirm: true,
+          confirmation: 'delete_user_asset',
+          reason: 'delete selected target asset after admin review',
+          targetUserId: target.id,
+          assetId: 'a111cafe',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'admin-storage-delete-owned-asset',
         }),
         env,
         createExecutionContext().execCtx
@@ -16538,9 +16784,16 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.aiFolders.find((row) => row.id === 'f11dbabe').name).toBe('Renamed Folder');
 
       const deleteFolder = await authWorker.fetch(
-        authJsonRequest(`/api/admin/users/${target.id}/folders/f11dbabe`, 'DELETE', undefined, {
+        authJsonRequest(`/api/admin/users/${target.id}/folders/f11dbabe`, 'DELETE', {
+          confirm: true,
+          confirmation: 'delete_user_folder',
+          reason: 'delete selected target folder after admin review',
+          targetUserId: target.id,
+          folderId: 'f11dbabe',
+        }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'admin-storage-delete-owned-folder',
         }),
         env,
         createExecutionContext().execCtx

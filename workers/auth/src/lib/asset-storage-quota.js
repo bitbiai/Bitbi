@@ -365,3 +365,123 @@ export function sumAssetStorageBytes(rows = []) {
     + (normalizeByteCount(row?.size_bytes) ?? 0)
     + (normalizeByteCount(row?.poster_size_bytes) ?? 0), 0);
 }
+
+async function readStorageReconciliationTextAssets(env, userId) {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT id, folder_id, visibility, source_module, size_bytes, poster_size_bytes, poster_r2_key
+       FROM ai_text_assets
+       WHERE user_id = ?`
+    ).bind(userId).all();
+    return rows.results || [];
+  } catch (error) {
+    if (isMissingTextAssetTableError(error)) return null;
+    throw error;
+  }
+}
+
+function addVisibilityCount(counts, visibility) {
+  const key = String(visibility || "private").toLowerCase() === "public" ? "public" : "private";
+  counts[key] = (counts[key] || 0) + 1;
+}
+
+function addSourceModuleCount(counts, sourceModule) {
+  const key = String(sourceModule || "image").trim() || "unknown";
+  counts[key] = (counts[key] || 0) + 1;
+}
+
+export async function buildUserAssetStorageReconciliation(env, userId) {
+  const imageRows = await env.DB.prepare(
+    "SELECT id, folder_id, visibility, size_bytes FROM ai_images WHERE user_id = ?"
+  ).bind(userId).all();
+  const foldersRows = await env.DB.prepare(
+    "SELECT id FROM ai_folders WHERE user_id = ? AND status = 'active'"
+  ).bind(userId).all();
+  const textRows = await readStorageReconciliationTextAssets(env, userId);
+
+  let recordedUsageBytes = null;
+  let quotaAvailable = true;
+  try {
+    recordedUsageBytes = await getStoredUsageBytes(env, userId);
+  } catch (error) {
+    if (error?.code !== "asset_storage_quota_unavailable") throw error;
+    quotaAvailable = false;
+  }
+
+  const folderIds = new Set((foldersRows.results || []).map((row) => row.id).filter(Boolean));
+  const visibilityCounts = { public: 0, private: 0 };
+  const assetCountsByType = { image: 0 };
+  let knownAssetBytes = 0;
+  let missingByteMetadataCount = 0;
+  let orphanMetadataCount = 0;
+
+  for (const row of imageRows.results || []) {
+    assetCountsByType.image += 1;
+    addVisibilityCount(visibilityCounts, row.visibility);
+    const sizeBytes = normalizeByteCount(row.size_bytes);
+    if (sizeBytes === null) {
+      missingByteMetadataCount += 1;
+    } else {
+      knownAssetBytes += sizeBytes;
+    }
+    if (row.folder_id && !folderIds.has(row.folder_id)) orphanMetadataCount += 1;
+  }
+
+  if (Array.isArray(textRows)) {
+    for (const row of textRows) {
+      addSourceModuleCount(assetCountsByType, row.source_module || "text");
+      addVisibilityCount(visibilityCounts, row.visibility);
+      const sizeBytes = normalizeByteCount(row.size_bytes);
+      if (sizeBytes === null) {
+        missingByteMetadataCount += 1;
+      } else {
+        knownAssetBytes += sizeBytes;
+      }
+      if (row.poster_r2_key) {
+        const posterBytes = normalizeByteCount(row.poster_size_bytes);
+        if (posterBytes === null) {
+          missingByteMetadataCount += 1;
+        } else {
+          knownAssetBytes += posterBytes;
+        }
+      }
+      if (row.folder_id && !folderIds.has(row.folder_id)) orphanMetadataCount += 1;
+    }
+  }
+
+  const recorded = recordedUsageBytes ?? 0;
+  const deltaBytes = quotaAvailable && recordedUsageBytes !== null
+    ? recorded - knownAssetBytes
+    : null;
+  const recommendation = !quotaAvailable || recordedUsageBytes === null
+    ? "blocked"
+    : (missingByteMetadataCount > 0 || orphanMetadataCount > 0 || deltaBytes !== 0 ? "needs_review" : "ok");
+
+  return {
+    ok: recommendation === "ok",
+    mode: "dry_run_read_only",
+    source: "local_d1_metadata_only",
+    generatedAt: nowIso(),
+    userId,
+    recordedUsageBytes,
+    knownAssetBytes,
+    deltaBytes,
+    assetCountsByType,
+    missingByteMetadataCount,
+    visibilityCounts,
+    foldersCount: folderIds.size,
+    orphanMetadataCount,
+    quotaAvailable,
+    textAssetsAvailable: Array.isArray(textRows),
+    recommendation,
+    noR2Listing: true,
+    noR2Mutation: true,
+    d1Mutated: false,
+    tenantIsolationClaimed: false,
+    limitations: [
+      "This dry-run uses D1 metadata only and does not prove live R2 object existence.",
+      "Raw private R2 keys are not returned.",
+      "No quota counters are changed automatically.",
+    ],
+  };
+}

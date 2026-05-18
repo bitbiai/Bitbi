@@ -42,6 +42,9 @@ import {
   normalizeTenantAssetManualReviewStatus,
   serializeTenantAssetManualReviewMetadata,
 } from "../workers/auth/src/lib/tenant-asset-manual-review.js";
+import {
+  listTenantAssetDomainRegistry,
+} from "../workers/auth/src/lib/tenant-asset-domain-registry.js";
 
 const repoRoot = process.cwd();
 const report = buildTenantAssetOwnershipDryRunReport(repoRoot, {
@@ -90,6 +93,37 @@ for (const expected of [
   "news_pulse_visuals",
 ]) {
   assert(domainIds.has(expected), `missing asset domain ${expected}`);
+}
+
+const registryDomainIds = new Set(listTenantAssetDomainRegistry().map((domain) => domain.id));
+for (const expected of [
+  "ai_folders",
+  "ai_images",
+  "ai_image_derivatives",
+  "ai_text_assets",
+  "text_asset_posters",
+  "member_music_audio_assets",
+  "member_video_assets",
+  "generated_video_outputs",
+  "public_gallery_references",
+  "public_gallery_mempics",
+  "public_gallery_memvids",
+  "public_gallery_memtracks",
+  "profile_avatars",
+  "private_media",
+  "public_media",
+  "data_lifecycle_exports",
+  "audit_evidence_archives",
+  "platform_admin_generated_assets",
+  "unknown_legacy_media",
+  "r2_user_images",
+  "r2_private_media",
+  "r2_audit_archive",
+  "storage_quota_usage",
+  "manual_review_records",
+  "legacy_media_reset_records",
+]) {
+  assert(registryDomainIds.has(expected), `domain registry missing ${expected}`);
 }
 
 const textDomain = report.assetDomains.find((domain) => domain.id === "ai_text_assets");

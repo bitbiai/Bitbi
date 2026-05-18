@@ -1687,6 +1687,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.platformBudgetEvidenceArchiveExpireRequests = captures.platformBudgetEvidenceArchiveExpireRequests || [];
   captures.platformBudgetEvidenceArchiveCleanupRequests = captures.platformBudgetEvidenceArchiveCleanupRequests || [];
   captures.tenantReviewEvidenceExportRequests = captures.tenantReviewEvidenceExportRequests || [];
+  captures.tenantAssetDomainEvidenceRequests = captures.tenantAssetDomainEvidenceRequests || [];
   captures.legacyResetDryRunExportRequests = captures.legacyResetDryRunExportRequests || [];
   captures.tenantReviewStatusUpdateRequests = captures.tenantReviewStatusUpdateRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
@@ -1980,33 +1981,190 @@ async function mockAdminControlPlane(page, captures = {}) {
       ],
     });
   });
+  await page.route('**/api/admin/tenant-assets/domains/evidence', async (route) => {
+    captures.tenantAssetDomainEvidenceRequests.push({ url: route.request().url() });
+    await fulfillJson(route, {
+      ok: true,
+      report: {
+        reportVersion: 'tenant-asset-domain-evidence-v1',
+        generatedAt: '2026-05-18T11:00:00.000Z',
+        source: 'repo_registry_plus_local_d1_read_only',
+        noBackfill: true,
+        noAccessSwitch: true,
+        tenantIsolationClaimed: false,
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        blockedClaims: [
+          'tenant isolation is not claimed',
+          'ownership backfill readiness remains blocked',
+          'access-switch readiness remains blocked',
+          'confirmed legacy media reset readiness remains blocked',
+        ],
+        domains: [
+          {
+            id: 'ai_folders',
+            label: 'AI folders',
+            currentStatus: 'implemented_but_evidence_pending',
+            ownershipMetadataSupport: 'yes_new_rows_only',
+            runtimeAccessCheckSource: 'legacy_user_id',
+            manualReviewSupport: 'yes',
+            resetSupport: 'dry_run_and_gated_executor_limited',
+            quotaStorageAccountingSupport: 'indirect_folder_rollup',
+            adminVisibilitySupport: 'yes',
+            deletionResetRisk: 'high',
+          },
+          {
+            id: 'ai_images',
+            label: 'AI images',
+            currentStatus: 'implemented_but_evidence_pending',
+            ownershipMetadataSupport: 'yes_new_rows_only',
+            runtimeAccessCheckSource: 'legacy_user_id',
+            manualReviewSupport: 'yes',
+            resetSupport: 'dry_run_and_gated_executor_limited',
+            quotaStorageAccountingSupport: 'yes_size_bytes',
+            adminVisibilitySupport: 'yes',
+            deletionResetRisk: 'high',
+          },
+          {
+            id: 'ai_text_assets',
+            label: 'AI text assets',
+            currentStatus: 'deferred',
+            ownershipMetadataSupport: 'no',
+            runtimeAccessCheckSource: 'legacy_user_id',
+            manualReviewSupport: 'no',
+            resetSupport: 'deferred_existing_delete_paths_only',
+            quotaStorageAccountingSupport: 'yes_size_bytes',
+            adminVisibilitySupport: 'yes_assets_manager',
+            deletionResetRisk: 'high',
+          },
+          {
+            id: 'public_gallery_memtracks',
+            label: 'Public gallery references: Memtracks',
+            currentStatus: 'deferred',
+            ownershipMetadataSupport: 'no',
+            runtimeAccessCheckSource: 'public_visibility_state',
+            manualReviewSupport: 'no',
+            resetSupport: 'blocked',
+            quotaStorageAccountingSupport: 'partial',
+            adminVisibilitySupport: 'partial',
+            deletionResetRisk: 'blocked',
+          },
+          {
+            id: 'r2_user_images',
+            label: 'R2 USER_IMAGES object family',
+            currentStatus: 'evidence_pending',
+            ownershipMetadataSupport: 'partial_parent_only',
+            runtimeAccessCheckSource: 'D1 parent lookup',
+            manualReviewSupport: 'partial',
+            resetSupport: 'blocked_without_parent_evidence',
+            quotaStorageAccountingSupport: 'partial_d1_bytes_only',
+            adminVisibilitySupport: 'redacted_only',
+            deletionResetRisk: 'blocked',
+          },
+        ],
+        limitations: ['No live R2 listing.', 'No backfill/access-switch/reset approval.'],
+      },
+    });
+  });
+  await page.route('**/api/admin/users/*/storage/reconciliation', async (route) => {
+    const match = new URL(route.request().url()).pathname.match(/^\/api\/admin\/users\/([^/]+)\/storage\/reconciliation$/);
+    const userId = match ? decodeURIComponent(match[1]) : 'unknown';
+    await fulfillJson(route, {
+      ok: true,
+      data: {
+        user: adminUsers.find((user) => user.id === userId) || { id: userId, email: `${userId}@example.com` },
+        reconciliation: {
+          ok: false,
+          mode: 'dry_run_read_only',
+          source: 'local_d1_metadata_only',
+          generatedAt: '2026-05-18T11:05:00.000Z',
+          userId,
+          recordedUsageBytes: defaultStorageUsage.usedBytes,
+          knownAssetBytes: defaultStorageUsage.usedBytes - 512,
+          deltaBytes: 512,
+          assetCountsByType: { image: 1, text: 1 },
+          missingByteMetadataCount: 0,
+          visibilityCounts: { public: 1, private: 1 },
+          foldersCount: 1,
+          orphanMetadataCount: 0,
+          quotaAvailable: true,
+          recommendation: 'needs_review',
+          noR2Listing: true,
+          noR2Mutation: true,
+          d1Mutated: false,
+          tenantIsolationClaimed: false,
+          limitations: ['D1 metadata only.'],
+        },
+      },
+    });
+  });
   await page.route('**/api/admin/users/*/storage**', async (route) => {
-    const match = new URL(route.request().url()).pathname.match(/^\/api\/admin\/users\/([^/]+)\/storage$/);
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith('/storage/reconciliation')) {
+      const match = pathname.match(/^\/api\/admin\/users\/([^/]+)\/storage\/reconciliation$/);
+      const userId = match ? decodeURIComponent(match[1]) : 'unknown';
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          user: adminUsers.find((user) => user.id === userId) || { id: userId, email: `${userId}@example.com` },
+          reconciliation: {
+            ok: false,
+            mode: 'dry_run_read_only',
+            source: 'local_d1_metadata_only',
+            generatedAt: '2026-05-18T11:05:00.000Z',
+            userId,
+            recordedUsageBytes: defaultStorageUsage.usedBytes,
+            knownAssetBytes: defaultStorageUsage.usedBytes - 512,
+            deltaBytes: 512,
+            assetCountsByType: { image: 1, text: 1 },
+            missingByteMetadataCount: 0,
+            visibilityCounts: { public: 1, private: 1 },
+            foldersCount: 1,
+            orphanMetadataCount: 0,
+            quotaAvailable: true,
+            recommendation: 'needs_review',
+            noR2Listing: true,
+            noR2Mutation: true,
+            d1Mutated: false,
+            tenantIsolationClaimed: false,
+            limitations: ['D1 metadata only.'],
+          },
+        },
+      });
+      return;
+    }
+    const match = pathname.match(/^\/api\/admin\/users\/([^/]+)\/storage$/);
     const userId = match ? decodeURIComponent(match[1]) : '';
     const payload = userStoragePayloads[userId];
     await fulfillJson(route, payload || { ok: false, error: 'User not found.' }, payload ? 200 : 404);
   });
   await page.route('**/api/admin/users/*/assets/*/**', async (route) => {
+    const request = route.request();
     captures.storageRequests.push({
-      method: route.request().method(),
-      path: new URL(route.request().url()).pathname,
-      body: route.request().postData() ? route.request().postDataJSON() : null,
+      method: request.method(),
+      path: new URL(request.url()).pathname,
+      idempotencyKey: request.headers()['idempotency-key'] || null,
+      body: request.postData() ? request.postDataJSON() : null,
     });
     await fulfillJson(route, { ok: true, data: { updated: true } });
   });
   await page.route('**/api/admin/users/*/assets/*', async (route) => {
+    const request = route.request();
     captures.storageRequests.push({
-      method: route.request().method(),
-      path: new URL(route.request().url()).pathname,
-      body: null,
+      method: request.method(),
+      path: new URL(request.url()).pathname,
+      idempotencyKey: request.headers()['idempotency-key'] || null,
+      body: request.postData() ? request.postDataJSON() : null,
     });
     await fulfillJson(route, { ok: true, data: { deleted: 1 } });
   });
   await page.route('**/api/admin/users/*/folders/*', async (route) => {
+    const request = route.request();
     captures.storageRequests.push({
-      method: route.request().method(),
-      path: new URL(route.request().url()).pathname,
-      body: route.request().postData() ? route.request().postDataJSON() : null,
+      method: request.method(),
+      path: new URL(request.url()).pathname,
+      idempotencyKey: request.headers()['idempotency-key'] || null,
+      body: request.postData() ? request.postDataJSON() : null,
     });
     await fulfillJson(route, { ok: true, data: { updated: true } });
   });
@@ -9483,6 +9641,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeAttached();
     await expect(page.locator('.admin-nav__group-label')).toContainText([
       'Overview',
@@ -9791,6 +9950,20 @@ test.describe('Admin Control Plane', () => {
     });
     await expect(page.locator('#tenantReviewSummary')).toContainText('Status changes');
     await expect(page.locator('#tenantReviewDetail')).toContainText('review in progress');
+
+    await clickAdminNavSection(page, 'tenant-assets');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Asset Center');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Asset Domain Matrix');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('AI folders');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('AI text assets');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Public gallery references: Memtracks');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('R2 USER_IMAGES object family');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Ownership backfill');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Access switch');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Live R2 listing/deletion');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Reconciliation dry-run');
+    await expect(page.locator('#sectionTenantAssets').getByRole('button', { name: /enable|execute|backfill|access switch|confirmed reset|delete|list live r2/i })).toHaveCount(0);
+    expect(captures.tenantAssetDomainEvidenceRequests).toHaveLength(1);
 
     await clickAdminNavSection(page, 'readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Readiness & Evidence Dashboard');
@@ -10108,7 +10281,8 @@ test.describe('Admin Control Plane', () => {
   test('Admin Users replaces Credits with Info and routes to credit or usage details', async ({
     page,
   }) => {
-    await mockAdminControlPlane(page);
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
 
     const response = await page.goto('/admin/index.html#users');
     expect(response.status()).toBe(200);
@@ -10159,6 +10333,37 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#userStorageModal')).toContainText('a100cafe');
     await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Rename' }).first()).toBeVisible();
     await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Delete' }).first()).toBeVisible();
+    await expect(page.locator('#userStorageModal')).toContainText('Storage reconciliation dry-run');
+    await page.locator('#userStorageModal').getByRole('button', { name: 'Run D1 metadata reconciliation' }).click();
+    await expect(page.locator('#userStorageModal')).toContainText('D1 metadata only');
+    await expect(page.locator('#userStorageModal')).toContainText('needs_review');
+    await expect(page.locator('#userStorageModal')).toContainText('No live R2 listing');
+
+    const deleteDialogs = [];
+    const deleteDialogHandler = (dialog) => {
+      deleteDialogs.push(dialog.type());
+      if (dialog.type() === 'prompt') {
+        dialog.accept('Delete selected test asset after admin storage review');
+        return;
+      }
+      expect(dialog.message()).toContain('does not list live R2');
+      dialog.accept();
+    };
+    page.on('dialog', deleteDialogHandler);
+    await page.locator('#userStorageModal tr', { hasText: 'Launch Key Visual' }).getByRole('button', { name: 'Delete' }).click();
+    page.off('dialog', deleteDialogHandler);
+    expect(deleteDialogs).toEqual(['confirm', 'prompt']);
+    const deleteRequest = captures.storageRequests.find((request) => request.method === 'DELETE' && request.path.endsWith('/assets/a100cafe'));
+    expect(deleteRequest).toEqual(expect.objectContaining({
+      idempotencyKey: expect.stringMatching(/^admin-storage-asset-delete-/),
+      body: expect.objectContaining({
+        confirm: true,
+        confirmation: 'delete_user_asset',
+        reason: 'Delete selected test asset after admin storage review',
+        targetUserId: 'user_member',
+        assetId: 'a100cafe',
+      }),
+    }));
     await expect(page.locator('#userStorageModal').getByRole('link', { name: 'Open' }).first()).toHaveAttribute('href', '/api/admin/users/user_member/assets/a100cafe/file');
     await page.locator('#userStorageModal .admin-credit-modal__close').click();
     await expect(page.locator('#userStorageModal')).toBeHidden();

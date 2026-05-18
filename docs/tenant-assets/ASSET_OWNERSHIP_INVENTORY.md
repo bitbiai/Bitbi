@@ -6,6 +6,10 @@ Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_
 
 Purpose: current ownership inventory for audit restart. Historical phase detail is frozen outside this file.
 
+Machine-checkable current-state registry: `workers/auth/src/lib/tenant-asset-domain-registry.js`.
+
+Admin read-only report: `GET /api/admin/tenant-assets/domains/evidence` (admin/MFA, bounded D1 metadata, no R2 listing/mutation, no backfill, no access switch, no reset/delete approval).
+
 ## Current Domain Inventory
 
 | Domain | Current owner signal | Current target state | Current status |
@@ -17,10 +21,14 @@ Purpose: current ownership inventory for audit restart. Historical phase detail 
 | Text/audio/video assets (`ai_text_assets`) | `user_id`, `source_module`, R2/poster fields | Future owner classification | Deferred from first reset executor. |
 | Async video jobs (`ai_video_jobs`) | `user_id`, `scope` | Personal, org, or platform-admin class | Deferred from first reset executor. |
 | Profiles/avatars | `profiles.user_id`, `PRIVATE_MEDIA` avatar key | Personal or future org publisher asset | Deferred. |
+| Private/public media routes | D1 parent lookup or route-specific subject | Route-specific owner evidence | Deferred; R2 keys are not proof. |
 | Favorites | `user_id`, public item reference | Reference record with target owner evidence if needed | Deferred. |
 | Storage quota | `user_asset_storage_usage.user_id` | User/org quota model or verified recompute | User-centered. |
 | Lifecycle/export/delete | `subject_user_id`, planned item rows | User/org subject model | User-centered; org subject deferred. |
 | Audit archives | audit/lifecycle/platform scope | Audit archive asset | Not customer media reset domain. |
+| R2 object families (`USER_IMAGES`, `PRIVATE_MEDIA`, `AUDIT_ARCHIVE`) | D1 parent rows or archive metadata | Redacted key-family evidence only | Never tenant ownership proof by key shape alone. |
+
+See `docs/tenant-assets/TENANT_ASSET_DOMAIN_EXPANSION_ROADMAP.md` for deferred-domain migration/evidence requirements.
 
 ## Current Folder/Image Evidence Counts
 

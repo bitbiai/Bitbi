@@ -271,6 +271,10 @@ export function apiAdminUserStorage(userId, { limit, cursor } = {}) {
     return request('GET', `/admin/users/${encodeURIComponent(userId)}/storage${qs}`);
 }
 
+export function apiAdminUserStorageReconciliation(userId) {
+    return request('GET', `/admin/users/${encodeURIComponent(userId)}/storage/reconciliation`);
+}
+
 export function apiAdminRenameUserAsset(userId, assetId, name) {
     return request('PATCH', `/admin/users/${encodeURIComponent(userId)}/assets/${encodeURIComponent(assetId)}/rename`, { name });
 }
@@ -287,16 +291,32 @@ export function apiAdminSetUserAssetVisibility(userId, assetId, visibility) {
     });
 }
 
-export function apiAdminDeleteUserAsset(userId, assetId) {
-    return request('DELETE', `/admin/users/${encodeURIComponent(userId)}/assets/${encodeURIComponent(assetId)}`);
+export function apiAdminDeleteUserAsset(userId, assetId, { reason, idempotencyKey } = {}) {
+    return request('DELETE', `/admin/users/${encodeURIComponent(userId)}/assets/${encodeURIComponent(assetId)}`, {
+        confirm: true,
+        confirmation: 'delete_user_asset',
+        reason,
+        targetUserId: userId,
+        assetId,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-storage-asset-delete') },
+    });
 }
 
 export function apiAdminRenameUserFolder(userId, folderId, name) {
     return request('PATCH', `/admin/users/${encodeURIComponent(userId)}/folders/${encodeURIComponent(folderId)}`, { name });
 }
 
-export function apiAdminDeleteUserFolder(userId, folderId) {
-    return request('DELETE', `/admin/users/${encodeURIComponent(userId)}/folders/${encodeURIComponent(folderId)}`);
+export function apiAdminDeleteUserFolder(userId, folderId, { reason, idempotencyKey } = {}) {
+    return request('DELETE', `/admin/users/${encodeURIComponent(userId)}/folders/${encodeURIComponent(folderId)}`, {
+        confirm: true,
+        confirmation: 'delete_user_folder',
+        reason,
+        targetUserId: userId,
+        folderId,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-storage-folder-delete') },
+    });
 }
 
 export function apiAdminGrantOrganizationCredits(orgId, { amount, reason, idempotencyKey }) {
@@ -517,6 +537,10 @@ export function apiAdminTenantAssetManualReviewEvidence({ limit = 25, includeIte
     params.set('includeItems', includeItems === false ? 'false' : 'true');
     const qs = params.toString() ? `?${params}` : '';
     return request('GET', '/admin/tenant-assets/folders-images/manual-review/evidence' + qs, undefined, options);
+}
+
+export function apiAdminTenantAssetDomainEvidence(options) {
+    return request('GET', '/admin/tenant-assets/domains/evidence', undefined, options);
 }
 
 export async function apiAdminLegacyMediaResetDryRunExport({
@@ -858,6 +882,10 @@ export function createAiImageIdempotencyKey(prefix = 'ai-image') {
         .slice(0, 48) || 'ai-image';
     const token = createSafeRandomToken().replace(/[^A-Za-z0-9._:-]/g, '-');
     return `${safePrefix}-${token}`.slice(0, 128);
+}
+
+export function createAdminIdempotencyKey(prefix = 'admin-action') {
+    return createAiImageIdempotencyKey(prefix);
 }
 
 function hasHeader(headers, targetName) {

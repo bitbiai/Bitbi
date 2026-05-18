@@ -5858,6 +5858,29 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT id, folder_id, visibility, size_bytes FROM ai_images WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            folder_id: row.folder_id ?? null,
+            visibility: row.visibility || 'private',
+            size_bytes: row.size_bytes ?? null,
+          })),
+      };
+    }
+
+    if (query === "SELECT id FROM ai_folders WHERE user_id = ? AND status = 'active'") {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiFolders
+          .filter((row) => row.user_id === userId && row.status === 'active')
+          .map((row) => ({ id: row.id })),
+      };
+    }
+
     if (query === 'SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?') {
       const [userId] = bindings;
       return {
@@ -5869,6 +5892,23 @@ class MockD1 {
             poster_r2_key: row.poster_r2_key ?? null,
             size_bytes: row.size_bytes ?? null,
             poster_size_bytes: row.poster_size_bytes ?? null,
+          })),
+      };
+    }
+
+    if (query === 'SELECT id, folder_id, visibility, source_module, size_bytes, poster_size_bytes, poster_r2_key FROM ai_text_assets WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            folder_id: row.folder_id ?? null,
+            visibility: row.visibility || 'private',
+            source_module: row.source_module || null,
+            size_bytes: row.size_bytes ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
+            poster_r2_key: row.poster_r2_key ?? null,
           })),
       };
     }
@@ -6671,6 +6711,12 @@ class MockD1 {
     }
     if (query === 'SELECT COALESCE(SUM(used_bytes), 0) AS total FROM user_asset_storage_usage') {
       return { total: this.state.userAssetStorageUsage.reduce((sum, row) => sum + Number(row.used_bytes || 0), 0) };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM tenant_asset_media_reset_actions') {
+      return { total: this.state.tenantAssetMediaResetActions.length };
+    }
+    if (query === 'SELECT COUNT(*) AS total FROM tenant_asset_media_reset_action_events') {
+      return { total: this.state.tenantAssetMediaResetActionEvents.length };
     }
 
     const missingOwnershipMetadata = (row) => !hasOwnershipMetadata(row);

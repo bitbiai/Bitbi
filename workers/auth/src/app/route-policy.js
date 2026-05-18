@@ -373,6 +373,11 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "admin-storage-read-ip", failClosed: true },
     notes: "Admin-only selected-user Assets Manager inspection. Returns aggregate storage usage plus assets/folders scoped to the target user.",
   }),
+  adminRead("admin.users.storage.reconciliation", "/api/admin/users/:id/storage/reconciliation", "admin", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-storage-read-ip", failClosed: true },
+    notes: "Admin-only D1 metadata storage reconciliation dry-run for a selected user. Computes recorded usage, known asset bytes, deltas, counts, and orphan metadata without R2 listing, R2 mutation, D1 mutation, quota repair, backfill, access-switching, or tenant-isolation claims.",
+  }),
   adminRead("admin.users.storage.asset.file", "/api/admin/users/:id/assets/:assetId/file", "admin", {
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
     rateLimit: { id: "admin-storage-read-ip", failClosed: true },
@@ -393,20 +398,20 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
     notes: "Admin storage publication-state mutation. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; no raw R2 key is accepted from the request.",
   }),
-  adminJsonWrite("admin.users.storage.asset.delete", "DELETE", "/api/admin/users/:id/assets/:assetId", "admin", null, "admin-storage-write-ip", {
+  adminJsonWrite("admin.users.storage.asset.delete", "DELETE", "/api/admin/users/:id/assets/:assetId", "admin", "smallJson", "admin-storage-write-ip", {
     audit: { event: "admin_user_asset_deleted" },
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
-    notes: "High-risk admin storage deletion. Requires admin MFA, same-origin protection, fail-closed rate limiting, and audit logging; deletion resolves asset IDs to owned D1 rows and never accepts raw R2 keys from the request.",
+    notes: "High-risk admin storage deletion. Requires Idempotency-Key, confirm=true with confirmation=delete_user_asset, bounded reason, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; deletion resolves asset IDs to owned D1 rows and never accepts raw R2 keys from the request.",
   }),
   adminJsonWrite("admin.users.storage.folder.rename", "PATCH", "/api/admin/users/:id/folders/:folderId", "admin", "smallJson", "admin-storage-write-ip", {
     audit: { event: "admin_user_folder_renamed" },
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
     notes: "Admin storage folder metadata mutation. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging.",
   }),
-  adminJsonWrite("admin.users.storage.folder.delete", "DELETE", "/api/admin/users/:id/folders/:folderId", "admin", null, "admin-storage-write-ip", {
+  adminJsonWrite("admin.users.storage.folder.delete", "DELETE", "/api/admin/users/:id/folders/:folderId", "admin", "smallJson", "admin-storage-write-ip", {
     audit: { event: "admin_user_folder_deleted" },
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
-    notes: "High-risk admin storage folder deletion. Requires admin MFA, same-origin protection, fail-closed rate limiting, and audit logging; folder IDs are scoped to the selected user.",
+    notes: "High-risk admin storage folder deletion. Requires Idempotency-Key, confirm=true with confirmation=delete_user_folder, bounded reason, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; folder IDs are scoped to the selected user.",
   }),
   adminRead("admin.stats.read", "/api/admin/stats", "admin"),
   adminRead("admin.orgs.list", "/api/admin/orgs", "organizations", {
@@ -540,6 +545,12 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "admin-tenant-asset-evidence-ip", failClosed: true },
     sensitivity: "high",
     notes: "Phase 6.7 bounded sanitized tenant asset ownership evidence export for ai_folders and ai_images. Supports JSON and Markdown, omits prompts and private R2 keys, and performs no access, data, R2, provider, Stripe, credit, or billing mutation.",
+  }),
+  adminRead("admin.tenant-assets.domains.evidence.read", "/api/admin/tenant-assets/domains/evidence", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-evidence-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "Read-only cross-domain tenant asset inventory and evidence-readiness report. It uses bounded local D1 metadata counts plus the repo domain registry, never lists or mutates R2, performs no D1 mutation, ownership backfill, access switch, reset/delete, provider call, Stripe call, Cloudflare/GitHub API call, credit mutation, or readiness claim.",
   }),
   adminRead("admin.tenant-assets.legacy-media-reset.dry-run", "/api/admin/tenant-assets/legacy-media-reset/dry-run", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],

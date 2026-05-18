@@ -51,8 +51,10 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/admin/data-lifecycle/exports", "admin.data-lifecycle.exports.list"],
   ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
   ["GET", "/api/admin/data-lifecycle/exports/dla_123", "admin.data-lifecycle.exports.read"],
+  ["GET", "/api/admin/users/user_123/storage/reconciliation", "admin.users.storage.reconciliation"],
   ["GET", "/api/admin/tenant-assets/folders-images/evidence", "admin.tenant-assets.folders-images.evidence.read"],
   ["GET", "/api/admin/tenant-assets/folders-images/evidence/export", "admin.tenant-assets.folders-images.evidence.export"],
+  ["GET", "/api/admin/tenant-assets/domains/evidence", "admin.tenant-assets.domains.evidence.read"],
   ["POST", "/api/admin/tenant-assets/folders-images/manual-review/import", "admin.tenant-assets.folders-images.manual-review.import"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/items", "admin.tenant-assets.folders-images.manual-review.items.list"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_123", "admin.tenant-assets.folders-images.manual-review.items.read"],
@@ -117,7 +119,7 @@ const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [
   },
   {
     id: "admin.users.storage.asset.delete",
-    requiredNoteFragments: ["audit logging", "never accepts raw R2 keys"],
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true", "confirmation=delete_user_asset", "audit logging", "never accepts raw R2 keys"],
   },
   {
     id: "admin.users.storage.folder.rename",
@@ -125,7 +127,7 @@ const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [
   },
   {
     id: "admin.users.storage.folder.delete",
-    requiredNoteFragments: ["audit logging", "scoped to the selected user"],
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true", "confirmation=delete_user_folder", "audit logging", "scoped to the selected user"],
   },
   {
     id: "admin.data-lifecycle.requests.create",

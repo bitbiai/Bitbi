@@ -24,6 +24,7 @@ import {
     apiAdminDeleteUser,
     apiAdminUserBilling,
     apiAdminUserStorage,
+    apiAdminUserStorageReconciliation,
     apiAdminRenameUserAsset,
     apiAdminMoveUserAsset,
     apiAdminSetUserAssetVisibility,
@@ -34,6 +35,7 @@ import {
     apiAdminStats,
     apiAdminActivity,
     apiAdminUserActivity,
+    createAdminIdempotencyKey,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     formatAssetStorageUsage,
@@ -119,6 +121,7 @@ const sections = {
     'ai-budget-switches': document.getElementById('sectionAiBudgetSwitches'),
     lifecycle: document.getElementById('sectionLifecycle'),
     operations: document.getElementById('sectionOperations'),
+    'tenant-assets': document.getElementById('sectionTenantAssets'),
     readiness: document.getElementById('sectionReadiness'),
     users:     document.getElementById('sectionUsers'),
     'ai-lab':  document.getElementById('sectionAiLab'),
@@ -137,6 +140,7 @@ const sectionMeta = {
     'ai-budget-switches': { title: 'AI Budget Switches', desc: 'App-level controls layered under Cloudflare master kill switches' },
     lifecycle: { title: 'Data Lifecycle',   desc: 'Export, deletion planning, archive, and retention operations' },
     operations: { title: 'Operations',      desc: 'Async AI video diagnostics and operational visibility' },
+    'tenant-assets': { title: 'Tenant Assets', desc: 'Cross-domain ownership inventory, evidence gaps, and storage safety' },
     readiness: { title: 'Readiness',        desc: 'Release, migration, Cloudflare, and staging verification checklist' },
     users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
     'ai-lab':  { title: 'AI Lab',           desc: 'Admin-only AI tests, previews, and model comparisons' },
@@ -559,6 +563,7 @@ let storageModalState = {
     assets: [],
     summary: {},
     storageUsage: null,
+    reconciliation: null,
     nextCursor: null,
     hasMore: false,
 };
@@ -1485,6 +1490,7 @@ function resetUserStorageState(user) {
         assets: [],
         summary: {},
         storageUsage: null,
+        reconciliation: null,
         nextCursor: null,
         hasMore: false,
     };
@@ -1543,6 +1549,43 @@ function renderStorageMetrics(payload = {}) {
         creditMetric('Folders', numberFormatter.format(Number(payload.summary?.folderCount || 0))),
     );
     return metrics;
+}
+
+function renderStorageReconciliationDetails(reconciliation) {
+    const section = document.createElement('section');
+    section.className = 'admin-credit-modal__section admin-usage-modal__section';
+    const heading = document.createElement('h4');
+    heading.textContent = 'Storage reconciliation dry-run';
+    section.appendChild(heading);
+
+    if (!reconciliation) {
+        const action = createActionBtn('Run D1 metadata reconciliation', () => loadUserStorageReconciliation(storageModalState.user));
+        section.appendChild(action);
+        const note = document.createElement('p');
+        note.className = 'admin-credit-modal__muted';
+        note.textContent = 'Read-only D1 metadata check. It does not list R2, repair quota counters, backfill ownership, switch access checks, or prove tenant isolation.';
+        section.appendChild(note);
+        return section;
+    }
+
+    const metrics = document.createElement('div');
+    metrics.className = 'admin-credit-modal__metrics admin-usage-modal__metrics';
+    metrics.append(
+        creditMetric('Recommendation', String(reconciliation.recommendation || 'needs_review')),
+        creditMetric('Recorded usage', formatStorageBytes(reconciliation.recordedUsageBytes)),
+        creditMetric('Known asset bytes', formatStorageBytes(reconciliation.knownAssetBytes)),
+        creditMetric('Delta', reconciliation.deltaBytes === null ? 'Unavailable' : formatStorageBytes(reconciliation.deltaBytes)),
+        creditMetric('Missing byte rows', numberFormatter.format(Number(reconciliation.missingByteMetadataCount || 0))),
+        creditMetric('Orphan metadata rows', numberFormatter.format(Number(reconciliation.orphanMetadataCount || 0))),
+    );
+    section.appendChild(metrics);
+    const note = document.createElement('p');
+    note.className = 'admin-credit-modal__muted';
+    note.textContent = 'D1 metadata only. No live R2 listing, no quota repair, no ownership backfill, no access-switching, and no tenant isolation claim.';
+    section.appendChild(note);
+    const action = createActionBtn('Refresh reconciliation dry-run', () => loadUserStorageReconciliation(storageModalState.user));
+    section.appendChild(action);
+    return section;
 }
 
 function renderFolderActions(user, folder) {
@@ -1723,8 +1766,28 @@ function renderUserStorageDetails(payload = {}) {
         : 'Storage usage is calculated from active Assets Manager files owned by this user.';
     $userStorageModalBody.appendChild(note);
 
+    $userStorageModalBody.appendChild(renderStorageReconciliationDetails(storageModalState.reconciliation));
     $userStorageModalBody.appendChild(renderFoldersTable(user, payload.folders || []));
     $userStorageModalBody.appendChild(renderAssetsTable(user, storageModalState.assets || []));
+}
+
+async function loadUserStorageReconciliation(user) {
+    if (!user?.id) return;
+    const res = await apiAdminUserStorageReconciliation(user.id);
+    if (!res.ok) {
+        showToast(res.error || 'Could not run storage reconciliation.', 'error');
+        return;
+    }
+    storageModalState = {
+        ...storageModalState,
+        reconciliation: res.data?.data?.reconciliation || res.data?.reconciliation || null,
+    };
+    renderUserStorageDetails({
+        user: storageModalState.user,
+        folders: storageModalState.folders,
+        summary: storageModalState.summary,
+        storageUsage: storageModalState.storageUsage,
+    });
 }
 
 async function loadUserStorageDetails(user, { append = false } = {}) {
@@ -1755,6 +1818,7 @@ async function loadUserStorageDetails(user, { append = false } = {}) {
             : (Array.isArray(payload.assets) ? payload.assets : []),
         summary: payload.summary || {},
         storageUsage: payload.storageUsage || null,
+        reconciliation: append ? storageModalState.reconciliation : null,
         nextCursor: typeof payload.next_cursor === 'string' ? payload.next_cursor : null,
         hasMore: payload.has_more === true,
     };
@@ -1817,8 +1881,19 @@ async function handleAdminSetAssetVisibility(user, asset, visibility) {
 }
 
 async function handleAdminDeleteAsset(user, asset) {
-    if (!confirm(`Delete asset "${getAssetDisplayName(asset)}" for ${user.email || user.id}?`)) return;
-    const res = await apiAdminDeleteUserAsset(user.id, asset.id);
+    const target = `${getAssetDisplayName(asset)} (${asset.id})`;
+    if (!confirm(`Delete asset "${target}" for ${user.email || user.id}?\n\nThis is an admin storage mutation. It does not prove tenant isolation and does not list live R2.`)) return;
+    const reason = prompt('Reason for asset deletion (required, at least 8 characters)', 'Admin storage cleanup requested after review');
+    if (reason === null) return;
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < 8) {
+        showToast('Deletion reason must be at least 8 characters.', 'error');
+        return;
+    }
+    const res = await apiAdminDeleteUserAsset(user.id, asset.id, {
+        reason: trimmedReason,
+        idempotencyKey: createAdminIdempotencyKey('admin-storage-asset-delete'),
+    });
     if (res.ok) {
         showToast('Asset deleted.', 'success');
         await refreshOpenUserStorageDetails();
@@ -1842,8 +1917,19 @@ async function handleAdminRenameFolder(user, folder) {
 }
 
 async function handleAdminDeleteFolder(user, folder) {
-    if (!confirm(`Delete folder "${folder.name || folder.id}" and its assets for ${user.email || user.id}?`)) return;
-    const res = await apiAdminDeleteUserFolder(user.id, folder.id);
+    const target = `${folder.name || folder.id} (${folder.id})`;
+    if (!confirm(`Delete folder "${target}" and its assets for ${user.email || user.id}?\n\nThis is irreversible or cleanup-queued under existing safeguards. It does not prove tenant isolation and does not list live R2.`)) return;
+    const reason = prompt('Reason for folder deletion (required, at least 8 characters)', 'Admin storage folder cleanup requested after review');
+    if (reason === null) return;
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < 8) {
+        showToast('Deletion reason must be at least 8 characters.', 'error');
+        return;
+    }
+    const res = await apiAdminDeleteUserFolder(user.id, folder.id, {
+        reason: trimmedReason,
+        idempotencyKey: createAdminIdempotencyKey('admin-storage-folder-delete'),
+    });
     if (res.ok) {
         showToast('Folder deleted.', 'success');
         await refreshOpenUserStorageDetails();

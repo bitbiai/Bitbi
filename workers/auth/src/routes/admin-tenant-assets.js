@@ -66,6 +66,10 @@ import {
   legacyMediaResetActionOptionsFromSearch,
   listLegacyMediaResetActions,
 } from "../lib/tenant-asset-legacy-media-reset-executor.js";
+import {
+  TENANT_ASSET_DOMAIN_EVIDENCE_ENDPOINT,
+  buildTenantAssetDomainEvidenceReport,
+} from "../lib/tenant-asset-domain-registry.js";
 import { withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
 
 const TENANT_ASSET_EVIDENCE_RATE_LIMIT = "admin-tenant-asset-evidence-ip";
@@ -357,6 +361,13 @@ export async function handleAdminTenantAssets(ctx) {
 
   const admin = await requireAdmin(request, env, { isSecure, correlationId });
   if (admin instanceof Response) return admin;
+
+  if (pathname === TENANT_ASSET_DOMAIN_EVIDENCE_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetEvidenceRateLimit(ctx);
+    if (limited) return limited;
+    const report = await buildTenantAssetDomainEvidenceReport(env);
+    return withCorrelationId(json({ ok: true, report }), correlationId);
+  }
 
   if (
     (pathname === TENANT_ASSET_OWNERSHIP_EVIDENCE_ENDPOINT && method === "GET") ||
