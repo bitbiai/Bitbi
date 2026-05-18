@@ -54,6 +54,8 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Admin/platform budget switch/cap/reconciliation/repair/report/archive evidence where AI cost controls are in scope.
 - Fetch Metadata/same-origin CSRF hardening evidence for browser state-changing routes and documented webhook/ingest/link exemptions.
 - Tenant asset/manual-review/reset evidence decisions before any ownership/backfill/reset claim.
+- Admin mutation guardrail checks from `npm run check:route-policies`, including high-risk route notes for MFA, same-origin/Fetch Metadata coverage, fail-closed rate limits, confirmation/idempotency rationale, and audit logging.
+- Data lifecycle guardrail evidence from `npm run check:data-lifecycle`: lifecycle approve/export/archive cleanup require `Idempotency-Key` plus `confirm=true`, and `execute-safe` requires `confirm=true` before `dryRun:false`.
 
 ## Current Blockers
 
@@ -72,6 +74,9 @@ npm run check:js
 npm run check:secrets
 npm run test:doc-currentness
 npm run check:doc-currentness
+npm run check:route-policies
+npm run check:data-lifecycle
+npm run check:admin-activity-query-shape
 npm run validate:release
 npm run test:release-compat
 npm run test:release-plan

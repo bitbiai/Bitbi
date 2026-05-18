@@ -44,6 +44,18 @@ export function normalizeDataLifecycleIdempotencyKey(value) {
   return key;
 }
 
+export function requireDataLifecycleConfirmation(body, {
+  message = "Explicit confirmation is required for this data lifecycle action.",
+  code = "confirmation_required",
+} = {}) {
+  if (body?.confirm !== true) {
+    throw new DataLifecycleError(message, {
+      status: 409,
+      code,
+    });
+  }
+}
+
 function normalizeType(value) {
   const type = String(value || "").trim().toLowerCase();
   if (!DATA_LIFECYCLE_REQUEST_TYPES.includes(type)) {

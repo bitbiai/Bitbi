@@ -56,6 +56,21 @@ const MAX_ADMIN_USERS_LIMIT = 100;
 const DEFAULT_ADMIN_ACTIVITY_LIMIT = 50;
 const MAX_ADMIN_ACTIVITY_LIMIT = 100;
 
+function adminMutationConfirmationResponse(code, message) {
+  return json({ ok: false, error: message, code }, { status: 409 });
+}
+
+function requireAdminMutationConfirmation(body, {
+  confirmation,
+  code,
+  message,
+}) {
+  if (body?.confirm !== true || body?.confirmation !== confirmation) {
+    return adminMutationConfirmationResponse(code, message);
+  }
+  return null;
+}
+
 function normalizeAdminUserSearch(value) {
   return String(value || "").trim();
 }
@@ -548,6 +563,15 @@ export async function handleAdmin(ctx) {
       );
     }
 
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return parsed.response;
+    const confirmation = requireAdminMutationConfirmation(parsed.body, {
+      confirmation: "revoke_sessions",
+      code: "admin_revoke_sessions_confirmation_required",
+      message: "Explicit confirmation is required before revoking all sessions for a user.",
+    });
+    if (confirmation) return confirmation;
+
     const targetUser = await env.DB.prepare(
       "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
     )
@@ -723,6 +747,15 @@ export async function handleAdmin(ctx) {
         { status: 400 }
       );
     }
+
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return parsed.response;
+    const confirmation = requireAdminMutationConfirmation(parsed.body, {
+      confirmation: "delete_user",
+      code: "admin_delete_user_confirmation_required",
+      message: "Explicit confirmation is required before permanently deleting a user.",
+    });
+    if (confirmation) return confirmation;
 
     const targetUser = await env.DB.prepare(
       "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"

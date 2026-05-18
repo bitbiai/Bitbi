@@ -27,6 +27,7 @@ Safe fields:
 Forbidden fields:
 
 - Session tokens, cookies, bearer tokens, API keys, HMAC secrets, signatures, nonces, MFA codes, recovery codes, raw passwords, provider credentials, full request bodies, full prompts when prompts may contain sensitive content, raw provider payloads, and stack traces in user-visible responses.
+- Runtime diagnostic serialization must redact common secret/header/idempotency fields and private storage references such as `users/`, `avatars/`, `data-exports/`, `platform-budget-evidence/`, and `tmp/ai-generated/` object keys. Prefer safe counts, categories, hashes, and correlation IDs for debugging.
 
 Identifiers:
 
@@ -61,4 +62,5 @@ Identifiers:
 - Does the event include only the safe fields above?
 - Does any error helper include `error_message` from an untrusted provider? If yes, sanitize or suppress it.
 - Does any diagnostic include a prompt, body, token, code, secret, signature, nonce, or raw provider payload? If yes, remove it.
+- Does any diagnostic include a raw private R2/storage key or signed URL? If yes, replace it with a redacted reference, key class, hash, or count.
 - Does the event have an owner and a runbook link in `docs/SLO_ALERT_BASELINE.md` or `docs/runbooks/`?

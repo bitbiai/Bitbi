@@ -88,8 +88,80 @@ const REQUIRED_LOOKUPS = [
 
 const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [
   {
+    id: "admin.users.role.update",
+    requiredNoteFragments: ["same-origin JSON", "audit logging", "single target-state overwrite"],
+  },
+  {
+    id: "admin.users.status.update",
+    requiredNoteFragments: ["same-origin JSON", "audit logging", "single target-state overwrite"],
+  },
+  {
+    id: "admin.users.sessions.revoke",
+    requiredNoteFragments: ["confirm=true", "confirmation=revoke_sessions", "audit logging"],
+  },
+  {
+    id: "admin.users.delete",
+    requiredNoteFragments: ["confirm=true", "confirmation=delete_user", "audit logging"],
+  },
+  {
+    id: "admin.users.storage.asset.rename",
+    requiredNoteFragments: ["same-origin JSON", "audit logging", "no raw R2 key"],
+  },
+  {
+    id: "admin.users.storage.asset.move",
+    requiredNoteFragments: ["same-origin JSON", "audit logging", "no raw R2 key"],
+  },
+  {
+    id: "admin.users.storage.asset.visibility",
+    requiredNoteFragments: ["same-origin JSON", "audit logging", "no raw R2 key"],
+  },
+  {
+    id: "admin.users.storage.asset.delete",
+    requiredNoteFragments: ["audit logging", "never accepts raw R2 keys"],
+  },
+  {
+    id: "admin.users.storage.folder.rename",
+    requiredNoteFragments: ["same-origin JSON", "audit logging"],
+  },
+  {
+    id: "admin.users.storage.folder.delete",
+    requiredNoteFragments: ["audit logging", "scoped to the selected user"],
+  },
+  {
+    id: "admin.data-lifecycle.requests.create",
+    requiredNoteFragments: ["Idempotency-Key", "audit logging", "no export/delete execution"],
+  },
+  {
     id: "admin.data-lifecycle.requests.plan",
     requiredNoteFragments: ["Idempotency-Key", "audit logging"],
+  },
+  {
+    id: "admin.data-lifecycle.requests.approve",
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true", "audit logging"],
+  },
+  {
+    id: "admin.data-lifecycle.requests.generate-export",
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true", "bounded archive output", "raw private R2 key redaction"],
+  },
+  {
+    id: "admin.data-lifecycle.requests.execute-safe",
+    requiredNoteFragments: ["Idempotency-Key", "dryRun=false", "confirm=true", "approved plan state"],
+  },
+  {
+    id: "admin.data-lifecycle.exports.cleanup-expired",
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true", "approved data-exports/ prefix validation"],
+  },
+  {
+    id: "admin.orgs.credits.grant",
+    requiredNoteFragments: ["Idempotency-Key", "admin-only manual grant"],
+  },
+  {
+    id: "admin.users.credits.grant",
+    requiredNoteFragments: ["Idempotency-Key", "admin-only manual grant"],
+  },
+  {
+    id: "admin.billing.reviews.resolve",
+    requiredNoteFragments: ["Idempotency-Key", "does not call Stripe", "credit accounts"],
   },
   {
     id: "admin.tenant-assets.folders-images.manual-review.import",

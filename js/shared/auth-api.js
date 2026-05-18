@@ -196,11 +196,17 @@ export function apiAdminChangeStatus(userId, status) {
 }
 
 export function apiAdminRevokeSessions(userId) {
-    return request('POST', `/admin/users/${userId}/revoke-sessions`);
+    return request('POST', `/admin/users/${userId}/revoke-sessions`, {
+        confirm: true,
+        confirmation: 'revoke_sessions',
+    });
 }
 
 export function apiAdminDeleteUser(userId) {
-    return request('DELETE', `/admin/users/${userId}`);
+    return request('DELETE', `/admin/users/${userId}`, {
+        confirm: true,
+        confirmation: 'delete_user',
+    });
 }
 
 export function apiAdminLatestAvatars() {

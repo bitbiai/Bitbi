@@ -347,10 +347,22 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { noneReason: "Bootstrap identity route; admin auth and production MFA state are evaluated inside the handler." },
   }),
   adminRead("admin.users.list", "/api/admin/users", "admin"),
-  adminJsonWrite("admin.users.role.update", "PATCH", "/api/admin/users/:id/role", "admin", "smallJson", "admin-action-ip", { audit: { event: "change_role" } }),
-  adminJsonWrite("admin.users.status.update", "PATCH", "/api/admin/users/:id/status", "admin", "smallJson", "admin-action-ip", { audit: { event: "change_status" } }),
-  adminJsonWrite("admin.users.sessions.revoke", "POST", "/api/admin/users/:id/revoke-sessions", "admin", null, "admin-action-ip", { audit: { event: "revoke_sessions" } }),
-  adminJsonWrite("admin.users.delete", "DELETE", "/api/admin/users/:id", "admin", null, "admin-action-ip", { audit: { event: "delete_user" } }),
+  adminJsonWrite("admin.users.role.update", "PATCH", "/api/admin/users/:id/role", "admin", "smallJson", "admin-action-ip", {
+    audit: { event: "change_role" },
+    notes: "High-risk admin security state update. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; no Idempotency-Key is required because the operation is a single target-state overwrite.",
+  }),
+  adminJsonWrite("admin.users.status.update", "PATCH", "/api/admin/users/:id/status", "admin", "smallJson", "admin-action-ip", {
+    audit: { event: "change_status" },
+    notes: "High-risk admin security state update. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; no Idempotency-Key is required because the operation is a single target-state overwrite.",
+  }),
+  adminJsonWrite("admin.users.sessions.revoke", "POST", "/api/admin/users/:id/revoke-sessions", "admin", "smallJson", "admin-action-ip", {
+    audit: { event: "revoke_sessions" },
+    notes: "High-risk admin session revocation. Requires confirm=true with confirmation=revoke_sessions, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging before deleting target-user sessions.",
+  }),
+  adminJsonWrite("admin.users.delete", "DELETE", "/api/admin/users/:id", "admin", "smallJson", "admin-action-ip", {
+    audit: { event: "delete_user" },
+    notes: "Irreversible high-risk admin user deletion. Requires confirm=true with confirmation=delete_user, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; D1 user/content deletion is paired with best-effort private avatar cleanup.",
+  }),
   adminRead("admin.users.storage.read", "/api/admin/users/:id/storage", "admin", {
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],
     rateLimit: { id: "admin-storage-read-ip", failClosed: true },
@@ -361,12 +373,36 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "admin-storage-read-ip", failClosed: true },
     notes: "Admin-only private asset file read. The R2 key is looked up by target user and asset ID; keys are never accepted from the request.",
   }),
-  adminJsonWrite("admin.users.storage.asset.rename", "PATCH", "/api/admin/users/:id/assets/:assetId/rename", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_asset_renamed" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
-  adminJsonWrite("admin.users.storage.asset.move", "PATCH", "/api/admin/users/:id/assets/:assetId/folder", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_asset_moved" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
-  adminJsonWrite("admin.users.storage.asset.visibility", "PATCH", "/api/admin/users/:id/assets/:assetId/visibility", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_asset_visibility_updated" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
-  adminJsonWrite("admin.users.storage.asset.delete", "DELETE", "/api/admin/users/:id/assets/:assetId", "admin", null, "admin-storage-write-ip", { audit: { event: "admin_user_asset_deleted" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
-  adminJsonWrite("admin.users.storage.folder.rename", "PATCH", "/api/admin/users/:id/folders/:folderId", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_folder_renamed" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
-  adminJsonWrite("admin.users.storage.folder.delete", "DELETE", "/api/admin/users/:id/folders/:folderId", "admin", null, "admin-storage-write-ip", { audit: { event: "admin_user_folder_deleted" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
+  adminJsonWrite("admin.users.storage.asset.rename", "PATCH", "/api/admin/users/:id/assets/:assetId/rename", "admin", "smallJson", "admin-storage-write-ip", {
+    audit: { event: "admin_user_asset_renamed" },
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin storage metadata mutation. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; no raw R2 key is accepted from the request.",
+  }),
+  adminJsonWrite("admin.users.storage.asset.move", "PATCH", "/api/admin/users/:id/assets/:assetId/folder", "admin", "smallJson", "admin-storage-write-ip", {
+    audit: { event: "admin_user_asset_moved" },
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin storage metadata mutation. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; no raw R2 key is accepted from the request.",
+  }),
+  adminJsonWrite("admin.users.storage.asset.visibility", "PATCH", "/api/admin/users/:id/assets/:assetId/visibility", "admin", "smallJson", "admin-storage-write-ip", {
+    audit: { event: "admin_user_asset_visibility_updated" },
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin storage publication-state mutation. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; no raw R2 key is accepted from the request.",
+  }),
+  adminJsonWrite("admin.users.storage.asset.delete", "DELETE", "/api/admin/users/:id/assets/:assetId", "admin", null, "admin-storage-write-ip", {
+    audit: { event: "admin_user_asset_deleted" },
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "High-risk admin storage deletion. Requires admin MFA, same-origin protection, fail-closed rate limiting, and audit logging; deletion resolves asset IDs to owned D1 rows and never accepts raw R2 keys from the request.",
+  }),
+  adminJsonWrite("admin.users.storage.folder.rename", "PATCH", "/api/admin/users/:id/folders/:folderId", "admin", "smallJson", "admin-storage-write-ip", {
+    audit: { event: "admin_user_folder_renamed" },
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin storage folder metadata mutation. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging.",
+  }),
+  adminJsonWrite("admin.users.storage.folder.delete", "DELETE", "/api/admin/users/:id/folders/:folderId", "admin", null, "admin-storage-write-ip", {
+    audit: { event: "admin_user_folder_deleted" },
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "High-risk admin storage folder deletion. Requires admin MFA, same-origin protection, fail-closed rate limiting, and audit logging; folder IDs are scoped to the selected user.",
+  }),
   adminRead("admin.stats.read", "/api/admin/stats", "admin"),
   adminRead("admin.orgs.list", "/api/admin/orgs", "organizations", {
     config: REQUIRED_CONFIG.authPublicLimiter,
@@ -387,6 +423,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.orgs.credits.grant", "POST", "/api/admin/orgs/:id/credits/grant", "billing", "smallJson", "admin-billing-write-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "organization_credit_granted" },
+    notes: "High-risk admin-only manual grant. Requires Idempotency-Key, bounded reason, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; does not call Stripe or imply live billing readiness.",
   }),
   adminRead("admin.users.billing.read", "/api/admin/users/:id/billing", "billing", {
     config: REQUIRED_CONFIG.authPublicLimiter,
@@ -395,6 +432,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.users.credits.grant", "POST", "/api/admin/users/:id/credits/grant", "billing", "smallJson", "admin-billing-write-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "user_credit_granted" },
+    notes: "High-risk admin-only manual grant. Requires Idempotency-Key, bounded reason, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; does not call Stripe or imply live billing readiness.",
   }),
   adminRead("admin.billing.events.list", "/api/admin/billing/events", "billing", {
     config: REQUIRED_CONFIG.authPublicLimiter,
@@ -424,7 +462,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.billing.reviews.resolve", "POST", "/api/admin/billing/reviews/:id/resolution", "billing", "smallJson", "admin-billing-write-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "billing_review_resolution_recorded" },
-    notes: "Admin-only manual resolved/dismissed marker for operator-review billing lifecycle events. Does not call Stripe, reverse credits, cancel subscriptions, or alter raw provider payloads.",
+    notes: "Admin-only manual resolved/dismissed marker for operator-review billing lifecycle events. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; does not call Stripe, reverse credits, cancel subscriptions, alter raw provider payloads, or credit accounts.",
   }),
   adminRead("admin.avatars.latest", "/api/admin/avatars/latest", "admin", { config: ["DB"] }),
   adminRead("admin.avatars.read", "/api/admin/avatars/:userId", "admin", { config: ["DB", "PRIVATE_MEDIA"] }),
@@ -443,6 +481,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.data-lifecycle.requests.create", "POST", "/api/admin/data-lifecycle/requests", "privacy", "adminJson", "admin-data-lifecycle-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "data_lifecycle_request_created" },
+    notes: "High-risk admin lifecycle request creation. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; creates planning metadata only and performs no export/delete execution.",
   }),
   adminRead("admin.data-lifecycle.requests.read", "/api/admin/data-lifecycle/requests/:id", "privacy", {
     config: REQUIRED_CONFIG.authPublicLimiter,
@@ -456,14 +495,17 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.data-lifecycle.requests.approve", "POST", "/api/admin/data-lifecycle/requests/:id/approve", "privacy", "smallJson", "admin-data-lifecycle-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "data_lifecycle_request_approved" },
+    notes: "High-risk admin lifecycle approval. Requires Idempotency-Key, confirm=true, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging before moving a reviewed request into approved state.",
   }),
   adminJsonWrite("admin.data-lifecycle.requests.generate-export", "POST", "/api/admin/data-lifecycle/requests/:id/generate-export", "privacy", "smallJson", "admin-data-lifecycle-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
     audit: { event: "data_lifecycle_export_archive_generated" },
+    notes: "High-risk private export archive generation. Requires Idempotency-Key, confirm=true, admin MFA, same-origin JSON, fail-closed rate limiting, AUDIT_ARCHIVE, audit logging, bounded archive output, and raw private R2 key redaction.",
   }),
   adminJsonWrite("admin.data-lifecycle.requests.execute-safe", "POST", "/api/admin/data-lifecycle/requests/:id/execute-safe", "privacy", "smallJson", "admin-data-lifecycle-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
     audit: { event: "data_lifecycle_safe_actions_executed" },
+    notes: "High-risk admin lifecycle safe executor. Requires Idempotency-Key; dryRun=false additionally requires confirm=true. Execution requires approved plan state, blocks destructive modes, emits audit logging, and does not expose raw private R2 keys.",
   }),
   adminRead("admin.data-lifecycle.requests.export.read", "/api/admin/data-lifecycle/requests/:id/export", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
@@ -476,6 +518,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.data-lifecycle.exports.cleanup-expired", "POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "privacy", "smallJson", "admin-data-lifecycle-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
     audit: { event: "data_lifecycle_export_archive_cleanup_completed" },
+    notes: "High-risk private export archive cleanup. Requires Idempotency-Key, confirm=true, admin MFA, same-origin JSON, fail-closed rate limiting, audit logging, approved data-exports/ prefix validation, bounded cleanup, and raw private R2 key redaction.",
   }),
   adminRead("admin.data-lifecycle.exports.read", "/api/admin/data-lifecycle/exports/:archiveId", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],

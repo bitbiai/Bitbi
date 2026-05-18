@@ -8,19 +8,42 @@ function isSafeCorrelationId(value) {
   return typeof value === "string" && /^[A-Za-z0-9._:-]{8,128}$/.test(value);
 }
 
-function normalizeValue(value) {
+const SENSITIVE_FIELD_PATTERN =
+  /(authorization|cookie|token|secret|signature|idempotency[_-]?key|api[_-]?key|password|credential|session[_-]?(id|token|hash|secret|cookie|value)|bitbi_session|stripe[_-]?signature)/i;
+const STORAGE_KEY_FIELD_PATTERN =
+  /(^|_|\b)(r2[_-]?key|object[_-]?key|storage[_-]?key|thumb[_-]?key|medium[_-]?key|original[_-]?key|poster[_-]?r2[_-]?key|output[_-]?r2[_-]?key)(_|$|\b)/i;
+const PRIVATE_STORAGE_REFERENCE_PATTERN =
+  /(^|[\s"'=:(])((?:users|avatars|data-exports|platform-budget-evidence|tmp\/ai-generated)\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{6,})/g;
+const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
+
+function isStorageKeyField(key) {
+  const field = String(key || "");
+  if (/(sha256|hash|class|included|count|type|category)$/i.test(field)) return false;
+  return STORAGE_KEY_FIELD_PATTERN.test(field);
+}
+
+function sanitizeString(value) {
+  return String(value)
+    .replace(BEARER_PATTERN, "Bearer [redacted]")
+    .replace(PRIVATE_STORAGE_REFERENCE_PATTERN, "$1[redacted-private-reference]");
+}
+
+function normalizeValue(value, key = "", depth = 0) {
   if (value === undefined) return undefined;
+  if (SENSITIVE_FIELD_PATTERN.test(key)) return "[redacted]";
+  if (isStorageKeyField(key)) return "[redacted-private-reference]";
   if (value === null) return null;
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return value;
+    return typeof value === "string" ? sanitizeString(value) : value;
   }
+  if (depth > 6) return "[redacted-depth-limit]";
   if (Array.isArray(value)) {
-    return value.map((entry) => normalizeValue(entry)).filter((entry) => entry !== undefined);
+    return value.map((entry) => normalizeValue(entry, key, depth + 1)).filter((entry) => entry !== undefined);
   }
   if (typeof value === "object") {
     const out = {};
     for (const [key, entry] of Object.entries(value)) {
-      const normalized = normalizeValue(entry);
+      const normalized = normalizeValue(entry, key, depth + 1);
       if (normalized !== undefined) {
         out[key] = normalized;
       }

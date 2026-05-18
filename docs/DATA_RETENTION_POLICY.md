@@ -33,6 +33,8 @@ Purpose: current engineering retention baseline. This is not legal approval and 
 - No live R2 listing as part of documentation/evidence phases.
 - No ownership backfill or access-switching through retention policy.
 - No billing/credit refunds through media reset.
+- Admin data lifecycle approval, export generation, expired archive cleanup, and non-dry-run safe execution require `Idempotency-Key`; high-risk approval/export/cleanup and `execute-safe` with `dryRun:false` also require explicit `confirm=true`.
+- Data export/archive evidence should expose private storage references only as redacted categories, hashes, counts, or archive metadata, not raw private R2 keys.
 
 ## Evidence Requirements Before Destructive Action
 

@@ -22,6 +22,7 @@ import {
   listDataLifecycleRequests,
   normalizeDataLifecycleIdempotencyKey,
   planDataLifecycleRequest,
+  requireDataLifecycleConfirmation,
 } from "../lib/data-lifecycle.js";
 import {
   DATA_EXPORT_ARCHIVE_CURSOR_TYPE,
@@ -197,6 +198,10 @@ export async function handleAdminDataLifecycle(ctx) {
         maxBytes: BODY_LIMITS.smallJson,
       });
       if (parsed.response) return parsed.response;
+      requireDataLifecycleConfirmation(parsed.body, {
+        message: "Explicit confirmation is required before cleaning up expired data export archives.",
+        code: "archive_cleanup_confirmation_required",
+      });
       const result = await cleanupExpiredDataExportArchives({
         env: ctx.env,
         limit: parsed.body?.limit,
@@ -276,6 +281,10 @@ export async function handleAdminDataLifecycle(ctx) {
         maxBytes: BODY_LIMITS.smallJson,
       });
       if (parsed.response) return parsed.response;
+      requireDataLifecycleConfirmation(parsed.body, {
+        message: "Explicit confirmation is required before generating a private data export archive.",
+        code: "export_archive_confirmation_required",
+      });
       const result = await generateDataExportArchive({
         env: ctx.env,
         requestId: decodePathId(generateExportMatch[1]),
@@ -308,6 +317,12 @@ export async function handleAdminDataLifecycle(ctx) {
         maxBytes: BODY_LIMITS.smallJson,
       });
       if (parsed.response) return parsed.response;
+      if (parsed.body?.dryRun === false) {
+        requireDataLifecycleConfirmation(parsed.body, {
+          message: "Explicit confirmation is required before executing safe data lifecycle actions.",
+          code: "safe_execution_confirmation_required",
+        });
+      }
       const result = await executeSafeDataLifecycleActions({
         env: ctx.env,
         adminUser: admin.user,
@@ -407,6 +422,10 @@ export async function handleAdminDataLifecycle(ctx) {
         maxBytes: BODY_LIMITS.smallJson,
       });
       if (parsed.response) return parsed.response;
+      requireDataLifecycleConfirmation(parsed.body, {
+        message: "Explicit confirmation is required before approving a data lifecycle request.",
+        code: "approval_confirmation_required",
+      });
       const result = await approveDataLifecycleRequest({
         env: ctx.env,
         adminUser: admin.user,

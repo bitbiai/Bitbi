@@ -52,6 +52,16 @@ This template records current evidence only. It does not approve production read
 - Rollback evidence:
 - Restore drill evidence:
 
+## Admin Mutation And Data Lifecycle Evidence
+
+- `npm run check:route-policies` result:
+- High-risk admin mutation confirmation/idempotency/audit exceptions reviewed:
+- Data lifecycle approval/export/cleanup `confirm=true` evidence:
+- Data lifecycle `execute-safe` dry-run evidence:
+- Data lifecycle `execute-safe` `dryRun:false` approval evidence, if separately authorized:
+- Private export/archive raw-key redaction evidence:
+- Admin delete/session-revoke explicit confirmation evidence:
+
 ## Billing Evidence
 
 - Stripe mode tested:

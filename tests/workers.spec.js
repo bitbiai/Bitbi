@@ -3411,6 +3411,37 @@ test('worker observability helper builds stable structured events and correlatio
     error_code: 'upstream_error',
     error_status: 502,
   }));
+  const redactedEvent = buildDiagnosticEvent({
+    service: 'bitbi-auth',
+    component: 'data-lifecycle',
+    event: 'archive_cleanup_failed',
+    correlationId: 'corr-redact-1234',
+    authorization: 'Bearer secret-token-value',
+    cookie: 'bitbi_session=session-secret',
+    idempotencyKey: 'raw-idempotency-key',
+    r2_key: 'users/private-user/folders/unsorted/private.png',
+    r2_key_sha256: 'a'.repeat(64),
+    r2_key_class: 'user_media',
+    r2_key_included: false,
+    nested: {
+      message: 'failed for data-exports/user/request/dla_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json with Bearer another-token',
+      objectKey: 'avatars/private-user',
+    },
+  });
+  const redactedSerialized = JSON.stringify(redactedEvent);
+  expect(redactedEvent.authorization).toBe('[redacted]');
+  expect(redactedEvent.cookie).toBe('[redacted]');
+  expect(redactedEvent.idempotencyKey).toBe('[redacted]');
+  expect(redactedEvent.r2_key).toBe('[redacted-private-reference]');
+  expect(redactedEvent.r2_key_sha256).toBe('a'.repeat(64));
+  expect(redactedEvent.r2_key_class).toBe('user_media');
+  expect(redactedEvent.r2_key_included).toBe(false);
+  expect(redactedEvent.nested.objectKey).toBe('[redacted-private-reference]');
+  expect(redactedSerialized).not.toContain('secret-token-value');
+  expect(redactedSerialized).not.toContain('raw-idempotency-key');
+  expect(redactedSerialized).not.toContain('users/private-user/folders/unsorted/private.png');
+  expect(redactedSerialized).not.toContain('data-exports/user/request');
+  expect(redactedSerialized).not.toContain('another-token');
   expect(typeof event.ts).toBe('string');
   expect(getErrorFields(error, { includeMessage: false })).toEqual({
     error_name: 'Error',
@@ -28306,8 +28337,28 @@ test.describe('Worker routes', () => {
 
     const adminToken = await seedSession(env, 'admin-1');
     const exec = createExecutionContext();
+    const missingConfirmRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-plain', 'DELETE', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.11',
+      }),
+      env,
+      exec.execCtx
+    );
+    expect(missingConfirmRes.status).toBe(409);
+    await expect(missingConfirmRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'admin_delete_user_confirmation_required',
+    });
+    expect(env.DB.state.users.some((user) => user.id === 'user-plain')).toBe(true);
+    expect(env.DB.state.adminAuditLog).toHaveLength(0);
+
     const res = await authWorker.fetch(
-      authJsonRequest('/api/admin/users/user-plain', 'DELETE', undefined, {
+      authJsonRequest('/api/admin/users/user-plain', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+      }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${adminToken}`,
         'CF-Connecting-IP': '203.0.113.11',
@@ -28326,6 +28377,74 @@ test.describe('Worker routes', () => {
     await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog).toHaveLength(1);
     expect(env.DB.state.adminAuditLog[0].action).toBe('delete_user');
+  });
+
+  test('admin session revocation requires explicit confirmation before mutation', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('admin-revoke-confirm'),
+        createContractUser({ id: 'user-revoke-confirm', role: 'user', email: 'revoke-confirm@example.com' }),
+      ],
+      sessions: [
+        {
+          id: 'target-session-1',
+          user_id: 'user-revoke-confirm',
+          token_hash: 'target-session-hash-1',
+          created_at: nowIso(),
+          expires_at: '2026-06-20T10:00:00.000Z',
+          last_seen_at: nowIso(),
+        },
+        {
+          id: 'target-session-2',
+          user_id: 'user-revoke-confirm',
+          token_hash: 'target-session-hash-2',
+          created_at: nowIso(),
+          expires_at: '2026-06-20T10:00:00.000Z',
+          last_seen_at: nowIso(),
+        },
+      ],
+    });
+    const adminToken = await seedSession(env, 'admin-revoke-confirm');
+
+    const blocked = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-revoke-confirm/revoke-sessions', 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'admin_revoke_sessions_confirmation_required',
+    });
+    expect(env.DB.state.sessions.filter((row) => row.user_id === 'user-revoke-confirm')).toHaveLength(2);
+    expect(env.DB.state.adminAuditLog).toHaveLength(0);
+
+    const exec = createExecutionContext();
+    const confirmed = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-revoke-confirm/revoke-sessions', 'POST', {
+        confirm: true,
+        confirmation: 'revoke_sessions',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      exec.execCtx
+    );
+    await exec.flush();
+    expect(confirmed.status).toBe(200);
+    await expect(confirmed.json()).resolves.toMatchObject({
+      ok: true,
+      revokedSessions: 2,
+      targetUserId: 'user-revoke-confirm',
+    });
+    expect(env.DB.state.sessions.filter((row) => row.user_id === 'user-revoke-confirm')).toHaveLength(0);
+    await drainActivityIngestQueue(authWorker, env);
+    expect(env.DB.state.adminAuditLog.at(-1).action).toBe('revoke_sessions');
   });
 
   test('favorites: adding a new favorite at 99 of 100 succeeds', async () => {
@@ -37823,7 +37942,7 @@ test.describe('Worker routes', () => {
     expect(planRes.status).toBe(200);
 
     const approveRes = await authWorker.fetch(
-      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/approve`, 'POST', {}, {
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/approve`, 'POST', { confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'dl-archive-approve-1',
@@ -37832,6 +37951,22 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
     expect(approveRes.status).toBe(200);
+
+    const missingConfirmRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-generate-missing-confirm',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingConfirmRes.status).toBe(409);
+    await expect(missingConfirmRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'export_archive_confirmation_required',
+    });
+    expect(env.AUDIT_ARCHIVE.putCalls).toHaveLength(0);
 
     const missingIdemRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
@@ -37856,7 +37991,7 @@ test.describe('Worker routes', () => {
     expect(env.AUDIT_ARCHIVE.putCalls).toHaveLength(0);
 
     const generateRes = await authWorker.fetch(
-      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', { confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'dl-archive-generate-1',
@@ -37894,7 +38029,7 @@ test.describe('Worker routes', () => {
     expect(JSON.stringify(metadataBody)).not.toContain('data-exports/');
 
     const repeatGenerateRes = await authWorker.fetch(
-      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', { confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'dl-archive-generate-1',
@@ -38039,7 +38174,7 @@ test.describe('Worker routes', () => {
     const token = await seedSession(env, admin.id);
 
     const oversizedRes = await authWorker.fetch(
-      authJsonRequest('/api/admin/data-lifecycle/requests/dlr_oversized/generate-export', 'POST', {}, {
+      authJsonRequest('/api/admin/data-lifecycle/requests/dlr_oversized/generate-export', 'POST', { confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'dl-archive-oversized-1',
@@ -38053,7 +38188,7 @@ test.describe('Worker routes', () => {
 
     env.AUDIT_ARCHIVE.failPutWith = new Error('R2 unavailable');
     const storageFailRes = await authWorker.fetch(
-      authJsonRequest('/api/admin/data-lifecycle/requests/dlr_storage_fail/generate-export', 'POST', {}, {
+      authJsonRequest('/api/admin/data-lifecycle/requests/dlr_storage_fail/generate-export', 'POST', { confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'dl-archive-storage-fail-1',
@@ -38239,8 +38374,24 @@ test.describe('Worker routes', () => {
     expect(foreignCleanupRes.status).toBe(403);
     expect(env.AUDIT_ARCHIVE.deleteCalls).toHaveLength(0);
 
-    const cleanupRes = await authWorker.fetch(
+    const missingConfirmCleanupRes = await authWorker.fetch(
       authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'cleanup-missing-confirm-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingConfirmCleanupRes.status).toBe(409);
+    await expect(missingConfirmCleanupRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'archive_cleanup_confirmation_required',
+    });
+    expect(env.AUDIT_ARCHIVE.deleteCalls).toHaveLength(0);
+
+    const cleanupRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4, confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${adminToken}`,
         'Idempotency-Key': 'cleanup-expired-1',
@@ -38271,7 +38422,7 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_fresh').status).toBe('ready');
 
     const repeatCleanupRes = await authWorker.fetch(
-      authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4 }, {
+      authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4, confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${adminToken}`,
         'Idempotency-Key': 'cleanup-expired-repeat-1',
@@ -38522,8 +38673,24 @@ test.describe('Worker routes', () => {
     );
     expect(unapprovedExecuteRes.status).toBe(409);
 
-    const approveRes = await authWorker.fetch(
+    const missingApproveConfirmRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/approve`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-approve-missing-confirm-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingApproveConfirmRes.status).toBe(409);
+    await expect(missingApproveConfirmRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'approval_confirmation_required',
+    });
+    expect(env.DB.state.dataLifecycleRequests.find((row) => row.id === createDeleteBody.request.id).status).toBe('planned');
+
+    const approveRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/approve`, 'POST', { confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'dl-approve-member-1',
@@ -38544,10 +38711,29 @@ test.describe('Worker routes', () => {
     );
     expect(missingExecuteIdemRes.status).toBe(428);
 
+    const missingExecuteConfirmRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
+        dryRun: false,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-execute-missing-confirm-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingExecuteConfirmRes.status).toBe(409);
+    await expect(missingExecuteConfirmRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'safe_execution_confirmation_required',
+    });
+    expect(env.DB.state.sessions.some((row) => row.user_id === member.id)).toBe(true);
+
     const destructiveExecuteRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
         dryRun: false,
         mode: 'destructive',
+        confirm: true,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -38581,6 +38767,7 @@ test.describe('Worker routes', () => {
     const executeRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
         dryRun: false,
+        confirm: true,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -38611,6 +38798,7 @@ test.describe('Worker routes', () => {
     const repeatExecuteRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
         dryRun: false,
+        confirm: true,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -38651,7 +38839,7 @@ test.describe('Worker routes', () => {
     expect(planAdminDeleteBody.items.some((entry) => entry.status === 'blocked')).toBe(true);
 
     const approveBlockedRes = await authWorker.fetch(
-      authJsonRequest(`/api/admin/data-lifecycle/requests/${createAdminDeleteBody.request.id}/approve`, 'POST', {}, {
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createAdminDeleteBody.request.id}/approve`, 'POST', { confirm: true }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${onlyAdminToken}`,
         'Idempotency-Key': 'dl-approve-only-admin-1',
@@ -39350,7 +39538,10 @@ test.describe('Worker routes', () => {
     const adminToken = await seedSession(env, 'admin-2');
     const exec = createExecutionContext();
     const res = await authWorker.fetch(
-      authJsonRequest('/api/admin/users/feedface', 'DELETE', undefined, {
+      authJsonRequest('/api/admin/users/feedface', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+      }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${adminToken}`,
         'CF-Connecting-IP': '203.0.113.14',

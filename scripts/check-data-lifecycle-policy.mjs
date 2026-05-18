@@ -127,6 +127,14 @@ if (!archiveHelper.includes("MAX_ARCHIVE_ITEMS") || !archiveHelper.includes("MAX
   issues.push("data export archive helper must enforce item-count and byte-size bounds.");
 }
 
+if (!helper.includes("Math.min(Number(limit) || 50, 100)") || !helper.includes("ORDER BY created_at DESC, id DESC")) {
+  issues.push("data lifecycle request listing must enforce bounded stable pagination.");
+}
+
+if (!archiveHelper.includes("Math.min(Number(limit) || 50, 100)") || !archiveHelper.includes("ORDER BY created_at DESC, id DESC") || !archiveHelper.includes("appliedLimit + 1")) {
+  issues.push("data export archive listing must enforce bounded stable pagination.");
+}
+
 if (!cleanupHelper.includes("DATA_EXPORT_ARCHIVE_PREFIX") || !cleanupHelper.includes("isApprovedDataExportArchiveKey")) {
   issues.push("data export cleanup helper must enforce the approved data-exports/ prefix.");
 }
@@ -149,6 +157,23 @@ if (!archiveHelper.includes("internalKeyIncluded: false") || !archiveHelper.incl
 
 if (!route.includes("normalizeDataLifecycleIdempotencyKey")) {
   issues.push("admin data lifecycle mutations must enforce Idempotency-Key.");
+}
+
+if (!route.includes("requireDataLifecycleConfirmation")) {
+  issues.push("admin data lifecycle high-risk mutations must enforce explicit confirmation.");
+}
+
+for (const [method, pathname, expectedId] of [
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/approve", "admin.data-lifecycle.requests.approve"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/generate-export", "admin.data-lifecycle.requests.generate-export"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/execute-safe", "admin.data-lifecycle.requests.execute-safe"],
+  ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
+]) {
+  const policy = getRoutePolicy(method, pathname);
+  const notes = String(policy?.notes || "");
+  if (!notes.includes("confirm=true")) {
+    issues.push(`${expectedId} policy notes must document confirm=true requirement.`);
+  }
 }
 
 if (!route.includes("executeSafeDataLifecycleActions") || !helper.includes("destructive_execution_disabled")) {
