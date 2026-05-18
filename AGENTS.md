@@ -102,8 +102,10 @@ Do not invent commands/scripts that are not present in this repo.
 
 ## Documentation hygiene
 
-- Keep active current-state docs concise. Do not append full phase history to `CURRENT_IMPLEMENTATION_HANDOFF.md`, `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md`, `AUDIT_ACTION_PLAN.md`, `AUDIT_NEXT_LEVEL.md`, or `ALPHA_AUDIT_2026_05_15.md`.
-- Put detailed phase outcomes in a dedicated phase report, final response, or `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`.
+- Keep active current-state docs concise. Do not append full phase history to `CURRENT_IMPLEMENTATION_HANDOFF.md`, `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md`, `DATA_INVENTORY.md`, or current docs under `docs/audits/`.
+- Put detailed phase outcomes in `docs/audits/archive/root-phase-reports/`, a final response, or `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`.
+- Do not create new root-level `PHASE*.md`, `AUDIT_*.md`, or `ALPHA_AUDIT_*.md` reports; archive historical reports outside the repository root.
+- Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the single start point for a fresh audit. Retired root audit docs live in `docs/audits/archive/retired-audit-root-docs/`.
 - Preserve historical phase reports as frozen evidence. Do not rewrite them to current migration numbers.
 - Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the restart/current audit snapshot and `docs/audits/README.md` for documentation classification.
 - Current source-of-truth docs must mention the latest auth migration from `config/release-compat.json` and must not claim production readiness or live billing readiness without recorded evidence.
@@ -176,5 +178,5 @@ Keep reports concrete and repository-specific.
 
 - Active current-state docs must stay concise and describe current reality, deploy/migration prerequisites, pending operator actions, blocked claims, and next audit entry points.
 - Do not append long phase-by-phase history to active current-state docs.
-- Preserve historical detail in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, or dedicated evidence files.
+- Preserve historical detail in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, or dedicated evidence files.
 - Do not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, confirmed legacy media reset readiness, or deployment completion without evidence.

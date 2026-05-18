@@ -52,4 +52,4 @@ Recommended track: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
 
 ## Historical Evidence
 
-Historical phase detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, and tenant evidence documents. Do not expand this report with chronological phase logs.
+Historical phase detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence documents. Do not expand this report with chronological phase logs.

@@ -4,7 +4,7 @@ Date: 2026-05-18
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
-Purpose: concise current-state guide for work under `workers/auth`. Historical phase detail is frozen in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, and domain evidence docs.
+Purpose: concise current-state guide for work under `workers/auth`. Historical phase detail is frozen in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and domain evidence docs.
 
 ## Current Architecture
 

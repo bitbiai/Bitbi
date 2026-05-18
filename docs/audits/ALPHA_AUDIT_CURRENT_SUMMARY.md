@@ -58,5 +58,5 @@ If tenant reset work continues first, review `docs/tenant-assets/evidence/LEGACY
 - `docs/audits/README.md`
 - `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`
 - `docs/audits/archive/`
-- root `PHASE*.md` reports
+- `docs/audits/archive/root-phase-reports/`
 - `docs/tenant-assets/evidence/`

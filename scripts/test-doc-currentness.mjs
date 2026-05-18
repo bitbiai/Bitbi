@@ -53,12 +53,56 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
-  writeFile(repo, "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md", "Latest auth D1 migration at that historical phase: `0040_add_live_stripe_credit_pack_scope.sql`\n");
+  writeFile(repo, "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md", "Latest auth D1 migration at that historical phase: `0040_add_live_stripe_credit_pack_scope.sql`\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
   });
   assert.deepEqual(result.violations, []);
   assert.equal(result.categoryCounts.historical_phase_report, 1);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md", "Historical report in the root.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "root-historical-report-not-archived");
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/audits/archive/retired-audit-root-docs/AUDIT_ACTION_PLAN.md", "Retired root audit doc.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(result.categoryCounts.historical_phase_report, 1);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "AUDIT_ACTION_PLAN.md", "Retired audit doc in the root.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "retired-root-audit-doc-not-archived");
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "ALPHA_AUDIT_2026_05_15.md", "Retired alpha audit doc in the root.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "retired-root-audit-doc-not-archived");
 }
 
 {

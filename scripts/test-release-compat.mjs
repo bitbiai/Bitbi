@@ -244,7 +244,7 @@ const baseManifest = {
         worker: "auth",
         name: "BILLING_WEBHOOK_TEST_SECRET",
         requiredForRelease: false,
-        documentation: "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
         summary: "Optional synthetic billing webhook verification secret; absent secret keeps the route fail-closed.",
       },
       {
@@ -253,7 +253,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_SECRET_KEY",
         requiredForRelease: false,
-        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
         summary: "Optional Stripe Testmode secret key; absent key keeps Stripe checkout fail-closed.",
       },
       {
@@ -262,7 +262,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_WEBHOOK_SECRET",
         requiredForRelease: false,
-        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
         summary: "Optional Stripe Testmode webhook endpoint secret; absent secret keeps Stripe webhooks fail-closed.",
       },
       {
@@ -271,7 +271,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_MODE",
         requiredForRelease: false,
-        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
         summary: "Optional Stripe mode flag; Phase 2-J only supports test mode.",
       },
       {
@@ -280,7 +280,7 @@ const baseManifest = {
         worker: "auth",
         name: "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT",
         requiredForRelease: false,
-        documentation: "PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
         summary: "Optional admin-only Stripe Testmode checkout kill switch; absent or non-true keeps checkout creation fail-closed.",
       },
       {
@@ -289,7 +289,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_CHECKOUT_SUCCESS_URL",
         requiredForRelease: false,
-        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
         summary: "Optional HTTPS success URL for Stripe Testmode checkout sessions.",
       },
       {
@@ -298,7 +298,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_CHECKOUT_CANCEL_URL",
         requiredForRelease: false,
-        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
         summary: "Optional HTTPS cancel URL for Stripe Testmode checkout sessions.",
       },
       {
@@ -307,7 +307,7 @@ const baseManifest = {
         worker: "auth",
         name: "ENABLE_LIVE_STRIPE_CREDIT_PACKS",
         requiredForRelease: false,
-        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
         summary: "Optional live Stripe credit-pack kill switch; absent or non-true keeps live checkout creation fail-closed.",
       },
       {
@@ -316,7 +316,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_LIVE_SECRET_KEY",
         requiredForRelease: false,
-        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
         summary: "Optional live Stripe secret key for Phase 2-L live credit-pack checkout.",
       },
       {
@@ -325,7 +325,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_LIVE_WEBHOOK_SECRET",
         requiredForRelease: false,
-        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
         summary: "Optional live Stripe webhook secret for Phase 2-L live credit-pack webhooks.",
       },
       {
@@ -334,7 +334,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_LIVE_CHECKOUT_SUCCESS_URL",
         requiredForRelease: false,
-        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
         summary: "Optional HTTPS success URL for live Stripe credit-pack checkout sessions.",
       },
       {
@@ -343,7 +343,7 @@ const baseManifest = {
         worker: "auth",
         name: "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
         requiredForRelease: false,
-        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        documentation: "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
         summary: "Optional HTTPS cancel URL for live Stripe credit-pack checkout sessions.",
       },
       {
@@ -361,7 +361,7 @@ const baseManifest = {
         worker: "ai",
         name: "VIDU_API_KEY",
         requiredForRelease: false,
-        documentation: "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+        documentation: "docs/audits/archive/root-phase-reports/AI_VIDEO_ASYNC_JOB_DESIGN.md",
         summary: "Required for async Vidu Q3 Pro provider tasks.",
       },
       {
@@ -409,7 +409,7 @@ const baseManifest = {
         binding: "AI_VIDEO_JOBS_QUEUE",
         queue: "bitbi-ai-video-jobs",
         requiredForRelease: true,
-        documentation: "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+        documentation: "docs/audits/archive/root-phase-reports/AI_VIDEO_ASYNC_JOB_DESIGN.md",
         summary: "The async AI video jobs queue must exist before auth deploy.",
       },
       {
@@ -640,11 +640,11 @@ function createValidContext() {
     "workers/auth/CLAUDE.md",
     "workers/contact/src/index.js",
     "docs/ai-image-derivatives-runbook.md",
-    "AI_VIDEO_ASYNC_JOB_DESIGN.md",
-    "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
-    "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
-    "PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
-    "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+    "docs/audits/archive/root-phase-reports/AI_VIDEO_ASYNC_JOB_DESIGN.md",
+    "docs/audits/archive/root-phase-reports/PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
+    "docs/audits/archive/root-phase-reports/PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+    "docs/audits/archive/root-phase-reports/PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
+    "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
     "docs/cloudflare-rate-limiting-wave1.md",
     "docs/privacy-compliance-audit.md",
   ]);

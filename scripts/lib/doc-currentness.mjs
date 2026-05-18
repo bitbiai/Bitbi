@@ -7,14 +7,11 @@ export const CURRENT_SOURCE_DOC_PATHS = Object.freeze([
   "CURRENT_IMPLEMENTATION_HANDOFF.md",
   "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md",
   "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md",
-  "AUDIT_ACTION_PLAN.md",
-  "AUDIT_NEXT_LEVEL.md",
   "DATA_INVENTORY.md",
   "docs/DATA_RETENTION_POLICY.md",
   "docs/privacy-data-flow-audit.md",
   "workers/auth/CLAUDE.md",
   "docs/audits/README.md",
-  "ALPHA_AUDIT_2026_05_15.md",
   "docs/production-readiness/README.md",
   "docs/production-readiness/EVIDENCE_TEMPLATE.md",
   "docs/ai-cost-gateway/README.md",
@@ -25,10 +22,7 @@ export const CURRENT_SOURCE_DOC_PATHS = Object.freeze([
 export const CURRENT_DOC_LINE_LIMITS = Object.freeze({
   "docs/audits/NEXT_AUDIT_BASELINE.md": 180,
   "CURRENT_IMPLEMENTATION_HANDOFF.md": 120,
-  "ALPHA_AUDIT_2026_05_15.md": 140,
   "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md": 160,
-  "AUDIT_ACTION_PLAN.md": 160,
-  "AUDIT_NEXT_LEVEL.md": 140,
   "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md": 160,
 });
 
@@ -36,9 +30,6 @@ export const CURRENT_DOC_PHASE_MENTION_LIMITS = Object.freeze({
   "docs/audits/NEXT_AUDIT_BASELINE.md": 0,
   "CURRENT_IMPLEMENTATION_HANDOFF.md": 0,
   "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md": 0,
-  "AUDIT_ACTION_PLAN.md": 0,
-  "AUDIT_NEXT_LEVEL.md": 0,
-  "ALPHA_AUDIT_2026_05_15.md": 0,
   "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md": 0,
 });
 
@@ -83,7 +74,6 @@ const ACTIVE_RUNBOOK_POLICY_DOCS = new Set([
 ]);
 
 const ACTIVE_DOMAIN_DESIGN_DOCS = new Set([
-  "AI_VIDEO_ASYNC_JOB_DESIGN.md",
   "docs/ai-cost-gateway/AI_COST_GATEWAY_DESIGN.md",
   "docs/ai-cost-gateway/AI_COST_GATEWAY_ROADMAP.md",
   "docs/ai-cost-gateway/AI_COST_ROUTE_INVENTORY.md",
@@ -91,11 +81,6 @@ const ACTIVE_DOMAIN_DESIGN_DOCS = new Set([
   "docs/ai-cost-gateway/ADMIN_TEXT_EMBEDDINGS_IDEMPOTENCY_DESIGN.md",
   "docs/ai-cost-gateway/ADMIN_LIVE_AGENT_BUDGET_FLOW_AUDIT.md",
   "docs/ai-cost-gateway/ADMIN_SYNC_VIDEO_DEBUG_RETIREMENT_AUDIT.md",
-]);
-
-const HISTORICAL_HANDOFF_DOCS = new Set([
-  "PHASE1_COMPLETION_HANDOFF.md",
-  "PHASE2A_ENTRYPOINT.md",
 ]);
 
 const STALE_LATEST_PATTERNS = Object.freeze([
@@ -151,6 +136,20 @@ function isIgnoredMarkdownPath(relativePath) {
   return MARKDOWN_SCAN_IGNORES.some((prefix) => normalized.startsWith(prefix));
 }
 
+function isRootHistoricalReportPath(relativePath) {
+  const normalized = normalizePathname(relativePath);
+  if (normalized.includes("/")) return false;
+  return /^PHASE.*\.md$/.test(normalized)
+    || normalized === "AI_VIDEO_ASYNC_JOB_DESIGN.md";
+}
+
+function isRootRetiredAuditDocPath(relativePath) {
+  const normalized = normalizePathname(relativePath);
+  if (normalized.includes("/")) return false;
+  return /^AUDIT_.*\.md$/.test(normalized)
+    || /^ALPHA_AUDIT_.*\.md$/.test(normalized);
+}
+
 function walkMarkdownFiles(root, dir = root, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const absolutePath = path.join(dir, entry.name);
@@ -179,10 +178,10 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (ACTIVE_DOMAIN_DESIGN_DOCS.has(normalized)) return "active_domain_design";
   if (normalized.startsWith("docs/tenant-assets/evidence/") && /^\d{4}-\d{2}-\d{2}-.+\.md$/.test(path.basename(normalized))) return "historical_phase_report";
   if (normalized.startsWith("docs/tenant-assets/") && normalized.endsWith(".md")) return "active_domain_design";
-  if (HISTORICAL_HANDOFF_DOCS.has(normalized)) return "historical_handoff";
   if (normalized.startsWith("docs/audits/archive/") && normalized.endsWith(".md")) return "historical_phase_report";
   if (normalized === "docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md") return "historical_phase_report";
-  if (/^PHASE.*\.md$/.test(normalized)) return "historical_phase_report";
+  if (isRootHistoricalReportPath(normalized)) return "historical_root_report_not_archived";
+  if (isRootRetiredAuditDocPath(normalized)) return "retired_root_audit_doc_not_archived";
   if (SUPERSEDED_STALE_DOCS.has(normalized)) return "superseded_stale";
   return "unknown_needs_review";
 }
@@ -283,6 +282,24 @@ export function scanDocCurrentness(repoRoot, options = {}) {
           line: null,
           rule: "markdown-inventory-classified",
           message: "First-party Markdown file is not classified by docs/audits/README.md and doc-currentness inventory rules.",
+        });
+      }
+      if (category === "historical_root_report_not_archived") {
+        violations.push({
+          type: "root-historical-report-not-archived",
+          file: markdownPath,
+          line: null,
+          rule: "root-historical-reports-archived",
+          message: "Historical root Markdown reports must live in docs/audits/archive/root-phase-reports/.",
+        });
+      }
+      if (category === "retired_root_audit_doc_not_archived") {
+        violations.push({
+          type: "retired-root-audit-doc-not-archived",
+          file: markdownPath,
+          line: null,
+          rule: "retired-root-audit-docs-archived",
+          message: "Legacy root audit Markdown docs must live in docs/audits/archive/retired-audit-root-docs/.",
         });
       }
     }

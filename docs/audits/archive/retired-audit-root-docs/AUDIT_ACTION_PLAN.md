@@ -1,5 +1,7 @@
 # Audit Action Plan
 
+Historical / retired root audit doc. Not current source of truth. Current audit start point: `docs/audits/NEXT_AUDIT_BASELINE.md`.
+
 Date: 2026-05-18
 
 Purpose: current remediation priorities only. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the clean baseline for the next deep audit.

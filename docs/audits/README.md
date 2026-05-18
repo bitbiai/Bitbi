@@ -4,7 +4,7 @@ Last reconciled: 2026-05-18
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0058_add_legacy_media_reset_actions.sql`.
 
-DOC-2 makes `docs/audits/NEXT_AUDIT_BASELINE.md` the clean starting point for the next deep audit. Active docs should describe current state only; historical phase narrative is frozen separately.
+DOC-2 makes `docs/audits/NEXT_AUDIT_BASELINE.md` the clean starting point for the next deep audit. DOC-3 moves historical root phase reports to `docs/audits/archive/root-phase-reports/`. DOC-4 retires the old root audit docs into `docs/audits/archive/retired-audit-root-docs/`. Active docs should describe current state only; historical audit narrative is frozen separately.
 
 ## Start Here
 
@@ -14,9 +14,6 @@ DOC-2 makes `docs/audits/NEXT_AUDIT_BASELINE.md` the clean starting point for th
 | `CURRENT_IMPLEMENTATION_HANDOFF.md` | Short operational restart handoff. |
 | `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` | Short current audit summary. |
 | `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md` | Current SaaS progress snapshot. |
-| `AUDIT_ACTION_PLAN.md` | Current remediation priorities. |
-| `ALPHA_AUDIT_2026_05_15.md` | Active scorecard, no phase log. |
-| `AUDIT_NEXT_LEVEL.md` | Compact next-audit checkpoint. |
 
 ## Active Current Source Of Truth
 
@@ -41,7 +38,6 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 | --- | --- |
 | Tenant assets | `docs/tenant-assets/*.md`, plus current decisions/indexes under `docs/tenant-assets/evidence/`. |
 | AI cost gateway | `docs/ai-cost-gateway/*.md`. |
-| Async video | `AI_VIDEO_ASYNC_JOB_DESIGN.md`. |
 
 ## Active Runbooks And Policies
 
@@ -63,9 +59,10 @@ These files are not current source of truth. They may mention older migration nu
 | --- | --- |
 | `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` | Frozen historical digest. |
 | `docs/audits/archive/*.md` | Archived pre-consolidation snapshots. |
-| root `PHASE*.md` reports | Frozen implementation evidence. |
+| `docs/audits/archive/root-phase-reports/` | Historical root phase reports relocated out of the root. |
+| `docs/audits/archive/retired-audit-root-docs/` | Retired legacy root audit docs. |
 | dated `docs/tenant-assets/evidence/*.md` summaries | Evidence records; use current decision files for present status. |
-| `PHASE1_COMPLETION_HANDOFF.md`, `PHASE2A_ENTRYPOINT.md` | Historical handoffs. |
+| `docs/audits/archive/root-phase-reports/PHASE1_COMPLETION_HANDOFF.md`, `docs/audits/archive/root-phase-reports/PHASE2A_ENTRYPOINT.md` | Historical handoffs. |
 
 ## Superseded Or Stale Context
 
@@ -84,6 +81,9 @@ Keep these files for context only. Reconcile with the current baseline before re
 
 - Current docs explain current state, blockers, migration/deploy prerequisites, and next actions.
 - Historical phase-by-phase narrative belongs in frozen historical docs only.
+- The repository root is for active top-level docs only. Historical phase reports belong in `docs/audits/archive/root-phase-reports/`.
+- Audit-specific plans/reports belong under `docs/audits/` or an archive. Do not create new root-level `AUDIT_*.md`, `ALPHA_AUDIT_*.md`, or `PHASE*.md` files.
+- Future completed phase reports should update current state or go directly to archive, not the repository root.
 - Do not delete unique evidence files.
 - Do not update frozen historical reports just to modernize migration numbers.
 - New Markdown must be classified by doc-currentness tooling.

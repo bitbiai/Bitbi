@@ -1,5 +1,7 @@
 # Alpha Audit 2026-05-15
 
+Historical / retired root audit doc. Not current source of truth. Current audit start point: `docs/audits/NEXT_AUDIT_BASELINE.md`.
+
 Last reconciled: 2026-05-18
 
 Purpose: active Alpha Audit scorecard after DOC-2 consolidation. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the next audit start point.
@@ -58,4 +60,4 @@ This report is not production deploy approval, live billing readiness, full SaaS
 
 ## Historical Evidence
 
-Historical phase detail is frozen in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, and domain evidence docs. Do not turn this scorecard back into a chronological phase log.
+Historical phase detail is frozen in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, and domain evidence docs. Do not turn this scorecard back into a chronological phase log.

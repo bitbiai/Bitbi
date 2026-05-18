@@ -14,7 +14,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Workers: `workers/auth` for primary API/auth/admin/media, `workers/ai` for internal AI service calls, and `workers/contact` for contact form.
 - Release/deploy contract: `config/release-compat.json`.
 - Documentation start point: `docs/audits/NEXT_AUDIT_BASELINE.md`.
-- Historical detail: `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, and tenant evidence docs.
+- Historical detail: `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence docs.
 
 ## Current Implemented State
 

@@ -2,7 +2,9 @@
 
 Date: 2026-05-18
 
-Purpose: current-state restart point for the next deep audit. This file records what exists now, what still needs operator verification, and which claims remain blocked. It is not phase history; detailed historical context is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, and tenant evidence files.
+Purpose: single current-state restart point for the next deep audit. This file records what exists now, what still needs operator verification, and which claims remain blocked. It is not phase history; detailed historical context is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence files.
+
+The old root audit docs were retired to `docs/audits/archive/retired-audit-root-docs/`. The next audit should start here and should not continue old audit phase numbering.
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0058_add_legacy_media_reset_actions.sql`.
 
@@ -103,6 +105,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`
 - `docs/audits/archive/`
-- root `PHASE*.md` reports
+- `docs/audits/archive/root-phase-reports/`
+- `docs/audits/archive/retired-audit-root-docs/`
 - `docs/tenant-assets/evidence/`
 - `docs/audits/README.md`

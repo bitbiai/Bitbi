@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Keep active current-state docs concise. Do not append full phase history to active current docs.
 - Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the clean audit restart point, `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit snapshot, and `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` for frozen history.
-- Historical phase reports and `docs/audits/archive/` snapshots are frozen evidence; do not rewrite them to current migrations.
+- Historical phase reports, retired root audit docs, and `docs/audits/archive/` snapshots are frozen evidence; do not rewrite them to current migrations.
+- Do not create new root-level `PHASE*.md`, `AUDIT_*.md`, or `ALPHA_AUDIT_*.md` reports. Put audit-specific history under `docs/audits/` or archive.
 - Current source-of-truth docs must stay aligned with `config/release-compat.json` and must not claim production readiness or live billing readiness without evidence.
 
 ## PERMANENT PROJECT RULES – ALWAYS FOLLOW THESE FIRST

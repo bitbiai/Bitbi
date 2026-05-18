@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const REQUIRED_OPERATIONAL_DOCS = Object.freeze([
-  "PHASE1F_OPERATIONAL_READINESS_REPORT.md",
+  "docs/audits/archive/root-phase-reports/PHASE1F_OPERATIONAL_READINESS_REPORT.md",
   "docs/OBSERVABILITY_EVENTS.md",
   "docs/SLO_ALERT_BASELINE.md",
   "docs/BACKUP_RESTORE_DRILL.md",

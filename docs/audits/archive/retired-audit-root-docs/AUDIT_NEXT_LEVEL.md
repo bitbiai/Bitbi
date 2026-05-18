@@ -1,5 +1,7 @@
 # Next-Level Audit Checkpoint
 
+Historical / retired root audit doc. Not current source of truth. Current audit start point: `docs/audits/NEXT_AUDIT_BASELINE.md`.
+
 Date: 2026-05-18
 
 Purpose: compact checkpoint for the next audit pass. The clean restart baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
