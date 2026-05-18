@@ -31,6 +31,7 @@ const STRIPE_LIVE_ENV_NAMES = Object.freeze([
 const LIVE_EVIDENCE_ENV_NAMES = Object.freeze([
   "BITBI_READINESS_LIVE_BASE_URL",
   "BITBI_READINESS_STATIC_BASE_URL",
+  "BITBI_READINESS_ADMIN_COOKIE",
 ]);
 
 const SAFE_HEADER_NAMES = Object.freeze([
@@ -251,11 +252,38 @@ function normalizeOperatorUrl(input, { appendPath = null } = {}) {
   return url;
 }
 
-async function safeReadJson(response) {
+function safeReadinessStatusFields(parsed) {
+  const fields = {};
+  if (typeof parsed?.ok === "boolean") fields.ok = parsed.ok;
+  if (typeof parsed?.version === "string") fields.version = parsed.version;
+  const latestAuthMigration = parsed?.releaseTruth?.latestAuthMigration;
+  if (typeof latestAuthMigration === "string") fields.latestAuthMigration = latestAuthMigration;
+  const deployVerificationRequired = parsed?.releaseTruth?.deployVerificationRequired;
+  if (typeof deployVerificationRequired === "boolean") {
+    fields.deployVerificationRequired = deployVerificationRequired;
+  }
+  const liveEvidenceStatus = parsed?.liveEvidenceState?.status;
+  if (typeof liveEvidenceStatus === "string") fields.liveEvidenceStatus = liveEvidenceStatus;
+  const resetGate = Array.isArray(parsed?.runtimeSafetyGates)
+    ? parsed.runtimeSafetyGates.find((entry) => entry?.id === "legacy_media_reset_confirmed_execution")
+    : null;
+  if (resetGate && typeof resetGate.enabled === "boolean") {
+    fields.resetConfirmedExecutionEnabled = resetGate.enabled;
+  }
+  if (Array.isArray(parsed?.blockedClaims)) {
+    fields.blockedClaimsCount = parsed.blockedClaims.length;
+  }
+  return fields;
+}
+
+async function safeReadJson(response, mode = "default") {
   try {
     const text = await response.text();
     if (!text.trim()) return { parsed: false, fields: {} };
     const parsed = JSON.parse(text);
+    if (mode === "admin-readiness") {
+      return { parsed: true, fields: safeReadinessStatusFields(parsed) };
+    }
     const fields = {};
     for (const key of ["ok", "service", "status"]) {
       const value = parsed?.[key];
@@ -275,6 +303,8 @@ async function collectHttpEvidence({
   inputUrl,
   appendPath = null,
   parseJson = false,
+  jsonMode = "default",
+  headers = {},
   fetchImpl,
 }) {
   if (!inputUrl) {
@@ -301,9 +331,10 @@ async function collectHttpEvidence({
   try {
     const response = await fetchImpl(url.href, {
       method: "GET",
+      headers,
       redirect: "follow",
     });
-    const json = parseJson ? await safeReadJson(response) : { parsed: null, fields: {} };
+    const json = parseJson ? await safeReadJson(response, jsonMode) : { parsed: null, fields: {} };
     let finalOrigin = null;
     try {
       finalOrigin = response.url ? new URL(response.url).origin : url.origin;
@@ -334,10 +365,60 @@ async function collectHttpEvidence({
   }
 }
 
+function normalizeAdminCookieHeader(value) {
+  if (!value) return null;
+  const header = String(value).trim();
+  if (!header) return null;
+  if (/[\r\n\u0000]/.test(header)) {
+    throw new Error("BITBI_READINESS_ADMIN_COOKIE must not contain control characters.");
+  }
+  return header;
+}
+
+async function collectAdminReadinessEvidence({ inputUrl, adminCookieHeader, fetchImpl }) {
+  if (!inputUrl) {
+    return {
+      id: "admin-readiness-status",
+      label: "Admin readiness status",
+      mode: "skipped",
+      reason: "No admin readiness URL was provided.",
+    };
+  }
+  if (!adminCookieHeader) {
+    return {
+      id: "admin-readiness-status",
+      label: "Admin readiness status",
+      mode: "skipped",
+      reason:
+        "Admin readiness status was not requested because BITBI_READINESS_ADMIN_COOKIE was not provided. No unauthenticated probe was sent.",
+    };
+  }
+
+  return collectHttpEvidence({
+    id: "admin-readiness-status",
+    label: "Admin readiness status",
+    inputUrl,
+    appendPath: "/api/admin/readiness/status",
+    parseJson: true,
+    jsonMode: "admin-readiness",
+    headers: {
+      Accept: "application/json",
+      Cookie: adminCookieHeader,
+    },
+    fetchImpl,
+  });
+}
+
 async function collectLiveChecks(options) {
   const includeLive = options.includeLive === true;
   const urls = options.urls || {};
-  const hasAnyUrl = Boolean(urls.staticUrl || urls.authWorkerUrl || urls.aiWorkerUrl || urls.contactWorkerUrl);
+  const hasAnyUrl = Boolean(
+    urls.staticUrl ||
+      urls.authWorkerUrl ||
+      urls.aiWorkerUrl ||
+      urls.contactWorkerUrl ||
+      urls.adminReadinessUrl
+  );
 
   if (!includeLive) {
     return {
@@ -355,6 +436,19 @@ async function collectLiveChecks(options) {
       evidenceCollected: false,
       operatorReviewRequired: true,
       reason: "--include-live was provided, but no explicit URLs were supplied. No live/staging URLs were guessed.",
+      results: [],
+    };
+  }
+
+  let adminCookieHeader = null;
+  try {
+    adminCookieHeader = normalizeAdminCookieHeader(options.env?.BITBI_READINESS_ADMIN_COOKIE);
+  } catch (error) {
+    return {
+      mode: "error",
+      evidenceCollected: false,
+      operatorReviewRequired: true,
+      reason: error.message,
       results: [],
     };
   }
@@ -402,6 +496,11 @@ async function collectLiveChecks(options) {
       parseJson: true,
       fetchImpl,
     }),
+    collectAdminReadinessEvidence({
+      inputUrl: urls.adminReadinessUrl,
+      adminCookieHeader,
+      fetchImpl,
+    }),
   ]);
 
   return {
@@ -421,7 +520,7 @@ export async function collectReadinessEvidence(options = {}) {
   const latestAuthMigration = manifest?.release?.schemaCheckpoints?.auth?.latest || "unknown";
   const requiredSecretNames = collectRequiredSecrets(manifest);
   const runChecks = options.runLocalChecks === true;
-  const liveChecks = await collectLiveChecks(options);
+  const liveChecks = await collectLiveChecks({ ...options, env });
   const localSafetyContracts = collectLocalSafetyContracts(repoRoot, manifest);
 
   return {

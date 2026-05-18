@@ -62,7 +62,7 @@ const MAX_ADMIN_ACTIVITY_LIMIT = 100;
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
 const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0058_add_legacy_media_reset_actions.sql";
-const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v1";
+const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v2";
 
 function adminMutationConfirmationResponse(code, message) {
   return json({ ok: false, error: message, code }, { status: 409 });
@@ -85,6 +85,46 @@ function buildAdminReadinessStatus(env) {
       deployUnits: ["auth Worker", "AI Worker", "contact Worker", "static Pages"],
       caveat: "Repository readiness state is not live Cloudflare deploy proof; operator verification remains required.",
     },
+    liveEvidenceState: {
+      status: "live_evidence_pending",
+      repoSupported: true,
+      deployPendingUntilOperatorProof: true,
+      liveEvidenceCollectedByRepoAlone: false,
+      latestExpectedManifestFields: [
+        "generated timestamp",
+        "git branch",
+        "git commit SHA",
+        "worktree classification",
+        "latest auth migration",
+        "deploy units",
+        "deploy order",
+        "blocked claims",
+        "rollback placeholders",
+      ],
+      pendingChecks: [
+        "release cutover manifest saved",
+        "remote auth D1 migration verification",
+        "Worker deploy evidence",
+        "static deploy evidence if affected",
+        "GET /api/health live result",
+        "public security header result",
+        "admin readiness status live result",
+        "rollback owner and previous version recorded",
+      ],
+      rejectedOrFailedEvidence: [],
+      caveat: "This endpoint reports repo-supported status only. It does not collect live evidence by itself.",
+    },
+    cutoverEvidence: {
+      outputDirectory: "docs/production-readiness/evidence/",
+      commands: [
+        "npm run release:cutover-evidence",
+        "npm run release:cutover-evidence:markdown",
+        "npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai",
+      ],
+      safeToRunLocally: true,
+      browserExecutesCommands: false,
+      noDeployOrMigration: true,
+    },
     blockedClaims: [
       { id: "production_readiness", label: "Production readiness", status: "blocked" },
       { id: "live_billing_readiness", label: "Live billing readiness", status: "blocked" },
@@ -103,6 +143,8 @@ function buildAdminReadinessStatus(env) {
       { id: "omega_p1_wave_1", label: "P1 Wave 1 security/cost boundary hardening", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_2", label: "P1 Wave 2 release/canary/billing/admin hardening", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_3", label: "P1 Wave 3 admin/data/observability/scale hardening", status: "implemented_repo_supported" },
+      { id: "omega_p1_wave_4", label: "P1 Wave 4 Admin Readiness & Evidence Dashboard", status: "implemented_repo_supported" },
+      { id: "omega_p1_wave_5", label: "P1 Wave 5 live evidence/cutover tooling", status: "implemented_repo_supported" },
     ],
     runtimeSafetyGates: [
       {

@@ -151,6 +151,12 @@ function getMemberAiLiteralRoutePath(manifest, routeEntry) {
   return routeEntry.replace(/^[A-Z]+\s+/, "");
 }
 
+function getAdminAuthLiteralRoutePath(manifest, routeEntry) {
+  const values = manifest?.adminAuthRoutes?.literalRoutes || [];
+  requireStringListEntry(values, routeEntry, "Admin auth release contract");
+  return routeEntry.replace(/^[A-Z]+\s+/, "");
+}
+
 function buildUrl(baseUrl, routePath) {
   return new URL(routePath, `${baseUrl}/`).toString();
 }
@@ -435,6 +441,7 @@ function createMemberChecks(manifest, config) {
 
 function createAdminChecks(manifest, config) {
   const adminAiModelsPath = `/api${getAdminAiStaticPath(manifest, "/admin/ai/models")}`;
+  const adminReadinessPath = getAdminAuthLiteralRoutePath(manifest, "GET /api/admin/readiness/status");
 
   return [
     {
@@ -453,6 +460,31 @@ function createAdminChecks(manifest, config) {
         }
         if (config.adminExpectedEmail && jsonBody.user.email !== config.adminExpectedEmail) {
           throw new Error("admin /api/admin/me email did not match BITBI_LIVE_ADMIN_EMAIL.");
+        }
+      },
+    },
+    {
+      id: "admin-readiness-status-read",
+      suite: "admin",
+      method: "GET",
+      url: buildUrl(config.authBaseUrl, adminReadinessPath),
+      description: "secure admin session reads readiness status without mutation",
+      headers: jsonHeaders({ Cookie: config.adminCookieHeader }),
+      assert({ response, jsonBody, bodySummary }) {
+        if (response.status !== 200) {
+          throw new Error(`expected 200, got ${response.status}; ${bodySummary}`);
+        }
+        if (
+          !jsonBody ||
+          jsonBody.ok !== true ||
+          !jsonBody.releaseTruth ||
+          jsonBody.releaseTruth.repoTruthIsLiveDeployProof !== false ||
+          !Array.isArray(jsonBody.blockedClaims) ||
+          !jsonBody.blockedClaims.some((entry) => entry?.id === "production_readiness" && entry?.status === "blocked") ||
+          !jsonBody.liveEvidenceState ||
+          jsonBody.liveEvidenceState.liveEvidenceCollectedByRepoAlone !== false
+        ) {
+          throw new Error(`expected admin readiness blocked-claims contract, got ${bodySummary}`);
         }
       },
     },

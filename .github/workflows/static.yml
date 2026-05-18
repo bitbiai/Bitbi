@@ -66,6 +66,8 @@ jobs:
         run: npm run check:live-security-headers
       - name: Test live runtime canary skipped/safe mode
         run: npm run test:live-canary
+      - name: Test release cutover evidence generator
+        run: npm run test:release-cutover-evidence
       - name: Check targeted JavaScript syntax
         run: npm run check:js
       - name: Run release compatibility tests

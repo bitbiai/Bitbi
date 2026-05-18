@@ -49,6 +49,10 @@ function parseArgs(argv) {
       index += 1;
       if (!argv[index]) throw new Error("--contact-worker-url requires a URL.");
       options.urls.contactWorkerUrl = argv[index];
+    } else if (arg === "--admin-readiness-url") {
+      index += 1;
+      if (!argv[index]) throw new Error("--admin-readiness-url requires a URL.");
+      options.urls.adminReadinessUrl = argv[index];
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -81,9 +85,10 @@ Options:
   --auth-worker-url <url>       Auth Worker base URL; checks GET /api/health.
   --ai-worker-url <url>         AI Worker base URL; checks GET /health.
   --contact-worker-url <url>    Contact Worker base URL; checks GET /health.
+  --admin-readiness-url <url>   Admin readiness URL; checks GET only when BITBI_READINESS_ADMIN_COOKIE is set.
 
 The helper never deploys, migrates, writes to Cloudflare/D1/R2/Queues/Stripe/GitHub, or prints secret values.
-Live/staging checks remain skipped unless --include-live is passed with explicit URLs.`);
+Live/staging checks remain skipped unless --include-live is passed with explicit URLs. The admin readiness check is skipped unless an operator provides BITBI_READINESS_ADMIN_COOKIE in the environment.`);
   process.exit(0);
 }
 

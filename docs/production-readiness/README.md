@@ -40,13 +40,14 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 
 ## Current Evidence Required
 
+- Pre-deploy expected-state manifest from `npm run release:cutover-evidence` or `npm run release:cutover-evidence:markdown`.
 - Release/preflight output.
 - Applied migration evidence.
 - Worker deploy evidence for affected workers.
 - Static Pages deploy evidence if static files changed.
 - Secret/binding verification evidence without values.
-- Live health check evidence.
-- Security header evidence.
+- Live read-only health/security evidence from `npm run readiness:live-readonly -- --static-url <url> --auth-worker-url <url>` and any explicitly supplied Worker URLs.
+- Admin readiness status evidence only when an operator supplies authenticated context safely; absence remains pending.
 - Safe canary evidence from `npm run test:live-canary` and, when explicitly enabled by an operator, `npm run validate:live`; live canaries remain read-only/negative unless credentials are intentionally provided.
 - R2/D1/Queue/DO/service binding evidence.
 - Restore drill and rollback evidence.
@@ -60,6 +61,27 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 ## Admin Readiness Dashboard
 
 The Admin Control Plane includes a Readiness & Evidence dashboard at `/admin/#readiness`, backed by read-only `GET /api/admin/readiness/status` when the current Auth Worker is deployed. It shows blocked claims, release checkpoint labels, safety gates, evidence status, safe exports, and copy-only local commands. It does not run shell commands, enable reset execution, execute reset/delete, backfill ownership, switch access checks, call Stripe/providers/Cloudflare APIs, apply migrations, deploy, or prove live readiness.
+
+The dashboard now includes a Live Evidence State panel. It distinguishes repo-supported controls from deploy-pending and live-evidence-pending state, links operators to the cutover evidence command, and keeps all commands copy-only.
+
+## Release Cutover Evidence
+
+Use this before deployment to snapshot expected repository state without deploying:
+
+```bash
+npm run release:cutover-evidence
+npm run release:cutover-evidence:markdown
+```
+
+The manifest includes timestamp, branch, commit SHA, dirty-worktree classification, latest auth migration, deploy units from `release:plan`, expected deploy order, Auth/AI rollout warnings, blocked claims, operator checklist, and rollback placeholders. Dirty worktrees are marked as local planning evidence unless cleaned before actual cutover evidence.
+
+Use this after deployment only for explicit live-read-only checks:
+
+```bash
+npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai
+```
+
+Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only when the operator intends those read-only checks. The admin readiness check is skipped unless `BITBI_READINESS_ADMIN_COOKIE` is supplied in the environment; cookie values are not printed.
 
 ## Current Blockers
 
@@ -86,7 +108,9 @@ npm run test:release-compat
 npm run test:release-plan
 npm run test:live-canary
 npm run test:readiness-evidence
+npm run test:release-cutover-evidence
 npm run test:main-release-readiness
+npm run release:cutover-evidence
 npm run release:plan
 npm run release:preflight
 ```

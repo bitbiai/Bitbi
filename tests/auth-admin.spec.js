@@ -1912,6 +1912,27 @@ async function mockAdminControlPlane(page, captures = {}) {
         deployVerificationRequired: true,
         deployUnits: ['auth Worker', 'AI Worker', 'contact Worker', 'static Pages'],
       },
+      liveEvidenceState: {
+        status: 'live_evidence_pending',
+        repoSupported: true,
+        deployPendingUntilOperatorProof: true,
+        liveEvidenceCollectedByRepoAlone: false,
+        latestExpectedManifestFields: ['git commit SHA', 'deploy units', 'rollback placeholders'],
+        pendingChecks: ['remote auth D1 migration verification', 'admin readiness status live result'],
+        rejectedOrFailedEvidence: [],
+        caveat: 'Mocked static admin test; live evidence remains pending.',
+      },
+      cutoverEvidence: {
+        outputDirectory: 'docs/production-readiness/evidence/',
+        commands: [
+          'npm run release:cutover-evidence',
+          'npm run release:cutover-evidence:markdown',
+          'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai',
+        ],
+        safeToRunLocally: true,
+        browserExecutesCommands: false,
+        noDeployOrMigration: true,
+      },
       blockedClaims: [
         { label: 'Production readiness', status: 'blocked' },
         { label: 'Live billing readiness', status: 'blocked' },
@@ -1930,6 +1951,8 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'P1 Wave 1 security/cost hardening', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 2 release/canary/billing/admin mutation hardening', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 4 Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
       ],
       runtimeSafetyGates: [
         {
@@ -9842,6 +9865,12 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Current Release Truth');
     await expect(readiness).toContainText('0058_add_legacy_media_reset_actions.sql');
     await expect(readiness).toContainText('not live deploy proof');
+    await expect(readiness).toContainText('Live Evidence State');
+    await expect(readiness).toContainText('live evidence pending');
+    await expect(readiness).toContainText('Release cutover manifest');
+    await expect(readiness).toContainText('admin readiness status live result');
+    await expect(readiness).toContainText('npm run release:cutover-evidence');
+    await expect(readiness).toContainText('npm run readiness:live-readonly');
     await expect(readiness).toContainText('Blocked Claims');
     await expect(readiness).toContainText('Production readiness');
     await expect(readiness).toContainText('Live billing readiness');
@@ -9852,6 +9881,7 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('P1 Wave 1 security/cost hardening');
     await expect(readiness).toContainText('P1 Wave 2 release/canary/billing/admin mutation hardening');
     await expect(readiness).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
+    await expect(readiness).toContainText('P1 Wave 5 live evidence/cutover tooling');
     await expect(readiness).toContainText('Runtime Safety Gates');
     await expect(readiness).toContainText('disabled default off');
     await expect(readiness).toContainText('Fetch Metadata CSRF hardening');
@@ -9868,6 +9898,13 @@ test.describe('Admin Control Plane', () => {
     await readiness.getByRole('button', { name: 'Copy commands' }).first().click();
     await expect.poll(() => readClipboardValue(page)).toContain('npm run check:js');
     await expect.poll(() => readClipboardValue(page)).toContain('npm run release:plan');
+
+    await readiness.getByRole('button', { name: 'Copy cutover commands' }).click();
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run release:cutover-evidence');
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run readiness:live-readonly');
+
+    await readiness.getByRole('button', { name: 'Copy evidence save path' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('docs/production-readiness/evidence/');
 
     await readiness.getByRole('button', { name: 'Copy template path' }).first().click();
     await expect.poll(() => readClipboardValue(page)).toBe('docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md');

@@ -16063,6 +16063,26 @@ test.describe('Worker routes', () => {
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });
+      expect(body.liveEvidenceState).toMatchObject({
+        status: 'live_evidence_pending',
+        repoSupported: true,
+        deployPendingUntilOperatorProof: true,
+        liveEvidenceCollectedByRepoAlone: false,
+      });
+      expect(body.liveEvidenceState.pendingChecks).toEqual(expect.arrayContaining([
+        'remote auth D1 migration verification',
+        'admin readiness status live result',
+      ]));
+      expect(body.cutoverEvidence).toMatchObject({
+        outputDirectory: 'docs/production-readiness/evidence/',
+        safeToRunLocally: true,
+        browserExecutesCommands: false,
+        noDeployOrMigration: true,
+      });
+      expect(body.cutoverEvidence.commands).toEqual(expect.arrayContaining([
+        'npm run release:cutover-evidence',
+        'npm run release:cutover-evidence:markdown',
+      ]));
       expect(body.blockedClaims).toEqual(expect.arrayContaining([
         expect.objectContaining({ label: 'Production readiness', status: 'blocked' }),
         expect.objectContaining({ label: 'Live billing readiness', status: 'blocked' }),

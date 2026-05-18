@@ -116,6 +116,89 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
 }
 
 {
+  const calls = [];
+  const adminPending = await collectReadinessEvidence({
+    repoRoot,
+    includeLive: true,
+    urls: {
+      adminReadinessUrl: `https://bitbi.ai/api/admin/readiness/status?token=${secretValue}`,
+    },
+    async fetchImpl(url, options) {
+      calls.push({ url, options });
+      throw new Error("fetch should not be called without admin readiness cookie");
+    },
+  });
+  assert.equal(calls.length, 0);
+  assert.equal(adminPending.liveChecks.mode, "checked");
+  assert(adminPending.liveChecks.results.some((result) =>
+    result.id === "admin-readiness-status" &&
+    result.mode === "skipped" &&
+    /BITBI_READINESS_ADMIN_COOKIE/.test(result.reason)
+  ));
+}
+
+{
+  const calls = [];
+  const adminCookie = `__Host-bitbi_session=${secretValue}; __Host-bitbi_admin_mfa=${secretValue}`;
+  const adminEvidence = await collectReadinessEvidence({
+    repoRoot,
+    includeLive: true,
+    urls: {
+      adminReadinessUrl: `https://bitbi.ai/api/admin/readiness/status?token=${secretValue}`,
+    },
+    env: {
+      BITBI_READINESS_ADMIN_COOKIE: adminCookie,
+    },
+    async fetchImpl(url, options) {
+      calls.push({ url, options });
+      return new Response(JSON.stringify({
+        ok: true,
+        version: "omega-p1-readiness-dashboard-v1",
+        releaseTruth: {
+          latestAuthMigration: "0058_add_legacy_media_reset_actions.sql",
+          deployVerificationRequired: true,
+        },
+        liveEvidenceState: {
+          status: "live_evidence_pending",
+        },
+        runtimeSafetyGates: [
+          {
+            id: "legacy_media_reset_confirmed_execution",
+            enabled: false,
+          },
+        ],
+        blockedClaims: [
+          { id: "production_readiness", status: "blocked" },
+        ],
+        secret: secretValue,
+      }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+          "Set-Cookie": `session=${secretValue}`,
+        },
+      });
+    },
+  });
+  const adminMarkdown = renderReadinessEvidenceMarkdown(adminEvidence);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options?.method, "GET");
+  assert.equal(calls[0].options?.headers?.Cookie, adminCookie);
+  assert(!calls[0].url.includes(secretValue));
+  assert(adminEvidence.liveChecks.results.some((result) =>
+    result.id === "admin-readiness-status" &&
+    result.mode === "checked" &&
+    result.json.fields.latestAuthMigration === "0058_add_legacy_media_reset_actions.sql" &&
+    result.json.fields.resetConfirmedExecutionEnabled === false
+  ));
+  assert(adminMarkdown.includes("latestAuthMigration"));
+  assert(adminMarkdown.includes("resetConfirmedExecutionEnabled=false"));
+  assert(!adminMarkdown.includes(secretValue));
+  assert(!adminMarkdown.includes("Set-Cookie"));
+}
+
+{
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-readiness-output-"));
   assert.throws(
     () => writeReadinessEvidenceMarkdown(tmp, "outside.md", "blocked"),

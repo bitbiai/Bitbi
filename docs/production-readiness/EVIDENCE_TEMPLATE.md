@@ -10,6 +10,19 @@ Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_
 
 This template records current evidence only. It does not approve production readiness, live billing readiness, tenant isolation, ownership backfill, access switching, or confirmed legacy media reset by itself.
 
+## Release Cutover Manifest
+
+- `npm run release:cutover-evidence` output path:
+- `npm run release:cutover-evidence:markdown` output path:
+- Generated timestamp:
+- Git branch:
+- Git commit SHA:
+- Worktree classification: clean/dirty local planning/blocked
+- Deploy units expected from release plan:
+- Expected deploy order:
+- Auth/AI paired rollout warning reviewed: yes/no/not applicable
+- No deploy/no remote migration statement reviewed: yes/no
+
 ## Deployment State
 
 - Static/Pages deployed commit:
@@ -44,6 +57,7 @@ This template records current evidence only. It does not approve production read
 - Static page smoke result:
 - Admin Readiness & Evidence dashboard reviewed (`/admin/#readiness`):
 - `GET /api/admin/readiness/status` result, if deployed:
+- `npm run readiness:live-readonly` command and output path:
 - Security header result:
 - Live runtime canary mode: disabled/skipped/live-read-only
 - Fetch Metadata cross-site write rejection evidence:
@@ -53,6 +67,25 @@ This template records current evidence only. It does not approve production read
 - Error/log review:
 - Rollback evidence:
 - Restore drill evidence:
+
+## Rollback Plan
+
+- Previous Auth Worker version/commit:
+- Previous AI Worker version/commit:
+- Previous Contact Worker version/commit:
+- Previous static Pages artifact/commit:
+- Rollback owner:
+- Rollback time window:
+- Smoke test after rollback:
+
+## Redaction Checklist
+
+- No secrets/API keys/tokens:
+- No cookies/authorization headers:
+- No raw idempotency keys or raw request hashes:
+- No private R2 object keys or signed URLs:
+- No raw Stripe webhook signatures or payload secrets:
+- No provider prompts/payloads beyond approved safe summaries:
 
 ## Admin Mutation And Data Lifecycle Evidence
 
@@ -101,4 +134,6 @@ This template records current evidence only. It does not approve production read
 - Live billing readiness: blocked/ready/needs more evidence
 - Tenant isolation: not claimed/claimed with evidence
 - Confirmed media reset: blocked/approved in separate phase
+- Evidence state: collected/incomplete/rejected
+- Blocked claims remain blocked: yes/no
 - Follow-up actions:

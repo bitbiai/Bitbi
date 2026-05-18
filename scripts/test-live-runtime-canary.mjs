@@ -181,6 +181,27 @@ function createCurrentContractFetch() {
       }
     }
 
+    if (requestUrl === "https://bitbi.ai/api/admin/readiness/status" && method === "GET") {
+      if (isVerifiedAdmin) {
+        return jsonResponse({
+          ok: true,
+          version: "omega-p1-readiness-dashboard-v2",
+          releaseTruth: {
+            latestAuthMigration: "0058_add_legacy_media_reset_actions.sql",
+            repoTruthIsLiveDeployProof: false,
+            deployVerificationRequired: true,
+          },
+          liveEvidenceState: {
+            status: "live_evidence_pending",
+            liveEvidenceCollectedByRepoAlone: false,
+          },
+          blockedClaims: [
+            { id: "production_readiness", status: "blocked" },
+          ],
+        });
+      }
+    }
+
     if (requestUrl === "https://bitbi.ai/api/admin/ai/models" && method === "GET") {
       if (!cookie) return jsonResponse({ ok: false, error: "Not authenticated.", code: "unauthorized" }, 401);
       if (isMember) return jsonResponse({ ok: false, error: "Admin privileges required.", code: "forbidden" }, 403);
@@ -324,7 +345,8 @@ assert.throws(
 
   assert.equal(result.failed.length, 0);
   assert.equal(result.skipped.length, 0);
-  assert.equal(result.passed.length, 17);
+  assert.equal(result.passed.length, 18);
+  assert(result.passed.some((check) => check.id === "admin-readiness-status-read"));
 }
 
 {

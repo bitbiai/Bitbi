@@ -144,6 +144,46 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         deployUnits: ['auth Worker', 'AI Worker', 'contact Worker', 'static Pages'],
         caveat: 'Repository readiness state is not live Cloudflare deploy proof; operator verification remains required.',
     },
+    liveEvidenceState: {
+        status: 'live_evidence_pending',
+        repoSupported: true,
+        deployPendingUntilOperatorProof: true,
+        liveEvidenceCollectedByRepoAlone: false,
+        latestExpectedManifestFields: [
+            'generated timestamp',
+            'git branch',
+            'git commit SHA',
+            'worktree classification',
+            'latest auth migration',
+            'deploy units',
+            'deploy order',
+            'blocked claims',
+            'rollback placeholders',
+        ],
+        pendingChecks: [
+            'release cutover manifest saved',
+            'remote auth D1 migration verification',
+            'Worker deploy evidence',
+            'static deploy evidence if affected',
+            'GET /api/health live result',
+            'public security header result',
+            'admin readiness status live result',
+            'rollback owner and previous version recorded',
+        ],
+        rejectedOrFailedEvidence: [],
+        caveat: 'This dashboard does not collect live evidence by itself.',
+    },
+    cutoverEvidence: {
+        outputDirectory: 'docs/production-readiness/evidence/',
+        commands: [
+            'npm run release:cutover-evidence',
+            'npm run release:cutover-evidence:markdown',
+            'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai',
+        ],
+        safeToRunLocally: true,
+        browserExecutesCommands: false,
+        noDeployOrMigration: true,
+    },
     blockedClaims: [
         { label: 'Production readiness', status: 'blocked' },
         { label: 'Live billing readiness', status: 'blocked' },
@@ -162,6 +202,8 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         { label: 'P1 Wave 1 security/cost hardening', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 2 release/canary/billing/admin mutation hardening', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 4 Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
     ],
     runtimeSafetyGates: [
         { label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION', expected: 'off', enabled: false, status: 'disabled_default_off' },
@@ -198,11 +240,21 @@ const READINESS_COMMAND_GROUPS = Object.freeze([
         ],
     },
     {
+        title: 'Release cutover / live evidence',
+        note: 'Copy-only expected-state and live-read-only evidence commands. They do not deploy or run remote migrations.',
+        commands: [
+            'npm run release:cutover-evidence',
+            'npm run release:cutover-evidence:markdown',
+            'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai',
+        ],
+    },
+    {
         title: 'Readiness / evidence',
         note: 'Evidence and readiness checks. Live canary tests stay safe-by-default and pending when no live URL is configured.',
         commands: [
             'npm run check:main-release-readiness',
             'npm run test:readiness-evidence',
+            'npm run test:release-cutover-evidence',
             'npm run test:live-canary',
             'npm run check:doc-currentness',
             'npm run test:doc-currentness',
@@ -452,6 +504,14 @@ function normalizeReadinessStatus(data) {
         releaseTruth: {
             ...READINESS_FALLBACK_STATUS.releaseTruth,
             ...(data.releaseTruth || {}),
+        },
+        liveEvidenceState: {
+            ...READINESS_FALLBACK_STATUS.liveEvidenceState,
+            ...(data.liveEvidenceState || {}),
+        },
+        cutoverEvidence: {
+            ...READINESS_FALLBACK_STATUS.cutoverEvidence,
+            ...(data.cutoverEvidence || {}),
         },
         blockedClaims: Array.isArray(data.blockedClaims) ? data.blockedClaims : READINESS_FALLBACK_STATUS.blockedClaims,
         hardeningStatus: Array.isArray(data.hardeningStatus) ? data.hardeningStatus : READINESS_FALLBACK_STATUS.hardeningStatus,
@@ -2661,6 +2721,58 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         container.appendChild(section);
     }
 
+    function renderLiveEvidenceState(container, status) {
+        const state = status.liveEvidenceState || READINESS_FALLBACK_STATUS.liveEvidenceState;
+        const cutover = status.cutoverEvidence || READINESS_FALLBACK_STATUS.cutoverEvidence;
+        const pendingChecks = Array.isArray(state.pendingChecks) ? state.pendingChecks : [];
+        const manifestFields = Array.isArray(state.latestExpectedManifestFields) ? state.latestExpectedManifestFields : [];
+        const commands = Array.isArray(cutover.commands) ? cutover.commands : [];
+        const section = readinessSection('Live Evidence State', 'Repo-supported controls are distinct from deployed, operator-verified live evidence.');
+        const grid = el('div', 'admin-control-grid');
+
+        const liveCard = el('article', 'admin-control-card glass glass-card reveal visible');
+        const liveTop = el('div', 'admin-control-card__top');
+        liveTop.append(el('h3', 'admin-section-title', 'Live runtime proof'), badge(statusLabel(state.status), statusVariant(state.status)));
+        liveCard.append(liveTop, el('p', 'admin-shell__desc', state.caveat || 'No live evidence is collected by the repo alone. Operator read-only evidence remains required.'));
+        liveCard.appendChild(detailRows([
+            ['Repo supported', state.repoSupported === true ? 'Yes' : 'No'],
+            ['Deploy pending until operator proof', state.deployPendingUntilOperatorProof === true ? 'Yes' : 'No'],
+            ['Evidence collected by repo alone', state.liveEvidenceCollectedByRepoAlone === true ? 'Yes' : 'No'],
+            ['Pending checks', pendingChecks.length ? pendingChecks.join(', ') : 'Not reported'],
+        ]));
+        grid.appendChild(liveCard);
+
+        const manifestCard = el('article', 'admin-control-card glass glass-card reveal visible');
+        const manifestTop = el('div', 'admin-control-card__top');
+        manifestTop.append(el('h3', 'admin-section-title', 'Release cutover manifest'), badge('Copy-only', 'user'));
+        manifestCard.append(manifestTop, el('p', 'admin-shell__desc', 'Generate expected-state evidence before deploy; save sanitized output under the production-readiness evidence directory.'));
+        manifestCard.appendChild(detailRows([
+            ['Output path', cutover.outputDirectory || 'docs/production-readiness/evidence/'],
+            ['Manifest fields', manifestFields.length ? manifestFields.join(', ') : 'Not reported'],
+            ['Browser executes commands', cutover.browserExecutesCommands === true ? 'Yes' : 'No'],
+            ['Deploy or migration from command', cutover.noDeployOrMigration === true ? 'No' : 'Not reported'],
+        ]));
+        const actions = el('div', 'admin-control-chip-row');
+        const commandButton = el('button', 'btn-action', 'Copy cutover commands');
+        commandButton.type = 'button';
+        commandButton.addEventListener('click', async () => {
+            const copied = await copyTextToClipboard(commands.join('\n'));
+            notify(copied ? 'Cutover evidence commands copied.' : 'Command copy failed.', copied ? 'success' : 'error');
+        });
+        const pathButton = el('button', 'btn-action', 'Copy evidence save path');
+        pathButton.type = 'button';
+        pathButton.addEventListener('click', async () => {
+            const copied = await copyTextToClipboard(cutover.outputDirectory || 'docs/production-readiness/evidence/');
+            notify(copied ? 'Evidence path copied.' : 'Evidence path copy failed.', copied ? 'success' : 'error');
+        });
+        actions.append(commandButton, pathButton);
+        manifestCard.appendChild(actions);
+        grid.appendChild(manifestCard);
+
+        section.appendChild(grid);
+        container.appendChild(section);
+    }
+
     function renderEvidenceCenter(container) {
         const section = readinessSection('Evidence Center', 'Evidence status is intentionally conservative. Pending evidence remains blocking until sanitized operator proof is accepted.');
         const grid = el('div', 'admin-control-grid');
@@ -2875,6 +2987,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         );
 
         renderReadinessHero(container, status, sourceLabel);
+        renderLiveEvidenceState(container, status);
         renderReadinessStatusGrid(container, 'Blocked Claims', 'These claims remain blocked or unclaimed unless separate operator evidence proves otherwise.', status.blockedClaims);
         renderReadinessStatusGrid(container, 'P0/P1 Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);
         renderReadinessStatusGrid(container, 'Runtime Safety Gates', 'Safety gates and controls are shown as operator signals; missing gate values are safe/default-off unless explicitly enabled.', status.runtimeSafetyGates);
