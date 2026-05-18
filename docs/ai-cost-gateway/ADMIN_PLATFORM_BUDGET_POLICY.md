@@ -26,7 +26,7 @@ Status: current policy summary. This document is not a phase log and does not ap
 | `openclaw_news_pulse_budget` | OpenClaw/News Pulse visuals | Safe metadata/status and runtime switch controls exist. | Aggregate cap enforcement remains future work. |
 | `platform_background_budget` | Other platform/background jobs | Policy taxonomy exists. | Needs dedicated schema/usage events before cap claims. |
 | `explicit_unmetered_admin` | Intentional uncharged admin exceptions | Classified and switch-controlled for narrow allowed branches. | Keep disabled unless operator explicitly accepts bounded test risk. |
-| `internal_ai_worker_caller_enforced` | Internal AI Worker routes whose caller owns budget enforcement | Caller-policy validation exists for covered callers/routes. | Remaining baseline-compatible internal callers need targeted migration before broad claims. |
+| `internal_ai_worker_caller_enforced` | Internal AI Worker routes whose caller owns budget enforcement | Provider-cost internal routes require caller-policy metadata before provider execution. | Aggregate cap accounting for this scope remains future work. |
 
 ## Current Controls
 
@@ -86,7 +86,7 @@ These surfaces cannot edit Cloudflare variables, call Stripe, call providers, mu
 ## Current Gaps
 
 - Other platform budget scopes are not fully cap-enforced.
-- Some internal AI Worker caller paths remain baseline-compatible rather than fully caller-policy/cap enforced.
+- Internal AI Worker provider-cost routes fail closed without caller policy; aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work.
 - Admin result replay remains metadata-only for several admin lab routes.
 - Live/manual Cloudflare evidence is still required before production claims.
 - Platform budget controls do not prove Stripe billing, refunds, invoices, taxes, customer credits, or legal/accounting readiness.

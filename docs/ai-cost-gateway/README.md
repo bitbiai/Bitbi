@@ -21,7 +21,7 @@ Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 ## Still Not Complete
 
 - Other budget scopes are not fully cap-enforced.
-- Remaining baseline-allowed internal AI Worker routes are not all migrated to full budget/cap enforcement.
+- Internal AI Worker provider-cost routes now require caller-policy metadata before provider execution; cap accounting for non-`platform_admin_lab_budget` scopes remains future work.
 - Admin result replay remains metadata-only for several admin lab routes.
 - Platform budget evidence still requires operator verification before any production/live claim.
 - This system is not customer billing, Stripe billing, credit clawback, or production readiness.

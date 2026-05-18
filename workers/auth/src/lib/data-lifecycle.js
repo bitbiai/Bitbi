@@ -1,4 +1,9 @@
 import { nowIso, addDaysIso, randomTokenHex, sha256Hex } from "./tokens.js";
+import {
+  classifyStorageObjectKey,
+  redactStorageObjectKey,
+  sanitizeStorageEvidenceSummary,
+} from "./storage-key-redaction.js";
 
 export const DATA_LIFECYCLE_REQUEST_TYPES = Object.freeze(["export", "delete", "anonymize"]);
 export const DATA_LIFECYCLE_STATUSES = Object.freeze({
@@ -112,8 +117,14 @@ function serializeRequest(row) {
   };
 }
 
-function serializeItem(row) {
+async function serializeItem(row) {
   if (!row) return null;
+  const storageReference = row.r2_key
+    ? await redactStorageObjectKey(row.r2_key, { bucket: row.r2_bucket || null })
+    : null;
+  const summary = row.r2_key
+    ? await sanitizeStorageEvidenceSummary(parseSummaryJson(row.summary_json), [row.r2_key])
+    : parseSummaryJson(row.summary_json);
   return {
     id: row.id,
     requestId: row.request_id,
@@ -121,10 +132,12 @@ function serializeItem(row) {
     resourceId: row.resource_id || null,
     tableName: row.table_name || null,
     r2Bucket: row.r2_bucket || null,
-    r2Key: row.r2_key || null,
+    r2Key: null,
+    internalR2KeyIncluded: false,
+    storageReference,
     action: row.action,
     status: row.status,
-    summary: parseSummaryJson(row.summary_json),
+    summary,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -310,7 +323,7 @@ async function getItems(env, requestId) {
      WHERE request_id = ?
      ORDER BY created_at ASC, id ASC`
   ).bind(requestId).all();
-  return (rows.results || []).map(serializeItem);
+  return Promise.all((rows.results || []).map(serializeItem));
 }
 
 export async function listDataLifecycleRequests(env, { limit = 50 } = {}) {
@@ -372,7 +385,11 @@ function addR2Reference(items, requestId, index, {
     r2Bucket: bucket,
     r2Key: key,
     action,
-    summary: { bucket, key },
+    summary: {
+      bucket,
+      keyClass: classifyStorageObjectKey(key),
+      internalKeyIncluded: false,
+    },
     createdAt,
   }));
   return index + 1;

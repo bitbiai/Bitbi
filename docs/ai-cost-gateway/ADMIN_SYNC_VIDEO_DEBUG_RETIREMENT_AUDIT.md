@@ -22,13 +22,13 @@ No budget enforcement was added to the sync route in Phase 4.13 because direct s
 - Rate limiting: fail-closed `admin-ai-video-ip` limiter when the route is explicitly enabled.
 - Default gate: disabled unless `ALLOW_SYNC_VIDEO_DEBUG=true`.
 - Disabled behavior: returns a safe 404-style `not_found` response before request body parsing, rate-limit evaluation, queueing, AI Worker calls, provider calls, credit mutation, or billing mutation.
-- Enabled emergency compatibility behavior: validates a synchronous video payload, logs a warning, and calls the AI Worker `/internal/ai/test-video` through service-auth with baseline caller-policy metadata.
+- Enabled emergency compatibility behavior: validates a synchronous video payload, logs a warning, and calls the AI Worker `/internal/ai/test-video` through service-auth with explicit caller-enforced policy metadata.
 - Internal route: `/internal/ai/test-video` in `workers/ai/src/routes/video.js`.
 - Provider behavior when enabled: one synchronous video generation request through Workers AI and, for Vidu failure compatibility, possible direct Vidu fallback and polling.
 - Storage: sync route returns provider response data only; it does not persist output to D1/R2.
 - Current idempotency: none on the sync route.
 - Current budget behavior: no durable budget metadata, no platform cap, no credit debit, no budget reservation.
-- Current caller-policy behavior: baseline metadata only when the emergency route is explicitly enabled; missing policy remains allowed on the internal route for broader compatibility.
+- Current caller-policy behavior: explicit caller-enforced metadata is required if the emergency route is enabled; missing policy fails closed on the internal provider-cost route.
 
 ## Risk Classification
 

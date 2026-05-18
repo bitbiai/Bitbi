@@ -543,9 +543,7 @@ function implementedAdminLabDurableEvidence(entry, routeIndex) {
         ? "Full stream replay is intentionally unavailable; duplicate completed requests return metadata-only replay without streamed output, raw messages, provider request bodies, or provider response bodies."
         : "Full result replay is intentionally unavailable; duplicate completed requests return metadata-only replay without generated text, embedding vectors, audio, lyrics, compare results, or provider response bodies.",
       "Phase 4.8.2 adds API-first admin-only inspection plus bounded non-destructive cleanup for stuck admin lab usage attempts.",
-      isLiveAgent
-        ? "The AI Worker internal live-agent route now requires signed caller-policy metadata for this covered caller; unrelated internal routes remain baseline-compatible until targeted migrations."
-        : "The AI Worker internal text/embeddings/music/compare routes still allow baseline-missing caller policy for other known callers to preserve org/member and baseline compatibility.",
+      "AI Worker provider-cost internal routes now require signed caller-policy metadata after service auth and before provider execution.",
       isLiveAgent
         ? "Explicit provider output-token and stream-duration caps remain future work because the current streaming Workers AI route exposes no safe route-local token usage or timeout finalization contract."
         : null,
@@ -641,26 +639,28 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
     callerPolicyTransport: "reserved_signed_json_body_key",
     reservedBodyKey: AI_CALLER_POLICY_BODY_KEY,
     requiredForInternalRoutes: [
-      "/internal/ai/video-task/create",
-      "/internal/ai/video-task/poll",
-      "/internal/ai/live-agent",
-    ],
-    coveredCallerPaths: [
-      "admin async video job queue task create/poll",
-      "admin text test",
-      "admin embeddings test",
-      "admin music test",
-      "admin compare",
-      "admin live-agent",
-    ],
-    baselineAllowedInternalRoutes: [
       "/internal/ai/test-text",
       "/internal/ai/test-image",
       "/internal/ai/test-embeddings",
       "/internal/ai/test-music",
       "/internal/ai/test-video",
       "/internal/ai/compare",
+      "/internal/ai/video-task/create",
+      "/internal/ai/video-task/poll",
+      "/internal/ai/live-agent",
     ],
+    coveredCallerPaths: [
+      "admin async video job queue task create/poll",
+      "admin image test branches",
+      "admin text test",
+      "admin embeddings test",
+      "admin music test",
+      "admin compare",
+      "admin live-agent",
+      "member text generation",
+      "member music lyrics/audio generation",
+    ],
+    baselineAllowedInternalRoutes: [],
     metadataFieldsExpected: [
       "policy_version",
       "operation_id",
@@ -680,8 +680,8 @@ function implementedInternalCallerPolicyGuardEvidence(entry, routeIndex) {
       "reason",
     ],
     remainingLimitations: [
-      "Phase 4.7 validates caller-policy metadata shape and requires it for async video task create/poll; Phase 4.8.1 supplies admin text/embeddings caller metadata plus durable caller-side idempotency, Phase 4.9 extends that pattern to admin music, Phase 4.10 extends it to admin compare, and Phase 4.12 requires it for Admin Live-Agent.",
-      "Phase 4.13 retires the Auth Worker sync video debug caller as disabled-by-default; Phase 4.14 classifies Admin Image branches as charged, explicit-unmetered, or blocked. Broader internal routes remain baseline-allowed until targeted caller migrations.",
+      "Provider-cost internal AI Worker routes now require caller-policy metadata after service auth and before provider execution; missing policy fails closed.",
+      "The Auth Worker sync video debug caller remains disabled-by-default and, if explicitly enabled for emergency compatibility, must send caller-enforced metadata.",
       isPoll
         ? "Provider polling remains bounded by the caller/job state and does not create a new provider task."
         : "Duplicate provider task creation is still suppressed by the auth job budget state and queue lease.",
@@ -1359,7 +1359,7 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Phase 4.21 adds explicit admin-approved platform budget evidence archives in AUDIT_ARCHIVE under the platform-budget-evidence/ prefix. Archives are sanitized operator evidence snapshots, not production readiness approval, and cleanup is bounded plus approved-prefix-only.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
       "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
-      "Platform/background AI outside News Pulse visuals and baseline-allowed internal AI Worker routes beyond caller-tied domains remain baselined gaps.",
+      "Platform/background AI outside News Pulse visuals and aggregate caps for non-platform_admin_lab_budget scopes remain future work.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,

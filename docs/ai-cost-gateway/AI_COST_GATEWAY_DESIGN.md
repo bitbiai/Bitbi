@@ -150,7 +150,7 @@ The registry currently exports:
 - `getAiCostProviderCallSourceFiles(entries)`
 - `summarizeAiCostOperationRegistry(entries)`
 
-The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened because the existing selected-organization credit branch now records safe budget-policy metadata. Phase 4.5 marks admin async video jobs as implemented for job/queue budget metadata. Phase 4.6 marks OpenClaw/News Pulse visual generation as implemented for caller-side visual budget metadata and duplicate suppression. Phase 4.8.1 marks admin text/embeddings as partial metadata-only durable-idempotency coverage; Phase 4.8.2 adds operational cleanup/inspection evidence for the same rows. Phase 4.9 marks admin music as partial metadata-only durable-idempotency coverage without adding a migration. Phase 4.10 marks admin compare as partial metadata-only durable-idempotency coverage without adding a migration. Phase 4.12 marks Admin Live-Agent as partial metadata-only stream-session durable-idempotency coverage without adding a migration. Phase 4.13 marks sync video debug as retired/disabled-by-default rather than a normal baseline gap. Phase 4.14 marks `admin.image.test.unmetered` as an explicit `explicit_unmetered_admin` exception and blocks unclassified Admin Image models before AI Worker/provider execution. Other admin/platform/internal gaps remain baselined.
+The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Admin/platform entries record current budget scope, idempotency, switch/cap posture, and whether the operation is charged, platform-budgeted, explicit-unmetered, caller-enforced, disabled, or blocked before provider execution. Internal AI Worker provider-cost routes now require caller-policy metadata; remaining gaps are cap/evidence gaps rather than accepted missing-policy baselines.
 
 Phase 4.2 admin/platform budget helper: `workers/auth/src/lib/admin-platform-budget-policy.js`
 
@@ -252,7 +252,7 @@ Future implementation details should also define:
 
 ## Member Music Gateway Flow
 
-Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Phase 4.1 maps remaining admin/platform/internal/OpenClaw gaps to target budget scopes. Phase 4.2 adds pure helper contracts for budget-scope, kill-switch, audit, fingerprint, and plan classification work. Phase 4.3 uses that helper only for the existing charged Admin image-test branch. Phase 4.5 uses it only for admin async video jobs. Phase 4.6 uses it only for OpenClaw/News Pulse visual generation. Phase 4.8.1 uses it only for admin text/embeddings metadata-only durable idempotency coverage. Phase 4.9 uses it only for Admin Music metadata-only durable idempotency coverage. Phase 4.10 uses it only for Admin Compare metadata-only durable idempotency coverage. Phase 4.12 uses it only for Admin Live-Agent metadata-only stream-session durable idempotency coverage. Phase 4.13 retires sync video debug as disabled-by-default/emergency-only rather than adding a normal budget migration. Phase 4.14 classifies Admin Image branches and blocks unclassified models before provider execution. Platform/background AI outside News Pulse visuals and broader internal AI Worker callers remain unmigrated at runtime.
+Current member music uses one parent AI Cost Gateway reservation for the bundled lyrics/audio/cover workflow. Internal AI Worker provider-cost routes now require caller-policy metadata before provider execution; platform/background AI outside News Pulse visuals still needs separate scoped cap work before broad production claims.
 
 Target operation structure:
 
@@ -328,7 +328,7 @@ Phase 3.9 is check/tooling only. It adds `config/ai-cost-policy-baseline.json` a
 - unbaselined route-policy gaps
 - member image, music, or video gateway regression from implemented idempotency/reservation/replay/credit/provider-suppression metadata
 
-The default guard passes with the current accepted admin/platform/internal baseline. The specific OpenClaw/News Pulse visual gap is removed after Phase 4.6, while broader platform/background and internal gaps remain. `--strict` remains deterministic and fails while any allowed baseline gaps remain, which makes it useful for a future phase after those gaps are closed.
+The default guard passes with no accepted baseline gaps in the current manifest. `--strict` remains deterministic for future provider-cost route additions.
 
 This phase does not change request handling, provider execution, credit debits, replay behavior, pricing, route policies at runtime, migrations, deploys, or live billing readiness.
 
@@ -393,7 +393,7 @@ Implemented behavior:
 Limits:
 
 - Phase 4.15 enforces `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET` before job row creation/queueing; Phase 4.15.1 requires the D1 app switch; Phase 4.17 checks `platform_admin_lab_budget` daily/monthly caps before queueing and records bounded usage when a job succeeds.
-- Internal AI Worker service-auth remains the first gate. Phase 4.7 adds caller-policy validation after service-auth and before provider route handling for async video task create/poll; broader internal routes are still baseline-allowed.
+- Internal AI Worker service-auth remains the first gate. Provider-cost internal routes now require caller-policy validation after service-auth and before provider route handling.
 - No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, and production/live billing remains blocked.
 
 ## Phase 4.7 Internal AI Worker Caller-Policy Guard
@@ -405,15 +405,14 @@ Implemented behavior:
 - caller-policy metadata is transported in the signed JSON body under `__bitbi_ai_caller_policy`
 - service-auth verification still runs before caller-policy evaluation
 - the AI Worker validates supplied caller-policy metadata against allowed statuses, budget scopes, caller classes, and route operation ids
-- `/internal/ai/video-task/create` and `/internal/ai/video-task/poll` reject missing or malformed caller policy
-- known broad internal routes still allow missing policy only as explicit `baseline_allowed` gaps, but reject malformed supplied policy
+- provider-cost internal routes reject missing or malformed caller policy
 - the shared AI Worker body parser strips the reserved metadata key before validators and provider payload builders run
 - Auth Worker propagation covers charged Admin BFL image metadata, admin async video task create/poll metadata, and member music internal lyrics/audio compatibility; News Pulse remains a direct Auth Worker provider path covered by Phase 4.6 metadata
 
 Limits:
 
 - Phase 4.7 does not add a new migration, live budget caps, credit debits, credit clawbacks, Stripe calls, real provider calls in tests, Admin UI, or production/live billing readiness.
-- Sync video debug is retired/disabled-by-default by Phase 4.13 and tracked as a retired debug path rather than a normal baseline gap. Admin Image branches are classified by Phase 4.14: charged priced models are covered by the selected-organization path, FLUX.2 Dev is an explicit unmetered admin exception, and unclassified models block before provider execution. Phase 4.15 adds runtime switch enforcement for already budget-classified admin/platform paths. Platform/background AI outside News Pulse visuals and broader internal routes remain tracked baseline gaps. Full stream/result replay and live platform caps remain future work.
+- Sync video debug is retired/disabled-by-default and, if explicitly enabled for emergency compatibility, must send caller-enforced policy metadata. Admin Image branches are classified: charged priced models are covered by the selected-organization path, FLUX.2 Dev is an explicit unmetered admin exception, and unclassified models block before provider execution. Full stream/result replay and non-`platform_admin_lab_budget` live caps remain future work.
 
 ## Phase 4.8 Admin Text / Embeddings Budget Enforcement
 

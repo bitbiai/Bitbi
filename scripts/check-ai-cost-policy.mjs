@@ -884,7 +884,7 @@ export function renderAiCostPolicyReport(result) {
     "- Phase 4.4 evidence collector: `npm run report:ai-budget-evidence` and `GET /api/admin/ai/budget-evidence` expose sanitized local registry/baseline/route-policy coverage.",
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
     "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
-    "- Phase 4.7 internal AI Worker caller-policy guard is represented for async video task create/poll, while broader internal routes remain explicit baseline gaps.",
+    "- Internal AI Worker provider-cost routes are service-only and now require caller-policy metadata before provider execution.",
     "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay remains future work.",
     "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; Phase 4.17 adds the first platform_admin_lab_budget daily/monthly cap foundation for this route family, while explicit output-token/duration caps remain future work.",
     "- Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path.",
@@ -961,7 +961,9 @@ export function renderAiCostPolicyReport(result) {
     "",
     "Recommended next phase:",
     "- Later phases should extend caps only after separate scope-specific designs; do not treat admin_org_credit_account, explicit_unmetered_admin, openclaw_news_pulse_budget, or internal_ai_worker_caller_enforced as covered by Phase 4.17.",
-    "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
+    knownBaselineGaps.length > 0
+      ? "- Strict mode intentionally remains failing while accepted baseline gaps remain."
+      : "- Strict mode has no accepted baseline gaps in the current manifest; keep it enabled for future provider-cost route changes.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");

@@ -27,8 +27,10 @@ Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 | Admin async video jobs | `POST /api/admin/ai/video-jobs` plus queue consumer | `platform_admin_lab_budget` | Required idempotency for job creation, safe job/queue budget metadata, caller-policy validation, duplicate task suppression, switches, cap foundation, usage evidence. | Live provider/job canary evidence required. |
 | Admin sync video debug | `POST /api/admin/ai/test-video` | emergency/debug only | Disabled by default before provider/proxy work. | Not a supported budgeted path; avoid use outside approved emergency debugging. |
 | OpenClaw/News Pulse visuals | signed ingest waitUntil and scheduled visual backfill | `openclaw_news_pulse_budget` | Safe budget metadata/status, duplicate suppression through item status/attempt caps, runtime switch before provider visual work. | Aggregate cap enforcement remains future work. |
-| Internal AI Worker service routes | `/internal/ai/*` | caller-dependent | Service auth first; caller-policy validation for covered routes/callers; reserved metadata stripped before provider payloads. | Remaining baseline-compatible callers need targeted migration before broad enforcement claims. |
+| Internal AI Worker service routes | `/internal/ai/*` provider-cost routes | caller-dependent | Service auth first; caller-policy metadata required before provider execution; reserved metadata stripped before provider payloads. | Aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work. |
 | Generated asset save/derivatives | image/audio/text save, poster/derivative queue | not AI provider cost | Storage quota/derivative policy, R2/D1 lifecycle, queue leases. | Track storage/transform cost separately from provider AI gateway. |
+
+Current route-policy IDs covered here include `admin.ai.test-text`, `admin.ai.test-embeddings`, `admin.ai.test-music`, `admin.ai.compare`, `admin.ai.live-agent`, `admin.ai.video-jobs`, `admin.ai.video-job-read`, `admin.ai.video-job-cancel`, `admin.ai.test-video`, `openclaw.news_pulse.ingest`, and the member AI generation routes.
 
 ## Current Registry State
 
@@ -58,7 +60,7 @@ Evidence/report/archive layers must remain bounded and sanitized. They must not 
 
 ## Current Highest-Risk Gaps
 
-- Remaining internal AI Worker baseline-compatible callers.
+- Internal AI Worker caller-policy enforcement is fail-closed for provider-cost routes; aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work.
 - Platform budget scopes outside `platform_admin_lab_budget`, especially OpenClaw/News Pulse aggregate caps.
 - Admin explicit-unmetered branches without durable aggregate accounting.
 - Live/manual evidence for provider behavior, cap behavior, and billing/canary behavior.

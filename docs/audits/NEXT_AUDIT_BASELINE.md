@@ -13,6 +13,8 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Frontend remains a static vanilla HTML/CSS/ES module site deployed separately from Workers.
 - Backend behavior is implemented in Cloudflare Workers: `workers/auth`, `workers/ai`, and `workers/contact`.
 - Auth Worker uses Cloudflare D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images, service bindings, and route-policy checks.
+- Browser state-changing requests require trusted Origin/Referer context, and protected writes with `Sec-Fetch-Site: cross-site` fail closed except for explicit webhook/ingest/link exemptions.
+- High-risk evidence/log surfaces should expose private storage keys only as bounded classes/hashes/counts, not raw internal R2 keys.
 - Admin Control Plane exists for implemented admin operations, including users, billing review/reconciliation, lifecycle, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
@@ -37,7 +39,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - Admin/platform AI budget classification, runtime kill switches, D1 app switches, selected `platform_admin_lab_budget` caps, reconciliation, repair, report/export, archive flows, and Admin Control Plane visibility exist in repo.
 - Member image/music/video AI Cost Gateway paths are implemented with idempotency and duplicate-provider-call protections.
-- Some broader platform/internal AI Worker caller-policy and budget-cap scopes remain future work.
+- Internal AI Worker provider-cost routes require caller-policy metadata before provider execution; budget-cap coverage outside `platform_admin_lab_budget` remains future work.
 - Live production readiness for budget controls still requires operator evidence and Cloudflare validation.
 
 ## Current Tenant Asset Ownership State
@@ -100,7 +102,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 1. Reconcile this baseline against `config/release-compat.json`, `npm run release:plan`, and live deployment evidence.
 2. Review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` and decide whether to sanitize/recollect reset dry-run evidence.
 3. Review manual-review evidence gaps before any ownership backfill or access-switch planning.
-4. Review AI budget scope gaps and decide the next bounded budget/caller-policy target.
+4. Review AI budget cap/evidence gaps and decide the next bounded platform-budget scope target.
 5. Review production-readiness evidence and live/manual Cloudflare prerequisites.
 
 ## Historical Archive Pointers

@@ -21,6 +21,13 @@ import {
 } from "../../lib/config.js";
 import { buildServiceAuthHeaders } from "../../../../../js/shared/service-auth.mjs";
 import {
+  AI_CALLER_POLICY_BUDGET_SCOPES,
+  AI_CALLER_POLICY_CALLER_CLASSES,
+  AI_CALLER_POLICY_ENFORCEMENT_STATUSES,
+  AI_CALLER_POLICY_VERSION,
+  withAiCallerPolicy,
+} from "../../../../shared/ai-caller-policy.mjs";
+import {
   BITBI_CORRELATION_HEADER,
   getDurationMs,
   getErrorFields,
@@ -50,6 +57,27 @@ const ALLOWED_BODY_FIELDS = new Set([
   "maxTokens",
   "temperature",
 ]);
+
+function buildMemberTextCallerPolicy({ correlationId, budgetFingerprint = null } = {}) {
+  return {
+    policy_version: AI_CALLER_POLICY_VERSION,
+    operation_id: AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE.id,
+    budget_scope: AI_CALLER_POLICY_BUDGET_SCOPES.ORGANIZATION_CREDIT_ACCOUNT,
+    enforcement_status: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.GATEWAY_ENFORCED,
+    caller_class: AI_CALLER_POLICY_CALLER_CLASSES.ORGANIZATION,
+    owner_domain: "member-text",
+    provider_family: "ai_worker",
+    model_id: null,
+    model_resolver_key: "member.text.model",
+    idempotency_policy: "required",
+    source_route: ROUTE_PATH,
+    source_component: "auth-worker-member-text",
+    budget_fingerprint: budgetFingerprint,
+    request_fingerprint: budgetFingerprint,
+    correlation_id: correlationId || null,
+    reason: "member_text_organization_credit_gateway_verified",
+  };
+}
 
 function validationError(error, code = "validation_error") {
   return {
@@ -177,6 +205,7 @@ function textBillingMetadata(usagePolicy, { replay = false, balanceAfter = null,
 async function signedAiLabTextRequest({
   env,
   payload,
+  callerPolicy = null,
   user,
   correlationId,
   requestInfo,
@@ -196,7 +225,8 @@ async function signedAiLabTextRequest({
     return { ok: false, status: 503, code: "upstream_unavailable" };
   }
 
-  const bodyText = JSON.stringify(payload);
+  const requestBody = callerPolicy ? withAiCallerPolicy(payload, callerPolicy) : payload;
+  const bodyText = JSON.stringify(requestBody);
   let serviceAuthHeaders;
   try {
     assertAuthAiServiceConfig(env);
@@ -439,6 +469,10 @@ export async function handleGenerateText(ctx) {
   const provider = await signedAiLabTextRequest({
     env,
     payload: input.providerPayload,
+    callerPolicy: buildMemberTextCallerPolicy({
+      correlationId,
+      budgetFingerprint: usagePolicy.gatewayPlan?.fingerprint || usagePolicy.requestFingerprint || null,
+    }),
     user: session.user,
     correlationId,
     requestInfo: { request, pathname: ROUTE_PATH, method: request.method },

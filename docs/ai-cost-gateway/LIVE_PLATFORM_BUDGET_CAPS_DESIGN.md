@@ -102,7 +102,7 @@ Expected behavior for covered routes:
 - `openclaw_news_pulse_budget` does not have aggregate cap enforcement.
 - `platform_background_budget` does not have centralized usage events.
 - Explicit-unmetered admin branches need stronger aggregate accounting before broader use.
-- Internal AI Worker routes still rely on caller enforcement and have remaining baseline-compatible paths.
+- Internal AI Worker provider-cost routes rely on caller enforcement and now fail closed without caller policy; aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work.
 - Operator/live evidence is required before production or live billing claims.
 
 ## Operator Guidance

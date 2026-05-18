@@ -28,6 +28,7 @@ import {
   prepareAiUsagePolicy,
 } from "../../lib/ai-usage-policy.js";
 import { calculateAiImageCreditCost } from "../../lib/ai-image-credit-pricing.js";
+import { storageKeyLogFields } from "../../lib/storage-key-redaction.js";
 import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
 import {
   GPT_IMAGE_2_BACKGROUND_OPTIONS,
@@ -1211,6 +1212,7 @@ export async function handleSaveImage(ctx) {
   const timestamp = Date.now();
   const random = randomTokenHex(4);
   const r2Key = `users/${session.user.id}/folders/${folderSlug}/${timestamp}-${random}.png`;
+  const r2KeyLogFields = await storageKeyLogFields(r2Key, { fieldPrefix: "r2_key" });
   const now = nowIso();
 
   try {
@@ -1230,7 +1232,7 @@ export async function handleSaveImage(ctx) {
       correlationId,
       user_id: session.user.id,
       image_id: imageId,
-      r2_key: r2Key,
+      ...r2KeyLogFields,
       ...getErrorFields(error),
     });
     return respond({ ok: false, error: "Failed to store image." }, { status: 500 });
@@ -1242,7 +1244,7 @@ export async function handleSaveImage(ctx) {
     correlationId,
     user_id: session.user.id,
     image_id: imageId,
-    r2_key: r2Key,
+    ...r2KeyLogFields,
     size_bytes: imageBytes.byteLength,
     mime_type: savedMimeType,
     width,
@@ -1350,7 +1352,7 @@ export async function handleSaveImage(ctx) {
       user_id: session.user.id,
       image_id: imageId,
       folder_id: folderId,
-      r2_key: r2Key,
+      ...r2KeyLogFields,
       ...getErrorFields(e),
     });
     return respond({ ok: false, error: "Failed to save image. The folder may have been deleted." }, { status: 409 });
@@ -1371,7 +1373,7 @@ export async function handleSaveImage(ctx) {
       user_id: session.user.id,
       image_id: imageId,
       folder_id: folderId,
-      r2_key: r2Key,
+      ...r2KeyLogFields,
     });
     return respond({ ok: false, error: "Folder was deleted. Image not saved." }, { status: 404 });
   }
@@ -1397,7 +1399,7 @@ export async function handleSaveImage(ctx) {
       user_id: session.user.id,
       image_id: imageId,
       derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,
-      r2_key: r2Key,
+      ...r2KeyLogFields,
       ...getErrorFields(error),
     });
     try {

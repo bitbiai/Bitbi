@@ -3,6 +3,7 @@ import {
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
+import { storageKeyLogFields } from "./storage-key-redaction.js";
 
 export const ACTIVITY_HOT_RETENTION_DAYS = 90;
 export const ACTIVITY_ARCHIVE_MAX_ROWS_PER_CHUNK = 250;
@@ -122,6 +123,7 @@ async function archiveTableChunk(env, config, cutoffIso) {
   const archivedAt = new Date().toISOString();
   const archiveKey = buildArchiveKey(config, rows);
   const archiveBody = buildArchiveBody(config, rows, archivedAt);
+  const archiveKeyLogFields = await storageKeyLogFields(archiveKey, { fieldPrefix: "archive_key" });
 
   await bucket.put(archiveKey, archiveBody, {
     httpMetadata: {
@@ -138,7 +140,7 @@ async function archiveTableChunk(env, config, cutoffIso) {
     event: "activity_archive_chunk_completed",
     level: prunedCount === rows.length ? "info" : "warn",
     table: config.table,
-    archive_key: archiveKey,
+    ...archiveKeyLogFields,
     archive_day: toArchiveDay(rows[0]?.created_at),
     row_count: rows.length,
     pruned_count: prunedCount,

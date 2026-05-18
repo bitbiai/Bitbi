@@ -19,8 +19,8 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     route: "/internal/ai/*",
     functions: ["invokeAi", "invokeAiVideo", "createVideoProviderTask", "pollVideoProviderTask"],
     category: "internal",
-    reason: "Known internal service routes rely on caller-side gateway or admin policy controls; sync video debug is retired at the Auth Worker caller but the internal video route remains service-only baseline-compatible for any legacy caller.",
-    temporaryAllowanceReason: "Internal service routes remain accepted only while remaining callers migrate after the Phase 4.7 caller-policy guard.",
+    reason: "Synthetic fixture gap for testing accepted internal service-route policy exceptions; current production baseline should keep this list empty unless a future caller migration explicitly reopens it.",
+    temporaryAllowanceReason: "Test fixture only: accepted until the synthetic caller migration is marked complete.",
     targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
     targetFuturePhase: "Future targeted internal caller-policy hardening after live cap foundation",
     severity: "P2",
@@ -197,7 +197,7 @@ ${inventoryExtra}
   assert(!output.includes("admin.video.sync_debug: partial/budget-metadata; scope=platform_admin_lab_budget"));
   assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
   assert(output.includes("Phase 4.6 OpenClaw/News Pulse visual budget controls are represented"));
-  assert(output.includes("Phase 4.7 internal AI Worker caller-policy guard is represented"));
+  assert(output.includes("Internal AI Worker provider-cost routes are service-only and now require caller-policy metadata before provider execution."));
   assert(output.includes("Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts"));
   assert(output.includes("Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection"));
   assert(output.includes("Phase 4.12 implements Admin Live-Agent budget metadata"));
@@ -227,7 +227,7 @@ ${inventoryExtra}
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
   assert(output.includes("Later phases should extend caps only after separate scope-specific designs"));
-  assert(output.includes("Strict mode intentionally remains failing"));
+  assert(output.includes("Strict mode intentionally remains failing") || output.includes("Strict mode has no accepted baseline gaps"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
 }

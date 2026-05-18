@@ -11,7 +11,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 | Store | Current use | Current risk |
 | --- | --- | --- |
 | Auth D1 database | Users, sessions, profiles, orgs, billing/credits, AI attempts, media metadata, lifecycle, admin evidence, tenant review/reset state. | Requires migration/deploy verification before readiness claims. |
-| `USER_IMAGES` R2 | User-generated media, derivatives, generated covers/posters, video outputs, platform visual assets. | R2 keys are not tenant-isolation proof; no live listing/deletion without approval. |
+| `USER_IMAGES` R2 | User-generated media, derivatives, generated covers/posters, video outputs, platform visual assets. | R2 keys are not tenant-isolation proof; evidence/log surfaces should expose classes/hashes/counts instead of raw private keys. No live listing/deletion without approval. |
 | `PRIVATE_MEDIA` R2 | Avatars and protected private media. | Access must remain auth-gated. |
 | `AUDIT_ARCHIVE` R2 | Data exports and platform/admin evidence archives. | Retention and access controls must preserve audit integrity. |
 | Queues/Durable Objects | Activity ingest, derivative generation, video jobs, rate limiting, replay protection. | Live bindings require verification. |
@@ -26,7 +26,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 
 - Credit ledgers, usage attempts/events, billing review/reconciliation evidence, platform budget switches/caps/repair/archive tables exist.
 - Live billing readiness remains blocked.
-- Admin/platform budget controls are scoped; not every internal/provider path is universally capped.
+- Admin/platform budget controls are scoped; internal AI Worker provider-cost routes require caller policy, but not every provider/budget scope is universally capped.
 
 ## Current Media And Tenant Asset Data
 

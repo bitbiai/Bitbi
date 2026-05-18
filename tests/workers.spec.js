@@ -5410,7 +5410,10 @@ test.describe('Phase 2-I provider-neutral billing event ingestion foundation', (
     };
 
     const accepted = await worker.fetch(
-      await signedBillingWebhookRequest({ body: payload }),
+      await signedBillingWebhookRequest({
+        body: payload,
+        headers: { 'Sec-Fetch-Site': 'cross-site' },
+      }),
       env,
       createExecutionContext().execCtx
     );
@@ -10111,6 +10114,42 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     };
   }
 
+  test('admin user-scoped AI generation without organization context is blocked before provider execution', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('admin-legacy-ai-blocked');
+    let providerCalls = 0;
+    const env = createAuthTestEnv({
+      users: [admin],
+      aiRun: async () => {
+        providerCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, admin.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'admin legacy path should not call provider',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'admin-legacy-ai-blocked-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'admin_ai_legacy_unmetered_blocked',
+    });
+    expect(providerCalls).toBe(0);
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+  });
+
   test('member user-scoped image generation top-ups and charges credits using shared Flux 1 Schnell pricing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { calculateAdminImageTestCreditCost } = await loadAdminImageCreditPricingModule();
@@ -12781,6 +12820,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       },
     });
     expect(harness.providerCallCount()).toBe(1);
+    expect(harness.aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
+      operation_id: 'member.text.generate',
+      budget_scope: 'organization_credit_account',
+      enforcement_status: 'gateway_enforced',
+      caller_class: 'organization',
+      source_route: '/api/ai/generate-text',
+    }));
+    expect(JSON.stringify(harness.aiLabRequests[0].body.__bitbi_ai_caller_policy)).not.toContain('Write a short member text.');
     expect(harness.env.DB.state.usageEvents).toHaveLength(1);
     expect(harness.env.DB.state.usageEvents[0].feature_key).toBe('ai.text.generate');
     expect(harness.env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
@@ -14982,7 +15029,9 @@ test.describe('Worker routes', () => {
       const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
       env.AI = undefined;
       const exec = createExecutionContext();
-      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload(), {
+        headers: { 'Sec-Fetch-Site': 'cross-site' },
+      });
 
       const res = await authWorker.fetch(request, env, exec.execCtx);
       expect(res.status).toBe(200);
@@ -17663,7 +17712,7 @@ test.describe('Worker routes', () => {
       }));
     });
 
-    test('GET /api/admin/ai/budget-evidence returns sanitized blocked read-only evidence without provider calls', async () => {
+    test('GET /api/admin/ai/budget-evidence returns sanitized read-only evidence without provider calls', async () => {
       const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
       const dbBefore = JSON.stringify(env.DB.state);
 
@@ -17677,7 +17726,7 @@ test.describe('Worker routes', () => {
       const body = await res.json();
       expect(body).toMatchObject({
         ok: true,
-        verdict: 'blocked',
+        verdict: 'pass',
         runtimeMutation: false,
         providerCalls: false,
         billingMutation: false,
@@ -17690,7 +17739,7 @@ test.describe('Worker routes', () => {
           runtimeBudgetSwitchesDisabled: 0,
           platformBudgetReconciliationAvailable: true,
           platformBudgetReconciliationRepairCandidates: 0,
-          baselineGaps: expect.any(Number),
+          baselineGaps: 0,
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
         }),
@@ -17711,7 +17760,7 @@ test.describe('Worker routes', () => {
         }),
         expect.objectContaining({
           scope: 'internal_ai_worker_caller_enforced',
-          baselineGapIds: expect.arrayContaining(['internal-ai-worker-text-image-embeddings']),
+          baselineGapIds: [],
         }),
       ]));
       expect(body.implementedOperations).toEqual(expect.arrayContaining([
@@ -17762,9 +17811,7 @@ test.describe('Worker routes', () => {
           runtimeStatus: 'implemented_caller_policy_guard',
         }),
       ]));
-      expect(body.baselinedGaps).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: 'internal-ai-worker-text-image-embeddings' }),
-      ]));
+      expect(body.baselinedGaps).toHaveLength(0);
       expect(body.baselinedGaps).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ id: 'admin-ai-video-job-create' }),
         expect.objectContaining({ id: 'admin-ai-video-task-create-poll' }),
@@ -21008,7 +21055,21 @@ test.describe('Worker routes', () => {
       expect(replay.status).toBe(401);
 
       const fixedNonce = 'fixednonce123456';
-      const bodyA = JSON.stringify({ preset: 'balanced', prompt: 'first body' });
+      const bodyA = JSON.stringify({
+        preset: 'balanced',
+        prompt: 'first body',
+        __bitbi_ai_caller_policy: {
+          policy_version: 'ai-caller-policy-v1',
+          operation_id: 'admin.text.test',
+          budget_scope: 'platform_admin_lab_budget',
+          enforcement_status: 'budget_metadata_only',
+          caller_class: 'admin',
+          owner_domain: 'admin-ai',
+          provider_family: 'ai_worker',
+          source_route: '/api/admin/ai/test-text',
+          source_component: 'service-auth-replay-test',
+        },
+      });
       const bodyB = JSON.stringify({ preset: 'balanced', prompt: 'second body' });
       const firstBodyHeaders = await buildServiceAuthHeaders({
         secret,
@@ -21147,6 +21208,20 @@ test.describe('Worker routes', () => {
       );
       expect(missingPolicy.status).toBe(428);
       await expect(missingPolicy.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_required',
+      });
+
+      const missingTextPolicy = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-text', {
+          preset: 'balanced',
+          prompt: 'missing caller policy should not run',
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingTextPolicy.status).toBe(428);
+      await expect(missingTextPolicy.json()).resolves.toMatchObject({
         ok: false,
         code: 'ai_caller_policy_required',
       });
@@ -21385,6 +21460,54 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(aiRunCalls[1].payload)).not.toContain('__bitbi_ai_caller_policy');
       expect(JSON.stringify(aiRunCalls[1].payload)).not.toContain('ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET');
       expect(JSON.stringify(aiRunCalls[1].payload.messages)).toContain('live-agent caller policy is stripped before provider payload');
+    });
+
+    test('AI worker caller-policy accepts organization text gateway metadata for member text generation', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const secret = 'test-ai-service-auth-secret';
+      const aiRunCalls = [];
+      const env = {
+        AI_SERVICE_AUTH_SECRET: secret,
+        SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        AI: {
+          async run(modelId, payload) {
+            aiRunCalls.push({ modelId, payload });
+            return createAiLabRunStub()(modelId, payload);
+          },
+        },
+      };
+
+      const response = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-text', {
+          preset: 'balanced',
+          prompt: 'organization text policy should run',
+          __bitbi_ai_caller_policy: {
+            policy_version: 'ai-caller-policy-v1',
+            operation_id: 'member.text.generate',
+            budget_scope: 'organization_credit_account',
+            enforcement_status: 'gateway_enforced',
+            caller_class: 'organization',
+            owner_domain: 'member-text',
+            provider_family: 'ai_worker',
+            model_resolver_key: 'member.text.model',
+            idempotency_policy: 'required',
+            source_route: '/api/ai/generate-text',
+            source_component: 'auth-worker-member-text',
+            budget_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+            request_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+            correlation_id: 'member-text-caller-policy-test',
+            reason: 'member_text_organization_credit_gateway_verified',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ ok: true, task: 'text' });
+      expect(aiRunCalls).toHaveLength(1);
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('__bitbi_ai_caller_policy');
+      expect(JSON.stringify(aiRunCalls[0].payload)).not.toContain('member_text_organization_credit_gateway_verified');
     });
 
     test('AI worker service auth fails closed when its shared secret is missing', async () => {
@@ -30203,6 +30326,54 @@ test.describe('Worker routes', () => {
     ).toBe(true);
   });
 
+  test('request trust boundary: Fetch Metadata allows same-origin writes and rejects cross-site protected writes', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-fetch-metadata-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-fetch-metadata-user');
+    const sameOrigin = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'fetch-metadata-same-origin',
+        title: 'Fetch Metadata Same Origin',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'Sec-Fetch-Site': 'same-origin',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.65',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(sameOrigin.status).toBe(200);
+
+    const crossSite = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'fetch-metadata-cross-site',
+        title: 'Fetch Metadata Cross Site',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'Sec-Fetch-Site': 'cross-site',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.65',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(crossSite.status).toBe(403);
+    await expect(crossSite.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Forbidden',
+    });
+    expect(env.DB.state.favorites.some((row) => row.item_id === 'fetch-metadata-same-origin')).toBe(true);
+    expect(env.DB.state.favorites.some((row) => row.item_id === 'fetch-metadata-cross-site')).toBe(false);
+  });
+
   test('request trust boundary: foreign Origin is rejected for state-changing favorites add', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -36154,6 +36325,8 @@ test.describe('Worker routes', () => {
 
   test('scheduled R2 cleanup dead-letters only entries that actually exhausted retries', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
+    const errorLogs = [];
+    const originalConsoleError = console.error;
     const env = createAuthTestEnv({
       r2CleanupQueue: [
         {
@@ -36175,7 +36348,14 @@ test.describe('Worker routes', () => {
       ],
     });
 
-    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+    try {
+      console.error = (entry) => {
+        errorLogs.push(String(entry));
+      };
+      await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+    } finally {
+      console.error = originalConsoleError;
+    }
 
     expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 1)).toMatchObject({
       status: 'dead',
@@ -36186,6 +36366,11 @@ test.describe('Worker routes', () => {
       attempts: 5,
       last_attempt_at: null,
     });
+    const serializedLogs = errorLogs.join('\n');
+    expect(serializedLogs).toContain('r2_cleanup_dead_lettered');
+    expect(serializedLogs).not.toContain('cleanup/exhausted.webp');
+    expect(serializedLogs).toContain('"r2_key_included":false');
+    expect(serializedLogs).toMatch(/"r2_key_sha256":"[a-f0-9]{64}"/);
   });
 
   test('IMAGES binding mock matches Cloudflare ImageTransformationResult contract', async () => {
@@ -36497,8 +36682,9 @@ test.describe('Worker routes', () => {
     ]);
   });
 
-  test('AI generate: admin users remain exempt from member credit charging', async () => {
+  test('AI generate: admin user-scoped generation is blocked before member credit or provider work', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
+    let providerCalls = 0;
     const env = createAuthTestEnv({
       users: [
         {
@@ -36512,7 +36698,10 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+      aiRun: async () => {
+        providerCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
     });
 
     const token = await seedSession(env, 'quota-admin');
@@ -36523,19 +36712,21 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'admin-user-scoped-image-blocked-1',
       }),
       env,
       createExecutionContext().execCtx
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({
-      ok: true,
-      data: { model: '@cf/black-forest-labs/flux-1-schnell' },
+      ok: false,
+      code: 'admin_ai_legacy_unmetered_blocked',
     });
+    expect(providerCalls).toBe(0);
     expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-admin')).toHaveLength(0);
     expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === 'quota-admin')).toHaveLength(0);
-    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-admin')).toHaveLength(1);
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-admin')).toHaveLength(0);
   });
 
   test('AI single delete keeps a durable cleanup entry when inline blob deletion fails', async () => {
@@ -36770,6 +36961,11 @@ test.describe('Worker routes', () => {
         }),
       ]));
       const serializedLogs = JSON.stringify(archiveEvents);
+      for (const archiveKey of archiveKeys) {
+        expect(serializedLogs).not.toContain(archiveKey);
+      }
+      expect(serializedLogs).toContain('"archive_key_included":false');
+      expect(serializedLogs).toMatch(/"archive_key_sha256":"[a-f0-9]{64}"/);
       expect(serializedLogs).not.toContain('member-archive@example.com');
       expect(serializedLogs).not.toContain('admin-archive@example.com');
       expect(serializedLogs).not.toContain('old login');
@@ -37432,10 +37628,28 @@ test.describe('Worker routes', () => {
     const planBody = await planRes.json();
     expect(planBody.request.status).toBe('planned');
     expect(planBody.items.some((entry) => entry.resourceType === 'ai_image' && entry.resourceId === 'img-subject')).toBe(true);
-    expect(planBody.items.some((entry) => entry.r2Key === 'users/lifecycle-subject/folders/subject/img.png')).toBe(true);
+    const imageStorageReference = planBody.items.find((entry) => (
+      entry.resourceType === 'r2_object' &&
+      entry.resourceId === 'img-subject' &&
+      entry.tableName === 'ai_images'
+    ));
+    expect(imageStorageReference).toEqual(expect.objectContaining({
+      r2Key: null,
+      internalR2KeyIncluded: false,
+      storageReference: expect.objectContaining({
+        bucket: 'USER_IMAGES',
+        keyClass: 'user_media',
+        keySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        internalKeyIncluded: false,
+      }),
+    }));
     expect(planBody.items.some((entry) => entry.resourceId === 'img-other')).toBe(false);
 
     const serialized = JSON.stringify(planBody);
+    expect(serialized).not.toContain('users/lifecycle-subject/folders/subject/img.png');
+    expect(serialized).not.toContain('users/lifecycle-subject/derivatives/v1/img/thumb.webp');
+    expect(serialized).not.toContain('users/lifecycle-subject/text/txt.txt');
+    expect(serialized).not.toContain('users/lifecycle-subject/video-jobs/vid-subject/output.mp4');
     expect(serialized).not.toContain('reset-token-hash-must-not-export');
     expect(serialized).not.toContain('must-not-export');
     expect(serialized).not.toContain('token_hash');

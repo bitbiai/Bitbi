@@ -371,18 +371,13 @@ export async function prepareAiUsagePolicy({
   const resolvedOperation = resolveOperation(operation);
   if (!hasOrganizationContext(body)) {
     if (user?.role === "admin") {
-      return {
-        mode: "admin-legacy",
-        organizationId: null,
-        featureKey: resolvedOperation.featureKey,
-        credits: 0,
-        async prepareForProvider() {
-          return null;
-        },
-        async chargeAfterSuccess() {
-          return null;
-        },
-      };
+      throw new BillingError(
+        "Admin AI generation without an organization context is disabled. Use Admin AI lab budget routes or select an organization context.",
+        {
+          status: 403,
+          code: "admin_ai_legacy_unmetered_blocked",
+        }
+      );
     }
 
     if (

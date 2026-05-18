@@ -50,12 +50,14 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Restore drill and rollback evidence.
 - Stripe Testmode/live canary evidence where billing is in scope.
 - Admin/platform budget switch/cap/reconciliation/repair/report/archive evidence where AI cost controls are in scope.
+- Fetch Metadata/same-origin CSRF hardening evidence for browser state-changing routes and documented webhook/ingest/link exemptions.
 - Tenant asset/manual-review/reset evidence decisions before any ownership/backfill/reset claim.
 
 ## Current Blockers
 
 - Live/manual Cloudflare validation is not recorded in repo.
 - Live billing canaries and remediation/legal/accounting workflows remain incomplete.
+- Internal AI Worker caller policy is enforced for provider-cost routes, but live provider/cap/operator evidence is still required before readiness claims.
 - Tenant ownership backfill and access-switch readiness are blocked.
 - Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - Production readiness cannot be claimed from local tests alone.

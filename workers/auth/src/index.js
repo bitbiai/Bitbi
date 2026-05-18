@@ -53,6 +53,7 @@ import { cleanupExpiredDataExportArchives } from "./lib/data-export-cleanup.js";
 import { cleanupExpiredAiUsageAttempts } from "./lib/ai-usage-attempts.js";
 import { cleanupExpiredAdminAiUsageAttempts } from "./lib/admin-ai-idempotency.js";
 import { cleanupExpiredMemberAiUsageAttempts } from "./lib/member-ai-usage-attempts.js";
+import { storageKeyLogFields } from "./lib/storage-key-redaction.js";
 import { refreshNewsPulse } from "./lib/news-pulse.js";
 import {
   processNewsPulseVisualBackfill,
@@ -105,6 +106,11 @@ function requiresTrustedRequestContext(pathname, method) {
     return false;
   }
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
+
+function hasForbiddenFetchMetadata(request) {
+  const site = String(request.headers.get("Sec-Fetch-Site") || "").trim().toLowerCase();
+  return site === "cross-site";
 }
 
 function hasAllowedReferer(request, allowedOrigins) {
@@ -209,9 +215,12 @@ export default {
     }
 
     // Require a same-origin browser context for state-changing requests.
-    // Email verification is exempt because it is intentionally opened from inbox links.
+    // Email verification, billing webhooks, and signed OpenClaw ingest are exempt.
     if (requiresTrustedRequestContext(pathname, method)) {
       const allowedOrigins = getAllowedOrigins(env);
+      if (hasForbiddenFetchMetadata(request)) {
+        return json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
       const origin = request.headers.get("Origin");
       if (origin) {
         if (!allowedOrigins.includes(origin)) {
@@ -686,12 +695,13 @@ export default {
       ).all();
       if (exhausted.results && exhausted.results.length > 0) {
         for (const row of exhausted.results) {
+          const storageKeyFields = await storageKeyLogFields(row.r2_key, { fieldPrefix: "r2_key" });
           logDiagnostic({
             service: "bitbi-auth",
             component: "scheduled-r2-cleanup",
             event: "r2_cleanup_dead_lettered",
             level: "error",
-            r2_key: row.r2_key,
+            ...storageKeyFields,
             attempts: row.attempts,
           });
         }

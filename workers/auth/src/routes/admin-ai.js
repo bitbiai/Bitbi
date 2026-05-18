@@ -191,7 +191,7 @@ const ADMIN_LAB_IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 function buildAdminAiCallerPolicy({
   operationId,
   budgetScope = AI_CALLER_POLICY_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-  enforcementStatus = AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BASELINE_ALLOWED,
+  enforcementStatus = AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
   callerClass = AI_CALLER_POLICY_CALLER_CLASSES.ADMIN,
   ownerDomain = "admin-ai",
   providerFamily = "ai_worker",
@@ -204,7 +204,7 @@ function buildAdminAiCallerPolicy({
   requestFingerprint = null,
   killSwitchTarget = null,
   correlationId = null,
-  reason = "baseline_admin_ai_provider_cost_route",
+  reason = "admin_ai_provider_cost_route_metadata_only",
   notes = null,
 } = {}) {
   return {
@@ -3214,11 +3214,16 @@ export async function handleAdminAI(ctx) {
           body: validated,
           callerPolicy: buildAdminAiCallerPolicy({
             operationId: "admin.video.sync_debug",
+            budgetScope: AI_CALLER_POLICY_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
+            enforcementStatus: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.CALLER_ENFORCED,
+            callerClass: AI_CALLER_POLICY_CALLER_CLASSES.PLATFORM_ADMIN,
             modelId: validated.model || null,
             modelResolverKey: "admin.video.model_registry",
+            idempotencyPolicy: "caller_enforced",
             sourceRoute: "/api/admin/ai/test-video",
             killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_VIDEO_DEBUG",
             correlationId,
+            reason: "admin_sync_video_debug_kill_switch_and_caller_policy_enforced",
           }),
         },
         result.user,
