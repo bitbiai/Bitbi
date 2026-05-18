@@ -86,6 +86,29 @@ const REQUIRED_LOOKUPS = [
   ["POST", "/api/ai/generate-text", "ai.generate-text"],
 ];
 
+const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [
+  {
+    id: "admin.data-lifecycle.requests.plan",
+    requiredNoteFragments: ["Idempotency-Key", "audit logging"],
+  },
+  {
+    id: "admin.tenant-assets.folders-images.manual-review.import",
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true"],
+  },
+  {
+    id: "admin.tenant-assets.folders-images.manual-review.items.status.update",
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true"],
+  },
+  {
+    id: "admin.tenant-assets.legacy-media-reset.execute",
+    requiredNoteFragments: [
+      "ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION",
+      "Idempotency-Key",
+      "confirm=true",
+    ],
+  },
+];
+
 function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
@@ -162,6 +185,35 @@ function checkPolicySemantics(issues) {
   }
 }
 
+function checkHighRiskAdminMutationExpectations(issues) {
+  const byId = policyMap();
+  for (const expectation of HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS) {
+    const entry = byId.get(expectation.id);
+    if (!entry) {
+      issues.push(`${expectation.id}: high-risk admin mutation policy is missing.`);
+      continue;
+    }
+    if (entry.auth !== "admin" || entry.mfa === "none") {
+      issues.push(`${expectation.id}: high-risk admin mutation must require admin auth and MFA.`);
+    }
+    if (entry.csrf !== "same-origin-required") {
+      issues.push(`${expectation.id}: high-risk admin mutation must require same-origin CSRF.`);
+    }
+    if (entry.rateLimit?.failClosed !== true) {
+      issues.push(`${expectation.id}: high-risk admin mutation rate limit must fail closed.`);
+    }
+    if (!entry.audit?.event) {
+      issues.push(`${expectation.id}: high-risk admin mutation must declare an audit event.`);
+    }
+    const notes = String(entry.notes || "");
+    for (const fragment of expectation.requiredNoteFragments || []) {
+      if (!notes.includes(fragment)) {
+        issues.push(`${expectation.id}: high-risk admin mutation notes must mention ${JSON.stringify(fragment)}.`);
+      }
+    }
+  }
+}
+
 function checkLookupExamples(issues) {
   for (const [method, pathname, expectedId] of REQUIRED_LOOKUPS) {
     const entry = getRoutePolicy(method, pathname);
@@ -176,6 +228,7 @@ const issues = [
 ];
 scanMutatingDispatchMarkers(issues);
 checkPolicySemantics(issues);
+checkHighRiskAdminMutationExpectations(issues);
 checkLookupExamples(issues);
 
 if (issues.length > 0) {

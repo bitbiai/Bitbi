@@ -23,6 +23,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - The repository contains code and docs through the reset action-tracking/executor work and the current DOC-2 consolidation.
 - Live deployment state is not proven by repository files. The operator must verify which Workers/static assets are deployed.
 - Auth Worker deploy is required for any runtime endpoints not yet deployed from the current branch.
+- Auth/AI caller-policy changes are paired release work; `config/release-compat.json` models AI Worker before Auth Worker for provider-cost internal AI route compatibility.
 - Static/Pages deploy is required only if unshipped static/Admin UI changes are present.
 - Cloudflare dashboard-managed WAF, static security headers, RUM, alerts, and resource bindings still require manual or live verification.
 
@@ -40,6 +41,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Admin/platform AI budget classification, runtime kill switches, D1 app switches, selected `platform_admin_lab_budget` caps, reconciliation, repair, report/export, archive flows, and Admin Control Plane visibility exist in repo.
 - Member image/music/video AI Cost Gateway paths are implemented with idempotency and duplicate-provider-call protections.
 - Internal AI Worker provider-cost routes require caller-policy metadata before provider execution; budget-cap coverage outside `platform_admin_lab_budget` remains future work.
+- Release tooling validates Auth-to-AI caller-policy mappings for current provider-cost routes.
 - Live production readiness for budget controls still requires operator evidence and Cloudflare validation.
 
 ## Current Tenant Asset Ownership State
@@ -75,6 +77,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 ## Current Production Readiness State
 
 - Local release tooling and readiness checks exist.
+- Readiness tooling includes local-only safety contract checks and skipped-by-default live canaries, including negative Fetch Metadata and caller-policy evidence surfaces; operator live evidence is still required.
 - Production readiness remains blocked until live/manual evidence verifies migrations, Worker deploys, secrets, bindings, D1/R2/Queue/DO resources, health checks, security headers, alerts, restore drill, rollback path, Stripe configuration, and operational canaries.
 - Live billing readiness remains blocked.
 

@@ -51,6 +51,7 @@ const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run check:operational-readiness",
   "npm run check:live-health",
   "npm run check:live-security-headers",
+  "npm run test:live-canary",
   "npm run check:js",
   "npm run test:release-compat",
   "npm run validate:release",
@@ -116,6 +117,11 @@ function getSchemaCheckpoints(context) {
 
 function getDeployOrder(context) {
   return Array.isArray(getReleaseSection(context).deployOrder) ? getReleaseSection(context).deployOrder : [];
+}
+
+function getAuthAiCallerPolicyContract(context) {
+  const contract = getReleaseSection(context).authAiCallerPolicy;
+  return contract && typeof contract === "object" && !Array.isArray(contract) ? contract : null;
 }
 
 function isStaticSourcePath(relativePath) {
@@ -454,6 +460,35 @@ function buildConsistencyIssues(context, changedFiles, impacts) {
   return normalizeUnique(issues);
 }
 
+function buildCompatibilityNotes(context, changedFiles, impacts) {
+  const notes = [];
+  const normalizedFiles = new Set(normalizeUnique(changedFiles));
+  const contract = getAuthAiCallerPolicyContract(context);
+  if (!contract) return notes;
+
+  const contractFiles = new Set([
+    "config/release-compat.json",
+    contract.sharedPolicyFile,
+    contract.aiPolicyFile,
+    contract.authProxyFile,
+  ].filter(Boolean));
+  for (const route of contract.routes || []) {
+    for (const source of route?.authSources || []) {
+      if (source?.sourceFile) contractFiles.add(source.sourceFile);
+    }
+  }
+
+  const changedContractFiles = [...contractFiles].filter((file) => normalizedFiles.has(file));
+  const authAiWorkersImpacted = Boolean(impacts.workers.auth && impacts.workers.ai);
+  if (changedContractFiles.length > 0 || authAiWorkersImpacted) {
+    notes.push(
+      "Auth/AI caller-policy compatibility: provider-cost internal AI route changes are paired; deploy AI Worker before Auth Worker and keep auth-worker dependent on ai-worker."
+    );
+  }
+
+  return normalizeUnique(notes);
+}
+
 export function createReleasePlan(context, { changedFiles, source = { mode: "explicit" } } = {}) {
   const normalizedFiles = normalizeUnique(changedFiles);
   const impacts = classifyChangedFiles(context, normalizedFiles);
@@ -466,6 +501,7 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
   );
   const recommendedChecks = buildRecommendedChecks(impacts);
   const consistencyIssues = buildConsistencyIssues(context, normalizedFiles, impacts);
+  const compatibilityNotes = buildCompatibilityNotes(context, normalizedFiles, impacts);
 
   return {
     source,
@@ -513,10 +549,12 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
       workflowPath: ".github/workflows/static.yml",
     },
     recommendedChecks,
+    compatibilityNotes,
     manualPrerequisites,
     consistencyIssues,
     remainingManualSteps: [
       ...(impacts.static.changedFiles.length > 0 ? [STATIC_DEPLOY_MESSAGE] : []),
+      ...compatibilityNotes,
       ...manualPrerequisites.required.map((entry) => `Manual prerequisite: ${entry.id} — ${entry.summary}`),
     ],
     isNoop:
@@ -630,6 +668,13 @@ export function formatReleasePlan(plan) {
       } else if (step.type === "static") {
         lines.push(`  - ${step.id}: ${STATIC_DEPLOY_MESSAGE}`);
       }
+    }
+  }
+
+  if (plan.compatibilityNotes.length > 0) {
+    lines.push("- Compatibility notes:");
+    for (const note of plan.compatibilityNotes) {
+      lines.push(`  - ${note}`);
     }
   }
 

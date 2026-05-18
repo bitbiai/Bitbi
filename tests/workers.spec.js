@@ -8692,6 +8692,24 @@ test.describe('BITBI Pro member subscriptions', () => {
       },
     });
     const token = await seedSession(env, member.id);
+    const missingIdempotency = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
+        terms_accepted: true,
+        terms_version: '2026-05-05',
+        immediate_delivery_accepted: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingIdempotency.status).toBe(428);
+    await expect(missingIdempotency.json()).resolves.toMatchObject({
+      code: 'idempotency_key_required',
+    });
+    expect(calls).toHaveLength(0);
+
     const response = await worker.fetch(
       authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
         terms_accepted: true,
@@ -8716,6 +8734,50 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(calls[0].form['line_items[0][price]']).toBe('price_member_pro_123456');
     expect(calls[0].form['metadata[checkout_scope]']).toBe('member_subscription');
     expect(calls[0].form['subscription_data[metadata][user_id]']).toBe(member.id);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(env.DB.state.memberCreditBuckets).toHaveLength(0);
+
+    const replay = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
+        terms_accepted: true,
+        terms_version: '2026-05-05',
+        immediate_delivery_accepted: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-subscription-checkout-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      ok: true,
+      reused: true,
+      checkout_scope: 'member_subscription',
+      session_id: 'cs_live_member_subscription_checkout',
+    });
+    expect(calls).toHaveLength(1);
+
+    env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID = 'price_member_pro_reconfigured';
+    const conflict = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
+        terms_accepted: true,
+        terms_version: '2026-05-05',
+        immediate_delivery_accepted: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-subscription-checkout-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      code: 'idempotency_conflict',
+    });
+    expect(calls).toHaveLength(1);
     expect(env.DB.state.memberCreditLedger).toHaveLength(0);
     expect(env.DB.state.memberCreditBuckets).toHaveLength(0);
   });
@@ -37616,10 +37678,22 @@ test.describe('Worker routes', () => {
     );
     expect(conflictRes.status).toBe(409);
 
+    const missingPlanIdemRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/plan`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingPlanIdemRes.status).toBe(428);
+    expect(env.DB.state.dataLifecycleRequestItems).toHaveLength(0);
+
     const planRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/plan`, 'POST', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-plan-export-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -37741,6 +37815,7 @@ test.describe('Worker routes', () => {
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/plan`, 'POST', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-plan-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -38420,6 +38495,7 @@ test.describe('Worker routes', () => {
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/plan`, 'POST', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-delete-plan-member-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -38565,6 +38641,7 @@ test.describe('Worker routes', () => {
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createAdminDeleteBody.request.id}/plan`, 'POST', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${onlyAdminToken}`,
+        'Idempotency-Key': 'dl-delete-plan-only-admin-1',
       }),
       onlyAdminEnv,
       createExecutionContext().execCtx

@@ -451,6 +451,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.data-lifecycle.requests.plan", "POST", "/api/admin/data-lifecycle/requests/:id/plan", "privacy", "smallJson", "admin-data-lifecycle-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "data_lifecycle_request_planned" },
+    notes: "High-risk admin lifecycle planning requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging before mutating plan/item state.",
   }),
   adminJsonWrite("admin.data-lifecycle.requests.approve", "POST", "/api/admin/data-lifecycle/requests/:id/approve", "privacy", "smallJson", "admin-data-lifecycle-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,

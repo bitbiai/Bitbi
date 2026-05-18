@@ -175,6 +175,130 @@
         "dependsOn": ["auth-worker", "contact-worker"]
       }
     ],
+    "authAiCallerPolicy": {
+      "version": "auth-ai-caller-policy-v1",
+      "sharedPolicyFile": "workers/shared/ai-caller-policy.mjs",
+      "aiPolicyFile": "workers/ai/src/lib/caller-policy.js",
+      "authProxyFile": "workers/auth/src/lib/admin-ai-proxy.js",
+      "deployOrder": ["ai-worker", "auth-worker"],
+      "routes": [
+        {
+          "aiRoute": "/internal/ai/test-text",
+          "allowedOperationIds": ["admin.text.test", "member.text.generate", "member.music.lyrics.generate"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/routes/admin-ai.js",
+              "sourceRoute": "/api/admin/ai/test-text",
+              "operationIds": ["admin.text.test"]
+            },
+            {
+              "sourceFile": "workers/auth/src/routes/ai/text-generate.js",
+              "sourceRoute": "/api/ai/generate-text",
+              "operationIds": ["member.text.generate"],
+              "operationIdReferences": ["AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE.id"]
+            },
+            {
+              "sourceFile": "workers/auth/src/routes/ai/music-generate.js",
+              "sourceRoute": "/api/ai/generate-music",
+              "operationIds": ["member.music.lyrics.generate"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/test-image",
+          "allowedOperationIds": ["admin.image.test.charged", "admin.image.test.unmetered"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/routes/admin-ai.js",
+              "sourceRoute": "/api/admin/ai/test-image",
+              "operationIds": ["admin.image.test.charged", "admin.image.test.unmetered"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/test-embeddings",
+          "allowedOperationIds": ["admin.embeddings.test"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/routes/admin-ai.js",
+              "sourceRoute": "/api/admin/ai/test-embeddings",
+              "operationIds": ["admin.embeddings.test"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/test-music",
+          "allowedOperationIds": ["admin.music.test", "member.music.audio.generate"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/routes/admin-ai.js",
+              "sourceRoute": "/api/admin/ai/test-music",
+              "operationIds": ["admin.music.test"]
+            },
+            {
+              "sourceFile": "workers/auth/src/routes/ai/music-generate.js",
+              "sourceRoute": "/api/ai/generate-music",
+              "operationIds": ["member.music.audio.generate"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/compare",
+          "allowedOperationIds": ["admin.compare"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/routes/admin-ai.js",
+              "sourceRoute": "/api/admin/ai/compare",
+              "operationIds": ["admin.compare"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/test-video",
+          "allowedOperationIds": ["admin.video.sync_debug"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/routes/admin-ai.js",
+              "sourceRoute": "/api/admin/ai/test-video",
+              "operationIds": ["admin.video.sync_debug"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/video-task/create",
+          "allowedOperationIds": ["admin.video.task.create"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/lib/ai-video-jobs.js",
+              "sourceRoute": "AI_VIDEO_JOBS_QUEUE",
+              "operationIds": ["admin.video.task.create"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/video-task/poll",
+          "allowedOperationIds": ["admin.video.task.poll"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/lib/ai-video-jobs.js",
+              "sourceRoute": "AI_VIDEO_JOBS_QUEUE",
+              "operationIds": ["admin.video.task.poll"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/live-agent",
+          "allowedOperationIds": ["admin.live_agent"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/routes/admin-ai.js",
+              "sourceRoute": "/api/admin/ai/live-agent",
+              "operationIds": ["admin.live_agent"]
+            }
+          ]
+        }
+      ]
+    },
     "manualPrerequisites": [
       {
         "id": "auth-session-secret",

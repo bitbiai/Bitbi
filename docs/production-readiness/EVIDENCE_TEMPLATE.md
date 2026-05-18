@@ -43,6 +43,11 @@ This template records current evidence only. It does not approve production read
 - `/api/health` result:
 - Static page smoke result:
 - Security header result:
+- Live runtime canary mode: disabled/skipped/live-read-only
+- Fetch Metadata cross-site write rejection evidence:
+- Internal AI caller-policy missing/invalid rejection evidence:
+- Admin legacy/unclassified AI path blocked-before-provider evidence:
+- Private storage-key redaction evidence:
 - Error/log review:
 - Rollback evidence:
 - Restore drill evidence:

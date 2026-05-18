@@ -97,6 +97,9 @@ function createContext() {
   });
   assert.equal(plan.deploySteps.length, 0);
   assert.deepEqual(plan.impacts.validationOnlyFiles, ["config/release-compat.json"]);
+  assert(
+    plan.compatibilityNotes.some((note) => note.includes("Auth/AI caller-policy compatibility"))
+  );
   assert.equal(plan.isNoop, true);
 }
 
@@ -168,6 +171,14 @@ function createContext() {
   assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth"]);
   assert.equal(plan.impacts.static.required, false);
   assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.id),
+    ["ai-worker", "auth-worker"]
+  );
+  assert(
+    plan.compatibilityNotes.some((note) => note.includes("Auth/AI caller-policy compatibility"))
+  );
+  assert(plan.remainingManualSteps.some((step) => step.includes("deploy AI Worker before Auth Worker")));
 }
 
 {
@@ -254,6 +265,7 @@ function createContext() {
       { command: "npm run check:operational-readiness", cwd: null, execute: true },
       { command: "npm run check:live-health", cwd: null, execute: true },
       { command: "npm run check:live-security-headers", cwd: null, execute: true },
+      { command: "npm run test:live-canary", cwd: null, execute: true },
       { command: "npm run check:js", cwd: null, execute: true },
       { command: "npm run test:release-compat", cwd: null, execute: true },
       { command: "npm run validate:release", cwd: null, execute: true },

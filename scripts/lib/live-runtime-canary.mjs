@@ -219,6 +219,27 @@ function createBaselineChecks(manifest, config) {
       },
     },
     {
+      id: "auth-fetch-metadata-cross-site-guard",
+      suite: "baseline",
+      method: "POST",
+      url: buildUrl(config.authBaseUrl, logoutPath),
+      description: "Fetch Metadata rejects a cross-site browser write before any auth side effect",
+      headers: jsonHeaders({
+        Origin: FORBIDDEN_ORIGIN,
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+      }),
+      assert({ response, jsonBody, bodySummary }) {
+        if (response.status !== 403) {
+          throw new Error(`expected 403, got ${response.status}; ${bodySummary}`);
+        }
+        if (!jsonBody || jsonBody.ok !== false || jsonBody.error !== "Forbidden") {
+          throw new Error(`expected Fetch Metadata guard contract, got ${bodySummary}`);
+        }
+      },
+    },
+    {
       id: "member-ai-unauthenticated",
       suite: "baseline",
       method: "GET",

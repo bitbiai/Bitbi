@@ -21,6 +21,7 @@ Confirmed legacy media reset readiness: BLOCKED.
 - Verify repository release plan with `npm run release:plan`.
 - Run `npm run release:preflight` before merge/release-sensitive work.
 - Apply required remote auth D1 migrations before dependent Auth Worker deploys.
+- Keep Auth/AI caller-policy changes paired: `config/release-compat.json` models the AI Worker before Auth Worker order for provider-cost internal AI route compatibility.
 - Verify Worker secrets and bindings without printing values.
 - Verify Cloudflare D1, R2, Queues, Durable Objects, Images, service bindings, dashboard WAF/static headers/RUM, alerts, and routes.
 - Verify static Pages deploy requirements separately from Worker deploys.
@@ -46,6 +47,7 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Secret/binding verification evidence without values.
 - Live health check evidence.
 - Security header evidence.
+- Safe canary evidence from `npm run test:live-canary` and, when explicitly enabled by an operator, `npm run validate:live`; live canaries remain read-only/negative unless credentials are intentionally provided.
 - R2/D1/Queue/DO/service binding evidence.
 - Restore drill and rollback evidence.
 - Stripe Testmode/live canary evidence where billing is in scope.
@@ -58,6 +60,7 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Live/manual Cloudflare validation is not recorded in repo.
 - Live billing canaries and remediation/legal/accounting workflows remain incomplete.
 - Internal AI Worker caller policy is enforced for provider-cost routes, but live provider/cap/operator evidence is still required before readiness claims.
+- Canary/readiness tooling includes local-only safety contract checks and skipped-by-default live checks; missing live URLs or credentials must remain pending/blocked, not treated as success.
 - Tenant ownership backfill and access-switch readiness are blocked.
 - Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - Production readiness cannot be claimed from local tests alone.
@@ -72,6 +75,7 @@ npm run check:doc-currentness
 npm run validate:release
 npm run test:release-compat
 npm run test:release-plan
+npm run test:live-canary
 npm run test:readiness-evidence
 npm run test:main-release-readiness
 npm run release:plan

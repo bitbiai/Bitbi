@@ -372,6 +372,7 @@ export async function handleAdminDataLifecycle(ctx) {
   // route-policy: admin.data-lifecycle.requests.plan
   if (planMatch && method === "POST") {
     try {
+      normalizeDataLifecycleIdempotencyKey(request.headers.get("Idempotency-Key"));
       const parsed = await readJsonBodyOrResponse(request, {
         maxBytes: BODY_LIMITS.smallJson,
       });

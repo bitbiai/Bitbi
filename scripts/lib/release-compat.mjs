@@ -59,6 +59,13 @@ function includesRouteLiteral(source, value) {
   return typeof source === "string" && source.includes(value);
 }
 
+function getSourceFile(context, relativePath) {
+  if (context?.sourceFiles && Object.prototype.hasOwnProperty.call(context.sourceFiles, relativePath)) {
+    return context.sourceFiles[relativePath];
+  }
+  return "";
+}
+
 function normalizeUniqueStrings(values) {
   return [...new Set((values || []).filter((value) => typeof value === "string" && value.length > 0))].sort();
 }
@@ -177,6 +184,21 @@ function getWorkers(manifest) {
 function getSchemaCheckpoints(manifest) {
   const schemaCheckpoints = getReleaseSection(manifest).schemaCheckpoints;
   return isPlainObject(schemaCheckpoints) ? schemaCheckpoints : {};
+}
+
+function getAuthAiCallerPolicyContract(manifest) {
+  const contract = getReleaseSection(manifest).authAiCallerPolicy;
+  return isPlainObject(contract) ? contract : null;
+}
+
+function extractInternalAiCallerPolicyRoutes(source) {
+  const routes = new Set();
+  const pattern = /["'](\/internal\/ai\/[^"']+)["']\s*:/g;
+  let match;
+  while ((match = pattern.exec(source || "")) !== null) {
+    routes.add(match[1]);
+  }
+  return [...routes].sort();
 }
 
 function getWorkerManifest(manifest, workerId) {
@@ -700,6 +722,129 @@ function validateDeployOrder(manifest) {
   return issues;
 }
 
+function validateAuthAiCallerPolicyCompatibility(manifest, context) {
+  const issues = [];
+  const contract = getAuthAiCallerPolicyContract(manifest);
+  if (!contract) {
+    issues.push("Release manifest must declare release.authAiCallerPolicy for Auth/AI caller-policy rollout compatibility.");
+    return issues;
+  }
+
+  if (contract.version !== "auth-ai-caller-policy-v1") {
+    issues.push("Auth/AI caller-policy contract version must be auth-ai-caller-policy-v1.");
+  }
+  for (const fieldName of ["sharedPolicyFile", "aiPolicyFile", "authProxyFile"]) {
+    if (!contract[fieldName] || typeof contract[fieldName] !== "string") {
+      issues.push(`Auth/AI caller-policy contract is missing ${fieldName}.`);
+    } else if (!pathExists(context, contract[fieldName])) {
+      issues.push(`Auth/AI caller-policy contract references missing ${fieldName} "${contract[fieldName]}".`);
+    }
+  }
+
+  const deployOrder = Array.isArray(getReleaseSection(manifest).deployOrder)
+    ? getReleaseSection(manifest).deployOrder
+    : [];
+  const aiDeployStep = deployOrder.find((step) => step?.worker === "ai");
+  const authDeployStep = deployOrder.find((step) => step?.worker === "auth");
+  const declaredOrder = Array.isArray(contract.deployOrder) ? contract.deployOrder : [];
+  if (declaredOrder[0] !== aiDeployStep?.id || declaredOrder[1] !== authDeployStep?.id) {
+    issues.push("Auth/AI caller-policy contract must declare deployOrder as [ai-worker, auth-worker].");
+  }
+  const authDependsOn = new Set(Array.isArray(authDeployStep?.dependsOn) ? authDeployStep.dependsOn : []);
+  if (!authDependsOn.has(aiDeployStep?.id)) {
+    issues.push("Auth Worker deploy step must depend on AI Worker for caller-policy rollout compatibility.");
+  }
+
+  const routes = Array.isArray(contract.routes) ? contract.routes : [];
+  if (routes.length === 0) {
+    issues.push("Auth/AI caller-policy contract must declare at least one provider-cost route.");
+    return issues;
+  }
+
+  const aiPolicySource = getSourceFile(context, contract.aiPolicyFile) || context.aiCallerPolicySource || "";
+  const aiIndexSource = context.aiIndexSource || "";
+  const proxySource = getSourceFile(context, contract.authProxyFile) || context.authAdminAiProxySource || "";
+  const sharedSource = getSourceFile(context, contract.sharedPolicyFile) || "";
+  if (!includesRouteLiteral(sharedSource, "AI_CALLER_POLICY_BODY_KEY")) {
+    issues.push(`Auth/AI caller-policy shared file "${contract.sharedPolicyFile}" must define AI_CALLER_POLICY_BODY_KEY.`);
+  }
+  if (!includesRouteLiteral(proxySource, "withAiCallerPolicy")) {
+    issues.push(`Auth/AI proxy file "${contract.authProxyFile}" must attach caller-policy metadata before signing internal AI requests.`);
+  }
+
+  const seenRoutes = new Set();
+  for (const [index, route] of routes.entries()) {
+    const label = route?.aiRoute || `entry ${index}`;
+    if (!route?.aiRoute || typeof route.aiRoute !== "string") {
+      issues.push(`Auth/AI caller-policy route at index ${index} is missing aiRoute.`);
+      continue;
+    }
+    if (seenRoutes.has(route.aiRoute)) {
+      issues.push(`Auth/AI caller-policy contract repeats route "${route.aiRoute}".`);
+    }
+    seenRoutes.add(route.aiRoute);
+    if (!includesRouteLiteral(aiPolicySource, route.aiRoute)) {
+      issues.push(`AI caller-policy rules are missing route "${route.aiRoute}".`);
+    }
+    if (!includesRouteLiteral(aiIndexSource, route.aiRoute)) {
+      issues.push(`AI Worker router is missing provider-cost route "${route.aiRoute}".`);
+    }
+
+    const operationIds = normalizeUniqueStrings(route.allowedOperationIds);
+    if (operationIds.length === 0) {
+      issues.push(`Auth/AI caller-policy route "${label}" must declare allowedOperationIds.`);
+    }
+    for (const operationId of operationIds) {
+      if (!includesRouteLiteral(aiPolicySource, operationId)) {
+        issues.push(`AI caller-policy route "${label}" is missing allowed operation "${operationId}".`);
+      }
+    }
+
+    const authSources = Array.isArray(route.authSources) ? route.authSources : [];
+    if (authSources.length === 0) {
+      issues.push(`Auth/AI caller-policy route "${label}" must declare authSources.`);
+    }
+    for (const source of authSources) {
+      if (!source?.sourceFile || typeof source.sourceFile !== "string") {
+        issues.push(`Auth/AI caller-policy route "${label}" has an auth source without sourceFile.`);
+        continue;
+      }
+      if (!pathExists(context, source.sourceFile)) {
+        issues.push(`Auth/AI caller-policy route "${label}" references missing auth source "${source.sourceFile}".`);
+        continue;
+      }
+      const sourceText = getSourceFile(context, source.sourceFile);
+      if (!includesRouteLiteral(sourceText, route.aiRoute) && !includesRouteLiteral(proxySource, route.aiRoute)) {
+        issues.push(`Auth source "${source.sourceFile}" does not reference internal AI route "${route.aiRoute}".`);
+      }
+      if (source.sourceRoute && !includesRouteLiteral(sourceText, source.sourceRoute)) {
+        issues.push(`Auth source "${source.sourceFile}" does not reference source route "${source.sourceRoute}".`);
+      }
+      if (!includesRouteLiteral(sourceText, "callerPolicy")) {
+        issues.push(`Auth source "${source.sourceFile}" does not attach callerPolicy metadata for "${route.aiRoute}".`);
+      }
+      for (const operationId of normalizeUniqueStrings(source.operationIds)) {
+        if (!operationIds.includes(operationId)) {
+          issues.push(`Auth source "${source.sourceFile}" declares operation "${operationId}" that is not allowed for "${route.aiRoute}".`);
+        }
+        const operationReferences = normalizeUniqueStrings(source.operationIdReferences);
+        const hasOperationReference = operationReferences.some((reference) => includesRouteLiteral(sourceText, reference));
+        if (!includesRouteLiteral(sourceText, operationId) && !hasOperationReference) {
+          issues.push(`Auth source "${source.sourceFile}" does not emit caller-policy operation "${operationId}".`);
+        }
+      }
+    }
+  }
+
+  for (const providerRoute of extractInternalAiCallerPolicyRoutes(aiPolicySource)) {
+    if (!seenRoutes.has(providerRoute)) {
+      issues.push(`Auth/AI caller-policy contract is missing provider-cost route "${providerRoute}".`);
+    }
+  }
+
+  return issues;
+}
+
 function validateManualPrerequisites(manifest, context) {
   const issues = [];
   const release = getReleaseSection(manifest);
@@ -964,6 +1109,7 @@ function validateWorkflowCompatibility(context) {
     "npm run check:operational-readiness",
     "npm run check:live-health",
     "npm run check:live-security-headers",
+    "npm run test:live-canary",
     "npm run check:js",
   ]) {
     if (!includesRouteLiteral(workflowSource, command)) {
@@ -1009,6 +1155,7 @@ export function validateReleaseCompatibility(context) {
   issues.push(...validateSchemaCheckpointContracts(manifest, context));
   issues.push(...validateWorkerContracts(manifest, context));
   issues.push(...validateDeployOrder(manifest));
+  issues.push(...validateAuthAiCallerPolicyCompatibility(manifest, context));
   issues.push(...validateManualPrerequisites(manifest, context));
   issues.push(...validateAuthIndexRoutes(manifest, context));
   issues.push(...validateMemberAiCompatibility(manifest, context));
@@ -1058,6 +1205,27 @@ export function loadReleaseCompatibilityContext(repoRoot) {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "config/release-compat.json"), "utf8")
   );
+  const sourceFilePaths = new Set([
+    "workers/shared/ai-caller-policy.mjs",
+    "workers/ai/src/lib/caller-policy.js",
+    "workers/auth/src/lib/admin-ai-proxy.js",
+    "workers/auth/src/routes/admin-ai.js",
+    "workers/auth/src/routes/ai/text-generate.js",
+    "workers/auth/src/routes/ai/music-generate.js",
+    "workers/auth/src/lib/ai-video-jobs.js",
+  ]);
+  for (const route of manifest?.release?.authAiCallerPolicy?.routes || []) {
+    for (const source of route?.authSources || []) {
+      if (source?.sourceFile) sourceFilePaths.add(source.sourceFile);
+    }
+  }
+  const sourceFiles = {};
+  for (const relativePath of sourceFilePaths) {
+    const absolutePath = path.join(repoRoot, relativePath);
+    sourceFiles[relativePath] = fs.existsSync(absolutePath)
+      ? fs.readFileSync(absolutePath, "utf8")
+      : "";
+  }
 
   return {
     manifest,
@@ -1088,6 +1256,8 @@ export function loadReleaseCompatibilityContext(repoRoot) {
       "utf8"
     ),
     aiIndexSource: fs.readFileSync(path.join(repoRoot, "workers/ai/src/index.js"), "utf8"),
+    aiCallerPolicySource: sourceFiles["workers/ai/src/lib/caller-policy.js"] || "",
+    sourceFiles,
     workflowSource: fs.readFileSync(
       path.join(repoRoot, ".github/workflows/static.yml"),
       "utf8"

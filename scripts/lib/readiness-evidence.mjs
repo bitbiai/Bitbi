@@ -50,6 +50,14 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function readTextIfExists(repoRoot, relativePath) {
+  try {
+    return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+  } catch {
+    return "";
+  }
+}
+
 function runGit(repoRoot, args) {
   const result = spawnSync("git", args, {
     cwd: repoRoot,
@@ -148,6 +156,70 @@ function runLocalChecks(repoRoot, checks = DEFAULT_LOCAL_CHECKS) {
       code: result.status,
     };
   });
+}
+
+function localContractResult({ id, label, classification, status, evidence, sideEffects = "none" }) {
+  return {
+    id,
+    label,
+    classification,
+    status,
+    sideEffects,
+    evidence,
+  };
+}
+
+function collectLocalSafetyContracts(repoRoot, manifest) {
+  const authIndex = readTextIfExists(repoRoot, "workers/auth/src/index.js");
+  const aiPolicy = readTextIfExists(repoRoot, "workers/ai/src/lib/caller-policy.js");
+  const aiUsagePolicy = readTextIfExists(repoRoot, "workers/auth/src/lib/ai-usage-policy.js");
+  const storageRedaction = readTextIfExists(repoRoot, "workers/auth/src/lib/storage-key-redaction.js");
+  const dataLifecycle = readTextIfExists(repoRoot, "workers/auth/src/lib/data-lifecycle.js");
+  const callerPolicyContract = manifest?.release?.authAiCallerPolicy;
+
+  return [
+    localContractResult({
+      id: "auth-ai-caller-policy-release-contract",
+      label: "Auth/AI caller-policy rollout contract",
+      classification: "local-only",
+      status: callerPolicyContract?.version === "auth-ai-caller-policy-v1" ? "PASS" : "FAIL",
+      evidence: callerPolicyContract?.version === "auth-ai-caller-policy-v1"
+        ? "config/release-compat.json declares the Auth/AI caller-policy compatibility contract."
+        : "config/release-compat.json does not declare the Auth/AI caller-policy compatibility contract.",
+    }),
+    localContractResult({
+      id: "ai-worker-missing-caller-policy-fail-closed",
+      label: "AI Worker missing caller-policy rejection",
+      classification: "local-only",
+      status: aiPolicy.includes("ai_caller_policy_required") && aiPolicy.includes("Caller policy is required")
+        ? "PASS"
+        : "FAIL",
+      evidence: "workers/ai/src/lib/caller-policy.js is checked for the missing caller-policy fail-closed response.",
+    }),
+    localContractResult({
+      id: "fetch-metadata-cross-site-write-guard",
+      label: "Fetch Metadata cross-site write guard",
+      classification: "local-only",
+      status: authIndex.includes("Sec-Fetch-Site") && authIndex.includes("cross-site") ? "PASS" : "FAIL",
+      evidence: "workers/auth/src/index.js is checked for Sec-Fetch-Site cross-site rejection logic.",
+    }),
+    localContractResult({
+      id: "admin-ai-legacy-unmetered-blocked",
+      label: "Admin AI legacy/unclassified cost path blocked",
+      classification: "local-only",
+      status: aiUsagePolicy.includes("admin_ai_legacy_unmetered_blocked") ? "PASS" : "FAIL",
+      evidence: "workers/auth/src/lib/ai-usage-policy.js is checked for the legacy admin AI blocked classification.",
+    }),
+    localContractResult({
+      id: "storage-key-redaction-evidence-path",
+      label: "Storage key redaction in evidence serializers",
+      classification: "local-only",
+      status: storageRedaction.includes("redactStorageObjectKey") && dataLifecycle.includes("sanitizeStorageEvidenceSummary")
+        ? "PASS"
+        : "FAIL",
+      evidence: "storage-key-redaction.js and data-lifecycle evidence serialization are checked for private key redaction helpers.",
+    }),
+  ];
 }
 
 function sanitizeHeaderValue(value) {
@@ -350,6 +422,7 @@ export async function collectReadinessEvidence(options = {}) {
   const requiredSecretNames = collectRequiredSecrets(manifest);
   const runChecks = options.runLocalChecks === true;
   const liveChecks = await collectLiveChecks(options);
+  const localSafetyContracts = collectLocalSafetyContracts(repoRoot, manifest);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -379,6 +452,7 @@ export async function collectReadinessEvidence(options = {}) {
     localChecks: runChecks
       ? { mode: "run", results: runLocalChecks(repoRoot, options.localChecks || DEFAULT_LOCAL_CHECKS) }
       : { mode: "skipped", reason: "Safe local checks are not run by default; pass --run-local-checks to run the deterministic local subset." },
+    localSafetyContracts,
     liveChecks,
     blockers: [
       liveChecks.evidenceCollected
@@ -450,6 +524,17 @@ function formatLocalChecks(localChecks) {
     .join("\n");
 }
 
+function formatLocalSafetyContracts(contracts) {
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    return "| None | pending | local-only | none | No local safety contracts were evaluated. |\n";
+  }
+  return contracts
+    .map((entry) =>
+      `| \`${entry.id}\` | ${entry.status} | ${entry.classification} | ${entry.sideEffects} | ${entry.evidence} |`
+    )
+    .join("\n");
+}
+
 function formatJsonResult(json) {
   if (!json || json.parsed == null) return "not parsed";
   if (!json.parsed) return "parse failed";
@@ -518,6 +603,14 @@ This evidence pack is local and redacted by default. It is not a production read
 ## Local Checks
 
 ${formatLocalChecks(evidence.localChecks)}
+
+## Local Safety Canary Contracts
+
+These checks inspect repository code/config only. They do not call live endpoints, Stripe, providers, R2, D1, queues, or Cloudflare APIs.
+
+| ID | Status | Classification | Side effects | Evidence |
+| --- | --- | --- | --- | --- |
+${formatLocalSafetyContracts(evidence.localSafetyContracts)}
 
 ## Cloudflare Auth Worker Binding Declarations
 

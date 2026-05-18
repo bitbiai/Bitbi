@@ -64,6 +64,8 @@ jobs:
         run: npm run check:live-health
       - name: Run live security header check in skipped mode
         run: npm run check:live-security-headers
+      - name: Test live runtime canary skipped/safe mode
+        run: npm run test:live-canary
       - name: Check targeted JavaScript syntax
         run: npm run check:js
       - name: Run release compatibility tests

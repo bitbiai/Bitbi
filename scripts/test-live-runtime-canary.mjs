@@ -73,7 +73,12 @@ function createCurrentContractFetch() {
     }
 
     if (requestUrl === "https://bitbi.ai/api/logout" && method === "POST") {
-      assert.equal(origin, null);
+      const secFetchSite = headers.get("Sec-Fetch-Site");
+      if (secFetchSite === "cross-site") {
+        assert.equal(origin, "https://evil.example");
+      } else {
+        assert.equal(origin, null);
+      }
       return jsonResponse({ ok: false, error: "Forbidden" }, 403);
     }
 
@@ -273,12 +278,13 @@ assert.throws(
   assert.deepEqual(
     plan.suites.map((suite) => [suite.id, suite.skipped, suite.checks.length]),
     [
-      ["baseline", false, 8],
+      ["baseline", false, 9],
       ["member", true, 0],
       ["admin", true, 0],
     ]
   );
   assert(plan.suites[0].checks.some((check) => check.id === "admin-ai-unauthenticated"));
+  assert(plan.suites[0].checks.some((check) => check.id === "auth-fetch-metadata-cross-site-guard"));
   assert(plan.suites[0].checks.some((check) => check.id === "contact-forbidden-origin"));
 }
 
@@ -318,7 +324,7 @@ assert.throws(
 
   assert.equal(result.failed.length, 0);
   assert.equal(result.skipped.length, 0);
-  assert.equal(result.passed.length, 16);
+  assert.equal(result.passed.length, 17);
 }
 
 {
@@ -342,7 +348,7 @@ assert.throws(
   assert.equal(result.failed.length, 1);
   assert.equal(result.failed[0].id, "auth-health");
   assert.match(result.failed[0].message, /expected 200, got 404/);
-  assert.equal(result.passed.length, 7);
+  assert.equal(result.passed.length, 8);
 }
 
 console.log("Live runtime canary tests passed.");

@@ -156,6 +156,31 @@ const baseManifest = {
         dependsOn: ["auth-worker", "contact-worker"],
       },
     ],
+    authAiCallerPolicy: {
+      version: "auth-ai-caller-policy-v1",
+      sharedPolicyFile: "workers/shared/ai-caller-policy.mjs",
+      aiPolicyFile: "workers/ai/src/lib/caller-policy.js",
+      authProxyFile: "workers/auth/src/lib/admin-ai-proxy.js",
+      deployOrder: ["ai-worker", "auth-worker"],
+      routes: [
+        {
+          aiRoute: "/internal/ai/test-text",
+          allowedOperationIds: ["admin.text.test", "member.text.generate"],
+          authSources: [
+            {
+              sourceFile: "workers/auth/src/routes/admin-ai.js",
+              sourceRoute: "/api/admin/ai/test-text",
+              operationIds: ["admin.text.test"],
+            },
+            {
+              sourceFile: "workers/auth/src/routes/ai/text-generate.js",
+              sourceRoute: "/api/ai/generate-text",
+              operationIds: ["member.text.generate"],
+            },
+          ],
+        },
+      ],
+    },
     manualPrerequisites: [
       {
         id: "auth-session-secret",
@@ -636,8 +661,13 @@ function createValidContext() {
     "workers/auth/wrangler.jsonc",
     "workers/ai/wrangler.jsonc",
     "workers/ai/src/index.js",
+    "workers/ai/src/lib/caller-policy.js",
     "workers/contact/wrangler.jsonc",
     "workers/auth/CLAUDE.md",
+    "workers/auth/src/lib/admin-ai-proxy.js",
+    "workers/auth/src/routes/admin-ai.js",
+    "workers/auth/src/routes/ai/text-generate.js",
+    "workers/shared/ai-caller-policy.mjs",
     "workers/contact/src/index.js",
     "docs/ai-image-derivatives-runbook.md",
     "docs/audits/archive/root-phase-reports/AI_VIDEO_ASYNC_JOB_DESIGN.md",
@@ -1001,8 +1031,12 @@ function createValidContext() {
       if (pathname === "/api/admin/ai/proxy-video" && method === "POST") return rejectProxyVideo();
     `,
     authAdminAiProxySource: `
+      import { withAiCallerPolicy } from "../../../shared/ai-caller-policy.mjs";
       export async function proxyLiveAgentToAiLab() {
         return fetch("/internal/ai/live-agent");
+      }
+      export async function proxyToAiLab(env, path, init) {
+        return withAiCallerPolicy(init.body, init.callerPolicy);
       }
     `,
     aiIndexSource: `
@@ -1017,6 +1051,42 @@ function createValidContext() {
       if (pathname === "/internal/ai/compare" && method === "POST") return handleCompare();
       if (pathname === "/internal/ai/live-agent" && method === "POST") return handleLiveAgent();
     `,
+    aiCallerPolicySource: `
+      const AI_CALLER_POLICY_BODY_KEY = "__bitbi_ai_caller_policy";
+      const INTERNAL_AI_CALLER_POLICY_RULES = {
+        "/internal/ai/test-text": { allowedOperationIds: ["admin.text.test", "member.text.generate"] }
+      };
+    `,
+    sourceFiles: {
+      "workers/shared/ai-caller-policy.mjs": `
+        export const AI_CALLER_POLICY_BODY_KEY = "__bitbi_ai_caller_policy";
+      `,
+      "workers/ai/src/lib/caller-policy.js": `
+        const INTERNAL_AI_CALLER_POLICY_RULES = {
+          "/internal/ai/test-text": { allowedOperationIds: ["admin.text.test", "member.text.generate"] }
+        };
+      `,
+      "workers/auth/src/lib/admin-ai-proxy.js": `
+        import { withAiCallerPolicy } from "../../../shared/ai-caller-policy.mjs";
+        export function proxyToAiLab(env, path, init) { return withAiCallerPolicy(init.body, init.callerPolicy); }
+      `,
+      "workers/auth/src/routes/admin-ai.js": `
+        if (pathname === "/api/admin/ai/test-text" && method === "POST") {
+          return proxyToAiLab(env, "/internal/ai/test-text", {
+            body: payload,
+            callerPolicy: { operation_id: "admin.text.test" },
+          });
+        }
+      `,
+      "workers/auth/src/routes/ai/text-generate.js": `
+        if (pathname === "/api/ai/generate-text" && method === "POST") {
+          return signedAiLabTextRequest({
+            callerPolicy: { operation_id: "member.text.generate" },
+            path: "/internal/ai/test-text",
+          });
+        }
+      `,
+    },
     workflowSource: `
   release-compatibility:
     steps:
@@ -1029,6 +1099,7 @@ function createValidContext() {
       - run: npm run check:operational-readiness
       - run: npm run check:live-health
       - run: npm run check:live-security-headers
+      - run: npm run test:live-canary
       - run: npm run check:js
       - run: npm run check:worker-body-parsers
       - run: npm run check:admin-activity-query-shape
@@ -1131,6 +1202,57 @@ function createValidContext() {
   assert(
     issues.some((issue) =>
       issue.includes('must depend on "ai-worker" because worker "auth" binds service worker "ai"')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  delete context.manifest.release.authAiCallerPolicy;
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes("release.authAiCallerPolicy")
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.sourceFiles["workers/ai/src/lib/caller-policy.js"] += `
+    const FUTURE_ROUTE = {
+      "/internal/ai/future-provider-cost": { allowedOperationIds: ["admin.future.provider"] }
+    };
+  `;
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('missing provider-cost route "/internal/ai/future-provider-cost"')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.release.authAiCallerPolicy.routes[0].allowedOperationIds.push("admin.future.unmapped");
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('missing allowed operation "admin.future.unmapped"')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.sourceFiles["workers/auth/src/routes/admin-ai.js"] = context.sourceFiles["workers/auth/src/routes/admin-ai.js"].replace(
+    "admin.text.test",
+    "admin.text.stale"
+  );
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('does not emit caller-policy operation "admin.text.test"')
     )
   );
 }

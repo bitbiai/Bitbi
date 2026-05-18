@@ -15,6 +15,7 @@ Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 - Charged Admin Image tests use selected-organization credits and `admin_org_credit_account` budget metadata for priced models.
 - Admin Image branches are classified: charged, explicit unmetered, or blocked before provider execution.
 - Admin Text, Embeddings, Music, Compare, Live-Agent, and Admin async video jobs are covered by scoped admin/platform budget metadata, caller-policy propagation where applicable, durable metadata-only idempotency where applicable, runtime budget switches, D1 app switches, and the first `platform_admin_lab_budget` cap foundation.
+- Auth/AI provider-cost caller-policy compatibility is now part of `config/release-compat.json`; caller-policy changes are paired Auth Worker + AI Worker release work with AI Worker first in the planned deploy order.
 - OpenClaw/News Pulse visuals have `openclaw_news_pulse_budget` metadata/status controls and runtime switch enforcement; live cap enforcement for that scope remains future work.
 - `platform_admin_lab_budget` has read-only reconciliation, explicit admin-approved repair for narrow safe candidates, repair report/export, and sanitized evidence archives.
 
@@ -22,6 +23,7 @@ Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 
 - Other budget scopes are not fully cap-enforced.
 - Internal AI Worker provider-cost routes now require caller-policy metadata before provider execution; cap accounting for non-`platform_admin_lab_budget` scopes remains future work.
+- Release/tooling evidence checks prove the local caller-policy contract, but do not prove live provider or cap behavior.
 - Admin result replay remains metadata-only for several admin lab routes.
 - Platform budget evidence still requires operator verification before any production/live claim.
 - This system is not customer billing, Stripe billing, credit clawback, or production readiness.
