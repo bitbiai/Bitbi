@@ -3993,6 +3993,19 @@ test.describe('Phase 1-E auth route policy registry', () => {
       }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/readiness/status')).toEqual(expect.objectContaining({
+      id: 'admin.readiness.status',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({
+        id: 'admin-readiness-status-ip',
+        failClosed: true,
+      }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+      notes: expect.stringContaining('reset execution'),
+    }));
     expect(getRoutePolicy('POST', '/api/admin/ai/platform-budget-reconciliation/repair')).toEqual(expect.objectContaining({
       id: 'admin.ai.platform-budget-reconciliation.repair',
       auth: 'admin',
@@ -15996,6 +16009,124 @@ test.describe('Worker routes', () => {
         ok: false,
         error: 'Admin privileges required.',
       });
+    });
+
+    test('GET /api/admin/readiness/status is admin-only and reports blocked claims without unsafe values', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('readiness-status-admin');
+      const user = createContractUser({ id: 'readiness-status-user', role: 'user' });
+      const env = createAuthTestEnv({ users: [admin, user] });
+      const adminToken = await seedSession(env, admin.id);
+      const userToken = await seedSession(env, user.id);
+
+      const unauthRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/readiness/status', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.180',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(unauthRes.status).toBe(401);
+
+      const nonAdminRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/readiness/status', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${userToken}`,
+          'CF-Connecting-IP': '203.0.113.181',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(nonAdminRes.status).toBe(403);
+
+      const beforeActions = env.DB.state.tenantAssetMediaResetActions.length;
+      const beforeEvents = env.DB.state.tenantAssetMediaResetActionEvents.length;
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/readiness/status', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'CF-Connecting-IP': '203.0.113.182',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toContain('no-store');
+      expect(res.headers.get('x-content-type-options')).toContain('nosniff');
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.releaseTruth).toMatchObject({
+        source: 'config/release-compat.json',
+        latestAuthMigration: '0058_add_legacy_media_reset_actions.sql',
+        repoTruthIsLiveDeployProof: false,
+        deployVerificationRequired: true,
+      });
+      expect(body.blockedClaims).toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: 'Production readiness', status: 'blocked' }),
+        expect.objectContaining({ label: 'Live billing readiness', status: 'blocked' }),
+        expect.objectContaining({ label: 'Tenant isolation', status: 'not_claimed' }),
+        expect.objectContaining({ label: 'Confirmed legacy media reset readiness', status: 'blocked' }),
+      ]));
+      expect(body.runtimeSafetyGates).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION',
+          expected: 'off',
+          enabled: false,
+          rawValueExposed: false,
+        }),
+      ]));
+      expect(JSON.stringify(body)).not.toContain('sk_live');
+      expect(JSON.stringify(body)).not.toContain('whsec_');
+      expect(JSON.stringify(body)).not.toContain('Bearer ');
+      expect(env.DB.state.tenantAssetMediaResetActions).toHaveLength(beforeActions);
+      expect(env.DB.state.tenantAssetMediaResetActionEvents).toHaveLength(beforeEvents);
+      expect(env.USER_IMAGES.putCalls).toEqual([]);
+      expect(env.USER_IMAGES.getCalls).toEqual([]);
+      expect(env.USER_IMAGES.listCalls).toEqual([]);
+      expect(env.USER_IMAGES.deleteCalls).toEqual([]);
+      expect(env.PRIVATE_MEDIA.putCalls).toEqual([]);
+      expect(env.PRIVATE_MEDIA.getCalls).toEqual([]);
+      expect(env.PRIVATE_MEDIA.listCalls).toEqual([]);
+      expect(env.PRIVATE_MEDIA.deleteCalls).toEqual([]);
+      expect(env.AUDIT_ARCHIVE.putCalls).toEqual([]);
+      expect(env.AUDIT_ARCHIVE.getCalls).toEqual([]);
+      expect(env.AUDIT_ARCHIVE.listCalls).toEqual([]);
+      expect(env.AUDIT_ARCHIVE.deleteCalls).toEqual([]);
+    });
+
+    test('GET /api/admin/readiness/status reports reset confirmed-execution gate only as a boolean', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('readiness-gate-admin');
+      const env = createAuthTestEnv({
+        users: [admin],
+        ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION: 'true',
+      });
+      const sessionToken = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/readiness/status', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.183',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.runtimeSafetyGates).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION',
+          expected: 'off',
+          enabled: true,
+          status: 'enabled_requires_operator_review',
+          rawValueExposed: false,
+        }),
+      ]));
+      expect(JSON.stringify(body)).not.toContain('"true"');
     });
 
     test('GET /api/admin/users returns the stable admin listing contract', async () => {

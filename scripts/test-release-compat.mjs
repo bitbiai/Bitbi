@@ -608,6 +608,7 @@ const baseManifest = {
     literalRoutes: [
       "GET /api/admin/me",
       "GET /api/admin/users",
+      "GET /api/admin/readiness/status",
       "GET /api/admin/stats",
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",
@@ -945,6 +946,7 @@ function createValidContext() {
     authAdminSource: `
       if (pathname === "/api/admin/me" && method === "GET") return handleAdminMe();
       if (pathname === "/api/admin/users" && method === "GET") return handleAdminUsers();
+      if (pathname === "/api/admin/readiness/status" && method === "GET") return handleAdminReadinessStatus();
       if (pathname === "/api/admin/stats" && method === "GET") return handleAdminStats();
       if (pathname === "/api/admin/orgs" && method === "GET") return handleAdminOrgs();
       if (pathname === "/api/admin/billing/plans" && method === "GET") return handleAdminBillingPlans();

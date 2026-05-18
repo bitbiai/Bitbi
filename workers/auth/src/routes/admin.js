@@ -34,6 +34,10 @@ import {
   logAdminMfaDiagnostic,
 } from "../lib/admin-mfa.js";
 import {
+  LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE,
+  isLegacyMediaResetConfirmedExecutionEnabled,
+} from "../lib/tenant-asset-legacy-media-reset-executor.js";
+import {
   decodePaginationCursor,
   encodePaginationCursor,
   paginationErrorResponse,
@@ -55,9 +59,93 @@ const DEFAULT_ADMIN_USERS_LIMIT = 50;
 const MAX_ADMIN_USERS_LIMIT = 100;
 const DEFAULT_ADMIN_ACTIVITY_LIMIT = 50;
 const MAX_ADMIN_ACTIVITY_LIMIT = 100;
+// Runtime Workers cannot read config/release-compat.json directly; release
+// compatibility tests keep this dashboard label aligned with the manifest.
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0058_add_legacy_media_reset_actions.sql";
+const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v1";
 
 function adminMutationConfirmationResponse(code, message) {
   return json({ ok: false, error: message, code }, { status: 409 });
+}
+
+function buildAdminReadinessStatus(env) {
+  const resetConfirmedExecutionEnabled = isLegacyMediaResetConfirmedExecutionEnabled(env);
+  return {
+    ok: true,
+    version: READINESS_STATUS_VERSION,
+    generatedAt: nowIso(),
+    releaseTruth: {
+      source: "config/release-compat.json",
+      latestAuthMigration: CURRENT_AUTH_SCHEMA_CHECKPOINT,
+      migrationDirectory: "workers/auth/migrations",
+      databaseName: "bitbi-auth-db",
+      staticDeploySeparateFromWorkers: true,
+      repoTruthIsLiveDeployProof: false,
+      deployVerificationRequired: true,
+      deployUnits: ["auth Worker", "AI Worker", "contact Worker", "static Pages"],
+      caveat: "Repository readiness state is not live Cloudflare deploy proof; operator verification remains required.",
+    },
+    blockedClaims: [
+      { id: "production_readiness", label: "Production readiness", status: "blocked" },
+      { id: "live_billing_readiness", label: "Live billing readiness", status: "blocked" },
+      { id: "tenant_isolation", label: "Tenant isolation", status: "not_claimed" },
+      { id: "ownership_backfill_readiness", label: "Ownership backfill readiness", status: "blocked" },
+      { id: "access_switch_readiness", label: "Access-switch readiness", status: "blocked" },
+      { id: "confirmed_legacy_media_reset_readiness", label: "Confirmed legacy media reset readiness", status: "blocked" },
+      { id: "confirmed_media_deletion_reset", label: "Confirmed media deletion/reset", status: "not_approved" },
+    ],
+    hardeningStatus: [
+      { id: "omega_p0_01", label: "P0-01 main release readiness gate", status: "implemented_repo_supported" },
+      { id: "omega_p0_02", label: "P0-02 confirmed legacy reset gate", status: "implemented_default_off" },
+      { id: "omega_p0_03", label: "P0-03 sanitized reset dry-run evidence", status: "pending_blocking" },
+      { id: "omega_p0_04", label: "P0-04 manual-review idempotency evidence", status: "pending_blocking" },
+      { id: "omega_p0_05", label: "P0-05 active documentation drift cleanup", status: "implemented_repo_supported" },
+      { id: "omega_p1_wave_1", label: "P1 Wave 1 security/cost boundary hardening", status: "implemented_repo_supported" },
+      { id: "omega_p1_wave_2", label: "P1 Wave 2 release/canary/billing/admin hardening", status: "implemented_repo_supported" },
+      { id: "omega_p1_wave_3", label: "P1 Wave 3 admin/data/observability/scale hardening", status: "implemented_repo_supported" },
+    ],
+    runtimeSafetyGates: [
+      {
+        id: "legacy_media_reset_confirmed_execution",
+        label: LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE,
+        expected: "off",
+        enabled: resetConfirmedExecutionEnabled,
+        status: resetConfirmedExecutionEnabled ? "enabled_requires_operator_review" : "disabled_default_off",
+        rawValueExposed: false,
+      },
+      { id: "fetch_metadata_csrf", label: "Fetch Metadata CSRF hardening", status: "implemented" },
+      { id: "ai_worker_caller_policy", label: "AI Worker caller-policy enforcement", status: "implemented" },
+      { id: "admin_ai_legacy_paths", label: "Admin AI legacy/unclassified provider paths", status: "blocked_or_classified" },
+      { id: "r2_private_key_redaction", label: "R2/private key redaction", status: "implemented" },
+      { id: "admin_mutation_confirmations", label: "High-risk admin mutation confirmations", status: "implemented_for_covered_routes" },
+      { id: "data_lifecycle_guardrails", label: "Data lifecycle confirmation/idempotency guardrails", status: "implemented_for_covered_routes" },
+    ],
+    evidenceStatuses: [
+      { id: "legacy_reset_sanitized_dry_run", label: "Legacy reset sanitized dry-run evidence", status: "pending_sanitized_evidence_required" },
+      { id: "manual_review_idempotency", label: "Manual-review idempotency evidence", status: "pending_replay_conflict_status_success" },
+      { id: "production_readiness", label: "Production readiness evidence", status: "pending_operator_live_evidence" },
+      { id: "live_billing_canary", label: "Live billing canary evidence", status: "pending_operator_live_evidence" },
+      { id: "billing_safety_local_tests", label: "Billing safety local tests", status: "implemented_repo_supported" },
+      { id: "readiness_canary_contract", label: "Readiness/canary local-only safety contract", status: "implemented_repo_supported" },
+      { id: "ai_budget_platform_evidence", label: "AI budget/platform evidence", status: "implemented_selected_scopes_live_evidence_pending" },
+    ],
+    safeNextActions: [
+      "Refresh this dashboard.",
+      "Open existing admin panels for read-only inspection or already guarded operations.",
+      "Export existing sanitized evidence where admin APIs already support export.",
+      "Copy local validation commands and run them outside the browser.",
+      "Collect missing operator evidence manually without enabling destructive gates.",
+    ],
+    dangerousActionsDisabled: [
+      "Enable legacy reset confirmed execution.",
+      "Confirmed reset/delete.",
+      "Ownership backfill.",
+      "Runtime access-check switch.",
+      "Live billing enablement.",
+      "Remote migrations/deploys from the browser.",
+      "Stripe/provider/Cloudflare/GitHub API mutation.",
+    ],
+  };
 }
 
 function requireAdminMutationConfirmation(body, {
@@ -238,6 +326,22 @@ export async function handleAdmin(ctx) {
     return json({
       ok: true,
       user: result.user,
+    });
+  }
+
+  // GET /api/admin/readiness/status
+  if (pathname === "/api/admin/readiness/status" && method === "GET") {
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
+
+    if (result instanceof Response) {
+      return result;
+    }
+
+    return json(buildAdminReadinessStatus(env), {
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
     });
   }
 

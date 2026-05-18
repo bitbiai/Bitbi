@@ -145,6 +145,10 @@ export function apiAdminMe() {
     return request('GET', '/admin/me');
 }
 
+export function apiAdminReadinessStatus() {
+    return request('GET', '/admin/readiness/status');
+}
+
 export function apiAdminMfaStatus() {
     return request('GET', '/admin/mfa/status');
 }
@@ -513,6 +517,41 @@ export function apiAdminTenantAssetManualReviewEvidence({ limit = 25, includeIte
     params.set('includeItems', includeItems === false ? 'false' : 'true');
     const qs = params.toString() ? `?${params}` : '';
     return request('GET', '/admin/tenant-assets/folders-images/manual-review/evidence' + qs, undefined, options);
+}
+
+export async function apiAdminLegacyMediaResetDryRunExport({
+    format = 'json',
+    limit = 50,
+} = {}, options = {}) {
+    const params = new URLSearchParams();
+    params.set('format', format);
+    params.set('limit', String(limit || 50));
+    const exportPath = '/admin/tenant-assets/legacy-media-reset/dry-run/export';
+    try {
+        const res = await fetch(BASE + exportPath + '?' + params, {
+            method: 'GET',
+            credentials: 'include',
+            headers: options.headers || {},
+        });
+        const text = await res.text();
+        if (res.ok) {
+            return {
+                ok: true,
+                text,
+                status: res.status,
+                contentType: res.headers.get('content-type') || '',
+                filename: res.headers.get('content-disposition') || '',
+            };
+        }
+        let data = null;
+        try { data = JSON.parse(text); } catch { data = null; }
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
 }
 
 export async function apiAdminTenantAssetManualReviewEvidenceExport({

@@ -15,7 +15,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Auth Worker uses Cloudflare D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images, service bindings, and route-policy checks.
 - Browser state-changing requests require trusted Origin/Referer context, and protected writes with `Sec-Fetch-Site: cross-site` fail closed except for explicit webhook/ingest/link exemptions.
 - High-risk evidence/log surfaces should expose private storage keys only as bounded classes/hashes/counts, not raw internal R2 keys.
-- Admin Control Plane exists for implemented admin operations, including users, billing review/reconciliation, lifecycle, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
+- Admin Control Plane exists for implemented admin operations, including users, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify

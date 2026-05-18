@@ -1687,6 +1687,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.platformBudgetEvidenceArchiveExpireRequests = captures.platformBudgetEvidenceArchiveExpireRequests || [];
   captures.platformBudgetEvidenceArchiveCleanupRequests = captures.platformBudgetEvidenceArchiveCleanupRequests || [];
   captures.tenantReviewEvidenceExportRequests = captures.tenantReviewEvidenceExportRequests || [];
+  captures.legacyResetDryRunExportRequests = captures.legacyResetDryRunExportRequests || [];
   captures.tenantReviewStatusUpdateRequests = captures.tenantReviewStatusUpdateRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
@@ -1894,6 +1895,66 @@ async function mockAdminControlPlane(page, captures = {}) {
       ok: true,
       users: adminUsers,
       next_cursor: null,
+    });
+  });
+  await page.route('**/api/admin/readiness/status', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      version: 'omega-p1-readiness-dashboard-v1',
+      generatedAt: '2026-05-18T10:00:00.000Z',
+      releaseTruth: {
+        source: 'config/release-compat.json',
+        latestAuthMigration: '0058_add_legacy_media_reset_actions.sql',
+        migrationDirectory: 'workers/auth/migrations',
+        databaseName: 'bitbi-auth-db',
+        staticDeploySeparateFromWorkers: true,
+        repoTruthIsLiveDeployProof: false,
+        deployVerificationRequired: true,
+        deployUnits: ['auth Worker', 'AI Worker', 'contact Worker', 'static Pages'],
+      },
+      blockedClaims: [
+        { label: 'Production readiness', status: 'blocked' },
+        { label: 'Live billing readiness', status: 'blocked' },
+        { label: 'Tenant isolation', status: 'not_claimed' },
+        { label: 'Ownership backfill readiness', status: 'blocked' },
+        { label: 'Access-switch readiness', status: 'blocked' },
+        { label: 'Confirmed legacy media reset readiness', status: 'blocked' },
+        { label: 'Confirmed media deletion/reset', status: 'not_approved' },
+      ],
+      hardeningStatus: [
+        { label: 'P0-01 main release readiness gate', status: 'implemented_repo_supported' },
+        { label: 'P0-02 confirmed legacy reset gate', status: 'implemented_default_off' },
+        { label: 'P0-03 sanitized legacy reset dry-run evidence', status: 'pending_blocking' },
+        { label: 'P0-04 manual-review idempotency evidence', status: 'pending_blocking' },
+        { label: 'P0-05 active documentation drift cleanup', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 1 security/cost hardening', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 2 release/canary/billing/admin mutation hardening', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
+      ],
+      runtimeSafetyGates: [
+        {
+          label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION',
+          expected: 'off',
+          enabled: false,
+          status: 'disabled_default_off',
+          rawValueExposed: false,
+        },
+        { label: 'Fetch Metadata CSRF hardening', status: 'implemented' },
+        { label: 'AI Worker caller-policy enforcement', status: 'implemented' },
+        { label: 'Admin AI legacy/unclassified provider path', status: 'blocked_or_classified' },
+        { label: 'R2/private key redaction', status: 'implemented' },
+        { label: 'High-risk admin mutation confirmations', status: 'implemented_for_covered_routes' },
+        { label: 'Data lifecycle confirmation/idempotency guardrails', status: 'implemented_for_covered_routes' },
+      ],
+      evidenceStatuses: [
+        { label: 'Legacy reset sanitized dry-run evidence', status: 'pending_sanitized_evidence_required' },
+        { label: 'Manual-review idempotency evidence', status: 'pending_replay_conflict_status_success' },
+        { label: 'Production readiness evidence', status: 'pending_operator_live_evidence' },
+        { label: 'Live billing canary evidence', status: 'pending_operator_live_evidence' },
+        { label: 'Billing safety local tests', status: 'implemented_repo_supported' },
+        { label: 'Readiness/canary local-only safety contract', status: 'implemented_repo_supported' },
+        { label: 'AI budget/platform evidence', status: 'implemented_selected_scopes_live_evidence_pending' },
+      ],
     });
   });
   await page.route('**/api/admin/users/*/storage**', async (route) => {
@@ -2766,6 +2827,24 @@ async function mockAdminControlPlane(page, captures = {}) {
         budgetScope: 'platform_admin_lab_budget',
         automaticRepair: false,
         summary: { totalRepairActions: 3 },
+      }),
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/legacy-media-reset\/dry-run\/export(?:\?.*)?$/, async (route) => {
+    captures.legacyResetDryRunExportRequests.push({ url: route.request().url() });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'content-disposition': 'attachment; filename="legacy-media-reset-dry-run-static.json"',
+      },
+      body: JSON.stringify({
+        ok: true,
+        dryRun: true,
+        execution: false,
+        noDeletionOccurred: true,
+        rawIdempotencyKeyPresent: false,
+        privateR2KeysExposed: false,
       }),
     });
   });
@@ -9691,8 +9770,15 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#tenantReviewDetail')).toContainText('review in progress');
 
     await clickAdminNavSection(page, 'readiness');
-    await expect(page.locator('#sectionReadiness')).toContainText('Production Status');
-    await expect(page.locator('#sectionReadiness')).toContainText('Blocked');
+    await expect(page.locator('#sectionReadiness')).toContainText('Readiness & Evidence Dashboard');
+    await expect(page.locator('#sectionReadiness')).toContainText('0058_add_legacy_media_reset_actions.sql');
+    await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
+    await expect(page.locator('#sectionReadiness')).toContainText('Confirmed legacy media reset readiness');
+    await expect(page.locator('#sectionReadiness')).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
+    await expect(page.locator('#sectionReadiness')).toContainText('ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION');
+    await expect(page.locator('#sectionReadiness')).toContainText('Legacy reset sanitized dry-run evidence');
+    await expect(page.locator('#sectionReadiness')).toContainText('Command Center');
+    await expect(page.locator('#sectionReadiness').getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-switch|live billing enablement/i })).toHaveCount(0);
 
     await clickAdminNavSection(page, 'settings');
     await expect(page.locator('#sectionSettings')).toContainText('Deployment-owned');
@@ -9739,6 +9825,57 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 390, height: 820 });
     await expect(page.locator('.admin-control-panel-nav__link[href="#evidence-archives"]')).toBeVisible();
     await expect(page.locator('#platformBudgetEvidenceArchivesPanel')).toContainText('No provider call');
+  });
+
+  test('readiness evidence dashboard renders blocked claims, safe exports, and copy-only commands', async ({
+    page,
+  }) => {
+    const captures = {};
+    await installClipboardSpy(page);
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#readiness');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    const readiness = page.locator('#sectionReadiness');
+    await expect(readiness).toBeVisible();
+    await expect(readiness).toContainText('Current Release Truth');
+    await expect(readiness).toContainText('0058_add_legacy_media_reset_actions.sql');
+    await expect(readiness).toContainText('not live deploy proof');
+    await expect(readiness).toContainText('Blocked Claims');
+    await expect(readiness).toContainText('Production readiness');
+    await expect(readiness).toContainText('Live billing readiness');
+    await expect(readiness).toContainText('Tenant isolation');
+    await expect(readiness).toContainText('P0-02 confirmed legacy reset gate');
+    await expect(readiness).toContainText('P0-03 sanitized legacy reset dry-run evidence');
+    await expect(readiness).toContainText('P0-04 manual-review idempotency evidence');
+    await expect(readiness).toContainText('P1 Wave 1 security/cost hardening');
+    await expect(readiness).toContainText('P1 Wave 2 release/canary/billing/admin mutation hardening');
+    await expect(readiness).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
+    await expect(readiness).toContainText('Runtime Safety Gates');
+    await expect(readiness).toContainText('disabled default off');
+    await expect(readiness).toContainText('Fetch Metadata CSRF hardening');
+    await expect(readiness).toContainText('Evidence Center');
+    await expect(readiness).toContainText('Manual Review Idempotency Evidence');
+    await expect(readiness).toContainText('Production Readiness Evidence');
+    await expect(readiness).toContainText('Live Billing Evidence');
+    await expect(readiness).toContainText('Command Center');
+    await expect(readiness).toContainText('npm run check:js');
+    await expect(readiness).toContainText('npm run test:tenant-assets');
+    await expect(readiness.getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-check switch|live billing enablement|run commands/i })).toHaveCount(0);
+    await expect(page.locator('a[href*="/de/admin"]')).toHaveCount(0);
+
+    await readiness.getByRole('button', { name: 'Copy commands' }).first().click();
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run check:js');
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run release:plan');
+
+    await readiness.getByRole('button', { name: 'Copy template path' }).first().click();
+    await expect.poll(() => readClipboardValue(page)).toBe('docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md');
+
+    await readiness.getByRole('button', { name: 'Download dry-run report' }).click();
+    await expect.poll(() => captures.legacyResetDryRunExportRequests.length).toBe(1);
+    await readiness.getByRole('button', { name: 'Export manual-review evidence' }).click();
+    await expect.poll(() => captures.tenantReviewEvidenceExportRequests.length).toBe(1);
   });
 
   test('renders billing review queue safely and records manual resolutions only', async ({
@@ -9919,7 +10056,7 @@ test.describe('Admin Control Plane', () => {
     await readinessNav.scrollIntoViewIfNeeded();
     await expect(readinessNav).toBeVisible();
     await readinessNav.click();
-    await expect(page.locator('#sectionReadiness')).toContainText('Production Status');
+    await expect(page.locator('#sectionReadiness')).toContainText('Current Release Truth');
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/admin/index.html#orgs');

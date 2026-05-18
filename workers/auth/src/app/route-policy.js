@@ -347,6 +347,11 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { noneReason: "Bootstrap identity route; admin auth and production MFA state are evaluated inside the handler." },
   }),
   adminRead("admin.users.list", "/api/admin/users", "admin"),
+  adminRead("admin.readiness.status", "/api/admin/readiness/status", "admin", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-readiness-status-ip", failClosed: true },
+    notes: "Read-only Admin Readiness & Evidence dashboard status. Returns bounded current-state claims, release checkpoint labels, hardening/evidence status, and default-off reset gate boolean only; it performs no provider, Stripe, Cloudflare API, D1 business-data mutation, R2 listing/mutation, reset execution, ownership backfill, or access-switch action.",
+  }),
   adminJsonWrite("admin.users.role.update", "PATCH", "/api/admin/users/:id/role", "admin", "smallJson", "admin-action-ip", {
     audit: { event: "change_role" },
     notes: "High-risk admin security state update. Requires admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; no Idempotency-Key is required because the operation is a single target-state overwrite.",

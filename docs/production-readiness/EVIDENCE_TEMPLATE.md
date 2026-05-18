@@ -42,6 +42,8 @@ This template records current evidence only. It does not approve production read
 
 - `/api/health` result:
 - Static page smoke result:
+- Admin Readiness & Evidence dashboard reviewed (`/admin/#readiness`):
+- `GET /api/admin/readiness/status` result, if deployed:
 - Security header result:
 - Live runtime canary mode: disabled/skipped/live-read-only
 - Fetch Metadata cross-site write rejection evidence:

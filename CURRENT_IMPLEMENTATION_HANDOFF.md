@@ -19,7 +19,7 @@ This handoff is not production approval, live billing approval, legal compliance
 ## Current Implemented State
 
 - Auth/session/admin MFA/service-auth/route-policy/rate-limit/body-size/secret-purpose hardening exists.
-- Admin Control Plane surfaces implemented operator tools for users, billing, lifecycle, AI Lab, AI usage, budget switches, caps, reconciliation, repair, reports, archives, and tenant manual-review visibility.
+- Admin Control Plane surfaces implemented operator tools for users, billing, lifecycle, readiness/evidence status, AI Lab, AI usage, budget switches, caps, reconciliation, repair, reports, archives, and tenant manual-review visibility.
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, and BITBI Pro scaffolding exist.
 - Member image/music/video AI Cost Gateway paths, selected admin/platform budget controls, and Auth/AI caller-policy release compatibility checks exist.
 - Data lifecycle planning/export/archive/cleanup foundations exist; high-risk lifecycle planning now requires an `Idempotency-Key`.

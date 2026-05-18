@@ -19,7 +19,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, and BITBI Pro scaffolding exist.
 - Member image/music/video AI Cost Gateway flows are migrated with idempotency and duplicate-provider-call suppression.
 - Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, selected platform caps, reconciliation, repair, report/export, and sanitized archives.
-- Admin Control Plane surfaces implemented operator panels.
+- Admin Control Plane surfaces implemented operator panels, including readiness/evidence status.
 - Tenant asset folder/image metadata, owner-map evidence, manual-review import/queue/status/Admin visibility, reset dry-run/reporting, reset action tracking, and reset executor endpoints exist in repo.
 
 ## Current Open Blockers

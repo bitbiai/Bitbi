@@ -34,9 +34,11 @@ import {
     apiAdminDataLifecycleRequests,
     apiAdminGrantOrganizationCredits,
     apiAdminGrantUserCredits,
+    apiAdminLegacyMediaResetDryRunExport,
     apiAdminOrganization,
     apiAdminOrganizationBilling,
     apiAdminOrganizations,
+    apiAdminReadinessStatus,
     apiAdminTenantAssetManualReviewEvidence,
     apiAdminTenantAssetManualReviewEvidenceExport,
     apiAdminTenantAssetManualReviewItem,
@@ -127,6 +129,107 @@ const TENANT_REVIEW_STATUS_TRANSITIONS = {
     rejected: ['superseded'],
     superseded: [],
 };
+
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0058_add_legacy_media_reset_actions.sql';
+
+const READINESS_FALLBACK_STATUS = Object.freeze({
+    releaseTruth: {
+        source: 'config/release-compat.json',
+        latestAuthMigration: CURRENT_AUTH_SCHEMA_CHECKPOINT,
+        migrationDirectory: 'workers/auth/migrations',
+        databaseName: 'bitbi-auth-db',
+        staticDeploySeparateFromWorkers: true,
+        repoTruthIsLiveDeployProof: false,
+        deployVerificationRequired: true,
+        deployUnits: ['auth Worker', 'AI Worker', 'contact Worker', 'static Pages'],
+        caveat: 'Repository readiness state is not live Cloudflare deploy proof; operator verification remains required.',
+    },
+    blockedClaims: [
+        { label: 'Production readiness', status: 'blocked' },
+        { label: 'Live billing readiness', status: 'blocked' },
+        { label: 'Tenant isolation', status: 'not_claimed' },
+        { label: 'Ownership backfill readiness', status: 'blocked' },
+        { label: 'Access-switch readiness', status: 'blocked' },
+        { label: 'Confirmed legacy media reset readiness', status: 'blocked' },
+        { label: 'Confirmed media deletion/reset', status: 'not_approved' },
+    ],
+    hardeningStatus: [
+        { label: 'P0-01 main release readiness gate', status: 'implemented_repo_supported' },
+        { label: 'P0-02 confirmed legacy reset gate', status: 'implemented_default_off' },
+        { label: 'P0-03 sanitized legacy reset dry-run evidence', status: 'pending_blocking' },
+        { label: 'P0-04 manual-review idempotency evidence', status: 'pending_blocking' },
+        { label: 'P0-05 active documentation drift cleanup', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 1 security/cost hardening', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 2 release/canary/billing/admin mutation hardening', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
+    ],
+    runtimeSafetyGates: [
+        { label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION', expected: 'off', enabled: false, status: 'disabled_default_off' },
+        { label: 'Fetch Metadata CSRF hardening', status: 'implemented' },
+        { label: 'AI Worker caller-policy enforcement', status: 'implemented' },
+        { label: 'Admin AI legacy/unclassified provider path', status: 'blocked_or_classified' },
+        { label: 'R2/private key redaction', status: 'implemented' },
+        { label: 'High-risk admin mutation confirmations', status: 'implemented_for_covered_routes' },
+        { label: 'Data lifecycle confirmation/idempotency guardrails', status: 'implemented_for_covered_routes' },
+    ],
+    evidenceStatuses: [
+        { label: 'Legacy reset sanitized dry-run evidence', status: 'pending_sanitized_evidence_required' },
+        { label: 'Manual-review idempotency evidence', status: 'pending_replay_conflict_status_success' },
+        { label: 'Production readiness evidence', status: 'pending_operator_live_evidence' },
+        { label: 'Live billing canary evidence', status: 'pending_operator_live_evidence' },
+        { label: 'Billing safety local tests', status: 'implemented_repo_supported' },
+        { label: 'Readiness/canary local-only safety contract', status: 'implemented_repo_supported' },
+        { label: 'AI budget/platform evidence', status: 'implemented_selected_scopes_live_evidence_pending' },
+    ],
+});
+
+const READINESS_COMMAND_GROUPS = Object.freeze([
+    {
+        title: 'Local validation',
+        note: 'Local checks only. These commands do not deploy or mutate Cloudflare by themselves.',
+        commands: [
+            'npm run check:js',
+            'npm run check:secrets',
+            'npm run check:route-policies',
+            'npm run test:workers',
+            'npm run test:static',
+            'npm run validate:release',
+            'npm run release:plan',
+        ],
+    },
+    {
+        title: 'Readiness / evidence',
+        note: 'Evidence and readiness checks. Live canary tests stay safe-by-default and pending when no live URL is configured.',
+        commands: [
+            'npm run check:main-release-readiness',
+            'npm run test:readiness-evidence',
+            'npm run test:live-canary',
+            'npm run check:doc-currentness',
+            'npm run test:doc-currentness',
+        ],
+    },
+    {
+        title: 'AI / budget',
+        note: 'Policy and platform budget tests. These do not call real providers.',
+        commands: [
+            'npm run check:ai-cost-policy',
+            'npm run test:ai-cost-policy',
+            'npm run test:ai-cost-operations',
+            'npm run test:ai-cost-gateway',
+            'npm run test:admin-platform-budget-policy',
+            'npm run test:admin-platform-budget-evidence',
+        ],
+    },
+    {
+        title: 'Tenant / evidence',
+        note: 'Tenant asset dry-runs and local evidence checks only. Do not enable confirmed reset execution.',
+        commands: [
+            'npm run test:tenant-assets',
+            'npm run dry-run:tenant-assets',
+            'npm run dry-run:tenant-assets:images',
+        ],
+    },
+]);
 
 const SENSITIVE_KEY_PATTERN = /secret|token|password|hash|signature|raw|payload|request_?fingerprint|idempotency|r2_?key|private_?key|mfa|recovery|webhook_?secret|stripe_?secret|service_?auth|card|payment_?method|credential|authorization|cookie|session/i;
 const SENSITIVE_VALUE_PATTERN = /\b(?:sk_(?:live|test)|rk_(?:live|test)|whsec|Bearer\s+|Stripe-Signature|authorization=|secret=|token=|password=|pm_[A-Za-z0-9]|card=)[A-Za-z0-9_:=+./-]*/i;
@@ -327,6 +430,56 @@ function renderCards(container, cards) {
         grid.appendChild(item);
     }
     container.appendChild(grid);
+}
+
+function statusVariant(value) {
+    const status = String(value || '').toLowerCase();
+    if (status.includes('implemented') || status === 'available' || status === 'repo_supported') return 'active';
+    if (status.includes('disabled') || status.includes('blocked') || status.includes('not_approved') || status.includes('not_claimed') || status.includes('unsafe')) return 'disabled';
+    if (status.includes('pending') || status.includes('verification') || status.includes('required')) return 'legacy';
+    return 'user';
+}
+
+function statusLabel(value) {
+    return readableToken(value || 'not reported');
+}
+
+function normalizeReadinessStatus(data) {
+    if (!data || typeof data !== 'object') return READINESS_FALLBACK_STATUS;
+    return {
+        ...READINESS_FALLBACK_STATUS,
+        ...data,
+        releaseTruth: {
+            ...READINESS_FALLBACK_STATUS.releaseTruth,
+            ...(data.releaseTruth || {}),
+        },
+        blockedClaims: Array.isArray(data.blockedClaims) ? data.blockedClaims : READINESS_FALLBACK_STATUS.blockedClaims,
+        hardeningStatus: Array.isArray(data.hardeningStatus) ? data.hardeningStatus : READINESS_FALLBACK_STATUS.hardeningStatus,
+        runtimeSafetyGates: Array.isArray(data.runtimeSafetyGates) ? data.runtimeSafetyGates : READINESS_FALLBACK_STATUS.runtimeSafetyGates,
+        evidenceStatuses: Array.isArray(data.evidenceStatuses) ? data.evidenceStatuses : READINESS_FALLBACK_STATUS.evidenceStatuses,
+    };
+}
+
+async function copyTextToClipboard(text) {
+    if (!text) return false;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.insetInlineStart = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+        }
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 async function capabilityProbe(label, call) {
@@ -2427,33 +2580,308 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         return list;
     }
 
-    function renderReadiness() {
+    function readinessSection(title, desc) {
+        const section = el('section', 'admin-control-subsection');
+        const header = el('div', 'admin-control-subsection__header');
+        const copy = el('div');
+        copy.append(el('h3', 'admin-section-title', title));
+        if (desc) copy.append(el('p', 'admin-shell__desc', desc));
+        header.appendChild(copy);
+        section.appendChild(header);
+        return section;
+    }
+
+    function readinessCards(items, mapper) {
+        const holder = el('div');
+        renderCards(holder, items.map(mapper));
+        return holder.firstElementChild || holder;
+    }
+
+    function renderReadinessHero(container, status, sourceLabel) {
+        const release = status.releaseTruth || {};
+        const hero = el('div', 'admin-control-hero glass glass-card reveal visible');
+        const copy = el('div');
+        copy.append(el('p', 'admin-control-hero__eyebrow', 'Readiness & Evidence Dashboard'));
+        copy.append(el('h2', 'admin-control-hero__title', 'Current platform state, blocked claims, and safe operator actions.'));
+        copy.append(el('p', 'admin-control-hero__copy', 'This dashboard centralizes repo-supported OMEGA/P1 readiness state. It does not prove live deploy status, live billing readiness, tenant isolation, ownership backfill readiness, access-switch readiness, or confirmed reset readiness.'));
+        const badges = el('div', 'admin-control-hero__badges');
+        badges.append(
+            badge('Production blocked', 'disabled'),
+            badge('Live billing blocked', 'disabled'),
+            badge('Tenant isolation not claimed', 'legacy'),
+            badge('Reset not approved', 'disabled'),
+            badge(sourceLabel, sourceLabel === 'Backend status' ? 'active' : 'legacy'),
+        );
+        hero.append(copy, badges);
+        container.appendChild(hero);
+
+        const releaseSection = readinessSection('Current Release Truth', 'Repo truth is useful operator context, not live deploy proof.');
+        releaseSection.appendChild(readinessCards([
+            {
+                title: 'Auth schema checkpoint',
+                status: release.latestAuthMigration || CURRENT_AUTH_SCHEMA_CHECKPOINT,
+                copy: `Latest auth migration from ${release.source || 'config/release-compat.json'}. Operator must verify remote D1 status before dependent Auth Worker deploys.`,
+                meta: [
+                    ['Migration directory', release.migrationDirectory || 'workers/auth/migrations'],
+                    ['Database', release.databaseName || 'bitbi-auth-db'],
+                ],
+            },
+            {
+                title: 'Deploy separation',
+                status: 'operator verification required',
+                copy: 'Static Pages, Auth Worker, AI Worker, and Contact Worker deploy separately. Release plan output must be reviewed before any main release.',
+                meta: [
+                    ['Deploy units', Array.isArray(release.deployUnits) ? release.deployUnits.join(', ') : 'auth Worker, AI Worker, contact Worker, static Pages'],
+                    ['Live deploy proof', release.repoTruthIsLiveDeployProof ? 'Claimed' : 'Not claimed'],
+                ],
+            },
+        ], (item) => ({
+            title: item.title,
+            badge: { label: item.status, variant: statusVariant(item.status) },
+            copy: item.copy,
+            meta: item.meta,
+        })));
+        container.appendChild(releaseSection);
+    }
+
+    function renderReadinessStatusGrid(container, title, desc, items) {
+        const section = readinessSection(title, desc);
+        section.appendChild(readinessCards(items, (item) => ({
+            title: item.label || item.title,
+            badge: { label: statusLabel(item.status || item.expected || 'not reported'), variant: statusVariant(item.status || item.expected) },
+            copy: item.copy || item.summary || item.message || 'Current-state operator signal. Verify live state separately where applicable.',
+            meta: item.expected || item.enabled !== undefined
+                ? [
+                    ['Expected', item.expected || '-'],
+                    ['Enabled', item.enabled === true ? 'Yes' : item.enabled === false ? 'No' : 'Not applicable'],
+                    ['Raw value exposed', item.rawValueExposed === true ? 'Yes' : 'No'],
+                ]
+                : undefined,
+        })));
+        container.appendChild(section);
+    }
+
+    function renderEvidenceCenter(container) {
+        const section = readinessSection('Evidence Center', 'Evidence status is intentionally conservative. Pending evidence remains blocking until sanitized operator proof is accepted.');
+        const grid = el('div', 'admin-control-grid');
+        const cards = [
+            {
+                title: 'Legacy Media Reset Dry-run Evidence',
+                badge: { label: 'Pending sanitized evidence', variant: 'disabled' },
+                copy: 'Current status is rejected unsafe / pending sanitized evidence. Confirmed reset execution is not offered here and remains hard-disabled by default.',
+                meta: [
+                    ['Template', 'docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md'],
+                    ['Decision', 'docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md'],
+                    ['Required', 'dryRun:true, no deletion, no raw idempotency keys, no raw private R2 keys'],
+                ],
+                actions: [
+                    { label: 'Copy template path', copy: 'docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md' },
+                    { label: 'Download dry-run report', onClick: (button) => exportLegacyMediaResetDryRunJson(button) },
+                ],
+            },
+            {
+                title: 'Manual Review Idempotency Evidence',
+                badge: { label: 'Needs replay/conflict proof', variant: 'disabled' },
+                copy: 'Existing operator evidence still needs import replay, import conflict, standalone status success, status replay, status conflict, and item/event readback evidence.',
+                meta: [
+                    ['Template', 'docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md'],
+                    ['Decision', 'docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md'],
+                    ['Scope', 'Review-state only; no backfill or access switch'],
+                ],
+                actions: [
+                    { label: 'Copy template path', copy: 'docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md' },
+                    { label: 'Export manual-review evidence', onClick: (button) => exportTenantAssetManualReviewEvidenceJson(button) },
+                ],
+            },
+            {
+                title: 'Production Readiness Evidence',
+                badge: { label: 'Blocked / pending', variant: 'disabled' },
+                copy: 'Required categories include release plan, remote migration verification, Worker/static deploy evidence, bindings/secrets, health/security headers, alerts/WAF/RUM, rollback, and canaries.',
+                meta: [
+                    ['Template', 'docs/production-readiness/EVIDENCE_TEMPLATE.md'],
+                    ['Current state', 'Not production-ready'],
+                ],
+                actions: [
+                    { label: 'Copy template path', copy: 'docs/production-readiness/EVIDENCE_TEMPLATE.md' },
+                ],
+            },
+            {
+                title: 'Live Billing Evidence',
+                badge: { label: 'Blocked / pending', variant: 'disabled' },
+                copy: 'Live Stripe readiness requires live config, live checkout canary, verified webhook receipt, duplicate webhook idempotency, review workflow, and redacted evidence.',
+                meta: [
+                    ['Current state', 'Live billing readiness blocked'],
+                    ['Stripe actions', 'Not available from this dashboard'],
+                ],
+            },
+            {
+                title: 'AI Budget / Platform Evidence',
+                badge: { label: 'Implemented scopes; live evidence pending', variant: 'legacy' },
+                copy: 'Selected admin/platform budget controls exist. Live platform evidence remains required before readiness claims.',
+                meta: [
+                    ['Open panel', 'Budget Switches'],
+                    ['Customer billing', 'Not implied'],
+                ],
+                href: '#ai-budget-switches',
+            },
+        ];
+        for (const card of cards) {
+            const item = el('article', 'admin-control-card glass glass-card reveal visible');
+            const top = el('div', 'admin-control-card__top');
+            top.append(el('h3', 'admin-section-title', card.title), badge(card.badge.label, card.badge.variant));
+            item.append(top, el('p', 'admin-shell__desc', card.copy));
+            if (card.meta) item.appendChild(detailRows(card.meta));
+            const actions = el('div', 'admin-control-chip-row');
+            if (card.href) {
+                const link = el('a', 'btn-action', 'Open existing panel');
+                link.href = card.href;
+                actions.appendChild(link);
+            }
+            for (const action of card.actions || []) {
+                const button = el('button', 'btn-action', action.label);
+                button.type = 'button';
+                button.addEventListener('click', async () => {
+                    if (action.copy) {
+                        const copied = await copyTextToClipboard(action.copy);
+                        notify(copied ? 'Evidence path copied.' : 'Copy failed.', copied ? 'success' : 'error');
+                        return;
+                    }
+                    await action.onClick?.(button);
+                });
+                actions.appendChild(button);
+            }
+            item.appendChild(actions);
+            grid.appendChild(item);
+        }
+        section.appendChild(grid);
+        container.appendChild(section);
+    }
+
+    function renderOperatorActions(container) {
+        const section = readinessSection('Operator Actions', 'Safe actions are inspection, export, refresh, and copy-only guidance. Dangerous actions are intentionally absent or disabled.');
+        section.appendChild(readinessCards([
+            {
+                title: 'Safe inspection and export',
+                status: 'available',
+                copy: 'Refresh this dashboard, open existing panels, export already sanitized evidence, and copy local commands for an operator terminal.',
+                meta: [
+                    ['Open controls', 'Billing Events, AI Budget Switches, Data Lifecycle, Operations, Activity'],
+                    ['Browser command execution', 'Not implemented'],
+                ],
+            },
+            {
+                title: 'Dangerous actions not offered',
+                status: 'blocked',
+                copy: 'No button enables legacy reset execution, confirmed reset/delete, ownership backfill, access-switching, live billing enablement, deploys, remote migrations, or Stripe/provider/Cloudflare/GitHub mutation.',
+                meta: [
+                    ['Reset gate', 'Do not enable'],
+                    ['Confirmed deletion/reset', 'Not approved'],
+                ],
+            },
+        ], (item) => ({
+            title: item.title,
+            badge: { label: item.status, variant: statusVariant(item.status) },
+            copy: item.copy,
+            meta: item.meta,
+        })));
+        const links = el('div', 'admin-control-chip-row');
+        for (const [label, href] of [
+            ['Billing Events', '#billing-events'],
+            ['AI Budget Controls', '#ai-budget-switches'],
+            ['Data Lifecycle', '#lifecycle'],
+            ['Tenant Manual Review', '#operations'],
+            ['Activity Log', '#activity'],
+        ]) {
+            const link = el('a', 'btn-action', label);
+            link.href = href;
+            links.appendChild(link);
+        }
+        section.appendChild(links);
+        container.appendChild(section);
+    }
+
+    function renderCommandCenter(container) {
+        const section = readinessSection('Command Center', 'Copy-only local/operator commands. The browser never executes shell commands.');
+        const grid = el('div', 'admin-control-grid');
+        for (const group of READINESS_COMMAND_GROUPS) {
+            const card = el('article', 'admin-control-card glass glass-card reveal visible');
+            const top = el('div', 'admin-control-card__top');
+            top.append(el('h3', 'admin-section-title', group.title), badge('Copy-only', 'user'));
+            card.append(top, el('p', 'admin-shell__desc', group.note));
+            const pre = el('pre', 'admin-command-block');
+            pre.textContent = group.commands.join('\n');
+            const button = el('button', 'btn-action', 'Copy commands');
+            button.type = 'button';
+            button.addEventListener('click', async () => {
+                const copied = await copyTextToClipboard(group.commands.join('\n'));
+                notify(copied ? `${group.title} commands copied.` : 'Command copy failed.', copied ? 'success' : 'error');
+            });
+            card.append(pre, button);
+            grid.appendChild(card);
+        }
+        const warning = el('p', 'admin-shell__desc', 'Manual deploy commands are intentionally not one-click actions. Do not enable ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION from this dashboard.');
+        section.append(grid, warning);
+        container.appendChild(section);
+    }
+
+    async function exportLegacyMediaResetDryRunJson(button) {
+        setSubmitting(button, true);
+        setState('readinessStatusState', 'Preparing legacy media reset dry-run evidence export...');
+        try {
+            const res = await apiAdminLegacyMediaResetDryRunExport({ format: 'json', limit: 50 });
+            if (!res.ok) {
+                setState('readinessStatusState', apiUnavailableMessage(res, 'Legacy reset dry-run export unavailable.'), 'error');
+                notify('Legacy reset dry-run export unavailable.', 'error');
+                return;
+            }
+            const fallback = `legacy-media-reset-dry-run-${new Date().toISOString().slice(0, 10)}.json`;
+            downloadTextFile(filenameFromContentDisposition(res.filename, fallback), res.text || '{}\n', res.contentType || 'application/json');
+            setState('readinessStatusState', 'Legacy reset dry-run JSON export prepared. No reset or deletion was executed.', 'success');
+            notify('Legacy reset dry-run export prepared.', 'success');
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    async function renderReadiness() {
         const container = byId('readinessChecklist');
         if (!container) return;
-        renderCards(container, [
-            {
-                title: 'Release Preflight',
-                badge: { label: 'Run before merge', variant: 'legacy' },
-                copy: 'This control plane reports the repo checklist only. Re-run release preflight after every admin UI change before merge.',
-                meta: [['Command', 'npm run release:preflight']],
-            },
-            {
-                title: 'Latest Auth Migration',
-                badge: { label: '0038', variant: 'user' },
-                copy: 'Stripe Testmode checkout session tracking depends on auth migration 0038 in environments that use Phase 2-J routes.',
-                meta: [['Deploy order', 'D1 migrations, auth worker, static']],
-            },
-            {
-                title: 'Production Status',
-                badge: { label: 'Blocked', variant: 'disabled' },
-                copy: 'Live Cloudflare validation, dashboard-managed WAF/header checks, migration verification, Stripe Testmode endpoint verification, and main-only flow evidence are still required.',
-            },
-            {
-                title: 'No Secret Editing',
-                badge: { label: 'Deployment-owned', variant: 'legacy' },
-                copy: 'Cloudflare secrets, Stripe keys, HMAC secrets, webhook secrets, route policies, and migration state are not editable from this admin UI.',
-            },
-        ]);
+        clear(container);
+        const toolbar = el('div', 'admin-control-toolbar glass glass-card reveal visible');
+        const copy = el('div');
+        copy.append(el('h3', 'admin-section-title', 'Readiness & Evidence'));
+        copy.append(el('p', 'admin-shell__desc', 'Central operator cockpit for release truth, blocked claims, hardening status, evidence gaps, and safe command copy.'));
+        const refresh = el('button', 'btn-action', 'Refresh status');
+        refresh.type = 'button';
+        refresh.addEventListener('click', () => {
+            void renderReadiness();
+        });
+        toolbar.append(copy, refresh);
+        container.appendChild(toolbar);
+        const state = el('div', 'admin-state');
+        state.id = 'readinessStatusState';
+        state.textContent = 'Loading readiness status...';
+        container.appendChild(state);
+
+        const res = await apiAdminReadinessStatus();
+        const status = normalizeReadinessStatus(res.ok ? res.data : null);
+        const sourceLabel = res.ok ? 'Backend status' : 'Static fallback';
+        setState(
+            'readinessStatusState',
+            res.ok
+                ? 'Read-only readiness status loaded. No provider, Stripe, R2, reset, backfill, access-switch, deploy, or migration action was performed.'
+                : 'Backend readiness status unavailable; rendering static current-state fallback. Operator verification remains required.',
+            res.ok ? 'success' : 'error',
+        );
+
+        renderReadinessHero(container, status, sourceLabel);
+        renderReadinessStatusGrid(container, 'Blocked Claims', 'These claims remain blocked or unclaimed unless separate operator evidence proves otherwise.', status.blockedClaims);
+        renderReadinessStatusGrid(container, 'P0/P1 Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);
+        renderReadinessStatusGrid(container, 'Runtime Safety Gates', 'Safety gates and controls are shown as operator signals; missing gate values are safe/default-off unless explicitly enabled.', status.runtimeSafetyGates);
+        renderReadinessStatusGrid(container, 'Evidence Status', 'Evidence gaps stay visible because they block readiness claims.', status.evidenceStatuses);
+        renderEvidenceCenter(container);
+        renderOperatorActions(container);
+        renderCommandCenter(container);
     }
 
     function renderSettings() {
@@ -2555,7 +2983,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             return;
         }
         if (sectionName === 'readiness') {
-            renderReadiness();
+            await renderReadiness();
             return;
         }
         if (sectionName === 'settings') {
