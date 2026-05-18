@@ -24,7 +24,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image/music/video AI Cost Gateway paths and selected admin/platform budget controls exist.
 - Data lifecycle planning/export/archive/cleanup foundations exist.
 - Tenant asset ownership work exists for folders/images: ownership metadata columns, new personal-write metadata, read diagnostics/evidence, manual-review import/queue/status/Admin visibility, and operator evidence decisions.
-- Legacy media reset work exists: read-only dry-run/reporting, executor design, reset action/event tables, a dry-run-default executor path, and evidence decision docs.
+- Legacy media reset work exists: read-only dry-run/reporting, executor design, reset action/event tables, a dry-run-default executor path, and evidence decision docs. Confirmed execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 
 ## Current Blockers
 

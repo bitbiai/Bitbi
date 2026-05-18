@@ -1263,6 +1263,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     userAssetStorageUsage = [],
     aiAssetManualReviewItems = [],
     aiAssetManualReviewEvents = [],
+    legacyMediaResetConfirmedExecutionGate,
   } = {}) {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -1373,6 +1374,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       userAssetStorageUsage,
       aiAssetManualReviewItems,
       aiAssetManualReviewEvents,
+      ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION: legacyMediaResetConfirmedExecutionGate,
     });
     const authHeaders = {
       Origin: 'https://bitbi.ai',
@@ -2717,6 +2719,19 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
 
   test('legacy media reset executor helper normalizes requests and rejects deferred domains', async () => {
     const executor = await loadTenantAssetLegacyMediaResetExecutorModule();
+    expect(executor.LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE).toBe('ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION');
+    expect(executor.isLegacyMediaResetConfirmedExecutionEnabled({})).toBe(false);
+    expect(executor.isLegacyMediaResetConfirmedExecutionEnabled({
+      ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION: 'true',
+    })).toBe(true);
+    expect(executor.isLegacyMediaResetConfirmedExecutionEnabled({
+      ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION: true,
+    })).toBe(true);
+    for (const value of ['false', '1', 'yes', '', 'TRUE', false]) {
+      expect(executor.isLegacyMediaResetConfirmedExecutionEnabled({
+        ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION: value,
+      })).toBe(false);
+    }
     const request = executor.normalizeLegacyMediaResetActionRequest({
       dryRun: 'true',
       limit: '500',
@@ -2763,6 +2778,8 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       aiImages: env.DB.state.aiImages,
       reviewItems: env.DB.state.aiAssetManualReviewItems,
       actions: env.DB.state.tenantAssetMediaResetActions,
+      events: env.DB.state.tenantAssetMediaResetActionEvents,
+      storage: env.DB.state.userAssetStorageUsage,
     });
 
     const missingKey = await authWorker.fetch(
@@ -2805,7 +2822,25 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       aiImages: env.DB.state.aiImages,
       reviewItems: env.DB.state.aiAssetManualReviewItems,
       actions: env.DB.state.tenantAssetMediaResetActions,
+      events: env.DB.state.tenantAssetMediaResetActionEvents,
+      storage: env.DB.state.userAssetStorageUsage,
     })).toBe(beforeState);
+
+    const defaultDryRun = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        { limit: 5 },
+        { ...authHeaders, 'Idempotency-Key': 'legacy-reset-default-dry-run-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(defaultDryRun.status).toBe(200);
+    const defaultDryRunBody = await defaultDryRun.json();
+    expect(defaultDryRunBody.reset.dryRun).toBe(true);
+    expect(defaultDryRunBody.reset.execute).toBe(false);
+    expect(env.DB.state.tenantAssetMediaResetActions).toHaveLength(0);
 
     const missingConfirm = await authWorker.fetch(
       authJsonRequest(
@@ -2825,7 +2860,66 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     );
     expect(missingConfirm.status).toBe(400);
 
-    const missingPublicAck = await authWorker.fetch(
+    const blockedConfirmed = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          reason: 'approved local test reset only',
+          acknowledgeNoCreditRefund: true,
+          acknowledgeIrreversibleDeletion: true,
+          acknowledgePublicContentRemoval: true,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'legacy-reset-gate-absent-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(blockedConfirmed.status).toBe(403);
+    const blockedConfirmedBody = await blockedConfirmed.json();
+    expect(blockedConfirmedBody).toMatchObject({
+      ok: false,
+      code: 'tenant_asset_legacy_media_reset_confirmed_execution_disabled',
+      fields: {
+        gate: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION',
+        dryRunAvailable: true,
+        noResetDeletionOccurred: true,
+        productionReadiness: 'blocked',
+        tenantIsolationClaimed: false,
+        ownershipBackfillReady: false,
+        accessSwitchReady: false,
+        confirmedResetReadiness: 'blocked',
+      },
+    });
+    expect(blockedConfirmedBody.error).toContain('Confirmed legacy media reset execution is disabled');
+    expect(blockedConfirmedBody.error).toContain('Dry-run remains available');
+    expect(blockedConfirmedBody.error).toContain('production readiness remains blocked');
+    expect(blockedConfirmedBody.error).toContain('tenant isolation is not claimed');
+    expect(blockedConfirmedBody.error).toContain('no reset or deletion occurred');
+    const blockedSerialized = JSON.stringify(blockedConfirmedBody);
+    expect(blockedSerialized).not.toMatch(/productionReadiness["']?\s*:\s*["']?ready/i);
+    expect(blockedSerialized).not.toMatch(/tenantIsolationClaimed["']?\s*:\s*true/i);
+    expect(blockedSerialized).not.toMatch(/ownershipBackfillReady["']?\s*:\s*true/i);
+    expect(blockedSerialized).not.toMatch(/accessSwitchReady["']?\s*:\s*true/i);
+    expect(blockedSerialized).not.toMatch(/confirmedResetReadiness["']?\s*:\s*["']?ready/i);
+    expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
+    expect(env.USER_IMAGES.listCalls).toHaveLength(0);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(JSON.stringify({
+      aiFolders: env.DB.state.aiFolders,
+      aiImages: env.DB.state.aiImages,
+      reviewItems: env.DB.state.aiAssetManualReviewItems,
+      actions: env.DB.state.tenantAssetMediaResetActions,
+      events: env.DB.state.tenantAssetMediaResetActionEvents,
+      storage: env.DB.state.userAssetStorageUsage,
+    })).toBe(beforeState);
+
+    const publicAckHarness = await createTenantEvidenceHarness({
+      legacyMediaResetConfirmedExecutionGate: 'true',
+    });
+    const missingPublicAck = await publicAckHarness.authWorker.fetch(
       authJsonRequest(
         '/api/admin/tenant-assets/legacy-media-reset/execute',
         'POST',
@@ -2836,9 +2930,9 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
           acknowledgeNoCreditRefund: true,
           acknowledgeIrreversibleDeletion: true,
         },
-        { ...authHeaders, 'Idempotency-Key': 'legacy-reset-precondition-002' }
+        { ...publicAckHarness.authHeaders, 'Idempotency-Key': 'legacy-reset-precondition-002' }
       ),
-      env,
+      publicAckHarness.env,
       createExecutionContext().execCtx
     );
     expect(missingPublicAck.status).toBe(400);
@@ -2856,8 +2950,78 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(unsupported.status).toBe(400);
   });
 
+  test('confirmed legacy media reset execution gate blocks non-exact values before mutations', async () => {
+    const disabledGateValues = [undefined, 'false', '1', 'yes', '', 'TRUE', false];
+    for (const gateValue of disabledGateValues) {
+      const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+        legacyMediaResetConfirmedExecutionGate: gateValue,
+        userAssetStorageUsage: [{
+          user_id: 'tenant-legacy-user',
+          used_bytes: 20000,
+          updated_at: '2026-05-17T11:00:00.000Z',
+        }],
+      });
+      env.DB.state.aiImages.push({
+        id: `blocked-reset-image-${String(gateValue ?? 'absent').replace(/[^a-z0-9]/gi, '-')}`,
+        user_id: 'tenant-legacy-user',
+        folder_id: null,
+        visibility: 'public',
+        published_at: '2026-05-17T10:05:00.000Z',
+        r2_key: 'users/tenant-legacy-user/folders/public/blocked-reset-image.png',
+        thumb_key: 'users/tenant-legacy-user/derivatives/v1/blocked-reset-image/thumb.webp',
+        medium_key: 'users/tenant-legacy-user/derivatives/v1/blocked-reset-image/medium.webp',
+        size_bytes: 1024,
+        created_at: '2026-05-17T10:05:00.000Z',
+      });
+      const beforeState = JSON.stringify({
+        aiFolders: env.DB.state.aiFolders,
+        aiImages: env.DB.state.aiImages,
+        actions: env.DB.state.tenantAssetMediaResetActions,
+        events: env.DB.state.tenantAssetMediaResetActionEvents,
+        storage: env.DB.state.userAssetStorageUsage,
+      });
+
+      const response = await authWorker.fetch(
+        authJsonRequest(
+          '/api/admin/tenant-assets/legacy-media-reset/execute',
+          'POST',
+          {
+            dryRun: false,
+            confirm: true,
+            limit: 10,
+            reason: 'should be blocked before any reset mutation',
+            domains: ['ai_images', 'ai_folders', 'ai_image_derivatives', 'public_gallery_references'],
+            acknowledgePublicContentRemoval: true,
+            acknowledgeNoCreditRefund: true,
+            acknowledgeIrreversibleDeletion: true,
+          },
+          { ...authHeaders, 'Idempotency-Key': `legacy-reset-gate-disabled-${String(gateValue ?? 'absent')}` }
+        ),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.code).toBe('tenant_asset_legacy_media_reset_confirmed_execution_disabled');
+      expect(env.DB.state.tenantAssetMediaResetActions).toHaveLength(0);
+      expect(env.DB.state.tenantAssetMediaResetActionEvents).toHaveLength(0);
+      expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
+      expect(env.USER_IMAGES.listCalls).toHaveLength(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(JSON.stringify({
+        aiFolders: env.DB.state.aiFolders,
+        aiImages: env.DB.state.aiImages,
+        actions: env.DB.state.tenantAssetMediaResetActions,
+        events: env.DB.state.tenantAssetMediaResetActionEvents,
+        storage: env.DB.state.userAssetStorageUsage,
+      })).toBe(beforeState);
+    }
+  });
+
   test('confirmed legacy media reset retires only first-pass local rows and records sanitized action evidence', async () => {
     const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
+      legacyMediaResetConfirmedExecutionGate: 'true',
       aiTextAssets: [{
         id: 'deferred-text-asset',
         user_id: 'tenant-legacy-user',
@@ -3932,6 +4096,7 @@ test.describe('Phase 1-E auth route policy registry', () => {
       body: expect.objectContaining({ kind: 'json' }),
       rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-legacy-media-reset-ip', failClosed: true }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER', 'USER_IMAGES']),
+      notes: expect.stringContaining('ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION'),
     }));
     expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/actions')).toEqual(expect.objectContaining({
       id: 'admin.tenant-assets.legacy-media-reset.actions.list',

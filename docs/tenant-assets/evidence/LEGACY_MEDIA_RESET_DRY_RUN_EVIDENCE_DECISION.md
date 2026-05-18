@@ -16,6 +16,8 @@ The evidence proves that the Phase 6.23 executor returned a dry-run plan with `d
 
 However, the evidence file includes a raw top-level idempotency key from the operator request. That value is not repeated in this decision, and the evidence is classified as unsafe for confirmation-gate purposes. Confirmed reset execution remains blocked until a sanitized replacement or separate evidence-safety review removes the raw key exposure and revalidates the same dry-run facts.
 
+Current runtime safety note: confirmed execution is hard-disabled by default by optional Auth Worker env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION`. Dry-run/reporting remains available without that gate. The gate must not be enabled until sanitized evidence and a future separately approved confirmation phase exist.
+
 DOC-2 current-state note: the raw JSON file referenced above is not present in the current checkout. This decision remains the current reset dry-run decision and keeps confirmation blocked; future work must restore a safe/sanitized export or explicitly review the missing raw evidence before any confirmation phase.
 
 This document does not approve deletion, public/gallery depublishing, R2 cleanup, ownership backfill, access-check switching, tenant isolation, production readiness, or live billing readiness.

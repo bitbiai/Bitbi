@@ -550,6 +550,11 @@ assert.equal(foldersImagesReport.legacyMediaResetExecutor.migration, "workers/au
 assert.equal(foldersImagesReport.legacyMediaResetExecutor.executeEndpoint, "/api/admin/tenant-assets/legacy-media-reset/execute");
 assert(foldersImagesReport.legacyMediaResetExecutor.actionEndpoints.includes("GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/evidence"));
 assert.equal(foldersImagesReport.legacyMediaResetExecutor.executorDryRunDefault, true);
+assert.equal(
+  foldersImagesReport.legacyMediaResetExecutor.confirmedExecutionGateName,
+  "ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION"
+);
+assert.equal(foldersImagesReport.legacyMediaResetExecutor.confirmedExecutionDisabledByDefault, true);
 assert.equal(foldersImagesReport.legacyMediaResetExecutor.actionTrackingAdded, true);
 assert(foldersImagesReport.legacyMediaResetExecutor.firstPassDomainsLimited.includes("ai_images"));
 assert(foldersImagesReport.legacyMediaResetExecutor.firstPassDomainsLimited.includes("public_gallery_references"));
@@ -1155,6 +1160,7 @@ assert(focusedMarkdown.includes("legacy_media_reset_executor_designed"));
 assert(focusedMarkdown.includes("/api/admin/tenant-assets/legacy-media-reset/execute"));
 assert(focusedMarkdown.includes("Legacy Media Reset Executor"));
 assert(focusedMarkdown.includes("legacy_media_reset_executor_added"));
+assert(focusedMarkdown.includes("ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION"));
 assert(focusedMarkdown.includes("0058_add_legacy_media_reset_actions.sql"));
 assert(focusedMarkdown.includes("Phase 6.23"));
 assert(focusedMarkdown.includes("Phase 6.25"));

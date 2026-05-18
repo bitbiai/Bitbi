@@ -5,16 +5,33 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const EXPECTED_MAIN_RELEASE_AUTH_MIGRATION =
-  "0057_add_ai_asset_manual_review_state.sql";
-
-const MAIN_RELEASE_DEPLOY_UNITS = Object.freeze([
-  "auth schema checkpoint 0057",
-  "auth Worker",
-]);
-
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function readReleaseCompatibilityManifest(filePath) {
+  try {
+    return readJson(filePath);
+  } catch (error) {
+    throw new Error(
+      `Unable to read release compatibility manifest at ${filePath}: ${error.message}`
+    );
+  }
+}
+
+export function getLatestAuthMigrationFromManifest(manifest) {
+  const latest = manifest?.release?.schemaCheckpoints?.auth?.latest;
+  if (typeof latest !== "string" || latest.trim() === "") {
+    return null;
+  }
+  return latest.trim();
+}
+
+export function buildMainReleaseDeployUnits(latestAuthMigration) {
+  const authCheckpointLabel = latestAuthMigration
+    ? `auth schema checkpoint ${latestAuthMigration}`
+    : "auth schema checkpoint unavailable";
+  return [authCheckpointLabel, "auth Worker"];
 }
 
 function defaultGitRunner(repoRoot, args) {
@@ -73,19 +90,19 @@ export function collectMainReleaseReadiness(options = {}) {
   const allowDirty = options.allowDirty === true;
   const gitRunner = options.gitRunner || defaultGitRunner;
   const releaseCompatPath = path.join(repoRoot, "config", "release-compat.json");
-  const manifest = readJson(releaseCompatPath);
-  const latestAuthMigration =
-    manifest?.release?.schemaCheckpoints?.auth?.latest || "unknown";
+  const manifest = readReleaseCompatibilityManifest(releaseCompatPath);
+  const latestAuthMigration = getLatestAuthMigrationFromManifest(manifest);
 
   const branch = runGit(repoRoot, ["branch", "--show-current"], gitRunner) || "unknown";
   const commit = runGit(repoRoot, ["rev-parse", "HEAD"], gitRunner) || "unknown";
   const statusText = runGit(repoRoot, ["status", "--short"], gitRunner) || "";
   const status = summarizeStatus(statusText);
   const issues = [];
+  const expectedDeployUnits = buildMainReleaseDeployUnits(latestAuthMigration);
 
-  if (latestAuthMigration !== EXPECTED_MAIN_RELEASE_AUTH_MIGRATION) {
+  if (!latestAuthMigration) {
     issues.push(
-      `Latest auth migration mismatch: expected ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION}, found ${latestAuthMigration}.`
+      "Latest auth migration is missing from config/release-compat.json at release.schemaCheckpoints.auth.latest."
     );
   }
 
@@ -102,8 +119,8 @@ export function collectMainReleaseReadiness(options = {}) {
     commit,
     status,
     allowDirty,
-    latestAuthMigration,
-    expectedDeployUnits: MAIN_RELEASE_DEPLOY_UNITS,
+    latestAuthMigration: latestAuthMigration || "unknown",
+    expectedDeployUnits,
     verdict: "BLOCKED",
     productionReadiness: "BLOCKED",
     liveBillingReadiness: "BLOCKED",
@@ -111,13 +128,13 @@ export function collectMainReleaseReadiness(options = {}) {
       "Direct-main release is riskier than staging because no separate staging environment is used.",
       "Production readiness remains BLOCKED until operator evidence is complete and reviewed.",
       "Live billing readiness remains BLOCKED; this check does not enable billing or approve Stripe live use.",
-      "Phase 6.13 tenant asset manual-review state schema requires auth D1 migration 0057 before auth Worker deployment from the reviewed main commit.",
-      `Production D1 migration status through ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION} must be verified manually before auth Worker deploy and live smoke checks.`,
+      `The auth D1 schema checkpoint from config/release-compat.json is ${latestAuthMigration || "unavailable"}; remote migration status through this checkpoint must be verified manually before dependent auth Worker deploys.`,
+      `Production D1 migration status through ${latestAuthMigration || "the configured auth schema checkpoint"} must be verified manually before auth Worker deploy and live smoke checks.`,
       "This check never deploys, runs remote migrations, calls Stripe APIs, changes secrets, or mutates Cloudflare/GitHub settings.",
     ],
     requiredManualEvidence: [
       "Clean reviewed main commit and release-plan output.",
-      `Production auth D1 migration evidence through ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION}.`,
+      `Production auth D1 migration evidence through ${latestAuthMigration || "the configured auth schema checkpoint"}.`,
       "Auth Worker deployed commit evidence.",
       "Live readiness evidence collector output with explicit URLs.",
       "Member personal image gateway smoke evidence.",

@@ -59,7 +59,7 @@ Change these conservatively and preserve existing guards.
 - Folder/image ownership metadata exists for new personal writes only.
 - Legacy rows remain unresolved; tenant isolation is not claimed.
 - Manual-review import/read/status/Admin visibility exists and writes review-state rows only.
-- Reset dry-run/reporting and reset action tracking/executor endpoints exist, but confirmed reset remains blocked.
+- Reset dry-run/reporting and reset action tracking/executor endpoints exist, but confirmed reset remains blocked and is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - Current reset dry-run evidence is rejected unsafe because the live evidence contains a raw idempotency key.
 
 Do not backfill ownership, switch access checks, rewrite source asset rows, mutate ownership metadata, execute confirmed reset, or list/delete live R2 unless a future task explicitly approves that scope.

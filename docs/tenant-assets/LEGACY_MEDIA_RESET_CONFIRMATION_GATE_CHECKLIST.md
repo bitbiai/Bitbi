@@ -6,6 +6,8 @@ Purpose: define the evidence gate that must pass before any later confirmed lega
 
 This checklist does not authorize deletion. Confirmed reset execution must be a separate explicitly approved phase. Current live/main executor dry-run evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json` contains a raw idempotency key and is rejected as unsafe for confirmation-gate purposes. The gate remains closed.
 
+Runtime safety note: confirmed execution is also hard-disabled by default in the Auth Worker unless optional env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly `true` or boolean `true`. Absence of the gate is the expected safe posture and must not block normal dry-run/reporting use.
+
 ## Required Evidence
 
 - Sanitized live/main executor dry-run JSON or Markdown evidence from `POST /api/admin/tenant-assets/legacy-media-reset/execute`.
@@ -55,6 +57,7 @@ A future confirmed execution request must include explicit operator acknowledgem
 - `confirm: true` required.
 - Bounded reason required.
 - Latest dry-run evidence confirmed or recomputed by the server.
+- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` intentionally enabled only for the separately approved confirmation phase.
 - Evidence export captured before execution.
 - Evidence export captured after execution in the later approved phase.
 

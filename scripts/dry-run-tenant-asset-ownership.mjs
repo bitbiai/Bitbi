@@ -2352,6 +2352,8 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
         ]
         : [],
       executorDryRunDefault: true,
+      confirmedExecutionGateName: "ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION",
+      confirmedExecutionDisabledByDefault: true,
       actionTrackingAdded: legacyMediaResetExecutorAdded,
       firstPassDomainsLimited: [
         "ai_images",
@@ -2826,6 +2828,8 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Execute endpoint: ${report.legacyMediaResetExecutor?.executeEndpoint || "not_recorded"}`,
     `- Action endpoints: ${(report.legacyMediaResetExecutor?.actionEndpoints || []).join(", ") || "none"}`,
     `- Dry-run default: ${report.legacyMediaResetExecutor?.executorDryRunDefault ? "yes" : "no"}`,
+    `- Confirmed execution gate: ${report.legacyMediaResetExecutor?.confirmedExecutionGateName || "not_recorded"}`,
+    `- Confirmed execution disabled by default: ${report.legacyMediaResetExecutor?.confirmedExecutionDisabledByDefault ? "yes" : "no"}`,
     `- Action tracking added: ${report.legacyMediaResetExecutor?.actionTrackingAdded ? "yes" : "no"}`,
     `- First-pass domains: ${(report.legacyMediaResetExecutor?.firstPassDomainsLimited || []).join(", ") || "none"}`,
     `- Deferred domains: ${(report.legacyMediaResetExecutor?.deferredDomains || []).join(", ") || "none"}`,

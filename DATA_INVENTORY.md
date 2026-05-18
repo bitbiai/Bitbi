@@ -35,7 +35,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - Legacy folder/image rows remain unresolved unless current evidence proves otherwise.
 - `ai_asset_manual_review_items` and `ai_asset_manual_review_events` store manual-review state and events.
 - `tenant_asset_media_reset_actions` and `tenant_asset_media_reset_action_events` store reset action/evidence tracking.
-- `ai_text_assets`, video jobs, music/audio assets, profile avatars, lifecycle exports, audit archives, and unknown media tables remain outside first-pass reset execution.
+- `ai_text_assets`, video jobs, music/audio assets, profile avatars, lifecycle exports, audit archives, and unknown media tables remain outside first-pass reset execution. Confirmed first-pass reset is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is explicitly enabled in a future approved phase.
 
 ## Current Evidence State
 

@@ -16,7 +16,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Operations | Release plan/preflight, readiness checks, incident runbooks, restore guidance, and evidence templates exist; live evidence remains incomplete. |
 | Billing | Credit ledgers, guarded Stripe scaffolding, review queue, reconciliation, and evidence tools exist; live billing readiness remains blocked. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
-| Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist but confirmed reset remains blocked. |
+| Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist; confirmed reset is hard-disabled by default and remains blocked. |
 | Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
 | Admin UX | Admin Control Plane exposes implemented operator panels without proving production readiness. |
 

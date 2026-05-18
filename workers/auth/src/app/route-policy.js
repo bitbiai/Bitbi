@@ -508,7 +508,7 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER", "USER_IMAGES"],
     sensitivity: "high",
     audit: { event: "tenant_asset_legacy_media_reset_execute_requested" },
-    notes: "Phase 6.23 admin-approved legacy media reset executor. Defaults to dry-run; confirmed execution requires Idempotency-Key, confirm=true, bounded reason, explicit public/no-credit/irreversible acknowledgements, admin MFA, same-origin JSON, and fail-closed rate limiting. It is limited to first-pass ai_folders/ai_images/derivative/public references, rejects video/music/text/profile/avatar/export/audit domains, performs no ownership backfill, no access switch, no billing/credit mutation, no provider/Stripe/Cloudflare API calls, and never lists R2 or exposes raw R2 keys.",
+    notes: "Phase 6.23 admin-approved legacy media reset executor. Defaults to dry-run; confirmed execution is hard-disabled unless optional env gate ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION is exactly true. If that gate is enabled in a future approved phase, confirmed execution still requires Idempotency-Key, confirm=true, bounded reason, explicit public/no-credit/irreversible acknowledgements, admin MFA, same-origin JSON, and fail-closed rate limiting. It is limited to first-pass ai_folders/ai_images/derivative/public references, rejects video/music/text/profile/avatar/export/audit domains, performs no ownership backfill, no access switch, no billing/credit mutation, no provider/Stripe/Cloudflare API calls, and never lists R2 or exposes raw R2 keys.",
   }),
   adminRead("admin.tenant-assets.legacy-media-reset.actions.list", "/api/admin/tenant-assets/legacy-media-reset/actions", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],

@@ -23,6 +23,8 @@ Executor/action endpoints exist in repo:
 
 The executor defaults to dry-run and is bounded to selected first-pass domains.
 
+Confirmed execution is hard-disabled by default. `dryRun: false` fails closed unless the optional operator-controlled env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly `true` or boolean `true`. Any missing value or other value keeps confirmed execution disabled. This gate does not approve deletion; it only prevents accidental confirmed execution before a future approved confirmation phase.
+
 ## Current Allowed First-Pass Domains
 
 - `ai_images`
@@ -50,6 +52,7 @@ Deferred domains must not be touched by first-pass reset execution.
 A future confirmed execution phase must require:
 
 - sanitized dry-run evidence,
+- explicit operator decision to enable `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` only for that approved phase,
 - admin authorization,
 - production MFA,
 - same-origin protection,
@@ -78,6 +81,7 @@ The current evidence fails the gate because it contains a raw idempotency key.
 ## Current Blocked Claims
 
 - No confirmed reset execution occurred.
+- Confirmed execution is disabled by default; dry-run/reporting remains available.
 - No media rows are claimed deleted.
 - No ownership backfill occurred.
 - No access checks changed.

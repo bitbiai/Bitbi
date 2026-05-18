@@ -17,6 +17,8 @@ export const TENANT_ASSET_LEGACY_MEDIA_RESET_ACTIONS_ENDPOINT =
   "/api/admin/tenant-assets/legacy-media-reset/actions";
 export const TENANT_ASSET_LEGACY_MEDIA_RESET_EXECUTOR_VERSION =
   "tenant-asset-legacy-media-reset-executor-v1";
+export const LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE =
+  "ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 50;
@@ -120,6 +122,32 @@ function normalizeIdempotencyKey(value) {
     });
   }
   return key;
+}
+
+export function isLegacyMediaResetConfirmedExecutionEnabled(env) {
+  return env?.[LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE] === true ||
+    env?.[LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE] === "true";
+}
+
+export function assertLegacyMediaResetConfirmedExecutionEnabled(env, request) {
+  if (request?.dryRun !== false || isLegacyMediaResetConfirmedExecutionEnabled(env)) return;
+  throw new TenantAssetLegacyMediaResetExecutorError(
+    "Confirmed legacy media reset execution is disabled. Dry-run remains available; production readiness remains blocked; tenant isolation is not claimed; no reset or deletion occurred.",
+    {
+      status: 403,
+      code: "tenant_asset_legacy_media_reset_confirmed_execution_disabled",
+      fields: {
+        gate: LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE,
+        dryRunAvailable: true,
+        noResetDeletionOccurred: true,
+        productionReadiness: "blocked",
+        tenantIsolationClaimed: false,
+        ownershipBackfillReady: false,
+        accessSwitchReady: false,
+        confirmedResetReadiness: "blocked",
+      },
+    }
+  );
 }
 
 function normalizeDomain(value) {
@@ -980,6 +1008,7 @@ export async function executeLegacyMediaResetAction(env, {
   idempotencyKey,
 } = {}) {
   const normalizedRequest = normalizeLegacyMediaResetActionRequest(request);
+  assertLegacyMediaResetConfirmedExecutionEnabled(env, normalizedRequest);
   const safeIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
   const idempotencyKeyHash = await sha256Hex(`tenant-asset-legacy-media-reset:${safeIdempotencyKey}`);
   const requestHash = await buildLegacyMediaResetRequestHash(normalizedRequest);
