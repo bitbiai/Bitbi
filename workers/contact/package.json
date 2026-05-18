@@ -12,5 +12,8 @@
   "type": "module",
   "devDependencies": {
     "wrangler": "^4.87.0"
+  },
+  "overrides": {
+    "ws": "8.20.1"
   }
 }
