@@ -48,8 +48,9 @@ visibility for review-state rows only, Phase 6.19 adds operator evidence
 collection docs, Phase 6.20 records sanitized live/main operator evidence
 as `operator_evidence_collected_needs_more_idempotency`, Phase 6.21 adds
 legacy media reset dry-run/export planning, Phase 6.22 adds reset executor
-design, and Phase 6.23 adds reset action/event tracking plus a dry-run-default
-executor path. These phases do not backfill old owner metadata, update ownership metadata,
+design, Phase 6.23 adds reset action/event tracking plus a dry-run-default
+executor path, and Phase 6.24 adds pending reset dry-run evidence docs because no
+live/main executor dry-run evidence file is committed. These phases do not backfill old owner metadata, update ownership metadata,
 execute live/main media deletion by Codex/tests, assign organization ownership, move/list/delete live R2 objects, alter access checks, alter lifecycle/export/delete
 behavior globally, change quota accounting globally, change public gallery behavior outside an explicitly confirmed executor path, change
 member/org generation, mutate billing/credits, or prove full tenant isolation.
@@ -83,7 +84,7 @@ Admin queue/status visibility for review-state rows only, Phase 6.19 adds
 operator evidence collection docs, Phase 6.20 records sanitized live/main
 operator evidence while leaving idempotency replay/conflict evidence pending,
 Phase 6.21 adds reset dry-run/export planning, Phase 6.22 adds reset
-executor design, and Phase 6.23 adds reset action/event tracking plus executor endpoints.
+executor design, Phase 6.23 adds reset action/event tracking plus executor endpoints, and Phase 6.24 records reset dry-run evidence as pending.
 Existing generated assets
 are not backfilled, source asset rows and ownership metadata are not updated,
 review statuses are not changed by Codex/tests, live/main media is not deleted by Codex/tests, and assets are not migrated

@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. Collect Phase 6.24 legacy media reset operator dry-run evidence from the new executor before any confirmed reset execution; keep it separate from ownership backfill, access switching, ownership metadata updates, review status changes by Codex/tests, and live R2 actions.
+1. Collect Phase 6.25 legacy media reset operator dry-run evidence from the new executor before any confirmed reset execution; Phase 6.24 found no committed live/main executor dry-run file and left `legacy_media_reset_dry_run_pending`.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.24 reset operator dry-run evidence, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.25 reset operator dry-run evidence, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 

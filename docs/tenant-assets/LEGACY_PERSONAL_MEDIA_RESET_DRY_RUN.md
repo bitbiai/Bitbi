@@ -2,7 +2,7 @@
 
 Date: 2026-05-17
 
-Phase 6.21 adds a bounded, admin-only, read-only dry-run report for evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths may be cleaner than ownership backfill. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` as design-only follow-up. Phase 6.23 adds action tracking and an admin-approved executor path, but the executor remains dry-run by default and Codex/tests did not execute it against live/main data.
+Phase 6.21 adds a bounded, admin-only, read-only dry-run report for evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths may be cleaner than ownership backfill. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` as design-only follow-up. Phase 6.23 adds action tracking and an admin-approved executor path, but the executor remains dry-run by default and Codex/tests did not execute it against live/main data. Phase 6.24 adds operator dry-run evidence packaging and currently records `legacy_media_reset_dry_run_pending` because no live/main executor dry-run evidence file is committed.
 
 This phase is evidence and planning only. It does not delete media, depublish public rows, update source asset rows, update manual-review rows, backfill ownership, change access checks, list live R2, or mutate R2.
 
@@ -112,4 +112,6 @@ Phase 6.21 performs no deletion, no ownership backfill, no access-check switch, 
 
 Phase 6.23 adds executor code and action/audit tables but Codex/tests performed no live/main D1 source row rewrite, no live/main media deletion, no live/main R2 action, no remote migration, and no deployment.
 
-Recommended next phase: `Phase 6.24 — Legacy Media Reset Operator Dry-run Evidence`.
+Phase 6.24 adds the evidence decision/runbook/template only. It performs no executor execution, no confirmed deletion, no source mutation, no review-row mutation, no R2 listing/mutation, no backfill, and no access switch.
+
+Recommended next phase: `Phase 6.25 — Operator Runs Legacy Media Reset Dry-run`.

@@ -48,7 +48,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 
 ## Next Recommended Step
 
-Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as the current Phase 6.10 decision, manual-review docs/endpoints for review queue evidence, `/api/admin/tenant-assets/legacy-media-reset/dry-run` for Phase 6.21 reset planning, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` for the Phase 6.22 design, and `POST /api/admin/tenant-assets/legacy-media-reset/execute` plus `/legacy-media-reset/actions` for Phase 6.23 reset action tracking/executor evidence. Current status is `operator_evidence_collected_needs_more_idempotency`; the next tenant-asset step is Phase 6.24 reset operator dry-run evidence, with no live deletion execution, broad backfill, or access behavior change.
+Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as the current Phase 6.10 decision, manual-review docs/endpoints for review queue evidence, `/api/admin/tenant-assets/legacy-media-reset/dry-run` for Phase 6.21 reset planning, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` for the Phase 6.22 design, and `POST /api/admin/tenant-assets/legacy-media-reset/execute` plus `/legacy-media-reset/actions` for Phase 6.23 reset action tracking/executor evidence. Current statuses are `operator_evidence_collected_needs_more_idempotency` for manual review and `legacy_media_reset_dry_run_pending` for reset dry-run evidence; the next tenant-asset step is Phase 6.25 operator-run reset dry-run evidence, with no live deletion execution, broad backfill, or access behavior change.
 
 ## Historical Evidence Links
 

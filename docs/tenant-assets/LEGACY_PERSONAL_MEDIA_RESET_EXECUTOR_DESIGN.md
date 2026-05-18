@@ -4,7 +4,7 @@ Date: 2026-05-17
 
 Phase 6.22 designed a future admin-approved legacy media reset executor for old personal/admin-created media. Phase 6.23 implements the approved first-pass action tracking schema and executor endpoints from that design. The executor defaults to dry-run; confirmed execution is admin/MFA/same-origin protected and requires `Idempotency-Key`, `confirm`, bounded `reason`, and explicit acknowledgements.
 
-Phase 6.23 adds implementation capability only. Codex/tests did not run the executor against live/main data, did not run remote migrations, did not deploy, did not backfill ownership, did not switch access checks, did not mutate billing/credits, and did not list/mutate live R2.
+Phase 6.23 adds implementation capability only. Codex/tests did not run the executor against live/main data, did not run remote migrations, did not deploy, did not backfill ownership, did not switch access checks, did not mutate billing/credits, and did not list/mutate live R2. Phase 6.24 adds operator dry-run evidence docs and records the current dry-run evidence status as pending until a sanitized live/main executor dry-run export is committed.
 
 ## Purpose
 
@@ -41,6 +41,8 @@ Phase 6.23 does not:
 - list, move, copy, rewrite, or delete live R2 objects;
 - change lifecycle/export/delete, quota, public gallery, media serving, generation, billing, credit, provider, Stripe, Cloudflare, or GitHub behavior;
 - claim tenant isolation, production readiness, live billing readiness, or backfill/access-switch readiness.
+
+Phase 6.24 does not execute the reset, add runtime behavior, add a migration, update source rows, update review rows, list/mutate R2, backfill ownership, or switch access checks.
 
 ## Prerequisite Evidence
 
@@ -371,4 +373,4 @@ For Phase 6.23:
 
 Phase 6.23 adds action tracking and an admin-approved executor path but Codex/tests performed no live/main reset execution. It adds no UI, performs no ownership backfill, switches no access checks, mutates no billing/credits, calls no providers/Stripe/Cloudflare/GitHub APIs, runs no remote migrations, deploys nothing, and makes no production-readiness or tenant-isolation claim. Manual-review supersession is deferred.
 
-Recommended next phase: `Phase 6.24 - Legacy Media Reset Operator Dry-run Evidence`.
+Recommended next phase: `Phase 6.25 - Operator Runs Legacy Media Reset Dry-run`.
