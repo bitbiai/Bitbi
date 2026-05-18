@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Last reconciled: 2026-05-17 for Phase 6.24 tenant asset legacy media reset dry-run evidence status.
+Last reconciled: 2026-05-18 for Phase 6.25 tenant asset legacy media reset dry-run closure and confirmation gate.
 
 This is the active Alpha Audit scorecard. It summarizes current risk and links to the preserved evidence. It is not a production deploy approval, live billing readiness claim, full SaaS maturity claim, full tenant-isolation claim, or legal compliance certification.
 
@@ -26,7 +26,7 @@ Historical phase detail is preserved in:
 | Production readiness | BLOCKED |
 | Live billing readiness | BLOCKED |
 | SaaS maturity | Partial foundation, not complete |
-| Tenant isolation | Partial organization/RBAC plus folder/image owner-map evidence, nullable new-write metadata, manual-review import/queue/status workflows, reset dry-run planning, reset executor design/action tracking, and Phase 6.24 pending reset dry-run evidence docs; not full tenant ownership |
+| Tenant isolation | Partial organization/RBAC plus folder/image owner-map evidence, nullable new-write metadata, manual-review import/queue/status workflows, reset dry-run planning, reset executor design/action tracking, and Phase 6.25 pending reset dry-run evidence/confirmation-gate docs; not full tenant ownership |
 | AI cost controls | Stronger for migrated/member/admin-lab paths, still scoped |
 | Documentation integrity | Improved by DOC-1, but future phases must avoid history sprawl |
 
@@ -53,7 +53,7 @@ Historical phase detail is preserved in:
 | A-001 | P0 | Current docs can become stale against release migrations. | Guarded by `check:doc-currentness`; active docs now point to summary/index/archive. | Keep current docs concise and release-truth aligned. |
 | A-002 | P0 | Production readiness lacks live evidence. | BLOCKED. | Record staging/live migrations, resources, health, headers, queues, D1/R2, Stripe, and rollback evidence. |
 | A-003 | P1 | Billing lifecycle remediation is not complete. | Review queue, resolution metadata, read-only reconciliation, and evidence tools exist. | Define approved remediation/accounting/legal workflow before live readiness. |
-| A-004 | P1 | Existing assets are not fully tenant-owned. | Phase 6.1-6.24 add design/evidence, new personal folder/image metadata, manual-review import/queue/status workflows, reset dry-run planning, reset executor design/action tracking, and pending reset dry-run evidence docs. Old rows remain unbackfilled, ownership metadata is not updated, organization ownership is not assigned, access checks are unchanged, no live/main reset execution occurred by Codex/tests, and live R2 was not listed or mutated. | Collect Phase 6.25 reset executor dry-run evidence before any confirmed reset execution; do not broad-backfill or change runtime access behavior. |
+| A-004 | P1 | Existing assets are not fully tenant-owned. | Phase 6.1-6.25 add design/evidence, new personal folder/image metadata, manual-review import/queue/status workflows, reset dry-run planning, reset executor design/action tracking, and pending reset dry-run evidence/confirmation-gate docs. Old rows remain unbackfilled, ownership metadata is not updated, organization ownership is not assigned, access checks are unchanged, no live/main reset execution occurred by Codex/tests, and live R2 was not listed or mutated. | Collect Phase 6.26 reset executor dry-run evidence before any confirmed reset execution; do not broad-backfill or change runtime access behavior. |
 | A-005 | P1 | AI cost controls are scoped, not universal. | Member image/music/video and selected admin/platform paths are controlled; other scopes remain explicit future work. | Continue one provider-cost scope at a time. |
 | A-006 | P1 | Privacy/data lifecycle is an engineering foundation, not compliance approval. | Inventory, retention, export, cleanup, and safe executor foundations exist. | Legal/product approval and self-service flows remain open. |
 | A-007 | P2 | Route policy is still a registry/check guard, not central enforcement. | Guard tests exist. | Plan central enforcement only after stable route inventory. |
@@ -73,7 +73,7 @@ Historical phase detail is preserved in:
 1. Keep production/live billing claims blocked until evidence is recorded.
 2. Apply and verify auth migrations through `0058` before auth Worker deployment.
 3. Collect main-only evidence for AI budget switches, platform caps, reconciliation, repair, report/export, archive workflows, and tenant asset ownership.
-4. Choose one next implementation track: Phase 6.25 legacy media reset operator dry-run evidence, manual-review idempotency evidence completion, next AI budget scope, internal caller-policy hardening, billing remediation workflow, or production evidence.
+4. Choose one next implementation track: Phase 6.26 legacy media reset operator dry-run evidence, manual-review idempotency evidence completion, next AI budget scope, internal caller-policy hardening, billing remediation workflow, or production evidence.
 
 ## Documentation Governance
 

@@ -130,7 +130,13 @@ Phase 6.24 adds legacy media reset operator dry-run evidence packaging:
 - `docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_TEMPLATE.md`
 - `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`
 
-Current Phase 6.24 status is `legacy_media_reset_dry_run_pending`: no real live/main executor dry-run evidence file is committed in this directory. Confirmed reset execution, deletion, public/gallery depublishing, source row mutation, review row mutation, R2 listing/mutation, ownership backfill, access-check switching, tenant isolation, and production readiness remain blocked.
+Phase 6.24 status was `legacy_media_reset_dry_run_pending`: no real live/main executor dry-run evidence file was committed in this directory. Confirmed reset execution, deletion, public/gallery depublishing, source row mutation, review row mutation, R2 listing/mutation, ownership backfill, access-check switching, tenant isolation, and production readiness remained blocked.
+
+Phase 6.25 rechecks the approved evidence locations and keeps the dry-run decision pending because no real live/main executor dry-run evidence file is committed. It adds the confirmation-gate checklist:
+
+- `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md`
+
+Current Phase 6.25 status is still `legacy_media_reset_dry_run_pending`. The dry-run topic is not closed, no dated closure summary was created, and confirmed reset execution remains blocked until a later phase commits safe dry-run evidence and passes the confirmation gate.
 
 `PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` is retained as a historical pending marker from before the real main evidence summary was added. It is not current evidence and should not be used for counts.
 
@@ -168,6 +174,8 @@ Synthetic fixtures, runbook instructions, and pending markers must not be treate
 
 14. For legacy personal media reset planning, use the Phase 6.21 dry-run/export endpoints only. Save sanitized JSON/Markdown output if operators want to review a deletion-executor design; do not treat the dry-run as deletion approval, backfill approval, access-switch readiness, tenant isolation, or production readiness.
 
-15. For Phase 6.24 reset executor dry-run evidence, follow `docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_RUNBOOK.md`, complete `docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_TEMPLATE.md`, and update `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`. Commit only sanitized dry-run evidence with `dryRun: true`; do not run confirmed reset execution in this evidence phase.
+15. For reset executor dry-run evidence, follow `docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_RUNBOOK.md`, complete `docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_TEMPLATE.md`, and update `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`. Commit only sanitized dry-run evidence with `dryRun: true`; do not run confirmed reset execution in this evidence phase.
+
+16. Before any future confirmed reset phase, review `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md`. The checklist does not authorize deletion by itself; it only states the required dry-run evidence, acknowledgements, admin/MFA/same-origin/idempotency conditions, and before/after evidence capture needed for a later approved phase.
 
 Production readiness, live billing readiness, and full tenant isolation remain blocked by default.

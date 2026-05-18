@@ -60,7 +60,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.25 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
+    futurePhase: "Phase 6.26 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +120,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.25 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
+    futurePhase: "Phase 6.26 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
   },
   {
     id: "ai_video_jobs",
@@ -476,6 +476,11 @@ const FUTURE_PHASES = Object.freeze([
     phase: "6.24",
     title: "Legacy media reset operator dry-run evidence",
     scope: "Implemented as runbook/template/decision docs and local evidence-status reporting; no endpoint, migration, executor execution, deletion, backfill, access switch, source mutation, or R2 action.",
+  },
+  {
+    phase: "6.25",
+    title: "Legacy media reset dry-run closure and confirmation gate",
+    scope: "Implemented as evidence recheck, pending decision update, and confirmation-gate checklist; no endpoint, migration, executor execution, deletion, backfill, access switch, source mutation, reset action mutation, or R2 action.",
   },
 ]);
 
@@ -1012,7 +1017,7 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
   const blockersFound = includesText(/"blockedReasons"\s*:\s*\[[^\]]*[a-z]/i)
     || includesText(/blocked|deferred|requires.*review/i);
 
-  const status = files.length === 0
+  const decisionStatus = files.length === 0
     ? "legacy_media_reset_dry_run_pending"
     : unsafeEvidenceFound
       ? "legacy_media_reset_dry_run_rejected_unsafe"
@@ -1022,16 +1027,26 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
           ? "legacy_media_reset_dry_run_collected_blocked"
           : "legacy_media_reset_dry_run_pending";
 
-  const recommendedNextPhase = status === "legacy_media_reset_dry_run_collected_ready_for_confirmation_review"
-    ? "Phase 6.25 — Confirmed Legacy Media Reset Execution Evidence Plan"
-    : status === "legacy_media_reset_dry_run_collected_blocked"
-      ? "Phase 6.25 — Legacy Media Reset Blocker Review"
-      : status === "legacy_media_reset_dry_run_rejected_unsafe"
-        ? "Phase 6.25 — Legacy Media Reset Dry-run Evidence Safety Review"
-        : "Phase 6.25 — Operator Runs Legacy Media Reset Dry-run";
+  const dryRunTopicClosed = decisionStatus === "legacy_media_reset_dry_run_collected_ready_for_confirmation_review"
+    || decisionStatus === "legacy_media_reset_dry_run_collected_blocked";
+  const status = dryRunTopicClosed
+    ? "legacy_media_reset_dry_run_closed"
+    : decisionStatus === "legacy_media_reset_dry_run_rejected_unsafe"
+      ? "legacy_media_reset_dry_run_rejected_unsafe"
+      : "legacy_media_reset_operator_dry_run_pending";
+
+  const recommendedNextPhase = decisionStatus === "legacy_media_reset_dry_run_collected_ready_for_confirmation_review"
+    ? "Phase 6.26 — Confirmed Legacy Media Reset Execution Plan"
+    : decisionStatus === "legacy_media_reset_dry_run_collected_blocked"
+      ? "Phase 6.26 — Legacy Media Reset Blocker Review"
+      : decisionStatus === "legacy_media_reset_dry_run_rejected_unsafe"
+        ? "Phase 6.26 — Legacy Media Reset Dry-run Evidence Safety Review"
+        : "Phase 6.26 — Operator Runs Legacy Media Reset Dry-run";
 
   return {
     status,
+    decisionStatus,
+    dryRunTopicClosed,
     evidenceFilesFound: files.length > 0,
     sourceEvidenceFiles: files,
     dryRunEvidenceFound,
@@ -1591,6 +1606,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const legacyMediaResetOperatorDryRunRunbookFile = "docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_RUNBOOK.md";
   const legacyMediaResetOperatorDryRunTemplateFile = "docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_TEMPLATE.md";
   const legacyMediaResetOperatorDryRunDecisionFile = "docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md";
+  const legacyMediaResetConfirmationGateChecklistFile = "docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md";
   const tenantAssetsAdminRouteFile = "workers/auth/src/routes/admin-tenant-assets.js";
   const routePolicyFile = "workers/auth/src/app/route-policy.js";
   const realMainEvidenceFound = fileExists(repoRoot, evidenceSummaryFile);
@@ -1634,6 +1650,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const legacyMediaResetOperatorDryRunEvidenceDocsAdded = fileExists(repoRoot, legacyMediaResetOperatorDryRunRunbookFile)
     && fileExists(repoRoot, legacyMediaResetOperatorDryRunTemplateFile)
     && fileExists(repoRoot, legacyMediaResetOperatorDryRunDecisionFile);
+  const legacyMediaResetConfirmationGateAdded = fileExists(repoRoot, legacyMediaResetConfirmationGateChecklistFile);
   const legacyMediaResetOperatorDryRunEvidenceFiles = listLegacyMediaResetOperatorDryRunEvidenceFiles(repoRoot);
   const legacyMediaResetOperatorDryRunEvidenceMetadata = buildLegacyMediaResetOperatorDryRunEvidenceMetadata(
     repoRoot,
@@ -1641,7 +1658,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   );
   const legacyMediaResetOperatorDryRunNextPhase = legacyMediaResetOperatorDryRunEvidenceDocsAdded
     ? legacyMediaResetOperatorDryRunEvidenceMetadata.recommendedNextPhase
-    : "Phase 6.25 — Operator Runs Legacy Media Reset Dry-run";
+    : "Phase 6.26 — Operator Runs Legacy Media Reset Dry-run";
   const mainEvidenceStatus = realMainEvidenceFound
     ? "needs_manual_review"
     : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
@@ -2335,9 +2352,15 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       status: legacyMediaResetOperatorDryRunEvidenceDocsAdded
         ? legacyMediaResetOperatorDryRunEvidenceMetadata.status
         : "not_recorded",
+      decisionStatus: legacyMediaResetOperatorDryRunEvidenceDocsAdded
+        ? legacyMediaResetOperatorDryRunEvidenceMetadata.decisionStatus
+        : "not_recorded",
+      dryRunTopicClosed: legacyMediaResetOperatorDryRunEvidenceMetadata.dryRunTopicClosed,
       runbook: legacyMediaResetOperatorDryRunEvidenceDocsAdded ? legacyMediaResetOperatorDryRunRunbookFile : null,
       template: legacyMediaResetOperatorDryRunEvidenceDocsAdded ? legacyMediaResetOperatorDryRunTemplateFile : null,
       decisionFile: legacyMediaResetOperatorDryRunEvidenceDocsAdded ? legacyMediaResetOperatorDryRunDecisionFile : null,
+      confirmationGateChecklist: legacyMediaResetConfirmationGateAdded ? legacyMediaResetConfirmationGateChecklistFile : null,
+      confirmationGateAdded: legacyMediaResetConfirmationGateAdded,
       operatorEvidenceFilesFound: legacyMediaResetOperatorDryRunEvidenceMetadata.evidenceFilesFound,
       sourceEvidenceFiles: legacyMediaResetOperatorDryRunEvidenceMetadata.sourceEvidenceFiles,
       dryRunEvidenceFound: legacyMediaResetOperatorDryRunEvidenceMetadata.dryRunEvidenceFound,
@@ -2779,9 +2802,12 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     "## Legacy Media Reset Operator Dry-run Evidence",
     "",
     `- Status: ${report.legacyMediaResetOperatorDryRunEvidence?.status || "not_recorded"}`,
+    `- Decision status: ${report.legacyMediaResetOperatorDryRunEvidence?.decisionStatus || "not_recorded"}`,
+    `- Dry-run topic closed: ${report.legacyMediaResetOperatorDryRunEvidence?.dryRunTopicClosed ? "yes" : "no"}`,
     `- Runbook: ${report.legacyMediaResetOperatorDryRunEvidence?.runbook || "not_recorded"}`,
     `- Template: ${report.legacyMediaResetOperatorDryRunEvidence?.template || "not_recorded"}`,
     `- Decision: ${report.legacyMediaResetOperatorDryRunEvidence?.decisionFile || "not_recorded"}`,
+    `- Confirmation gate checklist: ${report.legacyMediaResetOperatorDryRunEvidence?.confirmationGateChecklist || "not_recorded"}`,
     `- Operator evidence files found: ${report.legacyMediaResetOperatorDryRunEvidence?.operatorEvidenceFilesFound ? "yes" : "no"}`,
     `- Source evidence files: ${(report.legacyMediaResetOperatorDryRunEvidence?.sourceEvidenceFiles || []).join(", ") || "none"}`,
     `- Dry-run evidence found: ${report.legacyMediaResetOperatorDryRunEvidence?.dryRunEvidenceFound ? "yes" : "no"}`,
@@ -2805,6 +2831,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     "- Phase 6.22 legacy media reset executor design adds no executor, endpoint, UI, migration, deletion, source mutation, review mutation, R2 action, backfill, or access switch.",
     "- Phase 6.23 legacy media reset executor defaults to dry-run and local scripts do not execute deletion, list live R2, backfill ownership, switch access checks, or mutate billing/credits.",
     "- Phase 6.24 legacy media reset operator dry-run evidence docs are evidence-only and do not execute the reset, mutate D1/R2, backfill ownership, or switch access checks.",
+    "- Phase 6.25 legacy media reset dry-run closure/gate docs are evidence-only and do not execute the reset, mutate source/review/reset rows, list/mutate R2, backfill ownership, or switch access checks.",
     "- No R2 writes, moves, deletes, copies, or live listings.",
     "- No Cloudflare, Stripe, GitHub, or provider calls.",
     "- No owner backfill SQL is emitted.",

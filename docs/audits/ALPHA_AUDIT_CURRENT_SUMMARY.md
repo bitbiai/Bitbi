@@ -1,6 +1,6 @@
 # Alpha Audit Current Summary
 
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
 Latest auth migration: `0058_add_legacy_media_reset_actions.sql`
 
@@ -18,7 +18,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Member image/music/video AI Cost Gateway flows are migrated with required idempotency and duplicate-provider suppression.
 - Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, read-only reconciliation, explicit admin-approved repair, report/export, and sanitized archives.
 - Admin Control Plane navigation now surfaces the implemented operator panels without changing backend behavior.
-- Phase 6.1-6.20 add tenant asset ownership/manual-review evidence foundations. Phase 6.21 adds legacy media reset dry-run/export planning. Phase 6.22 adds reset executor design. Phase 6.23 adds reset action/event tracking plus a dry-run-default admin-approved executor path, with no old-row ownership backfill, ownership metadata update, access switch, live/main reset execution by Codex/tests, live R2 listing/mutation, billing/credit mutation, or tenant-isolation claim.
+- Phase 6.1-6.20 add tenant asset ownership/manual-review evidence foundations. Phase 6.21 adds legacy media reset dry-run/export planning. Phase 6.22 adds reset executor design. Phase 6.23 adds reset action/event tracking plus a dry-run-default admin-approved executor path. Phase 6.25 adds reset dry-run closure/gate docs and keeps evidence pending because no live/main executor dry-run file is committed, with no old-row ownership backfill, ownership metadata update, access switch, live/main reset execution by Codex/tests, live R2 listing/mutation, billing/credit mutation, or tenant-isolation claim.
 - Historical phase reports and pre-DOC-1 long-form docs are archived/indexed instead of expanded in active docs.
 
 ## Current Open Blockers
@@ -48,7 +48,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 
 ## Next Recommended Step
 
-Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as the current Phase 6.10 decision, manual-review docs/endpoints for review queue evidence, `/api/admin/tenant-assets/legacy-media-reset/dry-run` for Phase 6.21 reset planning, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` for the Phase 6.22 design, and `POST /api/admin/tenant-assets/legacy-media-reset/execute` plus `/legacy-media-reset/actions` for Phase 6.23 reset action tracking/executor evidence. Current statuses are `operator_evidence_collected_needs_more_idempotency` for manual review and `legacy_media_reset_dry_run_pending` for reset dry-run evidence; the next tenant-asset step is Phase 6.25 operator-run reset dry-run evidence, with no live deletion execution, broad backfill, or access behavior change.
+Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as the current Phase 6.10 decision, manual-review docs/endpoints for review queue evidence, `/api/admin/tenant-assets/legacy-media-reset/dry-run` for Phase 6.21 reset planning, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` for the Phase 6.22 design, and `POST /api/admin/tenant-assets/legacy-media-reset/execute` plus `/legacy-media-reset/actions` for Phase 6.23 reset action tracking/executor evidence. Current statuses are `operator_evidence_collected_needs_more_idempotency` for manual review and `legacy_media_reset_dry_run_pending` for reset dry-run evidence; Phase 6.25 added `LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md`, and the next tenant-asset step is Phase 6.26 operator-run reset dry-run evidence, with no live deletion execution, broad backfill, or access behavior change.
 
 ## Historical Evidence Links
 

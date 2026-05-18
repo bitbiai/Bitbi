@@ -63,7 +63,7 @@ These files must stay reconciled with `config/release-compat.json` and must not 
 | `docs/ai-cost-gateway/ADMIN_TEXT_EMBEDDINGS_IDEMPOTENCY_DESIGN.md` | Admin text/embeddings idempotency design. |
 | `docs/ai-cost-gateway/ADMIN_LIVE_AGENT_BUDGET_FLOW_AUDIT.md` | Admin Live-Agent budget-flow audit/design. |
 | `docs/ai-cost-gateway/ADMIN_SYNC_VIDEO_DEBUG_RETIREMENT_AUDIT.md` | Sync video debug retirement audit. |
-| `docs/tenant-assets/*.md`, `docs/tenant-assets/evidence/*.md` | Tenant asset ownership design, inventory, risk matrix, dry-run reports, manual-review workflow/schema/import/queue/status/evidence records, Phase 6.20 operator evidence decision records, Phase 6.21 legacy media reset dry-run notes, Phase 6.22 reset executor design notes, Phase 6.23 reset action tracking/executor notes, and Phase 6.24 pending reset dry-run evidence records. |
+| `docs/tenant-assets/*.md`, `docs/tenant-assets/evidence/*.md` | Tenant asset ownership design, inventory, risk matrix, dry-run reports, manual-review workflow/schema/import/queue/status/evidence records, Phase 6.20 operator evidence decision records, Phase 6.21 legacy media reset dry-run notes, Phase 6.22 reset executor design notes, Phase 6.23 reset action tracking/executor notes, and Phase 6.25 pending reset dry-run evidence/confirmation-gate records. |
 
 ## Historical Phase Reports - Frozen Evidence
 

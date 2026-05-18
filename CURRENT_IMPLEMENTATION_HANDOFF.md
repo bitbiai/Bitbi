@@ -1,6 +1,6 @@
 # Current Implementation Handoff
 
-Date: 2026-05-17
+Date: 2026-05-18
 
 Purpose: concise restart point for future Codex sessions. This file is current source of truth for where to restart, not a phase log. Historical implementation detail is preserved in `docs/audits/archive/`, `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, and the root `PHASE*.md` reports.
 
@@ -9,7 +9,7 @@ Purpose: concise restart point for future Codex sessions. This file is current s
 | Item | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest completed implementation phase | Phase 6.23 legacy media reset action tracking and executor |
+| Latest completed implementation phase | Phase 6.25 legacy media reset dry-run closure and confirmation gate |
 | Latest documentation phase | DOC-1 documentation diet and archive consolidation |
 | Latest auth D1 migration | `0058_add_legacy_media_reset_actions.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
@@ -34,7 +34,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
 - Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
 - Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, focused folder/image dry-run/evidence, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision update, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, and Phase 6.23 reset action/event tracking plus dry-run-default executor endpoints exist. Current manual-review operator status is `operator_evidence_collected_needs_more_idempotency`. No old-row ownership backfill, organization ownership assignment, ownership metadata update, live/main reset execution by Codex/tests, access-check switch, billing/credit mutation, or live R2 listing/mutation occurred.
+- Tenant-owned asset migration design, focused folder/image dry-run/evidence, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision update, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, Phase 6.23 reset action/event tracking plus dry-run-default executor endpoints, and Phase 6.25 confirmation-gate docs exist. Current manual-review operator status is `operator_evidence_collected_needs_more_idempotency`; reset dry-run evidence remains `legacy_media_reset_dry_run_pending` because no live/main executor dry-run evidence file is committed. No old-row ownership backfill, organization ownership assignment, ownership metadata update, live/main reset execution by Codex/tests, access-check switch, billing/credit mutation, or live R2 listing/mutation occurred.
 
 ## Current Blockers
 
@@ -87,9 +87,9 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. Collect Phase 6.25 legacy media reset operator dry-run evidence from the new executor before any confirmed reset execution; Phase 6.24 found no committed live/main executor dry-run file and left `legacy_media_reset_dry_run_pending`.
+1. Collect Phase 6.26 legacy media reset operator dry-run evidence from the new executor before any confirmed reset execution; Phase 6.25 found no committed live/main executor dry-run file and left `legacy_media_reset_dry_run_pending`.
 2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.25 reset operator dry-run evidence, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+3. Choose one focused next implementation track: Phase 6.26 reset operator dry-run evidence, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
 
 ## Documentation Rule
 

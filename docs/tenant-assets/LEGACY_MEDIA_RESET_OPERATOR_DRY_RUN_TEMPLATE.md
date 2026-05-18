@@ -99,3 +99,17 @@ Decision:
 - `legacy_media_reset_dry_run_rejected_unsafe`
 
 Next recommended phase:
+
+Dry-run closure:
+
+- Evidence complete enough to close dry-run topic: yes/no
+- Decision document updated:
+- Confirmation gate checklist reviewed:
+- If pending, missing evidence files:
+- If ready for confirmation review, separate confirmed execution phase required: yes/no
+
+Notes:
+
+- This template does not authorize confirmed deletion.
+- Do not record raw idempotency keys, private R2 keys, cookies/auth headers, signed URLs, provider bodies, Stripe data, Cloudflare tokens, private keys, or unsafe metadata.
+- Keep no-backfill, no-access-switch, no-source-mutation, no-R2-mutation, tenant-isolation-not-claimed, and production-readiness-blocked safety flags explicit.

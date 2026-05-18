@@ -1,10 +1,12 @@
 # Legacy Media Reset Operator Dry-run Runbook
 
-Date: 2026-05-17
+Date: 2026-05-18
 
 Purpose: collect sanitized live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.
 
 This runbook is evidence-only. It does not authorize deletion, source row mutation, R2 cleanup, ownership backfill, access-check switching, tenant isolation, production readiness, or live billing readiness.
+
+Phase 6.25 rechecked the repository and found no real live/main executor dry-run evidence file. The dry-run topic is still pending, and `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md` defines the gate for any later confirmed reset phase.
 
 ## Prerequisites
 
@@ -14,7 +16,7 @@ This runbook is evidence-only. It does not authorize deletion, source row mutati
   - `0058_add_legacy_media_reset_actions.sql`
 - Auth Worker code with Phase 6.23 is deployed.
 - The operator has an admin session with production MFA satisfied.
-- The operator understands that Phase 6.24 permits dry-run evidence only.
+- The operator understands that Phase 6.26 permits dry-run evidence only if this remains the next phase.
 - No confirmed reset execution is planned in this phase.
 
 ## Endpoint
@@ -51,11 +53,11 @@ curl '<AUTH_WORKER_BASE_URL>/api/admin/tenant-assets/legacy-media-reset/execute'
     "includeDerivatives": true,
     "includeQuotaVerification": true,
     "limit": 500,
-    "reason": "Phase 6.24 legacy media reset dry-run evidence only"
+    "reason": "Legacy media reset dry-run evidence only"
   }'
 ```
 
-Do not send `dryRun: false` in Phase 6.24.
+Do not send `dryRun: false` in the dry-run evidence phase.
 
 ## Evidence To Save
 
@@ -120,7 +122,21 @@ Decision statuses:
 Update:
 
 - `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`
+- `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md` only if the gate criteria change
 - `docs/tenant-assets/evidence/README.md`
 - relevant current-state docs
 
 Confirmed execution must remain a separate future phase with explicit operator approval.
+
+## Closure And Confirmation Gate
+
+The dry-run topic can close only when committed evidence proves:
+
+- the executor request used `dryRun: true`;
+- no confirmed execution or deletion occurred;
+- selected domains, candidate counts, public/gallery findings, derivative/R2 key-type counts if available, deferred domains, and safety flags are recorded;
+- no unsafe values are present.
+
+If evidence is missing, keep `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` at `legacy_media_reset_dry_run_pending` and recommend `Phase 6.26 — Operator Runs Legacy Media Reset Dry-run`.
+
+If evidence is complete, the decision may move to `legacy_media_reset_dry_run_collected_blocked` or `legacy_media_reset_dry_run_collected_ready_for_confirmation_review`. Neither status executes deletion; it only allows a later separate confirmation-gate review.

@@ -1,8 +1,8 @@
 # SaaS Progress and Current State Report
 
-Date: 2026-05-17
+Date: 2026-05-18
 
-Scope: concise current-state summary after Alpha Audit remediation through Phase 6.24 and DOC-1. Detailed phase history is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, and root `PHASE*.md` reports.
+Scope: concise current-state summary after Alpha Audit remediation through Phase 6.25 and DOC-1. Detailed phase history is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, and root `PHASE*.md` reports.
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
@@ -16,7 +16,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Operations | Runbooks, checks, release plan/preflight, and health/header scripts exist; live evidence remains missing. |
 | Billing | Credit ledgers, guarded Stripe Testmode/live scaffolding, review queue, reconciliation, and evidence tools exist; no full live billing readiness. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway/budget/switch/cap evidence foundations; remaining scopes are explicit future work. |
-| Tenant model | Organizations/RBAC exist; folder/image ownership metadata is assigned only on new personal writes; manual-review import/queue/status workflows exist for review-state rows; Phase 6.21 adds legacy media reset dry-run/export planning, Phase 6.22 designs the reset executor, Phase 6.23 adds reset action tracking plus a dry-run-default admin-approved executor path, and Phase 6.24 records reset dry-run evidence as pending. Full tenant-owned asset migration remains open; backfill/access switch/tenant isolation remain blocked. |
+| Tenant model | Organizations/RBAC exist; folder/image ownership metadata is assigned only on new personal writes; manual-review import/queue/status workflows exist for review-state rows; Phase 6.21 adds legacy media reset dry-run/export planning, Phase 6.22 designs the reset executor, Phase 6.23 adds reset action tracking plus a dry-run-default admin-approved executor path, and Phase 6.25 keeps reset dry-run evidence pending while adding a confirmation gate. Full tenant-owned asset migration remains open; backfill/access switch/tenant isolation remain blocked. |
 | Privacy/data lifecycle | Inventory, retention, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
 | Admin Control Plane | Consolidated navigation exposes implemented billing, lifecycle, AI, budget, repair, report, archive, and readiness tools. |
 
@@ -29,7 +29,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Member image/music/video AI Cost Gateway flows have required idempotency and no-double-debit protections.
 - Admin/platform AI budget controls cover classified paths with Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, reconciliation, explicit repair, reports, and evidence archives.
 - Data lifecycle export/archive/cleanup foundations exist; destructive deletion remains intentionally constrained.
-- Tenant asset ownership design, focused folder/image dry-run/evidence, nullable metadata for new personal writes, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, Phase 6.23 reset action/event tracking plus executor endpoints, and Phase 6.24 pending reset dry-run evidence docs exist without old-row ownership backfill, organization ownership assignment, ownership metadata updates, access-switching, live/main reset execution by Codex/tests, live R2 listing, UI changes, or billing/credit mutation.
+- Tenant asset ownership design, focused folder/image dry-run/evidence, nullable metadata for new personal writes, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, Phase 6.23 reset action/event tracking plus executor endpoints, and Phase 6.25 pending reset dry-run evidence/confirmation-gate docs exist without old-row ownership backfill, organization ownership assignment, ownership metadata updates, access-switching, live/main reset execution by Codex/tests, live R2 listing, UI changes, or billing/credit mutation.
 
 ## Production Blockers
 
