@@ -103,4 +103,4 @@ When real evidence has been reviewed and high-risk counts remain nonzero, use `d
 
 ## Current Follow-Up
 
-Current manual-review status is `operator_evidence_collected_needs_more_idempotency`: sanitized live/main import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but same-key replay/conflict idempotency evidence and a successful standalone status-update response remain pending. Current reset dry-run status is `legacy_media_reset_dry_run_rejected_unsafe`; review the blocker before any confirmation-review phase.
+Current manual-review status is `operator_evidence_collected_needs_more_idempotency` with idempotency completion `operator_evidence_pending_manual_review_idempotency_completion`: sanitized live/main import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence remain pending. Current reset dry-run status is `legacy_media_reset_dry_run_rejected_unsafe`; review the blocker before any confirmation-review phase.

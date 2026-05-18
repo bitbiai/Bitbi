@@ -56,7 +56,8 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Admin import, queue read/detail/events/evidence/export, status workflow, and Admin visibility exist for review-state rows.
 - Manual-review operator evidence exists for import/queue/status workflow.
 - Current decision: `operator_evidence_collected_needs_more_idempotency`.
-- Remaining gap: same-key replay/conflict and successful standalone status-update evidence are incomplete.
+- Idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`.
+- Remaining gap: import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence are incomplete.
 - Manual-review status changes do not backfill ownership or switch runtime access behavior.
 
 ## Current Legacy Media Reset State

@@ -11,7 +11,7 @@ Purpose: current evidence index for tenant asset ownership, manual review, and l
 | File | Current status | Notes |
 | --- | --- | --- |
 | `MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` | `needs_manual_review` | Main folder/image owner-map evidence requires manual review; access switch and backfill remain blocked. |
-| `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md` | `operator_evidence_collected_needs_more_idempotency` | Import/queue/status evidence exists, but replay/conflict and successful standalone status-update evidence remain incomplete. |
+| `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md` | `operator_evidence_collected_needs_more_idempotency`; idempotency completion `operator_evidence_pending_manual_review_idempotency_completion` | Import/queue/status evidence exists, but import replay, import conflict, successful standalone status-update, status replay, and status conflict evidence remain incomplete. |
 | `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` | `legacy_media_reset_dry_run_rejected_unsafe`; sanitized evidence `pending_sanitized_evidence_required` | The reset dry-run decision references prior live evidence with a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and confirmed reset remains blocked. |
 
 ## Current Authoritative Evidence Summaries
@@ -37,6 +37,7 @@ Purpose: current evidence index for tenant asset ownership, manual review, and l
 
 - Owner-map evidence exists and shows folder/image legacy ownership remains unsafe for access-switch/backfill.
 - Manual-review tables and workflows exist; operator evidence is partially complete.
+- Manual-review idempotency completion is pending; use `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_RUNBOOK.md` and `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md` before any backfill/access-switch readiness claim.
 - Legacy media reset dry-run evidence was reviewed in the decision docs, but the raw JSON is not present in the current checkout, no sanitized replacement is present, and the evidence is rejected unsafe; the reset dry-run topic is not closed.
 - Confirmed legacy media reset/deletion has not been approved or performed.
 - Tenant isolation, access-switch readiness, ownership backfill readiness, and production readiness remain unclaimed.

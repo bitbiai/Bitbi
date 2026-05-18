@@ -33,7 +33,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Remote auth migrations through `0058_add_legacy_media_reset_actions.sql` must be applied before dependent Auth Worker deploys.
 - Existing legacy `ai_folders`/`ai_images` rows remain mixed/null/unclassified; access checks still use existing runtime behavior.
 - Ownership backfill, access-switching, tenant isolation, and confirmed reset/deletion remain blocked.
-- Manual-review evidence still needs idempotency replay/conflict completion.
+- Manual-review evidence still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
 - Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and the confirmation gate remains closed.
 - Cloudflare WAF/static headers/RUM/alerts, secrets, bindings, restore drill, rollback evidence, and Stripe/live billing canaries still require operator evidence.
 

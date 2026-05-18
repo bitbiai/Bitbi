@@ -139,4 +139,4 @@ Record operator confirmation:
 
 ## 11. Current Follow-Up
 
-Current manual-review decision is `operator_evidence_collected_needs_more_idempotency`. Same-key replay/conflict idempotency evidence and a successful standalone status-update response remain pending. Future evidence collection must still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, review status changes by Codex/tests, and R2 actions unless separately approved.
+Current manual-review decision is `operator_evidence_collected_needs_more_idempotency`; idempotency completion status is `operator_evidence_pending_manual_review_idempotency_completion`. Import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence remain pending. Future evidence collection must still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, review status changes by Codex/tests, and R2 actions unless separately approved.

@@ -4,6 +4,8 @@ Date: 2026-05-17
 
 Purpose: collect bounded main-only operator evidence for the AI folders/images manual-review import, queue, status, and export workflow. This runbook is evidence collection only. It does not approve ownership backfill, access-check switching, source asset row updates, ownership metadata updates, R2 actions, tenant isolation, production readiness, or live billing readiness.
 
+Current idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`. Use `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_RUNBOOK.md` for the focused replay/conflict/status-success evidence package.
+
 ## Prerequisites
 
 - Direct-main/live-main workflow. Do not require or assume a separate staging environment.
@@ -62,8 +64,13 @@ Save sanitized evidence with clear names, for example:
 - `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-queue-evidence.json`
 - `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-queue-evidence.md`
 - `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-status-update.json` if a bounded status update is intentionally run
-- `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-status-idempotency.json` if an idempotency replay/conflict check is intentionally run
+- `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-import-replay-live.json` if import replay is intentionally checked
+- `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-import-conflict-live.json` if import conflict is intentionally checked
+- `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-status-update-success-live.json` if a status update succeeds
+- `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-status-replay-live.json` if status replay is intentionally checked
+- `docs/tenant-assets/evidence/YYYY-MM-DD-manual-review-status-conflict-live.json` if status conflict is intentionally checked
 - completed `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`
+- completed `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md`
 
 Do not commit raw cookies, headers, raw idempotency keys, request hashes, prompts, private R2 keys, signed URLs, provider payloads, Stripe data, Cloudflare tokens, or private keys.
 
@@ -222,7 +229,7 @@ Even successful operator evidence can prove only that the manual-review workflow
 
 ## Current Interpretation
 
-Current committed live/main evidence sets the decision to `operator_evidence_collected_needs_more_idempotency`. The dry-run import, confirmed import, final queue export, and one status-change rollup were captured, but same-key replay/conflict evidence and a successful standalone status-update response with hashed idempotency/request-hash evidence were not present.
+Current committed live/main evidence sets the decision to `operator_evidence_collected_needs_more_idempotency`. The dry-run import, confirmed import, final queue export, and one status-change rollup were captured, but import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence were not present.
 
 When archiving future JSON evidence:
 
@@ -231,4 +238,4 @@ When archiving future JSON evidence:
 - keep bounded counts, status labels, timestamps, and safety flags;
 - do not store cookies, auth headers, raw request hashes, prompts, provider bodies, private R2 keys, signed URLs, Stripe data, Cloudflare tokens, private keys, or unsafe metadata blobs.
 
-If replay/conflict evidence is missing, keep a `needs_more_idempotency` decision and do not proceed to backfill-readiness reporting as if idempotency was fully exercised.
+If replay/conflict/status-success evidence is missing, keep a `needs_more_idempotency` decision with idempotency completion status `operator_evidence_pending_manual_review_idempotency_completion` and do not proceed to backfill-readiness reporting as if idempotency was fully exercised.

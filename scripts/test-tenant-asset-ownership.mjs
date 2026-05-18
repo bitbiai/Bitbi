@@ -8,6 +8,7 @@ import {
   buildTenantAssetOwnershipDryRunReport,
   FOLDERS_IMAGES_OWNER_MAP_CLASSES,
   inspectLegacyMediaResetEvidenceTextSafety,
+  inspectManualReviewEvidenceTextSafety,
   renderFoldersImagesOwnerMapMarkdown,
   renderTenantAssetOwnershipMarkdown,
   TENANT_ASSET_OWNER_CLASSES,
@@ -318,7 +319,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -365,7 +366,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -381,7 +382,7 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
 assert.equal(
@@ -422,7 +423,7 @@ assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.productionReadiness, "blocked");
 assert.equal(
   foldersImagesReport.manualReviewQueueReadApi.recommendedNextPhase,
-  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.status, "manual_review_status_workflow_added");
 assert.equal(
@@ -445,7 +446,7 @@ assert.equal(foldersImagesReport.manualReviewStatusWorkflow.r2LiveListed, false)
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, true);
 assert.equal(
   foldersImagesReport.manualReviewStatusWorkflow.recommendedNextPhase,
-  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"
 );
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.status, "manual_review_status_operator_evidence_added");
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.adminVisibilityAdded, true);
@@ -460,7 +461,7 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.accessChecks
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidence.recommendedNextPhase,
-  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"
 );
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.status,
@@ -473,6 +474,18 @@ assert.equal(
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.template,
   "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md"
+);
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyCompletionRunbook,
+  "docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_RUNBOOK.md"
+);
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyCompletionTemplate,
+  "docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md"
+);
+assert.equal(
+  foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyCompletionStatus,
+  "operator_evidence_pending_manual_review_idempotency_completion"
 );
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.decisionFile,
@@ -494,7 +507,35 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.st
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyEvidenceFound, true);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyHashEvidenceFound, true);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.idempotencyReplayOrConflictEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.importReplayEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.importConflictEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.statusReplayEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.statusConflictEvidenceFound, false);
+assert.deepEqual(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.missingEvidence, [
+  "import same-key/same-request replay evidence",
+  "import same-key/different-request conflict evidence",
+  "successful standalone status-update response evidence",
+  "status-update same-key/same-request replay evidence",
+  "status-update same-key/different-request conflict evidence",
+]);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.unsafeEvidenceFound, false);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.unsafeRawIdempotencyEvidenceFound, false);
+assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.rawRequestHashEvidenceFound, false);
+assert.deepEqual(inspectManualReviewEvidenceTextSafety('{"idempotencyKey":"[redacted-operator-request-key]","idempotency":{"storedAs":"sha256"}}'), {
+  unsafeEvidenceFound: false,
+  rawIdempotencyKeyFound: false,
+  rawRequestHashFound: false,
+});
+assert.deepEqual(inspectManualReviewEvidenceTextSafety('{"idempotencyKey":"raw-operator-key-123456789"}'), {
+  unsafeEvidenceFound: true,
+  rawIdempotencyKeyFound: true,
+  rawRequestHashFound: false,
+});
+assert.deepEqual(inspectManualReviewEvidenceTextSafety('{"requestHash":"0123456789abcdef0123456789abcdef"}'), {
+  unsafeEvidenceFound: true,
+  rawIdempotencyKeyFound: false,
+  rawRequestHashFound: true,
+});
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.ownershipBackfillPerformed, false);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.accessChecksChanged, false);
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.sourceAssetRowsMutated, false);
@@ -503,7 +544,7 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.re
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.recommendedNextPhase,
-  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"
 );
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.status, "legacy_media_reset_dry_run_added");
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.endpoint, "/api/admin/tenant-assets/legacy-media-reset/dry-run");
@@ -645,7 +686,7 @@ assert.equal(
   foldersImagesReport.legacyMediaResetOperatorDryRunEvidence.recommendedNextPhase,
   "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence");
+assert.equal(foldersImagesReport.recommendedNextPhase, "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -1174,6 +1215,10 @@ assert(focusedMarkdown.includes("manual_review_status_operator_evidence_added"))
 assert(focusedMarkdown.includes("admin/index.html#operations"));
 assert(focusedMarkdown.includes("Manual Review Status Operator Evidence Collection"));
 assert(focusedMarkdown.includes("operator_evidence_collected_needs_more_idempotency"));
+assert(focusedMarkdown.includes("operator_evidence_pending_manual_review_idempotency_completion"));
+assert(focusedMarkdown.includes("MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md"));
+assert(focusedMarkdown.includes("import same-key/same-request replay evidence"));
+assert(focusedMarkdown.includes("OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence"));
 assert(focusedMarkdown.includes("OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence"));
 assert(focusedMarkdown.includes("Legacy Media Reset Dry Run"));
 assert(focusedMarkdown.includes("legacy_media_reset_dry_run_added"));

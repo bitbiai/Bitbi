@@ -59,7 +59,7 @@ Remote migration `0058_add_legacy_media_reset_actions.sql` is also current relea
 
 ## Next Audit Questions
 
-- Is status-update replay/conflict evidence complete?
+- Is import/status replay-conflict evidence and successful standalone status-update evidence complete?
 - Are any reviewed rows eligible for non-destructive backfill planning?
 - Are public/gallery and derivative-risk decisions sufficiently documented?
 - Are access-check changes still blocked by unresolved old rows?

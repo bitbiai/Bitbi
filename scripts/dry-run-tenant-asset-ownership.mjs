@@ -24,6 +24,8 @@ const NEXT_WORK_LEGACY_RESET_CONFIRMATION_PLAN =
   "OMEGA follow-up — Confirmed Legacy Media Reset Execution Plan";
 const NEXT_WORK_LEGACY_RESET_OPERATOR_DRY_RUN =
   "OMEGA follow-up — Operator Runs Legacy Media Reset Dry-run";
+const NEXT_WORK_MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE =
+  "OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence";
 
 const FOLDERS_IMAGES_OWNERSHIP_MIGRATION =
   "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql";
@@ -898,6 +900,31 @@ function listManualReviewOperatorEvidenceFiles(repoRoot) {
     .sort();
 }
 
+function isRedactedEvidencePlaceholder(value) {
+  const text = String(value || "").trim();
+  return /^\[(?:redacted|placeholder|omitted)[^\]]*\]$/i.test(text)
+    || /^<(?:redacted|placeholder|omitted)[^>]*>$/i.test(text);
+}
+
+export function inspectManualReviewEvidenceTextSafety(text) {
+  const sourceText = String(text || "");
+  const rawIdempotencyKeyFound = Array.from(
+    sourceText.matchAll(/"(?:idempotencyKey|idempotency_key|Idempotency-Key)"\s*:\s*"([^"]+)"/gi)
+  ).some((match) => !isRedactedEvidencePlaceholder(match[1]))
+    || /\bIdempotency-Key:\s*(?!\[redacted|<redacted|\[placeholder|<placeholder|\[omitted|<omitted)[A-Za-z0-9._~:/+=-]{8,}/i.test(sourceText);
+  const rawRequestHashFound = /"(?:requestHash|request_hash|requestFingerprint|request_fingerprint|normalizedRequestHash|normalized_request_hash)"\s*:\s*"[a-f0-9]{16,}"/i.test(sourceText);
+  const unsafeEvidenceFound = /(?:cookie|authorization|bearer|stripe[_-]?(?:data|token|secret|api[_-]?key|signature|customer|session)|cloudflare[_-]?(?:token|secret|api[_-]?key)|private[_-]?key|signedUrl|signed_url|provider(?:Request|Response)|rawPrompt|raw_prompt|session(?:Id|Value)?)/i.test(sourceText)
+    || rawIdempotencyKeyFound
+    || rawRequestHashFound
+    || /users\/[^"\s]+\/(?:folders|derivatives|video-jobs|tmp\/ai-generated)\//i.test(sourceText);
+
+  return {
+    unsafeEvidenceFound,
+    rawIdempotencyKeyFound,
+    rawRequestHashFound,
+  };
+}
+
 function buildManualReviewOperatorEvidenceMetadata(repoRoot, files) {
   const entries = files.map((file) => ({
     file,
@@ -905,7 +932,10 @@ function buildManualReviewOperatorEvidenceMetadata(repoRoot, files) {
   }));
   const includesText = (pattern) => entries.some((entry) => pattern.test(entry.text));
   const includesFile = (pattern) => files.some((file) => pattern.test(file));
-  const unsafeRawIdempotencyEvidenceFound = includesText(/"idempotencyKey"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/i);
+  const evidenceSafetyFindings = entries.map((entry) => inspectManualReviewEvidenceTextSafety(entry.text));
+  const unsafeEvidenceFound = evidenceSafetyFindings.some((finding) => finding.unsafeEvidenceFound);
+  const unsafeRawIdempotencyEvidenceFound = evidenceSafetyFindings.some((finding) => finding.rawIdempotencyKeyFound);
+  const rawRequestHashEvidenceFound = evidenceSafetyFindings.some((finding) => finding.rawRequestHashFound);
   const importDryRunEvidenceFound = includesFile(/import-dry-run/i);
   const confirmedImportEvidenceFound = includesFile(/import-(?:confirmed|execute|execution)/i);
   const queueEvidenceExportFound = includesFile(/(?:tenant-asset-manual-review-evidence|queue-evidence|evidence-export)/i);
@@ -919,19 +949,45 @@ function buildManualReviewOperatorEvidenceMetadata(repoRoot, files) {
     || includesText(/"idempotencyReplayEventCount"\s*:\s*[1-9][0-9]*/i)
     || includesText(/"status"\s*:\s*409|"httpStatus"\s*:\s*409/i)
     || includesText(/idempotency[^"\n]*(?:conflict|mismatch)|same[-_ ]key[^"\n]*(?:conflict|different)|request[^"\n]*hash[^"\n]*conflict/i);
+  const importReplayEvidenceFound = includesFile(/import.*(?:replay|idempotency)/i)
+    && (includesText(/"replayed"\s*:\s*true/i) || includesText(/import[^"\n]*(?:replay|same[-_ ]key)/i));
+  const importConflictEvidenceFound = includesFile(/import.*(?:conflict|idempotency)/i)
+    && (includesText(/"status"\s*:\s*409|"httpStatus"\s*:\s*409/i) || includesText(/import[^"\n]*(?:conflict|different[-_ ]request)/i));
+  const statusReplayEvidenceFound = includesFile(/status.*(?:replay|idempotency)/i)
+    && (includesText(/"replayed"\s*:\s*true/i) || includesText(/status[^"\n]*(?:replay|same[-_ ]key)/i));
+  const statusConflictEvidenceFound = includesFile(/status.*(?:conflict|idempotency)/i)
+    && (includesText(/"status"\s*:\s*409|"httpStatus"\s*:\s*409/i) || includesText(/status[^"\n]*(?:conflict|different[-_ ]request)/i));
   const idempotencyEvidenceFound = idempotencyHashEvidenceFound || idempotencyReplayOrConflictEvidenceFound || includesFile(/idempotency/i);
+  const idempotencyCompletionStatus = importReplayEvidenceFound
+    && importConflictEvidenceFound
+    && statusUpdateEndpointSuccessEvidenceFound
+    && statusReplayEvidenceFound
+    && statusConflictEvidenceFound
+      ? "manual_review_idempotency_evidence_complete"
+      : "operator_evidence_pending_manual_review_idempotency_completion";
+  const missingEvidence = [
+    ...(importReplayEvidenceFound ? [] : ["import same-key/same-request replay evidence"]),
+    ...(importConflictEvidenceFound ? [] : ["import same-key/different-request conflict evidence"]),
+    ...(statusUpdateEndpointSuccessEvidenceFound ? [] : ["successful standalone status-update response evidence"]),
+    ...(statusReplayEvidenceFound ? [] : ["status-update same-key/same-request replay evidence"]),
+    ...(statusConflictEvidenceFound ? [] : ["status-update same-key/different-request conflict evidence"]),
+  ];
 
   const completeEnoughForBlockedDecision = importDryRunEvidenceFound
     && confirmedImportEvidenceFound
     && queueEvidenceExportFound
     && statusChangedRollupFound
     && idempotencyHashEvidenceFound
-    && idempotencyReplayOrConflictEvidenceFound
-    && statusUpdateEndpointSuccessEvidenceFound;
+    && importReplayEvidenceFound
+    && importConflictEvidenceFound
+    && statusUpdateEndpointSuccessEvidenceFound
+    && statusReplayEvidenceFound
+    && statusConflictEvidenceFound
+    && !unsafeEvidenceFound;
 
   const status = files.length === 0
     ? "operator_evidence_pending"
-    : unsafeRawIdempotencyEvidenceFound
+    : unsafeEvidenceFound
       ? "operator_evidence_rejected_unsafe"
       : completeEnoughForBlockedDecision
         ? "operator_evidence_collected_blocked"
@@ -948,7 +1004,15 @@ function buildManualReviewOperatorEvidenceMetadata(repoRoot, files) {
     idempotencyEvidenceFound,
     idempotencyHashEvidenceFound,
     idempotencyReplayOrConflictEvidenceFound,
+    importReplayEvidenceFound,
+    importConflictEvidenceFound,
+    statusReplayEvidenceFound,
+    statusConflictEvidenceFound,
+    idempotencyCompletionStatus,
+    missingEvidence,
+    unsafeEvidenceFound,
     unsafeRawIdempotencyEvidenceFound,
+    rawRequestHashEvidenceFound,
   };
 }
 
@@ -1650,6 +1714,8 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const adminIndexFile = "admin/index.html";
   const manualReviewStatusOperatorEvidenceRunbookFile = "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md";
   const manualReviewStatusOperatorEvidenceTemplateFile = "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md";
+  const manualReviewIdempotencyEvidenceRunbookFile = "docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_RUNBOOK.md";
+  const manualReviewIdempotencyEvidenceTemplateFile = "docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md";
   const manualReviewStatusOperatorEvidenceDecisionFile = "docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md";
   const manualReviewStateSchemaDesignFile = "docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md";
   const manualReviewStateSchemaMigrationFile = "workers/auth/migrations/0057_add_ai_asset_manual_review_state.sql";
@@ -1676,6 +1742,8 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const manualReviewStatusOperatorEvidenceRunbookAdded = fileExists(repoRoot, manualReviewStatusOperatorEvidenceRunbookFile)
     && fileExists(repoRoot, manualReviewStatusOperatorEvidenceTemplateFile)
     && fileExists(repoRoot, manualReviewStatusOperatorEvidenceDecisionFile);
+  const manualReviewIdempotencyEvidenceDocsAdded = fileExists(repoRoot, manualReviewIdempotencyEvidenceRunbookFile)
+    && fileExists(repoRoot, manualReviewIdempotencyEvidenceTemplateFile);
   const manualReviewWorkflowDesigned = fileExists(repoRoot, manualReviewWorkflowFile)
     && fileExists(repoRoot, manualReviewPlanFile)
     && fileExists(repoRoot, manualReviewPlannerScript);
@@ -1727,7 +1795,11 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       ? "operator_evidence_pending"
       : "not_recorded";
   const manualReviewOperatorEvidenceNextPhase = manualReviewOperatorEvidenceFilesFound
-    ? legacyMediaResetDryRunAdded
+    ? manualReviewOperatorEvidenceStatus === "operator_evidence_collected_needs_more_idempotency"
+      ? NEXT_WORK_MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE
+      : manualReviewOperatorEvidenceStatus === "operator_evidence_rejected_unsafe"
+      ? NEXT_WORK_MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE
+      : legacyMediaResetDryRunAdded
       ? legacyMediaResetExecutorAdded
         ? legacyMediaResetOperatorDryRunNextPhase
         : legacyMediaResetExecutorDesigned
@@ -2224,6 +2296,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       status: manualReviewOperatorEvidenceStatus,
       runbook: manualReviewStatusOperatorEvidenceRunbookAdded ? manualReviewStatusOperatorEvidenceRunbookFile : null,
       template: manualReviewStatusOperatorEvidenceRunbookAdded ? manualReviewStatusOperatorEvidenceTemplateFile : null,
+      idempotencyCompletionRunbook: manualReviewIdempotencyEvidenceDocsAdded ? manualReviewIdempotencyEvidenceRunbookFile : null,
+      idempotencyCompletionTemplate: manualReviewIdempotencyEvidenceDocsAdded ? manualReviewIdempotencyEvidenceTemplateFile : null,
+      idempotencyCompletionStatus: manualReviewOperatorEvidenceMetadata.idempotencyCompletionStatus,
       decisionFile: fileExists(repoRoot, manualReviewStatusOperatorEvidenceDecisionFile)
         ? manualReviewStatusOperatorEvidenceDecisionFile
         : null,
@@ -2238,7 +2313,14 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       idempotencyEvidenceFound: manualReviewOperatorEvidenceMetadata.idempotencyEvidenceFound,
       idempotencyHashEvidenceFound: manualReviewOperatorEvidenceMetadata.idempotencyHashEvidenceFound,
       idempotencyReplayOrConflictEvidenceFound: manualReviewOperatorEvidenceMetadata.idempotencyReplayOrConflictEvidenceFound,
+      importReplayEvidenceFound: manualReviewOperatorEvidenceMetadata.importReplayEvidenceFound,
+      importConflictEvidenceFound: manualReviewOperatorEvidenceMetadata.importConflictEvidenceFound,
+      statusReplayEvidenceFound: manualReviewOperatorEvidenceMetadata.statusReplayEvidenceFound,
+      statusConflictEvidenceFound: manualReviewOperatorEvidenceMetadata.statusConflictEvidenceFound,
+      missingEvidence: manualReviewOperatorEvidenceMetadata.missingEvidence,
+      unsafeEvidenceFound: manualReviewOperatorEvidenceMetadata.unsafeEvidenceFound,
       unsafeRawIdempotencyEvidenceFound: manualReviewOperatorEvidenceMetadata.unsafeRawIdempotencyEvidenceFound,
+      rawRequestHashEvidenceFound: manualReviewOperatorEvidenceMetadata.rawRequestHashEvidenceFound,
       accessSwitchReady: false,
       backfillReady: false,
       tenantIsolationClaimed: false,
@@ -2504,7 +2586,11 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       "Legacy media reset reporting is D1-only and never lists or deletes live R2 objects.",
     ],
     recommendedNextPhase: writePathAssignment.status === "write_paths_assigned_for_new_rows"
-      ? legacyMediaResetDryRunAdded
+      ? manualReviewOperatorEvidenceStatus === "operator_evidence_collected_needs_more_idempotency"
+        ? manualReviewOperatorEvidenceNextPhase
+        : manualReviewOperatorEvidenceStatus === "operator_evidence_rejected_unsafe"
+        ? manualReviewOperatorEvidenceNextPhase
+        : legacyMediaResetDryRunAdded
         ? legacyMediaResetExecutorAdded
           ? legacyMediaResetOperatorDryRunNextPhase
           : legacyMediaResetExecutorDesigned
@@ -2813,6 +2899,9 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Status: ${report.manualReviewStatusOperatorEvidenceCollection?.status || "not_recorded"}`,
     `- Runbook: ${report.manualReviewStatusOperatorEvidenceCollection?.runbook || "not_recorded"}`,
     `- Template: ${report.manualReviewStatusOperatorEvidenceCollection?.template || "not_recorded"}`,
+    `- Idempotency completion runbook: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyCompletionRunbook || "not_recorded"}`,
+    `- Idempotency completion template: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyCompletionTemplate || "not_recorded"}`,
+    `- Idempotency completion status: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyCompletionStatus || "not_recorded"}`,
     `- Decision file: ${report.manualReviewStatusOperatorEvidenceCollection?.decisionFile || "not_recorded"}`,
     `- Operator evidence files found: ${report.manualReviewStatusOperatorEvidenceCollection?.operatorEvidenceFilesFound ? "yes" : "no"}`,
     `- Source evidence files: ${(report.manualReviewStatusOperatorEvidenceCollection?.sourceEvidenceFiles || []).join(", ") || "none"}`,
@@ -2822,7 +2911,15 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Status update evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusUpdateEvidenceFound ? "yes" : "no"}`,
     `- Idempotency evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyEvidenceFound ? "yes" : "no"}`,
     `- Idempotency replay/conflict evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.idempotencyReplayOrConflictEvidenceFound ? "yes" : "no"}`,
+    `- Import replay evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.importReplayEvidenceFound ? "yes" : "no"}`,
+    `- Import conflict evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.importConflictEvidenceFound ? "yes" : "no"}`,
+    `- Status replay evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusReplayEvidenceFound ? "yes" : "no"}`,
+    `- Status conflict evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusConflictEvidenceFound ? "yes" : "no"}`,
     `- Successful status endpoint response found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusUpdateEndpointSuccessEvidenceFound ? "yes" : "no"}`,
+    `- Missing evidence: ${(report.manualReviewStatusOperatorEvidenceCollection?.missingEvidence || []).join("; ") || "none"}`,
+    `- Unsafe evidence found: ${report.manualReviewStatusOperatorEvidenceCollection?.unsafeEvidenceFound ? "yes" : "no"}`,
+    `- Raw idempotency key found: ${report.manualReviewStatusOperatorEvidenceCollection?.unsafeRawIdempotencyEvidenceFound ? "yes" : "no"}`,
+    `- Raw request hash found: ${report.manualReviewStatusOperatorEvidenceCollection?.rawRequestHashEvidenceFound ? "yes" : "no"}`,
     `- Backfill ready: ${report.manualReviewStatusOperatorEvidenceCollection?.backfillReady ? "yes" : "no"}`,
     `- Access switch ready: ${report.manualReviewStatusOperatorEvidenceCollection?.accessSwitchReady ? "yes" : "no"}`,
     `- Recommended next work: ${report.manualReviewStatusOperatorEvidenceCollection?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,

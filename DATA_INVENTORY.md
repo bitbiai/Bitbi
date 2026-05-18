@@ -40,7 +40,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 ## Current Evidence State
 
 - Folder/image owner-map evidence exists and requires manual review.
-- Manual-review operator evidence exists but needs idempotency completion.
+- Manual-review operator evidence exists but still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
 - Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout.
 - Confirmed media reset/deletion has not been approved or performed.
 

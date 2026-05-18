@@ -130,7 +130,7 @@ After the current owner-map decision is reviewed, use `docs/tenant-assets/AI_FOL
 npm run tenant-assets:plan-manual-review -- --input docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md
 ```
 
-For the manual-review import/status workflow, use `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Current decision: `operator_evidence_collected_needs_more_idempotency`. Import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but same-key replay/conflict idempotency evidence and a successful standalone status-update response still need completion.
+For the manual-review import/status workflow, use `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Current decision: `operator_evidence_collected_needs_more_idempotency`; idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`. Import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence still need completion.
 
 ## Redaction Checks
 

@@ -122,6 +122,7 @@ Decision state:
 - `operator_evidence_pending`
 - `operator_evidence_collected_blocked`
 - `operator_evidence_collected_needs_more_idempotency`
+- `operator_evidence_pending_manual_review_idempotency_completion`
 - `evidence_rejected_unsafe`
 - `needs_more_operator_evidence`
 
@@ -147,8 +148,10 @@ Confirm this evidence package contains none of the following:
 
 ## Current Collection Notes
 
-If the evidence package contains dry-run import, confirmed import, and queue export evidence but does not include same-key replay/conflict proof, record the decision as `operator_evidence_collected_needs_more_idempotency`.
+If the evidence package contains dry-run import, confirmed import, and queue export evidence but does not include import replay, import conflict, successful standalone status-update response, status replay, and status conflict proof, record the decision as `operator_evidence_collected_needs_more_idempotency` with idempotency completion status `operator_evidence_pending_manual_review_idempotency_completion`.
 
 If a standalone status-update response failed but a later queue export shows `statusChangedEventsCount > 0`, record both facts explicitly. Do not infer old/new status, event metadata, or idempotency behavior that is not present in committed evidence.
 
 Before committing JSON evidence, redact any top-level operator-captured request idempotency keys. Keep only server-returned hashed/stored-as fields or redacted placeholders.
+
+For the focused completion package, use `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md`.

@@ -28,7 +28,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drill, rollback evidence, and Stripe canaries are not verified here.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.
 - Tenant isolation remains unclaimed; legacy rows are not backfilled and access checks have not switched to ownership metadata.
-- Manual-review operator evidence still needs idempotency replay/conflict completion.
+- Manual-review operator evidence still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
 - Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and confirmed reset is blocked.
 - Remaining AI budget scopes/internal provider routes are future work.
 

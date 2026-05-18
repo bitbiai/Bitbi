@@ -34,7 +34,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Live billing readiness is blocked until bounded canaries and approved remediation/accounting/legal workflows exist.
 - Tenant isolation is not claimed; existing legacy asset rows are not backfilled and access checks have not switched to ownership metadata.
 - Confirmed legacy media reset is blocked because the dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout and no sanitized replacement evidence is present.
-- Manual-review evidence still lacks complete replay/conflict and standalone successful status-update evidence.
+- Manual-review evidence still lacks import replay, import conflict, standalone successful status-update, status replay, and status conflict evidence.
 
 ## Current Deployment Requirements
 

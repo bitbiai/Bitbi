@@ -40,6 +40,8 @@ Approved/blocked statuses are operator evidence only. They do not authorize back
 
 Current manual-review operator decision: `operator_evidence_collected_needs_more_idempotency`.
 
+Idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`.
+
 Known evidence exists for:
 
 - import dry-run,
@@ -49,7 +51,7 @@ Known evidence exists for:
 
 Remaining gap:
 
-- same-key replay/conflict evidence and successful standalone status-update evidence remain incomplete.
+- import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence remain incomplete.
 
 ## Current Admin Endpoints
 

@@ -4,6 +4,8 @@ Date: 2026-05-17
 
 Status: `operator_evidence_collected_needs_more_idempotency`
 
+Idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`
+
 Decision: the Phase 6.15-6.18 manual-review workflow has real main/live operator evidence for dry-run import, confirmed import, final queue export, and one queue status-change rollup. Backfill, access-check switching, tenant isolation, production readiness, and live billing readiness remain blocked.
 
 ## Source Evidence
@@ -99,7 +101,7 @@ The final queue export records `statusChangedEventsCount: 1`, `reviewStatusesCha
 
 ## Idempotency Evidence
 
-Confirmed import records idempotency required and stored as `sha256`, with no replay. The evidence package does not include same-key/same-request replay evidence, same-key/different-request conflict evidence, or a successful status-update response with hashed idempotency/request-hash evidence.
+Confirmed import records idempotency required and stored as `sha256`, with no replay. The evidence package does not include import same-key/same-request replay evidence, import same-key/different-request conflict evidence, a successful standalone status-update response, status same-key/same-request replay evidence, or status same-key/different-request conflict evidence.
 
 ## Decision
 
@@ -107,8 +109,8 @@ The correct Phase 6.20 decision is `operator_evidence_collected_needs_more_idemp
 
 Manual-review workflow evidence is sufficient to show the review queue can be populated and exported, but it is not sufficient to approve ownership backfill, access-check switching, tenant isolation, production readiness, or live billing readiness.
 
-## Next Phase
+## Required Next Operator Action
 
-Recommended: `Phase 6.26 - Legacy Media Reset Blocker Review`, after Phase 6.25 recorded `legacy_media_reset_dry_run_rejected_unsafe` and kept the confirmation gate closed.
+Recommended: `OMEGA follow-up — Operator Provides Manual Review Idempotency Evidence`.
 
-Phase 6.21 adds legacy media reset planning only. Phase 6.22 adds executor design. Phase 6.23 adds action/event tracking and a dry-run-default executor path but Codex/tests did not execute it against live/main data. Phase 6.25 records live/main reset dry-run evidence as rejected unsafe because the evidence contains a raw idempotency key. A later idempotency-evidence completion phase may still be needed before any backfill-readiness report. All future work must still avoid backfill, access-check switching, source asset mutation outside an explicitly approved executor, ownership metadata updates, review-row mutation unless separately approved, live R2 actions, provider calls, Stripe calls, Cloudflare mutations, and billing/credit mutations.
+Use `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_RUNBOOK.md` and `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md` to collect the missing replay/conflict/status-success/readback evidence. This remains evidence-only and must still avoid backfill, access-check switching, source asset mutation, ownership metadata updates, live R2 actions, provider calls, Stripe calls, Cloudflare/GitHub mutations, reset execution, and billing/credit mutations.
