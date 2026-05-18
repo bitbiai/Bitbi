@@ -33,8 +33,7 @@ Do not claim any of the following unless current repo evidence plus operator/liv
 - Preserve the static frontend plus Cloudflare Workers architecture. Do not propose a framework rewrite unless explicitly required and technically justified.
 - Self-host first. Do not use external CDNs when local fonts, scripts, images, or assets can be self-hosted.
 - Use local assets under `fonts/`, `js/vendor/`, `assets/`, and `assets/favicons/` where possible.
-- Public/member-facing non-admin changes must keep English and German routes/pages/locales feature-equivalent.
-- Admin remains English-only unless explicitly requested.
+- All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.
 - Do not weaken auth, admin authorization, tenant ownership, private media, billing, credit, AI budget, or route-policy protections.
 - Do not silently change JSON response shapes consumed by frontend modules or tests.
 
