@@ -210,4 +210,4 @@ This runbook is read-only. There is no code or data rollback step because collec
 
 ## Current Follow-Up
 
-Use `docs/audits/NEXT_AUDIT_BASELINE.md` for the next audit start. If tenant reset work continues first, review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`; the current reset dry-run evidence is rejected unsafe because it contains a raw idempotency key.
+Use `docs/audits/NEXT_AUDIT_BASELINE.md` for the next audit start. If tenant reset work continues first, review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`; the reset dry-run evidence remains rejected unsafe because prior evidence exposed a raw idempotency key, the raw JSON is absent from the checkout, and sanitized replacement evidence is still required.

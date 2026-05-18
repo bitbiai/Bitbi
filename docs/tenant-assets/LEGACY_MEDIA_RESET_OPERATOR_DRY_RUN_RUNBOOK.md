@@ -6,7 +6,7 @@ Purpose: collect sanitized live/main dry-run evidence from the current legacy me
 
 This runbook is evidence-only. It does not authorize deletion, source row mutation, R2 cleanup, ownership backfill, access-check switching, tenant isolation, production readiness, or live billing readiness.
 
-Current state: live/main executor dry-run evidence exists at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`, but that file contains a raw idempotency key from the operator request. The decision is `legacy_media_reset_dry_run_rejected_unsafe`; the dry-run topic is not closed, and `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md` remains closed for any later confirmed reset phase.
+Current state: prior live/main executor dry-run evidence was reviewed, but the referenced raw JSON is not present in the current checkout and the prior evidence exposed a raw idempotency key. The decision is `legacy_media_reset_dry_run_rejected_unsafe`; sanitized evidence status is `pending_sanitized_evidence_required`; the dry-run topic is not closed; and `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md` remains closed for any later confirmed reset phase.
 
 ## Prerequisites
 
@@ -61,10 +61,10 @@ Do not send `dryRun: false` in the dry-run evidence phase.
 
 ## Evidence To Save
 
-Save a sanitized JSON response under `docs/tenant-assets/evidence/`, for example:
+Save a sanitized JSON or Markdown response under `docs/tenant-assets/evidence/`, for example:
 
 ```text
-docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json
+docs/tenant-assets/evidence/legacy-media-reset-dry-run-sanitized-live.json
 ```
 
 The evidence should include:
@@ -88,6 +88,8 @@ The evidence should include:
   - no billing/credit mutation
   - tenant isolation not claimed
   - production readiness blocked
+
+Use `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` as the acceptance checklist before committing any evidence file.
 
 ## Redaction Rules
 
@@ -142,3 +144,5 @@ If evidence is missing, keep `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` a
 If evidence contains a raw idempotency key or another unsafe value, classify it as `legacy_media_reset_dry_run_rejected_unsafe`, do not repeat the unsafe value in docs, and recommend legacy media reset blocker review.
 
 If evidence is complete, the decision may move to `legacy_media_reset_dry_run_collected_blocked` or `legacy_media_reset_dry_run_collected_ready_for_confirmation_review`. Neither status executes deletion; it only allows a later separate confirmation-gate review.
+
+For the current checkout, no sanitized operator/live dry-run evidence file is present. The next operator action is to collect or provide a sanitized replacement, not to enable confirmed execution.

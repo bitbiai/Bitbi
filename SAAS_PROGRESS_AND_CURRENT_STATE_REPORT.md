@@ -33,7 +33,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Production readiness is blocked until live/manual Cloudflare, Worker, D1/R2/Queue/DO, health, header, alert, restore, rollback, and Stripe evidence is recorded.
 - Live billing readiness is blocked until bounded canaries and approved remediation/accounting/legal workflows exist.
 - Tenant isolation is not claimed; existing legacy asset rows are not backfilled and access checks have not switched to ownership metadata.
-- Confirmed legacy media reset is blocked because the live dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout.
+- Confirmed legacy media reset is blocked because the dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout and no sanitized replacement evidence is present.
 - Manual-review evidence still lacks complete replay/conflict and standalone successful status-update evidence.
 
 ## Current Deployment Requirements

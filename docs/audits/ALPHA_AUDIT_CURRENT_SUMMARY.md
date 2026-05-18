@@ -29,7 +29,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.
 - Tenant isolation remains unclaimed; legacy rows are not backfilled and access checks have not switched to ownership metadata.
 - Manual-review operator evidence still needs idempotency replay/conflict completion.
-- Legacy media reset dry-run decision is rejected unsafe because the live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout and confirmed reset is blocked.
+- Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and confirmed reset is blocked.
 - Remaining AI budget scopes/internal provider routes are future work.
 
 ## Current Admin/AI/Billing State

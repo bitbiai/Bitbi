@@ -44,7 +44,7 @@ Existing `user_id` remains compatibility/access evidence, not sufficient proof o
 
 - Main folder/image owner-map evidence exists and requires manual review.
 - Manual-review operator evidence exists with decision `operator_evidence_collected_needs_more_idempotency`.
-- Legacy media reset dry-run evidence exists but is rejected unsafe because the committed live evidence contains a raw idempotency key.
+- Legacy media reset dry-run evidence remains rejected unsafe because prior live evidence exposed a raw idempotency key, the raw JSON is absent from the current checkout, and no sanitized replacement evidence is accepted.
 - Confirmed reset/deletion is not approved.
 
 ## Current Non-Goals And Blocked Claims

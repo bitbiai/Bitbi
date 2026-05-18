@@ -66,7 +66,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Reset action/event tracking and a dry-run-default executor path exist for first-pass domains only: `ai_images`, `ai_folders`, `ai_image_derivatives`, and `public_gallery_references`.
 - Confirmed reset execution is hard-disabled by default unless optional operator env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - Video, music, text assets, profile avatars, data lifecycle exports, audit archives, unknown media tables, and manual-review supersession remain deferred.
-- The reset dry-run decision references live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`; that raw JSON is not present in the current checkout, and the current decision remains `legacy_media_reset_dry_run_rejected_unsafe` because the evidence exposed a raw idempotency key.
+- The reset dry-run decision references prior live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`; that raw JSON is not present in the current checkout, no sanitized replacement is present, and the current decision remains `legacy_media_reset_dry_run_rejected_unsafe` because the evidence exposed a raw idempotency key.
 - Confirmed reset/deletion remains blocked.
 
 ## Current Production Readiness State
@@ -89,7 +89,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - Verify live deployment state for Auth Worker, Static/Pages, AI Worker, and Contact Worker.
 - Apply/verify remote auth migrations through `0058` before dependent Auth Worker deploys.
-- Replace or sanitize unsafe legacy media reset dry-run evidence before any confirmation review.
+- Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Collect production-readiness evidence with no secret exposure.
 - Keep live billing flags disabled except for explicit bounded operator canaries.

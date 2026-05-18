@@ -19,7 +19,7 @@ export const TENANT_ASSET_OWNER_CLASSES = Object.freeze([
 ]);
 
 const NEXT_WORK_LEGACY_RESET_SANITIZED_EVIDENCE =
-  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection";
+  "OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence";
 const NEXT_WORK_LEGACY_RESET_CONFIRMATION_PLAN =
   "OMEGA follow-up — Confirmed Legacy Media Reset Execution Plan";
 const NEXT_WORK_LEGACY_RESET_OPERATOR_DRY_RUN =
@@ -980,6 +980,19 @@ function listLegacyMediaResetOperatorDryRunEvidenceFiles(repoRoot) {
     .sort();
 }
 
+export function inspectLegacyMediaResetEvidenceTextSafety(text) {
+  const rawIdempotencyKeyFound = /"(?:idempotencyKey|idempotency_key|Idempotency-Key)"\s*:\s*"[^"<>\s][^"]*"/i.test(text)
+    || /\bIdempotency-Key:\s*(?!<)[A-Za-z0-9._~+/=-]{8,}/i.test(text);
+  const unsafeEvidenceFound = /(?:cookie|authorization|bearer|stripe[_-]?(?:data|token|secret|api[_-]?key|signature|customer|session)|cloudflare[_-]?(?:token|secret|api[_-]?key)|private[_-]?key|signedUrl|signed_url|provider(?:Request|Response)|rawPrompt|raw_prompt)/i.test(text)
+    || rawIdempotencyKeyFound
+    || /users\/[^"\s]+\/(?:folders|derivatives|video-jobs|tmp\/ai-generated)\//i.test(text);
+
+  return {
+    unsafeEvidenceFound,
+    rawIdempotencyKeyFound,
+  };
+}
+
 function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
   const entries = files.map((file) => ({
     file,
@@ -997,9 +1010,9 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
   const decisionRejectedUnsafe = /legacy_media_reset_dry_run_rejected_unsafe/.test(currentDecisionText);
   const decisionCollectedBlocked = /legacy_media_reset_dry_run_collected_blocked/.test(currentDecisionText);
   const decisionReadyForConfirmation = /legacy_media_reset_dry_run_collected_ready_for_confirmation_review/.test(currentDecisionText);
-  const unsafeEvidenceFound = includesText(/(?:cookie|authorization|bearer|stripe[_-]?(?:data|token|secret|api[_-]?key|signature|customer|session)|cloudflare[_-]?(?:token|secret|api[_-]?key)|private[_-]?key|signedUrl|signed_url|provider(?:Request|Response)|rawPrompt|raw_prompt)/i)
-    || includesText(/"idempotencyKey"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/i)
-    || includesText(/users\/[^"\s]+\/(?:folders|derivatives|video-jobs|tmp\/ai-generated)\//i)
+  const evidenceSafetyFindings = entries.map((entry) => inspectLegacyMediaResetEvidenceTextSafety(entry.text));
+  const rawIdempotencyKeyFound = evidenceSafetyFindings.some((finding) => finding.rawIdempotencyKeyFound);
+  const unsafeEvidenceFound = evidenceSafetyFindings.some((finding) => finding.unsafeEvidenceFound)
     || decisionRejectedUnsafe;
   const dryRunEvidenceFound = includesText(/"dryRun"\s*:\s*true/i)
     || includesText(/\bdryRun:\s*true\b/i)
@@ -1099,6 +1112,7 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
     deferredDomainsRecorded,
     safetyFlagsFound,
     unsafeEvidenceFound,
+    rawIdempotencyKeyFound,
     recommendedNextPhase,
   };
 }
@@ -1646,6 +1660,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const legacyMediaResetActionMigrationFile = "workers/auth/migrations/0058_add_legacy_media_reset_actions.sql";
   const legacyMediaResetOperatorDryRunRunbookFile = "docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_RUNBOOK.md";
   const legacyMediaResetOperatorDryRunTemplateFile = "docs/tenant-assets/LEGACY_MEDIA_RESET_OPERATOR_DRY_RUN_TEMPLATE.md";
+  const legacyMediaResetSanitizedDryRunTemplateFile = "docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md";
   const legacyMediaResetOperatorDryRunDecisionFile = "docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md";
   const legacyMediaResetConfirmationGateChecklistFile = "docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md";
   const tenantAssetsAdminRouteFile = "workers/auth/src/routes/admin-tenant-assets.js";
@@ -1691,6 +1706,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const legacyMediaResetOperatorDryRunEvidenceDocsAdded = fileExists(repoRoot, legacyMediaResetOperatorDryRunRunbookFile)
     && fileExists(repoRoot, legacyMediaResetOperatorDryRunTemplateFile)
     && fileExists(repoRoot, legacyMediaResetOperatorDryRunDecisionFile);
+  const legacyMediaResetSanitizedDryRunTemplateAdded = fileExists(repoRoot, legacyMediaResetSanitizedDryRunTemplateFile);
   const legacyMediaResetConfirmationGateAdded = fileExists(repoRoot, legacyMediaResetConfirmationGateChecklistFile);
   const legacyMediaResetOperatorDryRunEvidenceFiles = listLegacyMediaResetOperatorDryRunEvidenceFiles(repoRoot);
   const legacyMediaResetOperatorDryRunEvidenceMetadata = buildLegacyMediaResetOperatorDryRunEvidenceMetadata(
@@ -2401,6 +2417,14 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       dryRunTopicClosed: legacyMediaResetOperatorDryRunEvidenceMetadata.dryRunTopicClosed,
       runbook: legacyMediaResetOperatorDryRunEvidenceDocsAdded ? legacyMediaResetOperatorDryRunRunbookFile : null,
       template: legacyMediaResetOperatorDryRunEvidenceDocsAdded ? legacyMediaResetOperatorDryRunTemplateFile : null,
+      sanitizedEvidenceTemplate: legacyMediaResetSanitizedDryRunTemplateAdded
+        ? legacyMediaResetSanitizedDryRunTemplateFile
+        : null,
+      sanitizedEvidenceStatus: legacyMediaResetOperatorDryRunEvidenceMetadata.decisionStatus === "legacy_media_reset_dry_run_rejected_unsafe"
+        ? "pending_sanitized_evidence_required"
+        : legacyMediaResetOperatorDryRunEvidenceMetadata.dryRunTopicClosed
+          ? "sanitized_evidence_reviewed"
+          : "pending_sanitized_evidence_required",
       decisionFile: legacyMediaResetOperatorDryRunEvidenceDocsAdded ? legacyMediaResetOperatorDryRunDecisionFile : null,
       confirmationGateChecklist: legacyMediaResetConfirmationGateAdded ? legacyMediaResetConfirmationGateChecklistFile : null,
       confirmationGateAdded: legacyMediaResetConfirmationGateAdded,
@@ -2416,6 +2440,9 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       deferredDomainsRecorded: legacyMediaResetOperatorDryRunEvidenceMetadata.deferredDomainsRecorded,
       safetyFlagsFound: legacyMediaResetOperatorDryRunEvidenceMetadata.safetyFlagsFound,
       unsafeEvidenceFound: legacyMediaResetOperatorDryRunEvidenceMetadata.unsafeEvidenceFound,
+      rawIdempotencyKeyFound: legacyMediaResetOperatorDryRunEvidenceMetadata.rawIdempotencyKeyFound,
+      sanitizedEvidenceAccepted: false,
+      sanitizedEvidenceMissing: legacyMediaResetOperatorDryRunEvidenceMetadata.sourceEvidenceFiles.length === 0,
       confirmedDeletionPerformed: false,
       ownershipBackfillPerformed: false,
       accessChecksChanged: false,
@@ -2852,6 +2879,8 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Dry-run topic closed: ${report.legacyMediaResetOperatorDryRunEvidence?.dryRunTopicClosed ? "yes" : "no"}`,
     `- Runbook: ${report.legacyMediaResetOperatorDryRunEvidence?.runbook || "not_recorded"}`,
     `- Template: ${report.legacyMediaResetOperatorDryRunEvidence?.template || "not_recorded"}`,
+    `- Sanitized evidence template: ${report.legacyMediaResetOperatorDryRunEvidence?.sanitizedEvidenceTemplate || "not_recorded"}`,
+    `- Sanitized evidence status: ${report.legacyMediaResetOperatorDryRunEvidence?.sanitizedEvidenceStatus || "not_recorded"}`,
     `- Decision: ${report.legacyMediaResetOperatorDryRunEvidence?.decisionFile || "not_recorded"}`,
     `- Confirmation gate checklist: ${report.legacyMediaResetOperatorDryRunEvidence?.confirmationGateChecklist || "not_recorded"}`,
     `- Operator evidence files found: ${report.legacyMediaResetOperatorDryRunEvidence?.operatorEvidenceFilesFound ? "yes" : "no"}`,
@@ -2863,6 +2892,9 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Deferred domains recorded: ${report.legacyMediaResetOperatorDryRunEvidence?.deferredDomainsRecorded ? "yes" : "no"}`,
     `- Confirmed deletion performed: ${report.legacyMediaResetOperatorDryRunEvidence?.confirmedDeletionPerformed ? "yes" : "no"}`,
     `- Unsafe evidence found: ${report.legacyMediaResetOperatorDryRunEvidence?.unsafeEvidenceFound ? "yes" : "no"}`,
+    `- Raw idempotency key found in committed candidate evidence: ${report.legacyMediaResetOperatorDryRunEvidence?.rawIdempotencyKeyFound ? "yes" : "no"}`,
+    `- Sanitized evidence accepted: ${report.legacyMediaResetOperatorDryRunEvidence?.sanitizedEvidenceAccepted ? "yes" : "no"}`,
+    `- Sanitized evidence missing: ${report.legacyMediaResetOperatorDryRunEvidence?.sanitizedEvidenceMissing ? "yes" : "no"}`,
     `- Recommended next work: ${report.legacyMediaResetOperatorDryRunEvidence?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Safety",

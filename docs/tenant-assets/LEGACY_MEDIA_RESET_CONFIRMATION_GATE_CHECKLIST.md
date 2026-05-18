@@ -4,13 +4,14 @@ Date: 2026-05-18
 
 Purpose: define the evidence gate that must pass before any later confirmed legacy media reset execution phase can be proposed.
 
-This checklist does not authorize deletion. Confirmed reset execution must be a separate explicitly approved phase. Current live/main executor dry-run evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json` contains a raw idempotency key and is rejected as unsafe for confirmation-gate purposes. The gate remains closed.
+This checklist does not authorize deletion. Confirmed reset execution must be a separate explicitly approved phase. Prior live/main executor dry-run evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json` contained a raw idempotency key, the raw JSON is absent from the current checkout, and no sanitized replacement is accepted. The gate remains closed.
 
 Runtime safety note: confirmed execution is also hard-disabled by default in the Auth Worker unless optional env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly `true` or boolean `true`. Absence of the gate is the expected safe posture and must not block normal dry-run/reporting use.
 
 ## Required Evidence
 
 - Sanitized live/main executor dry-run JSON or Markdown evidence from `POST /api/admin/tenant-assets/legacy-media-reset/execute`.
+- Evidence package follows `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md`.
 - Decision status in `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` updated from `legacy_media_reset_dry_run_rejected_unsafe` to either `legacy_media_reset_dry_run_collected_blocked` or `legacy_media_reset_dry_run_collected_ready_for_confirmation_review` after a sanitized replacement or evidence-safety review.
 - Evidence shows `dryRun: true` and no confirmed execution/deletion.
 - Evidence records selected domains, allowed/deferred domains, planned candidate counts, public/gallery findings, derivative/R2 key-type counts if available, and storage/quota findings if available.

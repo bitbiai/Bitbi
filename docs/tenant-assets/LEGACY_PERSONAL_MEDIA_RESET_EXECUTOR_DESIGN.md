@@ -65,7 +65,7 @@ A future confirmed execution phase must require:
 - no-credit-refund acknowledgement,
 - before and after evidence exports.
 
-The current evidence fails the gate because it contains a raw idempotency key.
+The current evidence fails the gate because prior evidence contained a raw idempotency key, the raw JSON is absent from the current checkout, and no sanitized replacement evidence package is accepted. Use `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 
 ## Current Safety Model
 

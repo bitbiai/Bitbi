@@ -49,9 +49,13 @@ Deferred domains:
 
 ## Current Evidence Decision
 
-The reset dry-run decision references live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`. The raw JSON is not present in the current checkout, and the decision remains rejected unsafe because the evidence exposed a raw idempotency key.
+The reset dry-run decision references prior live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`. The raw JSON is not present in the current checkout, no sanitized replacement is present, and the decision remains rejected unsafe because the evidence exposed a raw idempotency key.
 
 Current decision: `legacy_media_reset_dry_run_rejected_unsafe`.
+
+Sanitized evidence status: `pending_sanitized_evidence_required`.
+
+Operator template: `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md`.
 
 The dry-run topic is not closed, and the confirmation gate remains closed.
 

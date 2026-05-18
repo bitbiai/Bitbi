@@ -34,7 +34,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Existing legacy `ai_folders`/`ai_images` rows remain mixed/null/unclassified; access checks still use existing runtime behavior.
 - Ownership backfill, access-switching, tenant isolation, and confirmed reset/deletion remain blocked.
 - Manual-review evidence still needs idempotency replay/conflict completion.
-- Legacy media reset dry-run decision is rejected unsafe because the live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout and the confirmation gate remains closed.
+- Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and the confirmation gate remains closed.
 - Cloudflare WAF/static headers/RUM/alerts, secrets, bindings, restore drill, rollback evidence, and Stripe/live billing canaries still require operator evidence.
 
 ## Read First
@@ -77,7 +77,7 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 Recommended next audit entry point: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
 
-If continuing tenant reset work first, review the unsafe dry-run evidence blocker before any confirmation-review or destructive reset planning.
+If continuing tenant reset work first, collect a sanitized dry-run evidence package with `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation-review or destructive reset planning.
 
 ## Documentation Rule
 

@@ -25,6 +25,7 @@ Request mode:
 - `dryRun`: `true`
 - `execute`: `false`
 - `Idempotency-Key` used: yes/no, value not recorded
+- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` enabled: no/not relevant for dry-run
 
 Selected domains:
 
@@ -77,12 +78,14 @@ Safety confirmations:
 | Safety flag | Confirmed |
 | --- | --- |
 | No confirmed deletion |  |
+| No media rows deleted |  |
 | No ownership backfill |  |
 | No access switch |  |
 | No source asset row update |  |
 | No ownership metadata update |  |
 | No review row mutation |  |
 | No reset action mutation beyond dry-run behavior |  |
+| No live R2 listing |  |
 | No R2 listing/mutation |  |
 | No provider call |  |
 | No Stripe call |  |
@@ -90,6 +93,8 @@ Safety confirmations:
 | No credit/billing mutation |  |
 | Tenant isolation not claimed |  |
 | Production readiness blocked |  |
+| Live billing readiness blocked |  |
+| Confirmed reset readiness blocked |  |
 
 Decision:
 
@@ -113,4 +118,5 @@ Notes:
 
 - This template does not authorize confirmed deletion.
 - Do not record raw idempotency keys, private R2 keys, cookies/auth headers, signed URLs, provider bodies, Stripe data, Cloudflare tokens, private keys, or unsafe metadata.
+- Use `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` for the stricter acceptance checklist before committing evidence.
 - Keep no-backfill, no-access-switch, no-source-mutation, no-R2-mutation, tenant-isolation-not-claimed, and production-readiness-blocked safety flags explicit.

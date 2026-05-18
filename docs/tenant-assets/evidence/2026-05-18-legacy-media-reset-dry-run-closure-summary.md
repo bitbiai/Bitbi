@@ -4,6 +4,8 @@ Date: 2026-05-18
 
 Decision status: `legacy_media_reset_dry_run_rejected_unsafe`
 
+Sanitized evidence status: `pending_sanitized_evidence_required`
+
 Source evidence:
 
 - `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`
@@ -14,7 +16,7 @@ Phase 6.25 found real operator-provided live/main legacy media reset executor dr
 
 The dry-run topic is not closed because the evidence file contains a raw top-level idempotency key from the operator request. The key is not repeated here. Confirmed reset execution remains blocked.
 
-DOC-2 current-state note: the raw JSON file cited below is not present in the current checkout. This closure summary is retained as the decision summary, and future work must restore a safe/sanitized export or explicitly review the missing raw evidence before any confirmation phase.
+P0-03 current-state note: the raw JSON file cited below is not present in the current checkout, and no replacement sanitized operator/live dry-run JSON or Markdown evidence file was found. This closure summary is retained as historical context only; it is not accepted sanitized evidence.
 
 ## Dry-run Result
 
@@ -109,8 +111,11 @@ The response does not include explicit `sourceAssetRowsMutated: false` or `owner
 
 ## Blockers
 
-- Evidence contains a raw idempotency key and is rejected as unsafe.
+- No accepted sanitized operator/live dry-run evidence package is present.
+- Prior evidence exposed a raw idempotency key and is rejected as unsafe.
+- The raw JSON is absent from the current checkout and cannot be revalidated.
 - Confirmed reset execution is not approved.
+- Confirmed execution remains hard-disabled by default behind `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION`.
 - Public content removal acknowledgement is still required.
 - Irreversible deletion acknowledgement is still required.
 - No-credit-refund acknowledgement is still required.
@@ -123,4 +128,4 @@ The response does not include explicit `sourceAssetRowsMutated: false` or `owner
 
 `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md` remains the gate for any later confirmed reset phase. This summary does not authorize deletion.
 
-Recommended next phase: `Phase 6.26 — Legacy Media Reset Blocker Review`.
+Recommended next work: `OMEGA follow-up — Operator Provides Sanitized Legacy Reset Dry-run Evidence`.

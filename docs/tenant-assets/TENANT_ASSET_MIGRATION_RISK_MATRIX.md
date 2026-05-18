@@ -17,7 +17,7 @@ Purpose: current risk register for tenant asset ownership and legacy media reset
 | R2 key inference is unsafe | High | Keys often encode users, not organizations. | Never list or delete by broad prefix; use D1-known bounded keys only. |
 | Lifecycle/export/delete is user-subject centered | High | Org subject lifecycle is deferred. | Design org lifecycle separately before tenant-isolation claims. |
 | Storage quota is user-centered | High | Current quota accounting is per user. | Verify/recalculate quota after any future approved reset. |
-| Reset dry-run evidence is unsafe | High | Live dry-run evidence contains a raw idempotency key. | Sanitize/recollect evidence before confirmation review. |
+| Reset dry-run evidence is unsafe | High | Prior live dry-run evidence exposed a raw idempotency key, the raw file is absent from the checkout, and no sanitized replacement is accepted. | Provide sanitized dry-run evidence before confirmation review. |
 | Deferred media domains | High | Video, music, text, profile, lifecycle export, audit archive domains are not first-pass reset domains. | Expand coverage separately before touching those domains. |
 
 ## Current Allowed Evidence Uses

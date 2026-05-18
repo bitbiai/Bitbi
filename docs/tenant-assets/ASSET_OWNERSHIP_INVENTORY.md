@@ -42,7 +42,7 @@ These counts are evidence for manual review, not approval for backfill or access
 
 ## Current Reset Dry-run Evidence
 
-The committed legacy media reset dry-run evidence records a dry-run response for selected first-pass domains, but the evidence file is rejected unsafe because it contains a raw idempotency key. The confirmation gate remains closed.
+The legacy media reset dry-run decision records historical summary counts for selected first-pass domains, but the prior raw evidence is absent from the current checkout and remains rejected unsafe because it exposed a raw idempotency key. No sanitized replacement evidence is accepted, so the confirmation gate remains closed.
 
 Current dry-run summary from the evidence decision:
 
