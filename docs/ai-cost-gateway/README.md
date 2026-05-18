@@ -2,7 +2,7 @@
 
 Date: 2026-05-17
 
-Status: current index for AI cost controls. Detailed phase history belongs in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` and historical phase reports, not here.
+Status: current index for AI cost controls. Detailed phase history belongs in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` and archived audit reports, not here.
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
@@ -16,7 +16,7 @@ Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 - Admin Image branches are classified: charged, explicit unmetered, or blocked before provider execution.
 - Admin Text, Embeddings, Music, Compare, Live-Agent, and Admin async video jobs are covered by scoped admin/platform budget metadata, caller-policy propagation where applicable, durable metadata-only idempotency where applicable, runtime budget switches, D1 app switches, and the first `platform_admin_lab_budget` cap foundation.
 - OpenClaw/News Pulse visuals have `openclaw_news_pulse_budget` metadata/status controls and runtime switch enforcement; live cap enforcement for that scope remains future work.
-- Phase 4.18 through 4.21 add read-only reconciliation, explicit admin-approved repair, repair report/export, and sanitized evidence archives for `platform_admin_lab_budget`.
+- `platform_admin_lab_budget` has read-only reconciliation, explicit admin-approved repair for narrow safe candidates, repair report/export, and sanitized evidence archives.
 
 ## Still Not Complete
 

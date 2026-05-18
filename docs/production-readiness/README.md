@@ -57,7 +57,7 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Live/manual Cloudflare validation is not recorded in repo.
 - Live billing canaries and remediation/legal/accounting workflows remain incomplete.
 - Tenant ownership backfill and access-switch readiness are blocked.
-- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided.
+- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - Production readiness cannot be claimed from local tests alone.
 
 ## Safe Validation Commands

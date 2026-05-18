@@ -110,6 +110,33 @@ const STALE_LATEST_PATTERNS = Object.freeze([
   },
 ]);
 
+const ACTIVE_GUIDANCE_DOC_RULES = Object.freeze([
+  {
+    file: "CLAUDE.md",
+    requiredText: [
+      "Cloudflare Workers",
+      "config/release-compat.json",
+      "docs/audits/NEXT_AUDIT_BASELINE.md",
+      "Production readiness remains BLOCKED",
+      "Live billing readiness remains BLOCKED",
+      "Tenant isolation remains NOT CLAIMED",
+      "English and German",
+    ],
+    forbiddenPatterns: [
+      {
+        id: "root-claude-static-portfolio",
+        regex: /\bstatic portfolio website\b/i,
+        message: "Root CLAUDE.md must describe the current Cloudflare-native SaaS/product architecture, not the old static portfolio snapshot.",
+      },
+      {
+        id: "root-claude-stale-admin-mfa-migration",
+        regex: /\b0027_add_admin_mfa\b/i,
+        message: "Root CLAUDE.md must not carry the old auth migration dependency list as current deploy truth.",
+      },
+    ],
+  },
+]);
+
 function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
@@ -191,6 +218,42 @@ function safeExcerpt(line) {
   return cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
 }
 
+function scanActiveGuidanceDocs(repoRoot, violations, scannedDocs) {
+  for (const rule of ACTIVE_GUIDANCE_DOC_RULES) {
+    const relativePath = normalizePathname(rule.file);
+    const absolutePath = path.join(repoRoot, relativePath);
+    if (!fs.existsSync(absolutePath)) continue;
+    const text = fs.readFileSync(absolutePath, "utf8");
+    if (!scannedDocs.includes(relativePath)) scannedDocs.push(relativePath);
+    const lines = text.split(/\r?\n/);
+
+    for (const required of rule.requiredText || []) {
+      if (text.includes(required)) continue;
+      violations.push({
+        type: "active-guidance-doc-missing-required-text",
+        file: relativePath,
+        line: null,
+        rule: "active-guidance-current-state",
+        message: `Active guidance doc must mention current-state marker: ${required}`,
+      });
+    }
+
+    lines.forEach((line, index) => {
+      for (const pattern of rule.forbiddenPatterns || []) {
+        if (!pattern.regex.test(line)) continue;
+        violations.push({
+          type: "active-guidance-doc-drift",
+          file: relativePath,
+          line: index + 1,
+          rule: pattern.id,
+          message: pattern.message,
+          excerpt: safeExcerpt(line),
+        });
+      }
+    });
+  }
+}
+
 export function scanDocCurrentness(repoRoot, options = {}) {
   const latest = options.latest || loadLatestAuthMigration(repoRoot);
   const currentDocs = (options.currentDocs || CURRENT_SOURCE_DOC_PATHS).map(normalizePathname);
@@ -266,6 +329,8 @@ export function scanDocCurrentness(repoRoot, options = {}) {
       }
     });
   }
+
+  scanActiveGuidanceDocs(repoRoot, violations, scannedDocs);
 
   const markdownInventory = [];
   const categoryCounts = {};

@@ -168,6 +168,64 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "CLAUDE.md", [
+    "Cloudflare Workers",
+    "config/release-compat.json",
+    "docs/audits/NEXT_AUDIT_BASELINE.md",
+    "Production readiness remains BLOCKED",
+    "Live billing readiness remains BLOCKED",
+    "Tenant isolation remains NOT CLAIMED",
+    "English and German",
+    "",
+  ].join("\n"));
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(result.categoryCounts.active_runbook_policy, 1);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "CLAUDE.md", [
+    "Bitbi is a static portfolio website.",
+    "Cloudflare Workers",
+    "config/release-compat.json",
+    "docs/audits/NEXT_AUDIT_BASELINE.md",
+    "Production readiness remains BLOCKED",
+    "Live billing readiness remains BLOCKED",
+    "Tenant isolation remains NOT CLAIMED",
+    "English and German",
+    "",
+  ].join("\n"));
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "active-guidance-doc-drift"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "CLAUDE.md", [
+    "Cloudflare Workers",
+    "config/release-compat.json",
+    "Production readiness remains BLOCKED",
+    "Live billing readiness remains BLOCKED",
+    "Tenant isolation remains NOT CLAIMED",
+    "English and German",
+    "",
+  ].join("\n"));
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "active-guidance-doc-missing-required-text"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "docs/tenant-assets/TENANT_ASSET_OWNERSHIP_DESIGN.md", "Tenant design.\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],

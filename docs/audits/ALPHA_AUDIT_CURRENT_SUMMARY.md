@@ -45,6 +45,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - New personal writes assign ownership metadata; existing rows remain mixed/null unless separately proven.
 - Manual-review item/event tables, import, queue/evidence, status update, and Admin visibility exist.
 - Reset action/event tables and a dry-run-default executor path exist for first-pass folders/images/derivatives/public references only.
+- Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - No confirmed deletion/reset, ownership backfill, access-switching, or tenant-isolation claim is approved.
 
 ## Next Recommended Step

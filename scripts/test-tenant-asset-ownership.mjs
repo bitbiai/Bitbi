@@ -317,7 +317,7 @@ assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("pending
 assert(foldersImagesReport.manualReviewWorkflow.reviewStatuses.includes("blocked_public_unsafe"));
 assert.equal(
   foldersImagesReport.manualReviewWorkflow.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.manualReviewStateSchema.status, "manual_review_state_schema_added");
 assert.equal(
@@ -364,7 +364,7 @@ assert(foldersImagesReport.manualReviewStateSchema.proposedIndexes.includes("idx
 assert(foldersImagesReport.manualReviewStateSchema.futureActions.includes("create_review_item_from_evidence"));
 assert.equal(
   foldersImagesReport.manualReviewStateSchema.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.manualReviewImportDryRun.status, "manual_review_import_dry_run_ready");
 assert.equal(
@@ -380,7 +380,7 @@ assert.equal(foldersImagesReport.manualReviewImportDryRun.backfillPerformed, fal
 assert.equal(foldersImagesReport.manualReviewImportDryRun.accessChecksChanged, false);
 assert.equal(
   foldersImagesReport.manualReviewImportDryRun.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.manualReviewImportExecutor.status, "manual_review_import_executor_added");
 assert.equal(
@@ -421,7 +421,7 @@ assert.equal(foldersImagesReport.manualReviewQueueReadApi.adminUiAdded, true);
 assert.equal(foldersImagesReport.manualReviewQueueReadApi.productionReadiness, "blocked");
 assert.equal(
   foldersImagesReport.manualReviewQueueReadApi.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.status, "manual_review_status_workflow_added");
 assert.equal(
@@ -444,7 +444,7 @@ assert.equal(foldersImagesReport.manualReviewStatusWorkflow.r2LiveListed, false)
 assert.equal(foldersImagesReport.manualReviewStatusWorkflow.adminUiAdded, true);
 assert.equal(
   foldersImagesReport.manualReviewStatusWorkflow.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.status, "manual_review_status_operator_evidence_added");
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.adminVisibilityAdded, true);
@@ -459,7 +459,7 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.accessChecks
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidence.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidence.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.status,
@@ -502,7 +502,7 @@ assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.re
 assert.equal(foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.manualReviewStatusOperatorEvidenceCollection.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.status, "legacy_media_reset_dry_run_added");
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.endpoint, "/api/admin/tenant-assets/legacy-media-reset/dry-run");
@@ -525,7 +525,7 @@ assert.equal(foldersImagesReport.legacyMediaResetDryRun.r2LiveListed, false);
 assert.equal(foldersImagesReport.legacyMediaResetDryRun.r2ObjectsMutated, false);
 assert.equal(
   foldersImagesReport.legacyMediaResetDryRun.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.status, "legacy_media_reset_executor_designed");
 assert.equal(foldersImagesReport.legacyMediaResetExecutorDesign.doc, "docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md");
@@ -542,7 +542,7 @@ assert(foldersImagesReport.legacyMediaResetExecutorDesign.deferredDomains.includ
 assert(foldersImagesReport.legacyMediaResetExecutorDesign.futureEndpointsDesigned.includes("POST /api/admin/tenant-assets/legacy-media-reset/execute"));
 assert.equal(
   foldersImagesReport.legacyMediaResetExecutorDesign.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(foldersImagesReport.legacyMediaResetExecutor.status, "legacy_media_reset_executor_added");
 assert.equal(foldersImagesReport.legacyMediaResetExecutor.helper, "workers/auth/src/lib/tenant-asset-legacy-media-reset-executor.js");
@@ -568,7 +568,7 @@ assert.equal(foldersImagesReport.legacyMediaResetExecutor.accessChecksChanged, f
 assert.equal(foldersImagesReport.legacyMediaResetExecutor.r2LiveListed, false);
 assert.equal(
   foldersImagesReport.legacyMediaResetExecutor.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
 assert.equal(
   foldersImagesReport.legacyMediaResetOperatorDryRunEvidence.status,
@@ -619,9 +619,9 @@ assert.equal(foldersImagesReport.legacyMediaResetOperatorDryRunEvidence.r2Object
 assert.equal(foldersImagesReport.legacyMediaResetOperatorDryRunEvidence.unsafeEvidenceFound, true);
 assert.equal(
   foldersImagesReport.legacyMediaResetOperatorDryRunEvidence.recommendedNextPhase,
-  "Phase 6.26 — Legacy Media Reset Blocker Review"
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"
 );
-assert.equal(foldersImagesReport.recommendedNextPhase, "Phase 6.26 — Legacy Media Reset Blocker Review");
+assert.equal(foldersImagesReport.recommendedNextPhase, "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection");
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_folders"));
 assert(foldersImagesReport.sourceEvidence.domains.some((domain) => domain.id === "ai_images"));
 assert(foldersImagesReport.sourceEvidence.routeDomains.some((domain) => domain.id === "member_asset_writes"));
@@ -1150,11 +1150,9 @@ assert(focusedMarkdown.includes("manual_review_status_operator_evidence_added"))
 assert(focusedMarkdown.includes("admin/index.html#operations"));
 assert(focusedMarkdown.includes("Manual Review Status Operator Evidence Collection"));
 assert(focusedMarkdown.includes("operator_evidence_collected_needs_more_idempotency"));
-assert(focusedMarkdown.includes("Phase 6.20"));
+assert(focusedMarkdown.includes("OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection"));
 assert(focusedMarkdown.includes("Legacy Media Reset Dry Run"));
 assert(focusedMarkdown.includes("legacy_media_reset_dry_run_added"));
-assert(focusedMarkdown.includes("Phase 6.21"));
-assert(focusedMarkdown.includes("Phase 6.22"));
 assert(focusedMarkdown.includes("Legacy Media Reset Executor Design"));
 assert(focusedMarkdown.includes("legacy_media_reset_executor_designed"));
 assert(focusedMarkdown.includes("/api/admin/tenant-assets/legacy-media-reset/execute"));
@@ -1162,7 +1160,7 @@ assert(focusedMarkdown.includes("Legacy Media Reset Executor"));
 assert(focusedMarkdown.includes("legacy_media_reset_executor_added"));
 assert(focusedMarkdown.includes("ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION"));
 assert(focusedMarkdown.includes("0058_add_legacy_media_reset_actions.sql"));
-assert(focusedMarkdown.includes("Phase 6.23"));
-assert(focusedMarkdown.includes("Phase 6.25"));
+assert(focusedMarkdown.includes("confirmed execution is hard-disabled by default"));
+assert(!focusedMarkdown.includes("Phase 6.26"));
 
 console.log("Tenant asset ownership dry-run tests passed.");

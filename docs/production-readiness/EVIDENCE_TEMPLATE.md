@@ -72,6 +72,7 @@ This template records current evidence only. It does not approve production read
 - Manual-review evidence decision:
 - Manual-review idempotency gaps:
 - Legacy media reset dry-run evidence decision:
+- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` gate state:
 - Confirmed reset approval status:
 - Access-switch readiness:
 - Ownership backfill readiness:

@@ -18,6 +18,13 @@ export const TENANT_ASSET_OWNER_CLASSES = Object.freeze([
   ...TENANT_ASSET_OWNER_TYPES,
 ]);
 
+const NEXT_WORK_LEGACY_RESET_SANITIZED_EVIDENCE =
+  "OMEGA-P0-03 — Sanitized Legacy Media Reset Dry-run Evidence Recollection";
+const NEXT_WORK_LEGACY_RESET_CONFIRMATION_PLAN =
+  "OMEGA follow-up — Confirmed Legacy Media Reset Execution Plan";
+const NEXT_WORK_LEGACY_RESET_OPERATOR_DRY_RUN =
+  "OMEGA follow-up — Operator Runs Legacy Media Reset Dry-run";
+
 const FOLDERS_IMAGES_OWNERSHIP_MIGRATION =
   "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql";
 
@@ -60,7 +67,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["missing_owning_organization_id", "public_gallery_user_attribution_only", "derivative_owner_inferred_from_parent"],
-    futurePhase: "Phase 6.26 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
+    futurePhase: "OMEGA follow-up work should collect sanitized legacy media reset executor dry-run evidence before any confirmed reset execution is considered.",
   },
   {
     id: "ai_text_assets",
@@ -120,7 +127,7 @@ const ASSET_DOMAINS = Object.freeze([
     targetClass: "personal_user_asset or organization_asset",
     risk: "high",
     findings: ["folder_user_owned_only", "folder_mixed_owner_future_risk"],
-    futurePhase: "Phase 6.26 should collect live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.",
+    futurePhase: "OMEGA follow-up work should collect sanitized legacy media reset executor dry-run evidence before any confirmed reset execution is considered.",
   },
   {
     id: "ai_video_jobs",
@@ -1069,12 +1076,12 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
       : "legacy_media_reset_operator_dry_run_pending";
 
   const recommendedNextPhase = decisionStatus === "legacy_media_reset_dry_run_collected_ready_for_confirmation_review"
-    ? "Phase 6.26 — Confirmed Legacy Media Reset Execution Plan"
+    ? NEXT_WORK_LEGACY_RESET_CONFIRMATION_PLAN
     : decisionStatus === "legacy_media_reset_dry_run_collected_blocked"
-      ? "Phase 6.26 — Legacy Media Reset Blocker Review"
+      ? NEXT_WORK_LEGACY_RESET_SANITIZED_EVIDENCE
       : decisionStatus === "legacy_media_reset_dry_run_rejected_unsafe"
-        ? "Phase 6.26 — Legacy Media Reset Blocker Review"
-        : "Phase 6.26 — Operator Runs Legacy Media Reset Dry-run";
+        ? NEXT_WORK_LEGACY_RESET_SANITIZED_EVIDENCE
+        : NEXT_WORK_LEGACY_RESET_OPERATOR_DRY_RUN;
 
   return {
     status,
@@ -1692,7 +1699,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   );
   const legacyMediaResetOperatorDryRunNextPhase = legacyMediaResetOperatorDryRunEvidenceDocsAdded
     ? legacyMediaResetOperatorDryRunEvidenceMetadata.recommendedNextPhase
-    : "Phase 6.26 — Operator Runs Legacy Media Reset Dry-run";
+    : NEXT_WORK_LEGACY_RESET_OPERATOR_DRY_RUN;
   const mainEvidenceStatus = realMainEvidenceFound
     ? "needs_manual_review"
     : evidenceDecisionReviewed || fileExists(repoRoot, evidencePendingFile)
@@ -2689,7 +2696,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Access switch decision: ${report.mainEvidencePackage?.accessSwitchDecision || "blocked"}`,
     `- Backfill decision: ${report.mainEvidencePackage?.backfillDecision || "blocked"}`,
     `- Manual review decision: ${report.mainEvidencePackage?.manualReviewDecision || "pending_real_main_evidence"}`,
-    `- Recommended next phase: ${report.mainEvidencePackage?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.mainEvidencePackage?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review Workflow",
     "",
@@ -2699,7 +2706,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Planner script: ${report.manualReviewWorkflow?.plannerScript || "not_recorded"}`,
     `- Design only: ${report.manualReviewWorkflow?.designOnly ? "yes" : "no"}`,
     `- Review execution added: ${report.manualReviewWorkflow?.reviewExecutionAdded ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.manualReviewWorkflow?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewWorkflow?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review State Schema",
     "",
@@ -2712,7 +2719,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Import dry run script: ${report.manualReviewStateSchema?.reviewItemImportDryRunScript || "not_recorded"}`,
     `- Proposed tables: ${(report.manualReviewStateSchema?.proposedTables || []).join(", ") || "none"}`,
     `- Proposed indexes: ${(report.manualReviewStateSchema?.proposedIndexes || []).join(", ") || "none"}`,
-    `- Recommended next phase: ${report.manualReviewStateSchema?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewStateSchema?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review Import Dry Run",
     "",
@@ -2724,7 +2731,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Review rows imported: ${report.manualReviewImportDryRun?.reviewRowsImported ? "yes" : "no"}`,
     `- Executable SQL emitted: ${report.manualReviewImportDryRun?.executableSqlEmitted ? "yes" : "no"}`,
     `- Dedupe key design: ${report.manualReviewImportDryRun?.dedupeKeyDesign || "not_recorded"}`,
-    `- Recommended next phase: ${report.manualReviewImportDryRun?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewImportDryRun?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review Import Executor",
     "",
@@ -2735,7 +2742,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Idempotency required: ${report.manualReviewImportExecutor?.idempotencyRequired ? "yes" : "no"}`,
     `- Writes review rows/events only: ${report.manualReviewImportExecutor?.writesReviewItemsAndEventsOnly ? "yes" : "no"}`,
     `- Source asset rows mutated: ${report.manualReviewImportExecutor?.sourceAssetRowsMutated ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.manualReviewImportExecutor?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewImportExecutor?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review Queue Read API",
     "",
@@ -2747,7 +2754,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Status updates added: ${report.manualReviewQueueReadApi?.statusUpdatesAdded ? "yes" : "no"}`,
     `- Source asset rows mutated: ${report.manualReviewQueueReadApi?.sourceAssetRowsMutated ? "yes" : "no"}`,
     `- Admin UI added: ${report.manualReviewQueueReadApi?.adminUiAdded ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.manualReviewQueueReadApi?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewQueueReadApi?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review Status Workflow",
     "",
@@ -2761,7 +2768,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Source asset rows mutated: ${report.manualReviewStatusWorkflow?.sourceAssetRowsMutated ? "yes" : "no"}`,
     `- Ownership metadata updated: ${report.manualReviewStatusWorkflow?.ownershipMetadataUpdated ? "yes" : "no"}`,
     `- Admin UI added: ${report.manualReviewStatusWorkflow?.adminUiAdded ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.manualReviewStatusWorkflow?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewStatusWorkflow?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review Status Operator Evidence",
     "",
@@ -2772,7 +2779,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Latest status timestamp included: ${report.manualReviewStatusOperatorEvidence?.evidenceIncludesLatestStatusUpdateTimestamp ? "yes" : "no"}`,
     `- Status controls review-state only: ${report.manualReviewStatusOperatorEvidence?.statusControlsReviewStateOnly ? "yes" : "no"}`,
     `- Source asset rows mutated: ${report.manualReviewStatusOperatorEvidence?.sourceAssetRowsMutated ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.manualReviewStatusOperatorEvidence?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewStatusOperatorEvidence?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Manual Review Status Operator Evidence Collection",
     "",
@@ -2791,7 +2798,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Successful status endpoint response found: ${report.manualReviewStatusOperatorEvidenceCollection?.statusUpdateEndpointSuccessEvidenceFound ? "yes" : "no"}`,
     `- Backfill ready: ${report.manualReviewStatusOperatorEvidenceCollection?.backfillReady ? "yes" : "no"}`,
     `- Access switch ready: ${report.manualReviewStatusOperatorEvidenceCollection?.accessSwitchReady ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.manualReviewStatusOperatorEvidenceCollection?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.manualReviewStatusOperatorEvidenceCollection?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Legacy Media Reset Dry Run",
     "",
@@ -2804,7 +2811,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Deletion performed: ${report.legacyMediaResetDryRun?.deletionPerformed ? "yes" : "no"}`,
     `- Review rows mutated: ${report.legacyMediaResetDryRun?.reviewRowsMutated ? "yes" : "no"}`,
     `- R2 objects mutated: ${report.legacyMediaResetDryRun?.r2ObjectsMutated ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.legacyMediaResetDryRun?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.legacyMediaResetDryRun?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Legacy Media Reset Executor Design",
     "",
@@ -2818,7 +2825,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Deferred domains: ${(report.legacyMediaResetExecutorDesign?.deferredDomains || []).join(", ") || "none"}`,
     `- Future endpoints designed: ${(report.legacyMediaResetExecutorDesign?.futureEndpointsDesigned || []).join(", ") || "none"}`,
     `- Future action tracking schema needed: ${report.legacyMediaResetExecutorDesign?.futureActionTrackingSchemaNeeded ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.legacyMediaResetExecutorDesign?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.legacyMediaResetExecutorDesign?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Legacy Media Reset Executor",
     "",
@@ -2836,7 +2843,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Manual review supersession deferred: ${report.legacyMediaResetExecutor?.manualReviewSupersessionDeferred ? "yes" : "no"}`,
     `- Live execution performed by script: ${report.legacyMediaResetExecutor?.liveExecutionPerformedByScript ? "yes" : "no"}`,
     `- Deletion performed by script: ${report.legacyMediaResetExecutor?.deletionPerformedByScript ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.legacyMediaResetExecutor?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.legacyMediaResetExecutor?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Legacy Media Reset Operator Dry-run Evidence",
     "",
@@ -2856,21 +2863,20 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `- Deferred domains recorded: ${report.legacyMediaResetOperatorDryRunEvidence?.deferredDomainsRecorded ? "yes" : "no"}`,
     `- Confirmed deletion performed: ${report.legacyMediaResetOperatorDryRunEvidence?.confirmedDeletionPerformed ? "yes" : "no"}`,
     `- Unsafe evidence found: ${report.legacyMediaResetOperatorDryRunEvidence?.unsafeEvidenceFound ? "yes" : "no"}`,
-    `- Recommended next phase: ${report.legacyMediaResetOperatorDryRunEvidence?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
+    `- Recommended next work: ${report.legacyMediaResetOperatorDryRunEvidence?.recommendedNextPhase || report.recommendedNextPhase || "not_recorded"}`,
     "",
     "## Safety",
     "",
     "- This dry-run performs no D1 writes.",
-    "- Phase 6.15 executor writes only manual-review rows/events when explicitly confirmed by an admin.",
-    "- Phase 6.16 queue/evidence endpoints are read-only and do not update review statuses.",
-    "- Phase 6.17 status workflow updates review items/events only and performs no ownership backfill.",
-    "- Phase 6.18 Admin visibility/status controls remain review-state only and perform no ownership backfill.",
-    "- Phase 6.20 operator evidence decision is collected-but-blocked until idempotency replay/conflict evidence is complete.",
-    "- Phase 6.21 legacy media reset dry-run performs D1-only inventory and no deletion, review mutation, R2 listing, or R2 mutation.",
-    "- Phase 6.22 legacy media reset executor design adds no executor, endpoint, UI, migration, deletion, source mutation, review mutation, R2 action, backfill, or access switch.",
-    "- Phase 6.23 legacy media reset executor defaults to dry-run and local scripts do not execute deletion, list live R2, backfill ownership, switch access checks, or mutate billing/credits.",
-    "- Phase 6.24 legacy media reset operator dry-run evidence docs are evidence-only and do not execute the reset, mutate D1/R2, backfill ownership, or switch access checks.",
-    "- Phase 6.25 legacy media reset dry-run closure/gate docs are evidence-only and do not execute the reset, mutate source/review/reset rows, list/mutate R2, backfill ownership, or switch access checks.",
+    "- Manual-review import writes only review rows/events when explicitly confirmed by an admin.",
+    "- Manual-review queue/evidence endpoints are read-only and do not update review statuses.",
+    "- Manual-review status workflow updates review items/events only and performs no ownership backfill.",
+    "- Admin visibility/status controls remain review-state only and perform no ownership backfill.",
+    "- Operator evidence decision is collected-but-blocked until idempotency replay/conflict evidence is complete.",
+    "- Legacy media reset dry-run performs D1-only inventory and no deletion, review mutation, R2 listing, or R2 mutation.",
+    "- Legacy media reset executor defaults to dry-run and confirmed execution is hard-disabled by default unless `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.",
+    "- Local scripts do not execute deletion, list live R2, backfill ownership, switch access checks, or mutate billing/credits.",
+    "- Legacy media reset evidence docs are evidence-only and do not execute the reset, mutate source/review/reset rows, list/mutate R2, backfill ownership, or switch access checks.",
     "- No R2 writes, moves, deletes, copies, or live listings.",
     "- No Cloudflare, Stripe, GitHub, or provider calls.",
     "- No owner backfill SQL is emitted.",
