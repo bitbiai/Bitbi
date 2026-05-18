@@ -30,12 +30,13 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: latest auth D1 migration is ${latest}.\n`);
+  writeFile(repo, "docs/audits/NEXT_AUDIT_BASELINE.md", `Latest auth D1 migration: \`${latest}\`\n`);
   writeFile(repo, "CURRENT_IMPLEMENTATION_HANDOFF.md", `Latest auth D1 migration: \`${latest}\`\n`);
   const result = scanDocCurrentness(repo, {
-    currentDocs: ["README.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
+    currentDocs: ["README.md", "docs/audits/NEXT_AUDIT_BASELINE.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
   });
   assert.deepEqual(result.violations, []);
-  assert.equal(result.categoryCounts.active_current, 2);
+  assert.equal(result.categoryCounts.active_current, 3);
 }
 
 {
@@ -78,6 +79,16 @@ function writeFile(repo, relativePath, text) {
     currentDocs: ["README.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
   });
   assert(result.violations.some((violation) => violation.type === "current-doc-too-long"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "CURRENT_IMPLEMENTATION_HANDOFF.md", `Latest auth D1 migration: ${latest}\nPhase 1 did a thing.\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "current-doc-phase-history"));
 }
 
 {

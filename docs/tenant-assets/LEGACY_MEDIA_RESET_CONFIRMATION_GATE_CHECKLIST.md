@@ -4,19 +4,20 @@ Date: 2026-05-18
 
 Purpose: define the evidence gate that must pass before any later confirmed legacy media reset execution phase can be proposed.
 
-This checklist does not authorize deletion. Confirmed reset execution must be a separate explicitly approved phase. Phase 6.25 adds this gate only because no real live/main executor dry-run evidence is committed yet, so the dry-run topic remains pending.
+This checklist does not authorize deletion. Confirmed reset execution must be a separate explicitly approved phase. Current live/main executor dry-run evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json` contains a raw idempotency key and is rejected as unsafe for confirmation-gate purposes. The gate remains closed.
 
 ## Required Evidence
 
 - Sanitized live/main executor dry-run JSON or Markdown evidence from `POST /api/admin/tenant-assets/legacy-media-reset/execute`.
-- Decision status in `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` updated from `legacy_media_reset_dry_run_pending` to either `legacy_media_reset_dry_run_collected_blocked` or `legacy_media_reset_dry_run_collected_ready_for_confirmation_review`.
+- Decision status in `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` updated from `legacy_media_reset_dry_run_rejected_unsafe` to either `legacy_media_reset_dry_run_collected_blocked` or `legacy_media_reset_dry_run_collected_ready_for_confirmation_review` after a sanitized replacement or evidence-safety review.
 - Evidence shows `dryRun: true` and no confirmed execution/deletion.
 - Evidence records selected domains, allowed/deferred domains, planned candidate counts, public/gallery findings, derivative/R2 key-type counts if available, and storage/quota findings if available.
 - Evidence includes safety flags showing no ownership backfill, no access switch, no source row update, no ownership metadata update, no R2 listing/mutation, no provider/Stripe/Cloudflare call, and no credit/billing mutation.
+- Evidence does not include raw idempotency keys, raw private R2 keys, signed URLs, cookies/auth headers, provider bodies, Stripe data, Cloudflare tokens, private keys, or unsafe metadata blobs.
 
 ## Required Selected Domains
 
-The first confirmation review may consider only first-pass Phase 6.23 domains:
+The first confirmation review may consider only first-pass reset domains:
 
 - `ai_images`
 - `ai_folders`
@@ -61,7 +62,7 @@ A future confirmed execution request must include explicit operator acknowledgem
 
 Confirmed execution remains blocked while any of these are true:
 
-- no live/main executor dry-run evidence is committed;
+- the committed evidence is still classified as `legacy_media_reset_dry_run_rejected_unsafe`;
 - evidence contains raw private R2 keys, signed URLs, raw prompts, provider bodies, cookies/auth headers, Stripe data, Cloudflare tokens, private keys, raw idempotency keys, or unsafe metadata;
 - public/gallery impact is missing or unacknowledged;
 - derivative/R2 key-type counts are missing when derivatives are selected;

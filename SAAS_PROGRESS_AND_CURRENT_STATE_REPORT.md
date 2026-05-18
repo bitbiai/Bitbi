@@ -1,62 +1,55 @@
-# SaaS Progress and Current State Report
+# SaaS Progress And Current State Report
 
 Date: 2026-05-18
 
-Scope: concise current-state summary after Alpha Audit remediation through Phase 6.25 and DOC-1. Detailed phase history is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, and root `PHASE*.md` reports.
+Purpose: compact current-state summary for restarting future audit work. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the canonical baseline.
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
 This report is not production readiness, live billing readiness, legal compliance certification, full tenant isolation, or full SaaS maturity evidence.
 
-## Current Maturity
+## Current Maturity Snapshot
 
-| Dimension | Status |
+| Dimension | Current state |
 | --- | --- |
-| Security | Stronger foundation: service auth, replay protection, MFA, route policies, limiter/body guards, purpose-specific secrets. |
-| Operations | Runbooks, checks, release plan/preflight, and health/header scripts exist; live evidence remains missing. |
-| Billing | Credit ledgers, guarded Stripe Testmode/live scaffolding, review queue, reconciliation, and evidence tools exist; no full live billing readiness. |
-| AI cost | Member image/music/video and selected admin/platform routes have gateway/budget/switch/cap evidence foundations; remaining scopes are explicit future work. |
-| Tenant model | Organizations/RBAC exist; folder/image ownership metadata is assigned only on new personal writes; manual-review import/queue/status workflows exist for review-state rows; Phase 6.21 adds legacy media reset dry-run/export planning, Phase 6.22 designs the reset executor, Phase 6.23 adds reset action tracking plus a dry-run-default admin-approved executor path, and Phase 6.25 keeps reset dry-run evidence pending while adding a confirmation gate. Full tenant-owned asset migration remains open; backfill/access switch/tenant isolation remain blocked. |
-| Privacy/data lifecycle | Inventory, retention, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
-| Admin Control Plane | Consolidated navigation exposes implemented billing, lifecycle, AI, budget, repair, report, archive, and readiness tools. |
+| Security | Stronger foundation: service auth, replay protection, admin MFA, route policies, limiter/body guards, and purpose-specific secrets. |
+| Operations | Release plan/preflight, readiness checks, incident runbooks, restore guidance, and evidence templates exist; live evidence remains incomplete. |
+| Billing | Credit ledgers, guarded Stripe scaffolding, review queue, reconciliation, and evidence tools exist; live billing readiness remains blocked. |
+| AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
+| Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist but confirmed reset remains blocked. |
+| Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
+| Admin UX | Admin Control Plane exposes implemented operator panels without proving production readiness. |
 
-## Implemented Foundation Snapshot
+## Current Implemented Capabilities
 
-- Static vanilla frontend and Cloudflare Worker architecture remains intentional.
-- Auth/session/MFA/security hardening and route-policy guardrails are present.
-- Organization/RBAC, billing/credits/entitlements, member credit buckets, and BITBI Pro scaffolding are present.
-- Admin Control Plane surfaces existing admin APIs with safe unavailable states and grouped navigation.
-- Member image/music/video AI Cost Gateway flows have required idempotency and no-double-debit protections.
-- Admin/platform AI budget controls cover classified paths with Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, reconciliation, explicit repair, reports, and evidence archives.
-- Data lifecycle export/archive/cleanup foundations exist; destructive deletion remains intentionally constrained.
-- Tenant asset ownership design, focused folder/image dry-run/evidence, nullable metadata for new personal writes, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, Phase 6.23 reset action/event tracking plus executor endpoints, and Phase 6.25 pending reset dry-run evidence/confirmation-gate docs exist without old-row ownership backfill, organization ownership assignment, ownership metadata updates, access-switching, live/main reset execution by Codex/tests, live R2 listing, UI changes, or billing/credit mutation.
+- Static site and Cloudflare Worker architecture remain intentionally lightweight and Cloudflare-native.
+- Auth/session/MFA/security guardrails and route-policy checks are in place.
+- Organization/RBAC, billing/credits/entitlements, member credit buckets, and BITBI Pro scaffolding exist.
+- Admin/platform AI budget controls include classified-route metadata, Cloudflare master switches, D1 app switches, selected platform caps, read-only reconciliation, explicit repair actions, evidence reports, and archive tooling.
+- Tenant asset tooling includes folder/image owner-map evidence, nullable ownership metadata, manual-review import/read/status/Admin visibility, reset dry-run/reporting, and reset action tracking/executor endpoints.
 
-## Production Blockers
+## Current Blockers
 
-- Apply auth migrations through `0058_add_legacy_media_reset_actions.sql`.
-- Verify all required Worker secrets and bindings without exposing values.
-- Verify D1/R2/Queues/Durable Objects/service bindings against live or staging resources.
-- Record Stripe Testmode/live canary evidence only with explicit operator flags.
-- Record Admin Control Plane budget switch/cap/reconciliation/repair/report/archive evidence.
-- Record live health, security headers, WAF/static header/RUM/alert, restore drill, and rollback evidence.
-- Define approved billing remediation, refund/dispute, invoice/customer portal/tax, and legal policy before live billing readiness.
+- Production readiness is blocked until live/manual Cloudflare, Worker, D1/R2/Queue/DO, health, header, alert, restore, rollback, and Stripe evidence is recorded.
+- Live billing readiness is blocked until bounded canaries and approved remediation/accounting/legal workflows exist.
+- Tenant isolation is not claimed; existing legacy asset rows are not backfilled and access checks have not switched to ownership metadata.
+- Confirmed legacy media reset is blocked because the live dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout.
+- Manual-review evidence still lacks complete replay/conflict and standalone successful status-update evidence.
 
-## Open Product/Platform Work
+## Current Deployment Requirements
 
-- Full tenant-owned asset migration implementation after new-write assignment, diagnostics, access-check planning, real main evidence review, review-state schema, and manual review of high-risk owner-map issues.
-- Self-service privacy/export/delete user flows and legal-approved retention execution.
-- Remaining AI budget scopes and baseline-allowed internal AI Worker routes.
-- Billing operations beyond review metadata/read-only reconciliation/narrow repair evidence.
-- Formal performance/load budgets and broader quality gates.
+- Verify whether the current branch is deployed; repo files alone do not prove live state.
+- Apply remote auth migrations through `0058_add_legacy_media_reset_actions.sql` before dependent Auth Worker deployment.
+- Deploy Auth Worker only when runtime code changes need shipping and migrations are present.
+- Deploy Static/Pages only when unshipped static/Admin UI changes exist.
+- Keep live/billing flags disabled unless an operator intentionally runs a bounded evidence canary.
 
-## Read Next
+## Recommended Next Step
 
-- Current restart: `CURRENT_IMPLEMENTATION_HANDOFF.md`
-- Current audit summary: `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`
-- Documentation index: `docs/audits/README.md`
-- Production readiness: `docs/production-readiness/README.md`
-- AI cost state: `docs/ai-cost-gateway/README.md`
+Start the next audit from `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
-## Documentation Rule
+Recommended track: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
 
-Do not grow this file with phase-by-phase chronology. Update the summary, blockers, and links only. Put detailed phase notes in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` or a dedicated phase report.
+## Historical Evidence
+
+Historical phase detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, and tenant evidence documents. Do not expand this report with chronological phase logs.

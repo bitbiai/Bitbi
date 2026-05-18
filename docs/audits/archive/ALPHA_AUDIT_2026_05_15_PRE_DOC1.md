@@ -1,5 +1,7 @@
 # Alpha Audit 2026-05-15
 
+Status: Historical / frozen. Not current source of truth. Use `docs/audits/NEXT_AUDIT_BASELINE.md` for current state.
+
 Date: 2026-05-15
 
 Scope: Alpha Audit hardening status through Phase 5.1. Phase 5.1 consolidates Admin Control Plane UX/navigation for existing operator panels on top of Phase 4.21 sanitized operator-approved evidence archives for `platform_admin_lab_budget` repair/reconciliation/cap evidence, Phase 4.20 read-only repair report/export, Phase 4.19 explicit admin-approved repair execution, Phase 4.18 reconciliation, Phase 4.17 caps, Phase 4.16 cap design/evidence, Phase 4.15/4.15.1 switch controls, and the prior AI Cost Gateway phases. Phase 5.1 adds no migration and does not add backend route behavior, repair execution, automatic repair, runtime provider route behavior changes, usage/source/repair row mutation, member/org billing changes, provider calls, Stripe calls, Cloudflare mutation, remote migration, live billing enablement, or production readiness. This report is based on repository files and local release metadata. It does not approve production deploy, remote migrations, Cloudflare changes, Stripe changes, live AI provider calls by Codex/tests, live billing readiness, full SaaS maturity, full tenant isolation, or legal compliance.

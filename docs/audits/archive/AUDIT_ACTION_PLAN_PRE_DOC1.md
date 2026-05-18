@@ -1,5 +1,7 @@
 # AUDIT_ACTION_PLAN.md
 
+Status: Historical / frozen. Not current source of truth. Use `docs/audits/NEXT_AUDIT_BASELINE.md` for current state.
+
 Date: 2026-04-24
 
 Last reconciled: 2026-05-17

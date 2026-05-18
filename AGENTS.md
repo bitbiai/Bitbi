@@ -171,3 +171,10 @@ When finishing substantial work, include:
 - Known risks/limitations
 
 Keep reports concrete and repository-specific.
+
+## Documentation current-state rule
+
+- Active current-state docs must stay concise and describe current reality, deploy/migration prerequisites, pending operator actions, blocked claims, and next audit entry points.
+- Do not append long phase-by-phase history to active current-state docs.
+- Preserve historical detail in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, or dedicated evidence files.
+- Do not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, confirmed legacy media reset readiness, or deployment completion without evidence.

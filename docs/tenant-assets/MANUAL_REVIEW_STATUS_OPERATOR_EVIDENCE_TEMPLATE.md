@@ -145,7 +145,7 @@ Confirm this evidence package contains none of the following:
 - raw request hashes if policy avoids exposing them;
 - unsafe metadata blobs.
 
-## Phase 6.20 Collection Notes
+## Current Collection Notes
 
 If the evidence package contains dry-run import, confirmed import, and queue export evidence but does not include same-key replay/conflict proof, record the decision as `operator_evidence_collected_needs_more_idempotency`.
 

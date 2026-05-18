@@ -4,39 +4,33 @@ Last updated: 2026-05-18
 
 Latest auth migration: `0058_add_legacy_media_reset_actions.sql`
 
+Primary restart baseline: `docs/audits/NEXT_AUDIT_BASELINE.md`
+
 Production readiness: BLOCKED
 
 Live billing readiness: BLOCKED
 
-This is the short operator-facing audit summary. It does not approve deploys, live billing, legal compliance, full tenant isolation, or full SaaS maturity.
+This is the short operator-facing audit summary. It does not approve deploys, live billing, legal compliance, full tenant isolation, access-check switching, ownership backfill, confirmed media reset, or full SaaS maturity.
 
 ## Current Done
 
 - Static site plus Cloudflare Workers architecture is preserved and release-modeled.
 - Auth, session, admin MFA, route policy, service auth, replay protection, body limits, limiter, and secret-purpose guardrails exist.
-- Organization/RBAC, billing/credits/entitlements, member credit buckets, BITBI Pro scaffolding, billing review queue, billing reconciliation, and main-only evidence tooling exist.
-- Member image/music/video AI Cost Gateway flows are migrated with required idempotency and duplicate-provider suppression.
-- Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, first `platform_admin_lab_budget` caps, read-only reconciliation, explicit admin-approved repair, report/export, and sanitized archives.
-- Admin Control Plane navigation now surfaces the implemented operator panels without changing backend behavior.
-- Phase 6.1-6.20 add tenant asset ownership/manual-review evidence foundations. Phase 6.21 adds legacy media reset dry-run/export planning. Phase 6.22 adds reset executor design. Phase 6.23 adds reset action/event tracking plus a dry-run-default admin-approved executor path. Phase 6.25 adds reset dry-run closure/gate docs and keeps evidence pending because no live/main executor dry-run file is committed, with no old-row ownership backfill, ownership metadata update, access switch, live/main reset execution by Codex/tests, live R2 listing/mutation, billing/credit mutation, or tenant-isolation claim.
-- Historical phase reports and pre-DOC-1 long-form docs are archived/indexed instead of expanded in active docs.
+- Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, and BITBI Pro scaffolding exist.
+- Member image/music/video AI Cost Gateway flows are migrated with idempotency and duplicate-provider-call suppression.
+- Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, selected platform caps, reconciliation, repair, report/export, and sanitized archives.
+- Admin Control Plane surfaces implemented operator panels.
+- Tenant asset folder/image metadata, owner-map evidence, manual-review import/queue/status/Admin visibility, reset dry-run/reporting, reset action tracking, and reset executor endpoints exist in repo.
 
 ## Current Open Blockers
 
-- Remote migrations through `0058` must be applied before dependent auth Worker deploys.
-- Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drills, and rollback evidence are not recorded here.
+- Remote migrations through `0058` must be applied before dependent Auth Worker deploys.
+- Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drill, rollback evidence, and Stripe canaries are not verified here.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.
-- Billing remediation, refund/dispute/accounting/legal workflows remain incomplete.
-- Tenant-owned asset migration implementation and self-service privacy flows remain incomplete; Phase 6.23 adds only a bounded reset executor path and action tracking. It does not prove live/main reset safety, migrate old ownership rows, assign organization ownership, change access checks, update ownership metadata, backfill ownership, or approve production readiness.
+- Tenant isolation remains unclaimed; legacy rows are not backfilled and access checks have not switched to ownership metadata.
+- Manual-review operator evidence still needs idempotency replay/conflict completion.
+- Legacy media reset dry-run decision is rejected unsafe because the live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout and confirmed reset is blocked.
 - Remaining AI budget scopes/internal provider routes are future work.
-
-## Deployment Requirements
-
-1. Run release checks locally.
-2. Apply required D1 migrations before auth Worker code that depends on them.
-3. Verify secrets and bindings without exposing values.
-4. Keep live/budget/billing flags disabled unless an operator intentionally runs a bounded canary.
-5. Record evidence in production-readiness templates before any readiness claim.
 
 ## Current Admin/AI/Billing State
 
@@ -44,11 +38,20 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Budget switch execution requires Cloudflare master flag plus D1 app switch; app switches cannot mutate Cloudflare.
 - `platform_admin_lab_budget` has the first daily/monthly cap foundation; other scopes remain future work.
 - Repair execution is explicit admin-approved only and limited to safe usage-evidence repair/review notes.
-- Reports and archives are sanitized evidence snapshots only.
+
+## Current Tenant Asset State
+
+- `ai_folders` and `ai_images` have nullable ownership metadata columns.
+- New personal writes assign ownership metadata; existing rows remain mixed/null unless separately proven.
+- Manual-review item/event tables, import, queue/evidence, status update, and Admin visibility exist.
+- Reset action/event tables and a dry-run-default executor path exist for first-pass folders/images/derivatives/public references only.
+- No confirmed deletion/reset, ownership backfill, access-switching, or tenant-isolation claim is approved.
 
 ## Next Recommended Step
 
-Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as the current Phase 6.10 decision, manual-review docs/endpoints for review queue evidence, `/api/admin/tenant-assets/legacy-media-reset/dry-run` for Phase 6.21 reset planning, `docs/tenant-assets/LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` for the Phase 6.22 design, and `POST /api/admin/tenant-assets/legacy-media-reset/execute` plus `/legacy-media-reset/actions` for Phase 6.23 reset action tracking/executor evidence. Current statuses are `operator_evidence_collected_needs_more_idempotency` for manual review and `legacy_media_reset_dry_run_pending` for reset dry-run evidence; Phase 6.25 added `LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md`, and the next tenant-asset step is Phase 6.26 operator-run reset dry-run evidence, with no live deletion execution, broad backfill, or access behavior change.
+Recommended next audit entry point: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
+
+If tenant reset work continues first, review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` and resolve the unsafe evidence blocker before any confirmation-review phase.
 
 ## Historical Evidence Links
 
@@ -56,4 +59,4 @@ Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` as t
 - `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`
 - `docs/audits/archive/`
 - root `PHASE*.md` reports
-- `ALPHA_AUDIT_2026_05_15.md`
+- `docs/tenant-assets/evidence/`

@@ -1,10 +1,12 @@
 # Alpha Audit Phase Changelog
 
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
-Status: historical/reference. This file preserves concise phase history so active current-state docs do not grow with every implementation phase.
+Status: historical / frozen. Not current source of truth.
 
-Current release truth at DOC-1: latest auth D1 migration is `0055_add_platform_budget_evidence_archives.sql`.
+This file preserves concise historical phase context so active current-state docs do not grow with implementation chronology. Use `docs/audits/NEXT_AUDIT_BASELINE.md` for current state.
+
+Current release truth at DOC-2: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
 ## Phase Families
 
@@ -24,7 +26,9 @@ Current release truth at DOC-1: latest auth D1 migration is `0055_add_platform_b
 | Phase 4.20 | Read-only repair evidence report/export. | `platform-budget-repair-report` helper/API/UI/tests |
 | Phase 4.21 | Sanitized evidence archive/retention workflow under `AUDIT_ARCHIVE` prefix `platform-budget-evidence/`. | Migration `0055_add_platform_budget_evidence_archives.sql`, archive helper/API/UI/tests |
 | Phase 5.1 | Admin Control Plane UX/navigation consolidation for existing operator capabilities only. | Admin HTML/CSS/JS/tests |
+| Phase 6 | Tenant asset ownership evidence, folder/image ownership metadata, manual-review import/queue/status/Admin visibility, legacy media reset dry-run/design/action tracking/executor foundations, and dry-run evidence decision records. | `docs/tenant-assets/`, `docs/tenant-assets/evidence/`, migrations `0056`, `0057`, `0058` |
 | DOC-1 | Documentation diet, archive consolidation, concise current docs, and currentness checks. | `docs/audits/README.md`, `docs/audits/archive/`, doc-currentness scripts/tests |
+| DOC-2 | Current-state baseline consolidation and historical audit archive freeze. | `docs/audits/NEXT_AUDIT_BASELINE.md`, current docs, doc-currentness scripts/tests |
 
 ## Rules For Future Entries
 

@@ -14,7 +14,7 @@ Deploy status:
 
 Default risk decision: **blocked**
 
-This template records evidence for the Phase 6.7 read-only AI folders/images tenant asset ownership evidence report. It does not approve production readiness, live billing readiness, full tenant isolation, access-check switching, ownership backfill, D1 mutation, R2 listing/mutation, provider calls, Stripe calls, Cloudflare changes, or credit/billing changes.
+This template records evidence for the read-only AI folders/images tenant asset ownership evidence report. It does not approve production readiness, live billing readiness, full tenant isolation, access-check switching, ownership backfill, D1 mutation, R2 listing/mutation, provider calls, Stripe calls, Cloudflare changes, or credit/billing changes.
 
 This workflow is main-only. Do not mark evidence as collected unless it came from the live/main deployment or a clearly identified local dry run.
 
@@ -22,7 +22,7 @@ This workflow is main-only. Do not mark evidence as collected unless it came fro
 
 | Item | Evidence | Result |
 | --- | --- | --- |
-| Auth Worker contains Phase 6.7 evidence endpoint |  | blocked |
+| Auth Worker contains tenant asset evidence endpoint |  | blocked |
 | Remote auth D1 migration status verified through `0058_add_legacy_media_reset_actions.sql` |  | blocked |
 | Admin account approved for evidence collection |  | blocked |
 | Admin MFA completed where required |  | blocked |
@@ -137,6 +137,6 @@ Record operator confirmation:
 ## 10. Operator Notes
 
 
-## 11. Next Recommended Phase
+## 11. Current Follow-Up
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`; Phase 6.20 records sanitized live/main operator evidence as `operator_evidence_collected_needs_more_idempotency`. Same-key replay/conflict idempotency evidence and a successful standalone status-update response remain pending. Future evidence collection must still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, review status changes by Codex/tests, and R2 actions unless separately approved.
+Current manual-review decision is `operator_evidence_collected_needs_more_idempotency`. Same-key replay/conflict idempotency evidence and a successful standalone status-update response remain pending. Future evidence collection must still avoid access-check switching, ownership backfill, source asset row updates, ownership metadata updates, review status changes by Codex/tests, and R2 actions unless separately approved.

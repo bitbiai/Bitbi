@@ -51,7 +51,7 @@ Use only the existing main Auth Worker endpoints:
 - `GET /api/admin/tenant-assets/folders-images/manual-review/evidence/export`
 - `POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status`
 
-The Admin Control Plane panel is the Phase 6.18 "Tenant Asset Manual Review Queue" panel.
+The Admin Control Plane panel is "Tenant Asset Manual Review Queue".
 
 ## Evidence Files To Save
 
@@ -151,7 +151,7 @@ curl -sS https://<main-host>/api/admin/tenant-assets/folders-images/manual-revie
   -H 'Content-Type: application/json' \
   -H 'Cookie: <redacted-admin-session-cookie>' \
   -H 'Idempotency-Key: <unique-redacted-status-key>' \
-  --data '{"newStatus":"review_in_progress","reason":"<bounded operator reason>","confirm":true,"metadata":{"source":"operator_evidence","phase":"6.19"}}'
+  --data '{"newStatus":"review_in_progress","reason":"<bounded operator reason>","confirm":true,"metadata":{"source":"operator_evidence"}}'
 ```
 
 Record:
@@ -220,9 +220,9 @@ Allowed decision states:
 
 Even successful operator evidence can prove only that the manual-review workflow was exercised and remained bounded. It does not prove tenant isolation, production readiness, ownership backfill readiness, or access-switch readiness.
 
-## Phase 6.20 Interpretation
+## Current Interpretation
 
-Phase 6.20 reviewed committed live/main evidence and set the decision to `operator_evidence_collected_needs_more_idempotency`. The dry-run import, confirmed import, final queue export, and one status-change rollup were captured, but same-key replay/conflict evidence and a successful standalone status-update response with hashed idempotency/request-hash evidence were not present.
+Current committed live/main evidence sets the decision to `operator_evidence_collected_needs_more_idempotency`. The dry-run import, confirmed import, final queue export, and one status-change rollup were captured, but same-key replay/conflict evidence and a successful standalone status-update response with hashed idempotency/request-hash evidence were not present.
 
 When archiving future JSON evidence:
 

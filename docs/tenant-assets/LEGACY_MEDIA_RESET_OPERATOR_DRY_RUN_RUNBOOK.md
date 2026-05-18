@@ -2,11 +2,11 @@
 
 Date: 2026-05-18
 
-Purpose: collect sanitized live/main dry-run evidence from the Phase 6.23 legacy media reset executor before any confirmed reset execution is considered.
+Purpose: collect sanitized live/main dry-run evidence from the current legacy media reset executor before any confirmed reset execution is considered.
 
 This runbook is evidence-only. It does not authorize deletion, source row mutation, R2 cleanup, ownership backfill, access-check switching, tenant isolation, production readiness, or live billing readiness.
 
-Phase 6.25 rechecked the repository and found no real live/main executor dry-run evidence file. The dry-run topic is still pending, and `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md` defines the gate for any later confirmed reset phase.
+Current state: live/main executor dry-run evidence exists at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`, but that file contains a raw idempotency key from the operator request. The decision is `legacy_media_reset_dry_run_rejected_unsafe`; the dry-run topic is not closed, and `docs/tenant-assets/LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md` remains closed for any later confirmed reset phase.
 
 ## Prerequisites
 
@@ -14,14 +14,14 @@ Phase 6.25 rechecked the repository and found no real live/main executor dry-run
   - `0056_add_ai_folder_image_ownership_metadata.sql`
   - `0057_add_ai_asset_manual_review_state.sql`
   - `0058_add_legacy_media_reset_actions.sql`
-- Auth Worker code with Phase 6.23 is deployed.
+- Auth Worker code with the reset executor is deployed.
 - The operator has an admin session with production MFA satisfied.
-- The operator understands that Phase 6.26 permits dry-run evidence only if this remains the next phase.
+- The operator understands that any confirmed execution requires a separate approved phase.
 - No confirmed reset execution is planned in this phase.
 
 ## Endpoint
 
-Use the existing Phase 6.23 endpoint:
+Use the existing reset executor endpoint:
 
 ```text
 POST /api/admin/tenant-assets/legacy-media-reset/execute
@@ -137,6 +137,8 @@ The dry-run topic can close only when committed evidence proves:
 - selected domains, candidate counts, public/gallery findings, derivative/R2 key-type counts if available, deferred domains, and safety flags are recorded;
 - no unsafe values are present.
 
-If evidence is missing, keep `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` at `legacy_media_reset_dry_run_pending` and recommend `Phase 6.26 — Operator Runs Legacy Media Reset Dry-run`.
+If evidence is missing, keep `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` at `legacy_media_reset_dry_run_pending` and recommend a fresh operator dry-run evidence collection step.
+
+If evidence contains a raw idempotency key or another unsafe value, classify it as `legacy_media_reset_dry_run_rejected_unsafe`, do not repeat the unsafe value in docs, and recommend legacy media reset blocker review.
 
 If evidence is complete, the decision may move to `legacy_media_reset_dry_run_collected_blocked` or `legacy_media_reset_dry_run_collected_ready_for_confirmation_review`. Neither status executes deletion; it only allows a later separate confirmation-gate review.

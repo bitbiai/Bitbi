@@ -480,7 +480,7 @@ const FUTURE_PHASES = Object.freeze([
   {
     phase: "6.25",
     title: "Legacy media reset dry-run closure and confirmation gate",
-    scope: "Implemented as evidence recheck, pending decision update, and confirmation-gate checklist; no endpoint, migration, executor execution, deletion, backfill, access switch, source mutation, reset action mutation, or R2 action.",
+    scope: "Implemented as evidence review, unsafe-evidence decision update, closure summary, and confirmation-gate checklist; no endpoint, migration, executor execution, deletion, backfill, access switch, source mutation, reset action mutation, or R2 action.",
   },
 ]);
 
@@ -952,6 +952,7 @@ function listLegacyMediaResetOperatorDryRunEvidenceFiles(repoRoot) {
 
   const excluded = new Set([
     "2026-05-17-legacy-media-reset-dry-run-evidence-summary.md",
+    "2026-05-18-legacy-media-reset-dry-run-closure-summary.md",
     "LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md",
     "MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md",
     "MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md",
@@ -966,7 +967,7 @@ function listLegacyMediaResetOperatorDryRunEvidenceFiles(repoRoot) {
     .map((entry) => entry.name)
     .filter((name) => /\.(?:json|md)$/i.test(name))
     .filter((name) => !excluded.has(name))
-    .filter((name) => !/(?:decision|runbook|template|summary|design|dry_run\.md)$/i.test(name))
+    .filter((name) => !/(?:(?:decision|runbook|template|summary|design)\.md|dry_run\.md)$/i.test(name))
     .filter((name) => evidencePattern.test(name) && operatorRunPattern.test(name))
     .map((name) => `${evidenceDir}/${name}`)
     .sort();
@@ -977,26 +978,46 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
     file,
     text: readText(repoRoot, file),
   }));
+  const decisionFile = "docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md";
+  const closureSummaryFile = "docs/tenant-assets/evidence/2026-05-18-legacy-media-reset-dry-run-closure-summary.md";
+  const decisionEntries = [
+    { file: decisionFile, text: readText(repoRoot, decisionFile) },
+    { file: closureSummaryFile, text: readText(repoRoot, closureSummaryFile) },
+  ].filter((entry) => entry.text);
+  const currentDecisionText = decisionEntries.map((entry) => entry.text).join("\n");
   const includesText = (pattern) => entries.some((entry) => pattern.test(entry.text));
-  const unsafeEvidenceFound = includesText(/(?:cookie|authorization|bearer|stripe|cloudflare|private[_-]?key|signedUrl|signed_url|provider(?:Request|Response)|rawPrompt|raw_prompt)/i)
+  const includesDecisionText = (pattern) => decisionEntries.some((entry) => pattern.test(entry.text));
+  const decisionRejectedUnsafe = /legacy_media_reset_dry_run_rejected_unsafe/.test(currentDecisionText);
+  const decisionCollectedBlocked = /legacy_media_reset_dry_run_collected_blocked/.test(currentDecisionText);
+  const decisionReadyForConfirmation = /legacy_media_reset_dry_run_collected_ready_for_confirmation_review/.test(currentDecisionText);
+  const unsafeEvidenceFound = includesText(/(?:cookie|authorization|bearer|stripe[_-]?(?:data|token|secret|api[_-]?key|signature|customer|session)|cloudflare[_-]?(?:token|secret|api[_-]?key)|private[_-]?key|signedUrl|signed_url|provider(?:Request|Response)|rawPrompt|raw_prompt)/i)
     || includesText(/"idempotencyKey"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/i)
-    || includesText(/users\/[^"\s]+\/(?:folders|derivatives|video-jobs|tmp\/ai-generated)\//i);
-  const dryRunEvidenceFound = includesText(/"dryRun"\s*:\s*true/i) || includesText(/\bdryRun:\s*true\b/i);
+    || includesText(/users\/[^"\s]+\/(?:folders|derivatives|video-jobs|tmp\/ai-generated)\//i)
+    || decisionRejectedUnsafe;
+  const dryRunEvidenceFound = includesText(/"dryRun"\s*:\s*true/i)
+    || includesText(/\bdryRun:\s*true\b/i)
+    || includesDecisionText(/`?dryRun:\s*true`?|"dryRun"\s*:\s*true/i);
   const executeFalseFound = includesText(/"execute"\s*:\s*false/i)
     || includesText(/"executionPerformed"\s*:\s*false/i)
-    || includesText(/"deletionPerformed"\s*:\s*false/i);
+    || includesText(/"deletionPerformed"\s*:\s*false/i)
+    || includesDecisionText(/`?execute:\s*false`?|"execute"\s*:\s*false|no confirmed deletion/i);
   const selectedDomainsRecorded = includesText(/"selectedDomains"\s*:\s*\[/i)
-    || includesText(/"domains"\s*:\s*\[/i);
+    || includesText(/"domains"\s*:\s*\[/i)
+    || includesDecisionText(/selected domains/i);
   const candidateCountsRecorded = includesText(/"proposedSourceRowRetireCount"\s*:\s*[0-9]+/i)
     || includesText(/"plannedCandidateCount"\s*:\s*[0-9]+/i)
     || includesText(/"candidateCount"\s*:\s*[0-9]+/i)
-    || includesText(/"planSummary"\s*:\s*\{/i);
-  const publicGalleryWarningsFound = includesText(/public[_ -]?gallery|public refs?|acknowledgePublicContentRemoval/i);
+    || includesText(/"planSummary"\s*:\s*\{/i)
+    || includesDecisionText(/Proposed source rows to retire|Candidate Counts/i);
+  const publicGalleryWarningsFound = includesText(/public[_ -]?gallery|public refs?|acknowledgePublicContentRemoval/i)
+    || includesDecisionText(/public\/gallery|public content removal/i);
   const derivativeKeyTypeCountsFound = includesText(/"r2KeyTypeCounts"\s*:\s*\{/i)
-    || includesText(/derivative(?:Reference| refs?| cleanup)/i);
+    || includesText(/derivative(?:Reference| refs?| cleanup)/i)
+    || includesDecisionText(/R2 key-type counts|original|thumb|medium/i);
   const deferredDomainsRecorded = includesText(/"deferredDomains"\s*:\s*\[/i)
-    || includesText(/video.*music.*text.*profile/i);
-  const safetyFlagsFound = includesText(/"noBackfill"\s*:\s*true/i)
+    || includesText(/video.*music.*text.*profile/i)
+    || includesDecisionText(/Deferred domains|video.*music.*text.*profile/i);
+  const evidenceSafetyFlagsFound = includesText(/"noBackfill"\s*:\s*true/i)
     && includesText(/"noAccessSwitch"\s*:\s*true/i)
     && (
       includesText(/"r2ObjectsMutated"\s*:\s*false/i)
@@ -1007,6 +1028,11 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
       || includesText(/"sourceAssetRowsUpdated"\s*:\s*false/i)
       || includesText(/"runtimeBehaviorChanged"\s*:\s*false/i)
     );
+  const decisionSafetyFlagsFound = includesDecisionText(/noBackfill:\s*true|No ownership backfill|no ownership backfill/i)
+    && includesDecisionText(/noAccessSwitch:\s*true|No access switch|no access switch/i)
+    && includesDecisionText(/r2LiveListed:\s*false|r2ObjectsMutated:\s*false|No R2/i)
+    && includesDecisionText(/dryRun:\s*true|execute:\s*false|no confirmed deletion/i);
+  const safetyFlagsFound = evidenceSafetyFlagsFound || decisionSafetyFlagsFound;
   const completeEnoughForConfirmationReview = dryRunEvidenceFound
     && executeFalseFound
     && selectedDomainsRecorded
@@ -1015,10 +1041,17 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
     && deferredDomainsRecorded
     && safetyFlagsFound;
   const blockersFound = includesText(/"blockedReasons"\s*:\s*\[[^\]]*[a-z]/i)
-    || includesText(/blocked|deferred|requires.*review/i);
+    || includesText(/blocked|deferred|requires.*review/i)
+    || includesDecisionText(/blocked|deferred|requires.*review|rejected unsafe/i);
 
-  const decisionStatus = files.length === 0
-    ? "legacy_media_reset_dry_run_pending"
+  const decisionStatus = decisionRejectedUnsafe
+    ? "legacy_media_reset_dry_run_rejected_unsafe"
+    : files.length === 0 && decisionCollectedBlocked
+      ? "legacy_media_reset_dry_run_collected_blocked"
+      : files.length === 0 && decisionReadyForConfirmation
+        ? "legacy_media_reset_dry_run_collected_ready_for_confirmation_review"
+        : files.length === 0
+          ? "legacy_media_reset_dry_run_pending"
     : unsafeEvidenceFound
       ? "legacy_media_reset_dry_run_rejected_unsafe"
       : completeEnoughForConfirmationReview && !blockersFound
@@ -1040,7 +1073,7 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
     : decisionStatus === "legacy_media_reset_dry_run_collected_blocked"
       ? "Phase 6.26 — Legacy Media Reset Blocker Review"
       : decisionStatus === "legacy_media_reset_dry_run_rejected_unsafe"
-        ? "Phase 6.26 — Legacy Media Reset Dry-run Evidence Safety Review"
+        ? "Phase 6.26 — Legacy Media Reset Blocker Review"
         : "Phase 6.26 — Operator Runs Legacy Media Reset Dry-run";
 
   return {
@@ -1048,6 +1081,7 @@ function buildLegacyMediaResetOperatorDryRunEvidenceMetadata(repoRoot, files) {
     decisionStatus,
     dryRunTopicClosed,
     evidenceFilesFound: files.length > 0,
+    decisionFileStatusFound: decisionRejectedUnsafe || decisionCollectedBlocked || decisionReadyForConfirmation,
     sourceEvidenceFiles: files,
     dryRunEvidenceFound,
     executeFalseFound,
@@ -2362,6 +2396,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
       confirmationGateChecklist: legacyMediaResetConfirmationGateAdded ? legacyMediaResetConfirmationGateChecklistFile : null,
       confirmationGateAdded: legacyMediaResetConfirmationGateAdded,
       operatorEvidenceFilesFound: legacyMediaResetOperatorDryRunEvidenceMetadata.evidenceFilesFound,
+      decisionFileStatusFound: legacyMediaResetOperatorDryRunEvidenceMetadata.decisionFileStatusFound,
       sourceEvidenceFiles: legacyMediaResetOperatorDryRunEvidenceMetadata.sourceEvidenceFiles,
       dryRunEvidenceFound: legacyMediaResetOperatorDryRunEvidenceMetadata.dryRunEvidenceFound,
       executeFalseFound: legacyMediaResetOperatorDryRunEvidenceMetadata.executeFalseFound,

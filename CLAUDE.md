@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Documentation Hygiene
 
-- Keep active current-state docs concise. Do not append full phase history to every current doc.
-- Use `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit snapshot and `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` for concise phase history.
+- Keep active current-state docs concise. Do not append full phase history to active current docs.
+- Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the clean audit restart point, `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` for the current audit snapshot, and `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` for frozen history.
 - Historical phase reports and `docs/audits/archive/` snapshots are frozen evidence; do not rewrite them to current migrations.
 - Current source-of-truth docs must stay aligned with `config/release-compat.json` and must not claim production readiness or live billing readiness without evidence.
 

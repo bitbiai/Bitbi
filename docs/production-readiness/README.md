@@ -1,339 +1,83 @@
-# Production/Staging Evidence Framework
+# Production Readiness
 
-Last updated: 2026-05-17
+Date: 2026-05-18
 
-Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
+Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
-The latest auth D1 migration declared by `config/release-compat.json` is `0058_add_legacy_media_reset_actions.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
+Purpose: current production-readiness gate. This file is not a phase history and does not approve deployment.
 
-Current audit/restart status is summarized in `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`. DOC-1 keeps this file focused on evidence requirements rather than phase chronology. Operators must record budget switch, cap, reconciliation, repair, report/export, archive, tenant asset dry-run/schema/new-write/read-diagnostics/admin-evidence evidence, tenant asset main-only evidence package records, review-item import/queue/status evidence, Admin Control Plane smoke evidence, Phase 6.20 manual-review operator evidence, Phase 6.21 legacy media reset dry-run evidence, Phase 6.22 reset executor design review, and reset executor dry-run evidence before enabling admin/platform provider-cost flags for a canary. Evidence workflows do not apply repairs automatically, mutate source attempts/jobs or source asset rows, call providers, call Stripe, change member/org billing, backfill or enforce asset ownership, change access checks, update ownership metadata, move/list/delete live R2 objects, or make production/live billing ready. Phase 6.23 adds reset action tracking and a dry-run-default executor path, but Codex/tests did not execute it against live/main data. Phase 6.25 records reset dry-run evidence as `legacy_media_reset_dry_run_pending` and adds a confirmation gate because no live/main executor dry-run file is committed. None proves tenant isolation, access-switch readiness, ownership backfill readiness, confirmed reset readiness, or production readiness.
+## Current Verdict
 
-## Evidence Rule
+Production readiness: BLOCKED.
 
-Production readiness requires evidence, not assumptions. Acceptable evidence is dated, tied to a branch and commit, names the environment, identifies who ran the check, records pass/fail output, and redacts all secret values.
+Live billing readiness: BLOCKED.
 
-Do not paste secret values, private keys, bearer tokens, webhook secrets, API keys, session tokens, raw cookies, raw Stripe signatures, raw webhook bodies, raw provider payloads, or dashboard screenshots that expose values. It is acceptable to record variable names and `present` / `missing`.
+Tenant isolation: NOT CLAIMED.
 
-Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The default verdict is `BLOCKED` until the operator has filled the required evidence sections.
+Confirmed legacy media reset readiness: BLOCKED.
 
-## Required Before Production
+## Current Release Preconditions
 
-| Evidence | Who Runs It | Where | Credential Requirement | Secret Output Rule |
-| --- | --- | --- | --- | --- |
-| Repo baseline: branch, commit, worktree, release latest migration | Repo maintainer | Local repo | None | No secrets involved. |
-| Local release checks | Repo maintainer | Local repo / CI | None | Commands must not print secrets. |
-| Auth D1 migration status through `0058_add_legacy_media_reset_actions.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
-| Auth Worker bindings: D1, R2, Queues, Durable Object, AI, Images, service bindings | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names and present/missing only. |
-| AI Worker bindings and Durable Object migration | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding/migration names and present/missing only. |
-| Contact Worker Durable Object binding | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names only. |
-| Required secret presence | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record secret names and present/missing only. |
-| Live health checks | Release operator | Staging/live URLs | URL access; no mutation | Store status code and pass/fail. |
-| Static security headers | Release operator | Staging/live URLs | URL access; no mutation | Store header names/results, not cookies/tokens. |
-| Admin Control Plane smoke evidence | Admin operator | Staging/canary | Admin account and MFA | Redact user emails/IDs where possible; no cookies/tokens. |
-| Pricing/Credits/Organization smoke evidence | Product/release operator | Staging/canary | Test accounts; Stripe Testmode where relevant | Redact checkout URLs, session ids if not needed, and all secrets. |
-| Restore drill evidence | Operations owner | Staging or documented drill environment | Cloudflare/storage access may be required | No credentials or data dumps. |
-| Alert/WAF/static header/RUM evidence | Cloudflare/security operator | Dashboard/read-only evidence | Cloudflare access required | Screenshots must hide values and private account data. |
-| Tenant asset ownership dry-run/schema/new-write/read-diagnostics/admin-evidence evidence | Repo maintainer | Local repo/source inventory plus admin-only local-D1 report when available | None | Record `npm run dry-run:tenant-assets`, focused `npm run dry-run:tenant-assets:images`, migration `0057` status, Phase 6.5 new personal folder/image write metadata tests, Phase 6.6 read-diagnostics summary, Phase 6.7 `/api/admin/tenant-assets/folders-images/evidence` summary/export, Phase 6.8 runbook/template evidence records, Phase 6.9 `docs/tenant-assets/evidence/` package state, Phase 6.10 decision document, Phase 6.11 manual-review workflow/plan, Phase 6.12 review-state schema design, Phase 6.13 empty review-state table schema, Phase 6.14 `npm run tenant-assets:dry-run-review-import` output, Phase 6.15 import endpoint dry-run/confirmed-result evidence if used, Phase 6.16 `/api/admin/tenant-assets/folders-images/manual-review/evidence` queue evidence/export, Phase 6.17 status update evidence if used, Phase 6.18 Admin Control Plane queue/status evidence, Phase 6.20 `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md` plus `2026-05-17-manual-review-status-operator-evidence-summary.md`, Phase 6.21 `/api/admin/tenant-assets/legacy-media-reset/dry-run` evidence if collected, Phase 6.22 `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md`, Phase 6.23 reset action/executor support, Phase 6.25 `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` plus `LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md`, and `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md` summaries only; no R2 listings, media deletion, confirmed reset execution, ownership backfill, source asset row updates, ownership metadata updates, access changes, or raw object keys required. |
+- Verify repository release plan with `npm run release:plan`.
+- Run `npm run release:preflight` before merge/release-sensitive work.
+- Apply required remote auth D1 migrations before dependent Auth Worker deploys.
+- Verify Worker secrets and bindings without printing values.
+- Verify Cloudflare D1, R2, Queues, Durable Objects, Images, service bindings, dashboard WAF/static headers/RUM, alerts, and routes.
+- Verify static Pages deploy requirements separately from Worker deploys.
 
-## Required Before Live Billing
+## Current Migration Preconditions
 
-Live billing requires all production readiness evidence plus billing-specific evidence:
+Latest auth migration: `0058_add_legacy_media_reset_actions.sql`.
 
-| Evidence | Who Runs It | Where | Credential Requirement | Secret Output Rule |
-| --- | --- | --- | --- | --- |
-| Stripe Testmode config presence | Stripe/release operator | Staging/Testmode | Stripe Testmode access | Variable names and present/missing only. |
-| Stripe Testmode checkout creation smoke | Stripe/release operator | Staging/Testmode | Stripe Testmode access | Redact keys and webhook secrets; checkout/session ids may be recorded if not sensitive. |
-| Stripe Testmode webhook signature verification | Stripe/release operator | Staging/Testmode | Stripe Testmode access | Do not paste webhook secret or raw signature. |
-| Exactly-once credit grant evidence | Release operator | Staging/Testmode | Test account and DB/admin read access | Redact personal data; record ledger ids only if safe. |
-| Failed/unpaid/expired checkout behavior | Stripe/release operator | Staging/Testmode | Stripe Testmode access | Redact provider payloads. |
-| Live Stripe config presence | Stripe/release operator | Live canary | Stripe live access | Names and present/missing only; never print live key or webhook secret. |
-| Live credit-pack canary, if intentionally enabled | Release owner plus Stripe operator | Bounded live canary | Approved live canary window | Record enable flag timing and rollback; never paste live secrets. |
-| BITBI Pro subscription checkout/invoice/cancel/reactivate evidence | Release owner plus Stripe operator | Staging/Testmode first; live only after approval | Stripe and test account access | Redact secrets and raw payloads. |
-| Refund/dispute/chargeback/failed-payment/expired-checkout review handling | Billing owner | Staging/Testmode before live | Stripe Testmode access | Redact payloads; record expected review states and action ids only. |
-| Billing review queue/resolution workflow | Billing/admin operator | Staging | Admin access | Redact customer data; record review ids/status/note presence only. |
-| Admin Control Plane billing review UI | Billing/admin operator | Staging | Admin access and MFA | Record screenshots/notes with ids redacted; no raw payloads, signatures, card data, or secret values. |
-| Read-only billing reconciliation report | Billing/admin operator | Staging | Admin access and MFA | Record generated timestamp, local-only source, blocked verdict, and critical/warning item ids; no raw payloads, secrets, card data, or remediation actions. |
-| Billing remediation workflow | Billing/admin/accounting/legal operator | Staging | Admin access and approved support/accounting process | Not implemented in Phase 2.4; redact customer data and record approved action ids/status only if a future workflow exists. |
+Important current dependencies:
 
-Phase 2.1 adds repository-local code for operator-review-only live Stripe event classification. It records `invoice.payment_failed`, `invoice.payment_action_required`, `checkout.session.expired`, `charge.refunded`, `refund.created`, `refund.updated`, `charge.dispute.created`, `charge.dispute.updated`, and `charge.dispute.closed` as billing event actions with sanitized safe identifiers and `needs_review`, `blocked`, or `informational` review state. Phase 2.2 adds admin-only list/detail/resolution metadata APIs for these records. Phase 2.3 adds Admin Control Plane UI for the review queue, including filters, safe detail, blocked-event warnings, and note/confirmation-gated `resolved` / `dismissed` actions. Phase 2.4 adds a read-only local D1 reconciliation report and Admin Control Plane panel for billing events, checkout sessions, ledgers, subscriptions, and review-state risk signals. Operators can mark a review `resolved` or `dismissed` with a bounded note and `Idempotency-Key`; the write route is same-origin/admin/MFA/rate-limit guarded and audited. The reconciliation report is read-only and local-only. These phases do not automatically grant, reverse, subtract, delete, cancel, refund, call Stripe, claw back credits, reconcile, remediate, or resolve credits/accounts beyond manual metadata.
+- `0056_add_ai_folder_image_ownership_metadata.sql` for folder/image ownership metadata.
+- `0057_add_ai_asset_manual_review_state.sql` for manual-review queue/status tables.
+- `0058_add_legacy_media_reset_actions.sql` for reset action/event tracking.
 
-Live billing remains blocked until failure, refund, dispute, chargeback, expired-session, review queue/resolution, read-only reconciliation, approved remediation, invoice/customer-portal/tax/legal, and support workflow evidence is complete or explicitly scoped out by product/legal with documented risk acceptance.
+If Auth Worker code uses these tables/columns, remote migrations must be applied before deploying that Worker code.
 
-Phase 4.8.2 adds admin-only sanitized inspection and bounded non-destructive cleanup for `admin_ai_usage_attempts` created by admin text/embeddings idempotency. Phase 4.9 adds no migration and extends that metadata-only idempotency foundation only to Admin Music test generation. Phase 4.10 adds no migration and extends it only to Admin Compare. Phase 4.11 adds no migration and audits/designs Admin Live-Agent budget enforcement only. Phase 4.12 adds no migration and extends the metadata-only attempt foundation only to Admin Live-Agent stream sessions with required `Idempotency-Key`, caller-policy propagation, duplicate stream suppression, and observable stream completion/failure tracking. Phase 4.13 adds no migration and retires the synchronous Admin Video Debug route from normal provider-cost operations as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path. Phase 4.14 adds no migration and classifies Admin Image branches. Phase 4.15 adds no migration and enforces Cloudflare master runtime budget kill switches. Phase 4.15.1 adds additive migration `0052` and D1 app-level switch state/history. Phase 4.16 remains completed and documents/reports live platform budget cap design and countability. Phase 4.17 adds additive migration `0053`, D1 daily/monthly cap limits and usage events, admin-only cap APIs, and a compact Admin Control Plane cap panel for `platform_admin_lab_budget` only. Phase 4.19 adds additive migration `0054`, admin-only repair APIs/UI, and `platform_budget_repair_actions` audit rows. Phase 4.20 adds no migration and adds read-only repair evidence report/export APIs/UI. Phase 4.21 adds additive migration `0055`, `platform_budget_evidence_archives`, admin-only archive APIs/UI, and sanitized `AUDIT_ARCHIVE` objects under `platform-budget-evidence/`; cleanup is bounded and approved-prefix-only. Phase 5.1 adds no migration and only improves the Admin Control Plane UX/navigation around these existing panels. Phase 6.4 adds additive migration `0056` with nullable ownership metadata columns for `ai_folders` and `ai_images` only. Phase 6.5 assigns those fields only on new personal folder/image writes. Phase 6.6 adds read-only dual-read diagnostics only. Phase 6.7 adds admin-only evidence report/export over those diagnostics. Phase 6.8 adds evidence collection runbook/template/checklist only. Phase 6.9 adds a main-only evidence package and pending marker only. Phase 6.10 reviews real main evidence, records manual review required, and keeps access-switch/backfill blocked. Phase 6.11 adds manual-review workflow design and a local planner only. Phase 6.12 designs manual-review state schema. Phase 6.13 adds additive migration `0057` with empty manual-review state tables only. Phase 6.14 adds local-only review import dry-run planning. Phase 6.15 adds an admin-approved review-item import executor that defaults to dry-run and can write only review items/events when confirmed. Phase 6.16 adds read-only review queue/evidence APIs and JSON/Markdown exports. Phase 6.17 adds admin-approved review-status updates on review items/events only. Phase 6.18 adds status operator evidence rollups and Admin Control Plane queue visibility/status controls for review-state rows only. Phase 6.20 records manual-review operator evidence with idempotency gaps still pending. Phase 6.21 adds legacy media reset dry-run/export planning. Phase 6.22 designs the reset executor. Phase 6.23 adds reset action tracking and a dry-run-default executor path. Phase 6.25 records reset dry-run evidence as pending and adds a confirmation gate. These phases do not backfill old rows, assign organization ownership, update source asset rows or ownership metadata, execute confirmed reset by Codex/tests, change access checks, change generation/gallery/media/lifecycle/quota behavior outside any future confirmed executor, move/delete/list live R2 objects, call providers in tests, call Stripe, enable live billing, implement customer billing, or make production/live billing ready.
+## Current Evidence Required
 
-Phase 4.15 budget-switch operator checklist records intended state only; do not paste values or secrets:
+- Release/preflight output.
+- Applied migration evidence.
+- Worker deploy evidence for affected workers.
+- Static Pages deploy evidence if static files changed.
+- Secret/binding verification evidence without values.
+- Live health check evidence.
+- Security header evidence.
+- R2/D1/Queue/DO/service binding evidence.
+- Restore drill and rollback evidence.
+- Stripe Testmode/live canary evidence where billing is in scope.
+- Admin/platform budget switch/cap/reconciliation/repair/report/archive evidence where AI cost controls are in scope.
+- Tenant asset/manual-review/reset evidence decisions before any ownership/backfill/reset claim.
 
-- `ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET`
-- `ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET`
-- `ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS`
-- `ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET`
-- `ENABLE_NEWS_PULSE_VISUAL_BUDGET`
-- `ENABLE_ADMIN_AI_TEXT_BUDGET`
-- `ENABLE_ADMIN_AI_EMBEDDINGS_BUDGET`
-- `ENABLE_ADMIN_AI_MUSIC_BUDGET`
-- `ENABLE_ADMIN_AI_COMPARE_BUDGET`
-- `ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET`
+## Current Blockers
 
-Phase 6.19 adds operator evidence runbook/template docs for the AI folders/images manual-review import, queue, status, idempotency, Admin panel, and export workflow. Phase 6.20 reviews real live/main operator evidence and records `operator_evidence_collected_needs_more_idempotency`: dry-run import, confirmed import, and queue export evidence exist, while replay/conflict and successful standalone status-update idempotency evidence remain incomplete. Phase 6.21 adds legacy media reset dry-run/export planning only. Phase 6.22 designs the reset executor. Phase 6.23 adds reset action/audit tracking plus a dry-run-default admin-approved executor path for first-pass folders/images/derivatives/public references. Phase 6.25 adds pending reset dry-run evidence/confirmation-gate docs only. These phases do not run imports/status updates by Codex, execute live/main media deletion by Codex/tests, backfill ownership, update source asset ownership metadata, switch access checks, list/mutate live R2, call providers, call Stripe, mutate Cloudflare, or make production/live billing ready.
+- Live/manual Cloudflare validation is not recorded in repo.
+- Live billing canaries and remediation/legal/accounting workflows remain incomplete.
+- Tenant ownership backfill and access-switch readiness are blocked.
+- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided.
+- Production readiness cannot be claimed from local tests alone.
 
-Phase 4.15.1 Admin AI Budget Switch Control Plane checklist records app-level D1 state only:
-
-- Remote migration `0052_add_admin_runtime_budget_switches.sql` is applied before the Phase 4.15.1 switch-control auth Worker deploy.
-- `GET /api/admin/ai/budget-switches` shows safe master/app/effective status without Cloudflare values.
-- `PATCH /api/admin/ai/budget-switches/:switchKey` requires admin MFA, same-origin, bounded reason, and `Idempotency-Key`.
-- Disabled or missing Cloudflare master flags cannot be overridden by the Admin UI.
-- Missing D1 app rows and D1-unavailable states fail closed before provider/internal AI/queue/credit/durable-attempt work.
-- No Cloudflare API token is stored and no Cloudflare variable is mutated from the app.
-- Phase 4.17 cap migration `0053_add_platform_budget_caps.sql` is applied before auth Worker deploys that depend on cap tables.
-- Phase 4.19 repair migration `0054_add_platform_budget_repair_actions.sql` is applied before auth Worker deploys that record repair action audit rows.
-- Phase 4.20 repair evidence reports/exports are reviewed as bounded, sanitized, read-only operator evidence; no repair is applied by report/export endpoints.
-- Phase 4.21 archive migration `0055_add_platform_budget_evidence_archives.sql` is applied before auth Worker deploys that create/list/expire/cleanup platform budget evidence archives.
-- Phase 6.4 ownership metadata migration `0056_add_ai_folder_image_ownership_metadata.sql`, Phase 6.13 review-state migration `0057_add_ai_asset_manual_review_state.sql`, and Phase 6.23 reset action migration `0058_add_legacy_media_reset_actions.sql` are applied before auth Worker deploys that depend on those tables.
-
-Phase 4.16 and Phase 4.17 live platform budget-cap evidence checklist records status only; do not paste secret values:
-
-- Evidence report preserves Phase 4.16 design/countability fields and shows `liveBudgetCapsStatus: platform_admin_lab_budget_foundation`.
-- Evidence report distinguishes runtime switch enforcement, Phase 4.17 cap enforcement, and non-cap-enforced future scopes.
-- `platform_admin_lab_budget` daily/monthly caps are configured intentionally before enabling related provider-cost paths.
-- Cap usage evidence is bounded/sanitized and records only successful covered provider-cost completions.
-- Operator decision is recorded before enabling admin/platform AI flags: keep flags off, enable a targeted flag for bounded testing, or accept risk without live caps.
-- Production/live billing remains BLOCKED while other scopes, live evidence, and customer-billing evidence remain incomplete.
-
-## Repo-Local Checks
-
-These checks are safe local/repo checks:
+## Safe Validation Commands
 
 ```bash
 npm run check:js
 npm run check:secrets
+npm run test:doc-currentness
 npm run check:doc-currentness
 npm run validate:release
+npm run test:release-compat
 npm run test:release-plan
-npm run readiness:evidence
 npm run test:readiness-evidence
-npm run release:preflight
-git diff --check
-git status --short
-```
-
-`npm run readiness:evidence` is local-only and redacted by default. It prints branch, commit, worktree summary, release latest migration, binding declarations from repo config, known env var presence as present/missing, skipped live checks, blockers, and final verdict `BLOCKED`.
-
-Local-only markdown output:
-
-```bash
-npm run readiness:evidence -- --markdown
-```
-
-To run a tiny deterministic local subset from the helper, an operator may run:
-
-```bash
-npm run readiness:evidence -- --run-local-checks
-```
-
-This still does not deploy, migrate, call Stripe, mutate Cloudflare, or run live checks.
-
-To write a redacted evidence file, use only the approved evidence directory:
-
-```bash
-npm run readiness:evidence -- \
-  --output docs/production-readiness/evidence/2026-05-15-local-readiness.md
-```
-
-The helper refuses to write outside `docs/production-readiness/evidence/` and refuses to overwrite existing files unless `--force` is passed.
-
-## Phase 2.5 Billing Review/Reconciliation Staging Plan
-
-Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` before any staging verification of the Phase 2.1-2.4 billing lifecycle review/reconciliation workflow. Phase 2.5 is a checklist and evidence-plan phase only. It does not approve production deploy, live billing, Stripe remediation, credit clawback, subscription cancellation, or automatic reconciliation.
-
-Local preflight examples:
-
-```bash
-npm run release:preflight
+npm run test:main-release-readiness
 npm run release:plan
-npm run readiness:evidence
-npm run readiness:evidence -- --markdown
+npm run release:preflight
 ```
 
-Expected current deploy units from `npm run release:plan` are the auth schema migration and auth Worker, plus static/pages only if UI changed. Current staging/auth D1 evidence must now be through `0058_add_legacy_media_reset_actions.sql` before deploying current auth Worker code or running API smoke checks.
+These commands are repository/local checks. They do not prove live production readiness without operator evidence.
 
-Staging read-only evidence example with explicit URLs:
+## Current Baseline
 
-```bash
-npm run readiness:evidence -- \
-  --include-live \
-  --static-url https://<staging-static-origin>/ \
-  --auth-worker-url https://<staging-auth-origin>/ \
-  --ai-worker-url https://<staging-ai-origin>/ \
-  --contact-worker-url https://<staging-contact-origin>/ \
-  --output docs/production-readiness/evidence/YYYY-MM-DD-staging-readiness.md
-```
-
-Manual API smoke examples should use a staging admin session and a local cookie file path. Do not paste cookie values, bearer tokens, raw signatures, raw payloads, or secrets into commands, shell history, issue comments, screenshots, or evidence files.
-
-```bash
-curl --fail --silent --show-error \
-  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
-  "https://<staging-auth-origin>/api/admin/billing/reviews?provider=stripe&provider_mode=live&review_state=needs_review&limit=20" \
-  | jq '{ok, count: (.events | length), reviewStates: [.events[]?.reviewState], eventTypes: [.events[]?.eventType]}'
-```
-
-```bash
-curl --fail --silent --show-error \
-  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
-  "https://<staging-auth-origin>/api/admin/billing/reviews/<review-event-id>" \
-  | jq '{ok, eventType, reviewState, reviewReason, recommendedAction, safeIdentifiers, sideEffectsEnabled}'
-```
-
-```bash
-curl --fail --silent --show-error \
-  --request POST \
-  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
-  --header "Content-Type: application/json" \
-  --header "Idempotency-Key: <operator-generated-review-resolution-key>" \
-  --data '{"resolution_status":"dismissed","resolution_note":"Staging smoke: no customer action taken."}' \
-  "https://<staging-auth-origin>/api/admin/billing/reviews/<review-event-id>/resolution" \
-  | jq '{ok, reviewState, resolutionStatus, resolvedAt}'
-```
-
-```bash
-curl --fail --silent --show-error \
-  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
-  "https://<staging-auth-origin>/api/admin/billing/reconciliation" \
-  | jq '{ok, source, verdict, productionReadiness, liveBillingReadiness, generatedAt, sectionIds: [.sections[]?.id], notes}'
-```
-
-These smoke checks must verify admin-only access, MFA expectations, sanitized output, blocked/live-billing warnings, read-only reconciliation, no raw payload/signature/secret/card rendering, no credit mutation, and no Stripe action. They must remain staging-only unless a human operator separately approves a canary/production evidence window.
-
-Any production deploy or canary mention in this repository is **not approved by this document**. Production requires human operator approval, complete evidence review, migration/resource/secret verification, rollback readiness, and explicit legal/product/billing acceptance. Live billing remains `BLOCKED`.
-
-## Main-Only Direct Release Gate
-
-The owner deploys directly from `main` and does not use a separate staging environment. This is riskier than staging because the first deployed environment is live. Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md` for any direct-main release. For the Phase 3.4 member personal image AI Cost Gateway pilot, also use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md`.
-
-Local main-release gate:
-
-```bash
-npm run check:main-release-readiness
-```
-
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0058_add_legacy_media_reset_actions.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0058` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
-
-For local planning evidence only:
-
-```bash
-npm run check:main-release-readiness -- --allow-dirty --markdown
-```
-
-The gate never deploys, runs remote migrations, calls Stripe APIs, mutates Cloudflare/GitHub settings, changes secrets, or enables live billing. Do not run it as proof of production readiness. Direct-main production deploy steps are not approved by this documentation; they require human operator approval, evidence review, rollback readiness, and final operator verdict.
-
-Allowed direct-main checklist verdicts are:
-
-- `BLOCKED`
-- `MAIN DEPLOYED - EVIDENCE INCOMPLETE`
-- `MAIN DEPLOYED - OPERATOR VERIFIED`
-- `ROLLBACK REQUIRED`
-
-`PRODUCTION READY` is not an automatic checklist outcome. Main-only evidence does not prove external Stripe truth, live billing readiness, refund/dispute/chargeback remediation, or legal/accounting readiness.
-
-## Phase 3.4 Member Image Gateway Main-Only Evidence
-
-Phase 3.4 adds the member personal image gateway pilot and additive auth migration `0048_add_member_ai_usage_attempts.sql`. The reviewed release plan for this scope should report:
-
-- auth schema checkpoint `0048_add_member_ai_usage_attempts.sql`
-- auth Worker
-- no static/pages deploy for Phase 3.4 itself
-- no AI Worker/contact Worker deploy
-
-The mandatory operator order is migration `0048` first, then auth Worker deploy from the reviewed commit. Do not deploy auth Worker code that depends on `member_ai_usage_attempts` before remote migration `0048` is applied and verified. Use `PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` to record member personal image smoke evidence, including missing/malformed idempotency rejection, same-key duplicate behavior, conflict behavior, and no-charge failure evidence when safely testable.
-
-This evidence does not prove later admin video job controls, OpenClaw/News Pulse visual controls, broad admin AI, platform/background AI outside News Pulse visuals, internal AI Worker routes, or all provider-result replay paths are migrated. Production readiness and live billing readiness remain `BLOCKED`.
-
-## Tenant Asset Ownership Main-Only Decision
-
-Use `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` for the current AI folders/images owner-map evidence decision. As of Phase 6.10, the decision reviews `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`, records `needs_manual_review`, and keeps ownership access-check switching, old-row backfill, and tenant-isolation claims blocked. Phase 6.11 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md` for design-only review planning. Phase 6.12 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`; Phase 6.13 adds the empty review-state tables in migration `0057`; Phase 6.14 adds `npm run tenant-assets:dry-run-review-import` for aggregate/item-level import planning; Phase 6.15 adds the admin-approved review-item import executor; Phase 6.16 adds queue evidence APIs; Phase 6.17 adds status updates; Phase 6.18 adds status evidence rollups and Admin Control Plane visibility/status controls; Phase 6.20 records live/main operator evidence with idempotency completion still needed; Phase 6.21 adds legacy media reset dry-run/export planning; Phase 6.22 designs the reset executor; Phase 6.23 adds reset action/audit tracking plus the dry-run-default admin-approved executor path; Phase 6.25 records reset dry-run evidence as pending and adds a confirmation gate. These records do not mutate D1/R2 beyond schema/review-item-event writes performed by operator-approved earlier phases and future explicitly confirmed reset execution, list live R2, change access checks, backfill ownership, update ownership metadata, or prove production readiness.
-
-## Live/Staging Credential Checks
-
-These are not run automatically by this framework:
-
-- Remote D1 migration status in staging/production through `0058_add_legacy_media_reset_actions.sql`.
-- Cloudflare Worker binding/resource presence in staging/production.
-- Cloudflare secret presence in staging/production.
-- Live health/security-header checks against staging/production URLs.
-- Stripe Testmode/live checkout/webhook/canary flows.
-- Dashboard-managed WAF, Transform Rules, RUM, and alert verification.
-- Restore drill execution.
-
-Operators must run these explicitly, redact evidence, and paste results into `docs/production-readiness/EVIDENCE_TEMPLATE.md`.
-
-## Operator-Run Read-Only HTTP Evidence
-
-The helper can collect a narrow read-only HTTP evidence slice only when an operator explicitly passes `--include-live` and one or more URLs. It never guesses production URLs and never sends credentials, cookies, Authorization headers, Stripe secrets, or Cloudflare tokens.
-
-Staging example:
-
-```bash
-npm run readiness:evidence -- \
-  --include-live \
-  --static-url https://staging.example.invalid/ \
-  --auth-worker-url https://staging.example.invalid/ \
-  --ai-worker-url https://ai-staging.example.invalid/ \
-  --contact-worker-url https://contact-staging.example.invalid/ \
-  --output docs/production-readiness/evidence/2026-05-15-staging-readiness.md
-```
-
-Production/canary example:
-
-```bash
-npm run readiness:evidence -- \
-  --include-live \
-  --static-url https://bitbi.ai/ \
-  --auth-worker-url https://bitbi.ai/ \
-  --ai-worker-url https://ai.example.invalid/ \
-  --contact-worker-url https://contact.bitbi.ai/ \
-  --output docs/production-readiness/evidence/2026-05-15-canary-readiness.md
-```
-
-Read-only HTTP evidence currently covers:
-
-- Static site GET status, final origin, and selected safe headers only.
-- Auth Worker `GET /api/health`, status, JSON parse success/failure, public-safe `ok` / `service` / `status` fields, and selected safe headers.
-- AI Worker `GET /health`, status, JSON parse success/failure, public-safe fields, and selected safe headers.
-- Contact Worker `GET /health`, status, JSON parse success/failure, public-safe fields, and selected safe headers.
-
-The helper does not dump response bodies. It strips query strings and fragments from supplied URLs before requests and prints origins rather than full URLs.
-
-This command does not prove production readiness or live billing readiness. Even if all read-only HTTP checks pass, the generated verdict remains `BLOCKED`, with `evidenceCollected: true` and `operatorReviewRequired: true`. A human operator must attach the evidence file to the release/operator review and verify all remaining gates in the template.
-
-## Acceptable Evidence
-
-Acceptable evidence includes:
-
-- Command output copied with date, actor, environment, branch, and commit.
-- Redacted screenshots showing resource names and pass/fail status without values.
-- Tables listing binding/secret/env var names with `present` or `missing`.
-- Stripe Testmode event ids, checkout session ids, ledger/action ids, and timestamps when needed for reconciliation, with customer data redacted.
-- Runbook links or ticket links for restore drills, alert tests, WAF/header/RUM verification, and rollback rehearsal.
-
-Unacceptable evidence includes:
-
-- Claims without commands, screenshots, or traceable operator notes.
-- Secret values, raw webhook secrets/signatures, API keys, raw cookies, session tokens, private keys, or unredacted customer data.
-- Live billing success alone without failure/refund/dispute/reconciliation evidence.
-- Phase 2.3 review queue UI/resolution records or Phase 2.4 read-only reconciliation reports presented as automated refund, chargeback, failed-payment remediation, accounting reconciliation, or live billing readiness.
-- Local-only validation presented as production readiness.
-
-## Explicitly Unproven
-
-Until filled evidence proves otherwise, these remain unproven:
-
-- Production Cloudflare resource, binding, secret, route, WAF, header, RUM, and alert state.
-- Remote D1 migration status through `0058_add_legacy_media_reset_actions.sql`.
-- Stripe Testmode checkout/webhook behavior in staging.
-- Live credit-pack canary behavior.
-- BITBI Pro subscription lifecycle behavior.
-- Staging/live evidence for Phase 2.3 failed-payment, refund, dispute, chargeback, and expired-checkout review queue UI/resolution handling.
-- Staging/live evidence for Phase 2.4 local-only billing reconciliation reporting against real migrated billing data.
-- Automated failed-payment remediation, refund/chargeback credit adjustment, and approved billing admin remediation workflow.
-- Restore drill success and rollback readiness.
-- Full SaaS maturity, full tenant isolation, full privacy/legal compliance, and full live billing readiness.
+Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the starting point for any future production-readiness audit.

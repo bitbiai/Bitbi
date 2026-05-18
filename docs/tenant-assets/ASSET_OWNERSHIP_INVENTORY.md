@@ -1,150 +1,63 @@
 # Asset Ownership Inventory
 
-Date: 2026-05-17
+Date: 2026-05-18
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
-Phase 6.1 inventories ownership only. Phase 6.2 adds a focused source/fixture owner-map dry run for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan for that same domain. Phase 6.4 adds nullable owner metadata columns to `ai_folders` and `ai_images` only. Phase 6.5 assigns those fields only for new personal folder/image writes. Phase 6.6 adds read-only diagnostics that compare legacy `user_id` signals with ownership metadata. Phase 6.7 exposes those diagnostics through a bounded admin evidence report/export. Phase 6.8 adds runbook/template/checklist guidance for collecting evidence from that report. Phase 6.9 adds the main-only evidence package directory. Phase 6.10 reviews the real main evidence summary and keeps access-switch/backfill blocked with manual review required. Phase 6.11 adds manual-review workflow design and a local planner. Phase 6.12 designs review-state tables. Phase 6.13 adds empty review-state tables/indexes only. Phase 6.14 adds local-only review-item import dry-run planning. Phase 6.15 adds an admin-approved import executor that writes only review items/events when confirmed. Phase 6.16 adds read-only manual-review queue/evidence APIs. Phase 6.17 adds admin-approved review-status updates on review items/events only. Phase 6.18 adds status operator evidence and Admin Control Plane queue visibility/status controls for review-state rows only. Phase 6.19 adds operator evidence collection docs. Phase 6.20 reviews real live/main operator evidence and records `operator_evidence_collected_needs_more_idempotency` because replay/conflict and successful standalone status-update idempotency evidence remain incomplete. Phase 6.21 adds read-only legacy personal media reset dry-run/export inventory for safe retirement planning. Phase 6.22 designs the reset executor. Phase 6.23 adds additive action tracking and an admin-approved reset executor path limited to folders/images/derivatives/public refs. Phase 6.24 adds pending operator dry-run evidence docs. Phase 6.25 rechecks evidence, keeps `legacy_media_reset_dry_run_pending`, and adds a confirmation-gate checklist because no live/main executor dry-run file is committed. These phases do not backfill existing rows, run live/main reset execution by Codex/tests, delete media, update ownership metadata, assign organization ownership, move/list/delete live R2 objects, mutate billing, change generation behavior, change access checks, change lifecycle behavior globally, change quota accounting globally, or claim tenant isolation.
+Purpose: current ownership inventory for audit restart. Historical phase detail is frozen outside this file.
 
-## Summary
+## Current Domain Inventory
 
-| Domain | Current owner fields | Target owner fields | Current access | Risk | Future phase |
-| --- | --- | --- | --- | --- | --- |
-| Generated images (`ai_images`) | `user_id`, optional `folder_id`; nullable owner metadata now assigned for new personal saves only | `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, ownership status/source/confidence metadata | Private user match; public `visibility='public'` | High | Phase 6.25 dry-run closure pending; Phase 6.26 operator dry-run required |
-| Saved text/audio/video (`ai_text_assets`) | `user_id`, optional `folder_id`, `source_module` | same target owner fields plus parent/derivative owner evidence | Private user match; public source-specific galleries | High | 6.3 |
-| Folders (`ai_folders`) | `user_id`, `status`; nullable owner metadata now assigned for new personal folders only | `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, ownership status/source/confidence metadata | User match for create/rename/delete/move | High | Phase 6.25 dry-run closure pending; Phase 6.26 operator dry-run required |
-| Async video jobs (`ai_video_jobs`) | `user_id`, `scope` | owner class plus org/admin classification | User/admin scope checks | High | 6.4 |
-| Profiles/avatars (`profiles`, `PRIVATE_MEDIA`) | `user_id` | personal or organization publisher evidence | User-private; public only through gallery attribution routes | Medium | 6.6 |
-| Favorites (`favorites`) | `user_id`, `item_type`, `item_id` | referencing user plus referenced asset owner class | User-private reference list | Medium | 6.6 |
-| Storage quota (`user_asset_storage_usage`) | `user_id` | user or organization quota owner | Derived per-user counter | High | 6.5 |
-| Lifecycle/export/delete (`data_lifecycle_*`) | `subject_user_id`, `r2_bucket`, `r2_key` | subject type plus org owner fields | Admin/support user-subject plans | High | 6.7 |
-| News Pulse visuals (`news_pulse_items`) | platform content fields | `platform_background_asset` classification | Public/background cache | Medium | 6.8 or separate platform-content phase |
-
-## Tables And Routes
-
-### `ai_images`
-
-- Source migrations: `0007_add_image_studio.sql`, `0017_add_ai_image_derivatives.sql`, `0019_add_ai_image_publication.sql`, `0046_add_asset_storage_quota.sql`.
-- Source routes/libs: `workers/auth/src/routes/ai/images-write.js`, `assets-read.js`, `files-read.js`, `publication.js`, `gallery.js`, `workers/auth/src/lib/ai-image-derivatives.js`.
-- Primary key: `id`.
-- Current owner: `user_id`.
-- Folder: `folder_id` references `ai_folders`.
-- R2 fields: `r2_key`, `thumb_key`, `medium_key`.
-- Visibility: `visibility`, `published_at`.
-- Current private access: `WHERE id = ? AND user_id = ?`.
-- Current public access: Mempics routes require `visibility = 'public'` and derivative readiness.
-- Target: `personal_user_asset` or `organization_asset`.
-- Gap: org-scoped image generation can consume org credits/attempts, but saved image rows do not carry an organization owner.
-- Phase 6.2 dry-run rules classify user-only rows as medium-confidence personal candidates, require explicit owner-map evidence for organization assets, reject weak UI organization context, flag folder/user conflicts, flag missing folders, and mark public ambiguous images unsafe to migrate.
-- Phase 6.4 adds nullable ownership metadata fields and future access-check constants/tests. Phase 6.5 writes high-confidence personal ownership metadata for new saved images only; Phase 6.6 reports simulated dual-read safety; Phase 6.7 exposes bounded admin evidence/report exports; Phase 6.8 documents how to collect operator evidence from those exports; Phase 6.9 records the main-only evidence package; Phase 6.10 records real main evidence with 63 images missing ownership metadata, 21 public unsafe rows, 63 derivative ownership risks, and 42 simulated dual-read unsafe rows; Phase 6.11 defines manual-review categories/statuses; Phase 6.12 designs review-state persistence; Phase 6.13 adds empty review-state tables without importing rows; Phase 6.14 adds dry-run import planning; Phase 6.15 adds an admin-approved executor that can create review items/events only; Phase 6.16 adds read-only queue/evidence APIs for those review rows; Phase 6.17 adds admin-approved status updates on review items/events only; Phase 6.18 adds Admin Control Plane visibility/status controls for review-state rows only; Phase 6.19 adds operator evidence collection docs; Phase 6.20 records live/main import and queue evidence with idempotency completion still needed; Phase 6.21 adds read-only reset dry-run inventory; Phase 6.22 designs the reset executor; Phase 6.23 adds action tracking and an admin-approved reset executor path; Phase 6.25 keeps reset dry-run closure pending and adds a confirmation gate because no real executor dry-run evidence exists. Old rows remain null/unclassified until a separately approved execution; org ownership is not assigned, ownership metadata is not updated, live/main media rows were not deleted by Codex/tests, live R2 objects are not listed/deleted, and runtime reads/access checks remain `user_id` based.
-
-### `ai_text_assets`
-
-- Source migrations: `0016_add_ai_text_assets.sql`, `0021_add_music_source_module.sql`, `0022_add_video_source_module.sql`, `0023_add_text_asset_publication.sql`, `0024_add_text_asset_poster.sql`, `0046_add_asset_storage_quota.sql`.
-- Source routes/libs: `text-assets-write.js`, `music-generate.js`, `video-generate.js`, `assets-read.js`, `files-read.js`, `publication.js`, `audio-gallery.js`, `video-gallery.js`, `ai-text-assets.js`.
-- Primary key: `id`.
-- Current owner: `user_id`.
-- Source modules: `text`, `embeddings`, `compare`, `live_agent`, `music`, `video`.
-- R2 fields: `r2_key`, `poster_r2_key`.
-- Metadata: `metadata_json`, `preview_text`, `mime_type`, `size_bytes`, `poster_size_bytes`.
-- Current private access: `WHERE id = ? AND user_id = ?`.
-- Current public access: Memvids/Memtracks routes require `visibility = 'public'` and `source_module` filter.
-- Target: `personal_user_asset`, `organization_asset`, or `platform_admin_test_asset`.
-- Gap: posters inherit ownership implicitly from parent rows and are not independently classified.
-
-### `ai_folders`
-
-- Source migrations: `0007_add_image_studio.sql`, `0009_add_folder_status.sql`.
-- Source routes/libs: `folders-read.js`, `folders-write.js`, `lifecycle.js`.
-- Primary key: `id`.
-- Current owner: `user_id`.
-- Current access: user match for list/create/rename/delete/move.
-- Target: owner-bound folder with owner class and optional organization id.
-- Gap: future org-owned assets must not be mixed into personal folders without explicit policy.
-- Phase 6.2 dry-run rules keep folders owner-bound in the target model and treat weak org context as insufficient for tenant ownership.
-- Phase 6.4 adds nullable metadata fields for this target. Phase 6.5 writes high-confidence personal ownership metadata for new folders only; Phase 6.6 reports simulated dual-read safety; Phase 6.7 exposes bounded admin evidence/report exports; Phase 6.8 documents how to collect operator evidence from those exports; Phase 6.9 records the main-only evidence package; Phase 6.10 records real main evidence with 12 folders missing ownership metadata and 4 folders with metadata; Phase 6.11 defines manual-review categories/statuses; Phase 6.12 designs review-state persistence; Phase 6.13 adds empty review-state tables without importing rows; Phase 6.14 adds dry-run import planning; Phase 6.15 adds a review-item/event-only import executor; Phase 6.16 adds read-only queue/evidence APIs for review rows; Phase 6.17 adds admin-approved status updates on review items/events only; Phase 6.18 adds Admin Control Plane visibility/status controls for review-state rows only; Phase 6.19 adds operator evidence collection docs; Phase 6.20 records live/main import and queue evidence with idempotency completion still needed; Phase 6.21 adds D1-only reset dry-run inventory; Phase 6.22 designs the reset executor; Phase 6.23 adds action tracking and an admin-approved reset executor path; Phase 6.25 keeps reset dry-run evidence pending and adds a confirmation gate. Old rows remain null/unclassified until a separately approved execution; org ownership is not assigned, ownership metadata is not updated, live/main media rows were not deleted by Codex/tests, and access behavior remains `user_id` based.
-
-### `ai_video_jobs`
-
-- Source migrations: `0029_add_ai_video_jobs.sql`, `0030_harden_ai_video_jobs_phase1b.sql`, `0049_add_admin_video_job_budget_metadata.sql`.
-- Source routes/libs: `workers/auth/src/lib/ai-video-jobs.js`, `workers/auth/src/routes/admin-ai.js`, `workers/auth/src/routes/ai/video-generate.js`.
-- Primary key: `id`.
-- Current owner fields: `user_id`, `scope` (`admin` or `member`).
-- R2 fields: `output_r2_key`, `poster_r2_key`.
-- Current access: admin/member job surfaces scope by user and admin route.
-- Target: `personal_user_asset`, `organization_asset`, or `platform_admin_test_asset`.
-- Gap: admin-created output classification is not separated from user id ownership.
-
-### `profiles` And Avatars
-
-- Source migrations: `0005_add_profiles.sql`, `0018_add_profile_avatar_state.sql`, `0026_add_cursor_pagination_support.sql`.
-- Source routes/libs: `profile.js`, `avatar.js`, `profile-avatar-state.js`, `gallery.js`, `audio-gallery.js`, `video-gallery.js`.
-- Primary key: `user_id`.
-- R2 binding/key: `PRIVATE_MEDIA`, `avatars/{userId}`.
-- Current access: signed-in user for private avatar; public avatar is served only when linked to a published asset and matching version.
-- Target: personal profile asset or future organization publisher profile.
-- Gap: no organization publisher/avatar model exists.
-
-### `favorites`
-
-- Source migrations: `0008_add_favorites.sql`, `0025_add_media_favorite_types.sql`.
-- Source route: `workers/auth/src/routes/favorites.js`.
-- Current owner: `user_id`.
-- Reference fields: `item_type`, `item_id`, `thumb_url`.
-- Current access: user match.
-- Target: external/reference record with referenced asset owner evidence if needed.
-- Gap: favorites can reference public assets but do not record referenced owner class.
-
-### `user_asset_storage_usage`
-
-- Source migration: `0046_add_asset_storage_quota.sql`.
-- Source libs/routes: `asset-storage-quota.js`, `quota.js`, `admin-storage.js`.
-- Primary key: `user_id`.
-- Current owner: user.
-- Target: owner-class quota counters or recomputable summaries by user/org.
-- Gap: organization storage quota is absent.
-
-### Lifecycle/Export/Delete
-
-- Source migrations: `0032_add_data_lifecycle_requests.sql`, `0033_harden_data_export_archives.sql`.
-- Source libs/routes: `data-lifecycle.js`, `data-export-cleanup.js`, `admin-data-lifecycle.js`.
-- Current subject: `subject_user_id`.
-- R2 references: `r2_bucket`, `r2_key`.
-- Current coverage: user profile, favorites, folders, images, text assets, video jobs, activity summaries, and export archive manifests.
-- Target: subject type that can represent user or organization.
-- Gap: organization-owned asset lifecycle behavior is deferred.
-
-### News Pulse/OpenClaw Visuals
-
-- Source migrations: `0043_add_news_pulse_items.sql`, `0045_add_news_pulse_visuals.sql`, `0050_add_news_pulse_visual_budget_metadata.sql`.
-- Source libs/routes: `news-pulse-visuals.js`, `public-news-pulse.js`, `openclaw-news-pulse.js`.
-- R2 binding/key: `USER_IMAGES`, `news-pulse/thumbs/{itemId}.webp`.
-- Target: `platform_background_asset`.
-- Gap: not part of member/org tenant asset migration, but needs explicit classification to avoid false customer ownership.
-
-## R2 Inventory
-
-| Binding | Key patterns | Current owner signal | Risk |
+| Domain | Current owner signal | Current target state | Current status |
 | --- | --- | --- | --- |
-| `USER_IMAGES` | `users/{userId}/folders/...`, `users/{userId}/derivatives/...`, `users/{userId}/video-jobs/...`, `tmp/ai-generated/...`, `news-pulse/thumbs/...` | User id or platform prefix in key plus D1 metadata | Organization id is not encoded; key-only inference is unsafe. |
-| `PRIVATE_MEDIA` | `avatars/{userId}` | User id in key and `profiles` row | Organization publisher assets are absent. |
-| `AUDIT_ARCHIVE` | `data-exports/...`, `platform-budget-evidence/...` | Lifecycle/audit subject or platform budget scope | Audit archives are not customer-owned media. |
+| Generated images (`ai_images`) | `user_id`, `folder_id`, nullable ownership metadata | Personal or organization asset with creator evidence | New personal saves write metadata; old rows unresolved. |
+| Folders (`ai_folders`) | `user_id`, `status`, nullable ownership metadata | Owner-bound folder container | New personal folders write metadata; old rows unresolved. |
+| Image derivatives | Parent image row plus `thumb_key`/`medium_key` | Inherit parent owner | D1-known references only; no live R2 listing. |
+| Public gallery references | `visibility='public'` plus user/profile attribution | Explicit publisher model | User/profile based; public reset needs deliberate review. |
+| Text/audio/video assets (`ai_text_assets`) | `user_id`, `source_module`, R2/poster fields | Future owner classification | Deferred from first reset executor. |
+| Async video jobs (`ai_video_jobs`) | `user_id`, `scope` | Personal, org, or platform-admin class | Deferred from first reset executor. |
+| Profiles/avatars | `profiles.user_id`, `PRIVATE_MEDIA` avatar key | Personal or future org publisher asset | Deferred. |
+| Favorites | `user_id`, public item reference | Reference record with target owner evidence if needed | Deferred. |
+| Storage quota | `user_asset_storage_usage.user_id` | User/org quota model or verified recompute | User-centered. |
+| Lifecycle/export/delete | `subject_user_id`, planned item rows | User/org subject model | User-centered; org subject deferred. |
+| Audit archives | audit/lifecycle/platform scope | Audit archive asset | Not customer media reset domain. |
 
-## Lifecycle And Quota Coverage
+## Current Folder/Image Evidence Counts
 
-- Current lifecycle planning can reference `ai_images`, `ai_text_assets`, `ai_video_jobs`, avatars, folders, favorites, and R2 references for a user subject.
-- Current lifecycle planning does not support an organization subject.
-- Current quota accounting is per-user only.
-- Future owner migration must update lifecycle/export/delete design before any tenant isolation claim.
+The committed main owner-map summary records:
 
-## Tests Needed In Future Phases
+- Folders scanned: 16
+- Images scanned: 63
+- Metadata missing total: 75
+- Public unsafe: 21
+- Derivative risk: 63
+- Simulated dual-read unsafe: 42
+- Manual review needed: 90
+- Metadata conflicts: 0
+- Relationship conflicts: 0
+- Orphan folder references: 0
+- Organization-owned rows: 0
 
-- Phase 6.5 new-write tests for personal `ai_folders` and `ai_images` ownership metadata, plus null-row compatibility.
-- Phase 6.7 admin evidence tests for bounded reports/exports, metadata-missing rows, owner conflicts, relationship conflicts, public unsafe rows, orphan folder references, derivative ownership risk, and output sanitization.
-- Owner-map dry-run includes every existing row and marks ambiguous rows as legacy.
-- Organization-owned asset routes reject non-members and insufficient roles.
-- Personal assets remain accessible to their original user.
-- Public galleries preserve current public/private behavior until organization attribution is explicitly implemented.
-- Derivative/poster/covers inherit parent owner class.
-- Lifecycle planning includes organization-owned assets only when the requester is authorized.
-- R2 cleanup refuses keys whose owner class is ambiguous.
+These counts are evidence for manual review, not approval for backfill or access switching.
+
+## Current Reset Dry-run Evidence
+
+The committed legacy media reset dry-run evidence records a dry-run response for selected first-pass domains, but the evidence file is rejected unsafe because it contains a raw idempotency key. The confirmation gate remains closed.
+
+Current dry-run summary from the evidence decision:
+
+- Proposed source row retire count: 53
+- Proposed image retire count: 50
+- Proposed folder retire count: 3
+- Public reference retire count: 17
+- Derivative reference retire count: 100
+- R2 key-type counts: original 50, thumb 50, medium 50
+- Deferred records include video, music, and text assets.
+
+## Current Boundaries
+
+- Do not infer organization ownership from UI active organization context, folder membership, or R2 key shape alone.
+- Do not use R2 keys as a tenant-isolation proof.
+- Do not backfill or rewrite ownership metadata without a separately approved plan.
+- Do not switch runtime reads to ownership metadata yet.
+- Do not claim old media was deleted or reset.

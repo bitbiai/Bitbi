@@ -1,55 +1,51 @@
 # Audit Action Plan
 
-Date: 2026-04-24
+Date: 2026-05-18
 
-Last reconciled: 2026-05-18 for Phase 6.25 tenant asset legacy media reset dry-run closure and confirmation gate.
-
-Purpose: current remediation tracker. Historical long-form action history is preserved in `docs/audits/archive/AUDIT_ACTION_PLAN_PRE_DOC1.md` and root phase reports.
+Purpose: current remediation priorities only. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the clean baseline for the next deep audit.
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
-This plan is not production approval, live billing readiness, legal compliance certification, or full tenant-isolation evidence.
+This plan is not production approval, live billing readiness, legal compliance certification, full tenant-isolation evidence, access-switch readiness, ownership backfill readiness, or confirmed reset approval.
 
 ## Current Priorities
 
-| Priority | Area | Status | Next action |
+| Priority | Area | Current status | Next action |
 | --- | --- | --- | --- |
-| P0 | Production readiness | BLOCKED | Verify migrations through `0058`, Worker secrets/bindings, D1/R2/Queues/DOs, health, headers, alerts, restore, and rollback evidence. |
-| P0 | Live billing readiness | BLOCKED | Keep live flags off except bounded canaries; collect Stripe Testmode/live evidence and define approved remediation workflow. |
-| P0 | Documentation currentness | Guarded | Keep active docs short, update `docs/audits/README.md`, and run `check:doc-currentness`. |
-| P1 | Admin/platform AI budgets | Partial scoped foundation | Verify Phase 4.15.1 through 4.21 evidence; choose next budget scope or internal caller-policy gap deliberately. |
-| P1 | Billing operations | Partial | Move from review metadata/read-only reconciliation to approved operator remediation only after product/legal/accounting approval. |
-| P1 | Tenant ownership | New personal folder/image writes assigned; read diagnostics, admin evidence report, manual-review workflow/import/queue/status visibility, Phase 6.20 operator evidence decision update, Phase 6.21 reset dry-run/export, Phase 6.22 reset executor design, Phase 6.23 reset action tracking/executor, and Phase 6.25 pending reset dry-run evidence/confirmation-gate docs added; old rows unbackfilled | Use `docs/tenant-assets/`, `npm run dry-run:tenant-assets:images`, `/api/admin/tenant-assets/folders-images/evidence`, manual-review endpoints, `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`, `/api/admin/tenant-assets/legacy-media-reset/dry-run`, `POST /api/admin/tenant-assets/legacy-media-reset/execute`, read-only `/legacy-media-reset/actions` endpoints, `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`, and `LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md`. Current decisions are `operator_evidence_collected_needs_more_idempotency` for manual review and `legacy_media_reset_dry_run_pending` for reset dry-run evidence; next evidence is Phase 6.26 operator-run reset dry-run. No ownership backfill, ownership metadata update, access switch, live/main reset execution by Codex/tests, live R2 action, or billing/credit mutation. |
-| P1 | Privacy/data lifecycle | Partial | Complete legal-approved retention/delete/export policy and self-service flows. |
-| P2 | Ops maturity | Partial | Record restore drill, live alert, Cloudflare dashboard drift, load, and canary evidence. |
-| P2 | Quality gates | Partial | Add staged type/lint/SAST/SBOM/dependency gates without broad rewrites. |
+| P0 | Production readiness | Blocked | Verify migrations, Worker deploy state, secrets, bindings, D1/R2/Queue/DO resources, health, headers, alerts, restore drill, rollback path, and release evidence. |
+| P0 | Live billing readiness | Blocked | Keep live flags off except bounded operator canaries; collect Stripe/Testmode/live evidence and define remediation/accounting/legal workflow. |
+| P0 | Documentation baseline | Consolidated | Keep active docs current-state focused; archive history separately; run doc-currentness checks. |
+| P1 | Admin/platform AI budgets | Scoped foundation exists | Verify current live evidence and choose one next budget/caller-policy scope deliberately. |
+| P1 | Tenant ownership | Partial folder/image evidence and review tooling exists | Complete manual-review idempotency evidence; do not backfill or switch access until separately approved evidence supports it. |
+| P1 | Legacy media reset | Dry-run/executor foundation exists; confirmed reset blocked | Review unsafe dry-run evidence and keep confirmation gate closed until sanitized evidence and explicit approval exist. |
+| P1 | Privacy/data lifecycle | Engineering foundation exists | Complete legal-approved retention/delete/export policy and self-service flows. |
+| P2 | Ops maturity | Partial | Record restore drill, live alerts, dashboard drift, load/canary, and rollback evidence. |
+| P2 | Quality gates | Partial | Add staged type/lint/SAST/SBOM/dependency checks without broad rewrites. |
 
-## Completed Foundation To Preserve
+## Current Tenant Asset Decisions
 
-- Phase 0/1 auth, service-auth, route-policy, limiter, body parsing, admin MFA, operational readiness, audit search, lifecycle, export/archive, and cleanup foundations.
-- Phase 2 organization/RBAC, billing/credits/entitlements, provider-neutral billing events, guarded Stripe Testmode/live scaffolding, member credit buckets, BITBI Pro scaffolding, billing review/reconciliation, and main-only evidence planning.
-- Phase 3 member image/music/video AI Cost Gateway coverage and AI cost policy baseline guard.
-- Phase 4 admin/platform AI budget metadata, idempotency, switches, first `platform_admin_lab_budget` cap foundation, reconciliation, explicit repair, report/export, and evidence archive workflows.
-- Phase 5.1 Admin Control Plane navigation/discoverability consolidation.
-- Phase 6.1 tenant asset ownership design, inventory, risk matrix, focused folder/image dry-run through manual-review import/queue/status workflows, Phase 6.20 operator evidence decision update, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, Phase 6.23 reset action/event tracking plus dry-run-default executor, and Phase 6.25 confirmation gate with no old-row ownership backfill, ownership metadata update, access-check switch, live/main reset execution by Codex/tests, live R2 listing/mutation, UI change, or billing behavior mutation.
+- Owner-map evidence requires manual review.
+- Manual-review operator decision: `operator_evidence_collected_needs_more_idempotency`.
+- Legacy media reset dry-run decision: `legacy_media_reset_dry_run_rejected_unsafe`.
+- Confirmed deletion/reset, ownership backfill, access-switching, and tenant-isolation claims remain blocked.
 
-## Immediate Checklist Before Any Release Claim
+## Release Checklist Before Any Readiness Claim
 
-1. `npm run release:preflight` passes locally.
+1. `npm run release:preflight` passes.
 2. `npm run check:doc-currentness` passes.
 3. Release plan matches changed files and expected deploy units.
 4. Required remote migrations are applied before dependent Worker deploys.
-5. Secrets/bindings are verified without printing values.
-6. No production/live billing claim is made without operator evidence.
+5. Secrets and bindings are verified without printing values.
+6. Operator evidence is recorded for live health, security headers, resources, Stripe canaries, and rollback.
 
-## Source Evidence
+## Source Links
 
+- Current baseline: `docs/audits/NEXT_AUDIT_BASELINE.md`
 - Current summary: `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`
 - Documentation index: `docs/audits/README.md`
 - Historical changelog: `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`
-- Pre-DOC-1 full action-plan snapshot: `docs/audits/archive/AUDIT_ACTION_PLAN_PRE_DOC1.md`
-- Root `PHASE*.md` reports
+- Pre-consolidation snapshots: `docs/audits/archive/`
 
 ## Documentation Rule
 
-Do not append every future phase here. Update only active priorities, current blockers, and source links.
+Do not append chronological implementation history here. Update only priorities, current blockers, and current source links.

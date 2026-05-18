@@ -349,6 +349,6 @@ Phase 6.19 adds the operator evidence runbook, template, and decision doc for li
 
 Phase 6.20 reviews real live/main operator evidence. Dry-run import, confirmed import, and queue export evidence are present, but replay/conflict and successful standalone status-update idempotency evidence remain incomplete; the decision is `operator_evidence_collected_needs_more_idempotency`.
 
-Phase 6.21 adds read-only legacy media reset dry-run/export planning. Phase 6.22 adds the reset executor design. Phase 6.23 adds reset action/event tracking plus a dry-run-default executor path limited to folders/images/derivatives/public refs; it does not backfill ownership, switch access checks, update ownership metadata, execute live/main deletion by Codex/tests, list/mutate live R2, or mutate billing/credits. Phase 6.25 records reset dry-run evidence as pending and adds a confirmation gate because no live/main executor dry-run evidence file is committed.
+Phase 6.21 adds read-only legacy media reset dry-run/export planning. Phase 6.22 adds the reset executor design. Phase 6.23 adds reset action/event tracking plus a dry-run-default executor path limited to folders/images/derivatives/public refs; it does not backfill ownership, switch access checks, update ownership metadata, execute live/main deletion by Codex/tests, list/mutate live R2, or mutate billing/credits. Phase 6.25 records reset dry-run evidence as `legacy_media_reset_dry_run_rejected_unsafe` because the evidence contains a raw idempotency key and keeps the confirmation gate closed.
 
-Next recommended phase: Phase 6.26 — Operator Runs Legacy Media Reset Dry-run.
+Next recommended phase: Phase 6.26 — Legacy Media Reset Blocker Review.

@@ -3,6 +3,7 @@ import path from "node:path";
 
 export const CURRENT_SOURCE_DOC_PATHS = Object.freeze([
   "README.md",
+  "docs/audits/NEXT_AUDIT_BASELINE.md",
   "CURRENT_IMPLEMENTATION_HANDOFF.md",
   "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md",
   "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md",
@@ -22,11 +23,23 @@ export const CURRENT_SOURCE_DOC_PATHS = Object.freeze([
 ]);
 
 export const CURRENT_DOC_LINE_LIMITS = Object.freeze({
-  "CURRENT_IMPLEMENTATION_HANDOFF.md": 350,
-  "ALPHA_AUDIT_2026_05_15.md": 220,
-  "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md": 220,
-  "AUDIT_ACTION_PLAN.md": 180,
-  "AUDIT_NEXT_LEVEL.md": 180,
+  "docs/audits/NEXT_AUDIT_BASELINE.md": 180,
+  "CURRENT_IMPLEMENTATION_HANDOFF.md": 120,
+  "ALPHA_AUDIT_2026_05_15.md": 140,
+  "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md": 160,
+  "AUDIT_ACTION_PLAN.md": 160,
+  "AUDIT_NEXT_LEVEL.md": 140,
+  "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md": 160,
+});
+
+export const CURRENT_DOC_PHASE_MENTION_LIMITS = Object.freeze({
+  "docs/audits/NEXT_AUDIT_BASELINE.md": 0,
+  "CURRENT_IMPLEMENTATION_HANDOFF.md": 0,
+  "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md": 0,
+  "AUDIT_ACTION_PLAN.md": 0,
+  "AUDIT_NEXT_LEVEL.md": 0,
+  "ALPHA_AUDIT_2026_05_15.md": 0,
+  "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md": 0,
 });
 
 const MARKDOWN_SCAN_IGNORES = Object.freeze([
@@ -164,6 +177,7 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (normalized.startsWith("docs/runbooks/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/ops/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (ACTIVE_DOMAIN_DESIGN_DOCS.has(normalized)) return "active_domain_design";
+  if (normalized.startsWith("docs/tenant-assets/evidence/") && /^\d{4}-\d{2}-\d{2}-.+\.md$/.test(path.basename(normalized))) return "historical_phase_report";
   if (normalized.startsWith("docs/tenant-assets/") && normalized.endsWith(".md")) return "active_domain_design";
   if (HISTORICAL_HANDOFF_DOCS.has(normalized)) return "historical_handoff";
   if (normalized.startsWith("docs/audits/archive/") && normalized.endsWith(".md")) return "historical_phase_report";
@@ -212,6 +226,20 @@ export function scanDocCurrentness(repoRoot, options = {}) {
         rule: "current-doc-line-limit",
         message: `Current source-of-truth doc has ${lines.length} lines; limit is ${CURRENT_DOC_LINE_LIMITS[relativePath]}. Move history to docs/audits/archive/ or ALPHA_AUDIT_PHASE_CHANGELOG.md.`,
       });
+    }
+
+    const phaseMentionLimit = CURRENT_DOC_PHASE_MENTION_LIMITS[relativePath];
+    if (Number.isInteger(phaseMentionLimit)) {
+      const phaseMentionCount = (text.match(/\bPhase\s+\d+(?:\.\d+)?\b/gi) || []).length;
+      if (phaseMentionCount > phaseMentionLimit) {
+        violations.push({
+          type: "current-doc-phase-history",
+          file: relativePath,
+          line: null,
+          rule: "current-doc-no-phase-history",
+          message: `Current source-of-truth doc has ${phaseMentionCount} phase-number mention(s); limit is ${phaseMentionLimit}. Move historical narrative to frozen archive/changelog docs.`,
+        });
+      }
     }
 
     if (requireLatest && !text.includes(latest)) {

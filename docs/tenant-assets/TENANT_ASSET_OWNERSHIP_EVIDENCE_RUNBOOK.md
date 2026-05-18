@@ -2,7 +2,7 @@
 
 Date: 2026-05-17
 
-Purpose: collect operator evidence from the Phase 6.7 read-only AI folders/images ownership evidence endpoints before any future owner-map backfill or access-check migration.
+Purpose: collect operator evidence from the current read-only AI folders/images ownership evidence endpoints before any future owner-map backfill or access-check migration.
 
 This runbook is evidence collection only. It does not approve production readiness, live billing readiness, full tenant isolation, ownership backfill, access-check switching, D1 mutation, R2 listing, R2 deletion, provider calls, Stripe calls, Cloudflare changes, or GitHub settings changes.
 
@@ -10,7 +10,7 @@ The active workflow is **main-only**. There is no required separate staging envi
 
 ## Prerequisites
 
-- The reviewed Auth Worker code containing the Phase 6.7 tenant asset evidence endpoints is deployed by the operator, if not already live.
+- The reviewed Auth Worker code containing the tenant asset evidence endpoints is deployed by the operator, if not already live.
 - Remote auth D1 migration status is verified through `0058_add_legacy_media_reset_actions.sql` before deploying Auth Worker code that depends on the current schema foundation.
 - The operator has a platform admin account and completes admin MFA where required.
 - Evidence is saved in an operator-approved private evidence location. Do not commit live evidence files if they contain user ids or production row identifiers.
@@ -108,7 +108,7 @@ No example command contains a real cookie, bearer token, Cloudflare token, Strip
 
 Keep live evidence in a private operator evidence store. Commit only redacted summaries when needed.
 
-If evidence has not been collected yet, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as a pending marker. In the current Phase 6.10 state, `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` is the reviewed main evidence summary and the pending marker is historical. Do not treat pending files as evidence.
+If evidence has not been collected yet, keep `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md` as a pending marker. In the current state, `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` is the reviewed main evidence summary and the pending marker is historical. Do not treat pending files as evidence.
 
 `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` records the current operator decision. Synthetic fixtures under `scripts/fixtures/` are not main evidence.
 
@@ -124,13 +124,13 @@ To write a sanitized Markdown summary into the evidence directory:
 npm run tenant-assets:summarize-evidence -- --input docs/tenant-assets/evidence/<redacted-export>.json --output docs/tenant-assets/evidence/YYYY-MM-DD-main-folders-images-owner-map-evidence.md
 ```
 
-After the Phase 6.10 decision is reviewed, use `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md` for design-only manual review planning. The local planner can render a non-mutating plan from the committed Markdown summary:
+After the current owner-map decision is reviewed, use `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md` and `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md` for design-only manual review planning. The local planner can render a non-mutating plan from the committed Markdown summary:
 
 ```bash
 npm run tenant-assets:plan-manual-review -- --input docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md
 ```
 
-For the later manual-review import/status workflow, use `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Phase 6.20 records sanitized live/main operator evidence as `operator_evidence_collected_needs_more_idempotency`: import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but same-key replay/conflict idempotency evidence and a successful standalone status-update response still need completion.
+For the manual-review import/status workflow, use `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md`, `docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md`, and `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`. Current decision: `operator_evidence_collected_needs_more_idempotency`. Import dry-run, confirmed import, final queue/status export, and one status-change rollup are present, but same-key replay/conflict idempotency evidence and a successful standalone status-update response still need completion.
 
 ## Redaction Checks
 
@@ -208,6 +208,6 @@ If all high-risk counts are zero on controlled test data only:
 
 This runbook is read-only. There is no code or data rollback step because collection does not mutate D1, R2, Cloudflare, Stripe, GitHub, provider state, credits, billing, folders, images, or access checks. If evidence was saved in the wrong place, follow the operator evidence-storage policy for secure disposal.
 
-## Next Recommended Phase
+## Current Follow-Up
 
-Phase 6.17 adds admin-approved review status updates for imported manual-review rows only. Phase 6.18 adds Admin queue/status visibility and status operator evidence rollups for review-state rows only. Phase 6.19 adds operator evidence collection docs. Phase 6.20 reviews committed live/main operator evidence and leaves the decision at `operator_evidence_collected_needs_more_idempotency`. Phase 6.21 adds read-only legacy media reset dry-run/export planning. Phase 6.22 adds reset executor design. Phase 6.23 adds reset action tracking and a dry-run-default executor path. Phase 6.25 adds pending reset dry-run closure/gate docs because no live/main executor dry-run file is committed; the next recommended reset-planning phase is Phase 6.26 - Operator Runs Legacy Media Reset Dry-run.
+Use `docs/audits/NEXT_AUDIT_BASELINE.md` for the next audit start. If tenant reset work continues first, review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`; the current reset dry-run evidence is rejected unsafe because it contains a raw idempotency key.

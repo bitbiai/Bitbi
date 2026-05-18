@@ -1,5 +1,7 @@
 # SaaS Progress and Current State Report
 
+Status: Historical / frozen. Not current source of truth. Use `docs/audits/NEXT_AUDIT_BASELINE.md` for current state.
+
 Date: 2026-05-17
 
 Scope: documentation/audit reconciliation for the BITBI SaaS hardening roadmap. This report reconciles the current repository state after Phase 5.1 Admin Control Plane UX/navigation consolidation on top of Phase 0 through Phase 4.21 sanitized `platform_admin_lab_budget` evidence archive/retention workflow, preserving Phase 4.20 read-only repair evidence report/export, Phase 4.19 explicit admin-approved usage repair execution, Phase 4.18 read-only reconciliation, Phase 4.17 cap foundation, Phase 4.16 live platform budget cap design/evidence, and the late Phase 4.15.1 Admin AI Budget Switch Control Plane. It is not a legal compliance certification, production deploy approval, live billing approval, automatic repair claim, full AI cost readiness claim, full platform budget cap rollout claim, or full tenant-isolation claim.

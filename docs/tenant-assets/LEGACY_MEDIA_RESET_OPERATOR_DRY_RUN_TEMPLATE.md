@@ -106,6 +106,7 @@ Dry-run closure:
 - Decision document updated:
 - Confirmation gate checklist reviewed:
 - If pending, missing evidence files:
+- If rejected unsafe, unsafe field classes found without repeating values:
 - If ready for confirmation review, separate confirmed execution phase required: yes/no
 
 Notes:

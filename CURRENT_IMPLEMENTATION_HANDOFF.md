@@ -2,65 +2,53 @@
 
 Date: 2026-05-18
 
-Purpose: concise restart point for future Codex sessions. This file is current source of truth for where to restart, not a phase log. Historical implementation detail is preserved in `docs/audits/archive/`, `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, and the root `PHASE*.md` reports.
+Purpose: short restart guide for future Codex sessions. The primary current-state baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
-## Current Release Truth
+Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
-| Item | Current state |
-| --- | --- |
-| Branch | `main` |
-| Latest completed implementation phase | Phase 6.25 legacy media reset dry-run closure and confirmation gate |
-| Latest documentation phase | DOC-1 documentation diet and archive consolidation |
-| Latest auth D1 migration | `0058_add_legacy_media_reset_actions.sql` |
-| Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
-| Production readiness | BLOCKED |
-| Live billing readiness | BLOCKED |
+This handoff is not production approval, live billing approval, legal compliance certification, full tenant-isolation evidence, access-switch readiness, ownership backfill readiness, or confirmed media reset readiness.
 
-This handoff is not production approval, live billing approval, legal compliance certification, or full tenant-isolation evidence.
+## Current Repo Shape
 
-## Current System Shape
+- Static vanilla HTML/CSS/ES modules deploy separately from Cloudflare Workers.
+- Workers: `workers/auth` for primary API/auth/admin/media, `workers/ai` for internal AI service calls, and `workers/contact` for contact form.
+- Release/deploy contract: `config/release-compat.json`.
+- Documentation start point: `docs/audits/NEXT_AUDIT_BASELINE.md`.
+- Historical detail: `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, root `PHASE*.md` reports, and tenant evidence docs.
 
-- Static vanilla HTML/CSS/ES modules on GitHub Pages.
-- Cloudflare Workers for auth/admin/media/billing/AI/contact.
-- Auth Worker uses D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images, and service bindings.
-- Release truth lives in `config/release-compat.json`.
-- Current docs are indexed in `docs/audits/README.md`.
+## Current Implemented State
 
-## Current Implemented Foundations
-
-- Auth, session, MFA, route-policy, service-auth, limiter, body-size, and secret-purpose hardening.
-- Admin Control Plane with grouped navigation, billing review/reconciliation panels, lifecycle tools, AI Lab, AI usage attempts, AI budget switches, platform budget caps, reconciliation, repair, report/export, and evidence archives.
-- Organization/RBAC, billing/credits/entitlements, member credit buckets, BITBI Pro scaffolding, and guarded live credit-pack/subscription paths.
-- Member image, music, and video AI Cost Gateway coverage with required idempotency, duplicate suppression, replay-unavailable safety, and no-charge provider failure paths.
-- Admin/platform AI budget controls for the classified routes, including Cloudflare master switches, D1 app switches, the first `platform_admin_lab_budget` cap foundation, reconciliation evidence, explicit admin-approved repair actions, report/export, and sanitized archives.
-- Data lifecycle planning, export archive generation/download, safe cleanup, and reversible executor foundations.
-- Tenant-owned asset migration design, focused folder/image dry-run/evidence, manual-review import/queue/status workflows, Phase 6.20 operator evidence decision update, Phase 6.21 legacy media reset dry-run/export, Phase 6.22 reset executor design, Phase 6.23 reset action/event tracking plus dry-run-default executor endpoints, and Phase 6.25 confirmation-gate docs exist. Current manual-review operator status is `operator_evidence_collected_needs_more_idempotency`; reset dry-run evidence remains `legacy_media_reset_dry_run_pending` because no live/main executor dry-run evidence file is committed. No old-row ownership backfill, organization ownership assignment, ownership metadata update, live/main reset execution by Codex/tests, access-check switch, billing/credit mutation, or live R2 listing/mutation occurred.
+- Auth/session/admin MFA/service-auth/route-policy/rate-limit/body-size/secret-purpose hardening exists.
+- Admin Control Plane surfaces implemented operator tools for users, billing, lifecycle, AI Lab, AI usage, budget switches, caps, reconciliation, repair, reports, archives, and tenant manual-review visibility.
+- Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, and BITBI Pro scaffolding exist.
+- Member image/music/video AI Cost Gateway paths and selected admin/platform budget controls exist.
+- Data lifecycle planning/export/archive/cleanup foundations exist.
+- Tenant asset ownership work exists for folders/images: ownership metadata columns, new personal-write metadata, read diagnostics/evidence, manual-review import/queue/status/Admin visibility, and operator evidence decisions.
+- Legacy media reset work exists: read-only dry-run/reporting, executor design, reset action/event tables, a dry-run-default executor path, and evidence decision docs.
 
 ## Current Blockers
 
-- Remote auth migrations through `0058_add_legacy_media_reset_actions.sql` must be applied before deploying auth Worker code that depends on reset action tracking.
-- Required Worker secrets and bindings must be verified without printing values.
-- Stripe Testmode, live credit-pack, and BITBI Pro subscription canaries require explicit operator flags and evidence; live billing remains blocked.
-- Cloudflare WAF/static headers/RUM/alerts remain dashboard-managed or manual evidence items.
-- Restore drill, live health checks, security-header checks, queue/R2/D1 verification, and rollback evidence are still required.
-- Tenant-owned asset idempotency evidence completion, org-owned write assignment, old-row owner-map/backfill, self-service privacy flows, legal-approved billing remediation, invoices/customer portal/tax, and broad remaining internal AI Worker route coverage remain future work.
+- Production readiness and live billing readiness are blocked.
+- Live deployment state is not proven by repo files; operator verification is required.
+- Remote auth migrations through `0058_add_legacy_media_reset_actions.sql` must be applied before dependent Auth Worker deploys.
+- Existing legacy `ai_folders`/`ai_images` rows remain mixed/null/unclassified; access checks still use existing runtime behavior.
+- Ownership backfill, access-switching, tenant isolation, and confirmed reset/deletion remain blocked.
+- Manual-review evidence still needs idempotency replay/conflict completion.
+- Legacy media reset dry-run decision is rejected unsafe because the live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout and the confirmation gate remains closed.
+- Cloudflare WAF/static headers/RUM/alerts, secrets, bindings, restore drill, rollback evidence, and Stripe/live billing canaries still require operator evidence.
 
 ## Read First
 
-1. `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`
-2. `docs/audits/README.md`
-3. `config/release-compat.json`
-4. `docs/production-readiness/README.md`
-5. `docs/production-readiness/EVIDENCE_TEMPLATE.md`
-6. `docs/ai-cost-gateway/README.md`
-7. `docs/ai-cost-gateway/ADMIN_PLATFORM_BUDGET_POLICY.md`
-8. `docs/ai-cost-gateway/LIVE_PLATFORM_BUDGET_CAPS_DESIGN.md`
-9. `DATA_INVENTORY.md`
-10. `workers/auth/CLAUDE.md`
+1. `docs/audits/NEXT_AUDIT_BASELINE.md`
+2. `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md`
+3. `docs/audits/README.md`
+4. `config/release-compat.json`
+5. `docs/production-readiness/README.md`
+6. `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`
+7. `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
+8. `workers/auth/CLAUDE.md`
 
-Historical phase evidence is frozen in root `PHASE*.md` reports and pre-DOC-1 snapshots under `docs/audits/archive/`.
-
-## Restart Checklist
+## Restart Commands
 
 ```bash
 git status --short
@@ -69,7 +57,7 @@ npm run check:doc-currentness
 npm run release:plan
 ```
 
-For documentation-only changes, run at least:
+For documentation-only changes, run:
 
 ```bash
 npm run check:js
@@ -87,10 +75,10 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-1. Collect Phase 6.26 legacy media reset operator dry-run evidence from the new executor before any confirmed reset execution; Phase 6.25 found no committed live/main executor dry-run file and left `legacy_media_reset_dry_run_pending`.
-2. Verify Stripe Testmode and live billing canaries only in bounded operator windows with the relevant flags intentionally enabled.
-3. Choose one focused next implementation track: Phase 6.26 reset operator dry-run evidence, manual-review idempotency evidence completion, backfill readiness reporting, next budget scope, remaining internal caller-policy gap, billing remediation workflow, or production evidence collection.
+Recommended next audit entry point: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
+
+If continuing tenant reset work first, review the unsafe dry-run evidence blocker before any confirmation-review or destructive reset planning.
 
 ## Documentation Rule
 
-Do not append full phase history here. Add detailed phase evidence to a dedicated phase report or `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, then keep this handoff as a concise restart guide.
+Do not append phase-by-phase history here. Update current state only, and preserve historical detail in the audit archive/changelog or dedicated evidence reports.

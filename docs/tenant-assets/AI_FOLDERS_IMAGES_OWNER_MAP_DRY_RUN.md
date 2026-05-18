@@ -1,253 +1,59 @@
-# AI Folders & Images Owner-Map Dry Run
+# AI Folders / Images Owner-Map Dry Run
 
-Date: 2026-05-17
+Date: 2026-05-18
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
-Phase 6.2 is dry-run only for `ai_folders` and `ai_images`. Phase 6.3 adds the schema/access impact plan in `AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`. Phase 6.4 adds nullable ownership metadata columns and schema compatibility checks. Phase 6.5 assigns those columns only for new personal folder/image writes. Phase 6.6 adds read-only ownership metadata diagnostics and simulated dual-read safety checks to the same dry-run output. Phase 6.7 adds an admin-only bounded evidence report/export over those diagnostics. Phase 6.8 adds the runbook/template/checklist for collecting operator evidence from those endpoints. Phase 6.9 adds the main-only evidence package directory. Phase 6.10 reviews the real main evidence summary and records `needs_manual_review`; access-check switching and ownership backfill remain blocked. Phase 6.11 adds manual-review workflow design and a local planner for those high-risk findings. Phase 6.12 adds manual-review state schema design. Phase 6.13 adds empty manual-review state tables/indexes only. Phase 6.14 adds a local import dry run for proposed review items/buckets. Phase 6.15 adds an admin-approved import executor that defaults to dry-run and can create only review items/events when confirmed. Phase 6.16 adds read-only review queue/evidence APIs. Phase 6.17 adds admin-approved review status updates that write only review item status fields and review events. Phase 6.18 adds status operator evidence rollups plus Admin Control Plane queue visibility/status controls for review-state rows only. Phase 6.19 adds operator evidence collection docs. Phase 6.20 reviews live/main import and queue evidence and records `operator_evidence_collected_needs_more_idempotency`; replay/conflict and successful standalone status-update idempotency evidence remain incomplete. Phase 6.21 adds read-only legacy media reset dry-run/export planning. Phase 6.22 designs the reset executor. Phase 6.23 adds additive reset action/event tracking and an admin-approved dry-run-default executor path. Phase 6.24 records reset dry-run evidence as pending; Phase 6.25 rechecks and keeps it pending while adding a confirmation gate because no live/main executor dry-run file is committed. These phases do not backfill ownership, execute live/main reset deletion by Codex/tests, update ownership metadata, move/delete/copy/list live R2 objects, change folder/image access checks, change public gallery behavior outside an explicitly confirmed executor path, mutate credits or billing, call providers, call Stripe, call Cloudflare APIs, or claim tenant isolation.
+Purpose: current dry-run/evidence baseline for `ai_folders` and `ai_images`. This file is not a phase log and does not approve backfill or access switching.
 
-## Current Schema Summary
-
-### `ai_folders`
-
-- Defined by `0007_add_image_studio.sql` and `0009_add_folder_status.sql`.
-- Core columns: `id`, `user_id`, `name`, `slug`, `created_at`, `status`.
-- Phase 6.4 nullable metadata columns: `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, `ownership_assigned_at`.
-- Current owner field: `user_id`.
-- Active organization owner assignment: none yet; `owning_organization_id` exists but is not backfilled or assigned by current folder writes. New folder writes are marked personal with high-confidence write-path metadata.
-- Parent folder field: none.
-- Visibility/publication field: none; folders are private user containers.
-- Current routes use `user_id` and `status = 'active'` for list/create/rename/delete/move checks.
-
-### `ai_images`
-
-- Defined by `0007_add_image_studio.sql`, `0017_add_ai_image_derivatives.sql`, `0019_add_ai_image_publication.sql`, and `0046_add_asset_storage_quota.sql`.
-- Core columns: `id`, `user_id`, `folder_id`, `r2_key`, `prompt`, `model`, `steps`, `seed`, `created_at`.
-- Derived/object fields: `thumb_key`, `medium_key`, mime/dimension fields, derivative status/version/timestamps, `size_bytes`.
-- Publication fields: `visibility`, `published_at`.
-- Active organization owner assignment: none yet; `owning_organization_id` exists but is not backfilled or assigned by the saved-image write path. New saved-image rows are marked personal with high-confidence write-path metadata.
-- Private routes check `id` plus `user_id`.
-- Public Mempics routes select `visibility = 'public'` rows and join `profiles` by `ai_images.user_id`.
-
-## Current Route And Access Summary
-
-- Folder create/rename/delete: `workers/auth/src/routes/ai/folders-write.js`, guarded by the signed-in user's `session.user.id`.
-- Folder listing: `workers/auth/src/routes/ai/folders-read.js`, reads folders and counts by `user_id`.
-- Image save/generate/save-reference: `workers/auth/src/routes/ai/images-write.js`, persists `ai_images.user_id` and optional `folder_id`.
-- Image move/delete: `workers/auth/src/routes/ai/bulk-images.js`, `bulk-assets.js`, and `lifecycle.js`, guarded by current `user_id`.
-- Image file/derivative reads: `workers/auth/src/routes/ai/files-read.js`, guarded by current `user_id`.
-- Public gallery: `workers/auth/src/routes/gallery.js`, reads public rows and uses user-profile publisher attribution.
-
-`workers/auth/src/routes/media.js` is not present in the current tree; image serving evidence is in the AI file routes and public gallery route.
-
-## Dry-Run Command
+## Current Dry-run Commands
 
 ```bash
 npm run dry-run:tenant-assets -- --domain folders-images
 npm run dry-run:tenant-assets:images
-npm run dry-run:tenant-assets -- --domain folders-images --format markdown --fixtures scripts/fixtures/tenant-assets/folders-images.json
 npm run test:tenant-assets
-npm run tenant-assets:dry-run-review-import -- --input docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md --format markdown
 ```
 
-Without fixtures, the focused dry run reports source/schema/rule readiness. With the synthetic fixture, it emits deterministic candidate classifications.
+These commands are local/source/fixture checks. They do not call live endpoints, query live D1, list R2, mutate data, deploy, backfill, or switch access checks.
 
-The Phase 6.14 review-import dry run is separate from ownership classification. The committed Markdown evidence summary produces aggregate buckets only; item-level proposed review candidates require bounded JSON evidence with detail arrays. Phase 6.15 operationalizes the import path only for manual-review queue creation: dry-run by default, confirmed admin execution only, and writes limited to review items/events. Phase 6.16 operationalizes inspection only through read-only queue/evidence endpoints and exports. Phase 6.18 adds Admin visibility and status controls for the review queue only. Phase 6.20 records live/main import dry-run, confirmed import, and queue export evidence; same-key replay/conflict and successful standalone status-update idempotency evidence are still needed. Phase 6.21 adds `/api/admin/tenant-assets/legacy-media-reset/dry-run` and export as D1-only planning for possible safe asset retirement. No backfill/access-switch/source-asset/review-row/R2 action is approved.
+## Current Classification Model
 
-## Classification Rules
+Dry-run planning uses these classes:
 
-| Rule | Behavior |
-| --- | --- |
-| Strong org evidence required | Classify `organization_asset` only when explicit organization owner evidence exists in approved owner-map/fixture data. |
-| Weak org context rejected | Ignore active organization UI/localStorage/selected organization hints for ownership. |
-| User-only current model | Classify user-only rows as `personal_user_asset` with medium confidence, not as migration-complete. |
-| Admin/test explicit | Classify `platform_admin_test_asset` only with explicit admin/test source evidence. |
-| Folder/image conflict | Classify image/folder user mismatch as `ambiguous_owner`; if public, `unsafe_to_migrate`. |
-| Missing folder | Classify an image pointing at a missing folder as `orphan_reference`. |
-| Public ambiguous block | Mark public ambiguous images unsafe until attribution policy is reviewed. |
-| Derivative parent clarity | Flag thumb/medium derivative ownership risk unless parent ownership confidence is high. |
+- `personal_user_asset`
+- `organization_asset`
+- `platform_admin_test_asset`
+- `legacy_unclassified_asset`
+- `ambiguous_owner`
+- `orphan_reference`
+- `unsafe_to_migrate`
 
-## Output Fields
+Organization ownership requires explicit row-level evidence. UI active organization context, folder membership, or R2 key shape is not enough.
 
-Each candidate includes:
+## Current Evidence Decision
 
-- source table and safe fixture id
-- current `user_id`
-- current `folder_id`
-- inferred owner class
-- inferred organization id only when strong evidence exists
-- confidence: `high`, `medium`, `low`, or `none`
-- ambiguity reasons
-- required future migration action
-- blocked reason when unsafe
-- sanitized R2 key field classes, not live object listings
-- derivative ownership risk
-- public gallery risk
-- lifecycle/export/delete risk
-- storage quota risk
+Main owner-map evidence exists at `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`.
 
-## Confidence Model
+Current decision: `needs_manual_review`.
 
-- `high`: explicit organization owner evidence or equivalent approved owner-map signal.
-- `medium`: current `user_id` is the only owner signal, or explicit admin/test source evidence exists.
-- `low`: reserved for later local/main evidence that is useful but incomplete.
-- `none`: missing folder, user conflict, unsafe public ambiguity, or no safe owner evidence.
+Key evidence counts:
 
-## Phase 6.2 Fixture Coverage
+- Folders scanned: 16
+- Images scanned: 63
+- Metadata missing total: 75
+- Public unsafe: 21
+- Derivative risk: 63
+- Dual-read unsafe: 42
+- Manual review needed: 90
 
-The synthetic fixture covers:
+## Current Blockers
 
-- personal folder/image
-- organization folder/image with strong owner-map evidence
-- weak UI organization evidence that must not become org ownership
-- folder/image user conflict
-- missing folder reference
-- public ambiguous image marked unsafe
-- derivative key with non-high-confidence parent ownership
-- admin/test image source classification
+- Existing rows are not fully classified.
+- Manual-review evidence still has idempotency gaps.
+- Public/gallery rows require explicit review.
+- Derivative/R2 ownership cannot be inferred from key shape alone.
+- Backfill and access-switching remain blocked.
 
-## Current Schema Foundation
+## Current Next Use
 
-- Phase 6.4 migration `0056_add_ai_folder_image_ownership_metadata.sql` adds nullable `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at` columns on `ai_folders` and `ai_images`.
-- The focused dry-run now reports `schema_added_not_backfilled`, `write_paths_assigned_for_new_rows`, `access_checks_not_changed`, `backfill_not_started`, and `owner_map_not_complete`.
-- Existing rows are not backfilled and current route access still uses existing `user_id` checks.
-
-## Phase 6.5 Write-Path Assignment
-
-- New `POST /api/ai/folders` rows are assigned `personal_user_asset` ownership metadata from the authenticated user.
-- New `POST /api/ai/images/save` rows are assigned `personal_user_asset` ownership metadata from the authenticated user.
-- Weak client organization hints are ignored; organization-owned saved-image/folder assignment requires a future server-verified org-scoped write path.
-- No existing rows are updated, no R2 keys are listed/moved/deleted, and gallery/media/lifecycle/quota behavior is unchanged.
-
-## Phase 6.6 Read Diagnostics
-
-The focused dry run now embeds `readDiagnostics` from `workers/auth/src/lib/tenant-asset-read-diagnostics.js`.
-
-- Safe personal rows with matching `user_id` and `owning_user_id` classify as `same_allow`.
-- Old/null rows classify as `metadata_missing` and remain supported by legacy `user_id` access.
-- `user_id` / `owning_user_id` mismatches classify as `metadata_conflict`.
-- Missing folders classify as `orphan_reference`; folder/image owner mismatches classify as `relationship_conflict`.
-- Public rows with missing, ambiguous, or conflicting metadata classify as `unsafe_to_switch`.
-- Organization and platform-admin-test rows classify as `needs_manual_review` until role-aware policies exist.
-- Derivative keys inherit parent ownership only in target design; diagnostics flag derivative risk when parent ownership is missing or conflicted.
-- Diagnostics never authorize requests, backfill rows, list R2, or change runtime access checks.
-
-## Phase 6.7 Admin Evidence Report
-
-The focused dry run now reports the admin evidence surface as ready:
-
-- Evidence endpoint: `GET /api/admin/tenant-assets/folders-images/evidence`.
-- Export endpoint: `GET /api/admin/tenant-assets/folders-images/evidence/export`.
-- Export formats: JSON and Markdown.
-- Evidence is bounded, local-D1-only, sanitized, and read-only.
-- Manual-review rollups surface unsafe-to-switch, metadata-conflict, relationship-conflict, public-unsafe, and derivative-risk signals.
-
-The admin report does not apply backfills, switch access checks, update rows, list R2, expose prompts/private R2 keys, call providers, call Stripe, mutate credits, or claim tenant isolation.
-
-## Phase 6.8 Evidence Collection
-
-Phase 6.8 adds operator evidence collection docs only:
-
-- `TENANT_ASSET_OWNERSHIP_EVIDENCE_RUNBOOK.md`
-- `TENANT_ASSET_OWNERSHIP_EVIDENCE_TEMPLATE.md`
-- `TENANT_ASSET_OWNERSHIP_MAIN_ONLY_CHECKLIST.md`
-
-The docs tell operators how to collect bounded live/main evidence from the Phase 6.7 report/export endpoints, interpret high-risk counts, and record explicit no-mutation statements. They add no endpoint, UI, migration, access switch, backfill, D1/R2 mutation, R2 listing, provider call, Stripe call, or tenant-isolation claim.
-
-## Phase 6.9 Main Evidence Package
-
-Phase 6.9 adds main-only evidence packaging:
-
-- `docs/tenant-assets/evidence/README.md`
-- `docs/tenant-assets/evidence/PENDING_MAIN_FOLDERS_IMAGES_OWNER_MAP_EVIDENCE.md`
-- `scripts/summarize-tenant-asset-evidence.mjs`
-
-No real operator-exported main evidence was present in the repository when Phase 6.9 was prepared. The summarizer reads a local operator-provided JSON export and emits a bounded Markdown summary only; it does not call live endpoints or mutate D1/R2.
-
-## Phase 6.10 Evidence Decision
-
-Phase 6.10 adds `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`.
-
-The decision reviews `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md` and records `needs_manual_review`. The summary reports 75 metadata-missing rows, 21 public unsafe rows, 63 derivative ownership risks, 42 simulated dual-read unsafe rows, and 90 manual-review rows. Synthetic fixtures are not evidence. Access-check switching and backfill remain blocked, and no runtime route, D1/R2, R2 listing, provider, Stripe, Cloudflare, credit, billing, lifecycle, quota, gallery, or media behavior changed.
-
-## Phase 6.11 Manual Review Workflow
-
-Phase 6.11 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_WORKFLOW.md`, `docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md`, and `npm run tenant-assets:plan-manual-review`.
-
-The workflow turns the Phase 6.10 high-risk counts into design-only review categories: metadata missing, public unsafe, derivative risk, dual-read unsafe, manual review needed, relationship review, legacy unclassified, future org ownership review, platform admin test review, and safe observe only. It does not execute review outcomes, update rows, emit backfill SQL, switch access checks, list/mutate R2, or claim tenant isolation.
-
-## Phase 6.12 Manual Review State Schema Design
-
-Phase 6.12 adds `docs/tenant-assets/AI_FOLDERS_IMAGES_MANUAL_REVIEW_STATE_SCHEMA_DESIGN.md`.
-
-The focused dry-run reports the designed review-state tables, transitions, and future import requirements. Phase 6.12 does not create a migration, import review items, create review rows, backfill ownership metadata, switch access checks, list/mutate R2, or claim tenant isolation.
-
-## Phase 6.13 Additive Review-State Schema
-
-Phase 6.13 adds migration `0057_add_ai_asset_manual_review_state.sql`.
-
-The focused dry-run now reports `manual_review_state_schema_added`, `review_tables_present`, `review_rows_not_imported`, `backfill_not_started`, and `access_checks_not_changed`. The migration creates empty `ai_asset_manual_review_items` and `ai_asset_manual_review_events` tables plus indexes only. It does not import review items, create review rows, backfill ownership metadata, update `ai_folders` or `ai_images`, switch access checks, list/mutate R2, or claim tenant isolation.
-
-## Phase 6.16 Queue Read/Evidence APIs
-
-The focused dry run now reports `manual_review_queue_read_api_added` and `manual_review_evidence_report_added`.
-
-- Queue list/detail/events endpoints are read-only and admin-only.
-- Evidence/export endpoints summarize review item/event counts, status/category/severity/priority rollups, source evidence paths, and blocked categories.
-- Exports support JSON and Markdown.
-- Phase 6.16 adds no Admin UI, review status update endpoint, note endpoint, ownership backfill, access switch, source asset row update, D1 ownership rewrite, R2 operation, provider call, Stripe call, Cloudflare API call, or tenant-isolation claim.
-
-## Phase 6.17 Status Workflow
-
-The focused dry run now reports `manual_review_status_workflow_added`.
-
-- `POST /api/admin/tenant-assets/folders-images/manual-review/items/:id/status` is admin-only, same-origin protected, production-MFA protected through route policy, rate-limited, and requires `Idempotency-Key`, `confirm: true`, and a bounded `reason`.
-- Status changes are limited to conservative transitions and write only `ai_asset_manual_review_items` plus `ai_asset_manual_review_events`.
-- Queue evidence reports status-change event counts and terminal approved/blocked counts, while `accessSwitchReady=false`, `backfillReady=false`, and `tenantIsolationClaimed=false`.
-- Phase 6.17 adds no Admin UI, note endpoint, ownership backfill, access switch, source asset row update, ownership metadata update, R2 operation, provider call, Stripe call, Cloudflare API call, credit/billing mutation, or tenant-isolation claim.
-
-## Phase 6.18 Operator Evidence And Admin Visibility
-
-The focused dry run now reports `manual_review_status_operator_evidence_added` and `admin_visibility_added`.
-
-- Queue evidence reports include status-event rollups plus the latest status update timestamp while keeping `accessSwitchReady=false`, `backfillReady=false`, and `tenantIsolationClaimed=false`.
-- Admin Control Plane includes a compact Tenant Asset Manual Review Queue panel with safe summary cards, filters, JSON export, item detail, event history, and readiness badges.
-- Status controls call only the review-status endpoint, require confirmation/reason/idempotency, and mutate only review item status plus review events.
-- Phase 6.18 adds no migration, ownership backfill, access switch, source asset row update, ownership metadata update, R2 operation, provider call, Stripe call, Cloudflare API call, credit/billing mutation, or tenant-isolation claim.
-
-## Phase 6.19 Operator Evidence Collection
-
-The focused dry run now reports `manual_review_status_operator_evidence_collected` with `operator_evidence_collected_needs_more_idempotency`.
-
-- Phase 6.19 adds the operator runbook, evidence template, and decision document for live/main manual-review import, queue, status, idempotency, Admin panel, and export evidence.
-- Phase 6.20 reviews committed live/main operator evidence: import dry-run, confirmed import, final queue/status export, and one status-change rollup are present.
-- Same-key replay/conflict idempotency evidence and a successful standalone status-update response remain pending.
-- Phase 6.20 adds no runtime behavior, backend route, frontend UI, migration, import execution, status update by Codex/tests, ownership backfill, access switch, source asset row update, ownership metadata update, R2 operation, provider call, Stripe call, Cloudflare API call, credit/billing mutation, or tenant-isolation claim.
-
-## Remaining Migration Blockers
-
-- Existing pre-Phase-6.5 rows remain null/unclassified until a future owner-map/backfill phase.
-- Organization-scoped saved-image/folder ownership assignment is not implemented because the current write paths do not provide reliable server-verified org ownership evidence.
-- R2 keys encode legacy user paths but do not prove tenant ownership.
-- Public gallery attribution is user/profile-only.
-- Data lifecycle/export/delete is user-subject-only.
-- Storage quota is `user_asset_storage_usage` only.
-- Real main evidence now shows nonzero high-risk counts; manual review is required before any access-check switch, old-row backfill, or tenant-isolation claim.
-
-## Phase 6.3 Schema/Access Plan
-
-Phase 6.3 turns this owner-map dry run into `docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md`.
-
-- Proposed future columns use `asset_owner_type`, `owning_user_id`, `owning_organization_id`, `created_by_user_id`, `ownership_status`, `ownership_source`, `ownership_confidence`, `ownership_metadata_json`, and `ownership_assigned_at`.
-- Existing `user_id` checks should remain in place until a future phase explicitly implements role-aware organization access checks.
-- Phase 6.5 adds new-write personal metadata assignment only; no backfill, runtime access change, R2 movement, quota change, lifecycle change, or public gallery change was added.
-
-## Recommended Phase 6.26
-
-Phase 6.21 adds the legacy personal media reset dry-run/export only. It inventories candidate folders, images, public/gallery rows, derivative references, text/video/music coverage, quota summaries, and manual-review impact with read-only D1 queries. It performs no deletion, backfill, access switch, source asset mutation, review-row mutation, ownership metadata update, or R2 listing/mutation.
-
-Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` only. It designs a bounded future executor, allowed/deferred domains, ordering, public/gallery handling, derivative/R2 safety, audit/idempotency, action tracking, and verification.
-
-Phase 6.23 adds migration `0058_add_legacy_media_reset_actions.sql`, action/event tracking tables, the admin-approved reset executor endpoint, and read-only action/evidence endpoints. The executor defaults to dry-run, is limited to folders/images/derivatives/public refs, and requires admin/MFA/same-origin/idempotency/confirmation/reason/acknowledgements before any confirmed execution.
-
-Phase 6.24 adds the operator dry-run evidence decision/runbook/template only and records `legacy_media_reset_dry_run_pending` because no live/main executor dry-run evidence file is committed. Phase 6.25 rechecks evidence, keeps the dry-run topic pending, and adds the confirmation-gate checklist. Phase 6.26 should be **Operator Runs Legacy Media Reset Dry-run** if the owner continues the reset path.
+Use this dry-run output as planning/evidence only. The next deep audit should start from `docs/audits/NEXT_AUDIT_BASELINE.md` and consult current decision files before proposing any migration/backfill/reset work.

@@ -1,119 +1,66 @@
 # Legacy Personal Media Reset Dry Run
 
-Date: 2026-05-17
+Date: 2026-05-18
 
-Phase 6.21 adds a bounded, admin-only, read-only dry-run report for evaluating whether retiring old personal/admin-created media and recreating media under the current ownership-metadata write paths may be cleaner than ownership backfill. Phase 6.22 adds `LEGACY_PERSONAL_MEDIA_RESET_EXECUTOR_DESIGN.md` as design-only follow-up. Phase 6.23 adds action tracking and an admin-approved executor path, but the executor remains dry-run by default and Codex/tests did not execute it against live/main data. Phase 6.24 adds operator dry-run evidence packaging. Phase 6.25 rechecks the approved evidence locations, keeps `legacy_media_reset_dry_run_pending` because no live/main executor dry-run evidence file is committed, and adds `LEGACY_MEDIA_RESET_CONFIRMATION_GATE_CHECKLIST.md`.
+Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
-This phase is evidence and planning only. It does not delete media, depublish public rows, update source asset rows, update manual-review rows, backfill ownership, change access checks, list live R2, or mutate R2.
+Purpose: current dry-run/reporting baseline for evaluating whether retiring old personal/admin-created media is safer than ownership backfill. This document does not authorize deletion.
 
-## Endpoints
+## Current Runtime State
+
+Read-only reset dry-run/reporting endpoints exist:
 
 - `GET /api/admin/tenant-assets/legacy-media-reset/dry-run`
 - `GET /api/admin/tenant-assets/legacy-media-reset/dry-run/export`
 
-Both endpoints are admin-only, production-MFA protected by route policy, high-sensitivity, rate-limited, DB-backed, bounded, sanitized, and read-only.
+The report inventories D1-known folders/images/public references/derivatives and conservative coverage for other media domains. It does not list live R2, mutate D1, update review rows, delete media, backfill ownership, or switch access checks.
 
-Supported query options:
+## Current Executor State
 
-- `limit`
-- `includeDetails`
-- `includeImages`
-- `includeFolders`
-- `includePublic`
-- `includeDerivatives`
-- `includeVideos`
-- `includeMusic`
-- `includeTextAssets`
-- `includeQuota`
-- `format` on the export endpoint: `json` or `markdown`
+Action tracking and a dry-run-default executor path exist:
 
-## Domains Inventoried
+- `POST /api/admin/tenant-assets/legacy-media-reset/execute`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/evidence`
+- `GET /api/admin/tenant-assets/legacy-media-reset/actions/:id/export`
 
-| Domain | Phase 6.21 coverage | Notes |
-| --- | --- | --- |
-| `ai_folders` | `covered_by_phase_6_21_dry_run` | Counts total folders, active folders, ownership metadata presence, and child-handling implications. |
-| `ai_images` | `covered_by_phase_6_21_dry_run` | Counts total images, ownership metadata presence, public rows, folder-linked rows, and derivative references. |
-| Public gallery / Mempics | `covered_by_phase_6_21_dry_run` | Public rows require depublish/gallery review before any future delete executor. |
-| Derivative/thumb/medium references | `covered_by_phase_6_21_dry_run` | Derived from D1 only. No live R2 existence check is performed. |
-| `ai_text_assets` | `partially_covered` | Summarizes text/music/video saved assets if the table exists; ownership migration coverage is not claimed. |
-| Music assets | `partially_covered` | Counts `ai_text_assets.source_module = music`; future coverage review is required before deletion. |
-| Video saved assets and jobs | `partially_covered` | Counts saved video rows and `ai_video_jobs`; future coverage review is required before deletion. |
-| `user_asset_storage_usage` | `partially_covered` | Uses D1-stored byte counts only; no R2 `head`/`list` is performed. |
-| Manual review items | `covered_by_phase_6_21_dry_run` when review tables exist | Reports how many review items may become obsolete after a successful future reset, but mutates none. |
-| Lifecycle/delete paths | `partially_covered` | Confirms a future executor must reuse existing lifecycle/delete helpers and durable cleanup queues instead of direct SQL/R2 deletion. |
+Confirmed execution remains blocked by current evidence status and requires a separate approved phase.
 
-Optional/missing tables are reported as `unknown_schema`; the report does not claim coverage for missing domains.
+## Current Domain Coverage
 
-## Candidate Classifications
+First-pass domains:
 
-The report uses dry-run labels only:
+- `ai_images`
+- `ai_folders`
+- `ai_image_derivatives`
+- `public_gallery_references`
 
-- `candidate_safe_for_future_executor`
-- `candidate_requires_depublish_or_gallery_review`
-- `candidate_requires_derivative_cleanup`
-- `candidate_requires_folder_child_handling`
-- `candidate_requires_existing_delete_path`
-- `candidate_requires_manual_review`
-- `candidate_unknown_table_or_schema`
-- `candidate_not_covered`
-- `blocked_active_dependency`
-- `blocked_unowned_or_org_unknown`
-- `not_selected`
+Deferred domains:
 
-No label authorizes deletion or access switching.
+- video assets/jobs,
+- music/audio assets,
+- text assets,
+- profile avatars,
+- data lifecycle exports,
+- audit archives,
+- unknown media tables,
+- manual-review supersession.
 
-## Public/Gallery Handling
+## Current Evidence Decision
 
-Public rows cannot be silently deleted. A future executor must deliberately handle public/gallery references, attribution/history impact, and current public content disappearance. Phase 6.21 changes no public visibility, gallery rows, public URLs, or media serving behavior.
+The reset dry-run decision references live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`. The raw JSON is not present in the current checkout, and the decision remains rejected unsafe because the evidence exposed a raw idempotency key.
 
-## Derivative Handling
+Current decision: `legacy_media_reset_dry_run_rejected_unsafe`.
 
-Derivative, poster, and thumbnail references are inferred from D1 metadata only. Phase 6.21 does not list, inspect, move, or delete live R2 objects. A future executor must clean parent and derivative references atomically or through the existing lifecycle cleanup queue/delete logic.
+The dry-run topic is not closed, and the confirmation gate remains closed.
 
-## Video/Music Handling
+## Current Safety Rules
 
-Phase 6 ownership work focused on `ai_folders` and `ai_images`. The reset dry-run inspects `ai_text_assets` and `ai_video_jobs` conservatively:
-
-- known tables are summarized by counts and public/source-module/job-status rollups;
-- unknown or absent tables are marked `unknown_schema`;
-- no reset coverage is claimed for video/music without a future executor design or coverage expansion.
-
-## Manual Review Impact
-
-If manual-review tables exist, the report summarizes review item/event counts, status/category rollups, and the number of folder/image-related review items that may become obsolete after a successful future reset. Phase 6.21 does not update, supersede, delete, or create manual-review rows.
-
-## Future Executor Requirements
-
-A later executor, if approved, must:
-
-- default to `dryRun: true`;
-- require admin auth, production MFA, same-origin writes, fail-closed rate limits, bounded JSON, explicit `confirm: true`, a bounded reason, and `Idempotency-Key`;
-- use existing lifecycle/delete helpers and durable cleanup queues;
-- avoid direct uncontrolled SQL or R2 deletion;
-- write audit evidence;
-- verify no source/orphan rows remain;
-- recalculate or verify storage quota;
-- supersede manual-review rows only in a separately approved phase.
-
-## Phase 6.23 Executor Foundation
-
-Phase 6.23 adds:
-
-- migration `0058_add_legacy_media_reset_actions.sql`;
-- `POST /api/admin/tenant-assets/legacy-media-reset/execute`;
-- read-only action/evidence endpoints under `/api/admin/tenant-assets/legacy-media-reset/actions`;
-- executor helper `workers/auth/src/lib/tenant-asset-legacy-media-reset-executor.js`.
-
-The executor is limited to first-pass `ai_images`, `ai_folders`, `ai_image_derivatives`, and `public_gallery_references`. Video, music, text assets, profile avatars, data lifecycle exports, audit archives, unknown media tables, and manual-review supersession remain deferred. Execution requires admin auth, production MFA, same-origin protection, `Idempotency-Key`, `confirm: true`, bounded `reason`, and deletion/public/no-credit acknowledgements.
-
-## Safety Statement
-
-Phase 6.21 performs no deletion, no ownership backfill, no access-check switch, no source asset mutation, no ownership metadata update, no review row mutation, no public/gallery mutation, no storage quota mutation, no R2 listing/move/copy/delete/rewrite, no provider call, no Stripe call, no Cloudflare API call, no credit/billing mutation, no deployment, and no tenant-isolation or production-readiness claim.
-
-Phase 6.23 adds executor code and action/audit tables but Codex/tests performed no live/main D1 source row rewrite, no live/main media deletion, no live/main R2 action, no remote migration, and no deployment.
-
-Phase 6.24 adds the evidence decision/runbook/template only. It performs no executor execution, no confirmed deletion, no source mutation, no review-row mutation, no R2 listing/mutation, no backfill, and no access switch.
-
-Phase 6.25 adds dry-run closure/gate docs only. It finds no real executor dry-run evidence, creates no dated closure summary, performs no executor execution, no confirmed deletion, no source mutation, no review-row mutation, no reset action row mutation, no R2 listing/mutation, no backfill, and no access switch.
-
-Recommended next phase: `Phase 6.26 — Operator Runs Legacy Media Reset Dry-run`.
+- No confirmed deletion/reset is approved.
+- No public/gallery depublish/delete is approved.
+- No source asset rows are approved for mutation.
+- No ownership metadata update or backfill is approved.
+- No live R2 listing/deletion is approved.
+- No billing/credit mutation or refund behavior is approved.
+- No tenant isolation or production readiness is claimed.
