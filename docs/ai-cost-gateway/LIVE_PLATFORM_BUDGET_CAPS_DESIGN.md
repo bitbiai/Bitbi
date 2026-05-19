@@ -2,7 +2,7 @@
 
 Date: 2026-05-18
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Status: current design/current-state summary for platform budget caps. This document is not a phase history and does not approve production readiness or live billing readiness.
 

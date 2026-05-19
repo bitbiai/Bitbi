@@ -4,7 +4,7 @@ Date: 2026-05-19
 
 Purpose: short restart guide for future Codex sessions. The primary current-state baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 This handoff is not production approval, live billing approval, legal compliance certification, full tenant-isolation evidence, access-switch readiness, ownership backfill readiness, or confirmed media reset readiness.
 
@@ -26,7 +26,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Local Release Candidate tooling now exists: `npm run release:rc` / `npm run release:rc:markdown` generate the Go/No-Go manifest, and `npm run rc:check` prints the final RC validation matrix by default. These are local-only and keep production readiness/live billing blocked.
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, BITBI Pro scaffolding, read-only billing evidence status, and blocked billing canary skeleton tooling exist.
 - Member image/music/video AI Cost Gateway paths, selected admin/platform budget controls, and Auth/AI caller-policy release compatibility checks exist.
-- Data lifecycle planning/export/archive/cleanup foundations exist; high-risk lifecycle planning now requires an `Idempotency-Key`.
+- Data lifecycle planning/export/archive/cleanup, safe execution, final completion, close/reject, retained-category evidence, and JSON/Markdown/HTML evidence packet foundations exist; high-risk lifecycle writes require `Idempotency-Key`, confirmation where needed, Admin/MFA, rate limiting, and audit logging.
 - Tenant asset ownership work exists for folders/images: ownership metadata columns, new personal-write metadata, read diagnostics/evidence, manual-review import/queue/status/Admin visibility, and operator evidence decisions.
 - Legacy media reset work exists: read-only dry-run/reporting, executor design, reset action/event tables, a dry-run-default executor path, and evidence decision docs. Confirmed execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 
@@ -34,7 +34,7 @@ This handoff is not production approval, live billing approval, legal compliance
 
 - Production readiness and live billing readiness are blocked.
 - Live deployment state is not proven by repo files; operator verification is required.
-- Remote auth migrations through `0058_add_legacy_media_reset_actions.sql` must be applied before dependent Auth Worker deploys.
+- Remote auth migrations through `0059_add_data_lifecycle_completion_state.sql` must be applied before dependent Auth Worker deploys.
 - Auth/AI caller-policy runtime changes require paired AI Worker then Auth Worker review/deploy ordering.
 - Existing legacy `ai_folders`/`ai_images` rows remain mixed/null/unclassified; access checks still use existing runtime behavior.
 - Ownership backfill, access-switching, tenant isolation, and confirmed reset/deletion remain blocked.

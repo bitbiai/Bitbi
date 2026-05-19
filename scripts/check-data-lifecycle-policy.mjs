@@ -14,6 +14,10 @@ const archiveMigration = fs.readFileSync(
   path.join(repoRoot, "workers/auth/migrations/0033_harden_data_export_archives.sql"),
   "utf8"
 );
+const completionMigration = fs.readFileSync(
+  path.join(repoRoot, "workers/auth/migrations/0059_add_data_lifecycle_completion_state.sql"),
+  "utf8"
+);
 const helper = fs.readFileSync(
   path.join(repoRoot, "workers/auth/src/lib/data-lifecycle.js"),
   "utf8"
@@ -72,6 +76,21 @@ for (const indexName of [
   }
 }
 
+for (const columnName of [
+  "final_status",
+  "evidence_status",
+  "completed_by_user_id",
+  "completion_summary_json",
+  "retained_categories_json",
+  "execution_summary_json",
+  "closure_reason",
+  "rejection_reason",
+]) {
+  if (!completionMigration.includes(`ADD COLUMN ${columnName}`)) {
+    issues.push(`migration 0059 is missing data_lifecycle_requests column ${columnName}.`);
+  }
+}
+
 for (const [method, pathname, expectedId] of [
   ["POST", "/api/admin/data-lifecycle/requests", "admin.data-lifecycle.requests.create"],
   ["GET", "/api/admin/data-lifecycle/requests", "admin.data-lifecycle.requests.list"],
@@ -81,6 +100,9 @@ for (const [method, pathname, expectedId] of [
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/generate-export", "admin.data-lifecycle.requests.generate-export"],
   ["GET", "/api/admin/data-lifecycle/requests/dlr_123/export", "admin.data-lifecycle.requests.export.read"],
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/execute-safe", "admin.data-lifecycle.requests.execute-safe"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/complete", "admin.data-lifecycle.requests.complete"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/reject", "admin.data-lifecycle.requests.reject"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/close", "admin.data-lifecycle.requests.close"],
   ["GET", "/api/admin/data-lifecycle/exports", "admin.data-lifecycle.exports.list"],
   ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
   ["GET", "/api/admin/data-lifecycle/exports/dla_123", "admin.data-lifecycle.exports.read"],
@@ -167,6 +189,9 @@ for (const [method, pathname, expectedId] of [
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/approve", "admin.data-lifecycle.requests.approve"],
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/generate-export", "admin.data-lifecycle.requests.generate-export"],
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/execute-safe", "admin.data-lifecycle.requests.execute-safe"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/complete", "admin.data-lifecycle.requests.complete"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/reject", "admin.data-lifecycle.requests.reject"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/close", "admin.data-lifecycle.requests.close"],
   ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
 ]) {
   const policy = getRoutePolicy(method, pathname);

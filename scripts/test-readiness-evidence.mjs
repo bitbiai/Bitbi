@@ -27,13 +27,13 @@ const evidence = await collectReadinessEvidence({
 const markdown = renderReadinessEvidenceMarkdown(evidence);
 
 assert.equal(evidence.verdict, "BLOCKED");
-assert.equal(evidence.release.latestAuthMigration, "0058_add_legacy_media_reset_actions.sql");
+assert.equal(evidence.release.latestAuthMigration, "0059_add_data_lifecycle_completion_state.sql");
 assert.equal(evidence.localChecks.mode, "skipped");
 assert.equal(evidence.localSafetyContracts.every((entry) => entry.status === "PASS"), true);
 assert.equal(evidence.liveChecks.mode, "skipped");
 assert(markdown.includes("Final verdict: **BLOCKED**"));
 assert(markdown.includes("Latest auth D1 migration"));
-assert(markdown.includes("0058_add_legacy_media_reset_actions.sql"));
+assert(markdown.includes("0059_add_data_lifecycle_completion_state.sql"));
 assert(markdown.includes("Local Safety Canary Contracts"));
 assert(markdown.includes("auth-ai-caller-policy-release-contract"));
 assert(markdown.includes("fetch-metadata-cross-site-write-guard"));
@@ -126,7 +126,7 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
   assert(liveMarkdown.includes("Operator review required: **true**"));
   assert(liveMarkdown.includes("Final verdict: **BLOCKED**"));
   assert(liveMarkdown.includes("Latest auth D1 migration"));
-  assert(liveMarkdown.includes("0058_add_legacy_media_reset_actions.sql"));
+  assert(liveMarkdown.includes("0059_add_data_lifecycle_completion_state.sql"));
   assert(liveMarkdown.includes("`Cache-Control`: `no-store`"));
   assert(!liveMarkdown.includes(secretValue));
   assert(!liveMarkdown.includes("Set-Cookie"));
@@ -173,7 +173,7 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
         ok: true,
         version: "omega-p1-readiness-dashboard-v1",
         releaseTruth: {
-          latestAuthMigration: "0058_add_legacy_media_reset_actions.sql",
+          latestAuthMigration: "0059_add_data_lifecycle_completion_state.sql",
           deployVerificationRequired: true,
         },
         liveEvidenceState: {
@@ -220,7 +220,7 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
   assert(adminEvidence.liveChecks.results.some((result) =>
     result.id === "admin-readiness-status" &&
     result.mode === "checked" &&
-    result.json.fields.latestAuthMigration === "0058_add_legacy_media_reset_actions.sql" &&
+    result.json.fields.latestAuthMigration === "0059_add_data_lifecycle_completion_state.sql" &&
     result.json.fields.resetConfirmedExecutionEnabled === false
   ));
   assert(adminMarkdown.includes("latestAuthMigration"));

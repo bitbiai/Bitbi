@@ -4,7 +4,7 @@ Date: 2026-05-19
 
 Purpose: compact current-state summary for restarting future audit work. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the canonical baseline.
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 This report is not production readiness, live billing readiness, legal compliance certification, full tenant isolation, or full SaaS maturity evidence.
 
@@ -17,7 +17,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Billing | Credit ledgers, guarded Stripe scaffolding, read-only billing evidence status, canary skeleton tooling, review queue, and reconciliation exist; live billing readiness remains blocked. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
 | Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist; confirmed reset is hard-disabled by default and remains blocked. |
-| Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
+| Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, safe executor foundations, final completion, close/reject, retained-category evidence, and JSON/Markdown/HTML evidence exports exist; completion remains evidence/policy-controlled and is not automatic legal advice. |
 | Admin UX | Admin Control Plane exposes implemented operator panels, including readiness/evidence status and production execution command copy, without proving production readiness. |
 
 ## Current Implemented Capabilities
@@ -45,7 +45,7 @@ This report is not production readiness, live billing readiness, legal complianc
 ## Current Deployment Requirements
 
 - Verify whether the current branch is deployed; repo files alone do not prove live state.
-- Apply remote auth migrations through `0058_add_legacy_media_reset_actions.sql` before dependent Auth Worker deployment.
+- Apply remote auth migrations through `0059_add_data_lifecycle_completion_state.sql` before dependent Auth Worker deployment.
 - Deploy paired Auth/AI caller-policy changes in the release-planned order: AI Worker before Auth Worker.
 - Deploy Auth Worker only when runtime code changes need shipping and migrations are present.
 - Deploy Static/Pages only when unshipped static/Admin UI changes exist.

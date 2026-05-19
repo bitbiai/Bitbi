@@ -35,7 +35,7 @@ assert.equal(dossier.deployRun, false);
 assert.equal(dossier.remoteMigrationsRun, false);
 assert.equal(dossier.productionReadiness, "blocked");
 assert.equal(dossier.liveBillingReadiness, "blocked");
-assert.equal(dossier.latestMigrationCheckpoint.auth, "0058_add_legacy_media_reset_actions.sql");
+assert.equal(dossier.latestMigrationCheckpoint.auth, "0059_add_data_lifecycle_completion_state.sql");
 assert.equal(dossier.cloudflareResourceModel.mode, "repo_config_only");
 assert.equal(dossier.cloudflareResourceModel.liveEvidenceRequired, true);
 assert.equal(dossier.liveReadOnlyEvidence.status, "pending");

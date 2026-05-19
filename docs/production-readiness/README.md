@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current production-readiness gate. This file is not a phase history and does not approve deployment.
 
@@ -28,13 +28,14 @@ Confirmed legacy media reset readiness: BLOCKED.
 
 ## Current Migration Preconditions
 
-Latest auth migration: `0058_add_legacy_media_reset_actions.sql`.
+Latest auth migration: `0059_add_data_lifecycle_completion_state.sql`.
 
 Important current dependencies:
 
 - `0056_add_ai_folder_image_ownership_metadata.sql` for folder/image ownership metadata.
 - `0057_add_ai_asset_manual_review_state.sql` for manual-review queue/status tables.
 - `0058_add_legacy_media_reset_actions.sql` for reset action/event tracking.
+- `0059_add_data_lifecycle_completion_state.sql` for Data Lifecycle final completion, evidence status, retained-category, close/reject, and completion-note metadata.
 
 If Auth Worker code uses these tables/columns, remote migrations must be applied before deploying that Worker code.
 
@@ -72,7 +73,7 @@ The Admin Control Plane includes a Readiness & Evidence dashboard at `/admin/#re
 
 The Admin Users delete dialog has two guarded modes: operational delete only, and operational delete plus Data Erasure/GDPR workflow initiation. The workflow option creates a dry-run, approval-required Data Lifecycle delete request for privacy/legal review before operational deletion; it does not immediately complete legal erasure or automatically destroy billing, audit, provider, legal, or compliance records.
 
-The Data Lifecycle area includes a request detail overlay for reviewing Data Erasure/export/anonymization workflows. It can open request details, generate a plan, approve eligible planned requests, execute only backend-supported safe actions, and export sanitized evidence as JSON, Markdown, or printable HTML for browser Save as PDF. Unsupported manual completion and reject/close states are shown disabled when the current schema cannot represent them. Evidence packets document lifecycle state and are not legal advice or production-readiness proof.
+The Data Lifecycle area includes a request detail overlay for reviewing Data Erasure/export/anonymization workflows. It can open request details, generate a plan, approve eligible planned requests, execute only backend-supported safe actions, record guarded final completion/close/reject state where eligible, and export sanitized evidence as JSON, Markdown, or printable HTML for browser Save as PDF. Completion states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review`; evidence packets document lifecycle state and are not legal advice or production-readiness proof.
 
 The Billing Events area includes a Billing Evidence Center backed by read-only `GET /api/admin/billing/evidence/status`. It reports live billing prerequisite presence/shape, static credit-pack catalog facts, BITBI Pro subscription metadata, webhook readiness facts, and blocked canary evidence without showing Stripe secrets, raw payloads, signatures, webhook secrets, checkout sessions, refunds, subscription mutations, or credit mutations.
 

@@ -2,7 +2,7 @@
 
 Date: 2026-05-18
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: concise current-state guide for work under `workers/auth`. Historical phase detail is frozen in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and domain evidence docs.
 
@@ -32,15 +32,16 @@ Current auth Worker resource classes:
 
 ## Current Migration State
 
-Latest auth D1 migration: `0058_add_legacy_media_reset_actions.sql`.
+Latest auth D1 migration: `0059_add_data_lifecycle_completion_state.sql`.
 
 Current high-impact migration dependencies:
 
 - `0056_add_ai_folder_image_ownership_metadata.sql` for folder/image ownership metadata columns.
 - `0057_add_ai_asset_manual_review_state.sql` for manual-review item/event tables.
 - `0058_add_legacy_media_reset_actions.sql` for reset action/event tables.
+- `0059_add_data_lifecycle_completion_state.sql` for Data Lifecycle final completion, evidence status, retained-category, close/reject, and completion-note metadata.
 
-Apply remote migrations before deploying Auth Worker code that depends on those columns/tables. DOC-2 added no migration and applied none.
+Apply remote migrations before deploying Auth Worker code that depends on those columns/tables. Do not run remote migrations without explicit operator approval/evidence.
 
 ## Current High-Risk Areas
 

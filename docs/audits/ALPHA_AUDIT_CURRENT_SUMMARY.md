@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-19
 
-Latest auth migration: `0058_add_legacy_media_reset_actions.sql`
+Latest auth migration: `0059_add_data_lifecycle_completion_state.sql`
 
 Primary restart baseline: `docs/audits/NEXT_AUDIT_BASELINE.md`
 
@@ -25,7 +25,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 
 ## Current Open Blockers
 
-- Remote migrations through `0058` must be applied before dependent Auth Worker deploys.
+- Remote migrations through `0059` must be applied before dependent Auth Worker deploys.
 - Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drill, rollback evidence, and Stripe canaries are not verified here.
 - RC tooling is repo/local evidence only and does not prove live production readiness or live billing readiness.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.

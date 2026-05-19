@@ -4345,6 +4345,17 @@ class MockD1 {
         created_at: createdAt,
         updated_at: updatedAt,
         completed_at: completedAt,
+        final_status: null,
+        evidence_status: null,
+        completed_by_user_id: null,
+        completion_note: null,
+        completion_summary_json: null,
+        retained_categories_json: null,
+        execution_summary_json: null,
+        closed_at: null,
+        closed_by_user_id: null,
+        closure_reason: null,
+        rejection_reason: null,
         expires_at: expiresAt,
         error_code: errorCode,
         error_message: errorMessage,
@@ -4759,11 +4770,74 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
-    if (query === "UPDATE data_lifecycle_requests SET status = 'safe_actions_completed', updated_at = ? WHERE id = ?") {
-      const [updatedAt, requestId] = bindings;
+    if (query === "UPDATE data_lifecycle_requests SET status = 'safe_actions_completed', evidence_status = 'safe_actions_completed_evidence_available', execution_summary_json = ?, updated_at = ? WHERE id = ?") {
+      const [executionSummaryJson, updatedAt, requestId] = bindings;
       const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
       if (!row) return { success: true, meta: { changes: 0 } };
       row.status = 'safe_actions_completed';
+      row.evidence_status = 'safe_actions_completed_evidence_available';
+      row.execution_summary_json = executionSummaryJson;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE data_lifecycle_requests') && query.includes('completion_summary_json') && query.includes("error_code = NULL") && query.includes('WHERE id = ?')) {
+      const [
+        status,
+        finalStatus,
+        evidenceStatus,
+        completedAt,
+        completedByUserId,
+        completionNote,
+        completionSummaryJson,
+        retainedCategoriesJson,
+        updatedAt,
+        requestId,
+      ] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = status;
+      row.final_status = finalStatus;
+      row.evidence_status = evidenceStatus;
+      row.completed_at = completedAt;
+      row.completed_by_user_id = completedByUserId;
+      row.completion_note = completionNote;
+      row.completion_summary_json = completionSummaryJson;
+      row.retained_categories_json = retainedCategoriesJson;
+      row.updated_at = updatedAt;
+      row.error_code = null;
+      row.error_message = null;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE data_lifecycle_requests') && query.includes("final_status = 'rejected'") && query.includes('rejection_reason = ?')) {
+      const [closedAt, closedByUserId, rejectionReason, completionSummaryJson, retainedCategoriesJson, updatedAt, requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'rejected';
+      row.final_status = 'rejected';
+      row.evidence_status = 'rejected_no_execution';
+      row.closed_at = closedAt;
+      row.closed_by_user_id = closedByUserId;
+      row.rejection_reason = rejectionReason;
+      row.completion_summary_json = completionSummaryJson;
+      row.retained_categories_json = retainedCategoriesJson;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE data_lifecycle_requests') && query.includes('closure_reason = ?') && query.includes('closed_by_user_id = ?')) {
+      const [status, finalStatus, evidenceStatus, closedAt, closedByUserId, closureReason, completionSummaryJson, retainedCategoriesJson, updatedAt, requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = status;
+      row.final_status = finalStatus;
+      row.evidence_status = evidenceStatus;
+      row.closed_at = closedAt;
+      row.closed_by_user_id = closedByUserId;
+      row.closure_reason = closureReason;
+      row.completion_summary_json = completionSummaryJson;
+      row.retained_categories_json = retainedCategoriesJson;
       row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }

@@ -6,7 +6,7 @@ Purpose: single current-state restart point for the next deep audit. This file r
 
 The old root audit docs were retired to `docs/audits/archive/retired-audit-root-docs/`. The next audit should start here and should not continue old audit phase numbering.
 
-Current release truth: `config/release-compat.json` declares latest auth D1 migration `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: `config/release-compat.json` declares latest auth D1 migration `0059_add_data_lifecycle_completion_state.sql`.
 
 ## Current System State
 
@@ -17,7 +17,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - High-risk evidence/log surfaces should expose private storage keys only as bounded classes/hashes/counts, not raw internal R2 keys.
 - Admin Control Plane exists for implemented admin operations, including users, Operator Timeline/Triage, billing evidence status, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
 - Admin user delete now has two safe modes: operational anonymized deletion, and operational anonymized deletion plus a dry-run/approval-required Data Erasure workflow request. Both require Admin auth/MFA, rate limiting, explicit confirmation, self-delete prevention, dependency preflight, labeled cleanup diagnostics, login/session disablement, and guarded cleanup of operational user-owned data. The optional Data Erasure/GDPR workflow is not executed immediately and does not claim full legal erasure while retention-governed audit/billing/lifecycle/legal evidence remains policy-controlled.
-- Admin Data Lifecycle request review now has a large detail overlay plus sanitized evidence packet export. The overlay wires existing guarded request detail, plan generation, approval, safe execution, private archive metadata, and JSON/Markdown/HTML evidence packet actions; unsupported manual completion and reject/close states remain disabled under the current schema. Printable HTML is PDF-friendly through browser Save as PDF, not binary PDF generation or legal advice.
+- Admin Data Lifecycle request review now has a large detail overlay plus sanitized evidence packet export. The overlay wires guarded request detail, plan generation, approval, safe execution, final completion, reject/close, private archive metadata, and JSON/Markdown/HTML evidence packet actions. Final states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review`; printable HTML is PDF-friendly through browser Save as PDF, not binary PDF generation or legal advice.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify
@@ -31,12 +31,12 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 ## Current Migration State
 
-- Latest auth D1 migration in repo/release contract: `0058_add_legacy_media_reset_actions.sql`.
+- Latest auth D1 migration in repo/release contract: `0059_add_data_lifecycle_completion_state.sql`.
 - Migration `0056_add_ai_folder_image_ownership_metadata.sql` adds nullable ownership metadata to `ai_folders` and `ai_images`.
 - Migration `0057_add_ai_asset_manual_review_state.sql` adds manual-review item/event tables.
 - Migration `0058_add_legacy_media_reset_actions.sql` adds legacy media reset action/event tracking.
-- Remote migrations `0056`, `0057`, and `0058` must be applied before deploying Auth Worker code that depends on those columns/tables.
-- No migration was added or applied by DOC-2.
+- Migration `0059_add_data_lifecycle_completion_state.sql` adds Data Lifecycle final completion, evidence, retained-category, close/reject, and completion-note metadata.
+- Remote migrations `0056`, `0057`, `0058`, and `0059` must be applied before deploying Auth Worker code that depends on those columns/tables.
 
 ## Current Admin / Platform Budget State
 
@@ -104,7 +104,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 ## Pending Operator Actions
 
 - Verify live deployment state for Auth Worker, Static/Pages, AI Worker, and Contact Worker.
-- Apply/verify remote auth migrations through `0058` before dependent Auth Worker deploys.
+- Apply/verify remote auth migrations through `0059` before dependent Auth Worker deploys.
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Collect production-readiness evidence with no secret exposure.

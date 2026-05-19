@@ -3689,7 +3689,7 @@
 
     .admin-lifecycle-detail {
         position: relative;
-        width: min(100%, 72rem);
+        width: min(100%, 82rem);
         max-block-size: min(90vh, 58rem);
         display: grid;
         grid-template-rows: auto minmax(0, 1fr);
@@ -3713,11 +3713,11 @@
         min-height: 0;
         overflow: auto;
         display: grid;
-        gap: var(--space-4);
+        gap: var(--space-5);
         padding: clamp(1rem, 2vw, 1.35rem);
     }
 
-    .admin-lifecycle-detail__summary,
+    .admin-lifecycle-detail__hero,
     .admin-lifecycle-detail__panel,
     .admin-alert {
         display: grid;
@@ -3728,16 +3728,135 @@
         background: rgba(255, 255, 255, 0.035);
     }
 
-    .admin-lifecycle-detail__grid {
+    .admin-lifecycle-detail__hero {
+        background:
+            linear-gradient(135deg, rgba(0, 240, 255, 0.08), transparent 40%),
+            rgba(255, 255, 255, 0.04);
+    }
+
+    .admin-lifecycle-detail__hero-main {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+        gap: var(--space-3);
+        min-width: 0;
+    }
+
+    .admin-lifecycle-detail__eyebrow {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .admin-lifecycle-layout {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--space-4);
         align-items: start;
+    }
+
+    .admin-lifecycle-detail__panel--wide {
+        grid-column: 1 / -1;
     }
 
     .admin-lifecycle-detail__panel-title {
         margin: 0;
         font-size: 0.98rem;
+    }
+
+    .admin-lifecycle-field-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+        gap: var(--space-3);
+        min-width: 0;
+    }
+
+    .admin-lifecycle-field {
+        display: grid;
+        gap: 0.35rem;
+        min-width: 0;
+        align-content: start;
+    }
+
+    .admin-lifecycle-field--block {
+        grid-column: 1 / -1;
+    }
+
+    .admin-lifecycle-field__label,
+    .admin-lifecycle-text-block__label {
+        display: block;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.72rem;
+        font-weight: 700;
+        line-height: 1.2;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        white-space: normal;
+        overflow-wrap: normal;
+        word-break: normal;
+    }
+
+    .admin-lifecycle-field__value {
+        min-width: 0;
+        color: rgba(255, 255, 255, 0.9);
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+        word-break: normal;
+    }
+
+    .admin-lifecycle-text-block {
+        display: grid;
+        gap: 0.45rem;
+        min-width: 0;
+        padding: var(--space-3);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-sm);
+        background: rgba(0, 0, 0, 0.16);
+    }
+
+    .admin-lifecycle-text-block__value {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.86);
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+        word-break: normal;
+    }
+
+    .admin-lifecycle-action-card {
+        display: grid;
+        gap: var(--space-3);
+        min-width: 0;
+        padding: var(--space-3);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .admin-lifecycle-action-card__title {
+        margin: 0;
+        font-size: 0.9rem;
+    }
+
+    .admin-lifecycle-category-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+        gap: var(--space-3);
+    }
+
+    .admin-lifecycle-category {
+        display: grid;
+        gap: 0.4rem;
+        min-width: 0;
+        padding: var(--space-3);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-sm);
+        background: rgba(0, 0, 0, 0.12);
+    }
+
+    .admin-lifecycle-category strong,
+    .admin-lifecycle-category span {
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
 
     .admin-form__check {
@@ -3763,6 +3882,16 @@
         padding: 0.72rem 0.85rem;
         font: inherit;
         resize: vertical;
+    }
+
+    @media (max-width: 760px) {
+        .admin-lifecycle-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .admin-lifecycle-detail {
+            max-block-size: 94vh;
+        }
     }
 
     .admin-alert--danger {

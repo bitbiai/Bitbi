@@ -2,7 +2,7 @@
 
 Last reconciled: 2026-05-18
 
-Current release truth: `config/release-compat.json` declares latest auth D1 migration `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: `config/release-compat.json` declares latest auth D1 migration `0059_add_data_lifecycle_completion_state.sql`.
 
 DOC-2 makes `docs/audits/NEXT_AUDIT_BASELINE.md` the clean starting point for the next deep audit. DOC-3 moves historical root phase reports to `docs/audits/archive/root-phase-reports/`. DOC-4 retires the old root audit docs into `docs/audits/archive/retired-audit-root-docs/`. Active docs should describe current state only; historical audit narrative is frozen separately.
 

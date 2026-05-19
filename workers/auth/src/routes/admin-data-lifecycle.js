@@ -15,6 +15,9 @@ import {
 import {
   DataLifecycleError,
   approveDataLifecycleRequest,
+  buildDataLifecycleCategoryMatrix,
+  closeDataLifecycleRequest,
+  completeDataLifecycleRequest,
   createDataLifecycleRequest,
   dataLifecycleErrorResponse,
   executeSafeDataLifecycleActions,
@@ -22,6 +25,7 @@ import {
   listDataLifecycleRequests,
   normalizeDataLifecycleIdempotencyKey,
   planDataLifecycleRequest,
+  rejectDataLifecycleRequest,
   requireDataLifecycleConfirmation,
 } from "../lib/data-lifecycle.js";
 import {
@@ -161,21 +165,27 @@ function buildLifecyclePlanSummary(items = []) {
 
 function buildLifecycleAvailableActions(request, items = []) {
   const status = request?.status || "unknown";
+  const finalStatus = request?.finalStatus || null;
   const hasPlan = Array.isArray(items) && items.length > 0;
   const hasBlockedItems = items.some((item) => item.status === "blocked");
   const planned = status === "planned";
   const approved = status === "approved";
   const safeActionsCompleted = status === "safe_actions_completed";
   const exportRequest = request?.type === "export";
+  const finalStates = new Set(["completed", "completed_with_retention", "rejected", "closed", "blocked_requires_legal_review"]);
+  const isFinal = finalStates.has(status) || finalStates.has(finalStatus);
+  const completeAvailable = !isFinal && !hasBlockedItems && hasPlan && (
+    safeActionsCompleted || (exportRequest && status === "export_ready")
+  );
   return {
     viewDetails: { available: true },
     generatePlan: {
-      available: status === "submitted" || status === "planned" || status === "blocked",
+      available: !isFinal && (status === "submitted" || status === "planned" || status === "blocked"),
       disabledReason: safeActionsCompleted ? "Safe actions already completed." : null,
       mutatesPlanStateOnly: true,
     },
     approve: {
-      available: planned && hasPlan && !hasBlockedItems,
+      available: !isFinal && planned && hasPlan && !hasBlockedItems,
       disabledReason: planned
         ? (hasPlan ? (hasBlockedItems ? "Blocked plan items require manual review." : null) : "Plan has no items yet.")
         : "Request must be planned before approval.",
@@ -183,14 +193,14 @@ function buildLifecycleAvailableActions(request, items = []) {
       executesDataDeletion: false,
     },
     executeSafeDryRun: {
-      available: approved || safeActionsCompleted,
+      available: !isFinal && (approved || safeActionsCompleted),
       disabledReason: approved || safeActionsCompleted ? null : "Request must be approved before safe execution dry-run.",
       requiresIdempotencyKey: true,
       dryRun: true,
       executesIrreversibleDeletion: false,
     },
     executeSafe: {
-      available: approved,
+      available: !isFinal && approved,
       disabledReason: approved ? null : "Request must be approved before safe execution.",
       requiresConfirmation: true,
       requiresIdempotencyKey: true,
@@ -198,19 +208,26 @@ function buildLifecycleAvailableActions(request, items = []) {
       note: "Safe execution can revoke sessions and expire eligible tokens/archives. It does not perform broad billing, audit, legal, or provider-evidence deletion.",
     },
     generatePrivateArchive: {
-      available: exportRequest && (approved || safeActionsCompleted),
+      available: !isFinal && exportRequest && (approved || safeActionsCompleted),
       disabledReason: exportRequest ? "Export request must be approved before archive generation." : "Only export requests can generate private archives.",
       requiresConfirmation: true,
       requiresIdempotencyKey: true,
     },
     exportEvidence: { available: true, formats: ["json", "markdown", "html"] },
     markCompleted: {
-      available: false,
-      disabledReason: "Manual completion/evidence status is not represented by the current lifecycle schema.",
+      available: completeAvailable,
+      disabledReason: completeAvailable
+        ? null
+        : (isFinal ? "Request already has a final lifecycle status." : "Completion requires a plan, approval, safe execution or export evidence, and no blocked plan items."),
+      requiresConfirmation: true,
+      requiresIdempotencyKey: true,
     },
     rejectOrClose: {
-      available: false,
-      disabledReason: "Rejected/closed lifecycle statuses are not represented by the current lifecycle schema.",
+      available: !isFinal,
+      disabledReason: isFinal ? "Request already has a final lifecycle status." : null,
+      requiresReason: true,
+      requiresConfirmation: true,
+      requiresIdempotencyKey: true,
       deletesData: false,
     },
   };
@@ -220,9 +237,23 @@ function buildLifecycleEvidencePacket(detail, { generatedAt = new Date().toISOSt
   const request = detail.request || {};
   const items = Array.isArray(detail.items) ? detail.items : [];
   const planSummary = buildLifecyclePlanSummary(items);
+  const categoryMatrix = request.completionSummary?.categoryMatrix || buildDataLifecycleCategoryMatrix(request, items);
+  const retainedPolicyCategories = Array.from(new Set([
+    ...(Array.isArray(request.retainedCategories) ? request.retainedCategories : []),
+    ...categoryMatrix
+      .filter((entry) => entry.result === "retained" || entry.retainedByPolicy)
+      .map((entry) => entry.id),
+    ...planSummary.retainedPolicyCategories,
+    "admin_audit_user_activity_security",
+    "billing_credit_ledger",
+    "provider_webhook_evidence",
+    "legal_compliance_retention",
+    "lifecycle_evidence_records",
+  ])).sort();
   const userItem = items.find((item) => item.resourceType === "user");
   const userSummary = userItem?.summary || {};
-  const completedClaimed = request.status === "safe_actions_completed" && planSummary.blockedItemCount === 0;
+  const finalStatus = request.finalStatus || (["completed", "completed_with_retention", "rejected", "closed", "blocked_requires_legal_review"].includes(request.status) ? request.status : null);
+  const completedClaimed = ["completed", "completed_with_retention"].includes(finalStatus);
   return {
     title: "BITBI Data Lifecycle Evidence Packet",
     generatedAt,
@@ -239,6 +270,10 @@ function buildLifecycleEvidencePacket(detail, { generatedAt = new Date().toISOSt
       updatedAt: request.updatedAt,
       expiresAt: request.expiresAt || null,
       completedAt: request.completedAt || null,
+      finalStatus,
+      evidenceStatus: request.evidenceStatus || null,
+      completedByUserId: request.completedByUserId || null,
+      completionNote: request.completionNote || null,
       errorCode: request.errorCode || null,
       errorMessage: request.errorMessage || null,
     },
@@ -257,10 +292,22 @@ function buildLifecycleEvidencePacket(detail, { generatedAt = new Date().toISOSt
       approvedByAdminId: request.approvedByAdminId || null,
       approvedAt: request.approvedAt || null,
       safeActionsCompleted: request.status === "safe_actions_completed",
-      evidenceState: completedClaimed ? "safe_actions_completed_evidence_available" : "evidence_pending_or_partial",
+      finalStatus,
+      evidenceState: request.evidenceStatus || (completedClaimed ? "completion_evidence_recorded" : "evidence_pending_or_partial"),
       noLegalCompletionClaim: !completedClaimed,
     },
     planSummary,
+    completionEvidence: {
+      finalStatus,
+      evidenceStatus: request.evidenceStatus || null,
+      completedAt: request.completedAt || null,
+      completedByUserId: request.completedByUserId || null,
+      completionNote: request.completionNote || null,
+      completionSummary: request.completionSummary || null,
+      executionSummary: request.executionSummary || null,
+      retainedCategories: retainedPolicyCategories,
+      categoryMatrix,
+    },
     availableActions: buildLifecycleAvailableActions(request, items),
     itemPreview: items.slice(0, 25).map((item) => ({
       id: item.id,
@@ -274,17 +321,12 @@ function buildLifecycleEvidencePacket(detail, { generatedAt = new Date().toISOSt
         internalKeyIncluded: false,
       } : null,
     })),
-    retainedPolicyCategories: Array.from(new Set([
-      ...planSummary.retainedPolicyCategories,
-      "admin_audit_log",
-      "billing_ledger",
-      "provider_evidence",
-      "legal_compliance_records",
-    ])).sort(),
+    retainedPolicyCategories,
     pendingActions: [
       request.status === "submitted" ? "generate_plan" : null,
       request.status === "planned" ? "approve_request" : null,
       request.status === "approved" ? "execute_safe_or_export_evidence" : null,
+      request.status === "safe_actions_completed" && !completedClaimed ? "mark_completion_after_evidence_review" : null,
       completedClaimed ? null : "review_evidence_before_legal_completion_claim",
     ].filter(Boolean),
     redaction: {
@@ -327,6 +369,7 @@ function renderEvidenceMarkdown(packet) {
   const request = packet.request;
   const state = packet.lifecycleState;
   const plan = packet.planSummary;
+  const completion = packet.completionEvidence || {};
   return [
     `# ${packet.title}`,
     "",
@@ -337,6 +380,8 @@ function renderEvidenceMarkdown(packet) {
     `- Request ID: ${request.id}`,
     `- Type: ${request.type}`,
     `- Status: ${request.status}`,
+    `- Final status: ${request.finalStatus || "not completed"}`,
+    `- Evidence status: ${request.evidenceStatus || "pending"}`,
     `- Dry-run: ${request.dryRun ? "yes" : "no"}`,
     `- Subject user ID: ${request.subjectUserId}`,
     `- Created: ${request.createdAt}`,
@@ -350,6 +395,7 @@ function renderEvidenceMarkdown(packet) {
     `- Safe actions completed: ${state.safeActionsCompleted ? "yes" : "no"}`,
     `- Evidence state: ${state.evidenceState}`,
     `- No legal completion claim: ${state.noLegalCompletionClaim ? "yes" : "no"}`,
+    `- Completion note: ${request.completionNote || "not recorded"}`,
     "",
     "## Plan Summary",
     "",
@@ -359,6 +405,12 @@ function renderEvidenceMarkdown(packet) {
     `- Retained policy records: ${plan.recordsRetainedUnderPolicy}`,
     `- Blocked items: ${plan.blockedItemCount}`,
     `- Manual review required: ${plan.manualReviewRequired}`,
+    "",
+    "## Category Matrix",
+    "",
+    markdownList((completion.categoryMatrix || []).map((entry) => (
+      `${entry.id}: ${entry.result} (${entry.itemCount || 0} item${Number(entry.itemCount || 0) === 1 ? "" : "s"})`
+    ))),
     "",
     "## Retained Policy Categories",
     "",
@@ -404,6 +456,7 @@ function renderEvidenceHtml(packet) {
   const request = packet.request;
   const state = packet.lifecycleState;
   const plan = packet.planSummary;
+  const completion = packet.completionEvidence || {};
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -432,6 +485,8 @@ function renderEvidenceHtml(packet) {
     ["Request ID", request.id],
     ["Type", request.type],
     ["Status", request.status],
+    ["Final status", request.finalStatus || "not completed"],
+    ["Evidence status", request.evidenceStatus || "pending"],
     ["Dry-run", request.dryRun ? "yes" : "no"],
     ["Subject user ID", request.subjectUserId],
     ["Created", request.createdAt],
@@ -445,6 +500,7 @@ function renderEvidenceHtml(packet) {
     ["Safe actions completed", state.safeActionsCompleted ? "yes" : "no"],
     ["Evidence state", state.evidenceState],
     ["No legal completion claim", state.noLegalCompletionClaim ? "yes" : "no"],
+    ["Completion note", request.completionNote || "not recorded"],
   ])}</tbody></table>
   <h2>Plan Summary</h2>
   <table><tbody>${htmlRows([
@@ -455,6 +511,11 @@ function renderEvidenceHtml(packet) {
     ["Blocked items", plan.blockedItemCount],
     ["Manual review required", plan.manualReviewRequired],
   ])}</tbody></table>
+  <h2>Category Matrix</h2>
+  <table><tbody>${htmlRows((completion.categoryMatrix || []).map((entry) => [
+    entry.id,
+    `${entry.result} (${entry.itemCount || 0} item${Number(entry.itemCount || 0) === 1 ? "" : "s"})`,
+  ]))}</tbody></table>
   <h2>Retained Policy Categories</h2>
   ${htmlList(packet.retainedPolicyCategories)}
   <h2>Pending Actions</h2>
@@ -746,6 +807,123 @@ export async function handleAdminDataLifecycle(ctx) {
           action_count: result.actions.length,
           destructive_actions_disabled: true,
           reused: result.reused,
+        }
+      );
+      return lifecycleJson({ ok: true, ...result });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  const completeMatch = pathname.match(/^\/api\/admin\/data-lifecycle\/requests\/([^/]+)\/complete$/);
+  // POST /api/admin/data-lifecycle/requests/:id/complete
+  // route-policy: admin.data-lifecycle.requests.complete
+  if (completeMatch && method === "POST") {
+    try {
+      normalizeDataLifecycleIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readJsonBodyOrResponse(request, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      requireDataLifecycleConfirmation(parsed.body, {
+        message: "Explicit confirmation is required before marking a data lifecycle request complete.",
+        code: "completion_confirmation_required",
+      });
+      const result = await completeDataLifecycleRequest({
+        env: ctx.env,
+        adminUser: admin.user,
+        requestId: decodePathId(completeMatch[1]),
+        body: parsed.body,
+      });
+      await auditLifecycleEvent(
+        ctx,
+        admin.user,
+        "data_lifecycle_request_completed",
+        result.request.subjectUserId,
+        {
+          request_id: result.request.id,
+          request_type: result.request.type,
+          final_status: result.request.finalStatus,
+          evidence_status: result.request.evidenceStatus,
+          reused: result.reused,
+        }
+      );
+      return lifecycleJson({ ok: true, ...result });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  const rejectMatch = pathname.match(/^\/api\/admin\/data-lifecycle\/requests\/([^/]+)\/reject$/);
+  // POST /api/admin/data-lifecycle/requests/:id/reject
+  // route-policy: admin.data-lifecycle.requests.reject
+  if (rejectMatch && method === "POST") {
+    try {
+      normalizeDataLifecycleIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readJsonBodyOrResponse(request, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      requireDataLifecycleConfirmation(parsed.body, {
+        message: "Explicit confirmation is required before rejecting a data lifecycle request.",
+        code: "reject_confirmation_required",
+      });
+      const result = await rejectDataLifecycleRequest({
+        env: ctx.env,
+        adminUser: admin.user,
+        requestId: decodePathId(rejectMatch[1]),
+        body: parsed.body,
+      });
+      await auditLifecycleEvent(
+        ctx,
+        admin.user,
+        "data_lifecycle_request_rejected",
+        result.request.subjectUserId,
+        {
+          request_id: result.request.id,
+          request_type: result.request.type,
+          final_status: result.request.finalStatus,
+          reused: result.reused,
+          executes_data_deletion: false,
+        }
+      );
+      return lifecycleJson({ ok: true, ...result });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  const closeMatch = pathname.match(/^\/api\/admin\/data-lifecycle\/requests\/([^/]+)\/close$/);
+  // POST /api/admin/data-lifecycle/requests/:id/close
+  // route-policy: admin.data-lifecycle.requests.close
+  if (closeMatch && method === "POST") {
+    try {
+      normalizeDataLifecycleIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readJsonBodyOrResponse(request, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      requireDataLifecycleConfirmation(parsed.body, {
+        message: "Explicit confirmation is required before closing a data lifecycle request.",
+        code: "close_confirmation_required",
+      });
+      const result = await closeDataLifecycleRequest({
+        env: ctx.env,
+        adminUser: admin.user,
+        requestId: decodePathId(closeMatch[1]),
+        body: parsed.body,
+      });
+      await auditLifecycleEvent(
+        ctx,
+        admin.user,
+        "data_lifecycle_request_closed",
+        result.request.subjectUserId,
+        {
+          request_id: result.request.id,
+          request_type: result.request.type,
+          final_status: result.request.finalStatus,
+          reused: result.reused,
+          executes_data_deletion: false,
         }
       );
       return lifecycleJson({ ok: true, ...result });

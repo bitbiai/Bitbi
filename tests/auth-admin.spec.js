@@ -1693,6 +1693,9 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.lifecyclePlanRequests = captures.lifecyclePlanRequests || [];
   captures.lifecycleApproveRequests = captures.lifecycleApproveRequests || [];
   captures.lifecycleExecuteSafeRequests = captures.lifecycleExecuteSafeRequests || [];
+  captures.lifecycleCompleteRequests = captures.lifecycleCompleteRequests || [];
+  captures.lifecycleRejectRequests = captures.lifecycleRejectRequests || [];
+  captures.lifecycleCloseRequests = captures.lifecycleCloseRequests || [];
   captures.lifecycleGenerateExportRequests = captures.lifecycleGenerateExportRequests || [];
   captures.lifecycleRequestExportRequests = captures.lifecycleRequestExportRequests || [];
   captures.lifecycleEvidenceRequests = captures.lifecycleEvidenceRequests || [];
@@ -1911,7 +1914,7 @@ async function mockAdminControlPlane(page, captures = {}) {
       generatedAt: '2026-05-18T10:00:00.000Z',
       releaseTruth: {
         source: 'config/release-compat.json',
-        latestAuthMigration: '0058_add_legacy_media_reset_actions.sql',
+        latestAuthMigration: '0059_add_data_lifecycle_completion_state.sql',
         migrationDirectory: 'workers/auth/migrations',
         databaseName: 'bitbi-auth-db',
         staticDeploySeparateFromWorkers: true,
@@ -3744,7 +3747,7 @@ async function mockAdminControlPlane(page, captures = {}) {
       status: 'submitted',
       subjectUserId: 'user_member',
       dryRun: true,
-      reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+      reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion. This intentionally long reason verifies the lifecycle detail overlay renders narrative legal context as a readable block instead of a cramped label/value row.',
       requestedByAdminId: 'admin_control',
       approvalRequired: true,
       createdAt: '2026-04-22T09:00:00.000Z',
@@ -3882,7 +3885,11 @@ async function mockAdminControlPlane(page, captures = {}) {
     const row = lifecycleRequests.find((entry) => entry.id === requestId);
     if (row && body.dryRun === false) {
       row.status = 'safe_actions_completed';
+      row.evidenceStatus = 'safe_actions_completed_evidence_available';
       row.updatedAt = '2026-04-22T09:30:00.000Z';
+      for (const item of lifecycleItemsByRequest[requestId] || []) {
+        if (item.tableName === 'sessions') item.status = 'completed';
+      }
     }
     await fulfillJson(route, {
       ok: true,
@@ -3891,6 +3898,71 @@ async function mockAdminControlPlane(page, captures = {}) {
       destructiveActionsDisabled: true,
       actions: [{ tableName: 'sessions', action: 'revoke', status: body.dryRun === false ? 'completed' : 'would_execute' }],
     });
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/complete$/, async (route) => {
+    const request = route.request();
+    const requestId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    const body = request.postDataJSON();
+    captures.lifecycleCompleteRequests.push({
+      requestId,
+      idempotencyKey: request.headers()['idempotency-key'],
+      body,
+    });
+    const row = lifecycleRequests.find((entry) => entry.id === requestId);
+    if (row) {
+      row.status = 'completed_with_retention';
+      row.finalStatus = 'completed_with_retention';
+      row.evidenceStatus = 'complete_with_retention_evidence_recorded';
+      row.completedAt = '2026-04-22T09:35:00.000Z';
+      row.completedByUserId = 'admin_control';
+      row.completionNote = body.completionNote;
+      row.retainedCategories = ['admin_audit_user_activity_security', 'billing_credit_ledger', 'legal_compliance_retention', 'provider_webhook_evidence'];
+      row.completionSummary = {
+        finalStatus: row.finalStatus,
+        retainedCategories: row.retainedCategories,
+        categoryMatrix: [
+          { id: 'auth_session_token_profile', label: 'Auth/session/token/profile', result: 'deleted', itemCount: 1 },
+          { id: 'admin_audit_user_activity_security', label: 'Audit/activity/security', result: 'retained', itemCount: 1, retainedByPolicy: true },
+        ],
+      };
+    }
+    await fulfillJson(route, { ok: true, request: row, completion: row?.completionSummary || {} });
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/reject$/, async (route) => {
+    const request = route.request();
+    const requestId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    const body = request.postDataJSON();
+    captures.lifecycleRejectRequests.push({
+      requestId,
+      idempotencyKey: request.headers()['idempotency-key'],
+      body,
+    });
+    const row = lifecycleRequests.find((entry) => entry.id === requestId);
+    if (row) {
+      row.status = 'rejected';
+      row.finalStatus = 'rejected';
+      row.evidenceStatus = 'rejected_no_execution';
+      row.rejectionReason = body.reason;
+    }
+    await fulfillJson(route, { ok: true, request: row, executesDataDeletion: false });
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/close$/, async (route) => {
+    const request = route.request();
+    const requestId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    const body = request.postDataJSON();
+    captures.lifecycleCloseRequests.push({
+      requestId,
+      idempotencyKey: request.headers()['idempotency-key'],
+      body,
+    });
+    const row = lifecycleRequests.find((entry) => entry.id === requestId);
+    if (row) {
+      row.status = body.finalStatus || 'closed';
+      row.finalStatus = row.status;
+      row.evidenceStatus = row.status === 'blocked_requires_legal_review' ? 'blocked_requires_legal_review' : 'closed_no_execution';
+      row.closureReason = body.reason;
+    }
+    await fulfillJson(route, { ok: true, request: row, executesDataDeletion: false });
   });
   await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/generate-export$/, async (route) => {
     const request = route.request();
@@ -10462,7 +10534,7 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Readiness & Evidence Dashboard');
-    await expect(page.locator('#sectionReadiness')).toContainText('0058_add_legacy_media_reset_actions.sql');
+    await expect(page.locator('#sectionReadiness')).toContainText('0059_add_data_lifecycle_completion_state.sql');
     await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Confirmed legacy media reset readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
@@ -10500,18 +10572,28 @@ test.describe('Admin Control Plane', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Data Lifecycle Request Detail' });
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('Subject / Target Snapshot');
+    await expect(dialog).toContainText('Subject Snapshot');
     await expect(dialog).toContainText('Current Lifecycle State');
     await expect(dialog).toContainText('Generate Plan');
     await expect(dialog).toContainText('Approval');
     await expect(dialog).toContainText('Execute Safe');
-    await expect(dialog).toContainText('Mark Completed / Evidence');
+    await expect(dialog).toContainText('Completion / Legal Outcome');
     await expect(dialog).toContainText('Reject / Close');
     await expect(dialog).toContainText('Export Evidence');
+    await expect(dialog).toContainText('Category Matrix');
     await expect(dialog).toContainText('no legal completion claim');
-    await expect(dialog.getByRole('button', { name: 'Mark Completed / Evidence' })).toBeDisabled();
-    await expect(dialog.getByRole('button', { name: 'Reject / Close' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Mark Completed' })).toBeDisabled();
+    const rejectClosePanel = dialog.locator('.admin-lifecycle-detail__panel', { hasText: 'Reject / Close' });
+    await expect(rejectClosePanel.getByRole('button', { name: 'Reject' })).toBeEnabled();
+    await expect(rejectClosePanel.getByRole('button', { name: 'Close' })).toBeEnabled();
     await expect(dialog.getByRole('button', { name: 'Execute Safe', exact: true })).toBeDisabled();
+    const reasonBlock = dialog.locator('.admin-lifecycle-text-block', { hasText: 'Reason' }).first();
+    await expect(reasonBlock).toBeVisible();
+    await expect(reasonBlock).toContainText('readable block');
+    await expect.poll(async () => {
+      const box = await reasonBlock.boundingBox();
+      return Math.round(box?.width || 0);
+    }).toBeGreaterThan(260);
 
     await dialog.getByRole('button', { name: 'Generate Plan' }).click();
     await expect.poll(() => captures.lifecyclePlanRequests.length).toBe(1);
@@ -10539,6 +10621,21 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => captures.lifecycleExecuteSafeRequests.length).toBe(2);
     expect(captures.lifecycleExecuteSafeRequests[1].body).toMatchObject({ dryRun: false, confirm: true });
     expect(captures.lifecycleExecuteSafeRequests[1].idempotencyKey).toMatch(/^data-lifecycle-execute-safe-/);
+    await expect(dialog.getByRole('button', { name: 'Mark Completed' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Mark Completed' }).click();
+    await expect(dialog.locator('.admin-state')).toContainText('Completion acknowledgement is required.');
+    await dialog.getByLabel(/final evidence marker/i).check();
+    await dialog.getByPlaceholder('Completion note / evidence review summary').fill('Evidence reviewed; retained categories remain under policy.');
+    await dialog.getByRole('button', { name: 'Mark Completed' }).click();
+    await expect.poll(() => captures.lifecycleCompleteRequests.length).toBe(1);
+    expect(captures.lifecycleCompleteRequests[0].body).toMatchObject({
+      confirm: true,
+      completionNote: 'Evidence reviewed; retained categories remain under policy.',
+    });
+    expect(captures.lifecycleCompleteRequests[0].idempotencyKey).toMatch(/^data-lifecycle-complete-/);
+    await expect(dialog).toContainText('completed with retention');
+    await expect(dialog.locator('.admin-lifecycle-detail__panel', { hasText: 'Reject / Close' }).getByRole('button', { name: 'Reject' })).toBeDisabled();
+    await expect(dialog.locator('.admin-lifecycle-detail__panel', { hasText: 'Reject / Close' }).getByRole('button', { name: 'Close' })).toBeDisabled();
 
     const jsonDownload = page.waitForEvent('download', { timeout: 3000 }).catch(() => null);
     await dialog.getByRole('button', { name: 'Export Evidence JSON' }).click();
@@ -10553,7 +10650,7 @@ test.describe('Admin Control Plane', () => {
     await dialog.getByRole('button', { name: 'Open PDF-friendly HTML' }).click();
     await expect.poll(() => captures.lifecycleEvidenceRequests.some((entry) => entry.format === 'html')).toBe(true);
 
-    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await dialog.locator('.admin-lifecycle-detail__header').getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(page.locator('a[href*="/de/admin"]')).toHaveCount(0);
   });
@@ -10635,7 +10732,7 @@ test.describe('Admin Control Plane', () => {
     const readiness = page.locator('#sectionReadiness');
     await expect(readiness).toBeVisible();
     await expect(readiness).toContainText('Current Release Truth');
-    await expect(readiness).toContainText('0058_add_legacy_media_reset_actions.sql');
+    await expect(readiness).toContainText('0059_add_data_lifecycle_completion_state.sql');
     await expect(readiness).toContainText('not live deploy proof');
     await expect(readiness).toContainText('Live Evidence State');
     await expect(readiness).toContainText('live evidence pending');

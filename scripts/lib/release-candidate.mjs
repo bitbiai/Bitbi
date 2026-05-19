@@ -204,7 +204,7 @@ export function createReleaseCandidateManifest({
     },
     releasePlan: summarizeReleasePlan(plan),
     latestMigrationCheckpoint: {
-      auth: dossier.latestMigrationCheckpoint?.auth || cutover.releaseTruth?.latestAuthMigration || "0058_add_legacy_media_reset_actions.sql",
+      auth: dossier.latestMigrationCheckpoint?.auth || cutover.releaseTruth?.latestAuthMigration || "0059_add_data_lifecycle_completion_state.sql",
       databaseName: dossier.latestMigrationCheckpoint?.databaseName || cutover.releaseTruth?.authDatabaseName || "bitbi-auth-db",
       remoteVerificationRequired: true,
     },

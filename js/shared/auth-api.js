@@ -789,6 +789,37 @@ export function apiAdminDataLifecycleExecuteSafe(requestId, { dryRun = true, ide
     });
 }
 
+export function apiAdminDataLifecycleComplete(requestId, { completionNote, finalStatus, idempotencyKey } = {}) {
+    const body = {
+        confirm: true,
+        completionNote: completionNote || 'Admin marked data lifecycle request complete after evidence review.',
+    };
+    if (finalStatus) body.finalStatus = finalStatus;
+    return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/complete`, body, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('data-lifecycle-complete') },
+    });
+}
+
+export function apiAdminDataLifecycleReject(requestId, { reason, idempotencyKey } = {}) {
+    return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/reject`, {
+        confirm: true,
+        reason: reason || 'Admin rejected data lifecycle request from detail overlay.',
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('data-lifecycle-reject') },
+    });
+}
+
+export function apiAdminDataLifecycleClose(requestId, { reason, finalStatus, idempotencyKey } = {}) {
+    const body = {
+        confirm: true,
+        reason: reason || 'Admin closed data lifecycle request from detail overlay.',
+    };
+    if (finalStatus) body.finalStatus = finalStatus;
+    return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/close`, body, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('data-lifecycle-close') },
+    });
+}
+
 export function apiAdminDataLifecycleGenerateExport(requestId, { idempotencyKey } = {}) {
     return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/generate-export`, {
         confirm: true,

@@ -187,7 +187,7 @@ function createCurrentContractFetch() {
           ok: true,
           version: "omega-p1-readiness-dashboard-v2",
           releaseTruth: {
-            latestAuthMigration: "0058_add_legacy_media_reset_actions.sql",
+            latestAuthMigration: "0059_add_data_lifecycle_completion_state.sql",
             repoTruthIsLiveDeployProof: false,
             deployVerificationRequired: true,
           },

@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current engineering data inventory for audit restart. This is not legal advice or production-readiness approval.
 
@@ -40,8 +40,8 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - `ai_asset_manual_review_items` and `ai_asset_manual_review_events` store manual-review state and events.
 - `tenant_asset_media_reset_actions` and `tenant_asset_media_reset_action_events` store reset action/evidence tracking.
 - `ai_text_assets`, video jobs, music/audio assets, profile avatars, lifecycle exports, audit archives, and unknown media tables remain outside first-pass reset execution. Confirmed first-pass reset is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is explicitly enabled in a future approved phase; no sanitized reset dry-run evidence package is currently accepted.
-- Data lifecycle request, approval, export archive, cleanup, and safe-execution rows are admin-controlled evidence surfaces. High-risk lifecycle mutations require idempotency, explicit confirmation where needed, audit logging, and redacted private storage references.
-- Admin Data Lifecycle now includes a request detail overlay and evidence packet surface. Request detail, Generate Plan, Approve, Execute Safe, private export archive metadata, and JSON/Markdown/HTML evidence exports are Admin/MFA-gated and bounded; unsupported reject/close or manual-completion states remain disabled unless a future schema/status model supports them.
+- Data lifecycle request, approval, export archive, cleanup, safe-execution, final-completion, close/reject, retained-category, and evidence-status rows are admin-controlled evidence surfaces. High-risk lifecycle mutations require idempotency, explicit confirmation where needed, audit logging, and redacted private storage references.
+- Admin Data Lifecycle now includes a request detail overlay and evidence packet surface. Request detail, Generate Plan, Approve, Execute Safe, Mark Completed, Reject, Close, private export archive metadata, and JSON/Markdown/HTML evidence exports are Admin/MFA-gated and bounded. Final states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review` without claiming production readiness or unchecked legal erasure.
 
 ## Current Evidence State
 

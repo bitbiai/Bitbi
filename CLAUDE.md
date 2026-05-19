@@ -12,7 +12,7 @@ Root guidance for Claude/Codex work in `bitbi.ai`.
   - `workers/contact` for the contact endpoint.
 - Cloud resources in use include D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images, and service bindings.
 - The release contract is `config/release-compat.json`. Treat it as the deploy/schema source of truth.
-- Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+- Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 - Fresh audit work starts from `docs/audits/NEXT_AUDIT_BASELINE.md`, not retired root audit reports or historical phase files.
 
 ## Blocked Claims

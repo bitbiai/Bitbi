@@ -16788,7 +16788,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0058_add_legacy_media_reset_actions.sql',
+        latestAuthMigration: '0059_add_data_lifecycle_completion_state.sql',
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });
@@ -40313,6 +40313,26 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.sessions.some((row) => row.user_id === member.id)).toBe(true);
     expect(env.DB.state.emailVerificationTokens.find((row) => row.id === 'verify-token').used_at).toBe(null);
 
+    const prematureCompleteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/complete`, 'POST', {
+        confirm: true,
+        completionNote: 'Trying to complete before safe execution should fail.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-complete-premature-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(prematureCompleteRes.status).toBe(409);
+    const prematureCompleteBody = await prematureCompleteRes.json();
+    expect(prematureCompleteBody).toMatchObject({
+      ok: false,
+      code: 'completion_prerequisites_missing',
+    });
+    expect(prematureCompleteBody.details.blockedReasons).toContain('safe_execution_required');
+
     const executeRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
         dryRun: false,
@@ -40344,6 +40364,115 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_existing_delete_subject').status).toBe('expired');
     expect(env.DB.state.aiImages.some((row) => row.id === 'delete-img')).toBe(true);
 
+    const missingCompletionConfirmRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/complete`, 'POST', {
+        completionNote: 'reviewed evidence',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-complete-missing-confirm-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingCompletionConfirmRes.status).toBe(409);
+    await expect(missingCompletionConfirmRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'completion_confirmation_required',
+    });
+
+    const completeRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/complete`, 'POST', {
+        confirm: true,
+        completionNote: 'Safe execution evidence reviewed; policy-retained categories remain.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-complete-delete-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(completeRes.status).toBe(200);
+    const completeBody = await completeRes.json();
+    expect(completeBody.request).toMatchObject({
+      status: 'completed_with_retention',
+      finalStatus: 'completed_with_retention',
+      evidenceStatus: 'complete_with_retention_evidence_recorded',
+      completedByUserId: admin.id,
+    });
+    expect(completeBody.completion).toMatchObject({
+      finalStatus: 'completed_with_retention',
+      evidenceComplete: true,
+      destructivePurgePerformed: false,
+    });
+    expect(completeBody.completion.retainedCategories).toEqual(expect.arrayContaining([
+      'admin_audit_user_activity_security',
+      'billing_credit_ledger',
+      'provider_webhook_evidence',
+      'legal_compliance_retention',
+    ]));
+    expect(completeBody.completion.categoryMatrix).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'auth_session_token_profile' }),
+      expect.objectContaining({ id: 'admin_audit_user_activity_security', result: 'retained' }),
+    ]));
+    const completeSerialized = JSON.stringify(completeBody);
+    expect(completeSerialized).not.toContain('users/lifecycle-delete-member/folders/unsorted/delete-img.png');
+    expect(completeSerialized).not.toContain('session-hash-must-not-return');
+    expect(completeSerialized).not.toContain('request_hash');
+
+    const repeatCompleteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/complete`, 'POST', {
+        confirm: true,
+        completionNote: 'Repeated completion should reuse final state.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-complete-delete-repeat-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeatCompleteRes.status).toBe(200);
+    expect((await repeatCompleteRes.json()).reused).toBe(true);
+
+    const completedEvidenceRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/evidence?format=json`, 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(completedEvidenceRes.status).toBe(200);
+    const completedEvidence = await completedEvidenceRes.json();
+    expect(completedEvidence.evidence.request.finalStatus).toBe('completed_with_retention');
+    expect(completedEvidence.evidence.completionEvidence.categoryMatrix).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'admin_audit_user_activity_security', result: 'retained' }),
+    ]));
+    expect(completedEvidence.evidence.legalCaveat).toContain('not legal advice');
+
+    const completedMarkdownRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/evidence?format=markdown`, 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(completedMarkdownRes.status).toBe(200);
+    const completedMarkdown = await completedMarkdownRes.text();
+    expect(completedMarkdown).toContain('Final status: completed_with_retention');
+    expect(completedMarkdown).toContain('Category Matrix');
+
+    const completedHtmlRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/evidence?format=html`, 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(completedHtmlRes.status).toBe(200);
+    expect(await completedHtmlRes.text()).toContain('Category Matrix');
+
     const repeatExecuteRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
         dryRun: false,
@@ -40356,8 +40485,7 @@ test.describe('Worker routes', () => {
       env,
       createExecutionContext().execCtx
     );
-    expect(repeatExecuteRes.status).toBe(200);
-    expect((await repeatExecuteRes.json()).reused).toBe(true);
+    expect(repeatExecuteRes.status).toBe(409);
 
     const onlyAdminEnv = createAuthTestEnv({ users: [createAdminUser('only-lifecycle-admin')] });
     const onlyAdminToken = await seedSession(onlyAdminEnv, 'only-lifecycle-admin');
@@ -40545,6 +40673,113 @@ test.describe('Worker routes', () => {
     expect(htmlBody).toContain('Save as PDF');
     expect(htmlBody).toContain('not legal advice');
     expect(htmlBody).not.toContain('users/lifecycle-evidence-subject');
+  });
+
+  test('admin data lifecycle final close and reject actions are guarded, reasoned, and non-executing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-close-admin');
+    const subject = createContractUser({ id: 'lifecycle-close-subject', role: 'user', email: 'close@example.com' });
+    const env = createAuthTestEnv({ users: [admin, subject] });
+    const adminToken = await seedSession(env, admin.id);
+
+    const createRejectRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'delete',
+        subjectUserId: subject.id,
+        reason: 'Reject action test',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-reject-create-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createRejectRes.status).toBe(201);
+    const rejectRequest = (await createRejectRes.json()).request;
+
+    const missingReasonRejectRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${rejectRequest.id}/reject`, 'POST', {
+        confirm: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-reject-missing-reason-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingReasonRejectRes.status).toBe(400);
+    expect((await missingReasonRejectRes.json()).code).toBe('rejection_reason_required');
+
+    const rejectRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${rejectRequest.id}/reject`, 'POST', {
+        confirm: true,
+        reason: 'Insufficient evidence for lifecycle request.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-reject-ok-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(rejectRes.status).toBe(200);
+    const rejectBody = await rejectRes.json();
+    expect(rejectBody).toMatchObject({
+      ok: true,
+      request: {
+        status: 'rejected',
+        finalStatus: 'rejected',
+        evidenceStatus: 'rejected_no_execution',
+      },
+      executesDataDeletion: false,
+    });
+    expect(env.DB.state.users.some((row) => row.id === subject.id)).toBe(true);
+
+    const createCloseRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'delete',
+        subjectUserId: subject.id,
+        reason: 'Close action test',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-close-create-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createCloseRes.status).toBe(201);
+    const closeRequest = (await createCloseRes.json()).request;
+
+    const closeRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${closeRequest.id}/close`, 'POST', {
+        confirm: true,
+        reason: 'Requires legal review before any final execution.',
+        finalStatus: 'blocked_requires_legal_review',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-close-legal-review-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(closeRes.status).toBe(200);
+    const closeBody = await closeRes.json();
+    expect(closeBody).toMatchObject({
+      ok: true,
+      request: {
+        status: 'blocked_requires_legal_review',
+        finalStatus: 'blocked_requires_legal_review',
+        evidenceStatus: 'blocked_requires_legal_review',
+      },
+      executesDataDeletion: false,
+    });
+    const serialized = JSON.stringify(closeBody);
+    expect(serialized).not.toContain('request_hash');
+    expect(env.DB.state.users.some((row) => row.id === subject.id)).toBe(true);
   });
 
   test('admin data lifecycle APIs enforce admin, CSRF, idempotency, and fail-closed limiter behavior', async () => {

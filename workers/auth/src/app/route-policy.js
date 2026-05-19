@@ -532,6 +532,21 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "data_lifecycle_safe_actions_executed" },
     notes: "High-risk admin lifecycle safe executor. Requires Idempotency-Key; dryRun=false additionally requires confirm=true. Execution requires approved plan state, blocks destructive modes, emits audit logging, and does not expose raw private R2 keys.",
   }),
+  adminJsonWrite("admin.data-lifecycle.requests.complete", "POST", "/api/admin/data-lifecycle/requests/:id/complete", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "data_lifecycle_request_completed" },
+    notes: "High-risk admin lifecycle final completion marker. Requires Idempotency-Key, confirm=true, completion note, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging. It records final evidence/retention truth only and does not execute deletion or purge retained legal/billing/audit/provider records.",
+  }),
+  adminJsonWrite("admin.data-lifecycle.requests.reject", "POST", "/api/admin/data-lifecycle/requests/:id/reject", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "data_lifecycle_request_rejected" },
+    notes: "High-risk admin lifecycle rejection marker. Requires Idempotency-Key, confirm=true, reason, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; status-only update with no data deletion.",
+  }),
+  adminJsonWrite("admin.data-lifecycle.requests.close", "POST", "/api/admin/data-lifecycle/requests/:id/close", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "data_lifecycle_request_closed" },
+    notes: "High-risk admin lifecycle close/legal-review-block marker. Requires Idempotency-Key, confirm=true, reason, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; status-only update with no data deletion.",
+  }),
   adminRead("admin.data-lifecycle.requests.export.read", "/api/admin/data-lifecycle/requests/:id/export", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
     rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },

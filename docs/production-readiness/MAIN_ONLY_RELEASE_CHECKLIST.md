@@ -59,7 +59,7 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | AI Worker | if `release:plan` reports AI Worker changes or Auth/AI caller-policy pairing |  |
 | Contact Worker | if `release:plan` reports Contact Worker changes |  |
 | Static/pages | if `release:plan` reports static/Admin UI changes |  |
-| Auth schema checkpoint `0058_add_legacy_media_reset_actions.sql` | required before dependent Auth Worker code |  |
+| Auth schema checkpoint `0059_add_data_lifecycle_completion_state.sql` | required before dependent Auth Worker code |  |
 | Stripe dashboard/API change | no, unless separately approved operator canary evidence exists |  |
 | Cloudflare dashboard/settings/secrets change | no, unless separately approved and recorded |  |
 
@@ -77,21 +77,21 @@ If `npm run release:plan` for the reviewed runtime diff reports unexpected deplo
 | Live-read-only plan reviewed as opt-in and GET-only by default |  | BLOCKED |
 | No deploy/migration/Cloudflare mutation/rollback execution command was run by these tools |  | BLOCKED |
 
-## 5. Required Production D1 Migration Evidence Through 0058
+## 5. Required Production D1 Migration Evidence Through 0059
 
 Required latest auth migration:
 
 ```text
-0058_add_legacy_media_reset_actions.sql
+0059_add_data_lifecycle_completion_state.sql
 ```
 
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Production auth D1 migration status checked by operator |  | BLOCKED |
-| `0058_add_legacy_media_reset_actions.sql` present/applied |  | BLOCKED |
+| `0059_add_data_lifecycle_completion_state.sql` present/applied |  | BLOCKED |
 | Evidence records migration names/status only |  | BLOCKED |
 | No remote migration was run by Codex or automation from this checklist |  | BLOCKED |
-| Migration `0058` verified before auth Worker deploy |  | BLOCKED |
+| Migration `0059` verified before auth Worker deploy |  | BLOCKED |
 
 ## 6. Auth Worker Deploy Verification
 
@@ -103,7 +103,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | Auth Worker deployment id/version recorded if available |  | BLOCKED |
 | Member AI usage routes see required usage-attempt tables before Worker deploy |  | BLOCKED |
 | Admin AI/budget routes see required budget metadata/switch/cap tables before Worker deploy |  | BLOCKED |
-| Tenant asset/manual-review/reset routes see migrations `0056`, `0057`, and `0058` before Worker deploy |  | BLOCKED |
+| Tenant asset/manual-review/reset/data-lifecycle routes see migrations `0056`, `0057`, `0058`, and `0059` before Worker deploy |  | BLOCKED |
 | `/api/admin/billing/reviews` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id/resolution` write route remains admin/MFA/same-origin/idempotency guarded |  | BLOCKED |
@@ -301,7 +301,7 @@ These commands do not deploy, run remote migrations, call Stripe/providers, muta
 | Live billing flags remain disabled |  | BLOCKED |
 | Billing provider/review/ledger/subscription records will not be deleted |  | BLOCKED |
 | Member AI attempt rows will not be deleted |  | BLOCKED |
-| Migrations through `0058` remain additive/forward-only |  | BLOCKED |
+| Migrations through `0059` remain additive/forward-only |  | BLOCKED |
 | Rollback owner and communication channel recorded |  | BLOCKED |
 
 ## 20. Final Operator Verdict

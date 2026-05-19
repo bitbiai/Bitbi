@@ -33,6 +33,8 @@ import {
     apiAdminResolveBillingReview,
     apiAdminDataLifecycleArchives,
     apiAdminDataLifecycleApprove,
+    apiAdminDataLifecycleClose,
+    apiAdminDataLifecycleComplete,
     apiAdminDataLifecycleExecuteSafe,
     apiAdminDataLifecycleGenerateExport,
     apiAdminDataLifecycleGeneratePlan,
@@ -40,6 +42,7 @@ import {
     apiAdminDataLifecycleRequestEvidence,
     apiAdminDataLifecycleRequestExport,
     apiAdminDataLifecycleRequests,
+    apiAdminDataLifecycleReject,
     apiAdminGrantOrganizationCredits,
     apiAdminGrantUserCredits,
     apiAdminLegacyMediaResetDryRunExport,
@@ -141,7 +144,7 @@ const TENANT_REVIEW_STATUS_TRANSITIONS = {
     superseded: [],
 };
 
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0058_add_legacy_media_reset_actions.sql';
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0059_add_data_lifecycle_completion_state.sql';
 
 const READINESS_FALLBACK_STATUS = Object.freeze({
     releaseTruth: {
@@ -2601,6 +2604,74 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         };
     }
 
+    function lifecycleFinalStatus(request) {
+        const finalStatuses = new Set(['completed', 'completed_with_retention', 'rejected', 'closed', 'blocked_requires_legal_review']);
+        if (request?.finalStatus) return request.finalStatus;
+        return finalStatuses.has(request?.status) ? request.status : '';
+    }
+
+    function lifecycleCategoryMatrix(request, detail) {
+        const summaryMatrix = request?.completionSummary?.categoryMatrix;
+        if (Array.isArray(summaryMatrix) && summaryMatrix.length) return summaryMatrix;
+        const items = lifecycleItems(detail);
+        const labels = {
+            auth_session_token_profile: 'Auth/session/token/profile',
+            operational_user_account: 'Operational account',
+            ai_asset_metadata_folders: 'AI assets/folders',
+            avatar_reference_media: 'Avatar/reference media',
+            billing_credit_ledger: 'Billing/credit ledger',
+            provider_webhook_evidence: 'Provider/webhook evidence',
+            admin_audit_user_activity_security: 'Audit/activity/security',
+            legal_compliance_retention: 'Legal/compliance retention',
+            lifecycle_evidence_records: 'Lifecycle/evidence records',
+        };
+        const policyRetained = new Set([
+            'billing_credit_ledger',
+            'provider_webhook_evidence',
+            'admin_audit_user_activity_security',
+            'legal_compliance_retention',
+            'lifecycle_evidence_records',
+        ]);
+        const categoryFor = (item) => {
+            const tableName = item.tableName || '';
+            const resourceType = item.resourceType || '';
+            if (['sessions', 'password_reset_tokens', 'email_verification_tokens', 'siwe_challenges', 'admin_mfa_credentials', 'profiles', 'linked_wallets', 'favorites', 'ai_daily_quota_usage'].includes(tableName)) return 'auth_session_token_profile';
+            if (tableName === 'users' || resourceType === 'user') return 'operational_user_account';
+            if (['ai_folders', 'ai_images', 'ai_text_assets', 'ai_video_jobs'].includes(tableName)) return 'ai_asset_metadata_folders';
+            if (resourceType === 'r2_object') return 'avatar_reference_media';
+            if (['member_credit_ledger', 'member_subscriptions', 'member_subscription_credit_buckets', 'stripe_credit_pack_checkout_sessions'].includes(tableName)) return 'billing_credit_ledger';
+            if (['billing_provider_events', 'billing_reviews'].includes(tableName)) return 'provider_webhook_evidence';
+            if (['admin_audit_log', 'user_activity_log', 'activity_events'].includes(tableName) || resourceType === 'admin_audit_log') return 'admin_audit_user_activity_security';
+            if (['data_lifecycle_requests', 'data_lifecycle_request_items', 'data_export_archives'].includes(tableName) || resourceType === 'data_export_archive') return 'lifecycle_evidence_records';
+            return 'legal_compliance_retention';
+        };
+        const rank = { blocked: 6, retained: 5, pending: 4, anonymized: 3, deleted: 2, not_applicable: 0 };
+        const resultFor = (item) => {
+            const action = String(item.action || '').toLowerCase();
+            const status = String(item.status || '').toLowerCase();
+            if (status === 'blocked' || action === 'manual_review_required') return 'blocked';
+            if (['retain', 'retain_or_anonymize', 'retain_or_rekey', 'export_reference', 'export'].includes(action)) return 'retained';
+            if (status === 'completed') return ['anonymize', 'retain_or_anonymize', 'retain_or_rekey'].includes(action) ? 'anonymized' : 'deleted';
+            if (['delete', 'delete_planned', 'revoke', 'expire_or_delete', 'expire'].includes(action)) return 'pending';
+            return 'not_applicable';
+        };
+        const matrix = Object.entries(labels).map(([id, label]) => ({
+            id,
+            label,
+            result: policyRetained.has(id) ? 'retained' : 'not_applicable',
+            itemCount: 0,
+            retainedByPolicy: policyRetained.has(id),
+        }));
+        const byId = new Map(matrix.map((entry) => [entry.id, entry]));
+        for (const item of items) {
+            const entry = byId.get(categoryFor(item));
+            const next = resultFor(item);
+            entry.itemCount += 1;
+            entry.result = (rank[next] || 0) > (rank[entry.result] || 0) ? next : entry.result;
+        }
+        return matrix;
+    }
+
     function lifecycleActionState(request, detail) {
         const status = request?.status || '';
         const summary = lifecyclePlanSummary(detail);
@@ -2609,21 +2680,26 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const approved = status === 'approved';
         const safeCompleted = status === 'safe_actions_completed';
         const exportRequest = request?.type === 'export';
+        const finalStatus = lifecycleFinalStatus(request);
+        const isFinal = Boolean(finalStatus);
+        const canComplete = !isFinal && hasPlan && summary.blockedCount === 0 && (safeCompleted || (exportRequest && status === 'export_ready'));
         return {
-            canPlan: ['submitted', 'planned', 'blocked'].includes(status),
-            canApprove: planned && hasPlan && summary.blockedCount === 0,
+            isFinal,
+            finalStatus,
+            canPlan: !isFinal && ['submitted', 'planned', 'blocked'].includes(status),
+            canApprove: !isFinal && planned && hasPlan && summary.blockedCount === 0,
             approveDisabledReason: planned
                 ? (hasPlan ? (summary.blockedCount ? 'Blocked plan items require manual review before approval.' : '') : 'Generate a plan before approval.')
                 : 'Request must be planned before approval.',
-            canExecuteDryRun: approved || safeCompleted,
-            canExecuteSafe: approved,
+            canExecuteDryRun: !isFinal && (approved || safeCompleted),
+            canExecuteSafe: !isFinal && approved,
             executeDisabledReason: approved || safeCompleted ? '' : 'Request must be approved before safe execution.',
-            canGeneratePrivateArchive: exportRequest && approved,
+            canGeneratePrivateArchive: !isFinal && exportRequest && approved,
             archiveDisabledReason: exportRequest ? 'Export request must be approved before archive generation.' : 'Private archives are only available for export requests.',
-            canMarkCompleted: false,
-            markCompletedReason: 'Manual completion/evidence status is not represented by the current lifecycle schema.',
-            canRejectClose: false,
-            rejectCloseReason: 'Rejected/closed lifecycle statuses are not represented by the current lifecycle schema.',
+            canMarkCompleted: canComplete,
+            markCompletedReason: canComplete ? '' : (isFinal ? 'Request already has a final lifecycle status.' : 'Completion requires plan evidence, approval, safe execution or export archive evidence, and no blocked plan items.'),
+            canRejectClose: !isFinal,
+            rejectCloseReason: isFinal ? 'Request already has a final lifecycle status.' : '',
         };
     }
 
@@ -2641,6 +2717,45 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         return panel;
     }
 
+    function lifecycleFieldGrid(entries = []) {
+        const grid = el('div', 'admin-lifecycle-field-grid');
+        for (const entry of entries) {
+            const [label, value, options = {}] = entry;
+            const row = el('div', options.block ? 'admin-lifecycle-field admin-lifecycle-field--block' : 'admin-lifecycle-field');
+            row.appendChild(el('span', 'admin-lifecycle-field__label', label));
+            const valueNode = el('div', 'admin-lifecycle-field__value');
+            if (value instanceof Node) {
+                valueNode.appendChild(value);
+            } else {
+                valueNode.textContent = value == null || value === '' ? '-' : String(value);
+            }
+            row.appendChild(valueNode);
+            grid.appendChild(row);
+        }
+        return grid;
+    }
+
+    function lifecycleTextBlock(label, value) {
+        const block = el('div', 'admin-lifecycle-text-block');
+        block.appendChild(el('span', 'admin-lifecycle-text-block__label', label));
+        block.appendChild(el('p', 'admin-lifecycle-text-block__value', value || 'Not recorded.'));
+        return block;
+    }
+
+    function renderLifecycleCategoryMatrix(panel, request, detail) {
+        const matrix = lifecycleCategoryMatrix(request, detail);
+        const grid = el('div', 'admin-lifecycle-category-grid');
+        for (const entry of matrix) {
+            const card = el('div', 'admin-lifecycle-category');
+            card.appendChild(badge(readableToken(entry.result || 'not_applicable'), variantFor(entry.result)));
+            card.appendChild(el('strong', null, entry.label || readableToken(entry.id)));
+            card.appendChild(el('span', null, `${entry.itemCount ?? 0} item${Number(entry.itemCount || 0) === 1 ? '' : 's'}`));
+            if (entry.retainedByPolicy) card.appendChild(el('span', 'admin-shell__desc', 'Policy-retained'));
+            grid.appendChild(card);
+        }
+        panel.appendChild(grid);
+    }
+
     function addActionButton(rowNode, label, { disabled, reason, onClick, secondary = false } = {}) {
         const button = el('button', secondary ? 'btn-action btn-action--secondary' : 'btn-action', label);
         button.type = 'button';
@@ -2655,7 +2770,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     function renderLifecyclePlan(panel, detail) {
         const items = lifecycleItems(detail);
         const summary = lifecyclePlanSummary(detail);
-        panel.appendChild(detailRows([
+        panel.appendChild(lifecycleFieldGrid([
             ['Plan items', summary.count],
             ['Blocked items', summary.blockedCount],
             ['Safe executable actions', summary.safeActionCount],
@@ -2781,51 +2896,61 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const request = detail?.request || {};
         const actions = lifecycleActionState(request, detail);
         const stateNode = el('p', 'admin-state', 'Ready. Actions remain guarded by backend confirmation, idempotency, approval, and safe execution policy.');
+        const finalStatus = actions.finalStatus || 'not_completed';
+        const userItem = lifecycleItems(detail).find((item) => item.resourceType === 'user');
 
-        const header = el('div', 'admin-lifecycle-detail__summary');
-        header.appendChild(detailRows([
-            ['Request ID', request.id || requestId],
-            ['Type', request.type || '-'],
-            ['Status', badge(request.status || '-', variantFor(request.status))],
-            ['Dry-run', request.dryRun ? 'Yes' : 'No'],
-            ['Subject user', shortId(request.subjectUserId)],
-            ['Created', formatDate(request.createdAt)],
-            ['Expires', formatDate(request.expiresAt)],
-            ['Approval required', request.approvalRequired ? 'Yes' : 'No'],
-        ]));
+        const header = el('section', 'admin-lifecycle-detail__hero');
+        const headerText = el('div', 'admin-lifecycle-detail__hero-main');
+        headerText.appendChild(el('h4', 'admin-lifecycle-detail__eyebrow', 'Lifecycle control packet'));
         const badges = el('div', 'admin-control-chip-row');
         badges.append(
-            badge('approval required', request.approvalRequired ? 'legacy' : 'user'),
+            badge(request.type || 'request', 'user'),
+            badge(request.status || 'unknown', variantFor(request.status)),
+            badge(request.dryRun ? 'dry-run' : 'execution-capable', request.dryRun ? 'legacy' : 'user'),
+            badge(`final: ${readableToken(finalStatus)}`, actions.isFinal ? 'active' : 'disabled'),
             badge('evidence required', 'legacy'),
-            badge(request.dryRun ? 'dry-run planning' : 'execution state', request.dryRun ? 'user' : 'legacy'),
-            badge('no legal completion claim', 'disabled'),
+            actions.isFinal ? badge('legal outcome recorded', 'active') : badge('no legal completion claim', 'disabled'),
         );
-        header.appendChild(badges);
+        headerText.append(
+            badges,
+            lifecycleFieldGrid([
+                ['Request ID', request.id || requestId],
+                ['Subject user', shortId(request.subjectUserId)],
+                ['Created', formatDate(request.createdAt)],
+                ['Updated', formatDate(request.updatedAt)],
+                ['Expires', formatDate(request.expiresAt)],
+                ['Approval required', request.approvalRequired ? 'Yes' : 'No'],
+            ]),
+        );
+        header.appendChild(headerText);
         bodyNode.append(header, stateNode);
 
-        const grid = el('div', 'admin-lifecycle-detail__grid');
+        const grid = el('div', 'admin-lifecycle-layout');
 
-        const subjectPanel = lifecyclePanel('Subject / Target Snapshot', 'Only safe request metadata and redacted plan summaries are shown.');
-        const userItem = lifecycleItems(detail).find((item) => item.resourceType === 'user');
-        subjectPanel.appendChild(detailRows([
+        const subjectPanel = lifecyclePanel('Subject Snapshot', 'Only safe request metadata and redacted plan summaries are shown.');
+        subjectPanel.appendChild(lifecycleFieldGrid([
             ['User ID', request.subjectUserId || '-'],
             ['Email snapshot', userItem?.summary?.email || 'Not available until plan captures a safe user item.'],
             ['Role/status snapshot', [userItem?.summary?.role, userItem?.summary?.status].filter(Boolean).join(' / ') || 'Not available'],
             ['Request source', request.reason?.includes('admin_delete_user_modal') ? 'Admin delete user modal' : 'Lifecycle request'],
             ['Admin actor', request.requestedByAdminId ? shortId(request.requestedByAdminId) : 'Not reported'],
-            ['Reason', request.reason || 'Not recorded'],
-            ['Privacy caveat', 'Billing, audit, provider, and legal records may be retained or anonymized according to policy.'],
         ]));
+        subjectPanel.appendChild(lifecycleTextBlock('Reason', request.reason || 'Not recorded'));
+        subjectPanel.appendChild(lifecycleTextBlock('Privacy caveat', 'Billing, audit, provider, security, and legal records may be retained or anonymized according to policy. Final legal completion is only claimed when the final status and evidence support it.'));
         grid.appendChild(subjectPanel);
 
         const statePanel = lifecyclePanel('Current Lifecycle State', 'This panel reflects request state; it does not claim legal completion.');
-        statePanel.appendChild(detailRows([
+        statePanel.appendChild(lifecycleFieldGrid([
             ['Submitted/planned/approved state', request.status || '-'],
+            ['Final status', readableToken(finalStatus)],
             ['Approved', request.approvedAt ? `Yes (${formatDate(request.approvedAt)})` : 'No'],
+            ['Approved by', request.approvedByAdminId ? shortId(request.approvedByAdminId) : 'Not reported'],
             ['Execution state', request.status === 'safe_actions_completed' ? 'Safe actions completed' : 'Not completed'],
-            ['Evidence state', request.status === 'safe_actions_completed' ? 'Evidence available; legal completion still requires review.' : 'Evidence pending / partial.'],
-            ['Retention caveat', 'Do not delete billing ledger, Stripe/provider evidence, audit logs, or legal records from this overlay.'],
+            ['Evidence state', request.evidenceStatus || (request.status === 'safe_actions_completed' ? 'Safe action evidence available; completion still requires review.' : 'Evidence pending / partial.')],
+            ['Completed', formatDate(request.completedAt)],
+            ['Completed by', request.completedByUserId ? shortId(request.completedByUserId) : 'Not reported'],
         ]));
+        statePanel.appendChild(lifecycleTextBlock('Retention caveat', 'Do not delete billing ledger, Stripe/provider evidence, audit logs, security records, or legal/compliance records from this overlay. These categories are retained or anonymized only through approved policy workflow.'));
         grid.appendChild(statePanel);
 
         const planPanel = lifecyclePanel('Plan', 'Generate or inspect the redacted lifecycle plan. Raw private keys and secrets are not rendered.');
@@ -2845,7 +2970,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             }),
         });
         planPanel.appendChild(planActions);
-        grid.appendChild(planPanel);
+        planPanel.classList.add('admin-lifecycle-detail__panel--wide');
 
         const approvePanel = lifecyclePanel('Approval', 'Approval moves a planned request into approved state. It is not legal completion and does not execute erasure.');
         const approveCheckId = `lifecycle-approve-${requestId}`;
@@ -2884,7 +3009,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         grid.appendChild(approvePanel);
 
         const executePanel = lifecyclePanel('Execute Safe', 'Safe execution is backend-gated. Destructive modes are blocked; dry-run is available after approval.');
-        executePanel.appendChild(detailRows([
+        executePanel.appendChild(lifecycleFieldGrid([
             ['Dry-run default', 'Yes'],
             ['Non-dry-run requirements', 'Approved plan, Idempotency-Key, confirm=true, and backend safe-action policy.'],
             ['Retained records', 'Billing, audit, legal, and provider evidence are retained/anonymized under policy.'],
@@ -2931,32 +3056,122 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         executePanel.append(executeLabel, executeActions);
         grid.appendChild(executePanel);
 
-        const completionPanel = lifecyclePanel('Completion / Evidence', 'Manual completion is intentionally not faked by this UI.');
-        completionPanel.appendChild(detailRows([
-            ['Mark Completed / Evidence', actions.markCompletedReason],
-            ['Current evidence', request.status === 'safe_actions_completed' ? 'Safe action evidence available for export.' : 'Pending or partial.'],
+        const completionPanel = lifecyclePanel('Completion / Legal Outcome', 'Final completion records evidence truth. It does not execute deletion and does not overclaim full legal/GDPR completion when policy-retained categories remain.');
+        completionPanel.appendChild(lifecycleFieldGrid([
+            ['Current final status', readableToken(finalStatus)],
+            ['Evidence completeness', request.evidenceStatus || 'Pending / partial'],
+            ['Retained categories', (request.retainedCategories || request.completionSummary?.retainedCategories || []).join(', ') || 'Computed from category matrix / policy.'],
+            ['Completion action', actions.canMarkCompleted ? 'Eligible after evidence review.' : actions.markCompletedReason],
             ['Audit trail', 'Use Admin Activity plus evidence export; raw logs are not rendered here.'],
         ]));
+        const completionNote = document.createElement('textarea');
+        completionNote.className = 'admin-input';
+        completionNote.rows = 3;
+        completionNote.placeholder = 'Completion note / evidence review summary';
+        const completeCheck = document.createElement('input');
+        completeCheck.type = 'checkbox';
+        const completeLabel = el('label', 'admin-form__check');
+        completeLabel.append(completeCheck, document.createTextNode(' I confirm this is a final evidence marker, not an unchecked purge or legal advice.'));
         const completionActions = el('div', 'admin-control-chip-row');
-        addActionButton(completionActions, 'Mark Completed / Evidence', {
-            disabled: true,
+        addActionButton(completionActions, 'Mark Completed', {
+            disabled: !actions.canMarkCompleted,
             reason: actions.markCompletedReason,
+            onClick: (event) => {
+                if (!completeCheck.checked) {
+                    stateNode.textContent = 'Completion acknowledgement is required.';
+                    stateNode.dataset.state = 'error';
+                    return;
+                }
+                if (!completionNote.value.trim()) {
+                    stateNode.textContent = 'Completion note is required.';
+                    stateNode.dataset.state = 'error';
+                    return;
+                }
+                runLifecycleAction({
+                    requestId,
+                    button: event.currentTarget,
+                    bodyNode,
+                    stateNode,
+                    action: 'Mark Completed',
+                    call: () => apiAdminDataLifecycleComplete(requestId, { completionNote: completionNote.value.trim() }),
+                    successMessage: 'Lifecycle completion evidence recorded.',
+                });
+            },
         });
-        completionPanel.appendChild(completionActions);
-        grid.appendChild(completionPanel);
+        completionPanel.append(completeLabel, completionNote, completionActions);
+        completionPanel.classList.add('admin-lifecycle-detail__panel--wide');
 
-        const closePanel = lifecyclePanel('Reject / Close', 'Close/reject is shown for operator clarity but not enabled without schema support.');
-        closePanel.appendChild(detailRows([
-            ['Reject / Close', actions.rejectCloseReason],
+        const closePanel = lifecyclePanel('Reject / Close', 'Reject or close updates lifecycle state only. It does not delete data.');
+        closePanel.appendChild(lifecycleFieldGrid([
+            ['Reject / Close', actions.canRejectClose ? 'Available while the request is not final.' : actions.rejectCloseReason],
             ['Data mutation', 'No data deletion is performed by this disabled action.'],
         ]));
+        const closeReason = document.createElement('textarea');
+        closeReason.className = 'admin-input';
+        closeReason.rows = 3;
+        closeReason.placeholder = 'Reject/close reason';
+        const closeStatus = document.createElement('select');
+        closeStatus.className = 'admin-input';
+        for (const [value, label] of [
+            ['closed', 'Close without execution'],
+            ['blocked_requires_legal_review', 'Close as blocked - legal review required'],
+        ]) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            closeStatus.appendChild(option);
+        }
+        const rejectCheck = document.createElement('input');
+        rejectCheck.type = 'checkbox';
+        const rejectLabel = el('label', 'admin-form__check');
+        rejectLabel.append(rejectCheck, document.createTextNode(' I understand reject/close does not execute erasure or delete data.'));
         const closeActions = el('div', 'admin-control-chip-row');
-        addActionButton(closeActions, 'Reject / Close', {
-            disabled: true,
+        addActionButton(closeActions, 'Reject', {
+            disabled: !actions.canRejectClose,
             reason: actions.rejectCloseReason,
             secondary: true,
+            onClick: (event) => {
+                if (!rejectCheck.checked || !closeReason.value.trim()) {
+                    stateNode.textContent = 'Reject acknowledgement and reason are required.';
+                    stateNode.dataset.state = 'error';
+                    return;
+                }
+                runLifecycleAction({
+                    requestId,
+                    button: event.currentTarget,
+                    bodyNode,
+                    stateNode,
+                    action: 'Reject',
+                    call: () => apiAdminDataLifecycleReject(requestId, { reason: closeReason.value.trim() }),
+                    successMessage: 'Lifecycle request rejected without data execution.',
+                });
+            },
         });
-        closePanel.appendChild(closeActions);
+        addActionButton(closeActions, 'Close', {
+            disabled: !actions.canRejectClose,
+            reason: actions.rejectCloseReason,
+            secondary: true,
+            onClick: (event) => {
+                if (!rejectCheck.checked || !closeReason.value.trim()) {
+                    stateNode.textContent = 'Close acknowledgement and reason are required.';
+                    stateNode.dataset.state = 'error';
+                    return;
+                }
+                runLifecycleAction({
+                    requestId,
+                    button: event.currentTarget,
+                    bodyNode,
+                    stateNode,
+                    action: 'Close',
+                    call: () => apiAdminDataLifecycleClose(requestId, {
+                        reason: closeReason.value.trim(),
+                        finalStatus: closeStatus.value,
+                    }),
+                    successMessage: 'Lifecycle request closed without data execution.',
+                });
+            },
+        });
+        closePanel.append(rejectLabel, closeReason, closeStatus, closeActions);
         grid.appendChild(closePanel);
 
         const exportPanel = lifecyclePanel('Export Evidence', 'Exports are sanitized JSON, Markdown, or printable HTML. Use browser Save as PDF for PDF-friendly storage.');
@@ -3004,20 +3219,26 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
         exportPanel.appendChild(exportActions);
         exportPanel.appendChild(el('p', 'admin-shell__desc', 'Evidence packets include request state, plan summary, approval/execution state, retained categories, pending actions, generated timestamp, and redaction guarantees. They are not legal advice.'));
-        grid.appendChild(exportPanel);
+        exportPanel.classList.add('admin-lifecycle-detail__panel--wide');
+
+        const categoryPanel = lifecyclePanel('Category Matrix', 'Category-level outcomes keep legal truth visible without exposing table internals, raw keys, secrets, or payloads.');
+        renderLifecycleCategoryMatrix(categoryPanel, request, detail);
+        categoryPanel.classList.add('admin-lifecycle-detail__panel--wide');
 
         const timelinePanel = lifecyclePanel('Timeline / Audit', 'Detailed immutable audit is available in Admin Activity; this overlay shows current lifecycle timestamps only.');
-        timelinePanel.appendChild(detailRows([
+        timelinePanel.appendChild(lifecycleFieldGrid([
             ['Created', formatDate(request.createdAt)],
             ['Updated', formatDate(request.updatedAt)],
             ['Approved', formatDate(request.approvedAt)],
             ['Completed', formatDate(request.completedAt)],
+            ['Closed', formatDate(request.closedAt)],
             ['Expires', formatDate(request.expiresAt)],
-            ['Audit caveat', 'Raw request hashes, idempotency keys, cookies, auth headers, and private R2 keys are never rendered.'],
         ]));
-        grid.appendChild(timelinePanel);
+        timelinePanel.appendChild(lifecycleTextBlock('Audit caveat', 'Raw request hashes, idempotency keys, cookies, auth headers, tokens, Stripe/provider payloads, and private R2 keys are never rendered.'));
+        timelinePanel.classList.add('admin-lifecycle-detail__panel--wide');
 
         bodyNode.appendChild(grid);
+        bodyNode.append(planPanel, completionPanel, categoryPanel, exportPanel, timelinePanel);
     }
 
     function openLifecycleDetailOverlay(requestId, opener) {

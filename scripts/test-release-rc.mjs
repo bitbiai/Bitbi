@@ -35,7 +35,7 @@ assert.equal(manifest.stripeCallsMade, false);
 assert.equal(manifest.providerCallsMade, false);
 assert.equal(manifest.deployRun, false);
 assert.equal(manifest.remoteMigrationsRun, false);
-assert.equal(manifest.latestMigrationCheckpoint.auth, "0058_add_legacy_media_reset_actions.sql");
+assert.equal(manifest.latestMigrationCheckpoint.auth, "0059_add_data_lifecycle_completion_state.sql");
 assert.equal(manifest.goNoGo.productionReadiness, "blocked");
 assert.equal(manifest.goNoGo.liveBillingReadiness, "blocked");
 assert.equal(manifest.goNoGo.productionGoNoGo, "NO_GO_for_production_readiness_claim");

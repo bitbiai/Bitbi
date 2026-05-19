@@ -6,7 +6,7 @@ Operator:
 
 Commit SHA:
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 This template records current evidence only. It does not approve production readiness, live billing readiness, tenant isolation, ownership backfill, access switching, or confirmed legacy media reset by itself.
 
@@ -68,6 +68,7 @@ This template records current evidence only. It does not approve production read
 - `0056_add_ai_folder_image_ownership_metadata.sql` applied: yes/no/unknown
 - `0057_add_ai_asset_manual_review_state.sql` applied: yes/no/unknown
 - `0058_add_legacy_media_reset_actions.sql` applied: yes/no/unknown
+- `0059_add_data_lifecycle_completion_state.sql` applied: yes/no/unknown
 - Notes:
 
 ## Cloudflare Resource Verification
@@ -151,6 +152,9 @@ This template records current evidence only. It does not approve production read
 - Data lifecycle approval/export/cleanup `confirm=true` evidence:
 - Data lifecycle `execute-safe` dry-run evidence:
 - Data lifecycle `execute-safe` `dryRun:false` approval evidence, if separately authorized:
+- Data lifecycle final status (`completed`, `completed_with_retention`, `rejected`, `closed`, or `blocked_requires_legal_review`) evidence:
+- Data lifecycle category matrix / retained-category evidence reviewed:
+- Data lifecycle JSON/Markdown/HTML(PDF-friendly) evidence export path:
 - Private export/archive raw-key redaction evidence:
 - Admin delete/session-revoke explicit confirmation evidence:
 
