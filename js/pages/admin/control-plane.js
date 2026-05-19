@@ -177,6 +177,73 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         rejectedOrFailedEvidence: [],
         caveat: 'This dashboard does not collect live evidence by itself.',
     },
+    productionExecution: {
+        status: 'blocked',
+        repoSupported: true,
+        deployPending: true,
+        liveEvidencePending: true,
+        productionReadiness: 'blocked',
+        repoTruthIsLiveProof: false,
+        noBrowserDeploy: true,
+        noBrowserMigration: true,
+        noBrowserRollback: true,
+        safeStateSummary: 'Repo-supported production execution framework is available; deploy-pending and live-evidence-pending remain until operator proof is attached.',
+    },
+    cloudflareResourceModel: {
+        status: 'repo_declared_live_verification_required',
+        command: 'npm run cloudflare:resource-model',
+        markdownCommand: 'npm run cloudflare:resource-model:markdown',
+        repoDeclaredResources: [
+            'Workers: bitbi-auth, bitbi-ai, bitbi-contact',
+            'Routes: bitbi.ai/api/*, contact.bitbi.ai',
+            'D1: bitbi-auth-db',
+            'R2: PRIVATE_MEDIA, USER_IMAGES, AUDIT_ARCHIVE',
+            'Queues: ACTIVITY_INGEST_QUEUE, AI_IMAGE_DERIVATIVES_QUEUE, AI_VIDEO_JOBS_QUEUE',
+        ],
+        dashboardManagedRequirements: [
+            'WAF/rate limits',
+            'Static security Transform Rules',
+            'RUM setting',
+            'Alerts',
+            'Cloudflare secrets and optional feature flags by name only',
+        ],
+        liveVerificationRequired: true,
+        cloudflareApiCallsMade: false,
+        secretValuesExposed: false,
+    },
+    readinessDossier: {
+        status: 'local_only_available',
+        commands: ['npm run readiness:dossier', 'npm run readiness:dossier:markdown'],
+        outputFormats: ['json', 'markdown'],
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        defaultLiveCalls: false,
+    },
+    postDeployVerification: {
+        status: 'pending_operator_run',
+        command: 'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai --admin-readiness-url https://bitbi.ai',
+        getOnlyByDefault: true,
+        adminCookieRequiredForAdminPanels: true,
+        adminCookieValueRendered: false,
+        checks: [
+            'public health endpoint',
+            'static security headers',
+            'unknown API safe failure shape',
+            'admin readiness/billing/timeline/tenant checks when cookie is provided',
+        ],
+    },
+    rollbackDrill: {
+        status: 'template_available_not_executed',
+        command: 'npm run release:rollback-drill',
+        rollbackExecuted: false,
+        ownerPlaceholder: 'operator to fill',
+        requiredEvidence: [
+            'previous Worker versions/deploy IDs',
+            'previous static artifact/deploy ID',
+            'rollback owner',
+            'post-rollback smoke evidence',
+        ],
+    },
     cutoverEvidence: {
         outputDirectory: 'docs/production-readiness/evidence/',
         commands: [
@@ -208,6 +275,7 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 4 Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 9 production execution framework', status: 'implemented_repo_supported_live_evidence_pending' },
     ],
     runtimeSafetyGates: [
         { label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION', expected: 'off', enabled: false, status: 'disabled_default_off' },
@@ -224,6 +292,9 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         { label: 'Production readiness evidence', status: 'pending_operator_live_evidence' },
         { label: 'Live billing canary evidence', status: 'pending_operator_live_evidence' },
         { label: 'Billing safety local tests', status: 'implemented_repo_supported' },
+        { label: 'Cloudflare resource verification model', status: 'implemented_repo_supported_live_evidence_pending' },
+        { label: 'Production readiness execution dossier', status: 'implemented_repo_supported_local_only' },
+        { label: 'Rollback drill framework', status: 'implemented_repo_supported_not_executed' },
         { label: 'Readiness/canary local-only safety contract', status: 'implemented_repo_supported' },
         { label: 'AI budget/platform evidence', status: 'implemented_selected_scopes_live_evidence_pending' },
     ],
@@ -250,6 +321,17 @@ const READINESS_COMMAND_GROUPS = Object.freeze([
             'npm run release:cutover-evidence',
             'npm run release:cutover-evidence:markdown',
             'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai',
+        ],
+    },
+    {
+        title: 'Production execution framework',
+        note: 'Local-only production dossier, Cloudflare resource model, and rollback drill. These commands do not call live APIs by default or execute rollback.',
+        commands: [
+            'npm run readiness:dossier',
+            'npm run readiness:dossier:markdown',
+            'npm run cloudflare:resource-model',
+            'npm run cloudflare:resource-model:markdown',
+            'npm run release:rollback-drill',
         ],
     },
     {
@@ -525,6 +607,26 @@ function normalizeReadinessStatus(data) {
         cutoverEvidence: {
             ...READINESS_FALLBACK_STATUS.cutoverEvidence,
             ...(data.cutoverEvidence || {}),
+        },
+        productionExecution: {
+            ...READINESS_FALLBACK_STATUS.productionExecution,
+            ...(data.productionExecution || {}),
+        },
+        cloudflareResourceModel: {
+            ...READINESS_FALLBACK_STATUS.cloudflareResourceModel,
+            ...(data.cloudflareResourceModel || {}),
+        },
+        readinessDossier: {
+            ...READINESS_FALLBACK_STATUS.readinessDossier,
+            ...(data.readinessDossier || {}),
+        },
+        postDeployVerification: {
+            ...READINESS_FALLBACK_STATUS.postDeployVerification,
+            ...(data.postDeployVerification || {}),
+        },
+        rollbackDrill: {
+            ...READINESS_FALLBACK_STATUS.rollbackDrill,
+            ...(data.rollbackDrill || {}),
         },
         blockedClaims: Array.isArray(data.blockedClaims) ? data.blockedClaims : READINESS_FALLBACK_STATUS.blockedClaims,
         hardeningStatus: Array.isArray(data.hardeningStatus) ? data.hardeningStatus : READINESS_FALLBACK_STATUS.hardeningStatus,
@@ -3234,6 +3336,114 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         container.appendChild(section);
     }
 
+    function renderProductionExecution(container, status) {
+        const execution = status.productionExecution || READINESS_FALLBACK_STATUS.productionExecution;
+        const resourceModel = status.cloudflareResourceModel || READINESS_FALLBACK_STATUS.cloudflareResourceModel;
+        const dossier = status.readinessDossier || READINESS_FALLBACK_STATUS.readinessDossier;
+        const postDeploy = status.postDeployVerification || READINESS_FALLBACK_STATUS.postDeployVerification;
+        const rollback = status.rollbackDrill || READINESS_FALLBACK_STATUS.rollbackDrill;
+        const section = readinessSection('Production Execution Framework', 'Local-only execution dossier, Cloudflare resource model, post-deploy read-only verification, and rollback drill status. This dashboard never deploys, migrates, mutates Cloudflare, or executes rollback.');
+        const grid = el('div', 'admin-control-grid');
+
+        const cards = [
+            {
+                title: 'Production Execution State',
+                badge: execution.status || 'blocked',
+                copy: execution.safeStateSummary || 'Repo-supported state exists; deploy-pending and live-evidence-pending remain visible until operator proof is attached.',
+                meta: [
+                    ['Repo supported', execution.repoSupported === true ? 'Yes' : 'No'],
+                    ['Deploy pending', execution.deployPending === true ? 'Yes' : 'No'],
+                    ['Live evidence pending', execution.liveEvidencePending === true ? 'Yes' : 'No'],
+                    ['Production readiness', execution.productionReadiness || 'blocked'],
+                    ['Browser deploy/migration/rollback', execution.noBrowserDeploy && execution.noBrowserMigration && execution.noBrowserRollback ? 'Not offered' : 'Review required'],
+                ],
+            },
+            {
+                title: 'Cloudflare Resource Model',
+                badge: resourceModel.status || 'live verification required',
+                copy: 'Repo declarations are checked against Wrangler config. Live Cloudflare resource, secret, domain, WAF, header, RUM, and alert evidence remains operator-supplied.',
+                meta: [
+                    ['Resources', (resourceModel.repoDeclaredResources || []).join(', ')],
+                    ['Dashboard-managed', (resourceModel.dashboardManagedRequirements || []).join(', ')],
+                    ['Live verification required', resourceModel.liveVerificationRequired === true ? 'Yes' : 'No'],
+                    ['Cloudflare API calls made here', resourceModel.cloudflareApiCallsMade === true ? 'Yes' : 'No'],
+                    ['Secret values exposed', resourceModel.secretValuesExposed === true ? 'Yes' : 'No'],
+                ],
+                actions: [
+                    { label: 'Copy resource model', copy: resourceModel.command || 'npm run cloudflare:resource-model' },
+                    { label: 'Copy resource model Markdown', copy: resourceModel.markdownCommand || 'npm run cloudflare:resource-model:markdown' },
+                ],
+            },
+            {
+                title: 'Readiness Dossier',
+                badge: dossier.status || 'local only',
+                copy: 'Single local evidence packet combining release plan, resource model, evidence index, cutover summary, rollback placeholders, and blocked claims.',
+                meta: [
+                    ['Formats', (dossier.outputFormats || ['json', 'markdown']).join(', ')],
+                    ['Default live calls', dossier.defaultLiveCalls === true ? 'Yes' : 'No'],
+                    ['Production readiness', dossier.productionReadiness || 'blocked'],
+                    ['Live billing readiness', dossier.liveBillingReadiness || 'blocked'],
+                ],
+                actions: (dossier.commands || ['npm run readiness:dossier', 'npm run readiness:dossier:markdown']).map((command) => ({
+                    label: command.includes('markdown') ? 'Copy dossier Markdown' : 'Copy dossier JSON',
+                    copy: command,
+                })),
+            },
+            {
+                title: 'Post-Deploy Read-Only Verification',
+                badge: postDeploy.status || 'pending',
+                copy: 'Operator-run live checks are opt-in and GET-only by default. Admin cookies are never rendered; admin checks stay pending when no cookie is provided.',
+                meta: [
+                    ['Command', postDeploy.command || 'npm run readiness:live-readonly'],
+                    ['GET-only by default', postDeploy.getOnlyByDefault === true ? 'Yes' : 'No'],
+                    ['Admin cookie required for admin panels', postDeploy.adminCookieRequiredForAdminPanels === true ? 'Yes' : 'No'],
+                    ['Admin cookie value rendered', postDeploy.adminCookieValueRendered === true ? 'Yes' : 'No'],
+                    ['Checks', (postDeploy.checks || []).join(', ')],
+                ],
+                actions: [
+                    { label: 'Copy live-read-only command', copy: postDeploy.command || 'npm run readiness:live-readonly' },
+                ],
+            },
+            {
+                title: 'Rollback Drill',
+                badge: rollback.status || 'not executed',
+                copy: 'Rollback readiness is documented as a drill artifact only. The command records placeholders and smoke checks; it does not execute rollback.',
+                meta: [
+                    ['Command', rollback.command || 'npm run release:rollback-drill'],
+                    ['Rollback executed', rollback.rollbackExecuted === true ? 'Yes' : 'No'],
+                    ['Rollback owner', rollback.ownerPlaceholder || 'operator to fill'],
+                    ['Required evidence', (rollback.requiredEvidence || []).join(', ')],
+                ],
+                actions: [
+                    { label: 'Copy rollback drill command', copy: rollback.command || 'npm run release:rollback-drill' },
+                ],
+            },
+        ];
+
+        for (const card of cards) {
+            const item = el('article', 'admin-control-card glass glass-card reveal visible');
+            const top = el('div', 'admin-control-card__top');
+            top.append(el('h3', 'admin-section-title', card.title), badge(statusLabel(card.badge), statusVariant(card.badge)));
+            item.append(top, el('p', 'admin-shell__desc', card.copy));
+            item.appendChild(detailRows(card.meta));
+            const actions = el('div', 'admin-control-chip-row');
+            for (const action of card.actions || []) {
+                const button = el('button', 'btn-action', action.label);
+                button.type = 'button';
+                button.addEventListener('click', async () => {
+                    const copied = await copyTextToClipboard(action.copy);
+                    notify(copied ? `${action.label} copied.` : 'Copy failed.', copied ? 'success' : 'error');
+                });
+                actions.appendChild(button);
+            }
+            if (actions.childNodes.length) item.appendChild(actions);
+            grid.appendChild(item);
+        }
+
+        section.appendChild(grid);
+        container.appendChild(section);
+    }
+
     function renderLiveEvidenceState(container, status) {
         const state = status.liveEvidenceState || READINESS_FALLBACK_STATUS.liveEvidenceState;
         const cutover = status.cutoverEvidence || READINESS_FALLBACK_STATUS.cutoverEvidence;
@@ -3500,6 +3710,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         );
 
         renderReadinessHero(container, status, sourceLabel);
+        renderProductionExecution(container, status);
         renderLiveEvidenceState(container, status);
         renderReadinessStatusGrid(container, 'Blocked Claims', 'These claims remain blocked or unclaimed unless separate operator evidence proves otherwise.', status.blockedClaims);
         renderReadinessStatusGrid(container, 'P0/P1 Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);

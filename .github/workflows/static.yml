@@ -76,6 +76,12 @@ jobs:
         run: npm run test:release-plan
       - name: Run Cloudflare deploy prerequisite tests
         run: npm run test:cloudflare-prereqs
+      - name: Run Cloudflare resource model tests
+        run: npm run test:cloudflare-resource-model
+      - name: Run readiness dossier tests
+        run: npm run test:readiness-dossier
+      - name: Run rollback drill tests
+        run: npm run test:rollback-drill
       - name: Check Worker body parser guardrails
         run: npm run check:worker-body-parsers
       - name: Check admin activity query shape

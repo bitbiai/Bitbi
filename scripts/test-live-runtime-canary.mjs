@@ -202,6 +202,41 @@ function createCurrentContractFetch() {
       }
     }
 
+    if (requestUrl === "https://bitbi.ai/api/admin/billing/evidence/status" && method === "GET") {
+      if (isVerifiedAdmin) {
+        return jsonResponse({
+          ok: true,
+          productionReadiness: "blocked",
+          liveBillingReadiness: "blocked",
+          stripeCallsMade: false,
+          creditMutationPerformed: false,
+        });
+      }
+    }
+
+    if (requestUrl === "https://bitbi.ai/api/admin/operations/timeline?limit=5" && method === "GET") {
+      if (isVerifiedAdmin) {
+        return jsonResponse({
+          ok: true,
+          readOnly: true,
+          externalCallsMade: false,
+          events: [],
+        });
+      }
+    }
+
+    if (requestUrl === "https://bitbi.ai/api/admin/tenant-assets/domains/evidence" && method === "GET") {
+      if (isVerifiedAdmin) {
+        return jsonResponse({
+          ok: true,
+          report: {
+            liveR2Listed: false,
+            tenantIsolationClaimed: false,
+          },
+        });
+      }
+    }
+
     if (requestUrl === "https://bitbi.ai/api/admin/ai/models" && method === "GET") {
       if (!cookie) return jsonResponse({ ok: false, error: "Not authenticated.", code: "unauthorized" }, 401);
       if (isMember) return jsonResponse({ ok: false, error: "Admin privileges required.", code: "forbidden" }, 403);
@@ -299,12 +334,27 @@ assert.throws(
   assert.deepEqual(
     plan.suites.map((suite) => [suite.id, suite.skipped, suite.checks.length]),
     [
-      ["baseline", false, 9],
+      ["baseline", false, 5],
       ["member", true, 0],
       ["admin", true, 0],
     ]
   );
   assert(plan.suites[0].checks.some((check) => check.id === "admin-ai-unauthenticated"));
+  assert(plan.suites[0].checks.every((check) => check.method === "GET"));
+  assert(!plan.suites[0].checks.some((check) => check.id === "auth-fetch-metadata-cross-site-guard"));
+  assert(!plan.suites[0].checks.some((check) => check.id === "contact-forbidden-origin"));
+  assert(!plan.suites[0].checks.some((check) => check.method === "OPTIONS"));
+}
+
+{
+  const plan = createLiveRuntimeCanaryPlan({
+    repoRoot,
+    env: {
+      BITBI_LIVE_ENABLE: "1",
+      BITBI_LIVE_INCLUDE_POST_GUARDS: "1",
+    },
+  });
+  assert.equal(plan.suites.find((suite) => suite.id === "baseline")?.checks.length, 9);
   assert(plan.suites[0].checks.some((check) => check.id === "auth-fetch-metadata-cross-site-guard"));
   assert(plan.suites[0].checks.some((check) => check.id === "contact-forbidden-origin"));
 }
@@ -345,8 +395,11 @@ assert.throws(
 
   assert.equal(result.failed.length, 0);
   assert.equal(result.skipped.length, 0);
-  assert.equal(result.passed.length, 18);
+  assert.equal(result.passed.length, 17);
   assert(result.passed.some((check) => check.id === "admin-readiness-status-read"));
+  assert(result.passed.some((check) => check.id === "admin-billing-evidence-read"));
+  assert(result.passed.some((check) => check.id === "admin-operations-timeline-read"));
+  assert(result.passed.some((check) => check.id === "admin-tenant-domain-evidence-read"));
 }
 
 {
@@ -370,7 +423,7 @@ assert.throws(
   assert.equal(result.failed.length, 1);
   assert.equal(result.failed[0].id, "auth-health");
   assert.match(result.failed[0].message, /expected 200, got 404/);
-  assert.equal(result.passed.length, 8);
+  assert.equal(result.passed.length, 4);
 }
 
 console.log("Live runtime canary tests passed.");

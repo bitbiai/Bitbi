@@ -78,6 +78,9 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - Local release tooling and readiness checks exist.
 - Readiness tooling includes local-only safety contract checks and skipped-by-default live canaries, including negative Fetch Metadata and caller-policy evidence surfaces; operator live evidence is still required.
+- Production readiness execution tooling exists. `npm run readiness:dossier` / `npm run readiness:dossier:markdown` assemble a local blocked evidence packet from release plan, deploy order, latest migration checkpoint, Cloudflare resource model, evidence index, cutover summary, billing/tenant blockers, rollback placeholders, and redaction guarantees.
+- Cloudflare resource model tooling exists. `npm run cloudflare:resource-model` / `npm run cloudflare:resource-model:markdown` validates repo declarations against `config/release-compat.json` and Wrangler config, while marking live resource presence, secret values, dashboard-managed WAF/static headers/RUM/alerts/custom domains, and production settings as operator live-verification-required.
+- Rollback drill tooling exists. `npm run release:rollback-drill` records current commit, previous-version placeholders, affected deploy units, rollback owner placeholder, decision criteria, smoke checks, and blocked claims without executing rollback or calling Cloudflare/GitHub APIs.
 - Billing evidence status and canary skeleton tooling exist. Admin-only `GET /api/admin/billing/evidence/status` is read-only, redacted, and reports live billing prerequisite presence/shape without Stripe calls or credit mutation. `npm run billing:canary-evidence` generates a blocked/pending operator evidence skeleton only.
 - Operator timeline/triage exists. Admin-only `GET /api/admin/operations/timeline` is read-only and aggregates bounded redacted local D1 metadata from audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive sources without external calls, live R2 listing, or mutations.
 - Evidence index tooling exists. `npm run evidence:index` and `npm run evidence:index:markdown` classify current repo evidence files as accepted, pending, rejected/unsafe, template, or historical and report unsafe marker IDs without printing raw values.
@@ -102,6 +105,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Collect production-readiness evidence with no secret exposure.
+- Generate the production execution dossier, Cloudflare resource model, and rollback drill before any deploy window; keep their verdicts blocked until live/manual evidence is attached and reviewed.
 - Use `/admin/#operations`, `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md`, and `npm run evidence:index` during incident/readiness review.
 - Keep live billing flags disabled except for explicit bounded operator canaries, and collect Stripe dashboard/webhook/canary evidence without raw payloads, signatures, secrets, payment methods, cookies, or session tokens.
 
@@ -111,7 +115,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 2. Review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` and decide whether to sanitize/recollect reset dry-run evidence.
 3. Review manual-review evidence gaps before any ownership backfill or access-switch planning.
 4. Review AI budget cap/evidence gaps and decide the next bounded platform-budget scope target.
-5. Review production-readiness evidence and live/manual Cloudflare prerequisites.
+5. Review production-readiness dossier output, Cloudflare resource model classifications, rollback drill placeholders, and live/manual Cloudflare prerequisites.
 6. Review Operator Timeline/Triage classifications and evidence index unsafe-marker output before attaching any evidence to readiness packets.
 
 ## Historical Archive Pointers

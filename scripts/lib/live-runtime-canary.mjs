@@ -530,6 +530,54 @@ function createAdminChecks(manifest, config) {
         }
       },
     },
+    {
+      id: "admin-billing-evidence-read",
+      suite: "admin",
+      method: "GET",
+      url: buildUrl(config.authBaseUrl, "/api/admin/billing/evidence/status"),
+      description: "secure admin session reads billing evidence status without Stripe calls",
+      headers: jsonHeaders({ Cookie: config.adminCookieHeader }),
+      assert({ response, jsonBody, bodySummary }) {
+        if (response.status !== 200) {
+          throw new Error(`expected 200, got ${response.status}; ${bodySummary}`);
+        }
+        if (!jsonBody || jsonBody.ok !== true || jsonBody.stripeCallsMade !== false || jsonBody.creditMutationPerformed !== false) {
+          throw new Error(`expected billing evidence read-only contract, got ${bodySummary}`);
+        }
+      },
+    },
+    {
+      id: "admin-operations-timeline-read",
+      suite: "admin",
+      method: "GET",
+      url: buildUrl(config.authBaseUrl, "/api/admin/operations/timeline?limit=5"),
+      description: "secure admin session reads bounded operator timeline without mutation",
+      headers: jsonHeaders({ Cookie: config.adminCookieHeader }),
+      assert({ response, jsonBody, bodySummary }) {
+        if (response.status !== 200) {
+          throw new Error(`expected 200, got ${response.status}; ${bodySummary}`);
+        }
+        if (!jsonBody || jsonBody.ok !== true || jsonBody.readOnly !== true || jsonBody.externalCallsMade !== false) {
+          throw new Error(`expected operator timeline read-only contract, got ${bodySummary}`);
+        }
+      },
+    },
+    {
+      id: "admin-tenant-domain-evidence-read",
+      suite: "admin",
+      method: "GET",
+      url: buildUrl(config.authBaseUrl, "/api/admin/tenant-assets/domains/evidence"),
+      description: "secure admin session reads tenant domain evidence without R2 listing",
+      headers: jsonHeaders({ Cookie: config.adminCookieHeader }),
+      assert({ response, jsonBody, bodySummary }) {
+        if (response.status !== 200) {
+          throw new Error(`expected 200, got ${response.status}; ${bodySummary}`);
+        }
+        if (!jsonBody || jsonBody.ok !== true || jsonBody.report?.liveR2Listed === true) {
+          throw new Error(`expected tenant domain evidence read-only contract, got ${bodySummary}`);
+        }
+      },
+    },
   ];
 }
 
@@ -656,6 +704,7 @@ export function createLiveRuntimeCanaryPlan({ repoRoot, env = process.env } = {}
     "BITBI_LIVE_CONTACT_BASE_URL"
   );
   const timeoutMs = normalizeTimeoutMs(env.BITBI_LIVE_TIMEOUT_MS);
+  const includePostGuards = ENABLED_VALUES.has(String(env.BITBI_LIVE_INCLUDE_POST_GUARDS || "").trim().toLowerCase());
 
   const memberCookieHeader = resolveCookieCredential({
     cookieHeader: env.BITBI_LIVE_MEMBER_COOKIE,
@@ -708,6 +757,7 @@ export function createLiveRuntimeCanaryPlan({ repoRoot, env = process.env } = {}
     adminHasMfaProof,
     memberExpectedEmail: isNonEmptyString(env.BITBI_LIVE_MEMBER_EMAIL) ? String(env.BITBI_LIVE_MEMBER_EMAIL).trim() : null,
     adminExpectedEmail: isNonEmptyString(env.BITBI_LIVE_ADMIN_EMAIL) ? String(env.BITBI_LIVE_ADMIN_EMAIL).trim() : null,
+    includePostGuards,
     manifest,
     suites: [],
   };
@@ -747,7 +797,7 @@ export function createLiveRuntimeCanaryPlan({ repoRoot, env = process.env } = {}
       id: "baseline",
       label: "Always-safe public/negative checks",
       skipped: false,
-      checks: createBaselineChecks(manifest, plan),
+      checks: createBaselineChecks(manifest, plan).filter((check) => includePostGuards || check.method === "GET"),
     },
     memberCookieHeader
       ? {

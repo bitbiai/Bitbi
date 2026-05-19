@@ -41,6 +41,9 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 ## Current Evidence Required
 
 - Pre-deploy expected-state manifest from `npm run release:cutover-evidence` or `npm run release:cutover-evidence:markdown`.
+- Production readiness dossier from `npm run readiness:dossier` or `npm run readiness:dossier:markdown`; this is a local evidence packet and keeps production readiness blocked by default.
+- Cloudflare resource prerequisite model from `npm run cloudflare:resource-model` or `npm run cloudflare:resource-model:markdown`; repo-declared resources are not live Cloudflare proof.
+- Rollback drill artifact from `npm run release:rollback-drill`; this records placeholders and smoke checks only and does not execute rollback.
 - Release/preflight output.
 - Applied migration evidence.
 - Worker deploy evidence for affected workers.
@@ -71,6 +74,22 @@ The Operations area includes Operator Timeline / Triage backed by read-only `GET
 
 The dashboard now includes a Live Evidence State panel. It distinguishes repo-supported controls from deploy-pending and live-evidence-pending state, links operators to the cutover evidence command, and keeps all commands copy-only.
 
+The dashboard also includes a Production Execution Framework panel. It surfaces repo-supported/deploy-pending/live-evidence-pending state, the Cloudflare resource model, the readiness dossier, post-deploy read-only verification, and rollback drill commands. These are copy-only operator aids; the browser does not deploy, run migrations, mutate Cloudflare, execute rollback, activate live billing, call providers, backfill ownership, switch tenant access checks, or enable reset execution.
+
+## Production Readiness Execution Framework
+
+Use this local-only framework before deployment:
+
+```bash
+npm run readiness:dossier
+npm run readiness:dossier:markdown
+npm run cloudflare:resource-model
+npm run cloudflare:resource-model:markdown
+npm run release:rollback-drill
+```
+
+The dossier combines release plan, deploy order, latest migration checkpoint, Cloudflare resource model summary, evidence index counts, cutover evidence summary, billing and tenant blockers, rollback placeholders, and a final blocked verdict. The Cloudflare model validates repo declarations against `config/release-compat.json` and Wrangler config, then marks secrets, dashboard settings, custom domains, WAF/rate limits, security headers, RUM, alerts, and live resource presence as operator live-verification-required. The rollback drill records previous-version placeholders and post-rollback smoke checks only; it does not call Cloudflare or GitHub and does not roll anything back.
+
 ## Release Cutover Evidence
 
 Use this before deployment to snapshot expected repository state without deploying:
@@ -88,7 +107,7 @@ Use this after deployment only for explicit live-read-only checks:
 npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai
 ```
 
-Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only when the operator intends those read-only checks. The admin readiness check is skipped unless `BITBI_READINESS_ADMIN_COOKIE` is supplied in the environment; cookie values are not printed.
+Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only when the operator intends those read-only checks. The post-deploy path is opt-in and GET-only by default for live runtime evidence. Admin readiness, billing evidence, operations timeline, and tenant domain evidence checks remain skipped/pending unless `BITBI_READINESS_ADMIN_COOKIE` is supplied in the environment; cookie values are not printed.
 
 ## Current Blockers
 
@@ -116,12 +135,20 @@ npm run test:release-compat
 npm run test:release-plan
 npm run test:live-canary
 npm run test:readiness-evidence
+npm run test:cloudflare-resource-model
+npm run test:readiness-dossier
+npm run test:rollback-drill
 npm run test:release-cutover-evidence
 npm run test:main-release-readiness
 npm run billing:canary-evidence
 npm run evidence:index
 npm run evidence:index:markdown
 npm run test:evidence-index
+npm run cloudflare:resource-model
+npm run cloudflare:resource-model:markdown
+npm run readiness:dossier
+npm run readiness:dossier:markdown
+npm run release:rollback-drill
 npm run release:cutover-evidence
 npm run release:plan
 npm run release:preflight

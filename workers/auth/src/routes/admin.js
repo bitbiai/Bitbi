@@ -63,7 +63,7 @@ const MAX_ADMIN_ACTIVITY_LIMIT = 100;
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
 const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0058_add_legacy_media_reset_actions.sql";
-const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v2";
+const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v3";
 
 function adminMutationConfirmationResponse(code, message) {
   return json({ ok: false, error: message, code }, { status: 409 });
@@ -115,12 +115,96 @@ function buildAdminReadinessStatus(env) {
       rejectedOrFailedEvidence: [],
       caveat: "This endpoint reports repo-supported status only. It does not collect live evidence by itself.",
     },
+    productionExecution: {
+      status: "blocked",
+      repoSupported: true,
+      deployPending: true,
+      liveEvidencePending: true,
+      productionReadiness: "blocked",
+      repoTruthIsLiveProof: false,
+      noBrowserDeploy: true,
+      noBrowserMigration: true,
+      noBrowserRollback: true,
+      safeStateSummary: "Repo-supported production execution framework is available; deploy-pending and live-evidence-pending remain until operator proof is attached.",
+    },
+    cloudflareResourceModel: {
+      status: "repo_declared_live_verification_required",
+      command: "npm run cloudflare:resource-model",
+      markdownCommand: "npm run cloudflare:resource-model:markdown",
+      repoDeclaredResources: [
+        "Workers: bitbi-auth, bitbi-ai, bitbi-contact",
+        "Routes: bitbi.ai/api/*, contact.bitbi.ai",
+        "D1: bitbi-auth-db",
+        "R2: PRIVATE_MEDIA, USER_IMAGES, AUDIT_ARCHIVE",
+        "Queues: ACTIVITY_INGEST_QUEUE, AI_IMAGE_DERIVATIVES_QUEUE, AI_VIDEO_JOBS_QUEUE",
+        "Durable Objects: auth/contact public rate limiters, AI service replay",
+        "Service binding: Auth -> AI Worker",
+        "Cloudflare Images and Workers AI bindings",
+        "Auth scheduled cron",
+      ],
+      dashboardManagedRequirements: [
+        "WAF/rate limits",
+        "Static security Transform Rules",
+        "RUM setting",
+        "Alerts",
+        "Custom domains/certificates if outside repo evidence",
+        "Cloudflare secrets and optional feature flags by name only",
+      ],
+      liveVerificationRequired: true,
+      cloudflareApiCallsMade: false,
+      secretValuesExposed: false,
+    },
+    readinessDossier: {
+      status: "local_only_available",
+      commands: [
+        "npm run readiness:dossier",
+        "npm run readiness:dossier:markdown",
+      ],
+      outputFormats: ["json", "markdown"],
+      productionReadiness: "blocked",
+      liveBillingReadiness: "blocked",
+      defaultLiveCalls: false,
+    },
+    postDeployVerification: {
+      status: "pending_operator_run",
+      command: "npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai --admin-readiness-url https://bitbi.ai",
+      getOnlyByDefault: true,
+      adminCookieRequiredForAdminPanels: true,
+      adminCookieValueRendered: false,
+      checks: [
+        "public health endpoint",
+        "static security headers",
+        "unknown API safe failure shape",
+        "admin readiness status when cookie is provided",
+        "billing evidence status when cookie is provided",
+        "operations timeline when cookie is provided",
+        "tenant domain evidence when cookie is provided",
+      ],
+    },
+    rollbackDrill: {
+      status: "template_available_not_executed",
+      command: "npm run release:rollback-drill",
+      rollbackExecuted: false,
+      ownerPlaceholder: "operator to fill",
+      requiredEvidence: [
+        "previous Worker versions/deploy IDs",
+        "previous static artifact/deploy ID",
+        "rollback owner",
+        "decision criteria",
+        "post-rollback smoke evidence",
+      ],
+    },
     cutoverEvidence: {
       outputDirectory: "docs/production-readiness/evidence/",
       commands: [
         "npm run release:cutover-evidence",
         "npm run release:cutover-evidence:markdown",
         "npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai",
+        "npm run readiness:dossier",
+        "npm run readiness:dossier:markdown",
+        "npm run cloudflare:resource-model",
+        "npm run cloudflare:resource-model:markdown",
+        "npm run release:rollback-drill",
       ],
       safeToRunLocally: true,
       browserExecutesCommands: false,
@@ -149,6 +233,7 @@ function buildAdminReadinessStatus(env) {
       { id: "omega_p1_wave_6", label: "P1 Wave 6 tenant asset/storage evidence expansion", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_7", label: "P1 Wave 7 billing evidence/control plane", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_8", label: "P1 Wave 8 operator timeline/triage evidence explorer", status: "implemented_repo_supported" },
+      { id: "omega_p1_wave_9", label: "P1 Wave 9 production execution framework", status: "implemented_repo_supported_live_evidence_pending" },
     ],
     runtimeSafetyGates: [
       {
@@ -175,6 +260,9 @@ function buildAdminReadinessStatus(env) {
       { id: "billing_safety_local_tests", label: "Billing safety local tests", status: "implemented_repo_supported" },
       { id: "operator_timeline_triage", label: "Operator timeline/triage read model", status: "implemented_repo_supported" },
       { id: "evidence_archive_index", label: "Evidence archive/index tooling", status: "implemented_repo_supported_local_only" },
+      { id: "cloudflare_resource_model", label: "Cloudflare resource verification model", status: "implemented_repo_supported_live_evidence_pending" },
+      { id: "production_readiness_dossier", label: "Production readiness execution dossier", status: "implemented_repo_supported_local_only" },
+      { id: "rollback_drill", label: "Rollback drill framework", status: "implemented_repo_supported_not_executed" },
       { id: "readiness_canary_contract", label: "Readiness/canary local-only safety contract", status: "implemented_repo_supported" },
       { id: "ai_budget_platform_evidence", label: "AI budget/platform evidence", status: "implemented_selected_scopes_live_evidence_pending" },
     ],

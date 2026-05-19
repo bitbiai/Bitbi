@@ -15,6 +15,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 | `PRIVATE_MEDIA` R2 | Avatars and protected private media. | Access must remain auth-gated. |
 | `AUDIT_ARCHIVE` R2 | Data exports and platform/admin evidence archives. | Retention and access controls must preserve audit integrity. |
 | Queues/Durable Objects | Activity ingest, derivative generation, video jobs, rate limiting, replay protection. | Live bindings require verification. |
+| Cloudflare deployment/resource metadata | Repo declarations for Workers, routes, D1, R2, Queues, Durable Objects, service bindings, Images, Workers AI, cron, secrets by name, and dashboard-managed prerequisites. | `npm run cloudflare:resource-model` validates repo parity only; live resource presence and dashboard settings require operator evidence. |
 
 ## Current User And Auth Data
 
@@ -47,6 +48,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout.
 - Confirmed media reset/deletion has not been approved or performed.
 - Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical states, and reports unsafe marker IDs without printing raw values.
+- Production readiness dossier, Cloudflare resource model, and rollback drill tooling exist as local-only evidence organizers. They keep production readiness blocked, do not call live services, and do not mutate D1/R2/Queues/Cloudflare/GitHub/Stripe/provider state.
 
 ## Blocked Claims
 

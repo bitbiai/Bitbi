@@ -1,6 +1,6 @@
 # Main-Only Release Runbook
 
-Last updated: 2026-05-16
+Last updated: 2026-05-19
 
 Status: **operator-run release discipline only**. This runbook does not deploy, approve production readiness, approve live billing, run remote migrations, call Stripe APIs, mutate Cloudflare, mutate GitHub settings, change secrets, or perform rollback actions.
 
@@ -8,69 +8,19 @@ Status: **operator-run release discipline only**. This runbook does not deploy, 
 
 The project owner deploys directly from `main` and does not use a separate staging environment. That is riskier than a staging-first release model because the first deployed environment is live. Direct-main deployment is allowed only with strict preflight, clean-commit discipline, migration evidence, live smoke evidence, and rollback readiness.
 
-Production readiness remains **BLOCKED** unless all evidence gates are satisfied and reviewed by a human operator. Live billing readiness remains **BLOCKED**. Phase 2.1-2.4 billing lifecycle review/reconciliation work is review/reporting infrastructure only; it does not automate refunds, disputes, chargebacks, credit clawbacks, reconciliation, subscription cancellation, or Stripe remediation. Phase 3.4 adds only the member personal image AI Cost Gateway pilot plus additive auth migration `0048_add_member_ai_usage_attempts.sql`. Phase 4.5 adds only admin async video job budget metadata/enforcement plus additive auth migration `0049_add_admin_video_job_budget_metadata.sql`. Phase 4.6 adds only OpenClaw/News Pulse visual budget metadata/status controls plus additive auth migration `0050_add_news_pulse_visual_budget_metadata.sql`. Phase 4.15.1 adds only D1-backed app-level Admin AI budget switch state/history plus additive auth migration `0052_add_admin_runtime_budget_switches.sql`; Cloudflare master flags remain hard gates and the app does not call Cloudflare APIs, edit Worker variables, or store Cloudflare API tokens. Phase 4.16 remains preserved as live platform budget cap design/evidence. Phase 4.17 adds additive migration `0053_add_platform_budget_caps.sql` for the first `platform_admin_lab_budget` cap foundation and is not customer billing or Stripe/live billing. These phases do not migrate broad Admin AI, Admin video beyond scoped phases, platform/background AI globally, global internal AI Worker routes, pricing, Stripe, or public billing.
+Production readiness remains **BLOCKED** unless all evidence gates are satisfied and reviewed by a human operator. Live billing readiness remains **BLOCKED**. Current readiness tooling includes a local-only production execution dossier, Cloudflare resource model, live-read-only verification plan, and rollback drill. These artifacts help collect evidence; they do not deploy, run remote migrations, call Cloudflare/Stripe/providers, change secrets, execute rollback, or approve readiness.
 
 ## Scope
 
-This runbook covers direct-main release evidence for:
+This runbook covers current direct-main release evidence for the static site, Auth Worker, AI Worker, Contact Worker, auth D1 migration checkpoint, Cloudflare bindings/resources, Admin readiness/evidence panels, billing review/reconciliation/evidence controls, AI budget controls, tenant asset evidence, operator timeline, production execution dossier, live-read-only verification, and rollback drill.
 
-- Phase 2.1 Stripe live lifecycle review classification.
-- Phase 2.2 Admin Billing Review Queue API and manual resolution metadata.
-- Phase 2.3 Admin Control Plane Billing Review UI.
-- Phase 2.4 read-only local Billing Reconciliation API and UI.
-- Phase 3.4 member personal image AI Cost Gateway pilot.
-- Phase 4.5 admin async video job budget metadata/enforcement.
-- Phase 4.6 OpenClaw/News Pulse visual budget metadata/status controls.
-- Phase 4.15.1 Admin AI Budget Switch Control Plane.
-- Phase 4.17 Platform Budget Caps foundation for `platform_admin_lab_budget`.
-
-For the Phase 2.1-2.4 runtime changes to be visible live, the expected deploy units are:
-
-1. auth Worker
-2. static/pages
-
-For the Phase 3.4 member personal image gateway pilot to be visible live, the expected deploy units are:
-
-1. auth schema checkpoint `0048_add_member_ai_usage_attempts.sql`
-2. auth Worker
-
-Static/pages, AI Worker, and contact Worker are not expected for Phase 3.4 unless `npm run release:plan` reports other reviewed changes.
-
-For Phase 4.5 admin async video job budget metadata to be visible live, the expected deploy units are:
-
-1. auth schema checkpoint `0049_add_admin_video_job_budget_metadata.sql`
-2. auth Worker
-
-Static/pages, AI Worker, and contact Worker are not expected for Phase 4.5 unless `npm run release:plan` reports other reviewed changes.
-
-For Phase 4.6 OpenClaw/News Pulse visual budget metadata/status controls to be visible live, the expected deploy units are:
-
-1. auth schema checkpoint `0050_add_news_pulse_visual_budget_metadata.sql`
-2. auth Worker
-
-Static/pages, AI Worker, and contact Worker are not expected for Phase 4.6 unless `npm run release:plan` reports other reviewed changes.
-
-For Phase 4.15.1 Admin AI Budget Switch Control Plane to be visible live, the expected deploy units are:
-
-1. auth schema checkpoint `0052_add_admin_runtime_budget_switches.sql`
-2. auth Worker
-3. static/pages
-
-AI Worker and contact Worker are not expected for Phase 4.15.1 unless `npm run release:plan` reports other reviewed changes.
-
-For Phase 4.17 Platform Budget Caps to be visible live, the expected deploy units are:
-
-1. auth schema checkpoint `0053_add_platform_budget_caps.sql`
-2. auth Worker
-3. static/pages
-
-AI Worker and contact Worker are not expected for Phase 4.17 unless `npm run release:plan` reports other reviewed changes.
-
-Phase 2.1-2.5 added no new D1 migration, Phase 3.4 added `0048_add_member_ai_usage_attempts.sql`, Phase 4.5 added `0049_add_admin_video_job_budget_metadata.sql`, Phase 4.6 added `0050_add_news_pulse_visual_budget_metadata.sql`, Phase 4.8.1 added `0051_add_admin_ai_usage_attempts.sql`, Phase 4.15.1 added `0052_add_admin_runtime_budget_switches.sql`, and Phase 4.17 added the additive auth D1 migration:
+Use `npm run release:plan` as the current deploy-unit source. The current auth migration checkpoint is:
 
 ```text
-0053_add_platform_budget_caps.sql
+0058_add_legacy_media_reset_actions.sql
 ```
+
+Static/pages, Auth Worker, AI Worker, Contact Worker, and remote auth migration requirements are release-plan dependent. Repo-supported readiness is not live readiness; Cloudflare resource declarations and Wrangler parity still require operator live evidence.
 
 ## Non-Negotiable Safety Rules
 
@@ -85,11 +35,11 @@ Phase 2.1-2.5 added no new D1 migration, Phase 3.4 added `0048_add_member_ai_usa
 
 1. Verify clean commit/worktree.
 2. Run local preflight.
-3. Apply and verify production D1 migration status through `0053_add_platform_budget_caps.sql` when the reviewed release plan includes auth schema checkpoint `0053`.
+3. Apply and verify production D1 migration status through `0058_add_legacy_media_reset_actions.sql` when the reviewed release plan includes auth schema checkpoint `0058`.
 4. Deploy auth Worker by the approved operator process.
 5. Deploy static/pages by the approved operator process only when the reviewed release plan requires it.
 6. Run the live readiness evidence collector against explicit live URLs.
-7. Perform manual admin smoke checks and, for Phase 3.4, member personal image gateway smoke checks.
+7. Perform manual admin and member smoke checks required by the reviewed release plan.
 8. Record evidence in `docs/production-readiness/EVIDENCE_TEMPLATE.md`.
 9. Keep final verdict `BLOCKED`, `MAIN DEPLOYED - EVIDENCE INCOMPLETE`, or `MAIN DEPLOYED - OPERATOR VERIFIED`; never automatically mark production-ready.
 
@@ -118,7 +68,13 @@ npm run validate:release
 npm run test:release-compat
 npm run test:release-plan
 npm run test:readiness-evidence
+npm run test:cloudflare-resource-model
+npm run test:readiness-dossier
+npm run test:rollback-drill
 npm run test:main-release-readiness
+npm run cloudflare:resource-model
+npm run readiness:dossier
+npm run release:rollback-drill
 npm run release:preflight
 npm run release:plan
 git diff --check
@@ -127,13 +83,27 @@ git status --short
 
 Record pass/fail output with branch, commit, operator, and date. Do not paste secret values.
 
-## 3. Verify Production D1 Migration Status
+## 3. Build Production Execution Evidence
 
-The production auth D1 database must be verified through `0053_add_platform_budget_caps.sql` before deploying current auth Worker code and before live smoke checks. Record migration names/status only.
+Generate the local evidence packet and resource model before deployment:
 
-This runbook does not provide or authorize a remote migration command. If production is not verified through `0053`, stop and record final verdict `BLOCKED`.
+```bash
+npm run readiness:dossier
+npm run readiness:dossier:markdown
+npm run cloudflare:resource-model
+npm run cloudflare:resource-model:markdown
+npm run release:rollback-drill
+```
 
-## 4. Deploy Auth Worker
+These commands are local-only and non-mutating. The Cloudflare model is repo-declared evidence unless the operator attaches separate live evidence. The rollback drill records placeholders and smoke checks; it does not execute rollback.
+
+## 4. Verify Production D1 Migration Status
+
+The production auth D1 database must be verified through `0058_add_legacy_media_reset_actions.sql` before deploying current auth Worker code and before live smoke checks. Record migration names/status only.
+
+This runbook does not provide or authorize a remote migration command. If production is not verified through `0058`, stop and record final verdict `BLOCKED`.
+
+## 5. Deploy Auth Worker
 
 Operator action only. Deploy the reviewed `main` commit using the existing approved auth Worker release process. Record:
 
@@ -146,9 +116,9 @@ Operator action only. Deploy the reviewed `main` commit using the existing appro
 
 Do not change secrets, bindings, dashboard settings, or live billing flags as part of this checklist unless a separate approved change exists.
 
-## 5. Deploy Static/Pages, If Required
+## 6. Deploy Static/Pages, If Required
 
-Operator action only. Deploy the reviewed `main` commit using the existing static/pages process only if `npm run release:plan` requires static/pages. Phase 3.4 alone should not require static/pages. Record:
+Operator action only. Deploy the reviewed `main` commit using the existing static/pages process only if `npm run release:plan` requires static/pages. Record:
 
 - operator
 - date/time
@@ -157,7 +127,7 @@ Operator action only. Deploy the reviewed `main` commit using the existing stati
 - rollback target
 - Admin Control Plane asset version or cache evidence if available
 
-## 6. Run Live Readiness Evidence Collector
+## 7. Run Live Readiness Evidence Collector
 
 Use explicit URLs only. Do not include credentials in URLs.
 
@@ -171,19 +141,19 @@ npm run readiness:evidence -- \
   --output docs/production-readiness/evidence/YYYY-MM-DD-main-readiness.md
 ```
 
-The helper performs read-only GET checks only and keeps the verdict `BLOCKED`. Passing this command does not prove production readiness or live billing readiness.
+The helper performs opt-in read-only checks and keeps the verdict `BLOCKED`. The post-deploy path is GET-only by default; admin readiness, billing evidence, operations timeline, and tenant evidence checks remain skipped/pending unless an admin cookie is supplied through the environment and redacted from output. Passing this command does not prove production readiness or live billing readiness.
 
-## 7. Manual Admin Smoke Checks
+## 8. Manual Admin Smoke Checks
 
 Use a live admin account only after the operator has approved the direct-main smoke window. Redact all user data and never paste cookies or tokens.
 
 Required live smoke areas:
 
 - Admin login and MFA.
-- Phase 3.4 member personal image: missing/malformed `Idempotency-Key` rejection before provider call.
-- Phase 3.4 member personal image: valid-key success or safe provider error with no secret/raw prompt evidence.
-- Phase 3.4 member personal image: same-key duplicate no double debit / replay or suppression when result is available.
-- Phase 3.4 member personal image: same-key different-body conflict.
+- Member AI generation paths in scope for the release: missing/malformed `Idempotency-Key` rejection before provider call.
+- Member AI generation paths in scope for the release: valid-key success or safe provider error with no secret/raw prompt evidence.
+- Member AI generation paths in scope for the release: same-key duplicate no double debit / replay or suppression when result is available.
+- Member AI generation paths in scope for the release: same-key different-body conflict.
 - Billing Review Queue list/filter.
 - Billing Review Detail.
 - Billing Review Resolution on approved test review data only.
@@ -194,7 +164,7 @@ Required live smoke areas:
 - No Stripe action.
 - No credit mutation.
 
-## 8. Evidence Recording
+## 9. Evidence Recording
 
 Use:
 
@@ -204,21 +174,22 @@ Use:
 
 Acceptable evidence records names, statuses, ids when safe, timestamps, pass/fail outcomes, and redacted screenshots. Unacceptable evidence includes raw secrets, full raw webhook payloads, unredacted customer data, raw cookies, or Stripe secret/signature values.
 
-## 9. Rollback Strategy
+## 10. Rollback Strategy
 
 Prepare rollback before deploying:
 
+- Generate `npm run release:rollback-drill` and complete the placeholders before the deployment window.
 - Hide or revert the static Admin Control Plane UI if the UI breaks or renders unsafe data.
 - Redeploy the previous auth Worker version if an API issue appears.
 - Keep live billing flags disabled.
 - Do not delete billing provider events, billing reviews, checkout records, credit ledgers, member subscriptions, or reconciliation evidence.
 - Do not mutate credit ledgers as rollback.
 - Do not delete `member_ai_usage_attempts` rows as rollback.
-- Keep migration `0048` additive/forward-only.
+- Keep migrations additive/forward-only; do not roll back by editing production D1.
 - Do not call Stripe as rollback.
 - Document whether rollback was required and which artifact/version was restored.
 
-## 10. Final Verdict
+## 11. Final Verdict
 
 Allowed direct-main release verdicts:
 

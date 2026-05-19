@@ -13,12 +13,12 @@ This report is not production readiness, live billing readiness, legal complianc
 | Dimension | Current state |
 | --- | --- |
 | Security | Stronger foundation: service auth, replay protection, admin MFA, route policies, limiter/body guards, and purpose-specific secrets. |
-| Operations | Release plan/preflight, Auth/AI compatibility checks, readiness checks, incident runbooks, Operator Timeline/Triage, evidence index tooling, restore guidance, and evidence templates exist; live evidence remains incomplete. |
+| Operations | Release plan/preflight, Auth/AI compatibility checks, readiness checks, production execution dossier, Cloudflare resource model, rollback drill, incident runbooks, Operator Timeline/Triage, evidence index tooling, restore guidance, and evidence templates exist; live evidence remains incomplete. |
 | Billing | Credit ledgers, guarded Stripe scaffolding, read-only billing evidence status, canary skeleton tooling, review queue, and reconciliation exist; live billing readiness remains blocked. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
 | Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist; confirmed reset is hard-disabled by default and remains blocked. |
 | Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, and safe executor foundations exist; legal/self-service completion remains open. |
-| Admin UX | Admin Control Plane exposes implemented operator panels, including readiness/evidence status, without proving production readiness. |
+| Admin UX | Admin Control Plane exposes implemented operator panels, including readiness/evidence status and production execution command copy, without proving production readiness. |
 
 ## Current Implemented Capabilities
 
@@ -27,12 +27,14 @@ This report is not production readiness, live billing readiness, legal complianc
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, and BITBI Pro scaffolding exist.
 - Billing control-plane evidence reports live Stripe prerequisite presence/shape only; it does not expose secrets, call Stripe, create checkouts, grant credits, issue refunds, or mutate subscriptions.
 - Operator Timeline/Triage provides an Admin-only read model for audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive metadata. Evidence index tooling classifies repo evidence as accepted, pending, rejected/unsafe, template, or historical without live R2 listing or raw unsafe value output.
+- Production execution tooling can generate a local readiness dossier, Cloudflare resource model, and rollback drill. These validate repo declarations and organize operator evidence, but they do not call Cloudflare/GitHub/Stripe/providers, deploy, migrate, mutate resources, execute rollback, or convert repo-supported state into live readiness.
 - Admin/platform AI budget controls include classified-route metadata, caller-policy compatibility checks, Cloudflare master switches, D1 app switches, selected platform caps, read-only reconciliation, explicit repair actions, evidence reports, and archive tooling.
 - Tenant asset tooling includes folder/image owner-map evidence, nullable ownership metadata, manual-review import/read/status/Admin visibility, reset dry-run/reporting, and reset action tracking/executor endpoints.
 
 ## Current Blockers
 
 - Production readiness is blocked until live/manual Cloudflare, Worker, D1/R2/Queue/DO, health, header, alert, restore, rollback, and Stripe evidence is recorded.
+- Cloudflare resource model output is repo-declared evidence only until operator live evidence is attached for resources, secrets by presence, dashboard-managed WAF/static headers/RUM/alerts/custom domains, and deployment state.
 - Live billing readiness is blocked until bounded canaries, Stripe dashboard/webhook evidence, verified no-credit-before-webhook behavior, invoice/payment evidence, and approved remediation/accounting/legal workflows exist.
 - Tenant isolation is not claimed; existing legacy asset rows are not backfilled and access checks have not switched to ownership metadata.
 - Confirmed legacy media reset is blocked because the dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout and no sanitized replacement evidence is present.

@@ -79,6 +79,16 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
     },
     async fetchImpl(url, options) {
       calls.push({ url, options });
+      if (url.includes("__readiness_missing_route__")) {
+        return new Response(JSON.stringify({ ok: false, error: "Not found" }), {
+          status: 404,
+          headers: {
+            "Cache-Control": "no-store",
+            "Content-Type": "application/json",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
       const body = JSON.stringify({
         ok: true,
         service: url.includes("auth")
@@ -105,10 +115,11 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
   assert.equal(liveEvidence.evidenceCollected, true);
   assert.equal(liveEvidence.operatorReviewRequired, true);
   assert.equal(liveEvidence.liveChecks.mode, "checked");
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   assert(calls.every((call) => call.options?.method === "GET"));
   assert(calls.every((call) => !call.url.includes(secretValue)));
   assert(calls.some((call) => call.url === "https://auth.example.test/api/health"));
+  assert(calls.some((call) => call.url === "https://auth.example.test/api/__readiness_missing_route__"));
   assert(calls.some((call) => call.url === "https://ai.example.test/health"));
   assert(calls.some((call) => call.url === "https://contact.example.test/health"));
   assert(liveMarkdown.includes("Evidence collected: **true**"));
@@ -157,7 +168,8 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
     },
     async fetchImpl(url, options) {
       calls.push({ url, options });
-      return new Response(JSON.stringify({
+      if (url.endsWith("/api/admin/readiness/status")) {
+        return new Response(JSON.stringify({
         ok: true,
         version: "omega-p1-readiness-dashboard-v1",
         releaseTruth: {
@@ -177,21 +189,34 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
           { id: "production_readiness", status: "blocked" },
         ],
         secret: secretValue,
-      }), {
+        }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+            "Set-Cookie": `session=${secretValue}`,
+          },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, status: "blocked", secret: secretValue }), {
         status: 200,
         headers: {
           "Content-Type": "application/json",
           "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
           "Set-Cookie": `session=${secretValue}`,
         },
       });
     },
   });
   const adminMarkdown = renderReadinessEvidenceMarkdown(adminEvidence);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].options?.method, "GET");
-  assert.equal(calls[0].options?.headers?.Cookie, adminCookie);
-  assert(!calls[0].url.includes(secretValue));
+  assert.equal(calls.length, 4);
+  assert(calls.every((call) => call.options?.method === "GET"));
+  assert(calls.every((call) => call.options?.headers?.Cookie === adminCookie));
+  assert(calls.every((call) => !call.url.includes(secretValue)));
+  assert(calls.some((call) => call.url.endsWith("/api/admin/billing/evidence/status")));
+  assert(calls.some((call) => call.url.endsWith("/api/admin/operations/timeline")));
+  assert(calls.some((call) => call.url.endsWith("/api/admin/tenant-assets/domains/evidence")));
   assert(adminEvidence.liveChecks.results.some((result) =>
     result.id === "admin-readiness-status" &&
     result.mode === "checked" &&

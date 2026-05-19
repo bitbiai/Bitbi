@@ -26,6 +26,9 @@ Purpose: safe operator procedure for using the Admin Operator Timeline, evidence
 npm run evidence:index
 npm run evidence:index:markdown
 npm run test:evidence-index
+npm run readiness:dossier
+npm run cloudflare:resource-model
+npm run release:rollback-drill
 ```
 
 ## Triage Flows
@@ -73,14 +76,24 @@ Admin destructive action or security event:
 
 Readiness/live evidence failure:
 - Open Readiness/Evidence Dashboard.
-- Run local cutover or live read-only evidence commands only when appropriate:
+- Run local cutover, production execution, or live read-only evidence commands only when appropriate:
 
 ```bash
+npm run readiness:dossier
+npm run readiness:dossier:markdown
+npm run cloudflare:resource-model
+npm run cloudflare:resource-model:markdown
 npm run release:cutover-evidence
 npm run release:cutover-evidence:markdown
+npm run release:rollback-drill
 npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai
 npm run billing:canary-evidence
 ```
+
+Production execution or Cloudflare resource blocker:
+- Treat `npm run readiness:dossier` and `npm run cloudflare:resource-model` as repo/local evidence only.
+- Attach live Cloudflare resource, secret-presence, dashboard-managed WAF/header/RUM/alert, deployment, and migration verification evidence separately.
+- Use `npm run release:rollback-drill` to document rollback readiness; do not execute rollback from triage.
 
 ## Forbidden Emergency Actions
 
@@ -91,4 +104,5 @@ npm run billing:canary-evidence
 - Do not call Stripe, issue refunds, mutate subscriptions, create checkout sessions, or mutate credits outside approved workflows.
 - Do not call real AI providers from triage.
 - Do not deploy from the Admin UI.
+- Do not execute rollback from the Admin UI or from the rollback drill artifact.
 - Do not claim production readiness, live billing readiness, tenant isolation, ownership-backfill readiness, access-switch readiness, or confirmed reset readiness without reviewed evidence.

@@ -1,6 +1,6 @@
 # Main-Only Release Checklist
 
-Last updated: 2026-05-16
+Last updated: 2026-05-19
 
 Default verdict: **BLOCKED**
 
@@ -11,7 +11,7 @@ Allowed final verdicts:
 - `MAIN DEPLOYED - OPERATOR VERIFIED`
 - `ROLLBACK REQUIRED`
 
-This checklist is for direct deployment from `main`. It is not staging. It is not production-readiness approval. It is not live-billing approval. For the Phase 3.4 member personal image AI Cost Gateway pilot, also use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md`.
+This checklist is for direct deployment from `main`. It is not staging. It is not production-readiness approval. It is not live-billing approval. Use `npm run release:plan` and the production execution dossier for the current deploy-unit truth.
 
 ## 1. Pre-Commit Checks
 
@@ -34,7 +34,13 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | `npm run test:release-compat` |  | BLOCKED |
 | `npm run test:release-plan` |  | BLOCKED |
 | `npm run test:readiness-evidence` |  | BLOCKED |
+| `npm run test:cloudflare-resource-model` |  | BLOCKED |
+| `npm run test:readiness-dossier` |  | BLOCKED |
+| `npm run test:rollback-drill` |  | BLOCKED |
 | `npm run test:main-release-readiness` |  | BLOCKED |
+| `npm run cloudflare:resource-model` |  | BLOCKED |
+| `npm run readiness:dossier` |  | BLOCKED |
+| `npm run release:rollback-drill` |  | BLOCKED |
 | `npm run release:preflight` |  | BLOCKED |
 | `npm run release:plan` |  | BLOCKED |
 | `git diff --check` |  | BLOCKED |
@@ -42,79 +48,45 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 
 ## 3. Expected Deploy Units
 
-For the existing Phase 2.1-2.4 runtime changes to be visible live:
-
 | Deploy Unit | Required? | Evidence |
 | --- | --- | --- |
-| Auth Worker | yes |  |
-| Static/pages | yes |  |
-| New D1 migration from Phase 2.1-2.5 | no | No new migration was added by these phases. |
-| Stripe dashboard/API change | no |  |
-| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
-
-For the Phase 3.4 member personal image gateway pilot:
-
-| Deploy Unit | Required? | Evidence |
-| --- | --- | --- |
-| Auth schema checkpoint `0048_add_member_ai_usage_attempts.sql` | yes |  |
-| Auth Worker | yes |  |
-| Static/pages | no, unless `release:plan` reports other reviewed static changes |  |
-| AI Worker/contact Worker | no |  |
-| Stripe dashboard/API change | no |  |
-| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
-
-For the Phase 4.5 admin async video job budget metadata/enforcement change:
-
-| Deploy Unit | Required? | Evidence |
-| --- | --- | --- |
-| Auth schema checkpoint `0049_add_admin_video_job_budget_metadata.sql` | yes |  |
-| Auth Worker | yes |  |
-| Static/pages | no, unless `release:plan` reports other reviewed static changes |  |
-| AI Worker/contact Worker | no |  |
-| Stripe dashboard/API change | no |  |
-| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
-
-For the Phase 4.6 OpenClaw/News Pulse visual budget metadata/status controls:
-
-| Deploy Unit | Required? | Evidence |
-| --- | --- | --- |
-| Auth schema checkpoint `0050_add_news_pulse_visual_budget_metadata.sql` | yes |  |
-| Auth Worker | yes |  |
-| Static/pages | no, unless `release:plan` reports other reviewed static changes |  |
-| AI Worker/contact Worker | no |  |
-| Stripe dashboard/API change | no |  |
-| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
-
-For the Phase 4.15.1 Admin AI Budget Switch Control Plane:
-
-| Deploy Unit | Required? | Evidence |
-| --- | --- | --- |
-| Auth schema checkpoint `0052_add_admin_runtime_budget_switches.sql` | yes |  |
-| Auth Worker | yes |  |
-| Static/pages | yes |  |
-| AI Worker/contact Worker | no |  |
-| Stripe dashboard/API change | no |  |
-| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
+| Auth Worker | if `release:plan` reports runtime Auth changes |  |
+| AI Worker | if `release:plan` reports AI Worker changes or Auth/AI caller-policy pairing |  |
+| Contact Worker | if `release:plan` reports Contact Worker changes |  |
+| Static/pages | if `release:plan` reports static/Admin UI changes |  |
+| Auth schema checkpoint `0058_add_legacy_media_reset_actions.sql` | required before dependent Auth Worker code |  |
+| Stripe dashboard/API change | no, unless separately approved operator canary evidence exists |  |
+| Cloudflare dashboard/settings/secrets change | no, unless separately approved and recorded |  |
 
 If `npm run release:plan` for the reviewed runtime diff reports unexpected deploy units, stop and reconcile before deploying.
 
-## 4. Required Production D1 Migration Evidence Through 0052
+## 4. Production Execution Framework Evidence
+
+| Check | Evidence | Result |
+| --- | --- | --- |
+| Readiness dossier generated locally and final verdict remains blocked |  | BLOCKED |
+| Cloudflare resource model generated locally and repo-vs-live distinction reviewed |  | BLOCKED |
+| Rollback drill generated and placeholders completed |  | BLOCKED |
+| Live-read-only plan reviewed as opt-in and GET-only by default |  | BLOCKED |
+| No deploy/migration/Cloudflare mutation/rollback execution command was run by these tools |  | BLOCKED |
+
+## 5. Required Production D1 Migration Evidence Through 0058
 
 Required latest auth migration:
 
 ```text
-0052_add_admin_runtime_budget_switches.sql
+0058_add_legacy_media_reset_actions.sql
 ```
 
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Production auth D1 migration status checked by operator |  | BLOCKED |
-| `0052_add_admin_runtime_budget_switches.sql` present/applied |  | BLOCKED |
+| `0058_add_legacy_media_reset_actions.sql` present/applied |  | BLOCKED |
 | Evidence records migration names/status only |  | BLOCKED |
 | No remote migration was run by Codex or automation from this checklist |  | BLOCKED |
-| Migration `0052` verified before auth Worker deploy |  | BLOCKED |
+| Migration `0058` verified before auth Worker deploy |  | BLOCKED |
 
-## 5. Auth Worker Deploy Verification
+## 6. Auth Worker Deploy Verification
 
 Operator action only. Do not deploy from this checklist automatically.
 
@@ -122,17 +94,16 @@ Operator action only. Do not deploy from this checklist automatically.
 | --- | --- | --- |
 | Auth Worker deployed from reviewed main commit |  | BLOCKED |
 | Auth Worker deployment id/version recorded if available |  | BLOCKED |
-| Phase 3.4 member personal image route sees migration `0048` table before Worker deploy |  | BLOCKED |
-| Phase 4.5 admin async video job route sees migration `0049` columns before Worker deploy |  | BLOCKED |
-| Phase 4.6 News Pulse visual generation sees migration `0050` columns before Worker deploy |  | BLOCKED |
-| Phase 4.15.1 Admin AI budget switch routes see migration `0052` tables before Worker deploy |  | BLOCKED |
+| Member AI usage routes see required usage-attempt tables before Worker deploy |  | BLOCKED |
+| Admin AI/budget routes see required budget metadata/switch/cap tables before Worker deploy |  | BLOCKED |
+| Tenant asset/manual-review/reset routes see migrations `0056`, `0057`, and `0058` before Worker deploy |  | BLOCKED |
 | `/api/admin/billing/reviews` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id/resolution` write route remains admin/MFA/same-origin/idempotency guarded |  | BLOCKED |
 | `/api/admin/billing/reconciliation` available to admin only |  | BLOCKED |
 | Live billing flags remain disabled unless separately approved |  | BLOCKED |
 
-## 6. Static/Pages Deploy Verification
+## 7. Static/Pages Deploy Verification
 
 Operator action only. Do not deploy from this checklist automatically.
 
@@ -141,13 +112,14 @@ Operator action only. Do not deploy from this checklist automatically.
 | Static/pages deployed from reviewed main commit |  | BLOCKED |
 | Pages deployment/build id recorded if available |  | BLOCKED |
 | Admin Control Plane loads |  | BLOCKED |
+| Production Execution Framework panel renders copy-only commands |  | BLOCKED |
 | Billing Review Queue UI appears |  | BLOCKED |
 | Billing Reconciliation UI appears |  | BLOCKED |
 | AI Budget Switches panel shows safe master/app/effective status and does not expose Cloudflare values |  | BLOCKED |
 | AI Budget Switch update requires confirmation, bounded reason, and `Idempotency-Key` |  | BLOCKED |
 | Safety copy says review/reconciliation is operator-only and read-only where applicable |  | BLOCKED |
 
-## 7. Admin Login/MFA Verification
+## 8. Admin Login/MFA Verification
 
 | Check | Evidence | Result |
 | --- | --- | --- |
@@ -156,7 +128,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | Non-admin cannot access admin billing review/reconciliation endpoints |  | BLOCKED |
 | Evidence redacts user data, cookies, tokens, and MFA material |  | BLOCKED |
 
-## 8. Billing Review Queue Smoke Checks
+## 9. Billing Review Queue Smoke Checks
 
 | Check | Expected | Evidence | Result |
 | --- | --- | --- | --- |
@@ -167,7 +139,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | `provider=stripe&provider_mode=live` filter | filtered list |  | BLOCKED |
 | Response excludes raw payload/signature/secret/card/payment method data | none rendered |  | BLOCKED |
 
-## 9. Billing Review Detail Smoke Checks
+## 10. Billing Review Detail Smoke Checks
 
 | Check | Expected | Evidence | Result |
 | --- | --- | --- | --- |
@@ -178,7 +150,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | Side effects disabled represented | false/safe status |  | BLOCKED |
 | No raw payload/signature/secret/card/payment method data | none rendered |  | BLOCKED |
 
-## 10. Billing Review Resolution Smoke Checks
+## 11. Billing Review Resolution Smoke Checks
 
 Run only on approved test review data. This route writes review metadata only.
 
@@ -194,7 +166,7 @@ Run only on approved test review data. This route writes review metadata only.
 | No subscription state change | unchanged |  | BLOCKED |
 | No Stripe action | none |  | BLOCKED |
 
-## 11. Billing Reconciliation Smoke Checks
+## 12. Billing Reconciliation Smoke Checks
 
 | Check | Expected | Evidence | Result |
 | --- | --- | --- | --- |
@@ -208,7 +180,7 @@ Run only on approved test review data. This route writes review metadata only.
 | No raw payload/signature/secret/card/payment method data | none rendered |  | BLOCKED |
 | No Stripe API call | none |  | BLOCKED |
 
-## 12. Admin Control Plane UI Smoke Checks
+## 13. Admin Control Plane UI Smoke Checks
 
 | Check | Expected | Evidence | Result |
 | --- | --- | --- | --- |
@@ -217,14 +189,15 @@ Run only on approved test review data. This route writes review metadata only.
 | Detail panel renders safe metadata | sanitized only |  | BLOCKED |
 | Resolve/dismiss requires note and confirmation | enforced |  | BLOCKED |
 | Billing Reconciliation panel renders | generated timestamp, summaries, sections |  | BLOCKED |
+| Readiness Production Execution Framework renders | dossier/resource model/post-deploy/rollback sections |  | BLOCKED |
 | Blocked/live billing warning visible | visible |  | BLOCKED |
 | Read-only/no-Stripe/no-remediation copy visible | visible |  | BLOCKED |
 | Error/unavailable states are safe | readable, no fake success |  | BLOCKED |
 | Mobile layout has no overlapping badges/text | verified |  | BLOCKED |
 
-## 13. Phase 3.4 Member Personal Image Gateway Smoke Checks
+## 14. Member AI Gateway Smoke Checks
 
-These checks are for `POST /api/ai/generate-image` without organization context only. They must not be used to claim music, video, admin AI, platform/background AI, internal AI Worker routes, or org-scoped routes are migrated.
+Run only for member AI routes in scope for the reviewed release plan. These checks must not be used to claim admin AI, platform/background AI, internal AI Worker routes, or org-scoped routes unless those surfaces are explicitly in scope.
 
 | Check | Expected | Evidence | Result |
 | --- | --- | --- | --- |
@@ -238,7 +211,7 @@ These checks are for `POST /api/ai/generate-image` without organization context 
 | Org-scoped image behavior | unchanged existing org attempt path |  | BLOCKED |
 | Admin legacy/no-org image behavior | unchanged/exempt as documented |  | BLOCKED |
 
-## 14. No Raw Payload/Signature/Secret/Card Rendering Checks
+## 15. No Raw Payload/Signature/Secret/Card Rendering Checks
 
 Record `not observed` or a redacted field-name issue only. Do not paste forbidden values.
 
@@ -252,7 +225,7 @@ Record `not observed` or a redacted field-name issue only. Do not paste forbidde
 | Payment method detail |  |  | BLOCKED |
 | Unredacted customer PII |  |  | BLOCKED |
 
-## 15. No Stripe Action Checks
+## 16. No Stripe Action Checks
 
 | Check | Evidence | Result |
 | --- | --- | --- |
@@ -263,7 +236,7 @@ Record `not observed` or a redacted field-name issue only. Do not paste forbidde
 | No subscription cancellation call |  | BLOCKED |
 | UI has no Stripe/remediation action buttons |  | BLOCKED |
 
-## 16. No Credit Mutation Checks
+## 17. No Credit Mutation Checks
 
 | Check | Evidence | Result |
 | --- | --- | --- |
@@ -273,14 +246,24 @@ Record `not observed` or a redacted field-name issue only. Do not paste forbidde
 | Review resolution does not create credit ledger entries |  | BLOCKED |
 | Review resolution does not alter subscription state |  | BLOCKED |
 | Rollback plan does not include credit ledger mutation |  | BLOCKED |
-| Phase 3.4 rollback plan does not delete `member_ai_usage_attempts` rows |  | BLOCKED |
+| Rollback plan does not edit production D1 tables or delete AI attempt rows |  | BLOCKED |
 
-## 17. Evidence Collection Command
+## 18. Evidence Collection Command
 
 Local main-release gate:
 
 ```bash
 npm run check:main-release-readiness -- --markdown
+```
+
+Local production execution framework:
+
+```bash
+npm run readiness:dossier
+npm run readiness:dossier:markdown
+npm run cloudflare:resource-model
+npm run cloudflare:resource-model:markdown
+npm run release:rollback-drill
 ```
 
 Live read-only evidence collector:
@@ -295,21 +278,23 @@ npm run readiness:evidence -- \
   --output docs/production-readiness/evidence/YYYY-MM-DD-main-readiness.md
 ```
 
-These commands do not deploy, migrate, call Stripe, mutate Cloudflare, or prove production/live billing readiness.
+These commands do not deploy, run remote migrations, call Stripe/providers, mutate Cloudflare, execute rollback, or prove production/live billing readiness.
 
-## 18. Rollback Notes
+## 19. Rollback Notes
 
 | Rollback Item | Evidence | Result |
 | --- | --- | --- |
 | Previous auth Worker version identified |  | BLOCKED |
+| Previous AI/contact Worker versions identified if affected |  | BLOCKED |
 | Previous static/pages deployment identified |  | BLOCKED |
+| `npm run release:rollback-drill` completed as a non-executing artifact |  | BLOCKED |
 | Live billing flags remain disabled |  | BLOCKED |
 | Billing provider/review/ledger/subscription records will not be deleted |  | BLOCKED |
 | Member AI attempt rows will not be deleted |  | BLOCKED |
-| Migration `0048` remains additive/forward-only |  | BLOCKED |
+| Migrations through `0058` remain additive/forward-only |  | BLOCKED |
 | Rollback owner and communication channel recorded |  | BLOCKED |
 
-## 19. Final Operator Verdict
+## 20. Final Operator Verdict
 
 Final verdict:
 

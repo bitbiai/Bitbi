@@ -23,6 +23,18 @@ This template records current evidence only. It does not approve production read
 - Auth/AI paired rollout warning reviewed: yes/no/not applicable
 - No deploy/no remote migration statement reviewed: yes/no
 
+## Production Readiness Execution Dossier
+
+- `npm run readiness:dossier` JSON output path:
+- `npm run readiness:dossier:markdown` output path:
+- Dossier generated timestamp:
+- Dossier final verdict kept `productionReadiness: blocked`:
+- Dossier final verdict kept `liveBillingReadiness: blocked`:
+- Evidence index unsafe marker count reviewed without raw values:
+- Billing canary evidence status: pending/attached/rejected
+- Tenant/reset/backfill/access-switch blockers still visible:
+- Redaction guarantees reviewed:
+
 ## Deployment State
 
 - Static/Pages deployed commit:
@@ -43,6 +55,10 @@ This template records current evidence only. It does not approve production read
 
 ## Cloudflare Resource Verification
 
+- `npm run cloudflare:resource-model` JSON output path:
+- `npm run cloudflare:resource-model:markdown` output path:
+- Repo-declared resources reviewed separately from live Cloudflare evidence:
+- Resource model confirms no Cloudflare API calls:
 - D1 binding verified without exposing values:
 - R2 bindings verified without listing private objects:
 - Queues verified:
@@ -50,6 +66,7 @@ This template records current evidence only. It does not approve production read
 - Service bindings verified:
 - Cloudflare Images verified:
 - WAF/static header/RUM/alert dashboard checks:
+- Dashboard-managed custom domains/certificates/rate limits/alerts evidence path:
 
 ## Live Health And Security
 
@@ -57,7 +74,12 @@ This template records current evidence only. It does not approve production read
 - Static page smoke result:
 - Admin Readiness & Evidence dashboard reviewed (`/admin/#readiness`):
 - `GET /api/admin/readiness/status` result, if deployed:
+- `GET /api/admin/billing/evidence/status` result, if admin cookie provided:
+- `GET /api/admin/operations/timeline` result, if admin cookie provided:
+- Tenant domain evidence result, if admin cookie provided:
 - `npm run readiness:live-readonly` command and output path:
+- Live checks were opt-in and GET-only by default:
+- Admin cookie/header redaction confirmed:
 - Security header result:
 - Live runtime canary mode: disabled/skipped/live-read-only
 - Fetch Metadata cross-site write rejection evidence:
@@ -70,6 +92,8 @@ This template records current evidence only. It does not approve production read
 
 ## Rollback Plan
 
+- `npm run release:rollback-drill` output path:
+- Rollback drill reviewed as non-executing:
 - Previous Auth Worker version/commit:
 - Previous AI Worker version/commit:
 - Previous Contact Worker version/commit:
@@ -77,6 +101,7 @@ This template records current evidence only. It does not approve production read
 - Rollback owner:
 - Rollback time window:
 - Smoke test after rollback:
+- Blocked claims after rollback reviewed:
 
 ## Redaction Checklist
 

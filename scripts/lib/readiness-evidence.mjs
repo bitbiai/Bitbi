@@ -409,6 +409,39 @@ async function collectAdminReadinessEvidence({ inputUrl, adminCookieHeader, fetc
   });
 }
 
+async function collectAdminEndpointEvidence({ id, label, inputUrl, appendPath, adminCookieHeader, fetchImpl }) {
+  if (!inputUrl) {
+    return {
+      id,
+      label,
+      mode: "skipped",
+      reason: "No admin base URL was provided.",
+    };
+  }
+  if (!adminCookieHeader) {
+    return {
+      id,
+      label,
+      mode: "skipped",
+      reason:
+        "Admin read-only check was not requested because BITBI_READINESS_ADMIN_COOKIE was not provided. No unauthenticated probe was sent.",
+    };
+  }
+
+  return collectHttpEvidence({
+    id,
+    label,
+    inputUrl,
+    appendPath,
+    parseJson: true,
+    headers: {
+      Accept: "application/json",
+      Cookie: adminCookieHeader,
+    },
+    fetchImpl,
+  });
+}
+
 async function collectLiveChecks(options) {
   const includeLive = options.includeLive === true;
   const urls = options.urls || {};
@@ -481,6 +514,14 @@ async function collectLiveChecks(options) {
       fetchImpl,
     }),
     collectHttpEvidence({
+      id: "unknown-api-safe-failure",
+      label: "Unknown API safe failure",
+      inputUrl: urls.authWorkerUrl,
+      appendPath: "/api/__readiness_missing_route__",
+      parseJson: true,
+      fetchImpl,
+    }),
+    collectHttpEvidence({
       id: "ai-worker-health",
       label: "AI Worker health",
       inputUrl: urls.aiWorkerUrl,
@@ -498,6 +539,30 @@ async function collectLiveChecks(options) {
     }),
     collectAdminReadinessEvidence({
       inputUrl: urls.adminReadinessUrl,
+      adminCookieHeader,
+      fetchImpl,
+    }),
+    collectAdminEndpointEvidence({
+      id: "admin-billing-evidence-status",
+      label: "Admin billing evidence status",
+      inputUrl: urls.adminReadinessUrl,
+      appendPath: "/api/admin/billing/evidence/status",
+      adminCookieHeader,
+      fetchImpl,
+    }),
+    collectAdminEndpointEvidence({
+      id: "admin-operations-timeline",
+      label: "Admin operations timeline",
+      inputUrl: urls.adminReadinessUrl,
+      appendPath: "/api/admin/operations/timeline",
+      adminCookieHeader,
+      fetchImpl,
+    }),
+    collectAdminEndpointEvidence({
+      id: "admin-tenant-domain-evidence",
+      label: "Admin tenant domain evidence",
+      inputUrl: urls.adminReadinessUrl,
+      appendPath: "/api/admin/tenant-assets/domains/evidence",
       adminCookieHeader,
       fetchImpl,
     }),
@@ -558,6 +623,7 @@ export async function collectReadinessEvidence(options = {}) {
         ? "Read-only live/staging HTTP evidence was collected, but Cloudflare resource, secret, and migration evidence remains unverified by this helper."
         : "No live/staging Cloudflare validation evidence was collected by this helper.",
       "No remote D1 migration status evidence was collected by this helper.",
+      "Admin readiness, billing evidence, operations timeline, and tenant domain checks require an operator-provided admin cookie and remain skipped otherwise.",
       "No Stripe Testmode checkout/webhook evidence was collected by this helper.",
       "No Stripe live credit-pack or BITBI Pro subscription canary evidence was collected by this helper.",
       "No restore drill, alert, WAF, static header, or RUM dashboard evidence was collected by this helper.",

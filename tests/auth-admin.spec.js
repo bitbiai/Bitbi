@@ -1929,10 +1929,58 @@ async function mockAdminControlPlane(page, captures = {}) {
           'npm run release:cutover-evidence',
           'npm run release:cutover-evidence:markdown',
           'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai',
+          'npm run readiness:dossier',
+          'npm run cloudflare:resource-model',
+          'npm run release:rollback-drill',
         ],
         safeToRunLocally: true,
         browserExecutesCommands: false,
         noDeployOrMigration: true,
+      },
+      productionExecution: {
+        status: 'blocked',
+        repoSupported: true,
+        deployPending: true,
+        liveEvidencePending: true,
+        productionReadiness: 'blocked',
+        repoTruthIsLiveProof: false,
+        noBrowserDeploy: true,
+        noBrowserMigration: true,
+        noBrowserRollback: true,
+      },
+      cloudflareResourceModel: {
+        status: 'repo_declared_live_verification_required',
+        command: 'npm run cloudflare:resource-model',
+        markdownCommand: 'npm run cloudflare:resource-model:markdown',
+        repoDeclaredResources: ['Workers', 'D1', 'R2', 'Queues', 'Durable Objects', 'Service bindings', 'Cron triggers'],
+        dashboardManagedRequirements: ['WAF/rate limits', 'alerts', 'custom domains/certificates'],
+        liveVerificationRequired: true,
+        cloudflareApiCallsMade: false,
+        secretValuesExposed: false,
+      },
+      readinessDossier: {
+        status: 'local_only_available',
+        command: 'npm run readiness:dossier',
+        markdownCommand: 'npm run readiness:dossier:markdown',
+        outputFormats: ['json', 'markdown'],
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        defaultLiveCalls: false,
+      },
+      postDeployVerification: {
+        status: 'pending_operator_opt_in',
+        command: 'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai',
+        getOnlyByDefault: true,
+        adminCookieRequiredForAdminPanels: true,
+        adminCookieValueRendered: false,
+        checks: ['public health', 'security headers', 'admin readiness', 'billing evidence', 'operations timeline'],
+      },
+      rollbackDrill: {
+        status: 'template_available_not_executed',
+        command: 'npm run release:rollback-drill',
+        rollbackExecuted: false,
+        ownerPlaceholder: 'TBD operator',
+        requiredEvidence: ['previous commit', 'previous Worker deploy IDs', 'previous static deploy ID', 'post-rollback smoke checks'],
       },
       blockedClaims: [
         { label: 'Production readiness', status: 'blocked' },
@@ -1956,6 +2004,7 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 6 tenant asset/storage evidence expansion', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 7 billing evidence/control plane', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 9 production readiness execution framework', status: 'implemented_repo_supported' },
       ],
       runtimeSafetyGates: [
         {
@@ -1981,6 +2030,9 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'Billing safety local tests', status: 'implemented_repo_supported' },
         { label: 'Readiness/canary local-only safety contract', status: 'implemented_repo_supported' },
         { label: 'AI budget/platform evidence', status: 'implemented_selected_scopes_live_evidence_pending' },
+        { label: 'Cloudflare resource model', status: 'repo_validated_live_verification_required' },
+        { label: 'Production readiness dossier', status: 'local_only_available_blocked_verdict' },
+        { label: 'Rollback drill evidence', status: 'template_available_pending_operator_fill' },
       ],
     });
   });
@@ -10305,6 +10357,18 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('admin readiness status live result');
     await expect(readiness).toContainText('npm run release:cutover-evidence');
     await expect(readiness).toContainText('npm run readiness:live-readonly');
+    await expect(readiness).toContainText('Production Execution Framework');
+    await expect(readiness).toContainText('Production Execution State');
+    await expect(readiness).toContainText('Cloudflare Resource Model');
+    await expect(readiness).toContainText('Readiness Dossier');
+    await expect(readiness).toContainText('Post-Deploy Read-Only Verification');
+    await expect(readiness).toContainText('Rollback Drill');
+    await expect(readiness).toContainText('repo-supported');
+    await expect(readiness).toContainText('deploy-pending');
+    await expect(readiness).toContainText('live-evidence-pending');
+    await expect(readiness).toContainText('npm run readiness:dossier');
+    await expect(readiness).toContainText('npm run cloudflare:resource-model');
+    await expect(readiness).toContainText('npm run release:rollback-drill');
     await expect(readiness).toContainText('Blocked Claims');
     await expect(readiness).toContainText('Production readiness');
     await expect(readiness).toContainText('Live billing readiness');
@@ -10317,6 +10381,7 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
     await expect(readiness).toContainText('P1 Wave 5 live evidence/cutover tooling');
     await expect(readiness).toContainText('P1 Wave 7 billing evidence/control plane');
+    await expect(readiness).toContainText('P1 Wave 9 production readiness execution framework');
     await expect(readiness).toContainText('Runtime Safety Gates');
     await expect(readiness).toContainText('disabled default off');
     await expect(readiness).toContainText('Fetch Metadata CSRF hardening');
@@ -10325,11 +10390,27 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Production Readiness Evidence');
     await expect(readiness).toContainText('Live Billing Evidence');
     await expect(readiness).toContainText('Billing evidence/control plane');
+    await expect(readiness).toContainText('Production readiness dossier');
+    await expect(readiness).toContainText('Rollback drill evidence');
     await expect(readiness).toContainText('Command Center');
     await expect(readiness).toContainText('npm run check:js');
     await expect(readiness).toContainText('npm run test:tenant-assets');
     await expect(readiness.getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-check switch|live billing enablement|run commands/i })).toHaveCount(0);
+    await expect(readiness.getByRole('button', { name: /deploy now|run remote migration|execute rollback|enable live billing|call stripe|enable reset|run backfill|switch tenant access/i })).toHaveCount(0);
     await expect(page.locator('a[href*="/de/admin"]')).toHaveCount(0);
+
+    await readiness.getByRole('button', { name: /^Copy resource model$/ }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run cloudflare:resource-model');
+    await readiness.getByRole('button', { name: 'Copy resource model Markdown' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run cloudflare:resource-model:markdown');
+    await readiness.getByRole('button', { name: 'Copy dossier JSON' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run readiness:dossier');
+    await readiness.getByRole('button', { name: 'Copy dossier Markdown' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run readiness:dossier:markdown');
+    await readiness.getByRole('button', { name: 'Copy live-read-only command' }).click();
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run readiness:live-readonly');
+    await readiness.getByRole('button', { name: 'Copy rollback drill command' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run release:rollback-drill');
 
     await readiness.getByRole('button', { name: 'Copy commands' }).first().click();
     await expect.poll(() => readClipboardValue(page)).toContain('npm run check:js');
