@@ -1,6 +1,6 @@
 # Data Inventory
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
@@ -24,8 +24,9 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 
 ## Current Billing And AI Cost Data
 
-- Credit ledgers, usage attempts/events, billing review/reconciliation evidence, platform budget switches/caps/repair/archive tables exist.
+- Credit ledgers, usage attempts/events, billing evidence status, billing review/reconciliation evidence, platform budget switches/caps/repair/archive tables exist.
 - Live billing readiness remains blocked.
+- Billing evidence surfaces must remain presence/shape-only for Stripe config and must not store or render raw Stripe payloads, signatures, secrets, payment methods, cookies, or session tokens. Refund/dispute/payment-failure records are review-only unless a later approved workflow explicitly changes credit behavior.
 - Admin/platform budget controls are scoped; internal AI Worker provider-cost routes require caller policy, but not every provider/budget scope is universally capped.
 
 ## Current Media And Tenant Asset Data

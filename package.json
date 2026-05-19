@@ -50,6 +50,7 @@
     "readiness:evidence": "node scripts/collect-readiness-evidence.mjs",
     "readiness:evidence:markdown": "node scripts/collect-readiness-evidence.mjs --markdown",
     "readiness:live-readonly": "node scripts/collect-readiness-evidence.mjs --include-live --markdown",
+    "billing:canary-evidence": "node scripts/billing-canary-evidence.mjs",
     "dry-run:tenant-assets": "node scripts/dry-run-tenant-asset-ownership.mjs",
     "dry-run:tenant-assets:images": "node scripts/dry-run-tenant-asset-ownership.mjs --domain folders-images --fixtures scripts/fixtures/tenant-assets/folders-images.json",
     "tenant-assets:summarize-evidence": "node scripts/summarize-tenant-asset-evidence.mjs",

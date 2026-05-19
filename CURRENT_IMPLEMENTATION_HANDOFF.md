@@ -1,6 +1,6 @@
 # Current Implementation Handoff
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 Purpose: short restart guide for future Codex sessions. The primary current-state baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
@@ -19,8 +19,8 @@ This handoff is not production approval, live billing approval, legal compliance
 ## Current Implemented State
 
 - Auth/session/admin MFA/service-auth/route-policy/rate-limit/body-size/secret-purpose hardening exists.
-- Admin Control Plane surfaces implemented operator tools for users, billing, lifecycle, readiness/evidence status, AI Lab, AI usage, budget switches, caps, reconciliation, repair, reports, archives, and tenant manual-review visibility.
-- Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, and BITBI Pro scaffolding exist.
+- Admin Control Plane surfaces implemented operator tools for users, billing evidence, billing reviews/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget switches, caps, repair, reports, archives, and tenant manual-review visibility.
+- Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, BITBI Pro scaffolding, read-only billing evidence status, and blocked billing canary skeleton tooling exist.
 - Member image/music/video AI Cost Gateway paths, selected admin/platform budget controls, and Auth/AI caller-policy release compatibility checks exist.
 - Data lifecycle planning/export/archive/cleanup foundations exist; high-risk lifecycle planning now requires an `Idempotency-Key`.
 - Tenant asset ownership work exists for folders/images: ownership metadata columns, new personal-write metadata, read diagnostics/evidence, manual-review import/queue/status/Admin visibility, and operator evidence decisions.
@@ -36,7 +36,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Ownership backfill, access-switching, tenant isolation, and confirmed reset/deletion remain blocked.
 - Manual-review evidence still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
 - Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and the confirmation gate remains closed.
-- Cloudflare WAF/static headers/RUM/alerts, secrets, bindings, restore drill, rollback evidence, and Stripe/live billing canaries still require operator evidence.
+- Cloudflare WAF/static headers/RUM/alerts, secrets, bindings, restore drill, rollback evidence, Stripe dashboard/webhook setup, and live billing canaries still require operator evidence. Checkout creation does not grant credits; verified webhook/payment/invoice events are required. Refund/dispute/payment-failure handling remains review-only.
 
 ## Read First
 

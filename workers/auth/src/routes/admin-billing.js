@@ -24,6 +24,7 @@ import {
   listAdminPlans,
   normalizeBillingIdempotencyKey,
 } from "../lib/billing.js";
+import { buildBillingEvidenceStatus } from "../lib/billing-evidence.js";
 import {
   BillingEventError,
   billingEventErrorResponse,
@@ -124,6 +125,7 @@ async function auditBillingEvent(ctx, adminUser, action, meta = {}, targetUserId
 export async function handleAdminBilling(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
   const isBillingRoute = pathname === "/api/admin/billing/plans"
+    || pathname === "/api/admin/billing/evidence/status"
     || pathname === "/api/admin/billing/events"
     || pathname === "/api/admin/billing/reconciliation"
     || pathname === "/api/admin/billing/reviews"
@@ -147,6 +149,12 @@ export async function handleAdminBilling(ctx) {
     if (limited) return limited;
     const plans = await listAdminPlans(env);
     return json({ ok: true, plans, livePaymentProviderEnabled: false });
+  }
+
+  if (pathname === "/api/admin/billing/evidence/status" && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    return json(buildBillingEvidenceStatus(env));
   }
 
   if (pathname === "/api/admin/billing/events" && method === "GET") {

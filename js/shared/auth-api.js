@@ -255,6 +255,10 @@ export function apiAdminBillingPlans() {
     return request('GET', '/admin/billing/plans');
 }
 
+export function apiAdminBillingEvidenceStatus() {
+    return request('GET', '/admin/billing/evidence/status');
+}
+
 export function apiAdminOrganizationBilling(orgId) {
     return request('GET', `/admin/orgs/${encodeURIComponent(orgId)}/billing`);
 }

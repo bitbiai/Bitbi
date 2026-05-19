@@ -887,6 +887,10 @@ export async function getBillingReconciliationReport(env) {
   const conflictEvents = providerEvents.filter((event) =>
     /conflict|mismatch/i.test(`${event.errorCode || ""} ${event.errorMessage || ""}`)
   );
+  const ignoredPriceOrModeEvents = providerEvents.filter((event) =>
+    event.processingStatus === "ignored" &&
+    /price|mode|one-time|subscription/i.test(`${event.eventType || ""} ${event.errorCode || ""} ${event.errorMessage || ""}`)
+  );
   if (failedEvents.length > 0) {
     providerItems.push(reportItem({
       id: "provider_events_failed",
@@ -914,6 +918,16 @@ export async function getBillingReconciliationReport(env) {
       detail: "Payload mismatch/conflict markers require operator investigation before billing readiness.",
       count: conflictEvents.length,
       refs: { sampleEventId: safeString(conflictEvents[0].id, 128) },
+    }));
+  }
+  if (ignoredPriceOrModeEvents.length > 0) {
+    providerItems.push(reportItem({
+      id: "provider_events_price_or_mode_ignored",
+      severity: "info",
+      title: "Live Stripe price/mode mismatch events were ignored locally.",
+      detail: "Wrong Price ID, wrong provider mode, or non-subscription invoice signals must remain no-grant events; keep sample evidence for canary readiness.",
+      count: ignoredPriceOrModeEvents.length,
+      refs: { sampleEventId: safeString(ignoredPriceOrModeEvents[0].id, 128) },
     }));
   }
   if (providerEvents.length === 0) {
@@ -988,6 +1002,25 @@ export async function getBillingReconciliationReport(env) {
   const completedSubscriptionWithoutProviderId = subscriptionCheckouts.filter((row) =>
     row.status === "completed" && !row.provider_subscription_id
   );
+  const checkoutEventIdsWithLedger = new Set([
+    ...organizationCheckouts.filter((row) => row.billing_event_id && row.credit_ledger_entry_id),
+    ...memberCheckouts.filter((row) => row.billing_event_id && row.member_credit_ledger_entry_id),
+  ].map((row) => row.billing_event_id));
+  const checkoutGrantEventsWithoutLedger = providerEvents.filter((event) =>
+    event.eventType === "checkout.session.completed" &&
+    event.processingStatus === "planned" &&
+    !checkoutEventIdsWithLedger.has(event.id)
+  );
+  const providerGrantLedgersWithoutCheckout = [
+    ...organizationLedger.filter((row) =>
+      row.source === "stripe_live_checkout" &&
+      !organizationCheckouts.some((checkout) => checkout.credit_ledger_entry_id === row.id)
+    ),
+    ...memberLedger.filter((row) =>
+      row.source === "stripe_live_checkout" &&
+      !memberCheckouts.some((checkout) => checkout.member_credit_ledger_entry_id === row.id)
+    ),
+  ];
   if (completedOrgWithoutLedger.length || completedMemberWithoutLedger.length) {
     const sample = completedOrgWithoutLedger[0] || completedMemberWithoutLedger[0];
     checkoutItems.push(reportItem({
@@ -1007,6 +1040,26 @@ export async function getBillingReconciliationReport(env) {
       detail: "Credits appear locally linked to checkout sessions but lack a billing provider event id for audit traceability.",
       count: ledgerLinkedWithoutEvent.length,
       refs: safeRowRefs(ledgerLinkedWithoutEvent[0]),
+    }));
+  }
+  if (checkoutGrantEventsWithoutLedger.length > 0) {
+    checkoutItems.push(reportItem({
+      id: "webhook_checkout_event_without_ledger",
+      severity: "critical",
+      title: "Live checkout webhook events lack linked local ledger evidence.",
+      detail: "A planned checkout.session.completed event without a linked live checkout ledger row is a no-readiness signal until reviewed.",
+      count: checkoutGrantEventsWithoutLedger.length,
+      refs: safeRowRefs(checkoutGrantEventsWithoutLedger[0]),
+    }));
+  }
+  if (providerGrantLedgersWithoutCheckout.length > 0) {
+    checkoutItems.push(reportItem({
+      id: "provider_grants_without_checkout_link",
+      severity: "warning",
+      title: "Provider-sourced credit grants are missing checkout links.",
+      detail: "Stripe live checkout grants should remain traceable to a sanitized checkout session and provider event.",
+      count: providerGrantLedgersWithoutCheckout.length,
+      refs: safeRowRefs(providerGrantLedgersWithoutCheckout[0]),
     }));
   }
   if (expiredInconsistent.length > 0) {
@@ -1051,6 +1104,17 @@ export async function getBillingReconciliationReport(env) {
   );
   const duplicateOrgIdempotency = countDuplicateIdempotencyKeys(organizationLedger, ["organization_id"]);
   const duplicateMemberIdempotency = countDuplicateIdempotencyKeys(memberLedger, ["user_id"]);
+  const manualGrantRows = [
+    ...organizationLedger,
+    ...memberLedger,
+  ].filter((row) => /manual/i.test(String(row.source || "")));
+  const providerGrantRows = [
+    ...organizationLedger,
+    ...memberLedger,
+  ].filter((row) => /stripe_/i.test(String(row.source || "")));
+  const manualProviderMixedRows = manualGrantRows.filter((row) =>
+    /stripe|checkout|invoice|subscription/i.test(String(row.idempotency_key || ""))
+  );
   const ledgerItems = [];
   if (negativeOrgBalances.length || negativeMemberBalances.length) {
     const sample = negativeOrgBalances[0] || negativeMemberBalances[0];
@@ -1083,6 +1147,24 @@ export async function getBillingReconciliationReport(env) {
       count: duplicateOrgIdempotency + duplicateMemberIdempotency,
     }));
   }
+  if (manualProviderMixedRows.length > 0) {
+    ledgerItems.push(reportItem({
+      id: "manual_provider_grant_separation_risk",
+      severity: "warning",
+      title: "Manual grants contain provider-like idempotency evidence.",
+      detail: "Manual and provider-sourced credit grants should remain clearly separated for accounting review.",
+      count: manualProviderMixedRows.length,
+      refs: safeRowRefs(manualProviderMixedRows[0]),
+    }));
+  } else if (manualGrantRows.length > 0 || providerGrantRows.length > 0) {
+    ledgerItems.push(reportItem({
+      id: "manual_provider_grant_separation_observed",
+      severity: "info",
+      title: "Manual and provider-sourced grant rows are separated in the bounded scan.",
+      detail: "Manual grants and Stripe-sourced grants are counted separately; this remains local evidence only.",
+      count: manualGrantRows.length + providerGrantRows.length,
+    }));
+  }
   if (ledgerItems.length === 0) {
     ledgerItems.push(reportItem({
       id: "credit_ledger_no_local_mismatch",
@@ -1097,6 +1179,8 @@ export async function getBillingReconciliationReport(env) {
   const activeSubscriptions = memberSubscriptions.filter((row) => row.status === "active" || row.status === "trialing");
   const missingSubscriptionIds = memberSubscriptions.filter((row) => !row.provider_subscription_id);
   const cancelAtPeriodEnd = memberSubscriptions.filter((row) => Number(row.cancel_at_period_end || 0) === 1);
+  const activeSubscriptionIds = new Set(activeSubscriptions.map((row) => row.provider_subscription_id).filter(Boolean));
+  const knownSubscriptionIds = new Set(memberSubscriptions.map((row) => row.provider_subscription_id).filter(Boolean));
   const subscriptionBucketsByProviderId = new Map();
   for (const bucket of memberCreditBuckets) {
     if (bucket.bucket_type !== "subscription" || !bucket.provider_subscription_id) continue;
@@ -1115,6 +1199,17 @@ export async function getBillingReconciliationReport(env) {
     return !buckets.some((bucket) => (bucketEventsByBucketId.get(bucket.id) || [])
       .some((event) => event.source === "subscription_period_top_up"));
   });
+  const activeWithoutBucket = activeSubscriptions.filter((subscription) =>
+    !subscriptionBucketsByProviderId.has(subscription.provider_subscription_id)
+  );
+  const subscriptionBucketsWithoutActiveSubscription = memberCreditBuckets.filter((bucket) =>
+    bucket.bucket_type === "subscription" &&
+    bucket.provider_subscription_id &&
+    !activeSubscriptionIds.has(bucket.provider_subscription_id)
+  );
+  const subscriptionBucketsWithoutKnownSubscription = subscriptionBucketsWithoutActiveSubscription.filter((bucket) =>
+    !knownSubscriptionIds.has(bucket.provider_subscription_id)
+  );
   const subscriptionItems = [];
   if (missingSubscriptionIds.length > 0) {
     subscriptionItems.push(reportItem({
@@ -1134,6 +1229,26 @@ export async function getBillingReconciliationReport(env) {
       detail: "This local signal needs operator review against paid invoice history before readiness claims.",
       count: activeWithoutTopUp.length,
       refs: safeRowRefs(activeWithoutTopUp[0]),
+    }));
+  }
+  if (activeWithoutBucket.length > 0) {
+    subscriptionItems.push(reportItem({
+      id: "subscriptions_active_without_bucket",
+      severity: "warning",
+      title: "Active/trialing subscriptions lack a subscription credit bucket.",
+      detail: "Active BITBI Pro records should reconcile to a subscription bucket before live billing readiness claims.",
+      count: activeWithoutBucket.length,
+      refs: safeRowRefs(activeWithoutBucket[0]),
+    }));
+  }
+  if (subscriptionBucketsWithoutActiveSubscription.length > 0) {
+    subscriptionItems.push(reportItem({
+      id: "subscription_buckets_without_active_subscription",
+      severity: "warning",
+      title: "Subscription credit buckets exist without active/trialing subscriptions.",
+      detail: "Buckets tied to canceled, inactive, or missing subscriptions need operator review; no automatic credit mutation is performed.",
+      count: subscriptionBucketsWithoutActiveSubscription.length,
+      refs: safeRowRefs(subscriptionBucketsWithoutActiveSubscription[0]),
     }));
   }
   if (cancelAtPeriodEnd.length > 0) {
@@ -1162,6 +1277,7 @@ export async function getBillingReconciliationReport(env) {
       failed: failedEvents.length,
       duplicateEventIds: duplicateEventIds.length,
       conflicts: conflictEvents.length,
+      ignoredPriceOrModeEvents: ignoredPriceOrModeEvents.length,
     }),
     reportSection("billing_reviews", "Billing Reviews", reviewItems, {
       needsReview: reviewCounts.needs_review || 0,
@@ -1182,6 +1298,8 @@ export async function getBillingReconciliationReport(env) {
       completedWithoutLedger: completedOrgWithoutLedger.length + completedMemberWithoutLedger.length,
       ledgerLinkedWithoutBillingEvent: ledgerLinkedWithoutEvent.length,
       expiredInconsistent: expiredInconsistent.length,
+      checkoutWebhookEventsWithoutLedger: checkoutGrantEventsWithoutLedger.length,
+      providerGrantsWithoutCheckoutLink: providerGrantLedgersWithoutCheckout.length,
     }),
     reportSection("credit_ledger", "Credit Ledger", ledgerItems, {
       organizationAccountsScanned: latestOrgBalances.length,
@@ -1191,6 +1309,9 @@ export async function getBillingReconciliationReport(env) {
       negativeBalances: negativeOrgBalances.length + negativeMemberBalances.length,
       usageEventsMissingLedger: missingOrgUsageLedger.length + missingMemberUsageLedger.length,
       duplicateIdempotencyKeyGroups: duplicateOrgIdempotency + duplicateMemberIdempotency,
+      manualGrantRows: manualGrantRows.length,
+      providerGrantRows: providerGrantRows.length,
+      manualProviderSeparationRisks: manualProviderMixedRows.length,
     }),
     reportSection("subscriptions", "Subscriptions", subscriptionItems, {
       byStatus: subscriptionCounts,
@@ -1198,6 +1319,9 @@ export async function getBillingReconciliationReport(env) {
       cancelAtPeriodEnd: cancelAtPeriodEnd.length,
       missingProviderSubscriptionId: missingSubscriptionIds.length,
       activeWithoutTopUpMarker: activeWithoutTopUp.length,
+      activeWithoutBucket: activeWithoutBucket.length,
+      subscriptionBucketsWithoutActiveSubscription: subscriptionBucketsWithoutActiveSubscription.length,
+      subscriptionBucketsWithoutKnownSubscription: subscriptionBucketsWithoutKnownSubscription.length,
     }),
   ];
 
@@ -1226,6 +1350,7 @@ export async function getBillingReconciliationReport(env) {
         failed: failedEvents.length,
         duplicateEventIds: duplicateEventIds.length,
         conflicts: conflictEvents.length,
+        ignoredPriceOrModeEvents: ignoredPriceOrModeEvents.length,
       },
       reviews: {
         needsReview: reviewCounts.needs_review || 0,
@@ -1241,18 +1366,26 @@ export async function getBillingReconciliationReport(env) {
         memberSubscriptionCheckoutByStatus: countBy(subscriptionCheckouts, "status"),
         completedWithoutLedger: completedOrgWithoutLedger.length + completedMemberWithoutLedger.length,
         ledgerLinkedWithoutBillingEvent: ledgerLinkedWithoutEvent.length,
+        checkoutWebhookEventsWithoutLedger: checkoutGrantEventsWithoutLedger.length,
+        providerGrantsWithoutCheckoutLink: providerGrantLedgersWithoutCheckout.length,
       },
       creditLedger: {
         organizationAccountsScanned: latestOrgBalances.length,
         memberAccountsScanned: latestMemberBalances.length,
         negativeBalances: negativeOrgBalances.length + negativeMemberBalances.length,
         usageEventsMissingLedger: missingOrgUsageLedger.length + missingMemberUsageLedger.length,
+        manualGrantRows: manualGrantRows.length,
+        providerGrantRows: providerGrantRows.length,
+        manualProviderSeparationRisks: manualProviderMixedRows.length,
       },
       subscriptions: {
         byStatus: subscriptionCounts,
         activeOrTrialing: activeSubscriptions.length,
         cancelAtPeriodEnd: cancelAtPeriodEnd.length,
         activeWithoutTopUpMarker: activeWithoutTopUp.length,
+        activeWithoutBucket: activeWithoutBucket.length,
+        subscriptionBucketsWithoutActiveSubscription: subscriptionBucketsWithoutActiveSubscription.length,
+        subscriptionBucketsWithoutKnownSubscription: subscriptionBucketsWithoutKnownSubscription.length,
       },
     },
     sections,

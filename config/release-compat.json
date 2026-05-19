@@ -817,6 +817,7 @@
       "GET /api/admin/stats",
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",
+      "GET /api/admin/billing/evidence/status",
       "GET /api/admin/billing/events",
       "GET /api/admin/billing/reconciliation",
       "GET /api/admin/billing/reviews",

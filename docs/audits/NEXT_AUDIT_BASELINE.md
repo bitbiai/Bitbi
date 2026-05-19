@@ -1,6 +1,6 @@
 # Next Audit Baseline
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 Purpose: single current-state restart point for the next deep audit. This file records what exists now, what still needs operator verification, and which claims remain blocked. It is not phase history; detailed historical context is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence files.
 
@@ -15,7 +15,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Auth Worker uses Cloudflare D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images, service bindings, and route-policy checks.
 - Browser state-changing requests require trusted Origin/Referer context, and protected writes with `Sec-Fetch-Site: cross-site` fail closed except for explicit webhook/ingest/link exemptions.
 - High-risk evidence/log surfaces should expose private storage keys only as bounded classes/hashes/counts, not raw internal R2 keys.
-- Admin Control Plane exists for implemented admin operations, including users, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
+- Admin Control Plane exists for implemented admin operations, including users, billing evidence status, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify
@@ -78,6 +78,8 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - Local release tooling and readiness checks exist.
 - Readiness tooling includes local-only safety contract checks and skipped-by-default live canaries, including negative Fetch Metadata and caller-policy evidence surfaces; operator live evidence is still required.
+- Billing evidence status and canary skeleton tooling exist. Admin-only `GET /api/admin/billing/evidence/status` is read-only, redacted, and reports live billing prerequisite presence/shape without Stripe calls or credit mutation. `npm run billing:canary-evidence` generates a blocked/pending operator evidence skeleton only.
+- Billing local tests and reconciliation cover no-credit-before-webhook, idempotency, review-only refund/dispute/failure workflows, subscription credit buckets, and additional local mismatch categories. These are repo evidence only, not live billing readiness.
 - Production readiness remains blocked until live/manual evidence verifies migrations, Worker deploys, secrets, bindings, D1/R2/Queue/DO resources, health checks, security headers, alerts, restore drill, rollback path, Stripe configuration, and operational canaries.
 - Live billing readiness remains blocked.
 
@@ -98,7 +100,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Collect production-readiness evidence with no secret exposure.
-- Keep live billing flags disabled except for explicit bounded operator canaries.
+- Keep live billing flags disabled except for explicit bounded operator canaries, and collect Stripe dashboard/webhook/canary evidence without raw payloads, signatures, secrets, payment methods, cookies, or session tokens.
 
 ## Recommended Starting Points For Next Audit
 

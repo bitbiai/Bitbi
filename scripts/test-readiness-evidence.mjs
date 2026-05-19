@@ -7,6 +7,12 @@ import {
   renderReadinessEvidenceMarkdown,
   writeReadinessEvidenceMarkdown,
 } from "./lib/readiness-evidence.mjs";
+import {
+  assertBillingEvidenceIsRedacted,
+  createBillingCanaryEvidenceSkeleton,
+  renderBillingCanaryEvidenceMarkdown,
+  writeBillingCanaryEvidence,
+} from "./lib/billing-canary-evidence.mjs";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
 const secretValue = "super-secret-test-value-should-not-print";
@@ -214,6 +220,59 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
   );
   writeReadinessEvidenceMarkdown(tmp, output, "second", { force: true });
   assert.equal(fs.readFileSync(path.join(tmp, output), "utf8"), "second");
+}
+
+{
+  const rawSecret = "sk_live_billing_canary_should_not_print";
+  const rawWebhookSecret = "whsec_billing_canary_should_not_print";
+  const rawSignature = "Stripe-Signature t=1,v1=unsafe";
+  let fetchCalled = false;
+  const skeleton = createBillingCanaryEvidenceSkeleton({
+    env: {
+      STRIPE_LIVE_SECRET_KEY: rawSecret,
+      STRIPE_LIVE_WEBHOOK_SECRET: rawWebhookSecret,
+      STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: "price_live_canary_123456",
+    },
+    operatorFields: {
+      operator: "Billing Operator",
+      notes: `Do not render ${rawSecret} or ${rawSignature}`,
+      rawPayload: { payment_method: "pm_card_should_not_print" },
+    },
+    fetchImpl() {
+      fetchCalled = true;
+    },
+  });
+  const billingMarkdown = renderBillingCanaryEvidenceMarkdown(skeleton);
+  assert.equal(fetchCalled, false);
+  assert.equal(skeleton.productionReadiness, "blocked");
+  assert.equal(skeleton.liveBillingReadiness, "blocked");
+  assert.equal(skeleton.stripeCallsMade, false);
+  assert.equal(skeleton.checkoutSessionCreated, false);
+  assert.equal(skeleton.creditMutationPerformed, false);
+  assert(skeleton.requiredEvidence.every((entry) => entry.status === "pending_operator_evidence"));
+  assert(billingMarkdown.includes("Final verdict: **BLOCKED**"));
+  assert(billingMarkdown.includes("Live credit-pack checkout canary"));
+  assert(billingMarkdown.includes("invoice.paid subscription credit grant evidence"));
+  assert(billingMarkdown.includes("present (value redacted)"));
+  assert(!billingMarkdown.includes(rawSecret));
+  assert(!billingMarkdown.includes(rawWebhookSecret));
+  assert(!billingMarkdown.includes(rawSignature));
+  assert(!billingMarkdown.includes("pm_card_should_not_print"));
+  assertBillingEvidenceIsRedacted(billingMarkdown);
+  assert.throws(
+    () => assertBillingEvidenceIsRedacted(`unsafe ${rawSecret}`),
+    /raw secret/
+  );
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-billing-evidence-output-"));
+  const output = "docs/production-readiness/evidence/2026-05-18-billing-canary.md";
+  const relativePath = writeBillingCanaryEvidence(tmp, output, billingMarkdown);
+  assert.equal(relativePath, output);
+  assert.equal(fs.readFileSync(path.join(tmp, output), "utf8"), billingMarkdown);
+  assert.throws(
+    () => writeBillingCanaryEvidence(tmp, "billing-canary.md", billingMarkdown),
+    /docs\/production-readiness\/evidence/
+  );
 }
 
 console.log("Readiness evidence tests passed.");

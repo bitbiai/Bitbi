@@ -1,6 +1,6 @@
 # Production Readiness
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
 
@@ -51,7 +51,8 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Safe canary evidence from `npm run test:live-canary` and, when explicitly enabled by an operator, `npm run validate:live`; live canaries remain read-only/negative unless credentials are intentionally provided.
 - R2/D1/Queue/DO/service binding evidence.
 - Restore drill and rollback evidence.
-- Stripe Testmode/live canary evidence where billing is in scope.
+- Billing evidence status from `GET /api/admin/billing/evidence/status`, with secret values redacted and `stripeCallsMade:false`.
+- Stripe Testmode/live canary evidence where billing is in scope, using `npm run billing:canary-evidence` as the blocked/pending skeleton before any live operator canary.
 - Admin/platform budget switch/cap/reconciliation/repair/report/archive evidence where AI cost controls are in scope.
 - Fetch Metadata/same-origin CSRF hardening evidence for browser state-changing routes and documented webhook/ingest/link exemptions.
 - Tenant asset/manual-review/reset evidence decisions before any ownership/backfill/reset claim.
@@ -61,6 +62,8 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 ## Admin Readiness Dashboard
 
 The Admin Control Plane includes a Readiness & Evidence dashboard at `/admin/#readiness`, backed by read-only `GET /api/admin/readiness/status` when the current Auth Worker is deployed. It shows blocked claims, release checkpoint labels, safety gates, evidence status, safe exports, and copy-only local commands. It does not run shell commands, enable reset execution, execute reset/delete, backfill ownership, switch access checks, call Stripe/providers/Cloudflare APIs, apply migrations, deploy, or prove live readiness.
+
+The Billing Events area includes a Billing Evidence Center backed by read-only `GET /api/admin/billing/evidence/status`. It reports live billing prerequisite presence/shape, static credit-pack catalog facts, BITBI Pro subscription metadata, webhook readiness facts, and blocked canary evidence without showing Stripe secrets, raw payloads, signatures, webhook secrets, checkout sessions, refunds, subscription mutations, or credit mutations.
 
 The dashboard now includes a Live Evidence State panel. It distinguishes repo-supported controls from deploy-pending and live-evidence-pending state, links operators to the cutover evidence command, and keeps all commands copy-only.
 
@@ -86,7 +89,8 @@ Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only w
 ## Current Blockers
 
 - Live/manual Cloudflare validation is not recorded in repo.
-- Live billing canaries and remediation/legal/accounting workflows remain incomplete.
+- Live billing canaries remain incomplete. Checkout creation does not grant credits; verified webhook/payment/invoice events are required. Refund, dispute, and payment-failure handling remains review-only unless a later approved workflow explicitly changes that.
+- Stripe dashboard configuration, live webhook receipt, duplicate-event idempotency, wrong Price ID rejection, missing-webhook-secret fail-closed behavior, and no-raw-payload/signature rendering still require operator evidence before live billing readiness can be claimed.
 - Internal AI Worker caller policy is enforced for provider-cost routes, but live provider/cap/operator evidence is still required before readiness claims.
 - Canary/readiness tooling includes local-only safety contract checks and skipped-by-default live checks; missing live URLs or credentials must remain pending/blocked, not treated as success.
 - Tenant ownership backfill and access-switch readiness are blocked.
@@ -110,6 +114,7 @@ npm run test:live-canary
 npm run test:readiness-evidence
 npm run test:release-cutover-evidence
 npm run test:main-release-readiness
+npm run billing:canary-evidence
 npm run release:cutover-evidence
 npm run release:plan
 npm run release:preflight

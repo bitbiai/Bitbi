@@ -1954,6 +1954,8 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 4 Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 6 tenant asset/storage evidence expansion', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 7 billing evidence/control plane', status: 'implemented_repo_supported' },
       ],
       runtimeSafetyGates: [
         {
@@ -1975,6 +1977,7 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'Manual-review idempotency evidence', status: 'pending_replay_conflict_status_success' },
         { label: 'Production readiness evidence', status: 'pending_operator_live_evidence' },
         { label: 'Live billing canary evidence', status: 'pending_operator_live_evidence' },
+        { label: 'Billing evidence/control plane', status: 'implemented_repo_supported' },
         { label: 'Billing safety local tests', status: 'implemented_repo_supported' },
         { label: 'Readiness/canary local-only safety contract', status: 'implemented_repo_supported' },
         { label: 'AI budget/platform evidence', status: 'implemented_selected_scopes_live_evidence_pending' },
@@ -2225,6 +2228,82 @@ async function mockAdminControlPlane(page, captures = {}) {
           ],
         },
       ],
+    });
+  });
+
+  await page.route('**/api/admin/billing/evidence/status', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      version: 'omega-p1-wave7-billing-evidence-v1',
+      generatedAt: '2026-05-18T16:00:00.000Z',
+      source: 'worker_env_and_static_catalog_only',
+      productionReadiness: 'blocked',
+      liveBillingReadiness: 'blocked',
+      boundedResponse: true,
+      redactedResponse: true,
+      stripeCallsMade: false,
+      checkoutSessionCreated: false,
+      webhookMutationPerformed: false,
+      d1MutationPerformed: false,
+      creditMutationPerformed: false,
+      config: {
+        flags: {
+          liveCreditPacks: { name: 'ENABLE_LIVE_STRIPE_CREDIT_PACKS', present: true, enabled: false, status: 'disabled_or_non_true', valueExposed: false },
+          liveSubscriptions: { name: 'ENABLE_LIVE_STRIPE_SUBSCRIPTIONS', present: false, enabled: false, status: 'missing', valueExposed: false },
+        },
+        stripeMode: { name: 'STRIPE_MODE', present: true, mode: 'test', status: 'testmode_configured', valueExposed: true },
+        secrets: {
+          liveSecretKey: { name: 'STRIPE_LIVE_SECRET_KEY', present: true, status: 'present_shape_ok', shape: 'expected_prefix_present', valueExposed: false },
+          liveWebhookSecret: { name: 'STRIPE_LIVE_WEBHOOK_SECRET', present: true, status: 'present_shape_ok', shape: 'expected_prefix_present', valueExposed: false },
+        },
+        priceIds: {
+          liveSubscriptionPriceId: { name: 'STRIPE_LIVE_SUBSCRIPTION_PRICE_ID', present: true, status: 'present_shape_ok', safeSuffix: 'ro_123456', valueExposed: false },
+        },
+        urls: {
+          liveCreditPackSuccess: { name: 'STRIPE_LIVE_CHECKOUT_SUCCESS_URL', present: true, status: 'present_https', origin: 'https://bitbi.ai', pathname: '/pricing.html', queryPresent: true, valueExposed: false },
+          liveCreditPackCancel: { name: 'STRIPE_LIVE_CHECKOUT_CANCEL_URL', present: true, status: 'present_https', origin: 'https://bitbi.ai', pathname: '/pricing.html', queryPresent: true, valueExposed: false },
+          liveSubscriptionSuccess: { name: 'STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL', present: false, status: 'missing', valueExposed: false },
+          liveSubscriptionCancel: { name: 'STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL', present: false, status: 'missing', valueExposed: false },
+        },
+      },
+      creditPacks: {
+        status: 'missing_or_pending',
+        configuredCount: 2,
+        checkoutCanary: 'pending_operator_evidence',
+        noCreditBeforeWebhook: true,
+        activePacks: [
+          { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 999, currency: 'eur', displayPrice: '9,99 €', active: true },
+          { id: 'live_credits_12000', name: '12000 Credit Pack', credits: 12000, amountCents: 1999, currency: 'eur', displayPrice: '19,99 €', active: true },
+        ],
+      },
+      subscription: {
+        status: 'missing_or_pending',
+        checkoutCanary: 'pending_operator_evidence',
+        invoicePaidEvidence: 'pending_operator_evidence',
+        plan: {
+          id: 'bitbi_pro_monthly',
+          name: 'BITBI Pro',
+          amountCents: 999,
+          currency: 'eur',
+          interval: 'month',
+          allowanceCredits: 6000,
+          rolloverPolicy: 'subscription_bucket_top_up_no_automatic_rollover_claim',
+        },
+      },
+      failClosedFacts: [
+        'Checkout creation does not grant credits.',
+        'Verified webhook or paid invoice event is required before credit grant.',
+        'Live billing readiness remains blocked until operator canary evidence is attached and reviewed.',
+      ],
+      evidenceRequired: [
+        { id: 'live_credit_pack_checkout_canary', status: 'pending_operator_evidence' },
+        { id: 'live_subscription_checkout_canary', status: 'pending_operator_evidence' },
+        { id: 'verified_webhook_receipt', status: 'pending_operator_evidence' },
+        { id: 'duplicate_webhook_idempotency', status: 'pending_operator_evidence' },
+        { id: 'wrong_price_id_rejection', status: 'pending_operator_evidence' },
+        { id: 'invoice_paid_subscription_credit_grant', status: 'pending_operator_evidence' },
+      ],
+      dangerousActionsOffered: [],
     });
   });
 
@@ -9726,6 +9805,10 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'billing-events');
     await expect(page.locator('#sectionBillingEvents')).toContainText('Testmode only');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Evidence Center');
+    await expect(page.locator('#billingEvidencePanel')).toContainText('Live Billing Readiness');
+    await expect(page.locator('#billingEvidencePanel')).toContainText('BITBI Pro');
+    await expect(page.locator('#billingEvidencePanel')).toContainText('Checkout creation does not grant credits');
     await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Reconciliation');
     await expect(page.locator('#billingReconciliationPanel')).toContainText('Unresolved blocked billing review events exist.');
     await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Review Queue');
@@ -9736,6 +9819,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#billingEventDetail')).toContainText('grant_credits');
     await expect(page.locator('#billingEventDetail')).not.toContainText('should-not-render');
     await expect(page.locator('#billingEventDetail')).not.toContainText('stripe_signature');
+    await expect(page.locator('#billingEvidencePanel')).not.toContainText('sk_live_');
+    await expect(page.locator('#billingEvidencePanel')).not.toContainText('whsec_');
+    await expect(page.locator('#billingEvidencePanel')).not.toContainText('Stripe-Signature');
 
     await clickAdminNavSection(page, 'ai-usage');
     await expect(page.locator('#aiAttemptsList')).toContainText('AI Text');
@@ -10055,6 +10141,7 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('P1 Wave 2 release/canary/billing/admin mutation hardening');
     await expect(readiness).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
     await expect(readiness).toContainText('P1 Wave 5 live evidence/cutover tooling');
+    await expect(readiness).toContainText('P1 Wave 7 billing evidence/control plane');
     await expect(readiness).toContainText('Runtime Safety Gates');
     await expect(readiness).toContainText('disabled default off');
     await expect(readiness).toContainText('Fetch Metadata CSRF hardening');
@@ -10062,6 +10149,7 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Manual Review Idempotency Evidence');
     await expect(readiness).toContainText('Production Readiness Evidence');
     await expect(readiness).toContainText('Live Billing Evidence');
+    await expect(readiness).toContainText('Billing evidence/control plane');
     await expect(readiness).toContainText('Command Center');
     await expect(readiness).toContainText('npm run check:js');
     await expect(readiness).toContainText('npm run test:tenant-assets');
@@ -10086,6 +10174,48 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => captures.legacyResetDryRunExportRequests.length).toBe(1);
     await readiness.getByRole('button', { name: 'Export manual-review evidence' }).click();
     await expect.poll(() => captures.tenantReviewEvidenceExportRequests.length).toBe(1);
+  });
+
+  test('renders billing evidence center with blocked status, safe actions, and no dangerous controls', async ({
+    page,
+  }) => {
+    await installClipboardSpy(page);
+    await mockAdminControlPlane(page);
+
+    const response = await page.goto('/admin/index.html#billing-events');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    const center = page.locator('#billingEvidencePanel');
+    await expect(page.locator('#billingEvidenceState')).toContainText('Production readiness and live billing readiness remain BLOCKED');
+    await expect(center).toContainText('Live Billing Readiness');
+    await expect(center).toContainText('Credit Packs');
+    await expect(center).toContainText('5000 Credit Pack');
+    await expect(center).toContainText('12000 Credit Pack');
+    await expect(center).toContainText('BITBI Pro Subscription');
+    await expect(center).toContainText('6000');
+    await expect(center).toContainText('Webhook Evidence');
+    await expect(center).toContainText('/api/billing/webhooks/stripe/live');
+    await expect(center).toContainText('Refund / Dispute / Failure Review');
+    await expect(center).toContainText('Automatic clawback');
+    await expect(center).toContainText('Reconciliation');
+    await expect(center).toContainText('checkout without grant');
+    await expect(center).toContainText('Verified webhook or paid invoice event is required before credit grant');
+    await expect(center).not.toContainText('sk_live_');
+    await expect(center).not.toContainText('whsec_');
+    await expect(center).not.toContainText('Stripe-Signature');
+
+    await expect(center.getByRole('link', { name: 'Open Billing Reviews' })).toBeVisible();
+    await expect(center.getByRole('link', { name: 'Open Billing Reconciliation' })).toBeVisible();
+    await expect(center.getByRole('button', { name: 'Copy billing evidence checklist path' })).toBeVisible();
+    await expect(center.getByRole('button', { name: 'Copy billing validation commands' })).toBeVisible();
+    await expect(center.getByRole('button', { name: /enable live|call stripe|create checkout|issue refund|mutate subscription|clawback|reveal|edit secret/i })).toHaveCount(0);
+    await expect(page.locator('#sectionBillingEvents').getByRole('button', { name: /enable live|call stripe live|create live checkout|issue refunds|mutate subscriptions|claw back credits|edit secret values/i })).toHaveCount(0);
+
+    await center.getByRole('button', { name: 'Copy billing evidence checklist path' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('docs/production-readiness/EVIDENCE_TEMPLATE.md');
+    await center.getByRole('button', { name: 'Copy billing validation commands' }).click();
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run billing:canary-evidence');
   });
 
   test('renders billing review queue safely and records manual resolutions only', async ({

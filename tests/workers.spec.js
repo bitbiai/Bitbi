@@ -4452,6 +4452,15 @@ test.describe('Phase 1-E auth route policy registry', () => {
       auth: 'admin',
       rateLimit: expect.objectContaining({ failClosed: true }),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/billing/evidence/status')).toEqual(expect.objectContaining({
+      id: 'admin.billing.evidence.status',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+      notes: expect.stringContaining('does not call Stripe'),
+    }));
     expect(getRoutePolicy('GET', '/api/admin/billing/events/bpe_0123456789abcdef0123456789abcdef')).toEqual(expect.objectContaining({
       id: 'admin.billing.events.read',
       auth: 'admin',
@@ -7158,6 +7167,157 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(env.DB.state.creditLedger).toHaveLength(0);
   });
 
+  test('admin billing evidence status is admin-only, blocked, redacted, and non-mutating', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase27-billing-evidence-admin');
+    const member = createContractUser({ id: 'phase27-billing-evidence-member', role: 'user' });
+    const missingEnv = createAuthTestEnv({ users: [admin, member] });
+    const adminToken = await seedSession(missingEnv, admin.id);
+    const memberToken = await seedSession(missingEnv, member.id);
+
+    const unauthenticated = await worker.fetch(
+      authJsonRequest('/api/admin/billing/evidence/status', 'GET'),
+      missingEnv,
+      createExecutionContext().execCtx
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const denied = await worker.fetch(
+      authJsonRequest('/api/admin/billing/evidence/status', 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      missingEnv,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const policy = (await loadRoutePolicyModule()).getRoutePolicy('GET', '/api/admin/billing/evidence/status');
+    expect(policy).toEqual(expect.objectContaining({
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+
+    const missingStateBefore = JSON.stringify({
+      billingProviderEvents: missingEnv.DB.state.billingProviderEvents,
+      billingEventActions: missingEnv.DB.state.billingEventActions,
+      billingCheckoutSessions: missingEnv.DB.state.billingCheckoutSessions,
+      billingMemberCheckoutSessions: missingEnv.DB.state.billingMemberCheckoutSessions,
+      billingMemberSubscriptionCheckoutSessions: missingEnv.DB.state.billingMemberSubscriptionCheckoutSessions,
+      creditLedger: missingEnv.DB.state.creditLedger,
+      memberCreditLedger: missingEnv.DB.state.memberCreditLedger,
+    });
+    missingEnv.__TEST_FETCH = async () => {
+      throw new Error('Billing evidence status must not call Stripe.');
+    };
+    const missingResponse = await worker.fetch(
+      authJsonRequest('/api/admin/billing/evidence/status', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      missingEnv,
+      createExecutionContext().execCtx
+    );
+    const missingBody = await missingResponse.json();
+    expect(missingResponse.status).toBe(200);
+    expect(missingBody).toEqual(expect.objectContaining({
+      ok: true,
+      productionReadiness: 'blocked',
+      liveBillingReadiness: 'blocked',
+      stripeCallsMade: false,
+      creditMutationPerformed: false,
+      d1MutationPerformed: false,
+      redactedResponse: true,
+    }));
+    expect(missingBody.config.flags.liveCreditPacks.status).toBe('missing');
+    expect(missingBody.config.secrets.liveSecretKey.present).toBe(false);
+    expect(missingBody.config.secrets.liveWebhookSecret.present).toBe(false);
+    expect(missingBody.config.priceIds.liveSubscriptionPriceId.present).toBe(false);
+    expect(missingBody.evidenceRequired).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'live_credit_pack_checkout_canary', status: 'pending_operator_evidence' }),
+      expect.objectContaining({ id: 'invoice_paid_subscription_credit_grant', status: 'pending_operator_evidence' }),
+    ]));
+    expect(JSON.stringify({
+      billingProviderEvents: missingEnv.DB.state.billingProviderEvents,
+      billingEventActions: missingEnv.DB.state.billingEventActions,
+      billingCheckoutSessions: missingEnv.DB.state.billingCheckoutSessions,
+      billingMemberCheckoutSessions: missingEnv.DB.state.billingMemberCheckoutSessions,
+      billingMemberSubscriptionCheckoutSessions: missingEnv.DB.state.billingMemberSubscriptionCheckoutSessions,
+      creditLedger: missingEnv.DB.state.creditLedger,
+      memberCreditLedger: missingEnv.DB.state.memberCreditLedger,
+    })).toBe(missingStateBefore);
+
+    const liveSecret = 'sk_live_phase27_evidence_secret_should_not_render';
+    const webhookSecret = 'whsec_phase27_evidence_secret_should_not_render';
+    const urlSecret = 'operator_token_should_not_render';
+    const presentEnv = createAuthTestEnv({
+      users: [admin],
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      ENABLE_LIVE_STRIPE_SUBSCRIPTIONS: 'true',
+      STRIPE_MODE: 'test',
+      STRIPE_LIVE_SECRET_KEY: liveSecret,
+      STRIPE_LIVE_WEBHOOK_SECRET: webhookSecret,
+      STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_phase27_member_pro_123456',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: `https://bitbi.ai/pricing.html?checkout=success&token=${urlSecret}`,
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+    });
+    presentEnv.__TEST_FETCH = async () => {
+      throw new Error('Billing evidence status must not call Stripe.');
+    };
+    const presentToken = await seedSession(presentEnv, admin.id);
+    const presentResponse = await worker.fetch(
+      authJsonRequest('/api/admin/billing/evidence/status', 'GET', undefined, {
+        Cookie: `bitbi_session=${presentToken}`,
+      }),
+      presentEnv,
+      createExecutionContext().execCtx
+    );
+    const presentBody = await presentResponse.json();
+    expect(presentResponse.status).toBe(200);
+    expect(presentBody.config.flags.liveCreditPacks.enabled).toBe(true);
+    expect(presentBody.config.flags.liveSubscriptions.enabled).toBe(true);
+    expect(presentBody.config.secrets.liveSecretKey).toEqual(expect.objectContaining({
+      present: true,
+      status: 'present_shape_ok',
+      valueExposed: false,
+    }));
+    expect(presentBody.config.secrets.liveWebhookSecret).toEqual(expect.objectContaining({
+      present: true,
+      status: 'present_shape_ok',
+      valueExposed: false,
+    }));
+    expect(presentBody.config.priceIds.liveSubscriptionPriceId).toEqual(expect.objectContaining({
+      present: true,
+      safeSuffix: 'o_123456',
+      valueExposed: false,
+    }));
+    expect(presentBody.creditPacks.activePacks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'live_credits_5000', credits: 5000, amountCents: 999 }),
+      expect.objectContaining({ id: 'live_credits_12000', credits: 12000, amountCents: 1999 }),
+    ]));
+    expect(presentBody.subscription.plan).toEqual(expect.objectContaining({
+      name: 'BITBI Pro',
+      allowanceCredits: 6000,
+      interval: 'month',
+    }));
+    expect(presentBody.failClosedFacts).toEqual(expect.arrayContaining([
+      'Checkout creation does not grant credits.',
+      'Verified webhook or paid invoice event is required before credit grant.',
+    ]));
+    const serialized = JSON.stringify(presentBody);
+    expect(serialized).not.toContain(liveSecret);
+    expect(serialized).not.toContain(webhookSecret);
+    expect(serialized).not.toContain(urlSecret);
+    expect(serialized).not.toContain('sk_live_phase27');
+    expect(serialized).not.toContain('whsec_phase27');
+    expect(serialized).not.toContain('price_phase27_member_pro_123456');
+    expect(presentEnv.DB.state.creditLedger).toHaveLength(0);
+    expect(presentEnv.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(presentEnv.DB.state.billingCheckoutSessions).toHaveLength(0);
+    expect(presentEnv.DB.state.billingMemberCheckoutSessions).toHaveLength(0);
+  });
+
   test('live Stripe webhook grants credits exactly once for authorized live sessions only', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const owner = createContractUser({ id: 'phase2l-owner', role: 'user' });
@@ -8156,6 +8316,32 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     const env = createAuthTestEnv(seedLiveBillingOrg({
       platformAdmin: admin,
       extra: {
+        billingProviderEvents: [{
+          id: 'bpe_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          provider: 'stripe',
+          provider_event_id: 'evt_phase24_wrong_price_ignored',
+          provider_account: null,
+          provider_mode: 'live',
+          event_type: 'invoice.paid',
+          event_created_at: '2026-05-15T07:00:00.000Z',
+          received_at: '2026-05-15T07:00:01.000Z',
+          processing_status: 'ignored',
+          verification_status: 'verified_test_signature',
+          payload_hash: 'payload_hash_should_not_render',
+          payload_summary_json: JSON.stringify({
+            event_type: 'invoice.paid',
+            provider_mode: 'live',
+          }),
+          organization_id: null,
+          user_id: 'phase2l-owner',
+          billing_customer_id: 'cus_phase24_wrong_price',
+          error_code: 'stripe_live_subscription_price_mismatch',
+          error_message: 'Wrong Price ID ignored without credit grant.',
+          attempt_count: 1,
+          last_processed_at: '2026-05-15T07:00:01.000Z',
+          created_at: '2026-05-15T07:00:01.000Z',
+          updated_at: '2026-05-15T07:00:01.000Z',
+        }],
         billingCheckoutSessions: [{
           id: 'bcs_phase24_missing_ledger',
           provider: 'stripe',
@@ -8186,6 +8372,86 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           created_at: '2026-05-15T08:00:00.000Z',
           updated_at: '2026-05-15T08:01:00.000Z',
           completed_at: '2026-05-15T08:01:00.000Z',
+        }],
+        memberCreditLedger: [
+          {
+            id: 'mcl_phase24_provider_no_checkout',
+            user_id: 'phase2l-owner',
+            amount: 5000,
+            balance_after: 5000,
+            entry_type: 'grant',
+            feature_key: null,
+            source: 'stripe_live_checkout',
+            idempotency_key: 'stripe_live_checkout:cs_live_phase24_orphan:live_credits_5000',
+            request_hash: 'provider_request_hash_redacted',
+            created_by_user_id: 'phase2l-owner',
+            created_at: '2026-05-15T08:05:00.000Z',
+            metadata_json: '{}',
+          },
+          {
+            id: 'mcl_phase24_manual_provider_like',
+            user_id: 'phase2l-owner',
+            amount: 100,
+            balance_after: 5100,
+            entry_type: 'grant',
+            feature_key: null,
+            source: 'manual_admin_grant',
+            idempotency_key: 'stripe_live_checkout:manual-mixed-key',
+            request_hash: 'manual_request_hash_redacted',
+            created_by_user_id: admin.id,
+            created_at: '2026-05-15T08:06:00.000Z',
+            metadata_json: '{}',
+          },
+        ],
+        billingMemberSubscriptions: [
+          {
+            id: 'msub_phase24_active_missing_bucket',
+            user_id: 'phase2l-owner',
+            provider: 'stripe',
+            provider_mode: 'live',
+            provider_customer_id: 'cus_phase24_active',
+            provider_subscription_id: 'sub_phase24_active_missing_bucket',
+            provider_price_id: 'price_member_pro_123456',
+            status: 'active',
+            current_period_start: '2026-05-01T00:00:00.000Z',
+            current_period_end: '2026-06-01T00:00:00.000Z',
+            cancel_at_period_end: 0,
+            canceled_at: null,
+            metadata_json: '{}',
+            created_at: '2026-05-01T00:00:00.000Z',
+            updated_at: '2026-05-15T08:00:00.000Z',
+          },
+          {
+            id: 'msub_phase24_canceled_bucket',
+            user_id: 'phase2l-owner',
+            provider: 'stripe',
+            provider_mode: 'live',
+            provider_customer_id: 'cus_phase24_canceled',
+            provider_subscription_id: 'sub_phase24_canceled_bucket',
+            provider_price_id: 'price_member_pro_123456',
+            status: 'canceled',
+            current_period_start: '2026-04-01T00:00:00.000Z',
+            current_period_end: '2026-05-01T00:00:00.000Z',
+            cancel_at_period_end: 0,
+            canceled_at: '2026-05-01T00:00:00.000Z',
+            metadata_json: '{}',
+            created_at: '2026-04-01T00:00:00.000Z',
+            updated_at: '2026-05-01T00:00:00.000Z',
+          },
+        ],
+        memberCreditBuckets: [{
+          id: 'mcb_phase24_canceled_bucket',
+          user_id: 'phase2l-owner',
+          bucket_type: 'subscription',
+          balance: 6000,
+          local_subscription_id: 'msub_phase24_canceled_bucket',
+          provider_subscription_id: 'sub_phase24_canceled_bucket',
+          period_start: '2026-04-01T00:00:00.000Z',
+          period_end: '2026-05-01T00:00:00.000Z',
+          source: 'subscription_period_top_up',
+          metadata_json: '{}',
+          created_at: '2026-04-01T00:00:00.000Z',
+          updated_at: '2026-05-01T00:00:00.000Z',
         }],
       },
     }));
@@ -8253,6 +8519,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       creditLedger: env.DB.state.creditLedger,
       memberCreditLedger: env.DB.state.memberCreditLedger,
       billingMemberSubscriptions: env.DB.state.billingMemberSubscriptions,
+      memberCreditBuckets: env.DB.state.memberCreditBuckets,
     });
 
     const denied = await worker.fetch(
@@ -8290,11 +8557,24 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       resolved: 1,
     }));
     expect(report.summary.checkouts.completedWithoutLedger).toBe(1);
+    expect(report.summary.providerEvents.ignoredPriceOrModeEvents).toBe(1);
+    expect(report.summary.checkouts.providerGrantsWithoutCheckoutLink).toBe(1);
+    expect(report.summary.creditLedger.manualProviderSeparationRisks).toBe(1);
+    expect(report.summary.subscriptions.activeWithoutBucket).toBe(1);
+    expect(report.summary.subscriptions.subscriptionBucketsWithoutActiveSubscription).toBe(1);
+    const providerSection = report.sections.find((section) => section.id === 'billing_provider_events');
     const reviewsSection = report.sections.find((section) => section.id === 'billing_reviews');
     const checkoutSection = report.sections.find((section) => section.id === 'checkout_sessions');
+    const ledgerSection = report.sections.find((section) => section.id === 'credit_ledger');
+    const subscriptionSection = report.sections.find((section) => section.id === 'subscriptions');
+    expect(providerSection.items.some((item) => item.id === 'provider_events_price_or_mode_ignored')).toBe(true);
     expect(reviewsSection.severity).toBe('critical');
     expect(reviewsSection.items.some((item) => item.id === 'reviews_blocked_unresolved' && item.severity === 'critical')).toBe(true);
     expect(checkoutSection.items.some((item) => item.id === 'checkouts_completed_without_ledger' && item.severity === 'critical')).toBe(true);
+    expect(checkoutSection.items.some((item) => item.id === 'provider_grants_without_checkout_link' && item.severity === 'warning')).toBe(true);
+    expect(ledgerSection.items.some((item) => item.id === 'manual_provider_grant_separation_risk' && item.severity === 'warning')).toBe(true);
+    expect(subscriptionSection.items.some((item) => item.id === 'subscriptions_active_without_bucket' && item.severity === 'warning')).toBe(true);
+    expect(subscriptionSection.items.some((item) => item.id === 'subscription_buckets_without_active_subscription' && item.severity === 'warning')).toBe(true);
 
     const serialized = JSON.stringify(report);
     expect(serialized).not.toContain('pm_phase24_should_not_render');
@@ -8312,6 +8592,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       creditLedger: env.DB.state.creditLedger,
       memberCreditLedger: env.DB.state.memberCreditLedger,
       billingMemberSubscriptions: env.DB.state.billingMemberSubscriptions,
+      memberCreditBuckets: env.DB.state.memberCreditBuckets,
     })).toBe(billingStateBeforeReport);
   });
 

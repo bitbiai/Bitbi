@@ -24,6 +24,7 @@ import {
     apiAdminAiUsageAttempt,
     apiAdminAiUsageAttempts,
     apiAdminBillingEvent,
+    apiAdminBillingEvidenceStatus,
     apiAdminBillingEvents,
     apiAdminBillingPlans,
     apiAdminBillingReconciliation,
@@ -1169,6 +1170,180 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             }
             detail.appendChild(wrap);
         }
+    }
+
+    function renderBillingEvidenceCard({ title, badgeLabel, badgeVariant = 'user', copy, rows = [], actions = [] }) {
+        const card = el('article', 'admin-control-card glass glass-card reveal visible');
+        const top = el('div', 'admin-control-card__top');
+        top.append(el('h3', 'admin-section-title', title), badge(badgeLabel, badgeVariant));
+        card.appendChild(top);
+        if (copy) card.appendChild(el('p', 'admin-shell__desc', copy));
+        if (rows.length) card.appendChild(detailRows(rows));
+        if (actions.length) {
+            const actionRow = el('div', 'admin-control-chip-row');
+            for (const action of actions) actionRow.appendChild(action);
+            card.appendChild(actionRow);
+        }
+        return card;
+    }
+
+    function evidenceStatusBadge(status) {
+        const value = String(status || '').toLowerCase();
+        if (value.includes('configured') || value.includes('present_https') || value.includes('shape_ok')) return ['configured', 'active'];
+        if (value.includes('missing') || value.includes('blocked') || value.includes('invalid')) return ['blocked', 'disabled'];
+        if (value.includes('pending') || value.includes('review')) return ['pending', 'legacy'];
+        return [status || 'reported', 'user'];
+    }
+
+    async function loadBillingEvidenceStatus() {
+        const panel = byId('billingEvidencePanel');
+        setState('billingEvidenceState', 'Loading billing evidence status...');
+        clear(panel);
+        const res = await apiAdminBillingEvidenceStatus();
+        if (!res.ok) {
+            setState('billingEvidenceState', '');
+            renderUnavailable(panel, res, 'Billing evidence status unavailable.');
+            return;
+        }
+
+        const evidence = res.data || {};
+        const config = evidence.config || {};
+        const secrets = config.secrets || {};
+        const urls = config.urls || {};
+        const priceId = config.priceIds?.liveSubscriptionPriceId || {};
+        const creditPacks = evidence.creditPacks || {};
+        const subscription = evidence.subscription || {};
+        const plan = subscription.plan || {};
+        const [creditStatusLabel, creditStatusVariant] = evidenceStatusBadge(creditPacks.status);
+        const [subscriptionStatusLabel, subscriptionStatusVariant] = evidenceStatusBadge(subscription.status);
+        const webhookSecret = secrets.liveWebhookSecret || {};
+
+        setState(
+            'billingEvidenceState',
+            `Generated ${formatDate(evidence.generatedAt)}. Production readiness and live billing readiness remain ${String(evidence.liveBillingReadiness || 'blocked').toUpperCase()}.`
+        );
+
+        const overview = el('div', 'admin-reconciliation-overview');
+        overview.appendChild(detailRows([
+            ['Source', evidence.source || 'worker_env_and_static_catalog_only'],
+            ['Production readiness', evidence.productionReadiness || 'blocked'],
+            ['Live billing readiness', evidence.liveBillingReadiness || 'blocked'],
+            ['Stripe calls made', evidence.stripeCallsMade === true ? 'Yes' : 'No'],
+            ['Credit mutation performed', evidence.creditMutationPerformed === true ? 'Yes' : 'No'],
+            ['Response redacted', evidence.redactedResponse === true ? 'Yes' : 'No'],
+        ]));
+        panel.appendChild(overview);
+
+        const grid = el('div', 'admin-control-grid admin-billing-evidence-grid');
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Live Billing Readiness',
+            badgeLabel: String(evidence.liveBillingReadiness || 'blocked'),
+            badgeVariant: 'disabled',
+            copy: 'Live billing is not activated from Admin. Operator canary evidence is required before any readiness claim.',
+            rows: [
+                ['Required evidence', (evidence.evidenceRequired || []).slice(0, 6).map((item) => `${readableToken(item.id)}: ${readableToken(item.status)}`).join(', ') || 'Not reported'],
+                ['Last evidence state', 'pending operator evidence'],
+                ['Checkout grant rule', 'Checkout creation does not grant credits'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Credit Packs',
+            badgeLabel: creditStatusLabel,
+            badgeVariant: creditStatusVariant,
+            copy: 'Configured static pack labels and credit amounts are shown for operator review. Checkout canary remains pending.',
+            rows: [
+                ['Configured packs', `${creditPacks.configuredCount || 0}`],
+                ['Pack catalog', (creditPacks.activePacks || []).map((pack) => `${pack.name} (${pack.credits} credits)`).join(', ') || 'No active packs reported'],
+                ['No credit before webhook', creditPacks.noCreditBeforeWebhook === true ? 'Yes' : 'Not reported'],
+                ['Checkout canary', readableToken(creditPacks.checkoutCanary)],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'BITBI Pro Subscription',
+            badgeLabel: subscriptionStatusLabel,
+            badgeVariant: subscriptionStatusVariant,
+            copy: 'Subscription Price ID is reported by presence and safe suffix only. Monthly subscription credits require invoice.paid evidence.',
+            rows: [
+                ['Plan', plan.name || 'BITBI Pro'],
+                ['Monthly credits', plan.allowanceCredits ?? '-'],
+                ['Price ID present', priceId.present === true ? `Yes (...${priceId.safeSuffix || 'reported'})` : 'No'],
+                ['Rollover policy', readableToken(plan.rolloverPolicy || 'subscription bucket top up; no rollover claim')],
+                ['Invoice.paid evidence', readableToken(subscription.invoicePaidEvidence)],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Webhook Evidence',
+            badgeLabel: webhookSecret.present ? 'secret present' : 'secret missing',
+            badgeVariant: webhookSecret.present ? 'active' : 'disabled',
+            copy: 'Webhook evidence is presence-only. Raw payloads, signatures, payment methods, and secrets are never rendered.',
+            rows: [
+                ['Endpoint', '/api/billing/webhooks/stripe/live'],
+                ['Webhook secret', webhookSecret.present ? 'Present; value redacted' : 'Missing'],
+                ['Duplicate idempotency evidence', 'pending operator evidence'],
+                ['Wrong price ID rejection evidence', 'pending operator evidence'],
+                ['Raw payload/signature rendering', 'not offered'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Refund / Dispute / Failure Review',
+            badgeLabel: 'review-only',
+            badgeVariant: 'legacy',
+            copy: 'Refunds, disputes, failed invoices, and payment action events are operator-review records only. Accounting/legal/support decisions remain external and auditable.',
+            rows: [
+                ['Automatic clawback', 'No'],
+                ['Stripe action from Admin', 'No'],
+                ['Credit mutation on resolution', 'No'],
+                ['Review queue', 'Billing Reviews'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Reconciliation',
+            badgeLabel: 'local D1 only',
+            badgeVariant: 'user',
+            copy: 'Use the Billing Reconciliation panel for bounded mismatch categories. It does not repair, reverse, retry, cancel, or call Stripe.',
+            rows: [
+                ['Mismatch categories', 'checkout without grant, webhook without ledger, duplicate event, subscription/bucket mismatch, wrong provider mode, manual vs provider grant separation'],
+                ['Latest local status', 'See Billing Reconciliation below'],
+            ],
+        }));
+        panel.appendChild(grid);
+
+        const facts = Array.isArray(evidence.failClosedFacts) ? evidence.failClosedFacts : [];
+        if (facts.length) {
+            const factCard = renderBillingEvidenceCard({
+                title: 'Fail-closed Facts',
+                badgeLabel: 'read-only',
+                badgeVariant: 'user',
+                rows: facts.slice(0, 10).map((fact, index) => [`Fact ${index + 1}`, fact]),
+            });
+            panel.appendChild(factCard);
+        }
+
+        const actions = el('div', 'admin-control-chip-row admin-billing-evidence-actions');
+        const reviewsLink = el('a', 'btn-action', 'Open Billing Reviews');
+        reviewsLink.href = '#billing-events';
+        reviewsLink.addEventListener('click', () => byId('billingReviewsList')?.scrollIntoView({ block: 'start' }));
+        const reconciliationLink = el('a', 'btn-action', 'Open Billing Reconciliation');
+        reconciliationLink.href = '#billing-events';
+        reconciliationLink.addEventListener('click', () => byId('billingReconciliationPanel')?.scrollIntoView({ block: 'start' }));
+        const templateButton = el('button', 'btn-action', 'Copy billing evidence checklist path');
+        templateButton.type = 'button';
+        templateButton.addEventListener('click', async () => {
+            const copied = await copyTextToClipboard('docs/production-readiness/EVIDENCE_TEMPLATE.md');
+            notify(copied ? 'Billing evidence checklist path copied.' : 'Checklist copy failed.', copied ? 'success' : 'error');
+        });
+        const commandButton = el('button', 'btn-action', 'Copy billing validation commands');
+        commandButton.type = 'button';
+        commandButton.addEventListener('click', async () => {
+            const copied = await copyTextToClipboard([
+                'npm run billing:canary-evidence',
+                'npx playwright test -c playwright.workers.config.js -g "billing|credit|Stripe|subscription|webhook|invoice|refund|dispute|review|reconciliation|idempotency"',
+                'npx playwright test -c playwright.config.js tests/auth-admin.spec.js -g "billing|evidence|reconciliation|review|admin"',
+            ].join('\n'));
+            notify(copied ? 'Billing validation commands copied.' : 'Command copy failed.', copied ? 'success' : 'error');
+        });
+        actions.append(reviewsLink, reconciliationLink, templateButton, commandButton);
+        panel.appendChild(actions);
     }
 
     function reconciliationSeverityVariant(severity) {
@@ -3249,6 +3424,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             loadBillingReviews();
         });
         byId('billingReviewsRefresh')?.addEventListener('click', loadBillingReviews);
+        byId('billingEvidenceRefresh')?.addEventListener('click', loadBillingEvidenceStatus);
         byId('billingReconciliationRefresh')?.addEventListener('click', loadBillingReconciliation);
         byId('aiAttemptsRefresh')?.addEventListener('click', loadAiAttempts);
         byId('aiAttemptsFilter')?.addEventListener('submit', (event) => {
@@ -3306,7 +3482,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         loaded.add(sectionName);
         if (sectionName === 'orgs') await loadOrgs();
         if (sectionName === 'billing') await loadBillingPlans();
-        if (sectionName === 'billing-events') await Promise.all([loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
+        if (sectionName === 'billing-events') await Promise.all([loadBillingEvidenceStatus(), loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
         if (sectionName === 'ai-usage') await loadAiAttempts();
         if (sectionName === 'ai-budget-switches') await Promise.all([
             loadAiBudgetSwitches(),

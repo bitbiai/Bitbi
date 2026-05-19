@@ -426,6 +426,11 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },
   }),
+  adminRead("admin.billing.evidence.status", "/api/admin/billing/evidence/status", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+    notes: "Read-only redacted live billing configuration evidence. Reports env presence/shape and static catalog facts only; does not call Stripe, create checkout sessions, mutate D1, process webhooks, or expose secrets.",
+  }),
   adminRead("admin.orgs.billing.read", "/api/admin/orgs/:id/billing", "billing", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },

@@ -99,11 +99,27 @@ This template records current evidence only. It does not approve production read
 
 ## Billing Evidence
 
-- Stripe mode tested:
-- Webhook evidence:
-- Checkout/subscription canary evidence:
-- Credit/debit behavior evidence:
-- Remediation/accounting/legal approval status:
+- `GET /api/admin/billing/evidence/status` result path:
+- `stripeCallsMade:false`, `creditMutationPerformed:false`, and `productionReadiness/liveBillingReadiness:blocked` confirmed:
+- Live credit-pack config presence/shape reviewed without secret values:
+- BITBI Pro subscription Price ID presence/safe suffix reviewed without full secret values:
+- Configured credit-pack labels/amounts reviewed:
+- BITBI Pro monthly credits/no-rollover policy reviewed:
+- `npm run billing:canary-evidence` output path:
+- Live credit-pack checkout canary evidence path:
+- Live subscription checkout canary evidence path:
+- Verified webhook receipt evidence path:
+- Duplicate webhook idempotency evidence path:
+- Wrong Price ID rejection evidence path:
+- Missing webhook secret fail-closed evidence path:
+- Checkout creation grants no credits evidence path:
+- Verified webhook/payment event credit-pack grant evidence path:
+- `invoice.paid` subscription credit grant evidence path:
+- Refund/dispute/payment-failure review-only evidence path:
+- Billing reconciliation result path:
+- Raw Stripe payload/signature/secret rendering absence confirmed:
+- Stripe dashboard/webhook operator evidence:
+- Refund/dispute/payment-failure accounting/legal/operator decision status:
 - Live billing readiness decision:
 
 ## Admin / Platform AI Budget Evidence
