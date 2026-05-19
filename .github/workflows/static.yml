@@ -82,6 +82,10 @@ jobs:
         run: npm run test:readiness-dossier
       - name: Run rollback drill tests
         run: npm run test:rollback-drill
+      - name: Run Release Candidate manifest tests
+        run: npm run test:release-rc
+      - name: Run Release Candidate matrix tests
+        run: npm run test:rc-check
       - name: Check Worker body parser guardrails
         run: npm run check:worker-body-parsers
       - name: Check admin activity query shape

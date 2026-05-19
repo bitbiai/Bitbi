@@ -40,6 +40,8 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 
 ## Current Evidence Required
 
+- Release Candidate Go/No-Go manifest from `npm run release:rc` or `npm run release:rc:markdown`. This is a local handoff packet for code-merge/deploy preparation only; it does not claim production readiness.
+- Final RC validation matrix from `npm run rc:check`. By default it prints the exact local command matrix and does not run deploys, remote migrations, live checks, or secret-dependent commands.
 - Pre-deploy expected-state manifest from `npm run release:cutover-evidence` or `npm run release:cutover-evidence:markdown`.
 - Production readiness dossier from `npm run readiness:dossier` or `npm run readiness:dossier:markdown`; this is a local evidence packet and keeps production readiness blocked by default.
 - Cloudflare resource prerequisite model from `npm run cloudflare:resource-model` or `npm run cloudflare:resource-model:markdown`; repo-declared resources are not live Cloudflare proof.
@@ -75,6 +77,20 @@ The Operations area includes Operator Timeline / Triage backed by read-only `GET
 The dashboard now includes a Live Evidence State panel. It distinguishes repo-supported controls from deploy-pending and live-evidence-pending state, links operators to the cutover evidence command, and keeps all commands copy-only.
 
 The dashboard also includes a Production Execution Framework panel. It surfaces repo-supported/deploy-pending/live-evidence-pending state, the Cloudflare resource model, the readiness dossier, post-deploy read-only verification, and rollback drill commands. These are copy-only operator aids; the browser does not deploy, run migrations, mutate Cloudflare, execute rollback, activate live billing, call providers, backfill ownership, switch tenant access checks, or enable reset execution.
+
+The dashboard also includes a Release Candidate / Go-No-Go panel. It shows RC status, CI unknown/pending state, a P0/P1 wave matrix, copy-only RC commands, and a Go/No-Go checklist. It does not execute commands in the browser and does not offer deploy, migration, rollback, live billing, reset, backfill, access-switch, Stripe, provider, or Cloudflare mutation actions.
+
+## Release Candidate Framework
+
+Use the local RC framework before merge or cutover review:
+
+```bash
+npm run rc:check
+npm run release:rc
+npm run release:rc:markdown
+```
+
+`rc:check` is plan-only by default and prints the final local validation matrix. The RC manifest composes git state, release plan, latest migration checkpoint, Cloudflare resource model, readiness dossier, evidence index triage, P0/P1 completion matrix, blocked claims, remaining evidence blockers, rollback drill data, and operator next actions. Its Go/No-Go model allows code-merge/deploy preparation only when checks and review permit; production readiness and live billing readiness remain blocked.
 
 ## Production Readiness Execution Framework
 
@@ -138,6 +154,11 @@ npm run test:readiness-evidence
 npm run test:cloudflare-resource-model
 npm run test:readiness-dossier
 npm run test:rollback-drill
+npm run test:release-rc
+npm run test:rc-check
+npm run rc:check
+npm run release:rc
+npm run release:rc:markdown
 npm run test:release-cutover-evidence
 npm run test:main-release-readiness
 npm run billing:canary-evidence

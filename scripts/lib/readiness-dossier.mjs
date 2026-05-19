@@ -40,6 +40,11 @@ const VALIDATION_COMMANDS = Object.freeze([
   "npm run readiness:dossier:markdown",
   "npm run test:rollback-drill",
   "npm run release:rollback-drill",
+  "npm run test:release-rc",
+  "npm run release:rc",
+  "npm run release:rc:markdown",
+  "npm run test:rc-check",
+  "npm run rc:check",
   "git diff --check",
 ]);
 

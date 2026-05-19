@@ -16809,8 +16809,25 @@ test.describe('Worker routes', () => {
         noDeployOrMigration: true,
       });
       expect(body.cutoverEvidence.commands).toEqual(expect.arrayContaining([
+        'npm run rc:check',
+        'npm run release:rc:markdown',
         'npm run release:cutover-evidence',
         'npm run release:cutover-evidence:markdown',
+      ]));
+      expect(body.releaseCandidate).toMatchObject({
+        status: 'repo_supported_ci_pending_live_evidence_pending',
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        releaseCandidateUse: 'code_merge_or_deploy_preparation_only',
+        dangerousActionsOffered: false,
+        browserExecutesCommands: false,
+      });
+      expect(body.releaseCandidate.commands).toEqual(expect.arrayContaining([
+        'npm run rc:check',
+        'npm run release:rc:markdown',
+        'npm run readiness:dossier:markdown',
+        'npm run release:rollback-drill',
+        'npm run release:plan',
       ]));
       expect(body.blockedClaims).toEqual(expect.arrayContaining([
         expect.objectContaining({ label: 'Production readiness', status: 'blocked' }),

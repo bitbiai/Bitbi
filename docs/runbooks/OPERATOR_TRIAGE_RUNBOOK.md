@@ -26,6 +26,8 @@ Purpose: safe operator procedure for using the Admin Operator Timeline, evidence
 npm run evidence:index
 npm run evidence:index:markdown
 npm run test:evidence-index
+npm run rc:check
+npm run release:rc:markdown
 npm run readiness:dossier
 npm run cloudflare:resource-model
 npm run release:rollback-drill
@@ -76,9 +78,12 @@ Admin destructive action or security event:
 
 Readiness/live evidence failure:
 - Open Readiness/Evidence Dashboard.
-- Run local cutover, production execution, or live read-only evidence commands only when appropriate:
+- Run local RC, cutover, production execution, or live read-only evidence commands only when appropriate:
 
 ```bash
+npm run rc:check
+npm run release:rc
+npm run release:rc:markdown
 npm run readiness:dossier
 npm run readiness:dossier:markdown
 npm run cloudflare:resource-model
@@ -92,8 +97,15 @@ npm run billing:canary-evidence
 
 Production execution or Cloudflare resource blocker:
 - Treat `npm run readiness:dossier` and `npm run cloudflare:resource-model` as repo/local evidence only.
+- Treat `npm run release:rc` as Go/No-Go handoff evidence for code-merge/deploy preparation only, not a production readiness claim.
 - Attach live Cloudflare resource, secret-presence, dashboard-managed WAF/header/RUM/alert, deployment, and migration verification evidence separately.
 - Use `npm run release:rollback-drill` to document rollback readiness; do not execute rollback from triage.
+
+Evidence index unsafe-marker candidate:
+- Review candidates by file path and marker ID only.
+- Classify active-current blockers for redaction/replacement before readiness evidence use.
+- Classify historical archive candidates carefully; preserve frozen history unless policy requires redaction and secret rotation.
+- Do not paste raw values into tickets, evidence docs, or chat, and do not use GitHub unblock links for committed provider-secret-looking fixtures.
 
 ## Forbidden Emergency Actions
 

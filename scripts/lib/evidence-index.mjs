@@ -158,17 +158,60 @@ function classifyEvidence(relativePath, content, unsafeMarkers) {
   return "pending";
 }
 
+function classifyUnsafeReviewCandidate(relativePath, content) {
+  const lowerPath = relativePath.toLowerCase();
+  const text = String(content || "").toLowerCase();
+  if (lowerPath.includes("/archive/") || lowerPath.includes("historical") || lowerPath.includes("retired")) {
+    return {
+      triage: "historical_archive_candidate",
+      action: "manual review before redaction; preserve frozen history unless policy requires rotation/redaction",
+    };
+  }
+  if (lowerPath.includes("template") || text.includes("operator to fill") || text.includes("example only")) {
+    return {
+      triage: "template_example_candidate",
+      action: "replace with fragmented or redacted examples; do not use provider-secret-looking literals",
+    };
+  }
+  if (text.includes("[redacted]") || text.includes("redacted marker") || text.includes("placeholder only")) {
+    return {
+      triage: "accepted_redacted_marker",
+      action: "verify the marker is a redacted label only and contains no raw value",
+    };
+  }
+  if (
+    lowerPath.startsWith("docs/production-readiness/")
+    || lowerPath.startsWith("docs/tenant-assets/evidence/")
+    || lowerPath === "current_implementation_handoff.md"
+    || lowerPath === "saas_progress_and_current_state_report.md"
+    || lowerPath === "data_inventory.md"
+  ) {
+    return {
+      triage: "active_current_blocker",
+      action: "redact or replace before using as current evidence; do not bypass push protection",
+    };
+  }
+  return {
+    triage: "needs_manual_review",
+    action: "review path and marker IDs; redact if active evidence, preserve only if intentionally historical",
+  };
+}
+
 export function classifyEvidenceFile({ repoRoot, absolutePath, stat }) {
   const relativePath = normalizeRelativePath(repoRoot, absolutePath);
   const content = fs.readFileSync(absolutePath, "utf8");
   const unsafeMarkers = detectUnsafeEvidenceMarkers(content);
   const classification = classifyEvidence(relativePath, content, unsafeMarkers);
+  const unsafeReview = unsafeMarkers.length > 0
+    ? classifyUnsafeReviewCandidate(relativePath, content)
+    : null;
   return {
     path: relativePath,
     source: classifySource(relativePath, content),
     classification,
     unsafe: unsafeMarkers.length > 0,
     unsafeMarkers,
+    unsafeReview,
     sizeBytes: stat.size,
     modifiedAt: stat.mtime.toISOString(),
   };
@@ -183,6 +226,19 @@ function countBy(items, keyName) {
   return counts;
 }
 
+function buildUnsafeReviewSummary(unsafeItems) {
+  const candidates = unsafeItems.map((item) => ({
+    path: item.path,
+    markerIds: item.unsafeMarkers.map((marker) => marker.id).sort(),
+    triage: item.unsafeReview?.triage || "needs_manual_review",
+    action: item.unsafeReview?.action || "review marker IDs without printing raw values",
+  }));
+  return {
+    byTriage: countBy(candidates, "triage"),
+    candidates,
+  };
+}
+
 export function buildEvidenceIndex({
   repoRoot = process.cwd(),
   targets = DEFAULT_SCAN_TARGETS,
@@ -195,7 +251,7 @@ export function buildEvidenceIndex({
   const unsafeItems = items.filter((item) => item.unsafe);
   return {
     ok: unsafeItems.length === 0,
-    version: "omega-p1-wave8-evidence-index-v1",
+    version: "omega-p1-wave10-evidence-index-v2",
     generatedAt,
     mode: "local_filesystem_only",
     liveR2Listed: false,
@@ -211,6 +267,7 @@ export function buildEvidenceIndex({
       byClassification: countBy(items, "classification"),
       unsafeCount: unsafeItems.length,
     },
+    unsafeReviewSummary: buildUnsafeReviewSummary(unsafeItems),
     items,
   };
 }
@@ -226,7 +283,15 @@ export function renderEvidenceIndexMarkdown(index) {
     .join("\n");
   const itemRows = index.items
     .slice(0, 100)
-    .map((item) => `| \`${item.path}\` | ${item.source} | ${item.classification} | ${item.unsafeMarkers.map((marker) => `${marker.id} (${marker.count})`).join(", ") || "-"} |`)
+    .map((item) => `| \`${item.path}\` | ${item.source} | ${item.classification} | ${item.unsafeMarkers.map((marker) => `${marker.id} (${marker.count})`).join(", ") || "-"} | ${item.unsafeReview?.triage || "-"} |`)
+    .join("\n");
+  const triageRows = Object.entries(index.unsafeReviewSummary?.byTriage || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([triage, count]) => `| ${triage} | ${count} |`)
+    .join("\n");
+  const candidateRows = (index.unsafeReviewSummary?.candidates || [])
+    .slice(0, 100)
+    .map((candidate) => `| \`${candidate.path}\` | ${candidate.markerIds.join(", ")} | ${candidate.triage} |`)
     .join("\n");
   return `# Evidence Archive Index
 
@@ -251,11 +316,21 @@ ${sourceRows || "| none | 0 |"}
 | --- | ---: |
 ${classificationRows || "| none | 0 |"}
 
+## Unsafe Marker Review Summary
+
+| Triage | Count |
+| --- | ---: |
+${triageRows || "| none | 0 |"}
+
+| Path | Marker IDs | Triage |
+| --- | --- | --- |
+${candidateRows || "| none | - | - |"}
+
 ## Items
 
-| Path | Source | Classification | Unsafe markers |
-| --- | --- | --- | --- |
-${itemRows || "| none | - | - | - |"}
+| Path | Source | Classification | Unsafe markers | Triage |
+| --- | --- | --- | --- | --- |
+${itemRows || "| none | - | - | - | - |"}
 `;
 }
 

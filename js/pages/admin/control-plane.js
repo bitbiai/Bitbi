@@ -244,9 +244,44 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
             'post-rollback smoke evidence',
         ],
     },
+    releaseCandidate: {
+        status: 'repo_supported_ci_pending_live_evidence_pending',
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        releaseCandidateUse: 'code_merge_or_deploy_preparation_only',
+        ciStatus: 'unknown_until_operator_runs_matrix',
+        commands: [
+            'npm run rc:check',
+            'npm run release:rc',
+            'npm run release:rc:markdown',
+            'npm run readiness:dossier:markdown',
+            'npm run release:rollback-drill',
+            'npm run release:plan',
+        ],
+        checklist: [
+            'clean worktree',
+            'all audits pass',
+            'full test matrix pass',
+            'release plan reviewed',
+            'cutover evidence generated',
+            'readiness dossier generated',
+            'rollback drill generated',
+            'live read-only evidence pending or attached',
+            'blocked claims acknowledged',
+        ],
+        waveMatrix: [
+            'P0-01 through P0-05 repo-supported; evidence blockers remain visible',
+            'P1 Waves 1-9 repo-supported; live/manual evidence remains pending where applicable',
+            'P1 Wave 10 RC framework is local-only and does not prove production readiness',
+        ],
+        dangerousActionsOffered: false,
+        browserExecutesCommands: false,
+    },
     cutoverEvidence: {
         outputDirectory: 'docs/production-readiness/evidence/',
         commands: [
+            'npm run rc:check',
+            'npm run release:rc:markdown',
             'npm run release:cutover-evidence',
             'npm run release:cutover-evidence:markdown',
             'npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai',
@@ -276,6 +311,7 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         { label: 'P1 Wave 4 Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 9 production execution framework', status: 'implemented_repo_supported_live_evidence_pending' },
+        { label: 'P1 Wave 10 release candidate consolidation', status: 'implemented_repo_supported_go_no_go_blocked' },
     ],
     runtimeSafetyGates: [
         { label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION', expected: 'off', enabled: false, status: 'disabled_default_off' },
@@ -295,6 +331,8 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         { label: 'Cloudflare resource verification model', status: 'implemented_repo_supported_live_evidence_pending' },
         { label: 'Production readiness execution dossier', status: 'implemented_repo_supported_local_only' },
         { label: 'Rollback drill framework', status: 'implemented_repo_supported_not_executed' },
+        { label: 'Release Candidate Go/No-Go manifest', status: 'implemented_repo_supported_local_only_blocked_verdict' },
+        { label: 'Final RC validation matrix', status: 'implemented_plan_only_by_default' },
         { label: 'Readiness/canary local-only safety contract', status: 'implemented_repo_supported' },
         { label: 'AI budget/platform evidence', status: 'implemented_selected_scopes_live_evidence_pending' },
     ],
@@ -311,6 +349,18 @@ const READINESS_COMMAND_GROUPS = Object.freeze([
             'npm run test:workers',
             'npm run test:static',
             'npm run validate:release',
+            'npm run release:plan',
+        ],
+    },
+    {
+        title: 'Release Candidate',
+        note: 'Copy-only RC handoff and Go/No-Go commands. rc:check prints the local validation matrix by default.',
+        commands: [
+            'npm run rc:check',
+            'npm run release:rc',
+            'npm run release:rc:markdown',
+            'npm run readiness:dossier:markdown',
+            'npm run release:rollback-drill',
             'npm run release:plan',
         ],
     },
@@ -627,6 +677,10 @@ function normalizeReadinessStatus(data) {
         rollbackDrill: {
             ...READINESS_FALLBACK_STATUS.rollbackDrill,
             ...(data.rollbackDrill || {}),
+        },
+        releaseCandidate: {
+            ...READINESS_FALLBACK_STATUS.releaseCandidate,
+            ...(data.releaseCandidate || {}),
         },
         blockedClaims: Array.isArray(data.blockedClaims) ? data.blockedClaims : READINESS_FALLBACK_STATUS.blockedClaims,
         hardeningStatus: Array.isArray(data.hardeningStatus) ? data.hardeningStatus : READINESS_FALLBACK_STATUS.hardeningStatus,
@@ -3444,6 +3498,86 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         container.appendChild(section);
     }
 
+    function renderReleaseCandidate(container, status) {
+        const rc = status.releaseCandidate || READINESS_FALLBACK_STATUS.releaseCandidate;
+        const commands = Array.isArray(rc.commands) ? rc.commands : READINESS_FALLBACK_STATUS.releaseCandidate.commands;
+        const commandByText = (text) => commands.find((command) => command === text) || text;
+        const section = readinessSection('Release Candidate / Go-No-Go', 'Final RC state, validation matrix, evidence freeze, and blocked claim acknowledgement. This panel copies commands only; it never executes shell commands or performs deployment actions.');
+        const grid = el('div', 'admin-control-grid');
+        const cards = [
+            {
+                title: 'Release Candidate Status',
+                badge: rc.status || 'blocked',
+                copy: 'The RC package is repo-supported for code merge or deploy preparation only. Production readiness and live billing readiness remain blocked until live/manual evidence is collected and reviewed.',
+                meta: [
+                    ['CI status', rc.ciStatus || 'unknown'],
+                    ['RC use', rc.releaseCandidateUse || 'code merge / deploy preparation only'],
+                    ['Production readiness', rc.productionReadiness || 'blocked'],
+                    ['Live billing readiness', rc.liveBillingReadiness || 'blocked'],
+                    ['Browser executes commands', rc.browserExecutesCommands === true ? 'Yes' : 'No'],
+                    ['Dangerous actions offered', rc.dangerousActionsOffered === true ? 'Yes' : 'No'],
+                ],
+            },
+            {
+                title: 'P0/P1 Wave Matrix',
+                badge: 'Evidence blockers visible',
+                copy: 'Completed waves are repo-supported current state. Evidence blockers stay visible and do not become live readiness claims.',
+                meta: [
+                    ['Matrix', (rc.waveMatrix || []).join(', ')],
+                ],
+            },
+            {
+                title: 'Final RC Commands',
+                badge: 'Copy-only',
+                copy: 'Generate the RC manifest, validation matrix, readiness dossier, rollback drill, and release plan from an operator terminal.',
+                meta: [
+                    ['Primary matrix', commandByText('npm run rc:check')],
+                    ['RC Markdown', commandByText('npm run release:rc:markdown')],
+                    ['Readiness dossier', commandByText('npm run readiness:dossier:markdown')],
+                ],
+                actions: [
+                    { label: 'Copy RC check', copy: commandByText('npm run rc:check') },
+                    { label: 'Copy RC manifest JSON', copy: commandByText('npm run release:rc') },
+                    { label: 'Copy RC manifest Markdown', copy: commandByText('npm run release:rc:markdown') },
+                    { label: 'Copy RC dossier Markdown', copy: commandByText('npm run readiness:dossier:markdown') },
+                    { label: 'Copy rollback drill', copy: commandByText('npm run release:rollback-drill') },
+                    { label: 'Copy release plan', copy: commandByText('npm run release:plan') },
+                ],
+            },
+            {
+                title: 'Go/No-Go Checklist',
+                badge: 'Production blocked',
+                copy: 'Every checklist item must be reviewed before deploy approval. Live evidence can remain pending only when the operator explicitly acknowledges blocked claims.',
+                meta: [
+                    ['Checklist', (rc.checklist || []).join(', ')],
+                    ['Blocked claims', 'production readiness, live billing readiness, tenant isolation, ownership backfill, access switch, confirmed legacy reset'],
+                ],
+            },
+        ];
+
+        for (const card of cards) {
+            const item = el('article', 'admin-control-card glass glass-card reveal visible');
+            const top = el('div', 'admin-control-card__top');
+            top.append(el('h3', 'admin-section-title', card.title), badge(statusLabel(card.badge), statusVariant(card.badge)));
+            item.append(top, el('p', 'admin-shell__desc', card.copy));
+            if (card.meta) item.appendChild(detailRows(card.meta));
+            const actions = el('div', 'admin-control-chip-row');
+            for (const action of card.actions || []) {
+                const button = el('button', 'btn-action', action.label);
+                button.type = 'button';
+                button.addEventListener('click', async () => {
+                    const copied = await copyTextToClipboard(action.copy);
+                    notify(copied ? `${action.label} copied.` : 'Copy failed.', copied ? 'success' : 'error');
+                });
+                actions.appendChild(button);
+            }
+            if (actions.childNodes.length) item.appendChild(actions);
+            grid.appendChild(item);
+        }
+        section.appendChild(grid);
+        container.appendChild(section);
+    }
+
     function renderLiveEvidenceState(container, status) {
         const state = status.liveEvidenceState || READINESS_FALLBACK_STATUS.liveEvidenceState;
         const cutover = status.cutoverEvidence || READINESS_FALLBACK_STATUS.cutoverEvidence;
@@ -3711,6 +3845,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
 
         renderReadinessHero(container, status, sourceLabel);
         renderProductionExecution(container, status);
+        renderReleaseCandidate(container, status);
         renderLiveEvidenceState(container, status);
         renderReadinessStatusGrid(container, 'Blocked Claims', 'These claims remain blocked or unclaimed unless separate operator evidence proves otherwise.', status.blockedClaims);
         renderReadinessStatusGrid(container, 'P0/P1 Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);

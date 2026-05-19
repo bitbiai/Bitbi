@@ -10,6 +10,23 @@ Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_
 
 This template records current evidence only. It does not approve production readiness, live billing readiness, tenant isolation, ownership backfill, access switching, or confirmed legacy media reset by itself.
 
+## Release Candidate Go/No-Go Manifest
+
+- `npm run rc:check` output path:
+- `npm run release:rc` JSON output path:
+- `npm run release:rc:markdown` output path:
+- Generated timestamp:
+- Git branch:
+- Git commit SHA:
+- Dirty worktree classification:
+- Final RC status reviewed as code-merge/deploy-preparation only:
+- Production readiness stayed blocked:
+- Live billing readiness stayed blocked:
+- P0/P1 wave matrix reviewed:
+- Remaining evidence blockers reviewed:
+- Evidence index unsafe-marker triage reviewed by file path and marker ID only:
+- No raw secret/marker values printed:
+
 ## Release Cutover Manifest
 
 - `npm run release:cutover-evidence` output path:

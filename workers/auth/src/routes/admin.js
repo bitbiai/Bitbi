@@ -63,7 +63,7 @@ const MAX_ADMIN_ACTIVITY_LIMIT = 100;
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
 const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0058_add_legacy_media_reset_actions.sql";
-const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v3";
+const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
 
 function adminMutationConfirmationResponse(code, message) {
   return json({ ok: false, error: message, code }, { status: 409 });
@@ -194,9 +194,44 @@ function buildAdminReadinessStatus(env) {
         "post-rollback smoke evidence",
       ],
     },
+    releaseCandidate: {
+      status: "repo_supported_ci_pending_live_evidence_pending",
+      productionReadiness: "blocked",
+      liveBillingReadiness: "blocked",
+      releaseCandidateUse: "code_merge_or_deploy_preparation_only",
+      ciStatus: "unknown_until_operator_runs_matrix",
+      commands: [
+        "npm run rc:check",
+        "npm run release:rc",
+        "npm run release:rc:markdown",
+        "npm run readiness:dossier:markdown",
+        "npm run release:rollback-drill",
+        "npm run release:plan",
+      ],
+      checklist: [
+        "clean worktree",
+        "all audits pass",
+        "full local/static/worker/test matrix pass",
+        "release plan reviewed",
+        "cutover evidence generated",
+        "readiness dossier generated",
+        "rollback drill generated",
+        "live read-only evidence pending or attached",
+        "blocked claims acknowledged",
+      ],
+      waveMatrix: [
+        "P0-01 through P0-05 repo-supported; P0-03/P0-04 evidence still blocking",
+        "P1 Waves 1-9 repo-supported; live/manual evidence remains pending where applicable",
+        "P1 Wave 10 RC framework is local-only and does not prove production readiness",
+      ],
+      dangerousActionsOffered: false,
+      browserExecutesCommands: false,
+    },
     cutoverEvidence: {
       outputDirectory: "docs/production-readiness/evidence/",
       commands: [
+        "npm run rc:check",
+        "npm run release:rc:markdown",
         "npm run release:cutover-evidence",
         "npm run release:cutover-evidence:markdown",
         "npm run readiness:live-readonly -- --static-url https://bitbi.ai --auth-worker-url https://bitbi.ai",
@@ -234,6 +269,7 @@ function buildAdminReadinessStatus(env) {
       { id: "omega_p1_wave_7", label: "P1 Wave 7 billing evidence/control plane", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_8", label: "P1 Wave 8 operator timeline/triage evidence explorer", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_9", label: "P1 Wave 9 production execution framework", status: "implemented_repo_supported_live_evidence_pending" },
+      { id: "omega_p1_wave_10", label: "P1 Wave 10 release candidate consolidation", status: "implemented_repo_supported_go_no_go_blocked" },
     ],
     runtimeSafetyGates: [
       {
@@ -263,6 +299,8 @@ function buildAdminReadinessStatus(env) {
       { id: "cloudflare_resource_model", label: "Cloudflare resource verification model", status: "implemented_repo_supported_live_evidence_pending" },
       { id: "production_readiness_dossier", label: "Production readiness execution dossier", status: "implemented_repo_supported_local_only" },
       { id: "rollback_drill", label: "Rollback drill framework", status: "implemented_repo_supported_not_executed" },
+      { id: "release_candidate_manifest", label: "Release Candidate Go/No-Go manifest", status: "implemented_repo_supported_local_only_blocked_verdict" },
+      { id: "rc_validation_matrix", label: "Final RC validation matrix", status: "implemented_plan_only_by_default" },
       { id: "readiness_canary_contract", label: "Readiness/canary local-only safety contract", status: "implemented_repo_supported" },
       { id: "ai_budget_platform_evidence", label: "AI budget/platform evidence", status: "implemented_selected_scopes_live_evidence_pending" },
     ],

@@ -20,7 +20,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 ## Current Deployment State To Verify
 
-- The repository contains code and docs through the reset action-tracking/executor work and the current DOC-2 consolidation.
+- The repository contains code and docs through P0/P1 hardening, including Wave 10 Release Candidate consolidation.
 - Live deployment state is not proven by repository files. The operator must verify which Workers/static assets are deployed.
 - Auth Worker deploy is required for any runtime endpoints not yet deployed from the current branch.
 - Auth/AI caller-policy changes are paired release work; `config/release-compat.json` models AI Worker before Auth Worker for provider-cost internal AI route compatibility.
@@ -81,9 +81,10 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Production readiness execution tooling exists. `npm run readiness:dossier` / `npm run readiness:dossier:markdown` assemble a local blocked evidence packet from release plan, deploy order, latest migration checkpoint, Cloudflare resource model, evidence index, cutover summary, billing/tenant blockers, rollback placeholders, and redaction guarantees.
 - Cloudflare resource model tooling exists. `npm run cloudflare:resource-model` / `npm run cloudflare:resource-model:markdown` validates repo declarations against `config/release-compat.json` and Wrangler config, while marking live resource presence, secret values, dashboard-managed WAF/static headers/RUM/alerts/custom domains, and production settings as operator live-verification-required.
 - Rollback drill tooling exists. `npm run release:rollback-drill` records current commit, previous-version placeholders, affected deploy units, rollback owner placeholder, decision criteria, smoke checks, and blocked claims without executing rollback or calling Cloudflare/GitHub APIs.
+- Release Candidate tooling exists. `npm run rc:check` prints the final local validation matrix by default, and `npm run release:rc` / `npm run release:rc:markdown` generate a local Go/No-Go manifest that composes git state, release plan, Cloudflare resource model, readiness dossier, evidence index triage, rollback drill data, P0/P1 matrix, blocked claims, and operator next actions.
 - Billing evidence status and canary skeleton tooling exist. Admin-only `GET /api/admin/billing/evidence/status` is read-only, redacted, and reports live billing prerequisite presence/shape without Stripe calls or credit mutation. `npm run billing:canary-evidence` generates a blocked/pending operator evidence skeleton only.
 - Operator timeline/triage exists. Admin-only `GET /api/admin/operations/timeline` is read-only and aggregates bounded redacted local D1 metadata from audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive sources without external calls, live R2 listing, or mutations.
-- Evidence index tooling exists. `npm run evidence:index` and `npm run evidence:index:markdown` classify current repo evidence files as accepted, pending, rejected/unsafe, template, or historical and report unsafe marker IDs without printing raw values.
+- Evidence index tooling exists. `npm run evidence:index` and `npm run evidence:index:markdown` classify current repo evidence files as accepted, pending, rejected/unsafe, template, or historical and report unsafe marker IDs without printing raw values. Unsafe candidates are triaged as active-current blockers, historical archive candidates, template/example candidates, accepted redacted markers, or manual-review cases.
 - Billing local tests and reconciliation cover no-credit-before-webhook, idempotency, review-only refund/dispute/failure workflows, subscription credit buckets, and additional local mismatch categories. These are repo evidence only, not live billing readiness.
 - Production readiness remains blocked until live/manual evidence verifies migrations, Worker deploys, secrets, bindings, D1/R2/Queue/DO resources, health checks, security headers, alerts, restore drill, rollback path, Stripe configuration, and operational canaries.
 - Live billing readiness remains blocked.
@@ -106,6 +107,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Complete manual-review idempotency evidence gaps.
 - Collect production-readiness evidence with no secret exposure.
 - Generate the production execution dossier, Cloudflare resource model, and rollback drill before any deploy window; keep their verdicts blocked until live/manual evidence is attached and reviewed.
+- Generate the RC validation matrix and RC Go/No-Go manifest before any merge/cutover handoff; treat them as code-merge/deploy-preparation evidence only.
 - Use `/admin/#operations`, `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md`, and `npm run evidence:index` during incident/readiness review.
 - Keep live billing flags disabled except for explicit bounded operator canaries, and collect Stripe dashboard/webhook/canary evidence without raw payloads, signatures, secrets, payment methods, cookies, or session tokens.
 

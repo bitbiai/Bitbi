@@ -48,7 +48,8 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout.
 - Confirmed media reset/deletion has not been approved or performed.
 - Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical states, and reports unsafe marker IDs without printing raw values.
-- Production readiness dossier, Cloudflare resource model, and rollback drill tooling exist as local-only evidence organizers. They keep production readiness blocked, do not call live services, and do not mutate D1/R2/Queues/Cloudflare/GitHub/Stripe/provider state.
+- Production readiness dossier, Cloudflare resource model, rollback drill, RC Go/No-Go manifest, and final RC validation matrix tooling exist as local-only evidence organizers. They keep production readiness blocked, do not call live services, and do not mutate D1/R2/Queues/Cloudflare/GitHub/Stripe/provider state.
+- Evidence index unsafe-marker candidates are actionable by file path and marker ID only. Active-current blockers, historical archive candidates, template/example candidates, accepted redacted markers, and manual-review cases must be reviewed without printing raw values.
 
 ## Blocked Claims
 

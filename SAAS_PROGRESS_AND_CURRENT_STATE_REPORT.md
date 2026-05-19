@@ -13,7 +13,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Dimension | Current state |
 | --- | --- |
 | Security | Stronger foundation: service auth, replay protection, admin MFA, route policies, limiter/body guards, and purpose-specific secrets. |
-| Operations | Release plan/preflight, Auth/AI compatibility checks, readiness checks, production execution dossier, Cloudflare resource model, rollback drill, incident runbooks, Operator Timeline/Triage, evidence index tooling, restore guidance, and evidence templates exist; live evidence remains incomplete. |
+| Operations | Release plan/preflight, final RC matrix/Go-No-Go manifest, Auth/AI compatibility checks, readiness checks, production execution dossier, Cloudflare resource model, rollback drill, incident runbooks, Operator Timeline/Triage, evidence index tooling, restore guidance, and evidence templates exist; live evidence remains incomplete. |
 | Billing | Credit ledgers, guarded Stripe scaffolding, read-only billing evidence status, canary skeleton tooling, review queue, and reconciliation exist; live billing readiness remains blocked. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
 | Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist; confirmed reset is hard-disabled by default and remains blocked. |
@@ -28,6 +28,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Billing control-plane evidence reports live Stripe prerequisite presence/shape only; it does not expose secrets, call Stripe, create checkouts, grant credits, issue refunds, or mutate subscriptions.
 - Operator Timeline/Triage provides an Admin-only read model for audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive metadata. Evidence index tooling classifies repo evidence as accepted, pending, rejected/unsafe, template, or historical without live R2 listing or raw unsafe value output.
 - Production execution tooling can generate a local readiness dossier, Cloudflare resource model, and rollback drill. These validate repo declarations and organize operator evidence, but they do not call Cloudflare/GitHub/Stripe/providers, deploy, migrate, mutate resources, execute rollback, or convert repo-supported state into live readiness.
+- Release Candidate tooling can generate `npm run release:rc` / `npm run release:rc:markdown` and the plan-only `npm run rc:check` final validation matrix. It supports code-merge/deploy preparation only and keeps production readiness blocked.
 - Admin/platform AI budget controls include classified-route metadata, caller-policy compatibility checks, Cloudflare master switches, D1 app switches, selected platform caps, read-only reconciliation, explicit repair actions, evidence reports, and archive tooling.
 - Tenant asset tooling includes folder/image owner-map evidence, nullable ownership metadata, manual-review import/read/status/Admin visibility, reset dry-run/reporting, and reset action tracking/executor endpoints.
 
@@ -49,6 +50,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Deploy Auth Worker only when runtime code changes need shipping and migrations are present.
 - Deploy Static/Pages only when unshipped static/Admin UI changes exist.
 - Keep live/billing flags disabled unless an operator intentionally runs a bounded evidence canary. Use local billing evidence tooling first and do not paste raw Stripe payloads, signatures, secrets, payment methods, cookies, or session tokens into evidence.
+- Generate the RC manifest, readiness dossier, Cloudflare resource model, rollback drill, and evidence index before any cutover review; deploy units still come from `npm run release:plan`, and no remote migration should be assumed applied.
 
 ## Recommended Next Step
 

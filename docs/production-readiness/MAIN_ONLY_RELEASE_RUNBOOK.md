@@ -8,7 +8,7 @@ Status: **operator-run release discipline only**. This runbook does not deploy, 
 
 The project owner deploys directly from `main` and does not use a separate staging environment. That is riskier than a staging-first release model because the first deployed environment is live. Direct-main deployment is allowed only with strict preflight, clean-commit discipline, migration evidence, live smoke evidence, and rollback readiness.
 
-Production readiness remains **BLOCKED** unless all evidence gates are satisfied and reviewed by a human operator. Live billing readiness remains **BLOCKED**. Current readiness tooling includes a local-only production execution dossier, Cloudflare resource model, live-read-only verification plan, and rollback drill. These artifacts help collect evidence; they do not deploy, run remote migrations, call Cloudflare/Stripe/providers, change secrets, execute rollback, or approve readiness.
+Production readiness remains **BLOCKED** unless all evidence gates are satisfied and reviewed by a human operator. Live billing readiness remains **BLOCKED**. Current readiness tooling includes a final RC validation matrix, Release Candidate Go/No-Go manifest, local-only production execution dossier, Cloudflare resource model, live-read-only verification plan, and rollback drill. These artifacts help collect evidence; they do not deploy, run remote migrations, call Cloudflare/Stripe/providers, change secrets, execute rollback, or approve readiness.
 
 ## Scope
 
@@ -71,7 +71,12 @@ npm run test:readiness-evidence
 npm run test:cloudflare-resource-model
 npm run test:readiness-dossier
 npm run test:rollback-drill
+npm run test:release-rc
+npm run test:rc-check
 npm run test:main-release-readiness
+npm run rc:check
+npm run release:rc
+npm run release:rc:markdown
 npm run cloudflare:resource-model
 npm run readiness:dossier
 npm run release:rollback-drill
@@ -85,9 +90,12 @@ Record pass/fail output with branch, commit, operator, and date. Do not paste se
 
 ## 3. Build Production Execution Evidence
 
-Generate the local evidence packet and resource model before deployment:
+Generate the RC packet, local evidence packet, and resource model before deployment:
 
 ```bash
+npm run rc:check
+npm run release:rc
+npm run release:rc:markdown
 npm run readiness:dossier
 npm run readiness:dossier:markdown
 npm run cloudflare:resource-model
@@ -95,7 +103,7 @@ npm run cloudflare:resource-model:markdown
 npm run release:rollback-drill
 ```
 
-These commands are local-only and non-mutating. The Cloudflare model is repo-declared evidence unless the operator attaches separate live evidence. The rollback drill records placeholders and smoke checks; it does not execute rollback.
+These commands are local-only and non-mutating. `rc:check` prints the final local validation matrix by default. The RC manifest supports code-merge/deploy preparation only. The Cloudflare model is repo-declared evidence unless the operator attaches separate live evidence. The rollback drill records placeholders and smoke checks; it does not execute rollback.
 
 ## 4. Verify Production D1 Migration Status
 

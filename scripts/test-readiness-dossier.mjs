@@ -44,6 +44,8 @@ assert.equal(dossier.billingEvidence.checkoutGrantPolicy, "checkout_creation_doe
 assert.equal(dossier.tenantEvidence.tenantIsolation, "not_claimed");
 assert.equal(dossier.rollbackPlan.rollbackExecuted, false);
 assert(dossier.localValidationChecklist.includes("npm run readiness:dossier"));
+assert(dossier.localValidationChecklist.includes("npm run release:rc"));
+assert(dossier.localValidationChecklist.includes("npm run rc:check"));
 assert(dossier.finalVerdict.reasons.some((reason) => /Cloudflare resource/.test(reason)));
 
 const markdown = renderProductionReadinessDossierMarkdown(dossier);

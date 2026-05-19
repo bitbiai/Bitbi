@@ -1,6 +1,6 @@
 # Alpha Audit Current Summary
 
-Last updated: 2026-05-18
+Last updated: 2026-05-19
 
 Latest auth migration: `0058_add_legacy_media_reset_actions.sql`
 
@@ -19,13 +19,15 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, and BITBI Pro scaffolding exist.
 - Member image/music/video AI Cost Gateway flows are migrated with idempotency and duplicate-provider-call suppression.
 - Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, selected platform caps, reconciliation, repair, report/export, and sanitized archives.
-- Admin Control Plane surfaces implemented operator panels, including readiness/evidence status.
+- Admin Control Plane surfaces implemented operator panels, including readiness/evidence status, production execution, and Release Candidate / Go-No-Go command copy.
+- Local RC tooling exists: `npm run rc:check` prints the final validation matrix by default, and `npm run release:rc` / `npm run release:rc:markdown` generate a blocked Go/No-Go manifest for code-merge/deploy preparation.
 - Tenant asset folder/image metadata, owner-map evidence, manual-review import/queue/status/Admin visibility, reset dry-run/reporting, reset action tracking, and reset executor endpoints exist in repo.
 
 ## Current Open Blockers
 
 - Remote migrations through `0058` must be applied before dependent Auth Worker deploys.
 - Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drill, rollback evidence, and Stripe canaries are not verified here.
+- RC tooling is repo/local evidence only and does not prove live production readiness or live billing readiness.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.
 - Tenant isolation remains unclaimed; legacy rows are not backfilled and access checks have not switched to ownership metadata.
 - Manual-review operator evidence still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.

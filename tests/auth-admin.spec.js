@@ -1901,7 +1901,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   await page.route('**/api/admin/readiness/status', async (route) => {
     await fulfillJson(route, {
       ok: true,
-      version: 'omega-p1-readiness-dashboard-v1',
+      version: 'omega-p1-readiness-dashboard-v4',
       generatedAt: '2026-05-18T10:00:00.000Z',
       releaseTruth: {
         source: 'config/release-compat.json',
@@ -1982,6 +1982,39 @@ async function mockAdminControlPlane(page, captures = {}) {
         ownerPlaceholder: 'TBD operator',
         requiredEvidence: ['previous commit', 'previous Worker deploy IDs', 'previous static deploy ID', 'post-rollback smoke checks'],
       },
+      releaseCandidate: {
+        status: 'repo_supported_ci_pending_live_evidence_pending',
+        productionReadiness: 'blocked',
+        liveBillingReadiness: 'blocked',
+        releaseCandidateUse: 'code_merge_or_deploy_preparation_only',
+        ciStatus: 'unknown_until_operator_runs_matrix',
+        commands: [
+          'npm run rc:check',
+          'npm run release:rc',
+          'npm run release:rc:markdown',
+          'npm run readiness:dossier:markdown',
+          'npm run release:rollback-drill',
+          'npm run release:plan',
+        ],
+        checklist: [
+          'clean worktree',
+          'all audits pass',
+          'full test matrix pass',
+          'release plan reviewed',
+          'cutover evidence generated',
+          'readiness dossier generated',
+          'rollback drill generated',
+          'live read-only evidence pending or attached',
+          'blocked claims acknowledged',
+        ],
+        waveMatrix: [
+          'P0-01 through P0-05 repo-supported; evidence blockers remain visible',
+          'P1 Waves 1-9 repo-supported; live/manual evidence remains pending where applicable',
+          'P1 Wave 10 RC framework is local-only and does not prove production readiness',
+        ],
+        dangerousActionsOffered: false,
+        browserExecutesCommands: false,
+      },
       blockedClaims: [
         { label: 'Production readiness', status: 'blocked' },
         { label: 'Live billing readiness', status: 'blocked' },
@@ -2005,6 +2038,7 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'P1 Wave 6 tenant asset/storage evidence expansion', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 7 billing evidence/control plane', status: 'implemented_repo_supported' },
         { label: 'P1 Wave 9 production readiness execution framework', status: 'implemented_repo_supported' },
+        { label: 'P1 Wave 10 release candidate consolidation', status: 'implemented_repo_supported_go_no_go_blocked' },
       ],
       runtimeSafetyGates: [
         {
@@ -2033,6 +2067,8 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'Cloudflare resource model', status: 'repo_validated_live_verification_required' },
         { label: 'Production readiness dossier', status: 'local_only_available_blocked_verdict' },
         { label: 'Rollback drill evidence', status: 'template_available_pending_operator_fill' },
+        { label: 'Release Candidate Go/No-Go manifest', status: 'implemented_repo_supported_local_only_blocked_verdict' },
+        { label: 'Final RC validation matrix', status: 'implemented_plan_only_by_default' },
       ],
     });
   });
@@ -10363,9 +10399,16 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Readiness Dossier');
     await expect(readiness).toContainText('Post-Deploy Read-Only Verification');
     await expect(readiness).toContainText('Rollback Drill');
+    await expect(readiness).toContainText('Release Candidate / Go-No-Go');
+    await expect(readiness).toContainText('Release Candidate Status');
+    await expect(readiness).toContainText('P0/P1 Wave Matrix');
+    await expect(readiness).toContainText('Final RC Commands');
+    await expect(readiness).toContainText('Go/No-Go Checklist');
     await expect(readiness).toContainText('repo-supported');
     await expect(readiness).toContainText('deploy-pending');
     await expect(readiness).toContainText('live-evidence-pending');
+    await expect(readiness).toContainText('npm run rc:check');
+    await expect(readiness).toContainText('npm run release:rc:markdown');
     await expect(readiness).toContainText('npm run readiness:dossier');
     await expect(readiness).toContainText('npm run cloudflare:resource-model');
     await expect(readiness).toContainText('npm run release:rollback-drill');
@@ -10382,6 +10425,7 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('P1 Wave 5 live evidence/cutover tooling');
     await expect(readiness).toContainText('P1 Wave 7 billing evidence/control plane');
     await expect(readiness).toContainText('P1 Wave 9 production readiness execution framework');
+    await expect(readiness).toContainText('P1 Wave 10 release candidate consolidation');
     await expect(readiness).toContainText('Runtime Safety Gates');
     await expect(readiness).toContainText('disabled default off');
     await expect(readiness).toContainText('Fetch Metadata CSRF hardening');
@@ -10392,6 +10436,8 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Billing evidence/control plane');
     await expect(readiness).toContainText('Production readiness dossier');
     await expect(readiness).toContainText('Rollback drill evidence');
+    await expect(readiness).toContainText('Release Candidate Go/No-Go manifest');
+    await expect(readiness).toContainText('Final RC validation matrix');
     await expect(readiness).toContainText('Command Center');
     await expect(readiness).toContainText('npm run check:js');
     await expect(readiness).toContainText('npm run test:tenant-assets');
@@ -10411,6 +10457,14 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => readClipboardValue(page)).toContain('npm run readiness:live-readonly');
     await readiness.getByRole('button', { name: 'Copy rollback drill command' }).click();
     await expect.poll(() => readClipboardValue(page)).toBe('npm run release:rollback-drill');
+    await readiness.getByRole('button', { name: 'Copy RC check' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run rc:check');
+    await readiness.getByRole('button', { name: 'Copy RC manifest Markdown' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run release:rc:markdown');
+    await readiness.getByRole('button', { name: 'Copy RC dossier Markdown' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run readiness:dossier:markdown');
+    await readiness.getByRole('button', { name: 'Copy release plan' }).click();
+    await expect.poll(() => readClipboardValue(page)).toBe('npm run release:plan');
 
     await readiness.getByRole('button', { name: 'Copy commands' }).first().click();
     await expect.poll(() => readClipboardValue(page)).toContain('npm run check:js');

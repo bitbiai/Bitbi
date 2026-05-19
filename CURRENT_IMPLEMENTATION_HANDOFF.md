@@ -23,6 +23,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Admin Readiness now includes a Production Execution Framework panel for repo-supported/deploy-pending/live-evidence-pending state, Cloudflare resource model, readiness dossier, post-deploy read-only verification, and rollback drill copy-only commands.
 - Admin-only `GET /api/admin/operations/timeline` aggregates bounded redacted local D1 operational metadata without external calls, live R2 listing, or mutations. Local `npm run evidence:index` / `npm run evidence:index:markdown` inventories repo evidence and classifies unsafe markers without printing raw values.
 - Local `npm run readiness:dossier`, `npm run cloudflare:resource-model`, and `npm run release:rollback-drill` provide a non-mutating production execution packet, repo-vs-live Cloudflare resource model, and rollback drill artifact. They keep readiness blocked and do not call Cloudflare/GitHub/Stripe/providers.
+- Local Release Candidate tooling now exists: `npm run release:rc` / `npm run release:rc:markdown` generate the Go/No-Go manifest, and `npm run rc:check` prints the final RC validation matrix by default. These are local-only and keep production readiness/live billing blocked.
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, BITBI Pro scaffolding, read-only billing evidence status, and blocked billing canary skeleton tooling exist.
 - Member image/music/video AI Cost Gateway paths, selected admin/platform budget controls, and Auth/AI caller-policy release compatibility checks exist.
 - Data lifecycle planning/export/archive/cleanup foundations exist; high-risk lifecycle planning now requires an `Idempotency-Key`.
@@ -62,6 +63,8 @@ git log --oneline -10
 npm run check:doc-currentness
 npm run release:plan
 npm run evidence:index
+npm run rc:check
+npm run release:rc:markdown
 npm run readiness:dossier
 npm run cloudflare:resource-model
 npm run release:rollback-drill

@@ -37,7 +37,12 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | `npm run test:cloudflare-resource-model` |  | BLOCKED |
 | `npm run test:readiness-dossier` |  | BLOCKED |
 | `npm run test:rollback-drill` |  | BLOCKED |
+| `npm run test:release-rc` |  | BLOCKED |
+| `npm run test:rc-check` |  | BLOCKED |
 | `npm run test:main-release-readiness` |  | BLOCKED |
+| `npm run rc:check` final matrix reviewed |  | BLOCKED |
+| `npm run release:rc` generated |  | BLOCKED |
+| `npm run release:rc:markdown` generated |  | BLOCKED |
 | `npm run cloudflare:resource-model` |  | BLOCKED |
 | `npm run readiness:dossier` |  | BLOCKED |
 | `npm run release:rollback-drill` |  | BLOCKED |
@@ -64,6 +69,8 @@ If `npm run release:plan` for the reviewed runtime diff reports unexpected deplo
 
 | Check | Evidence | Result |
 | --- | --- | --- |
+| Release Candidate Go/No-Go manifest generated and final verdict remains production-blocked |  | BLOCKED |
+| Final RC validation matrix reviewed; deploy/migration/live commands absent |  | BLOCKED |
 | Readiness dossier generated locally and final verdict remains blocked |  | BLOCKED |
 | Cloudflare resource model generated locally and repo-vs-live distinction reviewed |  | BLOCKED |
 | Rollback drill generated and placeholders completed |  | BLOCKED |
@@ -259,6 +266,9 @@ npm run check:main-release-readiness -- --markdown
 Local production execution framework:
 
 ```bash
+npm run rc:check
+npm run release:rc
+npm run release:rc:markdown
 npm run readiness:dossier
 npm run readiness:dossier:markdown
 npm run cloudflare:resource-model
