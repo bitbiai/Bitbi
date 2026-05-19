@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -8,6 +9,10 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const releaseCompat = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "config", "release-compat.json"), "utf8")
+);
+const expectedLatestAuthMigration = releaseCompat.release.schemaCheckpoints.auth.latest;
 
 function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
@@ -187,7 +192,7 @@ function createCurrentContractFetch() {
           ok: true,
           version: "omega-p1-readiness-dashboard-v2",
           releaseTruth: {
-            latestAuthMigration: "0059_add_data_lifecycle_completion_state.sql",
+            latestAuthMigration: expectedLatestAuthMigration,
             repoTruthIsLiveDeployProof: false,
             deployVerificationRequired: true,
           },

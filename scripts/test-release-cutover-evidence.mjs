@@ -9,6 +9,10 @@ import {
 } from "./lib/release-cutover-evidence.mjs";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
+const releaseCompat = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "config", "release-compat.json"), "utf8")
+);
+const expectedLatestAuthMigration = releaseCompat.release.schemaCheckpoints.auth.latest;
 const evidence = collectReleaseCutoverEvidence({ repoRoot });
 const markdown = renderReleaseCutoverEvidenceMarkdown(evidence);
 const json = JSON.stringify(evidence);
@@ -20,7 +24,7 @@ assert.equal(evidence.noDeployRun, true);
 assert.equal(evidence.noRemoteMigrationsRun, true);
 assert.equal(evidence.liveChecksRun, false);
 assert.equal(evidence.releaseTruth.source, "config/release-compat.json");
-assert.equal(evidence.releaseTruth.latestAuthMigration, "0059_add_data_lifecycle_completion_state.sql");
+assert.equal(evidence.releaseTruth.latestAuthMigration, expectedLatestAuthMigration);
 assert.equal(evidence.releaseTruth.authDatabaseName, "bitbi-auth-db");
 assert(Array.isArray(evidence.releasePlan.deploySteps));
 assert(Array.isArray(evidence.releasePlan.expectedDeployOrder));
@@ -45,7 +49,7 @@ if (!planningEvidence.repo.status.clean && planningEvidence.repo.status.availabl
 
 assert(markdown.includes("Release Cutover Expected-State Manifest"));
 assert(markdown.includes("Latest auth D1 migration"));
-assert(markdown.includes("0059_add_data_lifecycle_completion_state.sql"));
+assert(markdown.includes(expectedLatestAuthMigration));
 assert(markdown.includes("Rollback Placeholders"));
 assert(markdown.includes("Production readiness: **BLOCKED**"));
 assert(markdown.includes("This manifest is local-only and non-mutating"));

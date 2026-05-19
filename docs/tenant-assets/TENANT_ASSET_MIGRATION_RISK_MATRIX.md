@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
+Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
 Purpose: current risk register for tenant asset ownership and legacy media reset work. This is not phase history and does not approve destructive execution.
 

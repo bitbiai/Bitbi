@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -8,6 +9,10 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const releaseCompat = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "config", "release-compat.json"), "utf8")
+);
+const expectedLatestAuthMigration = releaseCompat.release.schemaCheckpoints.auth.latest;
 
 const manifest = createReleaseCandidateManifest({
   repoRoot,
@@ -35,7 +40,7 @@ assert.equal(manifest.stripeCallsMade, false);
 assert.equal(manifest.providerCallsMade, false);
 assert.equal(manifest.deployRun, false);
 assert.equal(manifest.remoteMigrationsRun, false);
-assert.equal(manifest.latestMigrationCheckpoint.auth, "0059_add_data_lifecycle_completion_state.sql");
+assert.equal(manifest.latestMigrationCheckpoint.auth, expectedLatestAuthMigration);
 assert.equal(manifest.goNoGo.productionReadiness, "blocked");
 assert.equal(manifest.goNoGo.liveBillingReadiness, "blocked");
 assert.equal(manifest.goNoGo.productionGoNoGo, "NO_GO_for_production_readiness_claim");

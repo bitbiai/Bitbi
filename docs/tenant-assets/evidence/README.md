@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
+Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
 Purpose: current evidence index for tenant asset ownership, manual review, and legacy media reset decisions. Evidence files are preserved; active current-state summaries should not duplicate full phase history.
 

@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
+Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
 Purpose: current-state roadmap for expanding tenant asset ownership evidence beyond folders/images. This is not approval for backfill, access-switching, confirmed reset, deletion, tenant isolation, live billing, or production readiness.
 

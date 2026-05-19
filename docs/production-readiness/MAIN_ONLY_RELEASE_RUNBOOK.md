@@ -17,7 +17,7 @@ This runbook covers current direct-main release evidence for the static site, Au
 Use `npm run release:plan` as the current deploy-unit source. The current auth migration checkpoint is:
 
 ```text
-0059_add_data_lifecycle_completion_state.sql
+0060_add_app_settings.sql
 ```
 
 Static/pages, Auth Worker, AI Worker, Contact Worker, and remote auth migration requirements are release-plan dependent. Repo-supported readiness is not live readiness; Cloudflare resource declarations and Wrangler parity still require operator live evidence.
@@ -35,7 +35,7 @@ Static/pages, Auth Worker, AI Worker, Contact Worker, and remote auth migration 
 
 1. Verify clean commit/worktree.
 2. Run local preflight.
-3. Apply and verify production D1 migration status through `0059_add_data_lifecycle_completion_state.sql` when the reviewed release plan includes auth schema checkpoint `0059`.
+3. Apply and verify production D1 migration status through the latest auth schema checkpoint reported by `config/release-compat.json` and `npm run release:plan`.
 4. Deploy auth Worker by the approved operator process.
 5. Deploy static/pages by the approved operator process only when the reviewed release plan requires it.
 6. Run the live readiness evidence collector against explicit live URLs.
@@ -107,9 +107,9 @@ These commands are local-only and non-mutating. `rc:check` prints the final loca
 
 ## 4. Verify Production D1 Migration Status
 
-The production auth D1 database must be verified through `0059_add_data_lifecycle_completion_state.sql` before deploying current auth Worker code and before live smoke checks. Record migration names/status only.
+The production auth D1 database must be verified through the latest auth migration reported by `config/release-compat.json` before deploying current auth Worker code and before live smoke checks. Record migration names/status only.
 
-This runbook does not provide or authorize a remote migration command. If production is not verified through `0059`, stop and record final verdict `BLOCKED`.
+This runbook does not provide or authorize a remote migration command. If production is not verified through the release-contract latest migration, stop and record final verdict `BLOCKED`.
 
 ## 5. Deploy Auth Worker
 

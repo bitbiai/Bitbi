@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -8,6 +9,10 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const releaseCompat = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "config", "release-compat.json"), "utf8")
+);
+const expectedLatestAuthMigration = releaseCompat.release.schemaCheckpoints.auth.latest;
 
 const dossier = createProductionReadinessDossier({
   repoRoot,
@@ -35,7 +40,7 @@ assert.equal(dossier.deployRun, false);
 assert.equal(dossier.remoteMigrationsRun, false);
 assert.equal(dossier.productionReadiness, "blocked");
 assert.equal(dossier.liveBillingReadiness, "blocked");
-assert.equal(dossier.latestMigrationCheckpoint.auth, "0059_add_data_lifecycle_completion_state.sql");
+assert.equal(dossier.latestMigrationCheckpoint.auth, expectedLatestAuthMigration);
 assert.equal(dossier.cloudflareResourceModel.mode, "repo_config_only");
 assert.equal(dossier.cloudflareResourceModel.liveEvidenceRequired, true);
 assert.equal(dossier.liveReadOnlyEvidence.status, "pending");

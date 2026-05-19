@@ -59,7 +59,7 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | AI Worker | if `release:plan` reports AI Worker changes or Auth/AI caller-policy pairing |  |
 | Contact Worker | if `release:plan` reports Contact Worker changes |  |
 | Static/pages | if `release:plan` reports static/Admin UI changes |  |
-| Auth schema checkpoint `0059_add_data_lifecycle_completion_state.sql` | required before dependent Auth Worker code |  |
+| Auth schema checkpoint from `config/release-compat.json` (`0060_add_app_settings.sql` currently) | required before dependent Auth Worker code |  |
 | Stripe dashboard/API change | no, unless separately approved operator canary evidence exists |  |
 | Cloudflare dashboard/settings/secrets change | no, unless separately approved and recorded |  |
 
@@ -77,21 +77,21 @@ If `npm run release:plan` for the reviewed runtime diff reports unexpected deplo
 | Live-read-only plan reviewed as opt-in and GET-only by default |  | BLOCKED |
 | No deploy/migration/Cloudflare mutation/rollback execution command was run by these tools |  | BLOCKED |
 
-## 5. Required Production D1 Migration Evidence Through 0059
+## 5. Required Production D1 Migration Evidence Through Latest Release Contract
 
 Required latest auth migration:
 
 ```text
-0059_add_data_lifecycle_completion_state.sql
+0060_add_app_settings.sql
 ```
 
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Production auth D1 migration status checked by operator |  | BLOCKED |
-| `0059_add_data_lifecycle_completion_state.sql` present/applied |  | BLOCKED |
+| Latest release-contract migration present/applied |  | BLOCKED |
 | Evidence records migration names/status only |  | BLOCKED |
 | No remote migration was run by Codex or automation from this checklist |  | BLOCKED |
-| Migration `0059` verified before auth Worker deploy |  | BLOCKED |
+| Release-contract latest migration verified before auth Worker deploy |  | BLOCKED |
 
 ## 6. Auth Worker Deploy Verification
 
