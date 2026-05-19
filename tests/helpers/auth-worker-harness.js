@@ -4497,6 +4497,10 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT COUNT(*) AS cnt FROM data_export_archives') {
+      return { cnt: this.state.dataExportArchives.length };
+    }
+
     if (
       query.includes('FROM data_export_archives') &&
       query.includes('deleted_at IS NULL') &&
@@ -5503,6 +5507,16 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT COUNT(*) AS cnt FROM admin_audit_log WHERE created_at >= ?') {
+      const [cutoffIso] = bindings;
+      return { cnt: this.state.adminAuditLog.filter((row) => String(row.created_at || '') >= String(cutoffIso || '')).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM admin_audit_log WHERE created_at < ?') {
+      const [cutoffIso] = bindings;
+      return { cnt: this.state.adminAuditLog.filter((row) => String(row.created_at || '') < String(cutoffIso || '')).length };
+    }
+
     if (query.startsWith('SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at, COALESCE(u.email, idx.actor_email_norm) AS user_email FROM activity_search_index idx JOIN user_activity_log a')) {
       let limit = Number(bindings.at(-1)) || 0;
       let cursorTime = null;
@@ -5623,6 +5637,16 @@ class MockD1 {
       });
 
       return { results: rows.slice(0, limit).map(({ indexRow, ...row }) => ({ ...row })) };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM user_activity_log WHERE created_at >= ?') {
+      const [cutoffIso] = bindings;
+      return { cnt: this.state.userActivityLog.filter((row) => String(row.created_at || '') >= String(cutoffIso || '')).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM user_activity_log WHERE created_at < ?') {
+      const [cutoffIso] = bindings;
+      return { cnt: this.state.userActivityLog.filter((row) => String(row.created_at || '') < String(cutoffIso || '')).length };
     }
 
     if (query === "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'") {
@@ -9170,6 +9194,10 @@ class MockD1 {
           })
           .slice(0, Number(limit || 25)),
       };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM platform_budget_evidence_archives') {
+      return { cnt: (this.state.platformBudgetEvidenceArchives || []).length };
     }
 
     if (

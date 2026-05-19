@@ -2307,6 +2307,135 @@ async function mockAdminControlPlane(page, captures = {}) {
     });
   });
 
+  await page.route('**/api/admin/operations/timeline**', async (route) => {
+    const url = new URL(route.request().url());
+    captures.operatorTimelineRequests = captures.operatorTimelineRequests || [];
+    captures.operatorTimelineRequests.push(url.searchParams.toString());
+    await fulfillJson(route, {
+      ok: true,
+      version: 'omega-p1-wave8-operator-timeline-v1',
+      generatedAt: '2026-05-19T09:00:00.000Z',
+      source: 'local_d1_read_only_aggregate',
+      readOnly: true,
+      boundedResponse: true,
+      redactedResponse: true,
+      externalCallsMade: false,
+      stripeCallsMade: false,
+      providerCallsMade: false,
+      d1MutationPerformed: false,
+      r2ListingPerformed: false,
+      r2MutationPerformed: false,
+      creditMutationPerformed: false,
+      appliedFilters: {
+        source: url.searchParams.get('source') || null,
+        severity: url.searchParams.get('severity') || null,
+        status: url.searchParams.get('status') || null,
+        attentionRequired: url.searchParams.get('attentionRequired') || null,
+        limit: 25,
+        offset: 0,
+      },
+      events: [
+        {
+          id: 'billing:bpe_static_payment_failed',
+          timestamp: '2026-05-19T08:55:00.000Z',
+          source: 'billing',
+          domain: 'billing',
+          type: 'invoice.payment_failed',
+          category: 'billing_provider_event',
+          severity: 'high',
+          attentionRequired: true,
+          status: 'failed',
+          title: 'Billing event: invoice.payment_failed',
+          summary: 'Live billing lifecycle event requires operator review. Raw payload and signatures are not exposed.',
+          actor: null,
+          related: { billingEventId: 'bpe_static_payment_failed', providerMode: 'live' },
+          evidenceTarget: { label: 'Open Billing Events', href: '#billing-events', kind: 'admin_panel' },
+          recommendedAction: { label: 'Open Billing Reviews', href: '#billing-events', kind: 'admin_panel' },
+          dangerousActionWarning: 'No reset execution, ownership backfill, access switch, deploy, remote migration, Stripe action, provider call, refund, subscription mutation, or credit mutation is available from this timeline.',
+        },
+        {
+          id: 'tenant_review:tamr_static_public_unsafe',
+          timestamp: '2026-05-19T08:45:00.000Z',
+          source: 'tenant_review',
+          domain: 'tenant_assets',
+          type: 'public_unsafe',
+          category: 'tenant_asset_manual_review',
+          severity: 'critical',
+          attentionRequired: true,
+          status: 'blocked_public_unsafe',
+          title: 'Tenant review: public unsafe',
+          summary: 'Manual review blocks future access switch/backfill claims.',
+          actor: null,
+          related: { reviewItemId: 'tamr_static_public_unsafe', evidenceSourcePath: 'docs/tenant-assets/evidence/static.md' },
+          evidenceTarget: { label: 'Open Manual Review Queue', href: '#operations', kind: 'admin_panel' },
+          recommendedAction: { label: 'Open Manual Review Queue', href: '#operations', kind: 'admin_panel' },
+        },
+        {
+          id: 'ai_budget:pbra_static_review',
+          timestamp: '2026-05-19T08:35:00.000Z',
+          source: 'ai_budget',
+          domain: 'admin_ai',
+          type: 'review_only',
+          category: 'platform_budget_repair',
+          severity: 'medium',
+          attentionRequired: true,
+          status: 'pending_review',
+          title: 'Platform budget repair: review only',
+          summary: 'Repair evidence is review-only until an admin-approved existing workflow is used.',
+          actor: { userId: 'admin_static', email: 'admin@example.com' },
+          related: { repairActionId: 'pbra_static_review' },
+          evidenceTarget: { label: 'Open AI Budget Evidence', href: '#ai-budget-switches', kind: 'admin_panel' },
+          recommendedAction: { label: 'Open AI Budget Evidence', href: '#ai-budget-switches', kind: 'admin_panel' },
+        },
+        {
+          id: 'readiness:live_billing_readiness_blocked',
+          timestamp: '2026-05-19T08:30:00.000Z',
+          source: 'readiness',
+          domain: 'billing',
+          type: 'blocked_claim',
+          category: 'billing_readiness_claim',
+          severity: 'high',
+          attentionRequired: true,
+          status: 'blocked',
+          title: 'Live billing readiness remains blocked',
+          summary: 'Stripe credit packs and BITBI Pro require operator canary evidence before readiness claims.',
+          actor: null,
+          related: {},
+          evidenceTarget: { label: 'Open Billing Evidence Center', href: '#billing-events', kind: 'admin_panel' },
+          recommendedAction: { label: 'Open Billing Evidence Center', href: '#billing-events', kind: 'admin_panel' },
+        },
+      ],
+      hasMore: false,
+      nextOffset: null,
+      totalAvailable: 4,
+      blockedClaims: [
+        { id: 'production_readiness', label: 'Production readiness', status: 'blocked' },
+        { id: 'live_billing_readiness', label: 'Live billing readiness', status: 'blocked' },
+        { id: 'tenant_isolation', label: 'Tenant isolation', status: 'not_claimed' },
+      ],
+      archiveVisibility: {
+        status: 'metadata_only_no_r2_listing',
+        policy: {
+          retentionDays: 90,
+          retentionCutoff: '2026-02-18T09:00:00.000Z',
+          liveR2Listed: false,
+          archivesDeleted: false,
+        },
+        counts: {
+          adminAuditHot: 2,
+          userActivityHot: 1,
+          dataExportArchives: 1,
+          platformBudgetEvidenceArchives: 1,
+        },
+      },
+      safeNextActions: [
+        'Open the related Admin panel.',
+        'Run local evidence index or readiness commands outside the browser.',
+      ],
+      dangerousActionsOffered: [],
+    });
+  });
+
   await page.route('**/api/admin/orgs/org_control_1234567890/billing', async (route) => {
     await fulfillJson(route, {
       ok: true,
@@ -9996,6 +10125,23 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionLifecycle').getByRole('button', { name: /delete|execute/i })).toHaveCount(0);
 
     await clickAdminNavSection(page, 'operations');
+    await expect(page.locator('#sectionOperations')).toContainText('Operator Timeline / Triage');
+    await expect(page.locator('#operatorTimelineState')).toContainText('Read-only redacted operator timeline');
+    await expect(page.locator('#operatorTimelineSummary')).toContainText('metadata only no r2 listing');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Billing event: invoice.payment_failed');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Tenant review: public unsafe');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Live billing readiness remains blocked');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Open Billing Reviews');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Open AI Budget Evidence');
+    await expect(page.locator('#operatorTimelineList')).not.toContainText('sk_live_');
+    await expect(page.locator('#operatorTimelineList')).not.toContainText('Stripe-Signature');
+    await expect(page.locator('#operatorTimelineFilter')).toContainText('Source');
+    await expect(page.locator('#operatorTimelineFilter')).toContainText('Severity');
+    await expect(page.locator('#operatorTimelineFilter')).toContainText('Attention');
+    await page.locator('#operatorTimelineSourceFilter').selectOption('billing');
+    await page.locator('#operatorTimelineSeverityFilter').selectOption('high');
+    await page.locator('#operatorTimelineFilter').getByRole('button', { name: 'Apply Filters' }).click();
+    await expect.poll(() => captures.operatorTimelineRequests?.some((query) => query.includes('source=billing') && query.includes('severity=high'))).toBe(true);
     await expect(page.locator('#sectionOperations')).toContainText('max_attempts');
     await expect(page.locator('#sectionOperations')).toContainText('provider_failed');
     await expect(page.locator('#sectionOperations')).toContainText('Tenant Asset Manual Review Queue');
@@ -10107,6 +10253,35 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 390, height: 820 });
     await expect(page.locator('.admin-control-panel-nav__link[href="#evidence-archives"]')).toBeVisible();
     await expect(page.locator('#platformBudgetEvidenceArchivesPanel')).toContainText('No provider call');
+  });
+
+  test('operator timeline triage renders safe filters and no dangerous controls', async ({ page }) => {
+    const captures = {};
+    await installClipboardSpy(page);
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#operations');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    const operations = page.locator('#sectionOperations');
+    await expect(operations).toBeVisible();
+    await expect(operations).toContainText('Operator Timeline / Triage');
+    await expect(page.locator('#operatorTimelineFilter')).toContainText('Source');
+    await expect(page.locator('#operatorTimelineFilter')).toContainText('Severity');
+    await expect(page.locator('#operatorTimelineFilter')).toContainText('Status');
+    await expect(page.locator('#operatorTimelineFilter')).toContainText('Attention');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Open Billing Reviews');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Open Tenant Asset Center');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Copy event ID');
+    await expect(page.locator('#operatorTimelineList')).not.toContainText('sk_live_');
+    await expect(page.locator('#operatorTimelineList')).not.toContainText('Stripe-Signature');
+    await expect(operations.getByRole('button', { name: /enable|execute|deploy|migration|refund|checkout|subscription|backfill|access switch|stripe|provider|credit|delete|reset/i })).toHaveCount(0);
+    await expect(page.locator('a[href*="/de/admin"]')).toHaveCount(0);
+
+    await page.locator('#operatorTimelineCopyEvidenceIndex').click();
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run evidence:index');
+    await page.locator('#operatorTimelineCopyRunbook').click();
+    await expect.poll(() => readClipboardValue(page)).toContain('docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md');
   });
 
   test('readiness evidence dashboard renders blocked claims, safe exports, and copy-only commands', async ({

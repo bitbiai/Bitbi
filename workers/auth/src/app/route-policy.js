@@ -414,6 +414,11 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "High-risk admin storage folder deletion. Requires Idempotency-Key, confirm=true with confirmation=delete_user_folder, bounded reason, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; folder IDs are scoped to the selected user.",
   }),
   adminRead("admin.stats.read", "/api/admin/stats", "admin"),
+  adminRead("admin.operations.timeline", "/api/admin/operations/timeline", "admin", {
+    config: ["DB"],
+    rateLimit: { noneReason: "Read-only operator timeline aggregates bounded local D1 metadata and never lists R2 or calls external providers." },
+    notes: "Admin-only read model for operational triage. Returns bounded redacted event summaries only; does not mutate D1/R2, list live R2, call Stripe/provider APIs, expose raw payloads/secrets/keys, or offer dangerous actions.",
+  }),
   adminRead("admin.orgs.list", "/api/admin/orgs", "organizations", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-org-read-ip", failClosed: true },

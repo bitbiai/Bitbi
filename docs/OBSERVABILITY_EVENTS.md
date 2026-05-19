@@ -50,6 +50,8 @@ Identifiers:
 | Release/deploy checks | release preflight and prereq output | info/error | check id, status, missing resource names | Release readiness |
 | Poison messages | `video_job_poison_message_recorded` | error | reason, queue, job id if parseable, redacted shape | Malformed producer/consumer contract |
 | Health/readiness | health status and live-check script output | info/error | endpoint id, status, origin only | Uptime and drift checks |
+| Operator timeline | `GET /api/admin/operations/timeline` normalized event summaries | info/warn/error | event id, timestamp, source, severity, status, safe actor IDs, safe related IDs, recommended panel | Admin triage and evidence reconstruction |
+| Evidence index | `npm run evidence:index` local file classification output | info/warn | file path, source, classification, unsafe marker IDs/counts only | Evidence archive coverage and unsafe evidence review |
 
 ## Correlation ID Behavior
 
@@ -64,3 +66,4 @@ Identifiers:
 - Does any diagnostic include a prompt, body, token, code, secret, signature, nonce, or raw provider payload? If yes, remove it.
 - Does any diagnostic include a raw private R2/storage key or signed URL? If yes, replace it with a redacted reference, key class, hash, or count.
 - Does the event have an owner and a runbook link in `docs/SLO_ALERT_BASELINE.md` or `docs/runbooks/`?
+- If the event appears in the Operator Timeline, does it still omit raw R2 keys, idempotency keys, request hashes, Stripe signatures/payloads, secrets, cookies, authorization headers, and provider prompts/payloads?

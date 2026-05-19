@@ -87,6 +87,21 @@ This template records current evidence only. It does not approve production read
 - No raw Stripe webhook signatures or payload secrets:
 - No provider prompts/payloads beyond approved safe summaries:
 
+## Operator Timeline And Evidence Index
+
+- Admin Operator Timeline reviewed (`/admin/#operations`):
+- `GET /api/admin/operations/timeline` result path:
+- `externalCallsMade:false`, `r2ListingPerformed:false`, `d1MutationPerformed:false`, and `creditMutationPerformed:false` confirmed:
+- Critical/high timeline events triaged:
+- Recommended safe panels opened:
+- Dangerous actions absent from Admin timeline:
+- Activity/archive retention metadata reviewed:
+- `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md` reviewed:
+- `npm run evidence:index` output path:
+- `npm run evidence:index:markdown` output path:
+- Evidence index unsafe marker summary reviewed:
+- Unsafe evidence raw values absent from final evidence packet:
+
 ## Admin Mutation And Data Lifecycle Evidence
 
 - `npm run check:route-policies` result:

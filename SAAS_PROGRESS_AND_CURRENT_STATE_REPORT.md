@@ -13,7 +13,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Dimension | Current state |
 | --- | --- |
 | Security | Stronger foundation: service auth, replay protection, admin MFA, route policies, limiter/body guards, and purpose-specific secrets. |
-| Operations | Release plan/preflight, Auth/AI compatibility checks, readiness checks, incident runbooks, restore guidance, and evidence templates exist; live evidence remains incomplete. |
+| Operations | Release plan/preflight, Auth/AI compatibility checks, readiness checks, incident runbooks, Operator Timeline/Triage, evidence index tooling, restore guidance, and evidence templates exist; live evidence remains incomplete. |
 | Billing | Credit ledgers, guarded Stripe scaffolding, read-only billing evidence status, canary skeleton tooling, review queue, and reconciliation exist; live billing readiness remains blocked. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
 | Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist; confirmed reset is hard-disabled by default and remains blocked. |
@@ -26,6 +26,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Auth/session/MFA/security guardrails and route-policy checks are in place.
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, and BITBI Pro scaffolding exist.
 - Billing control-plane evidence reports live Stripe prerequisite presence/shape only; it does not expose secrets, call Stripe, create checkouts, grant credits, issue refunds, or mutate subscriptions.
+- Operator Timeline/Triage provides an Admin-only read model for audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive metadata. Evidence index tooling classifies repo evidence as accepted, pending, rejected/unsafe, template, or historical without live R2 listing or raw unsafe value output.
 - Admin/platform AI budget controls include classified-route metadata, caller-policy compatibility checks, Cloudflare master switches, D1 app switches, selected platform caps, read-only reconciliation, explicit repair actions, evidence reports, and archive tooling.
 - Tenant asset tooling includes folder/image owner-map evidence, nullable ownership metadata, manual-review import/read/status/Admin visibility, reset dry-run/reporting, and reset action tracking/executor endpoints.
 
@@ -36,6 +37,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Tenant isolation is not claimed; existing legacy asset rows are not backfilled and access checks have not switched to ownership metadata.
 - Confirmed legacy media reset is blocked because the dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout and no sanitized replacement evidence is present.
 - Manual-review evidence still lacks import replay, import conflict, standalone successful status-update, status replay, and status conflict evidence.
+- Operator timeline/evidence index output is triage support only. It does not approve live billing, production readiness, tenant isolation, ownership backfill, access switching, or confirmed reset.
 
 ## Current Deployment Requirements
 

@@ -10,6 +10,7 @@ import {
   getActivityRetentionCutoff,
   getActivityRetentionMetadata,
 } from "../lib/activity-archive.js";
+import { buildOperatorTimeline } from "../lib/operator-event-timeline.js";
 import {
   ACTIVITY_CURSOR_TTL_MS,
   ADMIN_AUDIT_LOG_TABLE,
@@ -147,6 +148,7 @@ function buildAdminReadinessStatus(env) {
       { id: "omega_p1_wave_5", label: "P1 Wave 5 live evidence/cutover tooling", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_6", label: "P1 Wave 6 tenant asset/storage evidence expansion", status: "implemented_repo_supported" },
       { id: "omega_p1_wave_7", label: "P1 Wave 7 billing evidence/control plane", status: "implemented_repo_supported" },
+      { id: "omega_p1_wave_8", label: "P1 Wave 8 operator timeline/triage evidence explorer", status: "implemented_repo_supported" },
     ],
     runtimeSafetyGates: [
       {
@@ -171,6 +173,8 @@ function buildAdminReadinessStatus(env) {
       { id: "live_billing_canary", label: "Live billing canary evidence", status: "pending_operator_live_evidence" },
       { id: "billing_evidence_control_plane", label: "Billing evidence/control plane", status: "implemented_repo_supported" },
       { id: "billing_safety_local_tests", label: "Billing safety local tests", status: "implemented_repo_supported" },
+      { id: "operator_timeline_triage", label: "Operator timeline/triage read model", status: "implemented_repo_supported" },
+      { id: "evidence_archive_index", label: "Evidence archive/index tooling", status: "implemented_repo_supported_local_only" },
       { id: "readiness_canary_contract", label: "Readiness/canary local-only safety contract", status: "implemented_repo_supported" },
       { id: "ai_budget_platform_evidence", label: "AI budget/platform evidence", status: "implemented_selected_scopes_live_evidence_pending" },
     ],
@@ -383,6 +387,23 @@ export async function handleAdmin(ctx) {
     }
 
     return json(buildAdminReadinessStatus(env), {
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
+  // GET /api/admin/operations/timeline
+  if (pathname === "/api/admin/operations/timeline" && method === "GET") {
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
+
+    if (result instanceof Response) {
+      return result;
+    }
+
+    const timeline = await buildOperatorTimeline(env, url.searchParams);
+    return json(timeline, {
       headers: {
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",

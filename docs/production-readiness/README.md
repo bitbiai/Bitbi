@@ -53,6 +53,8 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Restore drill and rollback evidence.
 - Billing evidence status from `GET /api/admin/billing/evidence/status`, with secret values redacted and `stripeCallsMade:false`.
 - Stripe Testmode/live canary evidence where billing is in scope, using `npm run billing:canary-evidence` as the blocked/pending skeleton before any live operator canary.
+- Operator timeline/triage evidence from `GET /api/admin/operations/timeline`, with bounded redacted local D1 metadata only and no external calls, R2 listing, or mutations.
+- Evidence archive/index coverage from `npm run evidence:index` or `npm run evidence:index:markdown`; unsafe markers must remain classified, not pasted into readiness evidence.
 - Admin/platform budget switch/cap/reconciliation/repair/report/archive evidence where AI cost controls are in scope.
 - Fetch Metadata/same-origin CSRF hardening evidence for browser state-changing routes and documented webhook/ingest/link exemptions.
 - Tenant asset/manual-review/reset evidence decisions before any ownership/backfill/reset claim.
@@ -64,6 +66,8 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 The Admin Control Plane includes a Readiness & Evidence dashboard at `/admin/#readiness`, backed by read-only `GET /api/admin/readiness/status` when the current Auth Worker is deployed. It shows blocked claims, release checkpoint labels, safety gates, evidence status, safe exports, and copy-only local commands. It does not run shell commands, enable reset execution, execute reset/delete, backfill ownership, switch access checks, call Stripe/providers/Cloudflare APIs, apply migrations, deploy, or prove live readiness.
 
 The Billing Events area includes a Billing Evidence Center backed by read-only `GET /api/admin/billing/evidence/status`. It reports live billing prerequisite presence/shape, static credit-pack catalog facts, BITBI Pro subscription metadata, webhook readiness facts, and blocked canary evidence without showing Stripe secrets, raw payloads, signatures, webhook secrets, checkout sessions, refunds, subscription mutations, or credit mutations.
+
+The Operations area includes Operator Timeline / Triage backed by read-only `GET /api/admin/operations/timeline`. It normalizes recent admin audit/activity, billing review/reconciliation, AI budget, lifecycle, tenant review/reset, readiness, and archive metadata into bounded redacted event summaries. It does not call Stripe/providers, list R2, mutate D1/R2/Queues, issue refunds, create checkout sessions, mutate subscriptions, mutate credits, deploy, migrate, backfill ownership, switch access checks, or execute reset.
 
 The dashboard now includes a Live Evidence State panel. It distinguishes repo-supported controls from deploy-pending and live-evidence-pending state, links operators to the cutover evidence command, and keeps all commands copy-only.
 
@@ -115,6 +119,9 @@ npm run test:readiness-evidence
 npm run test:release-cutover-evidence
 npm run test:main-release-readiness
 npm run billing:canary-evidence
+npm run evidence:index
+npm run evidence:index:markdown
+npm run test:evidence-index
 npm run release:cutover-evidence
 npm run release:plan
 npm run release:preflight

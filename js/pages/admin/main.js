@@ -139,7 +139,7 @@ const sectionMeta = {
     'ai-usage': { title: 'AI Usage',         desc: 'Org-scoped usage attempts, reservations, replay, and cleanup' },
     'ai-budget-switches': { title: 'AI Budget Switches', desc: 'App-level controls layered under Cloudflare master kill switches' },
     lifecycle: { title: 'Data Lifecycle',   desc: 'Export, deletion planning, archive, and retention operations' },
-    operations: { title: 'Operations',      desc: 'Async AI video diagnostics and operational visibility' },
+    operations: { title: 'Operations',      desc: 'Operator timeline, triage, async AI video diagnostics, and review queues' },
     'tenant-assets': { title: 'Tenant Assets', desc: 'Cross-domain ownership inventory, evidence gaps, and storage safety' },
     readiness: { title: 'Readiness',        desc: 'Release, migration, Cloudflare, and staging verification checklist' },
     users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
@@ -154,6 +154,8 @@ const sectionAliases = {
     'budget-repair': { section: 'ai-budget-switches', panel: 'platformBudgetReconciliationPanel' },
     'repair-evidence-report': { section: 'ai-budget-switches', panel: 'platformBudgetRepairReportPanel' },
     'evidence-archives': { section: 'ai-budget-switches', panel: 'platformBudgetEvidenceArchivesPanel' },
+    timeline: { section: 'operations', panel: null },
+    triage: { section: 'operations', panel: null },
 };
 
 /* ═══════════════════════════════════════════════════════════

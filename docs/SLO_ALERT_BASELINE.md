@@ -20,6 +20,8 @@ This baseline defines candidate service-level objectives and alerts. It does not
 | 5xx rate by Worker | Cloudflare Worker metrics | 1% for 5 min or any critical route spike | critical | Run service-specific incident checklist | service runbook | Dashboard/manual |
 | MFA lockout spike | Admin MFA logs/D1 failed-attempt state | more than expected admin baseline | critical | Check attack, user lockout, recovery path | `docs/runbooks/admin-mfa-lockout.md` | Partial |
 | Config fail-closed alert | Worker config failure logs | any production event | critical | Verify secrets/bindings and rollback | `docs/runbooks/cloudflare-secret-mismatch.md` | Partial |
+| Operator timeline high/critical attention events | Admin Operator Timeline local D1 read model | any unreviewed critical event or sustained high events | high/critical | Open related Admin panel and collect sanitized evidence | `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md` | Repo/local |
+| Evidence index unsafe markers | `npm run evidence:index` | any current evidence item classified rejected/unsafe | warning/high | Review marker IDs and replace unsafe evidence before readiness packets | `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md` | Repo/local |
 
 ## Current Gaps
 
@@ -27,3 +29,4 @@ This baseline defines candidate service-level objectives and alerts. It does not
 - Queue backlog and oldest-message-age signals require dashboard or Cloudflare API review.
 - Load/performance SLOs are candidates only until a synthetic/load baseline exists.
 - Restore drill SLOs are candidates until a staging drill is executed.
+- Operator timeline and evidence index are local/admin triage aids only; they do not prove Cloudflare dashboard alerts are configured.

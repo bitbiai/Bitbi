@@ -10,7 +10,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 
 | Store | Current use | Current risk |
 | --- | --- | --- |
-| Auth D1 database | Users, sessions, profiles, orgs, billing/credits, AI attempts, media metadata, lifecycle, admin evidence, tenant review/reset state. | Requires migration/deploy verification before readiness claims. |
+| Auth D1 database | Users, sessions, profiles, orgs, billing/credits, AI attempts, media metadata, lifecycle, audit/activity logs, admin evidence, tenant review/reset state. | Requires migration/deploy verification before readiness claims. Operator timeline reads must stay bounded and redacted. |
 | `USER_IMAGES` R2 | User-generated media, derivatives, generated covers/posters, video outputs, platform visual assets. | R2 keys are not tenant-isolation proof; evidence/log surfaces should expose classes/hashes/counts instead of raw private keys. No live listing/deletion without approval. |
 | `PRIVATE_MEDIA` R2 | Avatars and protected private media. | Access must remain auth-gated. |
 | `AUDIT_ARCHIVE` R2 | Data exports and platform/admin evidence archives. | Retention and access controls must preserve audit integrity. |
@@ -28,6 +28,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - Live billing readiness remains blocked.
 - Billing evidence surfaces must remain presence/shape-only for Stripe config and must not store or render raw Stripe payloads, signatures, secrets, payment methods, cookies, or session tokens. Refund/dispute/payment-failure records are review-only unless a later approved workflow explicitly changes credit behavior.
 - Admin/platform budget controls are scoped; internal AI Worker provider-cost routes require caller policy, but not every provider/budget scope is universally capped.
+- Operator Timeline/Triage reads audit/activity, billing, lifecycle, tenant, AI budget, readiness, and archive metadata as bounded redacted Admin-only summaries. It must not call external APIs, list live R2, or mutate D1/R2/Queues.
 
 ## Current Media And Tenant Asset Data
 
@@ -45,6 +46,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - Manual-review operator evidence exists but still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
 - Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout.
 - Confirmed media reset/deletion has not been approved or performed.
+- Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical states, and reports unsafe marker IDs without printing raw values.
 
 ## Blocked Claims
 

@@ -857,10 +857,82 @@
             <div id="sectionOperations" class="admin-section" style="display:none">
                 <div class="admin-control-toolbar glass glass-card reveal visible">
                     <div>
-                        <h3 class="admin-section-title">AI Operations / Video Diagnostics</h3>
-                        <p class="admin-shell__desc">Operational diagnostics for async admin video jobs and poison/failure queues. Sync video debug remains disabled unless explicitly configured.</p>
+                        <h3 class="admin-section-title">Operations / Operator Triage</h3>
+                        <p class="admin-shell__desc">Read-only timeline, incident triage, async admin video diagnostics, and tenant review queues. Dangerous operations remain unavailable.</p>
                     </div>
                     <button type="button" id="operationsRefresh" class="btn-action">Refresh</button>
+                </div>
+                <div class="admin-control-subsection">
+                    <div class="admin-control-subsection__header">
+                        <div>
+                            <h3 class="admin-section-title">Operator Timeline / Triage</h3>
+                            <p class="admin-shell__desc">Cross-domain audit, billing, AI budget, tenant, lifecycle, readiness, and archive metadata. Output is bounded, redacted, and read-only.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges" aria-label="Operator timeline safety">
+                            <span class="badge badge--disabled">Production blocked</span>
+                            <span class="badge badge--disabled">Live billing blocked</span>
+                            <span class="badge badge--user">No external calls</span>
+                            <button type="button" id="operatorTimelineRefresh" class="btn-action">Refresh Timeline</button>
+                            <button type="button" id="operatorTimelineCopyEvidenceIndex" class="btn-action btn-action--secondary">Copy evidence index</button>
+                            <button type="button" id="operatorTimelineCopyRunbook" class="btn-action btn-action--secondary">Copy runbook path</button>
+                        </div>
+                    </div>
+                    <form id="operatorTimelineFilter" class="admin-control-filter glass glass-card">
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Source</span>
+                            <select id="operatorTimelineSourceFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="admin_audit">Admin audit</option>
+                                <option value="user_activity">User activity</option>
+                                <option value="billing">Billing events</option>
+                                <option value="billing_review">Billing reviews</option>
+                                <option value="billing_reconciliation">Billing reconciliation</option>
+                                <option value="data_lifecycle">Data lifecycle</option>
+                                <option value="evidence_archive">Evidence archive</option>
+                                <option value="tenant_review">Tenant review</option>
+                                <option value="legacy_reset">Legacy reset</option>
+                                <option value="ai_budget">AI budget</option>
+                                <option value="activity_archive">Activity archive</option>
+                                <option value="readiness">Readiness</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Severity</span>
+                            <select id="operatorTimelineSeverityFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                                <option value="informational">Informational</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Status</span>
+                            <select id="operatorTimelineStatusFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="blocked">Blocked</option>
+                                <option value="failed">Failed</option>
+                                <option value="needs_review">Needs review</option>
+                                <option value="pending_review">Pending review</option>
+                                <option value="metadata_only">Metadata only</option>
+                                <option value="recorded">Recorded</option>
+                                <option value="resolved">Resolved</option>
+                            </select>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Attention</span>
+                            <select id="operatorTimelineAttentionFilter" class="admin-ai__input">
+                                <option value="">All</option>
+                                <option value="true">Requires attention</option>
+                                <option value="false">Informational only</option>
+                            </select>
+                        </label>
+                        <button type="submit" class="btn-action">Apply Filters</button>
+                    </form>
+                    <div id="operatorTimelineState" class="admin-state" aria-live="polite">Loading operator timeline...</div>
+                    <div id="operatorTimelineSummary"></div>
+                    <div id="operatorTimelineList"></div>
                 </div>
                 <div class="admin-shell-grid">
                     <div class="admin-shell glass glass-card reveal visible">

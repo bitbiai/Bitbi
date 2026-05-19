@@ -814,6 +814,7 @@
       "GET /api/admin/me",
       "GET /api/admin/users",
       "GET /api/admin/readiness/status",
+      "GET /api/admin/operations/timeline",
       "GET /api/admin/stats",
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",

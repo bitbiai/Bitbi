@@ -119,6 +119,13 @@ async function loadPlatformBudgetEvidenceArchiveModule() {
   return import(modulePath);
 }
 
+async function loadOperatorEventTimelineModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/operator-event-timeline.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadTenantAssetOwnershipModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-ownership.js')
@@ -4461,6 +4468,14 @@ test.describe('Phase 1-E auth route policy registry', () => {
       rateLimit: expect.objectContaining({ failClosed: true }),
       notes: expect.stringContaining('does not call Stripe'),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/operations/timeline')).toEqual(expect.objectContaining({
+      id: 'admin.operations.timeline',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      notes: expect.stringContaining('does not mutate D1/R2'),
+    }));
     expect(getRoutePolicy('GET', '/api/admin/billing/events/bpe_0123456789abcdef0123456789abcdef')).toEqual(expect.objectContaining({
       id: 'admin.billing.events.read',
       auth: 'admin',
@@ -7316,6 +7331,334 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(presentEnv.DB.state.memberCreditLedger).toHaveLength(0);
     expect(presentEnv.DB.state.billingCheckoutSessions).toHaveLength(0);
     expect(presentEnv.DB.state.billingMemberCheckoutSessions).toHaveLength(0);
+  });
+
+  test('operator timeline is admin-only, bounded, redacted, stable, and non-mutating', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase28-timeline-admin');
+    const member = createContractUser({ id: 'phase28-timeline-member', role: 'user' });
+    // Built from fragments so GitHub Push Protection does not treat these test fixtures as real secrets.
+    const fakeAdminStripeKey = ['s', 'k', 'live', 'phase28', 'admin', 'secret', 'should', 'not', 'render'].join('_').replace('s_k_', 'sk_');
+    const fakeBillingStripeKey = ['s', 'k', 'live', 'phase28', 'billing', 'secret', 'should', 'not', 'render'].join('_').replace('s_k_', 'sk_');
+    const fakeStripeSignatureHeader = ['Stripe', 'Signature'].join('-');
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      adminAuditLog: [{
+        id: 'aal_phase28_role',
+        admin_user_id: admin.id,
+        action: 'change_role',
+        target_user_id: member.id,
+        meta_json: JSON.stringify({ unsafeValue: fakeAdminStripeKey }),
+        created_at: '2026-05-19T10:00:00.000Z',
+      }],
+      userActivityLog: [{
+        id: 'ual_phase28_login',
+        user_id: member.id,
+        action: 'login_failed',
+        meta_json: JSON.stringify({ cookie: 'bitbi_session=should-not-render' }),
+        ip_address: '203.0.113.42',
+        created_at: '2026-05-19T09:55:00.000Z',
+      }],
+      billingProviderEvents: [{
+        id: 'bpe_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        provider: 'stripe',
+        provider_event_id: 'evt_phase28_failed_invoice',
+        provider_account: 'acct_phase28',
+        provider_mode: 'live',
+        event_type: 'invoice.payment_failed',
+        event_created_at: '2026-05-19T09:40:00.000Z',
+        received_at: '2026-05-19T09:41:00.000Z',
+        processing_status: 'failed',
+        verification_status: 'verified',
+        dedupe_key: 'stripe:live:evt_phase28_failed_invoice',
+        payload_hash: 'hash_should_not_render_0123456789abcdef',
+        payload_summary_json: JSON.stringify({ rawPayload: 'should-not-render', stripeSignature: `${fakeStripeSignatureHeader}: should-not-render` }),
+        organization_id: 'org_phase28',
+        user_id: member.id,
+        billing_customer_id: 'cus_phase28',
+        error_code: 'payment_failed',
+        error_message: `${fakeStripeSignatureHeader} ${fakeBillingStripeKey}`,
+        attempt_count: 1,
+        last_processed_at: '2026-05-19T09:42:00.000Z',
+        created_at: '2026-05-19T09:41:00.000Z',
+        updated_at: '2026-05-19T09:42:00.000Z',
+      }],
+      billingEventActions: [{
+        id: 'bea_phase28_review',
+        event_id: 'bpe_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        action_type: 'review_required',
+        status: 'pending',
+        dry_run: 1,
+        summary_json: JSON.stringify({
+          eventType: 'invoice.payment_failed',
+          providerMode: 'live',
+          operatorReviewOnly: true,
+          reviewState: 'needs_review',
+          reviewReason: 'Payment failure requires accounting/operator review only.',
+          recommendedAction: 'Open Billing Reviews.',
+          sideEffectsEnabled: false,
+          safeIdentifiers: { invoiceId: 'in_phase28' },
+        }),
+        created_at: '2026-05-19T09:42:00.000Z',
+        updated_at: '2026-05-19T09:42:00.000Z',
+      }],
+      dataExportArchives: [{
+        id: 'dea_phase28',
+        request_id: 'dlr_phase28_export',
+        subject_user_id: member.id,
+        r2_bucket: 'AUDIT_ARCHIVE',
+        r2_key: 'data-exports/private/user/raw-key-should-not-render.json',
+        sha256: 'abc123',
+        size_bytes: 1234,
+        expires_at: '2026-05-26T09:15:00.000Z',
+        created_at: '2026-05-19T09:16:00.000Z',
+        status: 'cleanup_failed',
+        updated_at: '2026-05-19T09:20:00.000Z',
+      }],
+      aiAssetManualReviewItems: [{
+        id: 'tamr_phase28_blocked',
+        asset_domain: 'ai_images',
+        asset_id: 'asset_phase28',
+        issue_category: 'public_unsafe',
+        review_status: 'blocked_public_unsafe',
+        severity: 'critical',
+        priority: 'urgent',
+        evidence_source_path: 'docs/tenant-assets/evidence/phase28.md',
+        safe_notes: 'Public asset blocker requires manual review before any future access switch.',
+        created_at: '2026-05-19T09:30:00.000Z',
+        updated_at: '2026-05-19T09:35:00.000Z',
+      }],
+      tenantAssetMediaResetActions: [{
+        id: 'tamra_phase28',
+        dry_run: 1,
+        status: 'blocked_pending_evidence',
+        requested_domains_json: JSON.stringify(['ai_images']),
+        normalized_request_hash: 'hash_should_not_render',
+        idempotency_key_hash: 'idem_hash_should_not_render',
+        operator_user_id: admin.id,
+        operator_email: admin.email,
+        reason: 'Dry-run evidence only',
+        acknowledgements_json: '{}',
+        evidence_report_generated_at: '2026-05-19T09:25:00.000Z',
+        evidence_snapshot_hash: 'snapshot_should_not_render',
+        before_summary_json: '{}',
+        result_summary_json: '{}',
+        error_summary_json: null,
+        created_at: '2026-05-19T09:25:00.000Z',
+        updated_at: '2026-05-19T09:25:00.000Z',
+        completed_at: null,
+      }],
+      platformBudgetRepairActions: [{
+        id: 'pbra_phase28',
+        budget_scope: 'platform_admin_lab_budget',
+        candidate_id: 'attempt_phase28',
+        candidate_type: 'missing_admin_usage_event',
+        requested_action: 'review_only',
+        action_status: 'pending_review',
+        dry_run: 1,
+        idempotency_key: 'platform-budget-key-should-not-render',
+        request_hash: 'request-hash-should-not-render',
+        requested_by_user_id: admin.id,
+        requested_by_email: admin.email,
+        reason: 'Operator review only',
+        source_attempt_id: 'aaia_phase28',
+        created_at: '2026-05-19T09:50:00.000Z',
+        updated_at: '2026-05-19T09:50:00.000Z',
+      }],
+      platformBudgetEvidenceArchives: [{
+        id: 'pbea_phase28',
+        budget_scope: 'platform_admin_lab_budget',
+        archive_type: 'repair_report',
+        archive_status: 'created',
+        storage_bucket: 'AUDIT_ARCHIVE',
+        storage_key: 'platform-budget-evidence/private/raw-key-should-not-render.json',
+        format: 'json',
+        summary_json: '{}',
+        idempotency_key_hash: 'idem_hash_should_not_render',
+        request_hash: 'request_hash_should_not_render',
+        reason: 'Evidence archive test',
+        created_by_user_id: admin.id,
+        created_by_email: admin.email,
+        created_at: '2026-05-19T09:45:00.000Z',
+        updated_at: '2026-05-19T09:45:00.000Z',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const memberToken = await seedSession(env, member.id);
+
+    const unauthenticated = await worker.fetch(
+      authJsonRequest('/api/admin/operations/timeline', 'GET'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const denied = await worker.fetch(
+      authJsonRequest('/api/admin/operations/timeline', 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    env.__TEST_FETCH = async () => {
+      throw new Error('Operator timeline must not call external providers.');
+    };
+    const stateBefore = JSON.stringify({
+      adminAuditLog: env.DB.state.adminAuditLog,
+      userActivityLog: env.DB.state.userActivityLog,
+      billingProviderEvents: env.DB.state.billingProviderEvents,
+      billingEventActions: env.DB.state.billingEventActions,
+      dataExportArchives: env.DB.state.dataExportArchives,
+      aiAssetManualReviewItems: env.DB.state.aiAssetManualReviewItems,
+      tenantAssetMediaResetActions: env.DB.state.tenantAssetMediaResetActions,
+      platformBudgetRepairActions: env.DB.state.platformBudgetRepairActions,
+      platformBudgetEvidenceArchives: env.DB.state.platformBudgetEvidenceArchives,
+    });
+    const response = await worker.fetch(
+      authJsonRequest('/api/admin/operations/timeline?limit=500&offset=oops&attentionRequired=true', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({
+      ok: true,
+      version: 'omega-p1-wave8-operator-timeline-v1',
+      readOnly: true,
+      boundedResponse: true,
+      redactedResponse: true,
+      externalCallsMade: false,
+      stripeCallsMade: false,
+      providerCallsMade: false,
+      d1MutationPerformed: false,
+      r2ListingPerformed: false,
+      r2MutationPerformed: false,
+      creditMutationPerformed: false,
+    }));
+    expect(body.appliedFilters).toEqual(expect.objectContaining({
+      limit: 100,
+      offset: 0,
+      attentionRequired: true,
+    }));
+    expect(body.blockedClaims).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'production_readiness', status: 'blocked' }),
+      expect.objectContaining({ id: 'live_billing_readiness', status: 'blocked' }),
+    ]));
+    expect(body.archiveVisibility.policy).toEqual(expect.objectContaining({
+      liveR2Listed: false,
+      archivesDeleted: false,
+    }));
+    expect(body.events.length).toBeGreaterThan(0);
+    expect(body.events.length).toBeLessThanOrEqual(100);
+    for (let index = 1; index < body.events.length; index += 1) {
+      const previous = body.events[index - 1];
+      const current = body.events[index];
+      expect(
+        previous.timestamp > current.timestamp ||
+        (previous.timestamp === current.timestamp && current.id.localeCompare(previous.id) <= 0)
+      ).toBe(true);
+    }
+    expect(body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'billing', severity: 'high', attentionRequired: true }),
+      expect.objectContaining({ source: 'tenant_review', severity: 'critical', attentionRequired: true }),
+      expect.objectContaining({ source: 'legacy_reset', attentionRequired: true }),
+    ]));
+    expect(body.dangerousActionsOffered).toEqual([]);
+    expect(JSON.stringify({
+      adminAuditLog: env.DB.state.adminAuditLog,
+      userActivityLog: env.DB.state.userActivityLog,
+      billingProviderEvents: env.DB.state.billingProviderEvents,
+      billingEventActions: env.DB.state.billingEventActions,
+      dataExportArchives: env.DB.state.dataExportArchives,
+      aiAssetManualReviewItems: env.DB.state.aiAssetManualReviewItems,
+      tenantAssetMediaResetActions: env.DB.state.tenantAssetMediaResetActions,
+      platformBudgetRepairActions: env.DB.state.platformBudgetRepairActions,
+      platformBudgetEvidenceArchives: env.DB.state.platformBudgetEvidenceArchives,
+    })).toBe(stateBefore);
+    const serialized = JSON.stringify(body);
+    for (const unsafe of [
+      fakeAdminStripeKey,
+      fakeBillingStripeKey,
+      fakeStripeSignatureHeader,
+      'rawPayload',
+      'raw-key-should-not-render',
+      'platform-budget-key-should-not-render',
+      'request-hash-should-not-render',
+      'bitbi_session=should-not-render',
+    ]) {
+      expect(serialized).not.toContain(unsafe);
+    }
+
+    const filteredResponse = await worker.fetch(
+      authJsonRequest('/api/admin/operations/timeline?source=billing&severity=high&limit=2', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const filteredBody = await filteredResponse.json();
+    expect(filteredResponse.status).toBe(200);
+    expect(filteredBody.appliedFilters).toEqual(expect.objectContaining({
+      source: 'billing',
+      severity: 'high',
+      limit: 2,
+      offset: 0,
+    }));
+    expect(filteredBody.events.length).toBeLessThanOrEqual(2);
+    expect(filteredBody.events.every((event) => event.source === 'billing' && event.severity === 'high')).toBe(true);
+  });
+
+  test('operator timeline helper normalizes filters and redacts archive keys', async () => {
+    const { buildOperatorTimeline, normalizeOperatorTimelineFilters } = await loadOperatorEventTimelineModule();
+    expect(normalizeOperatorTimelineFilters({
+      source: 'not_sql',
+      severity: 'critical',
+      status: 'needs_review',
+      attentionRequired: 'yes',
+      limit: '1000',
+      offset: '9999',
+    })).toEqual({
+      source: null,
+      severity: 'critical',
+      status: 'needs_review',
+      attentionRequired: true,
+      limit: 100,
+      offset: 500,
+    });
+
+    const admin = createAdminUser('phase28-helper-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      dataExportArchives: [{
+        id: 'dea_phase28_helper',
+        request_id: 'dlr_phase28_helper',
+        subject_user_id: admin.id,
+        r2_bucket: 'AUDIT_ARCHIVE',
+        r2_key: 'private/raw-r2-key-should-not-render.json',
+        sha256: 'abc123',
+        size_bytes: 12,
+        expires_at: '2026-05-26T09:15:00.000Z',
+        created_at: '2026-05-19T09:16:00.000Z',
+        status: 'ready',
+        updated_at: '2026-05-19T09:16:00.000Z',
+      }],
+    });
+    const timeline = await buildOperatorTimeline(env, { source: 'evidence_archive', limit: 5 });
+    expect(timeline.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'evidence_archive',
+        related: expect.objectContaining({
+          storage: expect.objectContaining({
+            internalKeyIncluded: false,
+          }),
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(timeline)).not.toContain('raw-r2-key-should-not-render');
   });
 
   test('live Stripe webhook grants credits exactly once for authorized live sessions only', async () => {

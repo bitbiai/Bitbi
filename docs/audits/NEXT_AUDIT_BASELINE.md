@@ -15,7 +15,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Auth Worker uses Cloudflare D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images, service bindings, and route-policy checks.
 - Browser state-changing requests require trusted Origin/Referer context, and protected writes with `Sec-Fetch-Site: cross-site` fail closed except for explicit webhook/ingest/link exemptions.
 - High-risk evidence/log surfaces should expose private storage keys only as bounded classes/hashes/counts, not raw internal R2 keys.
-- Admin Control Plane exists for implemented admin operations, including users, billing evidence status, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
+- Admin Control Plane exists for implemented admin operations, including users, Operator Timeline/Triage, billing evidence status, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify
@@ -79,6 +79,8 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Local release tooling and readiness checks exist.
 - Readiness tooling includes local-only safety contract checks and skipped-by-default live canaries, including negative Fetch Metadata and caller-policy evidence surfaces; operator live evidence is still required.
 - Billing evidence status and canary skeleton tooling exist. Admin-only `GET /api/admin/billing/evidence/status` is read-only, redacted, and reports live billing prerequisite presence/shape without Stripe calls or credit mutation. `npm run billing:canary-evidence` generates a blocked/pending operator evidence skeleton only.
+- Operator timeline/triage exists. Admin-only `GET /api/admin/operations/timeline` is read-only and aggregates bounded redacted local D1 metadata from audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive sources without external calls, live R2 listing, or mutations.
+- Evidence index tooling exists. `npm run evidence:index` and `npm run evidence:index:markdown` classify current repo evidence files as accepted, pending, rejected/unsafe, template, or historical and report unsafe marker IDs without printing raw values.
 - Billing local tests and reconciliation cover no-credit-before-webhook, idempotency, review-only refund/dispute/failure workflows, subscription credit buckets, and additional local mismatch categories. These are repo evidence only, not live billing readiness.
 - Production readiness remains blocked until live/manual evidence verifies migrations, Worker deploys, secrets, bindings, D1/R2/Queue/DO resources, health checks, security headers, alerts, restore drill, rollback path, Stripe configuration, and operational canaries.
 - Live billing readiness remains blocked.
@@ -100,6 +102,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Collect production-readiness evidence with no secret exposure.
+- Use `/admin/#operations`, `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md`, and `npm run evidence:index` during incident/readiness review.
 - Keep live billing flags disabled except for explicit bounded operator canaries, and collect Stripe dashboard/webhook/canary evidence without raw payloads, signatures, secrets, payment methods, cookies, or session tokens.
 
 ## Recommended Starting Points For Next Audit
@@ -109,6 +112,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 3. Review manual-review evidence gaps before any ownership backfill or access-switch planning.
 4. Review AI budget cap/evidence gaps and decide the next bounded platform-budget scope target.
 5. Review production-readiness evidence and live/manual Cloudflare prerequisites.
+6. Review Operator Timeline/Triage classifications and evidence index unsafe-marker output before attaching any evidence to readiness packets.
 
 ## Historical Archive Pointers
 

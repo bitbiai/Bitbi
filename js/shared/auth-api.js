@@ -239,6 +239,27 @@ export function apiAdminUserActivity(limit, cursor, search) {
     return request('GET', `/admin/user-activity${qs}`);
 }
 
+export function apiAdminOperationsTimeline({
+    source,
+    severity,
+    status,
+    attentionRequired,
+    limit,
+    offset,
+} = {}) {
+    const params = new URLSearchParams();
+    if (source) params.set('source', source);
+    if (severity) params.set('severity', severity);
+    if (status) params.set('status', status);
+    if (attentionRequired !== undefined && attentionRequired !== null && attentionRequired !== '') {
+        params.set('attentionRequired', String(attentionRequired));
+    }
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/operations/timeline${qs}`);
+}
+
 export function apiAdminOrganizations({ limit, search } = {}) {
     const params = new URLSearchParams();
     if (search) params.set('search', search);

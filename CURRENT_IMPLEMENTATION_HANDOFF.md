@@ -19,7 +19,8 @@ This handoff is not production approval, live billing approval, legal compliance
 ## Current Implemented State
 
 - Auth/session/admin MFA/service-auth/route-policy/rate-limit/body-size/secret-purpose hardening exists.
-- Admin Control Plane surfaces implemented operator tools for users, billing evidence, billing reviews/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget switches, caps, repair, reports, archives, and tenant manual-review visibility.
+- Admin Control Plane surfaces implemented operator tools for users, Operator Timeline/Triage, billing evidence, billing reviews/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget switches, caps, repair, reports, archives, and tenant manual-review visibility.
+- Admin-only `GET /api/admin/operations/timeline` aggregates bounded redacted local D1 operational metadata without external calls, live R2 listing, or mutations. Local `npm run evidence:index` / `npm run evidence:index:markdown` inventories repo evidence and classifies unsafe markers without printing raw values.
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, guarded Stripe scaffolding, BITBI Pro scaffolding, read-only billing evidence status, and blocked billing canary skeleton tooling exist.
 - Member image/music/video AI Cost Gateway paths, selected admin/platform budget controls, and Auth/AI caller-policy release compatibility checks exist.
 - Data lifecycle planning/export/archive/cleanup foundations exist; high-risk lifecycle planning now requires an `Idempotency-Key`.
@@ -37,6 +38,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Manual-review evidence still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
 - Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and the confirmation gate remains closed.
 - Cloudflare WAF/static headers/RUM/alerts, secrets, bindings, restore drill, rollback evidence, Stripe dashboard/webhook setup, and live billing canaries still require operator evidence. Checkout creation does not grant credits; verified webhook/payment/invoice events are required. Refund/dispute/payment-failure handling remains review-only.
+- Operator timeline and evidence index are repo/admin evidence aids only; they do not prove production readiness or authorize dangerous actions.
 
 ## Read First
 
@@ -45,9 +47,10 @@ This handoff is not production approval, live billing approval, legal compliance
 3. `docs/audits/README.md`
 4. `config/release-compat.json`
 5. `docs/production-readiness/README.md`
-6. `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`
-7. `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
-8. `workers/auth/CLAUDE.md`
+6. `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md`
+7. `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`
+8. `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
+9. `workers/auth/CLAUDE.md`
 
 ## Restart Commands
 
@@ -56,6 +59,7 @@ git status --short
 git log --oneline -10
 npm run check:doc-currentness
 npm run release:plan
+npm run evidence:index
 ```
 
 For documentation-only changes, run:

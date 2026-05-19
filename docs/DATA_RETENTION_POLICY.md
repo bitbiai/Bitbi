@@ -16,7 +16,7 @@ Purpose: current engineering retention baseline. This is not legal approval and 
 | Media objects | R2 objects under known bindings. | No live R2 deletion/listing without explicit approved executor/evidence. |
 | Billing/credits/AI usage | D1 ledgers/attempts/events/reconciliation evidence. | Live billing readiness and remediation workflows remain blocked. |
 | Data lifecycle/export archives | D1 lifecycle rows and `AUDIT_ARCHIVE` outputs. | Self-service and legal-approved irreversible delete flows remain open. |
-| Admin/platform evidence archives | Sanitized evidence archives under audit retention. | Preserve audit integrity; do not delete unique evidence. |
+| Admin/platform evidence archives | Sanitized evidence archives under audit retention, with metadata visible through Admin evidence/archive panels and Operator Timeline where supported. | Preserve audit integrity; do not delete unique evidence. |
 | Tenant manual-review/reset evidence | D1 review/reset action rows plus committed evidence docs. | Current reset dry-run evidence is unsafe and confirmation remains blocked. |
 
 ## Current Tenant Asset Retention State
@@ -35,6 +35,7 @@ Purpose: current engineering retention baseline. This is not legal approval and 
 - No billing/credit refunds through media reset.
 - Admin data lifecycle approval, export generation, expired archive cleanup, and non-dry-run safe execution require `Idempotency-Key`; high-risk approval/export/cleanup and `execute-safe` with `dryRun:false` also require explicit `confirm=true`.
 - Data export/archive evidence should expose private storage references only as redacted categories, hashes, counts, or archive metadata, not raw private R2 keys.
+- Operator Timeline archive visibility is metadata-only. It reports retention policy/count posture from D1 where available and must not list or delete live R2 objects.
 
 ## Evidence Requirements Before Destructive Action
 
@@ -50,3 +51,5 @@ Any future destructive action needs:
 ## Current Baseline
 
 Use `docs/audits/NEXT_AUDIT_BASELINE.md` for audit restart and `docs/production-readiness/EVIDENCE_TEMPLATE.md` for readiness evidence capture.
+
+Use `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md` for audit/activity/archive incident triage and `npm run evidence:index` for local repo evidence inventory.
