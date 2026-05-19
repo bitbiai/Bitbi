@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0059_add_data_lifecycle_completion_state.sql",
+        "latest": "0060_add_app_settings.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -813,6 +813,8 @@
     "literalRoutes": [
       "GET /api/admin/me",
       "GET /api/admin/users",
+      "GET /api/admin/registration/status",
+      "POST /api/admin/registration/status",
       "GET /api/admin/readiness/status",
       "GET /api/admin/operations/timeline",
       "GET /api/admin/stats",
@@ -863,7 +865,8 @@
       "/admin/mfa/enable",
       "/admin/mfa/verify",
       "/admin/mfa/disable",
-      "/admin/mfa/recovery-codes/regenerate"
+      "/admin/mfa/recovery-codes/regenerate",
+      "/admin/registration/status"
     ]
   }
 }

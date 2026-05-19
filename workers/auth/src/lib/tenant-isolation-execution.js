@@ -173,6 +173,22 @@ function normalizeBackfillDomains(input) {
   };
 }
 
+function normalizeCandidateAssetIds(input) {
+  if (!Array.isArray(input?.candidateAssetIds) && !Array.isArray(input?.candidate_asset_ids)) return [];
+  const rawItems = Array.isArray(input.candidateAssetIds) ? input.candidateAssetIds : input.candidate_asset_ids;
+  const ids = [];
+  for (const raw of rawItems) {
+    const id = String(raw || "").trim();
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) {
+      throw new TenantIsolationExecutionError("Invalid ownership backfill candidate asset id.", {
+        code: "tenant_isolation_backfill_candidate_asset_id_invalid",
+      });
+    }
+    ids.push(id);
+  }
+  return Array.from(new Set(ids)).sort();
+}
+
 function ownershipMissing(row) {
   return !(row?.asset_owner_type && row?.ownership_status && (row?.owning_user_id || row?.owning_organization_id));
 }
@@ -466,6 +482,7 @@ export function normalizeOwnershipBackfillExecuteRequest(input = {}) {
       defaultValue: 25,
       maxValue: 50,
     }),
+    candidateAssetIds: normalizeCandidateAssetIds(input),
     ...normalized,
   };
 }
@@ -547,7 +564,22 @@ export async function executeOwnershipBackfill(env, {
     domains: normalized.domains,
     includeDetails: true,
   });
-  const candidates = (dryRunReport.candidates || []).filter((item) => item.classification === "safe_to_backfill");
+  let candidates = (dryRunReport.candidates || []).filter((item) => item.classification === "safe_to_backfill");
+  if (normalized.candidateAssetIds.length) {
+    const requested = new Set(normalized.candidateAssetIds);
+    candidates = candidates.filter((item) => requested.has(item.assetId));
+    if (candidates.length !== requested.size) {
+      throw new TenantIsolationExecutionError("Requested ownership backfill candidate is not currently classified safe.", {
+        status: 409,
+        code: "tenant_isolation_backfill_candidate_mismatch",
+        fields: {
+          requestedCandidateCount: requested.size,
+          matchedSafeCandidateCount: candidates.length,
+          domains: normalized.domains,
+        },
+      });
+    }
+  }
   const selected = candidates.slice(0, normalized.batchLimit);
   let rowsWritten = 0;
   const now = nowIso();
@@ -576,9 +608,10 @@ export async function executeOwnershipBackfill(env, {
       targetUserId: null,
       meta: {
         dryRun: normalized.dryRun,
-        domains: normalized.domains,
-        rowsConsidered: selected.length,
-        rowsWritten,
+      domains: normalized.domains,
+      candidateAssetIds: normalized.candidateAssetIds,
+      rowsConsidered: selected.length,
+      rowsWritten,
         rowsBlocked: Math.max(0, Number(dryRunReport.summary?.totalCandidates || 0) - selected.length),
         tenantIsolationClaimed: false,
         productionReadiness: "blocked",
@@ -605,6 +638,7 @@ export async function executeOwnershipBackfill(env, {
     rowsConsidered: selected.length,
     rowsWritten,
     rowsBlocked: Math.max(0, Number(dryRunReport.summary?.totalCandidates || 0) - selected.length),
+    candidateAssetIds: normalized.candidateAssetIds,
     blockedReasons: dryRunReport.summary?.classifications || {},
     evidence: {
       generatedAt: dryRunReport.generatedAt,

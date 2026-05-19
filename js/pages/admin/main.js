@@ -18,6 +18,8 @@ import {
     apiAdminMfaStatus,
     apiAdminMfaVerify,
     apiAdminUsers,
+    apiAdminRegistrationStatus,
+    apiAdminSetRegistrationStatus,
     apiAdminChangeRole,
     apiAdminChangeStatus,
     apiAdminRevokeSessions,
@@ -98,6 +100,14 @@ const $userStorageModal = document.getElementById('userStorageModal');
 const $userStorageModalTitle = document.getElementById('userStorageModalTitle');
 const $userStorageModalSubtitle = document.getElementById('userStorageModalSubtitle');
 const $userStorageModalBody = document.getElementById('userStorageModalBody');
+const $registrationPanel = document.getElementById('registrationAvailabilityPanel');
+const $registrationState = document.getElementById('registrationAvailabilityState');
+const $registrationToggle = document.getElementById('registrationEnabledToggle');
+const $registrationStatusText = document.getElementById('registrationAvailabilityStatusText');
+const $registrationMessageText = document.getElementById('registrationAvailabilityMessageText');
+const $registrationUpdatedText = document.getElementById('registrationAvailabilityUpdatedText');
+const $registrationReason = document.getElementById('registrationAvailabilityReason');
+const $registrationSaveBtn = document.getElementById('registrationAvailabilitySaveBtn');
 
 /* Avatar dropdown refs */
 const $avatarDropdown = document.getElementById('avatarDropdown');
@@ -411,6 +421,7 @@ function bootstrapAdminPanel() {
     initAvatarDropdown();
     initLightbox();
     bindUserCreditModal();
+    bindRegistrationAvailabilityPanel();
     controlPlane.bind();
 
     $searchForm.addEventListener('submit', (e) => {
@@ -741,7 +752,10 @@ function showSection(name) {
         pendingAdminPanelTarget = null;
         focusAdminPanelTarget(panelTarget);
     });
-    if (name === 'users') loadUsers($searchInput.value.trim());
+    if (name === 'users') {
+        loadRegistrationAvailability();
+        loadUsers($searchInput.value.trim());
+    }
     if (name === 'activity') loadActivity();
     if (name === 'ai-lab') aiLab.show();
 }
@@ -2142,6 +2156,117 @@ function bindUserCreditModal() {
         if ($userInfoModal && !$userInfoModal.hidden) closeUserInfoDetails();
         if ($userCreditModal && !$userCreditModal.hidden) closeUserCreditDetails();
         if ($userStorageModal && !$userStorageModal.hidden) closeUserStorageDetails();
+    });
+}
+
+function renderRegistrationAvailability(registration = {}) {
+    if (!$registrationPanel) return;
+    const enabled = registration.enabled !== false;
+    if ($registrationToggle) $registrationToggle.checked = enabled;
+    if ($registrationStatusText) {
+        $registrationStatusText.textContent = enabled
+            ? 'Registrations enabled'
+            : 'Registrations disabled for maintenance';
+        $registrationStatusText.dataset.state = enabled ? 'success' : 'warning';
+    }
+    if ($registrationMessageText) {
+        $registrationMessageText.textContent = registration.maintenanceMessage
+            || 'Registrations are temporarily disabled due to maintenance work. Please try again later.';
+    }
+    if ($registrationUpdatedText) {
+        const pieces = [
+            registration.settingPresent ? 'Stored setting present' : 'Default setting in effect',
+        ];
+        if (registration.storageAvailable === false) pieces.push('settings migration pending');
+        if (registration.updatedAt) pieces.push(`updated ${formatDate(registration.updatedAt)}`);
+        if (registration.updatedByUserId) pieces.push(`by ${shortUserId(registration.updatedByUserId)}`);
+        $registrationUpdatedText.textContent = pieces.join(' · ');
+    }
+    if ($registrationReason && registration.reason) {
+        $registrationReason.placeholder = `Last reason: ${registration.reason}`;
+    }
+}
+
+function setRegistrationAvailabilityState(message, state = 'neutral') {
+    if (!$registrationState) return;
+    $registrationState.dataset.state = state;
+    $registrationState.textContent = message;
+}
+
+async function loadRegistrationAvailability() {
+    if (!$registrationPanel) return;
+    setRegistrationAvailabilityState('Loading registration availability...');
+    const res = await apiAdminRegistrationStatus();
+    if (!res.ok) {
+        setRegistrationAvailabilityState(formatApiError(res, 'Registration availability status could not be loaded.'), 'error');
+        return;
+    }
+    renderRegistrationAvailability(res.data?.registration || {});
+    setRegistrationAvailabilityState('Registration availability loaded. Existing users can still sign in regardless of this setting.', 'success');
+}
+
+async function saveRegistrationAvailability() {
+    if (!$registrationToggle || !$registrationSaveBtn) return;
+    const enabled = $registrationToggle.checked === true;
+    const reason = ($registrationReason?.value || '').trim();
+    if (!enabled && !reason) {
+        setRegistrationAvailabilityState('A reason is required when disabling new registrations.', 'error');
+        $registrationReason?.focus?.();
+        return;
+    }
+    const confirmed = window.confirm(enabled
+        ? 'Enable new user registrations? Existing users are unaffected.'
+        : 'Disable new user registrations for maintenance? Existing users will still be able to sign in.');
+    if (!confirmed) return;
+    $registrationSaveBtn.disabled = true;
+    setRegistrationAvailabilityState('Saving registration availability...');
+    try {
+        const res = await apiAdminSetRegistrationStatus({
+            enabled,
+            reason,
+            maintenanceMessage: 'Registrations are temporarily disabled due to maintenance work. Please try again later.',
+        }, {
+            idempotencyKey: createAdminIdempotencyKey('registration-availability'),
+        });
+        if (!res.ok) {
+            const message = formatApiError(res, 'Registration availability could not be saved.');
+            setRegistrationAvailabilityState(message, 'error');
+            showToast(message, 'error');
+            return;
+        }
+        renderRegistrationAvailability(res.data?.registration || {});
+        if ($registrationReason) $registrationReason.value = '';
+        setRegistrationAvailabilityState(res.data?.message || 'Registration availability saved.', 'success');
+        showToast(res.data?.message || 'Registration availability saved.', 'success');
+    } finally {
+        $registrationSaveBtn.disabled = false;
+    }
+}
+
+function bindRegistrationAvailabilityPanel() {
+    if (!$registrationPanel || $registrationPanel.dataset.bound === '1') return;
+    $registrationPanel.dataset.bound = '1';
+    $registrationSaveBtn?.addEventListener('click', () => {
+        saveRegistrationAvailability().catch((error) => {
+            console.warn(error);
+            setRegistrationAvailabilityState('Registration availability could not be saved.', 'error');
+            if ($registrationSaveBtn) $registrationSaveBtn.disabled = false;
+        });
+    });
+    $registrationToggle?.addEventListener('change', () => {
+        const enabled = $registrationToggle.checked === true;
+        if ($registrationStatusText) {
+            $registrationStatusText.textContent = enabled
+                ? 'Registrations enabled (unsaved)'
+                : 'Registrations disabled for maintenance (unsaved)';
+            $registrationStatusText.dataset.state = enabled ? 'success' : 'warning';
+        }
+        setRegistrationAvailabilityState(
+            enabled
+                ? 'Save to allow new account creation again. Existing users are unaffected.'
+                : 'Enter a reason, then save to block only new account creation. Existing users are unaffected.',
+            'neutral'
+        );
     });
 }
 

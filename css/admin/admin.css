@@ -4212,6 +4212,134 @@
         margin-block-start: var(--space-3);
     }
 
+    .admin-registration-panel {
+        display: grid;
+        gap: var(--space-4);
+        margin-block-end: var(--space-5);
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-md);
+        background:
+            linear-gradient(135deg, rgba(0, 240, 255, 0.07), rgba(255, 255, 255, 0.025)),
+            rgba(255, 255, 255, 0.03);
+    }
+
+    .admin-registration-panel__header,
+    .admin-registration-panel__footer {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-3);
+        flex-wrap: wrap;
+    }
+
+    .admin-registration-panel__status {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        min-block-size: 2rem;
+        padding: 0 var(--space-3);
+        border-radius: var(--radius-pill);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.72);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .admin-registration-panel__status[data-state="success"] {
+        border-color: rgba(98, 255, 184, 0.34);
+        color: rgba(140, 255, 205, 0.92);
+        background: rgba(98, 255, 184, 0.08);
+    }
+
+    .admin-registration-panel__status[data-state="warning"] {
+        border-color: rgba(255, 211, 107, 0.4);
+        color: rgba(255, 224, 143, 0.95);
+        background: rgba(255, 211, 107, 0.09);
+    }
+
+    .admin-registration-panel__grid {
+        display: grid;
+        grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+        gap: var(--space-4);
+        align-items: stretch;
+    }
+
+    .admin-registration-panel__toggle,
+    .admin-registration-panel__message,
+    .admin-registration-panel__field {
+        min-width: 0;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: var(--radius-sm);
+        background: rgba(5, 8, 12, 0.46);
+    }
+
+    .admin-registration-panel__toggle {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-block-size: 4.5rem;
+        padding: var(--space-3);
+        color: rgba(255, 255, 255, 0.84);
+        font-weight: 600;
+    }
+
+    .admin-registration-panel__toggle input {
+        inline-size: 1.2rem;
+        block-size: 1.2rem;
+        accent-color: var(--color-cyan);
+    }
+
+    .admin-registration-panel__message {
+        padding: var(--space-3);
+    }
+
+    .admin-registration-panel__label,
+    .admin-registration-panel__field span {
+        display: block;
+        margin-block-end: 0.35rem;
+        color: rgba(255, 255, 255, 0.48);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .admin-registration-panel__message p,
+    .admin-registration-panel__footer p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.68);
+        line-height: 1.55;
+    }
+
+    .admin-registration-panel__field {
+        display: block;
+        padding: var(--space-3);
+    }
+
+    .admin-registration-panel__field textarea {
+        inline-size: 100%;
+        min-block-size: 4.5rem;
+        resize: vertical;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: var(--radius-sm);
+        background: rgba(0, 0, 0, 0.24);
+        color: rgba(255, 255, 255, 0.86);
+        font: inherit;
+        line-height: 1.5;
+        padding: var(--space-2);
+    }
+
+    .admin-registration-panel .admin-state {
+        padding: var(--space-3);
+        text-align: left;
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
     /* ── State (loading / empty) ── */
     .admin-state {
         text-align: center;
@@ -4239,6 +4367,14 @@
 
         #sectionUsers .glass-card__body {
             padding-inline-start: 0;
+        }
+
+        .admin-registration-panel {
+            padding: var(--space-3);
+        }
+
+        .admin-registration-panel__grid {
+            grid-template-columns: 1fr;
         }
 
         /* Search: stack vertically */

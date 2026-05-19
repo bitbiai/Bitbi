@@ -6,7 +6,7 @@ Purpose: single current-state restart point for the next deep audit. This file r
 
 The old root audit docs were retired to `docs/audits/archive/retired-audit-root-docs/`. The next audit should start here and should not continue old audit phase numbering.
 
-Current release truth: `config/release-compat.json` declares latest auth D1 migration `0059_add_data_lifecycle_completion_state.sql`.
+Current release truth: `config/release-compat.json` declares latest auth D1 migration `0060_add_app_settings.sql`.
 
 ## Current System State
 
@@ -33,12 +33,13 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 ## Current Migration State
 
-- Latest auth D1 migration in repo/release contract: `0059_add_data_lifecycle_completion_state.sql`.
+- Latest auth D1 migration in repo/release contract: `0060_add_app_settings.sql`.
 - Migration `0056_add_ai_folder_image_ownership_metadata.sql` adds nullable ownership metadata to `ai_folders` and `ai_images`.
 - Migration `0057_add_ai_asset_manual_review_state.sql` adds manual-review item/event tables.
 - Migration `0058_add_legacy_media_reset_actions.sql` adds legacy media reset action/event tracking.
 - Migration `0059_add_data_lifecycle_completion_state.sql` adds Data Lifecycle final completion, evidence, retained-category, close/reject, and completion-note metadata.
-- Remote migrations `0056`, `0057`, `0058`, and `0059` must be applied before deploying Auth Worker code that depends on those columns/tables.
+- Migration `0060_add_app_settings.sql` adds the bounded `app_settings` table used by the Admin registration availability switch. Missing settings default registration to enabled until the migration is applied.
+- Remote migrations `0056`, `0057`, `0058`, `0059`, and `0060` must be applied before deploying Auth Worker code that depends on those columns/tables.
 
 ## Current Admin / Platform Budget State
 
@@ -52,11 +53,11 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - `ai_folders` and `ai_images` have nullable ownership metadata columns.
 - New personal folder/image writes assign high-confidence personal ownership metadata.
-- Existing current rows remain mixed/null/unclassified unless fresh post-cleanup evidence proves otherwise.
+- Existing current rows remain mixed/null/unclassified unless fresh post-cleanup evidence proves otherwise. Current post-cleanup evidence identifies one exact safe `ai_images` ownership candidate for operator execution only.
 - Main owner-map evidence exists as historical retained evidence, but old counts are superseded by manual media cleanup.
-- Current post-cleanup decision: `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` with status `post_cleanup_evidence_pending`.
+- Current post-cleanup decision: `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` with status `post_cleanup_single_backfill_candidate_prepared_operator_execution_pending`.
 - Runtime access checks still rely on existing behavior; reads have not switched to ownership metadata.
-- Ownership Backfill dry-run/evidence and a strictly gated executor exist for locally classified safe folder/image rows. Non-dry-run backfill requires Admin/MFA, `Idempotency-Key`, reason, explicit supported domain scope, bounded batch limit, and exact typed confirmation `BACKFILL OWNERSHIP`; unsafe/manual-review/public/missing-evidence/deferred rows remain blocked.
+- Ownership Backfill dry-run/evidence and a strictly gated executor exist for locally classified safe folder/image rows. Non-dry-run backfill requires Admin/MFA, `Idempotency-Key`, reason, explicit supported domain scope, bounded batch limit, exact typed confirmation `BACKFILL OWNERSHIP`, and may be narrowed to exact candidate asset IDs; unsafe/manual-review/public/missing-evidence/deferred rows remain blocked.
 - Access-Switch status and shadow diagnostics exist as read-only evidence surfaces. Enforced mode remains blocked because durable switch state and reviewed shadow evidence are not approved.
 - Tenant isolation remains unclaimed.
 
@@ -110,8 +111,8 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 ## Pending Operator Actions
 
 - Verify live deployment state for Auth Worker, Static/Pages, AI Worker, and Contact Worker.
-- Apply/verify remote auth migrations through `0059` before dependent Auth Worker deploys.
-- Collect fresh post-cleanup tenant asset evidence under `docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/` before any Backfill execution, Access-Switch enforcement, or Reset confirmation review.
+- Apply/verify remote auth migrations through `0060` before dependent Auth Worker deploys.
+- Re-run authenticated read-only preflight before any Backfill execution. The only currently prepared target is the single safe `ai_images` candidate recorded in `docs/tenant-assets/evidence/2026-05-19-post-cleanup-backfill-execution/`; Access-Switch enforcement and Reset confirmation remain blocked.
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Use the Admin Tenant Isolation Execution dry-runs/diagnostics and exports to review Backfill, Access-Switch, and Reset in that order. Do not execute Reset before Backfill and Access-Switch evidence is reviewed.

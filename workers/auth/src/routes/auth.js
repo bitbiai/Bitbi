@@ -16,6 +16,11 @@ import { hashPassword, verifyPassword } from "../lib/passwords.js";
 import { nowIso } from "../lib/tokens.js";
 import { createSession, getSessionUser, hashSessionTokenCandidates } from "../lib/session.js";
 import {
+  REGISTRATION_DISABLED_CODE,
+  getRegistrationAvailability,
+  registrationDisabledResponsePayload,
+} from "../lib/registration-availability.js";
+import {
   evaluateSharedRateLimit,
   getClientIp,
   rateLimitResponse,
@@ -156,6 +161,17 @@ export async function handleRegister(ctx) {
         error: "Password must not exceed 128 characters.",
       },
       { status: 400 }
+    );
+  }
+
+  const registrationStatus = await getRegistrationAvailability(env);
+  if (registrationStatus.enabled === false) {
+    return json(
+      {
+        ...registrationDisabledResponsePayload(registrationStatus),
+        code: REGISTRATION_DISABLED_CODE,
+      },
+      { status: 403 }
     );
   }
 

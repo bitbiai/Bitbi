@@ -191,6 +191,16 @@ export function apiAdminUsers(search, { limit, cursor } = {}) {
     return request('GET', `/admin/users${qs}`);
 }
 
+export function apiAdminRegistrationStatus(options) {
+    return request('GET', '/admin/registration/status', undefined, options);
+}
+
+export function apiAdminSetRegistrationStatus(payload = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/registration/status', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminChangeRole(userId, role) {
     return request('PATCH', `/admin/users/${userId}/role`, { role });
 }

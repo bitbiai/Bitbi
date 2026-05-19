@@ -977,6 +977,7 @@ class MockD1 {
       aiAssetManualReviewEvents: [],
       tenantAssetMediaResetActions: [],
       tenantAssetMediaResetActionEvents: [],
+      appSettings: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -1102,6 +1103,9 @@ class MockD1 {
     }
     if (this.missingTables.has('activity_search_index') && query.includes('activity_search_index')) {
       throw new Error('no such table: activity_search_index');
+    }
+    if (this.missingTables.has('app_settings') && query.includes('app_settings')) {
+      throw new Error('no such table: app_settings');
     }
     if (this.missingTables.has('data_lifecycle_requests') && query.includes('data_lifecycle_requests')) {
       throw new Error('no such table: data_lifecycle_requests');
@@ -1250,6 +1254,28 @@ class MockD1 {
       return this.state.users.find((row) => row.email === email) || null;
     }
 
+    if (query === 'SELECT id FROM users WHERE email = ? LIMIT 1') {
+      const [email] = bindings;
+      const row = this.state.users.find((entry) => entry.email === email);
+      return row ? { id: row.id } : null;
+    }
+
+    if (query === "INSERT INTO users (id, email, password_hash, created_at, status) VALUES (?, ?, ?, ?, 'active')") {
+      const [id, email, passwordHash, createdAt] = bindings;
+      this.state.users.push({
+        id,
+        email,
+        password_hash: passwordHash,
+        created_at: createdAt,
+        status: 'active',
+        role: 'user',
+        email_verified_at: null,
+        verification_method: null,
+        updated_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === 'SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1') {
       const [userId] = bindings;
       const row = this.state.users.find((entry) => entry.id === userId);
@@ -1332,6 +1358,30 @@ class MockD1 {
         ip_address: ipAddress,
         created_at: createdAt,
       });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT key, value_json, updated_at, updated_by_user_id, reason FROM app_settings WHERE key = ? LIMIT 1') {
+      const [key] = bindings;
+      const row = this.state.appSettings.find((entry) => entry.key === key);
+      return row ? deepClone(row) : null;
+    }
+
+    if (query.startsWith('INSERT INTO app_settings (key, value_json, updated_at, updated_by_user_id, reason) VALUES')) {
+      const [key, valueJson, updatedAt, updatedByUserId, reason] = bindings;
+      const row = this.state.appSettings.find((entry) => entry.key === key);
+      const next = {
+        key,
+        value_json: valueJson,
+        updated_at: updatedAt,
+        updated_by_user_id: updatedByUserId,
+        reason,
+      };
+      if (row) {
+        Object.assign(row, next);
+      } else {
+        this.state.appSettings.push(next);
+      }
       return { success: true, meta: { changes: 1 } };
     }
 
@@ -5111,6 +5161,19 @@ class MockD1 {
       const before = this.state.siweChallenges.length;
       this.state.siweChallenges = this.state.siweChallenges.filter((row) => row.user_id !== userId);
       return { success: true, meta: { changes: before - this.state.siweChallenges.length } };
+    }
+
+    if (query.startsWith('INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, created_at) VALUES')) {
+      const [id, userId, tokenHash, expiresAt, createdAt] = bindings;
+      this.state.emailVerificationTokens.push({
+        id,
+        user_id: userId,
+        token_hash: tokenHash,
+        expires_at: expiresAt,
+        created_at: createdAt,
+        used_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query === 'DELETE FROM email_verification_tokens WHERE user_id = ?') {

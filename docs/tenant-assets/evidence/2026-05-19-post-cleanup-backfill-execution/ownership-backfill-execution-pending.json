@@ -1,0 +1,41 @@
+{
+  "ok": true,
+  "status": "pending_operator_live_execution",
+  "generatedAt": "2026-05-19T20:30:00.000Z",
+  "source": "repo_control_plane_update_only",
+  "preflightEvidencePath": "docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/tenant-isolation-ownership-backfill-evidence-2026-05-19T20-00-31.327Z.json",
+  "executionRanInThisSession": false,
+  "rowsWrittenByCodex": 0,
+  "d1MutatedByCodex": false,
+  "r2LiveListed": false,
+  "r2ObjectsMutated": false,
+  "candidate": {
+    "domain": "ai_images",
+    "assetId": "47a27f4496db386b120b631c3a05502e",
+    "classification": "safe_to_backfill",
+    "publicReference": false,
+    "ownershipMetadataPresent": false
+  },
+  "requiredExecution": {
+    "endpoint": "POST /api/admin/tenant-assets/ownership-backfill/execute",
+    "confirmation": "BACKFILL OWNERSHIP",
+    "domains": ["ai_images"],
+    "batchLimit": 1,
+    "candidateAssetIds": ["47a27f4496db386b120b631c3a05502e"],
+    "idempotencyKeyRequired": true,
+    "freshPreflightRequired": true
+  },
+  "decisions": {
+    "ownershipBackfill": "operator_live_execution_pending",
+    "accessSwitch": "shadow_only_enforced_blocked",
+    "legacyMediaReset": "status_and_evidence_only_confirmed_blocked",
+    "tenantIsolationClaimed": false,
+    "productionReadiness": "blocked"
+  },
+  "redaction": {
+    "cookiesPrinted": false,
+    "authHeadersPrinted": false,
+    "rawIdempotencyKeysPrinted": false,
+    "privateR2KeysPrinted": false
+  }
+}

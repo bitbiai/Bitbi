@@ -1081,7 +1081,10 @@ function validateAdminAuthCompatibility(manifest, context) {
 
   compareExactStringSets(
     contract.staticAuthApiPaths || [],
-    extractPathLiterals(context.authApiSource || "", "/admin/mfa/"),
+    [
+      ...extractPathLiterals(context.authApiSource || "", "/admin/mfa/"),
+      ...extractPathLiterals(context.authApiSource || "", "/admin/registration/"),
+    ],
     "Admin MFA static auth API path contract",
     issues
   );

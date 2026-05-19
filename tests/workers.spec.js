@@ -1869,6 +1869,88 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(markdown).not.toContain('should-not-render.png');
   });
 
+  test('ownership backfill execution can be narrowed to exact candidate asset ids', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    env.DB.state.aiImages.push({
+      id: 'image-private-exact-candidate',
+      user_id: 'tenant-legacy-user',
+      folder_id: null,
+      visibility: 'private',
+      r2_key: 'users/tenant-legacy-user/private/exact-candidate.png',
+      prompt: 'exact candidate prompt should not render',
+      created_at: '2026-05-19T09:30:00.000Z',
+    });
+
+    const mismatch = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/ownership-backfill/execute',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'BACKFILL OWNERSHIP',
+          reason: 'local exact-candidate mismatch proof',
+          domains: ['ai_images'],
+          batchLimit: 1,
+          candidateAssetIds: ['image-not-currently-safe'],
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-backfill-exact-mismatch-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mismatch.status).toBe(409);
+    await expect(mismatch.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'tenant_isolation_backfill_candidate_mismatch',
+      fields: {
+        requestedCandidateCount: 1,
+        matchedSafeCandidateCount: 0,
+        domains: ['ai_images'],
+      },
+    });
+
+    const execute = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/ownership-backfill/execute',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'BACKFILL OWNERSHIP',
+          reason: 'local exact-candidate safe ownership backfill',
+          domains: ['ai_images'],
+          batchLimit: 1,
+          candidateAssetIds: ['image-private-exact-candidate'],
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-backfill-exact-candidate-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(execute.status).toBe(200);
+    const executeBody = await execute.json();
+    expect(executeBody.backfill).toMatchObject({
+      dryRun: false,
+      executionMode: 'safe_rows_only',
+      rowsConsidered: 1,
+      rowsWritten: 1,
+      candidateAssetIds: ['image-private-exact-candidate'],
+      accessChecksChanged: false,
+      r2LiveListed: false,
+      r2ObjectsMutated: false,
+      tenantIsolationClaimed: false,
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === 'image-private-exact-candidate')).toMatchObject({
+      asset_owner_type: 'personal_user_asset',
+      owning_user_id: 'tenant-legacy-user',
+      ownership_status: 'current',
+    });
+    expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing').ownership_status).toBeNull();
+    expect(JSON.stringify(executeBody)).not.toContain('exact-candidate.png');
+    expect(JSON.stringify(executeBody)).not.toContain('tenant-backfill-exact-candidate-001');
+  });
+
   test('missing ownership tables return safe unavailable evidence status', async () => {
     const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
       missingTables: ['ai_images'],
@@ -4379,6 +4461,27 @@ test.describe('Phase 1-E auth route policy registry', () => {
       }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
       notes: expect.stringContaining('reset execution'),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/registration/status')).toEqual(expect.objectContaining({
+      id: 'admin.registration.status.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+      notes: expect.stringContaining('existing login/session behavior is unaffected'),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/registration/status')).toEqual(expect.objectContaining({
+      id: 'admin.registration.status.update',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+      audit: expect.objectContaining({ event: 'registration_availability_changed' }),
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+      notes: expect.stringContaining('Idempotency-Key'),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/platform-budget-reconciliation/repair')).toEqual(expect.objectContaining({
       id: 'admin.ai.platform-budget-reconciliation.repair',
@@ -17126,7 +17229,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0059_add_data_lifecycle_completion_state.sql',
+        latestAuthMigration: '0060_add_app_settings.sql',
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });
@@ -28656,6 +28759,179 @@ test.describe('Worker routes', () => {
       loggedIn: false,
       user: null,
     });
+  });
+
+  test('registration availability defaults enabled and can be disabled or re-enabled by Admin without affecting login', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'registration-admin',
+          email: 'registration-admin@example.com',
+          password_hash: makeLegacyPbkdf2Hash('adminpassword123'),
+          created_at: '2026-05-19T10:00:00.000Z',
+          status: 'active',
+          role: 'admin',
+          email_verified_at: '2026-05-19T10:00:00.000Z',
+          verification_method: 'email_verified',
+        },
+        {
+          id: 'registration-existing-user',
+          email: 'registration-existing@example.com',
+          password_hash: makeLegacyPbkdf2Hash('password123'),
+          created_at: '2026-05-19T10:00:00.000Z',
+          status: 'active',
+          role: 'user',
+          email_verified_at: '2026-05-19T10:00:00.000Z',
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+    const adminToken = await seedSession(env, 'registration-admin');
+    const adminHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${adminToken}`,
+      'CF-Connecting-IP': '203.0.113.88',
+    };
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    try {
+      const defaultStatus = await authWorker.fetch(
+        authJsonRequest('/api/admin/registration/status', 'GET', undefined, adminHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(defaultStatus.status).toBe(200);
+      await expect(defaultStatus.json()).resolves.toMatchObject({
+        ok: true,
+        registration: {
+          enabled: true,
+          effectiveStatus: 'registrations_enabled',
+          settingPresent: false,
+        },
+      });
+
+      const enabledRegisterCtx = createExecutionContext();
+      const enabledRegister = await authWorker.fetch(
+        authJsonRequest('/api/register', 'POST', {
+          email: 'registration-enabled@example.com',
+          password: 'password123',
+        }, { Origin: 'https://bitbi.ai', 'CF-Connecting-IP': '203.0.113.89' }),
+        env,
+        enabledRegisterCtx.execCtx
+      );
+      await enabledRegisterCtx.flush();
+      expect(enabledRegister.status).toBe(201);
+      expect(env.DB.state.users.some((row) => row.email === 'registration-enabled@example.com')).toBe(true);
+
+      const missingIdempotency = await authWorker.fetch(
+        authJsonRequest('/api/admin/registration/status', 'POST', {
+          enabled: false,
+          reason: 'maintenance window',
+        }, adminHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingIdempotency.status).toBe(428);
+      await expect(missingIdempotency.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_key_required',
+      });
+
+      const disableCtx = createExecutionContext();
+      const disable = await authWorker.fetch(
+        authJsonRequest('/api/admin/registration/status', 'POST', {
+          enabled: false,
+          reason: 'maintenance window',
+        }, {
+          ...adminHeaders,
+          'Idempotency-Key': 'registration-setting-disable-001',
+        }),
+        env,
+        disableCtx.execCtx
+      );
+      await disableCtx.flush();
+      expect(disable.status).toBe(200);
+      await expect(disable.json()).resolves.toMatchObject({
+        ok: true,
+        registration: {
+          enabled: false,
+          effectiveStatus: 'registrations_disabled_for_maintenance',
+        },
+      });
+      expect(env.DB.state.appSettings).toHaveLength(1);
+      expect(env.ACTIVITY_INGEST_QUEUE.messages.some((row) => row.action === 'registration_availability_disabled')).toBe(true);
+
+      const disabledRegister = await authWorker.fetch(
+        authJsonRequest('/api/register', 'POST', {
+          email: 'registration-disabled@example.com',
+          password: 'password123',
+        }, { Origin: 'https://bitbi.ai', 'CF-Connecting-IP': '203.0.113.90' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(disabledRegister.status).toBe(403);
+      await expect(disabledRegister.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'registration_temporarily_disabled',
+        error: 'Registrations are temporarily disabled due to maintenance work. Please try again later.',
+        existingUsersUnaffected: true,
+      });
+      expect(env.DB.state.users.some((row) => row.email === 'registration-disabled@example.com')).toBe(false);
+
+      const loginCtx = createExecutionContext();
+      const login = await authWorker.fetch(
+        authJsonRequest('/api/login', 'POST', {
+          email: 'registration-existing@example.com',
+          password: 'password123',
+        }, { Origin: 'https://bitbi.ai', 'CF-Connecting-IP': '203.0.113.91' }),
+        env,
+        loginCtx.execCtx
+      );
+      await loginCtx.flush();
+      expect(login.status).toBe(200);
+      await expect(login.json()).resolves.toMatchObject({
+        ok: true,
+        user: { email: 'registration-existing@example.com' },
+      });
+
+      const enableCtx = createExecutionContext();
+      const enable = await authWorker.fetch(
+        authJsonRequest('/api/admin/registration/status', 'POST', {
+          enabled: true,
+          reason: 'maintenance complete',
+        }, {
+          ...adminHeaders,
+          'Idempotency-Key': 'registration-setting-enable-001',
+        }),
+        env,
+        enableCtx.execCtx
+      );
+      await enableCtx.flush();
+      expect(enable.status).toBe(200);
+      await expect(enable.json()).resolves.toMatchObject({
+        ok: true,
+        registration: { enabled: true },
+      });
+      expect(env.ACTIVITY_INGEST_QUEUE.messages.some((row) => row.action === 'registration_availability_enabled')).toBe(true);
+
+      const reenabledRegister = await authWorker.fetch(
+        authJsonRequest('/api/register', 'POST', {
+          email: 'registration-reenabled@example.com',
+          password: 'password123',
+        }, { Origin: 'https://bitbi.ai', 'CF-Connecting-IP': '203.0.113.92' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(reenabledRegister.status).toBe(201);
+      expect(env.DB.state.users.some((row) => row.email === 'registration-reenabled@example.com')).toBe(true);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   test('auth login works for a verified regular user without organization tables or active organization', async () => {

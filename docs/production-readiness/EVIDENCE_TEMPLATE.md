@@ -6,7 +6,7 @@ Operator:
 
 Commit SHA:
 
-Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
+Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
 This template records current evidence only. It does not approve production readiness, live billing readiness, tenant isolation, ownership backfill, access switching, or confirmed legacy media reset by itself.
 
@@ -69,6 +69,7 @@ This template records current evidence only. It does not approve production read
 - `0057_add_ai_asset_manual_review_state.sql` applied: yes/no/unknown
 - `0058_add_legacy_media_reset_actions.sql` applied: yes/no/unknown
 - `0059_add_data_lifecycle_completion_state.sql` applied: yes/no/unknown
+- `0060_add_app_settings.sql` applied: yes/no/unknown
 - Notes:
 
 ## Cloudflare Resource Verification

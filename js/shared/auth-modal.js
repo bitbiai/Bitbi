@@ -159,7 +159,11 @@ function injectForms() {
             showMsg(registerMsg, 'success', localeText('auth.accountCreated'));
             registerForm.reset();
         } else {
-            showMsg(registerMsg, 'error', res.error);
+            const isRegistrationDisabled = res.code === 'registration_temporarily_disabled'
+                || res.data?.code === 'registration_temporarily_disabled';
+            showMsg(registerMsg, 'error', isRegistrationDisabled
+                ? localeText('auth.registrationDisabled')
+                : res.error);
         }
     });
 }

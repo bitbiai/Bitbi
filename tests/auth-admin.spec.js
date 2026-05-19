@@ -1705,6 +1705,8 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.lifecycleGenerateExportRequests = captures.lifecycleGenerateExportRequests || [];
   captures.lifecycleRequestExportRequests = captures.lifecycleRequestExportRequests || [];
   captures.lifecycleEvidenceRequests = captures.lifecycleEvidenceRequests || [];
+  captures.registrationStatusRequests = captures.registrationStatusRequests || [];
+  captures.registrationStatusUpdates = captures.registrationStatusUpdates || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -1913,6 +1915,44 @@ async function mockAdminControlPlane(page, captures = {}) {
       next_cursor: null,
     });
   });
+  let registrationAvailability = captures.registrationAvailability || {
+    enabled: true,
+    effectiveStatus: 'registrations_enabled',
+    maintenanceMessage: 'Registrations are temporarily disabled due to maintenance work. Please try again later.',
+    settingPresent: false,
+    storageAvailable: true,
+    updatedAt: null,
+    updatedByUserId: null,
+    reason: null,
+  };
+  await page.route('**/api/admin/registration/status', async (route) => {
+    const request = route.request();
+    captures.registrationStatusRequests.push({ method: request.method(), url: request.url() });
+    if (request.method() === 'GET') {
+      await fulfillJson(route, { ok: true, registration: registrationAvailability });
+      return;
+    }
+    const body = request.postDataJSON();
+    const idempotencyKey = request.headers()['idempotency-key'] || null;
+    captures.registrationStatusUpdates.push({ body, idempotencyKey });
+    registrationAvailability = {
+      ...registrationAvailability,
+      enabled: body.enabled !== false,
+      effectiveStatus: body.enabled === false ? 'registrations_disabled_for_maintenance' : 'registrations_enabled',
+      settingPresent: true,
+      updatedAt: '2026-05-19T20:30:00.000Z',
+      updatedByUserId: 'admin_control_user',
+      reason: body.reason || null,
+      maintenanceMessage: body.maintenanceMessage || registrationAvailability.maintenanceMessage,
+    };
+    await fulfillJson(route, {
+      ok: true,
+      registration: registrationAvailability,
+      message: registrationAvailability.enabled
+        ? 'New user registrations are enabled.'
+        : 'New user registrations are disabled for maintenance.',
+    });
+  });
   await page.route('**/api/admin/readiness/status', async (route) => {
     await fulfillJson(route, {
       ok: true,
@@ -1920,7 +1960,7 @@ async function mockAdminControlPlane(page, captures = {}) {
       generatedAt: '2026-05-18T10:00:00.000Z',
       releaseTruth: {
         source: 'config/release-compat.json',
-        latestAuthMigration: '0059_add_data_lifecycle_completion_state.sql',
+        latestAuthMigration: '0060_add_app_settings.sql',
         migrationDirectory: 'workers/auth/migrations',
         databaseName: 'bitbi-auth-db',
         staticDeploySeparateFromWorkers: true,
@@ -5335,6 +5375,44 @@ test.describe('Auth modal', () => {
     await expect(
       form.getByRole('button', { name: /create account/i }),
     ).toBeVisible();
+  });
+
+  test('shows clear registration-disabled message in English signup modal', async ({ page }) => {
+    await page.route('**/api/register', async (route) => {
+      await fulfillJson(route, {
+        ok: false,
+        code: 'registration_temporarily_disabled',
+        error: 'Registrations are temporarily disabled due to maintenance work. Please try again later.',
+      }, 403);
+    });
+
+    await page.locator('.site-nav__cta').click();
+    await page.locator('[data-tab="register"]').click();
+    const form = page.locator('#authRegisterForm');
+    await form.locator('input[name="email"]').fill('new-user@example.com');
+    await form.locator('input[name="password"]').fill('password123');
+    await form.getByRole('button', { name: /create account/i }).click();
+    await expect(page.locator('#authRegisterMsg')).toHaveText('Registrations are temporarily disabled due to maintenance work. Please try again later.');
+  });
+
+  test('shows clear registration-disabled message in German signup modal', async ({ page }) => {
+    await page.route('**/api/register', async (route) => {
+      await fulfillJson(route, {
+        ok: false,
+        code: 'registration_temporarily_disabled',
+        error: 'Registrations are temporarily disabled due to maintenance work. Please try again later.',
+      }, 403);
+    });
+    await page.goto('/de/');
+    await expect(page.locator('.site-nav__cta')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('.site-nav__cta').click();
+    await page.locator('[data-tab="register"]').click();
+    const form = page.locator('#authRegisterForm');
+    await form.locator('input[name="email"]').fill('neue-person@example.com');
+    await form.locator('input[name="password"]').fill('password123');
+    await form.getByRole('button', { name: /konto erstellen/i }).click();
+    await expect(page.locator('#authRegisterMsg')).toHaveText('Registrierungen sind wegen Wartungsarbeiten vorübergehend deaktiviert. Bitte versuche es später erneut.');
   });
 
   test('closes on Escape key', async ({ page }) => {
@@ -10756,7 +10834,7 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Readiness & Evidence Dashboard');
-    await expect(page.locator('#sectionReadiness')).toContainText('0059_add_data_lifecycle_completion_state.sql');
+    await expect(page.locator('#sectionReadiness')).toContainText('0060_add_app_settings.sql');
     await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Confirmed legacy media reset readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
@@ -10954,7 +11032,7 @@ test.describe('Admin Control Plane', () => {
     const readiness = page.locator('#sectionReadiness');
     await expect(readiness).toBeVisible();
     await expect(readiness).toContainText('Current Release Truth');
-    await expect(readiness).toContainText('0059_add_data_lifecycle_completion_state.sql');
+    await expect(readiness).toContainText('0060_add_app_settings.sql');
     await expect(readiness).toContainText('not live deploy proof');
     await expect(readiness).toContainText('Live Evidence State');
     await expect(readiness).toContainText('live evidence pending');
@@ -11384,6 +11462,53 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#userCreditModal')).toBeVisible();
     await expect(page.locator('#userCreditModal')).toContainText('empty@example.com');
     await expect(page.locator('#userCreditModal')).toContainText('No member credit transactions yet.');
+  });
+
+  test('Admin Users registration availability switch updates new-account creation only', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#users');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#registrationAvailabilityPanel')).toBeVisible();
+    await expect(page.locator('#registrationAvailabilityStatusText')).toHaveText('Registrations enabled');
+    await expect(page.locator('#registrationAvailabilityPanel')).toContainText('This only affects creation of new accounts. Existing users, admins, sessions, MFA, password reset, and profile/account access remain available.');
+    await expect(page.locator('#registrationAvailabilityMessageText')).toContainText('Registrations are temporarily disabled due to maintenance work');
+
+    await page.locator('#registrationEnabledToggle').setChecked(false);
+    await page.locator('#registrationAvailabilityReason').fill('SaaS buildout maintenance window');
+    page.once('dialog', (dialog) => {
+      expect(dialog.message()).toContain('Disable new user registrations');
+      dialog.accept();
+    });
+    await page.locator('#registrationAvailabilitySaveBtn').click();
+    await expect.poll(() => captures.registrationStatusUpdates.length).toBe(1);
+    expect(captures.registrationStatusUpdates[0].idempotencyKey).toMatch(/^registration-availability-/);
+    expect(captures.registrationStatusUpdates[0].body).toMatchObject({
+      enabled: false,
+      reason: 'SaaS buildout maintenance window',
+      maintenanceMessage: 'Registrations are temporarily disabled due to maintenance work. Please try again later.',
+    });
+    await expect(page.locator('#registrationAvailabilityStatusText')).toHaveText('Registrations disabled for maintenance');
+    await expect(page.locator('#registrationAvailabilityState')).toContainText('disabled');
+
+    await page.locator('#registrationEnabledToggle').setChecked(true);
+    await page.locator('#registrationAvailabilityReason').fill('Maintenance complete');
+    page.once('dialog', (dialog) => {
+      expect(dialog.message()).toContain('Enable new user registrations');
+      dialog.accept();
+    });
+    await page.locator('#registrationAvailabilitySaveBtn').click();
+    await expect.poll(() => captures.registrationStatusUpdates.length).toBe(2);
+    expect(captures.registrationStatusUpdates[1].body).toMatchObject({
+      enabled: true,
+      reason: 'Maintenance complete',
+    });
+    await expect(page.locator('#registrationAvailabilityStatusText')).toHaveText('Registrations enabled');
+    await expect(page.locator('#userTbody tr')).toHaveCount(2);
   });
 
   test('Admin Users delete requires visible confirmation, sends explicit body, and removes the row', async ({

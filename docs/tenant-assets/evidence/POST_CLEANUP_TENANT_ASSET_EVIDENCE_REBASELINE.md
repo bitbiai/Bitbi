@@ -6,7 +6,7 @@ Generated: 2026-05-19T19:12:09Z
 
 Repo commit at packet creation: `1492404194eb9817e28588e6cc9644810fe49c82`
 
-Decision status: `post_cleanup_evidence_pending`
+Decision status: `post_cleanup_single_backfill_candidate_prepared_operator_execution_pending`
 
 Purpose: current control file after the operator manually deleted most old images and videos. This file supersedes pre-cleanup count evidence for decision-making. It does not delete evidence history and does not fabricate live results.
 
@@ -28,9 +28,9 @@ Purpose: current control file after the operator manually deleted most old image
 | Evidence area | Current post-cleanup status | Decision use |
 | --- | --- | --- |
 | Tenant asset domain state | `pending_live_read_only_evidence` | Required before using current domain coverage for any transition. |
-| Ownership Backfill dry-run | `pending_live_read_only_evidence` | Backfill execution remains blocked except local/mock tests and future approved safe-row execution after evidence review. |
-| Access-Switch shadow diagnostics | `pending_live_read_only_evidence` | Enforced Access-Switch remains blocked. |
-| Legacy Media Reset status/evidence | `pending_live_read_only_evidence` | Confirmed reset remains blocked; old reset counts are stale and previously unsafe. |
+| Ownership Backfill dry-run | `post_cleanup_evidence_collected_single_safe_candidate` | One `ai_images` candidate is prepared for exact-candidate guarded execution only after fresh authenticated preflight. |
+| Access-Switch shadow diagnostics | `post_cleanup_evidence_collected_metadata_missing_before_backfill` | Enforced Access-Switch remains blocked. |
+| Legacy Media Reset status/evidence | `post_cleanup_evidence_collected_reset_blocked` | Confirmed reset remains blocked; old reset counts are stale and previously unsafe. |
 | Manual-review backlog/status | `pending_live_read_only_evidence` | Old queue counts may reference removed assets. |
 | Storage/quota reconciliation | `pending_live_read_only_evidence_if_applicable` | Required before reset/delete/accounting decisions; no live R2 listing. |
 
@@ -78,9 +78,17 @@ Collect these through authenticated Admin read-only endpoints after deploy of th
 
 | Decision | Current result | Blockers |
 | --- | --- | --- |
-| Ownership Backfill | `dry_run_only_until_fresh_evidence_review` | Current post-cleanup dry-run missing; safe candidates not reviewed; manual-review/deferred/public rows must be excluded; idempotency/confirmation/reason/scope required. |
-| Access-Switch | `shadow_only_enforced_blocked` | Backfill evidence missing; post-backfill shadow diagnostics missing; durable switch/rollback path not approved. |
-| Legacy Media Reset | `status_and_evidence_only_confirmed_blocked` | Sanitized post-cleanup reset evidence missing; hard env gate disabled; Backfill/Access evidence not reviewed; exact confirmation/idempotency not approved for production. |
+| Ownership Backfill | `operator_live_execution_pending_for_single_ai_images_candidate` | Fresh authenticated preflight must still match exactly; `Idempotency-Key`, exact `BACKFILL OWNERSHIP` confirmation, reason, `domains:["ai_images"]`, `batchLimit:1`, and exact candidate ID allow-list are required. |
+| Access-Switch | `shadow_only_enforced_blocked` | Current mismatch is expected before the single candidate is backfilled; post-backfill shadow diagnostics are still required; durable switch/rollback path is not approved. |
+| Legacy Media Reset | `status_and_evidence_only_confirmed_blocked` | Hard env gate disabled; manual-review/sanitized evidence blockers remain; Backfill/Access evidence must be reviewed first; exact confirmation/idempotency are not approved for production reset. |
+
+## P2-02 Execution Packet
+
+Pending execution packet path:
+
+- `docs/tenant-assets/evidence/2026-05-19-post-cleanup-backfill-execution/`
+
+The repo now supports an exact `candidateAssetIds` allow-list for Ownership Backfill execution. Codex did not execute the live write in this session because no authenticated live Admin preflight/execution context was provided. Rows written by Codex: `0`.
 
 ## Redaction Guarantees
 

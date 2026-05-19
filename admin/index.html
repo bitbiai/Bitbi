@@ -1071,6 +1071,37 @@
                             </div>
                         </div>
 
+                        <!-- Registration Availability -->
+                        <section id="registrationAvailabilityPanel" class="admin-registration-panel" aria-labelledby="registrationAvailabilityTitle">
+                            <div class="admin-registration-panel__header">
+                                <div>
+                                    <p class="admin-shell__eyebrow">User registration</p>
+                                    <h2 id="registrationAvailabilityTitle" class="admin-section-title">Registration Availability</h2>
+                                    <p class="admin-shell__desc">This only affects creation of new accounts. Existing users, admins, sessions, MFA, password reset, and profile/account access remain available.</p>
+                                </div>
+                                <span id="registrationAvailabilityStatusText" class="admin-registration-panel__status" data-state="neutral">Loading...</span>
+                            </div>
+                            <div class="admin-registration-panel__grid">
+                                <label class="admin-registration-panel__toggle">
+                                    <input id="registrationEnabledToggle" type="checkbox" checked>
+                                    <span>Enable new registrations</span>
+                                </label>
+                                <div class="admin-registration-panel__message">
+                                    <span class="admin-registration-panel__label">Disabled signup message</span>
+                                    <p id="registrationAvailabilityMessageText">Registrations are temporarily disabled due to maintenance work. Please try again later.</p>
+                                </div>
+                            </div>
+                            <label class="admin-registration-panel__field">
+                                <span>Reason / operator note</span>
+                                <textarea id="registrationAvailabilityReason" rows="2" maxlength="500" placeholder="Required when disabling new registrations."></textarea>
+                            </label>
+                            <div class="admin-registration-panel__footer">
+                                <button id="registrationAvailabilitySaveBtn" type="button" class="btn-action">Save registration availability</button>
+                                <p id="registrationAvailabilityUpdatedText" class="admin-shell__desc">Default setting in effect</p>
+                            </div>
+                            <div id="registrationAvailabilityState" class="admin-state" aria-live="polite">Loading registration availability...</div>
+                        </section>
+
                         <!-- Search -->
                         <form id="searchForm" class="admin-search">
                             <label for="searchInput" class="sr-only">Search users by email</label>

@@ -347,6 +347,16 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { noneReason: "Bootstrap identity route; admin auth and production MFA state are evaluated inside the handler." },
   }),
   adminRead("admin.users.list", "/api/admin/users", "admin"),
+  adminRead("admin.registration.status.read", "/api/admin/registration/status", "admin", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-action-ip", failClosed: true },
+    notes: "Read-only admin registration availability status. Reports whether new account creation is enabled; existing login/session behavior is unaffected.",
+  }),
+  adminJsonWrite("admin.registration.status.update", "POST", "/api/admin/registration/status", "admin", "smallJson", "admin-action-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "registration_availability_changed" },
+    notes: "Admin-only registration availability switch. Requires admin MFA, same-origin JSON, fail-closed rate limiting, Idempotency-Key, and audit logging; affects new account creation only and does not disable login, password reset, MFA, admin sessions, or existing-user access.",
+  }),
   adminRead("admin.readiness.status", "/api/admin/readiness/status", "admin", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-readiness-status-ip", failClosed: true },

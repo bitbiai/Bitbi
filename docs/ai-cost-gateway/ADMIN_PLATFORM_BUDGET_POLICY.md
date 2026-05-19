@@ -2,7 +2,7 @@
 
 Date: 2026-05-18
 
-Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
+Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
 Status: current policy summary. This document is not a phase log and does not approve production readiness, live billing readiness, customer billing, or live provider use.
 

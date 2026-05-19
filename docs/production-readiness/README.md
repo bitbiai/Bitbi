@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
+Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
 Purpose: current production-readiness gate. This file is not a phase history and does not approve deployment.
 
@@ -28,7 +28,7 @@ Confirmed legacy media reset readiness: BLOCKED.
 
 ## Current Migration Preconditions
 
-Latest auth migration: `0059_add_data_lifecycle_completion_state.sql`.
+Latest auth migration: `0060_add_app_settings.sql`.
 
 Important current dependencies:
 
@@ -36,6 +36,7 @@ Important current dependencies:
 - `0057_add_ai_asset_manual_review_state.sql` for manual-review queue/status tables.
 - `0058_add_legacy_media_reset_actions.sql` for reset action/event tracking.
 - `0059_add_data_lifecycle_completion_state.sql` for Data Lifecycle final completion, evidence status, retained-category, close/reject, and completion-note metadata.
+- `0060_add_app_settings.sql` for the Admin registration availability switch.
 
 If Auth Worker code uses these tables/columns, remote migrations must be applied before deploying that Worker code.
 

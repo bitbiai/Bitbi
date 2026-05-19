@@ -11,6 +11,12 @@ import {
   DataLifecycleError,
 } from "../lib/data-lifecycle.js";
 import {
+  REGISTRATION_MAINTENANCE_MESSAGE,
+  RegistrationAvailabilityError,
+  getRegistrationAvailability,
+  setRegistrationAvailability,
+} from "../lib/registration-availability.js";
+import {
   getActivityRetentionCutoff,
   getActivityRetentionMetadata,
 } from "../lib/activity-archive.js";
@@ -70,8 +76,37 @@ const ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT = "ERASURE WORKFLOW";
 const ADMIN_DELETE_ERASURE_DEFAULT_REASON = "Admin initiated GDPR/data erasure workflow from Admin user deletion.";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0059_add_data_lifecycle_completion_state.sql";
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0060_add_app_settings.sql";
 const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
+
+function adminSettingsIdempotencyKeyOrResponse(request) {
+  const key = String(request.headers.get("Idempotency-Key") || "").trim();
+  if (!key) {
+    return {
+      response: json(
+        {
+          ok: false,
+          error: "Idempotency-Key is required for admin registration setting changes.",
+          code: "idempotency_key_required",
+        },
+        { status: 428 }
+      ),
+    };
+  }
+  if (!/^[A-Za-z0-9._:-]{8,160}$/.test(key)) {
+    return {
+      response: json(
+        {
+          ok: false,
+          error: "Invalid Idempotency-Key header.",
+          code: "invalid_idempotency_key",
+        },
+        { status: 400 }
+      ),
+    };
+  }
+  return { key };
+}
 
 function adminMutationConfirmationResponse(code, message, confirmation) {
   return json(
@@ -993,6 +1028,107 @@ export async function handleAdmin(ctx) {
         "X-Content-Type-Options": "nosniff",
       },
     });
+  }
+
+  // GET /api/admin/registration/status
+  if (pathname === "/api/admin/registration/status" && method === "GET") {
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
+    if (result instanceof Response) return result;
+    const limited = await enforceAdminActionRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const registration = await getRegistrationAvailability(env);
+      return json({
+        ok: true,
+        registration,
+      }, {
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch (error) {
+      return json(
+        {
+          ok: false,
+          error: "Registration availability status is temporarily unavailable.",
+          code: "registration_availability_status_unavailable",
+        },
+        { status: 503 }
+      );
+    }
+  }
+
+  // route-policy: admin.registration.status.update
+  // POST /api/admin/registration/status
+  if (pathname === "/api/admin/registration/status" && method === "POST") {
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
+    if (result instanceof Response) return result;
+    const limited = await enforceAdminActionRateLimit(ctx);
+    if (limited) return limited;
+    const idempotency = adminSettingsIdempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return parsed.response;
+    const body = parsed.body || {};
+    try {
+      const registration = await setRegistrationAvailability(env, {
+        enabled: body.enabled,
+        actorUserId: result.user.id,
+        reason: body.reason,
+        maintenanceMessage: body.maintenanceMessage || REGISTRATION_MAINTENANCE_MESSAGE,
+      });
+      await enqueueAdminAuditEvent(
+        env,
+        {
+          adminUserId: result.user.id,
+          action: registration.enabled
+            ? "registration_availability_enabled"
+            : "registration_availability_disabled",
+          targetUserId: null,
+          meta: {
+            enabled: registration.enabled,
+            effectiveStatus: registration.effectiveStatus,
+            reasonPresent: Boolean(registration.reason),
+            existingUsersUnaffected: true,
+            rawIdempotencyKeyIncluded: false,
+          },
+        },
+        { correlationId, requestInfo: ctx, allowDirectFallback: true }
+      );
+      return json({
+        ok: true,
+        registration,
+        message: registration.enabled
+          ? "New user registrations are enabled."
+          : "New user registrations are disabled for maintenance.",
+      }, {
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch (error) {
+      if (error instanceof RegistrationAvailabilityError) {
+        return json(
+          {
+            ok: false,
+            error: error.message,
+            code: error.code,
+            fields: error.fields,
+          },
+          { status: error.status || 400 }
+        );
+      }
+      return json(
+        {
+          ok: false,
+          error: "Registration availability setting could not be saved.",
+          code: "registration_availability_update_failed",
+        },
+        { status: 500 }
+      );
+    }
   }
 
   // GET /api/admin/users
