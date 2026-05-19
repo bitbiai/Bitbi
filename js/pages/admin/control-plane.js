@@ -4044,6 +4044,10 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         return card;
     }
 
+    function postCleanupStatusText(report) {
+        return readableToken(report?.postCleanupRebaseline?.status || 'post_cleanup_evidence_pending');
+    }
+
     function tenantExportButtons(scope, stateNode) {
         const row = el('div', 'admin-control-chip-row');
         for (const [format, label] of [['json', 'Export JSON evidence'], ['markdown', 'Export Markdown evidence'], ['html', 'Export HTML / PDF-friendly']]) {
@@ -4080,6 +4084,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const summary = report?.summary || {};
         node.appendChild(detailRows([
             ['Generated', formatDate(report?.generatedAt)],
+            ['Post-cleanup rebaseline', postCleanupStatusText(report)],
             ['Safe candidates', summary.safeCandidates ?? summary.classifications?.safe_to_backfill ?? 0],
             ['Manual review', summary.classifications?.needs_manual_review ?? 0],
             ['Public unsafe', summary.classifications?.blocked_public_unsafe ?? 0],
@@ -4106,7 +4111,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const card = tenantIsolationCard('backfill', 'Ownership Backfill', 'dangerous');
         card.appendChild(el('p', 'admin-shell__desc', 'Writes ownership metadata only for rows classified safe by a bounded dry-run. Unsafe, public, missing-evidence, manual-review, and deferred rows remain blocked.'));
         const summary = el('div', 'admin-inventory');
-        const state = el('div', 'admin-state', 'Dry-run not loaded. Run preview before any execution attempt.');
+        const state = el('div', 'admin-state', 'Post-cleanup evidence pending. Run dry-run preview before any execution attempt.');
         state.id = 'tenantIsolationBackfillState';
         state.setAttribute('aria-live', 'polite');
         const dryRun = el('button', 'btn-action', 'Run Backfill Dry-run');
@@ -4125,7 +4130,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 tenantIsolationBackfillReport = res.data?.report || {};
                 renderBackfillSummary(summary, tenantIsolationBackfillReport);
                 state.dataset.state = 'success';
-                state.textContent = 'Dry-run loaded. No ownership metadata was written.';
+                state.textContent = 'Post-cleanup dry-run loaded. No ownership metadata was written.';
                 syncBackfillButtons();
             } finally {
                 setSubmitting(dryRun, false);
@@ -4193,7 +4198,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 }
                 state.dataset.state = 'success';
                 const backfill = res.data?.backfill || {};
-                state.textContent = `${dryRunMode ? 'Backfill dry-run' : 'Ownership metadata write'} completed: considered ${backfill.rowsConsidered ?? 0}, written ${backfill.rowsWritten ?? 0}, blocked ${backfill.rowsBlocked ?? 0}. Tenant isolation remains unclaimed.`;
+                state.textContent = `${dryRunMode ? 'Post-cleanup backfill dry-run' : 'Ownership metadata write'} completed: considered ${backfill.rowsConsidered ?? 0}, written ${backfill.rowsWritten ?? 0}, blocked ${backfill.rowsBlocked ?? 0}. Tenant isolation remains unclaimed.`;
                 notify(dryRunMode ? 'Backfill dry-run completed.' : 'Ownership backfill completed for safe rows.', 'success');
                 const refreshed = await apiAdminOwnershipBackfillDryRun({ limit: 50, includeDetails: true });
                 if (refreshed.ok) {
@@ -4229,7 +4234,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const card = tenantIsolationCard('access', 'Runtime Access-Switch', 'blocked');
         card.appendChild(el('p', 'admin-shell__desc', 'Shadow diagnostics compare legacy user_id access with ownership metadata. Enforced mode is not available because this repo has no durable switch state and unresolved evidence remains possible.'));
         const summary = el('div', 'admin-inventory');
-        const state = el('div', 'admin-state', 'Access-switch status not loaded.');
+        const state = el('div', 'admin-state', 'Post-cleanup Access-Switch evidence pending. Run status and shadow diagnostics.');
         state.id = 'tenantIsolationAccessState';
         state.setAttribute('aria-live', 'polite');
         const refresh = el('button', 'btn-action', 'Refresh Access-Switch Status');
@@ -4247,6 +4252,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             clear(summary);
             summary.appendChild(detailRows([
                 ['Current mode', readableToken(status.currentMode || 'off')],
+                ['Post-cleanup rebaseline', postCleanupStatusText(status)],
                 ['Runtime switch supported', status.runtimeSwitchRepoSupported ? 'Yes' : 'No'],
                 ['Live switch enabled', status.liveSwitchEnabled ? 'Unexpected' : 'No'],
                 ['Unsafe mismatches', status.mismatchCounts?.unsafe ?? 0],
@@ -4254,7 +4260,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 ['Tenant isolation claimed', status.tenantIsolationClaimed ? 'Unexpected' : 'No'],
             ]));
             state.dataset.state = 'neutral';
-            state.textContent = 'Access-switch status loaded. Enforced mode remains disabled.';
+            state.textContent = 'Access-switch status loaded. Post-cleanup shadow evidence is still required; enforced mode remains disabled.';
         }
         refresh.addEventListener('click', () => { void loadStatus(); });
         shadow.addEventListener('click', async () => {
@@ -4272,6 +4278,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 clear(summary);
                 summary.appendChild(detailRows([
                     ['Mismatch count', report.summary?.mismatchCount ?? 0],
+                    ['Post-cleanup rebaseline', postCleanupStatusText(report)],
                     ['Metadata missing', (report.summary?.foldersWithNullOwnershipMetadata ?? 0) + (report.summary?.imagesWithNullOwnershipMetadata ?? 0)],
                     ['Enforced mode allowed', report.summary?.enforcedModeAllowed ? 'Unexpected' : 'No'],
                     ['Runtime changed', report.runtimeBehaviorChanged ? 'Unexpected' : 'No'],
@@ -4279,7 +4286,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 const samples = Array.isArray(report.samples) ? report.samples.slice(0, 5) : [];
                 if (samples.length) summary.appendChild(simpleList(samples, ['domain', 'mismatchType', 'reason']));
                 state.dataset.state = 'success';
-                state.textContent = 'Shadow diagnostics completed. No runtime access decision changed.';
+                state.textContent = 'Post-cleanup shadow diagnostics completed. No runtime access decision changed.';
             } finally {
                 setSubmitting(shadow, false);
             }
@@ -4299,7 +4306,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const card = tenantIsolationCard('reset', 'Legacy Media Reset', 'blocked');
         card.appendChild(el('p', 'admin-shell__desc', 'Confirmed reset may retire public references, queue cleanup, delete first-pass legacy rows, and release storage. The backend gate remains disabled by default and readiness remains blocked.'));
         const summary = el('div', 'admin-inventory');
-        const state = el('div', 'admin-state', 'Legacy reset status not loaded.');
+        const state = el('div', 'admin-state', 'Post-cleanup reset evidence pending. Confirmed execution remains blocked.');
         state.id = 'tenantIsolationResetState';
         state.setAttribute('aria-live', 'polite');
         const statusButton = el('button', 'btn-action', 'Refresh Reset Status');
@@ -4315,6 +4322,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             clear(summary);
             summary.appendChild(detailRows([
                 ['Dry-run available', status.dryRunAvailable ? 'Yes' : 'No'],
+                ['Post-cleanup rebaseline', postCleanupStatusText(status)],
                 ['Confirmed gate enabled', status.confirmedExecutionGate?.enabled ? 'Yes' : 'No'],
                 ['Sanitized evidence', readableToken(status.sanitizedEvidenceStatus || 'pending')],
                 ['Confirmed readiness', readableToken(status.confirmedReadiness || 'blocked')],
@@ -4322,7 +4330,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 ['Tenant isolation claimed', status.tenantIsolationClaimed ? 'Unexpected' : 'No'],
             ]));
             state.dataset.state = 'neutral';
-            state.textContent = 'Legacy reset status loaded. Confirmed execution remains blocked unless the backend gate and evidence are approved.';
+            state.textContent = 'Legacy reset status loaded. Post-cleanup sanitized evidence remains pending and confirmed execution is blocked.';
         }
         statusButton.addEventListener('click', () => { void loadStatus(); });
         const dryExport = el('button', 'btn-action btn-action--secondary', 'Export Existing Dry-run JSON');
@@ -4346,9 +4354,11 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         copy.append(el('p', 'admin-control-hero__eyebrow', 'Dangerous operations'));
         copy.append(el('h3', 'admin-section-title', 'Do not execute Reset before Backfill and Access-Switch evidence are reviewed.'));
         copy.append(el('p', 'admin-control-hero__copy', 'Every warning marker opens a concrete danger explanation. Production readiness remains blocked and tenant isolation is not claimed.'));
+        copy.append(el('p', 'admin-control-hero__copy', 'Old owner-map, manual-review, and reset counts are stale after manual media cleanup. Collect fresh post-cleanup evidence before any Backfill, Access-Switch, or Reset decision.'));
         const badges = el('div', 'admin-control-chip-row');
         badges.append(
             badge('Evidence required', 'disabled'),
+            badge('Post-cleanup evidence pending', 'disabled'),
             badge('No production readiness claim', 'disabled'),
             badge('Tenant isolation not claimed', 'legacy'),
             badge('Live R2 untouched', 'user'),

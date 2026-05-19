@@ -2,6 +2,10 @@
 
 Status: `needs_manual_review`
 
+Post-cleanup status: `superseded_by_manual_media_cleanup`
+
+P2-01 note: this plan uses pre-cleanup owner-map counts. It is retained as historical planning evidence only; use fresh post-cleanup read-only exports before planning Backfill, Access-Switch, Reset, or manual-review cleanup decisions.
+
 Source evidence file: `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`
 
 Decision file: `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`

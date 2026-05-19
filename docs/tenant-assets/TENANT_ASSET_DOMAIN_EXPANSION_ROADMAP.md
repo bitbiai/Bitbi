@@ -28,6 +28,7 @@ Purpose: current-state roadmap for expanding tenant asset ownership evidence bey
 - Admin selected-user storage reconciliation is available at `GET /api/admin/users/:id/storage/reconciliation`.
 - Admin Tenant Isolation Execution controls now surface Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset together with warning/exclamation explainers, dry-run/diagnostics, evidence export, exact confirmation requirements, and disabled reasons. This is an operator control plane, not approval to execute in production.
 - These surfaces are bounded, redacted, D1-metadata based, and do not list or mutate R2.
+- Post-cleanup status is `post_cleanup_evidence_pending`: prior owner-map/manual-review/reset counts are historical after the operator manually deleted most old images and videos. Use `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` before relying on any counts.
 
 ## Proposed Later Additive Migrations
 
@@ -41,7 +42,7 @@ Do not add these automatically. Each requires a separate approved migration pack
 
 ## Evidence Required Before Ownership Backfill
 
-- Use the Admin Ownership Backfill dry-run and evidence export first. The write endpoint remains high-risk and requires Admin/MFA, `Idempotency-Key`, reason, explicit domain scope, bounded batch limit, and exact typed confirmation `BACKFILL OWNERSHIP`.
+- Use the Admin Ownership Backfill dry-run and evidence export first, and ensure the evidence is post-cleanup current. The write endpoint remains high-risk and requires Admin/MFA, `Idempotency-Key`, reason, explicit domain scope, bounded batch limit, and exact typed confirmation `BACKFILL OWNERSHIP`.
 - Sanitized owner-map evidence for all covered and newly added domains.
 - Manual-review replay/conflict/status-success evidence accepted for the review workflow.
 - Storage reconciliation evidence showing recorded counters, D1 metadata bytes, missing-byte rows, and orphan metadata.
@@ -61,7 +62,7 @@ Do not add these automatically. Each requires a separate approved migration pack
 ## Evidence Required Before Confirmed Reset Or Deletion
 
 - Review Backfill and Access-Switch evidence before considering reset. The Admin reset control remains warning-gated and confirmed execution is disabled by default.
-- Sanitized legacy reset dry-run evidence must be accepted for dry-run only.
+- Sanitized post-cleanup legacy reset dry-run evidence must be accepted for dry-run only.
 - Confirmed execution must remain blocked until a future approved confirmation package explicitly authorizes it.
 - `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` must stay disabled unless a separate operator-approved phase enables it.
 - Storage quota before/after evidence must be available.

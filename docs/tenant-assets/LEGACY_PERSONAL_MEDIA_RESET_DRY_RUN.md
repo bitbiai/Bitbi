@@ -1,8 +1,8 @@
 # Legacy Personal Media Reset Dry Run
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current dry-run/reporting baseline for evaluating whether retiring old personal/admin-created media is safer than ownership backfill. This document does not authorize deletion.
 
@@ -58,6 +58,16 @@ Sanitized evidence status: `pending_sanitized_evidence_required`.
 Operator template: `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md`.
 
 The dry-run topic is not closed, and the confirmation gate remains closed.
+
+## Post-Cleanup Rebaseline
+
+The operator manually deleted most old images and videos after the prior dry-run evidence was captured. The previous reset candidate counts are now stale/superseded by manual media cleanup and are retained as historical evidence only.
+
+Current status: `post_cleanup_evidence_pending`.
+
+Current rebaseline packet: `docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/`.
+
+Before any future confirmation review, collect fresh authenticated read-only/status/evidence exports for legacy media reset. Do not use the old candidate counts as current reset scope.
 
 ## Current Safety Rules
 

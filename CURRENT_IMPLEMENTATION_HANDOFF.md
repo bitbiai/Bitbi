@@ -29,6 +29,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Data lifecycle planning/export/archive/cleanup, safe execution, final completion, close/reject, retained-category evidence, and JSON/Markdown/HTML evidence packet foundations exist; high-risk lifecycle writes require `Idempotency-Key`, confirmation where needed, Admin/MFA, rate limiting, and audit logging.
 - Tenant asset ownership work exists for folders/images: ownership metadata columns, new personal-write metadata, read diagnostics/evidence, manual-review import/queue/status/Admin visibility, and operator evidence decisions.
 - Admin Tenant Isolation Execution controls now group Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset. The cards show warning/exclamation explainers, dry-run or shadow diagnostics, redacted evidence export, exact confirmation requirements, and disabled reasons. Backfill writes are strictly limited to safe classified folder/image rows when explicitly confirmed; Access-Switch enforcement and confirmed Reset remain blocked.
+- Post-cleanup tenant-asset evidence rebaseline exists at `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` with status `post_cleanup_evidence_pending`. It supersedes pre-cleanup owner-map, manual-review, and reset counts after the operator manually deleted most old images/videos.
 - Legacy media reset work exists: read-only dry-run/reporting, executor design, reset action/event tables, a dry-run-default executor path, and evidence decision docs. Confirmed execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 
 ## Current Blockers
@@ -37,10 +38,10 @@ This handoff is not production approval, live billing approval, legal compliance
 - Live deployment state is not proven by repo files; operator verification is required.
 - Remote auth migrations through `0059_add_data_lifecycle_completion_state.sql` must be applied before dependent Auth Worker deploys.
 - Auth/AI caller-policy runtime changes require paired AI Worker then Auth Worker review/deploy ordering.
-- Existing legacy `ai_folders`/`ai_images` rows remain mixed/null/unclassified; access checks still use existing runtime behavior.
-- Tenant isolation, access-switch enforcement, global ownership-backfill readiness, and confirmed reset/deletion remain blocked. Use Backfill dry-run/evidence first, Access-Switch shadow diagnostics second, and Reset dry-run/evidence only after those are reviewed.
-- Manual-review evidence still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
-- Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and the confirmation gate remains closed.
+- Existing current `ai_folders`/`ai_images` rows must be rebaselined after manual media cleanup; access checks still use existing runtime behavior.
+- Tenant isolation, access-switch enforcement, global ownership-backfill readiness, and confirmed reset/deletion remain blocked. Collect fresh post-cleanup Backfill dry-run/evidence first, Access-Switch shadow diagnostics second, and Reset status/evidence only after those are reviewed.
+- Manual-review evidence still needs post-cleanup queue/status refresh plus import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
+- Legacy media reset dry-run decision is rejected unsafe because prior live evidence exposed a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, old counts are stale after cleanup, and the confirmation gate remains closed.
 - Cloudflare WAF/static headers/RUM/alerts, secrets, bindings, resource live presence, restore drill, rollback evidence, Stripe dashboard/webhook setup, and live billing canaries still require operator evidence. Checkout creation does not grant credits; verified webhook/payment/invoice events are required. Refund/dispute/payment-failure handling remains review-only.
 - Operator timeline and evidence index are repo/admin evidence aids only; they do not prove production readiness or authorize dangerous actions.
 
@@ -52,9 +53,11 @@ This handoff is not production approval, live billing approval, legal compliance
 4. `config/release-compat.json`
 5. `docs/production-readiness/README.md`
 6. `docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md`
-7. `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`
-8. `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
-9. `workers/auth/CLAUDE.md`
+7. `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`
+8. `docs/tenant-assets/POST_CLEANUP_TENANT_ISOLATION_DECISION_MATRIX.md`
+9. `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`
+10. `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
+11. `workers/auth/CLAUDE.md`
 
 ## Restart Commands
 
@@ -91,7 +94,7 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 Recommended next audit entry point: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
 
-If continuing tenant reset work first, collect a sanitized dry-run evidence package with `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation-review or destructive reset planning.
+If continuing tenant transition work first, collect the post-cleanup read-only evidence packet under `docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/` before any Backfill execution, Access-Switch enforcement, or reset confirmation-review planning.
 
 ## Documentation Rule
 

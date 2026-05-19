@@ -36,7 +36,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 
 - `ai_folders` and `ai_images` include nullable ownership metadata.
 - New personal folder/image writes assign ownership metadata.
-- Legacy folder/image rows remain unresolved unless current evidence proves otherwise.
+- Current post-cleanup folder/image rows remain unresolved unless fresh evidence proves otherwise. Prior owner-map/manual-review/reset counts are stale after the operator manually deleted most old images/videos.
 - `ai_asset_manual_review_items` and `ai_asset_manual_review_events` store manual-review state and events.
 - `tenant_asset_media_reset_actions` and `tenant_asset_media_reset_action_events` store reset action/evidence tracking.
 - `ai_text_assets`, video jobs, music/audio assets, profile avatars, lifecycle exports, audit archives, and unknown media tables remain outside first-pass reset execution. Confirmed first-pass reset is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is explicitly enabled in a future approved phase; no sanitized reset dry-run evidence package is currently accepted.
@@ -46,11 +46,12 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 
 ## Current Evidence State
 
-- Folder/image owner-map evidence exists and requires manual review.
-- Manual-review operator evidence exists but still needs import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
-- Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout.
+- Folder/image owner-map evidence exists as historical retained evidence and now requires post-cleanup refresh before use in current decisions.
+- Manual-review operator evidence exists but old queue/status counts may reference removed assets; it still needs post-cleanup refresh plus import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
+- Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout, and old candidate counts are stale after manual cleanup.
+- Post-cleanup rebaseline status is `post_cleanup_evidence_pending` in `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`.
 - Confirmed media reset/deletion has not been approved or performed.
-- Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical states, and reports unsafe marker IDs without printing raw values.
+- Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical/stale-superseded states, and reports unsafe marker IDs without printing raw values.
 - Production readiness dossier, Cloudflare resource model, rollback drill, RC Go/No-Go manifest, and final RC validation matrix tooling exist as local-only evidence organizers. They keep production readiness blocked, do not call live services, and do not mutate D1/R2/Queues/Cloudflare/GitHub/Stripe/provider state.
 - Evidence index unsafe-marker candidates are actionable by file path and marker ID only. Active-current blockers, historical archive candidates, template/example candidates, accepted redacted markers, and manual-review cases must be reviewed without printing raw values.
 

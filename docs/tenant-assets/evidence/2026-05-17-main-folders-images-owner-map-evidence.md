@@ -9,6 +9,9 @@ Synthetic fixture: no
 Operator: not_recorded
 Commit SHA: not_recorded
 Decision status: blocked_for_access_switch_and_backfill
+Post-cleanup status: `superseded_by_manual_media_cleanup`
+
+P2-01 note: this evidence was collected before the operator manually deleted most old images and videos. Counts below are historical pre-cleanup evidence only and must not be used as current Backfill, Access-Switch, Reset, or tenant-isolation evidence.
 
 This summary is derived from an operator-provided read-only JSON export. It does not apply a backfill, change access checks, mutate D1/R2, list live R2, call providers, call Stripe, mutate Cloudflare, or prove full tenant isolation.
 
@@ -67,4 +70,3 @@ Access-check switching and ownership backfill remain blocked until high-risk cou
 - No runtime access checks are recorded as changed.
 - No D1/R2 mutation or live R2 listing is recorded.
 - No tenant isolation, production readiness, or live billing readiness claim is made.
-

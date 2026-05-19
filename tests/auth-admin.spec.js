@@ -2187,6 +2187,11 @@ async function mockAdminControlPlane(page, captures = {}) {
         d1Mutated: false,
         r2LiveListed: false,
         r2ObjectsMutated: false,
+        postCleanupRebaseline: {
+          status: 'post_cleanup_evidence_collected',
+          oldCountsSuperseded: true,
+          liveEvidenceRequired: false,
+        },
         requiredExecutionConfirmation: 'BACKFILL OWNERSHIP',
         summary: {
           totalCandidates: 4,
@@ -2227,6 +2232,10 @@ async function mockAdminControlPlane(page, captures = {}) {
         r2LiveListed: false,
         r2ObjectsMutated: false,
         tenantIsolationClaimed: false,
+        postCleanupRebaseline: {
+          status: body.dryRun === false ? 'post_cleanup_evidence_pending' : 'post_cleanup_evidence_collected',
+          oldCountsSuperseded: true,
+        },
         productionReadiness: 'blocked',
       },
     });
@@ -2243,6 +2252,10 @@ async function mockAdminControlPlane(page, captures = {}) {
         runtimeSwitchRepoSupported: false,
         liveSwitchEnabled: false,
         tenantIsolationClaimed: false,
+        postCleanupRebaseline: {
+          status: 'post_cleanup_evidence_pending',
+          oldCountsSuperseded: true,
+        },
         productionReadiness: 'blocked',
         mismatchCounts: { unsafe: 2, manualReview: 1, metadataMissing: 3 },
         disabledActions: {
@@ -2264,6 +2277,10 @@ async function mockAdminControlPlane(page, captures = {}) {
         r2LiveListed: false,
         r2ObjectsMutated: false,
         tenantIsolationClaimed: false,
+        postCleanupRebaseline: {
+          status: 'post_cleanup_evidence_collected',
+          oldCountsSuperseded: true,
+        },
         productionReadiness: 'blocked',
         summary: {
           mismatchCount: 3,
@@ -2295,6 +2312,10 @@ async function mockAdminControlPlane(page, captures = {}) {
         dangerousOperationsApproved: false,
         productionReadiness: 'blocked',
         tenantIsolationClaimed: false,
+        postCleanupRebaseline: {
+          status: 'post_cleanup_evidence_pending',
+          oldCountsSuperseded: true,
+        },
       },
     });
   });
@@ -10679,6 +10700,8 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionTenantAssets')).toContainText('Reconciliation dry-run');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Isolation Execution');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Dangerous operations');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Post-cleanup evidence pending');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Old owner-map, manual-review, and reset counts are stale after manual media cleanup');
     await expect(page.locator('#sectionTenantAssets')).toContainText('No production readiness claim');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant isolation not claimed');
     await page.getByRole('button', { name: 'Ownership Backfill danger explanation' }).click();
@@ -10698,7 +10721,8 @@ test.describe('Admin Control Plane', () => {
     await expect(dangerDialog).toContainText('retire public references');
     await dangerDialog.getByRole('button', { name: 'Close' }).click();
     await page.getByRole('button', { name: 'Run Backfill Dry-run' }).click();
-    await expect(page.locator('#tenantIsolationBackfillState')).toContainText('Dry-run loaded');
+    await expect(page.locator('#tenantIsolationBackfillState')).toContainText('Post-cleanup dry-run loaded');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('post cleanup evidence collected');
     await expect(page.locator('#sectionTenantAssets')).toContainText('safe to backfill');
     await expect(page.getByRole('button', { name: 'Write Safe Ownership Metadata' })).toBeDisabled();
     await page.locator('#tenantBackfillReason').fill('Static tenant isolation backfill evidence test');
@@ -10720,10 +10744,10 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => captures.tenantBackfillExecuteRequests.length).toBe(2);
     expect(captures.tenantBackfillExecuteRequests[1].body.dryRun).toBe(false);
     await page.getByRole('button', { name: 'Run Shadow Diagnostics' }).click();
-    await expect(page.locator('#tenantIsolationAccessState')).toContainText('Shadow diagnostics completed');
+    await expect(page.locator('#tenantIsolationAccessState')).toContainText('Post-cleanup shadow diagnostics completed');
     await expect(page.getByRole('button', { name: 'Enable Enforced Access-Switch' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Confirmed Execute Reset' })).toBeDisabled();
-    await expect(page.locator('#tenantIsolationResetState')).toContainText('Legacy reset status loaded');
+    await expect(page.locator('#tenantIsolationResetState')).toContainText('Post-cleanup sanitized evidence remains pending');
     await expect(page.locator('#sectionTenantAssets')).toContainText('gate disabled');
     await page.getByRole('button', { name: 'Export Combined Markdown' }).click();
     await expect.poll(() => captures.tenantIsolationEvidenceExportRequests.some((entry) => entry.url.includes('tenant-isolation/evidence') && entry.url.includes('format=markdown'))).toBe(true);

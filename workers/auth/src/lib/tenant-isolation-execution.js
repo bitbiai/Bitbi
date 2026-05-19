@@ -44,6 +44,11 @@ export const OWNERSHIP_BACKFILL_CONFIRMATION = "BACKFILL OWNERSHIP";
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const ALLOWED_FORMATS = new Set(["json", "markdown", "html"]);
+export const POST_CLEANUP_REBASELINE_STATUS = Object.freeze({
+  REQUIRED: "post_cleanup_rebaseline_required",
+  PENDING: "post_cleanup_evidence_pending",
+  COLLECTED: "post_cleanup_evidence_collected",
+});
 const SUPPORTED_BACKFILL_DOMAINS = Object.freeze(["ai_folders", "ai_images"]);
 const DEFERRED_BACKFILL_DOMAINS = Object.freeze([
   "ai_image_derivatives",
@@ -95,6 +100,23 @@ function normalizeFormat(value) {
     });
   }
   return format;
+}
+
+function postCleanupRebaseline({
+  status = POST_CLEANUP_REBASELINE_STATUS.PENDING,
+  source = "current_request",
+  evidenceType = "read_only",
+} = {}) {
+  return {
+    status,
+    source,
+    evidenceType,
+    manualMediaCleanupReported: true,
+    oldCountsSuperseded: true,
+    staleEvidenceDecisionPath: "docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md",
+    liveEvidenceRequired: status !== POST_CLEANUP_REBASELINE_STATUS.COLLECTED,
+    tenantIsolationClaimed: false,
+  };
 }
 
 function normalizeSafeText(value, { field = "text", maxLength = 500, required = false } = {}) {
@@ -293,6 +315,11 @@ function unavailableReport({ generatedAt, code, message, options }) {
     d1Mutated: false,
     r2LiveListed: false,
     r2ObjectsMutated: false,
+    postCleanupRebaseline: postCleanupRebaseline({
+      status: POST_CLEANUP_REBASELINE_STATUS.PENDING,
+      source: "unavailable_d1_read",
+      evidenceType: "pending",
+    }),
     options,
     code,
     message,
@@ -371,6 +398,11 @@ export async function buildOwnershipBackfillDryRunReport(env, input = {}) {
       d1Mutated: false,
       r2LiveListed: false,
       r2ObjectsMutated: false,
+      postCleanupRebaseline: postCleanupRebaseline({
+        status: POST_CLEANUP_REBASELINE_STATUS.COLLECTED,
+        source: "current_d1_read_only_backfill_dry_run",
+        evidenceType: "ownership_backfill_dry_run",
+      }),
       options: {
         limit: options.limit,
         domains: options.domains,
@@ -563,6 +595,13 @@ export async function executeOwnershipBackfill(env, {
     accessChecksChanged: false,
     r2LiveListed: false,
     r2ObjectsMutated: false,
+    postCleanupRebaseline: dryRunReport.postCleanupRebaseline || postCleanupRebaseline({
+      status: normalized.dryRun
+        ? POST_CLEANUP_REBASELINE_STATUS.COLLECTED
+        : POST_CLEANUP_REBASELINE_STATUS.PENDING,
+      source: "ownership_backfill_execute_report",
+      evidenceType: normalized.dryRun ? "execution_endpoint_dry_run" : "guarded_safe_rows_only",
+    }),
     rowsConsidered: selected.length,
     rowsWritten,
     rowsBlocked: Math.max(0, Number(dryRunReport.summary?.totalCandidates || 0) - selected.length),
@@ -613,6 +652,11 @@ export async function buildAccessSwitchStatus(env) {
       off: "Already off; legacy runtime access checks remain active.",
     },
     tenantIsolationClaimed: false,
+    postCleanupRebaseline: postCleanupRebaseline({
+      status: POST_CLEANUP_REBASELINE_STATUS.PENDING,
+      source: "access_switch_status_only",
+      evidenceType: "status_pending_shadow_diagnostics",
+    }),
     productionReadiness: "blocked",
   };
 }
@@ -637,6 +681,11 @@ export async function buildAccessSwitchShadowDiagnostics(env, input = {}) {
       r2LiveListed: false,
       r2ObjectsMutated: false,
       tenantIsolationClaimed: false,
+      postCleanupRebaseline: postCleanupRebaseline({
+        status: POST_CLEANUP_REBASELINE_STATUS.PENDING,
+        source: "access_switch_shadow_unavailable",
+        evidenceType: "pending",
+      }),
       productionReadiness: "blocked",
       code: "tenant_isolation_access_switch_schema_unavailable",
       summary: {
@@ -681,6 +730,11 @@ export async function buildAccessSwitchShadowDiagnostics(env, input = {}) {
     r2LiveListed: false,
     r2ObjectsMutated: false,
     tenantIsolationClaimed: false,
+    postCleanupRebaseline: postCleanupRebaseline({
+      status: POST_CLEANUP_REBASELINE_STATUS.COLLECTED,
+      source: "current_d1_read_only_shadow_diagnostics",
+      evidenceType: "access_switch_shadow_diagnostics",
+    }),
     productionReadiness: "blocked",
     summary: {
       ...diagnostics.summary,
@@ -730,6 +784,11 @@ export async function buildLegacyMediaResetStatus(env) {
     dangerousOperationsApproved: false,
     productionReadiness: "blocked",
     tenantIsolationClaimed: false,
+    postCleanupRebaseline: postCleanupRebaseline({
+      status: POST_CLEANUP_REBASELINE_STATUS.PENDING,
+      source: "legacy_media_reset_status_only",
+      evidenceType: "reset_status_pending_sanitized_dry_run",
+    }),
     ownershipBackfillReadiness: "blocked",
     accessSwitchReadiness: "blocked",
     r2LiveListed: false,
@@ -757,6 +816,7 @@ export async function buildLegacyMediaResetEvidence(env, input = {}) {
     reportVersion: "tenant-isolation-legacy-media-reset-evidence-v1",
     generatedAt: nowIso(),
     status,
+    postCleanupRebaseline: status.postCleanupRebaseline,
     dryRun,
     redaction: {
       noRawR2Keys: true,
@@ -779,6 +839,11 @@ export async function buildTenantIsolationEvidencePacket(env, input = {}) {
     generatedAt: nowIso(),
     productionReadiness: "blocked",
     tenantIsolationClaimed: false,
+    postCleanupRebaseline: postCleanupRebaseline({
+      status: POST_CLEANUP_REBASELINE_STATUS.PENDING,
+      source: "combined_packet_requires_live_operator_review",
+      evidenceType: "combined_read_only_packet",
+    }),
     ownershipBackfillReadiness: "blocked_until_operator_evidence_review",
     accessSwitchReadiness: "blocked",
     confirmedLegacyMediaResetReadiness: "blocked",
@@ -821,6 +886,7 @@ export function exportTenantIsolationEvidenceMarkdown(report, { title = "Tenant 
     `Generated at: ${report.generatedAt || "unknown"}`,
     `Production readiness: ${report.productionReadiness || "blocked"}`,
     `Tenant isolation claimed: ${report.tenantIsolationClaimed === true ? "yes" : "no"}`,
+    `Post-cleanup rebaseline: ${report.postCleanupRebaseline?.status || "not_reported"}`,
     `R2 live listed: ${report.r2LiveListed === true ? "yes" : "no"}`,
     "",
     "## Summary",

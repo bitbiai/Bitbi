@@ -1652,6 +1652,11 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       tenantIsolationClaimed: false,
       productionReadiness: 'blocked',
       requiredExecutionConfirmation: 'BACKFILL OWNERSHIP',
+      postCleanupRebaseline: expect.objectContaining({
+        status: 'post_cleanup_evidence_collected',
+        oldCountsSuperseded: true,
+        liveEvidenceRequired: false,
+      }),
     });
     expect(dryRunBody.report.summary.classifications.safe_to_backfill).toBeGreaterThanOrEqual(2);
     expect(dryRunBody.report.summary.classifications.blocked_public_unsafe).toBeGreaterThanOrEqual(1);
@@ -1717,6 +1722,10 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       accessChecksChanged: false,
       r2LiveListed: false,
       tenantIsolationClaimed: false,
+      postCleanupRebaseline: expect.objectContaining({
+        status: 'post_cleanup_evidence_collected',
+        oldCountsSuperseded: true,
+      }),
     });
     expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing').ownership_status).toBeNull();
 
@@ -1747,6 +1756,9 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       r2ObjectsMutated: false,
       tenantIsolationClaimed: false,
       productionReadiness: 'blocked',
+      postCleanupRebaseline: expect.objectContaining({
+        oldCountsSuperseded: true,
+      }),
     });
     expect(executeBody.backfill.rowsWritten).toBeGreaterThanOrEqual(2);
     expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing')).toMatchObject({
@@ -1782,6 +1794,10 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       liveSwitchEnabled: false,
       tenantIsolationClaimed: false,
       productionReadiness: 'blocked',
+      postCleanupRebaseline: expect.objectContaining({
+        status: 'post_cleanup_evidence_pending',
+        oldCountsSuperseded: true,
+      }),
     });
 
     const shadow = await authWorker.fetch(
@@ -1797,6 +1813,10 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       accessChecksChanged: false,
       tenantIsolationClaimed: false,
       productionReadiness: 'blocked',
+      postCleanupRebaseline: expect.objectContaining({
+        status: 'post_cleanup_evidence_collected',
+        oldCountsSuperseded: true,
+      }),
     });
     expect(shadowBody.report.summary.enforcedModeAllowed).toBe(false);
 
@@ -1825,6 +1845,10 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       dangerousOperationsApproved: false,
       tenantIsolationClaimed: false,
       productionReadiness: 'blocked',
+      postCleanupRebaseline: expect.objectContaining({
+        status: 'post_cleanup_evidence_pending',
+        oldCountsSuperseded: true,
+      }),
     });
     expect(resetStatusBody.status.confirmedExecutionGate).toMatchObject({
       name: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION',
@@ -1841,6 +1865,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     const markdown = await combinedEvidence.text();
     expect(markdown).toContain('Tenant Isolation Execution Evidence');
     expect(markdown).toContain('Tenant isolation claimed: no');
+    expect(markdown).toContain('Post-cleanup rebaseline: post_cleanup_evidence_pending');
     expect(markdown).not.toContain('should-not-render.png');
   });
 

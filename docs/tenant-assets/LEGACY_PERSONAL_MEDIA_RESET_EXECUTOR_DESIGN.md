@@ -1,8 +1,8 @@
 # Legacy Personal Media Reset Executor Design
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current design and implementation boundary for the legacy media reset executor. This document does not authorize confirmed deletion.
 
@@ -65,7 +65,7 @@ A future confirmed execution phase must require:
 - no-credit-refund acknowledgement,
 - before and after evidence exports.
 
-The current evidence fails the gate because prior evidence contained a raw idempotency key, the raw JSON is absent from the current checkout, and no sanitized replacement evidence package is accepted. Use `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
+The current evidence fails the gate because prior evidence contained a raw idempotency key, the raw JSON is absent from the current checkout, no sanitized replacement evidence package is accepted, and the operator's manual media cleanup superseded the old candidate counts. Use `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` plus the post-cleanup evidence packet at `docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/` before any confirmation review.
 
 ## Current Safety Model
 
@@ -82,7 +82,7 @@ The current evidence fails the gate because prior evidence contained a raw idemp
 
 - No confirmed reset execution occurred.
 - Confirmed execution is disabled by default; dry-run/reporting remains available.
-- No media rows are claimed deleted.
+- Repo evidence does not claim which media rows were deleted by the operator's manual cleanup; fresh read-only evidence is required.
 - No ownership backfill occurred.
 - No access checks changed.
 - No tenant isolation or production readiness is claimed.

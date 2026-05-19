@@ -6,6 +6,10 @@ Status: `needs_manual_review`
 
 Decision: **blocked_for_access_switch_and_backfill**
 
+Post-cleanup status: `superseded_by_manual_media_cleanup`
+
+P2-01 rebaseline note: the operator manually deleted most old images and videos after this evidence was collected. The counts in this decision are retained as historical pre-cleanup evidence only and must not be used as current Backfill, Access-Switch, Reset, or tenant-isolation evidence. Current decisions must start from `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` and fresh authenticated read-only exports.
+
 This Phase 6.10 decision reviews the in-repository main-only evidence package for AI folders/images tenant asset ownership. The real main evidence summary is present at `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`; no live endpoints were called by Codex, no synthetic fixture was treated as evidence, and no raw JSON export is required in-repo because the Markdown summary contains the safe counts and decision fields needed for this review.
 
 ## Evidence Presence

@@ -43,9 +43,12 @@ Existing `user_id` remains compatibility/access evidence, not sufficient proof o
 
 ## Current Evidence State
 
-- Main folder/image owner-map evidence exists and requires manual review.
-- Manual-review operator evidence exists with decision `operator_evidence_collected_needs_more_idempotency`.
-- Legacy media reset dry-run evidence remains rejected unsafe because prior live evidence exposed a raw idempotency key, the raw JSON is absent from the current checkout, and no sanitized replacement evidence is accepted.
+- Prior main folder/image owner-map evidence, manual-review operator evidence, and legacy reset dry-run counts are now classified as stale/superseded by the operator's manual media cleanup. They remain historical evidence only.
+- Current post-cleanup decision file: `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`.
+- Current post-cleanup evidence packet path: `docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/`.
+- Current status: `post_cleanup_evidence_pending` until fresh authenticated read-only/admin exports are collected and reviewed.
+- Manual-review operator evidence still has idempotency gaps and must be refreshed against current post-cleanup state before it is used for backfill/access/reset decisions.
+- Legacy media reset dry-run evidence remains rejected unsafe because prior live evidence exposed a raw idempotency key, the raw JSON is absent from the current checkout, no sanitized replacement evidence is accepted, and the old counts are stale after cleanup.
 - Confirmed reset/deletion is not approved.
 - Ownership Backfill dry-run/evidence can classify `ai_folders` and `ai_images` into safe, blocked, manual-review, deferred, already-owned, and legacy-unclassified categories. Non-dry-run backfill remains high-risk and must use Admin/MFA, `Idempotency-Key`, reason, explicit supported domain scope, bounded batch limits, and exact typed confirmation `BACKFILL OWNERSHIP`.
 - Access-Switch status and shadow diagnostics are read-only. Runtime enforcement remains blocked until durable switch state, shadow evidence, rollback criteria, and operator approval exist.
@@ -82,6 +85,8 @@ These commands are local/source/fixture checks. They do not call live endpoints,
 
 Use `docs/audits/NEXT_AUDIT_BASELINE.md`, then review:
 
+- `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`
+- `docs/tenant-assets/POST_CLEANUP_TENANT_ISOLATION_DECISION_MATRIX.md`
 - `docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md`
 - `docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md`
 - `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md`

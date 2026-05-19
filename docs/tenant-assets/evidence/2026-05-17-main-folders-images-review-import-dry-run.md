@@ -7,8 +7,11 @@
 Generated at: `2026-05-17T12:58:02.735Z`
 Source input file: `docs/tenant-assets/evidence/tenant-asset-ownership-evidence-2026-05-17T12-58-02.735Z.json`
 Input type: `json_export`
+Post-cleanup status: `superseded_by_manual_media_cleanup`
 Item-level import ready: yes
 Requires JSON evidence for item import: no
+
+P2-01 note: this dry-run uses pre-cleanup owner-map evidence. It is historical retained evidence only; fresh post-cleanup import/status evidence is required before relying on counts.
 
 ## Safety
 

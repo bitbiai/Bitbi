@@ -8,6 +8,10 @@ Idempotency completion status: `operator_evidence_pending_manual_review_idempote
 
 Decision: **manual_review_workflow_operational_but_backfill_and_access_switch_blocked**
 
+Post-cleanup status: `superseded_by_manual_media_cleanup`
+
+P2-01 rebaseline note: the operator manually deleted most old images and videos after this evidence was collected. The workflow evidence remains useful historical proof that the manual-review routes worked, but the item counts and affected asset set may no longer represent current live data. Collect a fresh manual-review queue/status export before using this evidence for Backfill, Access-Switch, Reset, or tenant-isolation decisions.
+
 This decision reviews committed main/live operator evidence for the AI folders/images manual-review workflow. The evidence shows import dry-run, confirmed review-item import, final queue evidence export, and one queue status-change rollup were collected. It does not prove import replay, import conflict, successful standalone status-update response, status replay, or status conflict. It does not approve ownership backfill, access-check switching, tenant isolation, production readiness, live billing readiness, or confirmed legacy media reset.
 
 ## Evidence Presence

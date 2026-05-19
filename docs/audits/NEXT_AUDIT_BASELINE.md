@@ -19,6 +19,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Admin user delete now has two safe modes: operational anonymized deletion, and operational anonymized deletion plus a dry-run/approval-required Data Erasure workflow request. Both require Admin auth/MFA, rate limiting, explicit confirmation, self-delete prevention, dependency preflight, labeled cleanup diagnostics, login/session disablement, and guarded cleanup of operational user-owned data. The optional Data Erasure/GDPR workflow is not executed immediately and does not claim full legal erasure while retention-governed audit/billing/lifecycle/legal evidence remains policy-controlled.
 - Admin Data Lifecycle request review now has a large detail overlay plus sanitized evidence packet export. The overlay wires guarded request detail, plan generation, approval, safe execution, final completion, reject/close, private archive metadata, and JSON/Markdown/HTML evidence packet actions. Final states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review`; printable HTML is PDF-friendly through browser Save as PDF, not binary PDF generation or legal advice.
 - Admin Tenant Isolation Execution now surfaces Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset together. Each high-risk card has a warning/exclamation explainer, dry-run or shadow diagnostics, redacted evidence export, exact confirmation guidance, and disabled reasons. The panel does not execute reset, switch runtime access, list/mutate live R2, or claim tenant isolation.
+- Post-cleanup tenant-asset evidence rebaseline is pending after the operator manually deleted most old images/videos. Pre-cleanup owner-map, manual-review, and reset counts are stale/superseded and must not be used as current transition evidence.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify
@@ -51,8 +52,9 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - `ai_folders` and `ai_images` have nullable ownership metadata columns.
 - New personal folder/image writes assign high-confidence personal ownership metadata.
-- Existing legacy rows remain mixed/null/unclassified unless evidence proves otherwise.
-- Main owner-map evidence exists and required manual review.
+- Existing current rows remain mixed/null/unclassified unless fresh post-cleanup evidence proves otherwise.
+- Main owner-map evidence exists as historical retained evidence, but old counts are superseded by manual media cleanup.
+- Current post-cleanup decision: `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` with status `post_cleanup_evidence_pending`.
 - Runtime access checks still rely on existing behavior; reads have not switched to ownership metadata.
 - Ownership Backfill dry-run/evidence and a strictly gated executor exist for locally classified safe folder/image rows. Non-dry-run backfill requires Admin/MFA, `Idempotency-Key`, reason, explicit supported domain scope, bounded batch limit, and exact typed confirmation `BACKFILL OWNERSHIP`; unsafe/manual-review/public/missing-evidence/deferred rows remain blocked.
 - Access-Switch status and shadow diagnostics exist as read-only evidence surfaces. Enforced mode remains blocked because durable switch state and reviewed shadow evidence are not approved.
@@ -62,8 +64,9 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - Manual-review item/event tables exist.
 - Admin import, queue read/detail/events/evidence/export, status workflow, and Admin visibility exist for review-state rows.
-- Manual-review operator evidence exists for import/queue/status workflow.
-- Current decision: `operator_evidence_collected_needs_more_idempotency`.
+- Manual-review operator evidence exists for import/queue/status workflow as historical evidence.
+- Current post-cleanup decision: `post_cleanup_evidence_pending`; old queue/status counts may reference removed assets.
+- Prior decision retained for workflow traceability: `operator_evidence_collected_needs_more_idempotency`.
 - Idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`.
 - Remaining gap: import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence are incomplete.
 - Manual-review status changes do not backfill ownership or switch runtime access behavior.
@@ -76,7 +79,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Confirmed reset execution is hard-disabled by default unless optional operator env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - Confirmed reset also requires exact typed confirmation `CONFIRMED LEGACY MEDIA RESET`, `Idempotency-Key`, reason, scope/evidence acknowledgements, and reviewed Backfill/Access-Switch evidence in any future approved phase.
 - Video, music, text assets, profile avatars, data lifecycle exports, audit archives, unknown media tables, and manual-review supersession remain deferred.
-- The reset dry-run decision references prior live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`; that raw JSON is not present in the current checkout, no sanitized replacement is present, and the current decision remains `legacy_media_reset_dry_run_rejected_unsafe` because the evidence exposed a raw idempotency key.
+- The reset dry-run decision references prior live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`; that raw JSON is not present in the current checkout, no sanitized replacement is present, and the current decision remains `legacy_media_reset_dry_run_rejected_unsafe` because the evidence exposed a raw idempotency key. Old reset candidate counts are also stale after manual media cleanup.
 - Confirmed reset/deletion remains blocked.
 
 ## Current Production Readiness State
@@ -89,7 +92,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Release Candidate tooling exists. `npm run rc:check` prints the final local validation matrix by default, and `npm run release:rc` / `npm run release:rc:markdown` generate a local Go/No-Go manifest that composes git state, release plan, Cloudflare resource model, readiness dossier, evidence index triage, rollback drill data, P0/P1 matrix, blocked claims, and operator next actions.
 - Billing evidence status and canary skeleton tooling exist. Admin-only `GET /api/admin/billing/evidence/status` is read-only, redacted, and reports live billing prerequisite presence/shape without Stripe calls or credit mutation. `npm run billing:canary-evidence` generates a blocked/pending operator evidence skeleton only.
 - Operator timeline/triage exists. Admin-only `GET /api/admin/operations/timeline` is read-only and aggregates bounded redacted local D1 metadata from audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive sources without external calls, live R2 listing, or mutations.
-- Evidence index tooling exists. `npm run evidence:index` and `npm run evidence:index:markdown` classify current repo evidence files as accepted, pending, rejected/unsafe, template, or historical and report unsafe marker IDs without printing raw values. Unsafe candidates are triaged as active-current blockers, historical archive candidates, template/example candidates, accepted redacted markers, or manual-review cases.
+- Evidence index tooling exists. `npm run evidence:index` and `npm run evidence:index:markdown` classify current repo evidence files as accepted, pending, rejected/unsafe, template, historical, or stale/superseded and report unsafe marker IDs without printing raw values. Unsafe candidates are triaged as active-current blockers, historical archive candidates, template/example candidates, accepted redacted markers, or manual-review cases.
 - Billing local tests and reconciliation cover no-credit-before-webhook, idempotency, review-only refund/dispute/failure workflows, subscription credit buckets, and additional local mismatch categories. These are repo evidence only, not live billing readiness.
 - Production readiness remains blocked until live/manual evidence verifies migrations, Worker deploys, secrets, bindings, D1/R2/Queue/DO resources, health checks, security headers, alerts, restore drill, rollback path, Stripe configuration, and operational canaries.
 - Live billing readiness remains blocked.
@@ -108,6 +111,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - Verify live deployment state for Auth Worker, Static/Pages, AI Worker, and Contact Worker.
 - Apply/verify remote auth migrations through `0059` before dependent Auth Worker deploys.
+- Collect fresh post-cleanup tenant asset evidence under `docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/` before any Backfill execution, Access-Switch enforcement, or Reset confirmation review.
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Use the Admin Tenant Isolation Execution dry-runs/diagnostics and exports to review Backfill, Access-Switch, and Reset in that order. Do not execute Reset before Backfill and Access-Switch evidence is reviewed.

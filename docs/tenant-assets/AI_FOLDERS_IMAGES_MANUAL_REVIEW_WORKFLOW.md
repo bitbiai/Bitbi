@@ -1,8 +1,8 @@
 # AI Folders / Images Manual Review Workflow
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current manual-review workflow baseline for folder/image ownership evidence. Historical phase detail is frozen outside this active doc.
 
@@ -38,7 +38,9 @@ Approved/blocked statuses are operator evidence only. They do not authorize back
 
 ## Current Evidence Decision
 
-Current manual-review operator decision: `operator_evidence_collected_needs_more_idempotency`.
+Current manual-review operator decision after manual media cleanup: `post_cleanup_evidence_pending`.
+
+The earlier decision `operator_evidence_collected_needs_more_idempotency` is retained as historical workflow evidence, but old queue/status counts may reference media the operator deleted manually. Do not use the pre-cleanup queue counts as current Backfill, Access-Switch, Reset, or manual-review cleanup truth.
 
 Idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`.
 

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Post-Cleanup Tenant Asset Evidence Packet</title>
+  <style>
+    body { color: #111827; font: 14px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; }
+    h1, h2 { line-height: 1.2; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; }
+    code { background: #f3f4f6; padding: 1px 4px; }
+    .blocked { color: #991b1b; font-weight: 700; }
+    .note { background: #fffbeb; border: 1px solid #f59e0b; padding: 12px; }
+    @media print { body { margin: 18mm; } .note { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <h1>Post-Cleanup Tenant Asset Evidence Packet</h1>
+  <p><strong>Generated:</strong> 2026-05-19T19:12:09Z</p>
+  <p><strong>Repo commit at packet creation:</strong> <code>1492404194eb9817e28588e6cc9644810fe49c82</code></p>
+  <p><strong>Status:</strong> <span class="blocked">post_cleanup_evidence_pending</span></p>
+  <div class="note">
+    This PDF-friendly packet is a pending evidence scaffold. It documents that pre-cleanup evidence counts are stale after manual media deletion. It does not include live evidence and does not approve Backfill, Access-Switch, Reset, tenant isolation, or production readiness.
+  </div>
+  <h2>Pending Evidence Targets</h2>
+  <table>
+    <thead><tr><th>Target</th><th>Status</th><th>Safe endpoint or command</th></tr></thead>
+    <tbody>
+      <tr><td>Tenant asset domain state</td><td>pending live read-only export</td><td><code>GET /api/admin/tenant-assets/domains/evidence</code></td></tr>
+      <tr><td>Ownership Backfill dry-run</td><td>pending live read-only export</td><td><code>GET /api/admin/tenant-assets/ownership-backfill/dry-run</code></td></tr>
+      <tr><td>Access-Switch shadow diagnostics</td><td>pending live read-only export</td><td><code>GET /api/admin/tenant-assets/access-switch/shadow-diagnostics</code></td></tr>
+      <tr><td>Legacy Media Reset status/evidence</td><td>pending live read-only export</td><td><code>GET /api/admin/tenant-assets/legacy-media-reset/evidence</code></td></tr>
+      <tr><td>Manual-review queue/status</td><td>pending live read-only export</td><td><code>GET /api/admin/tenant-assets/folders-images/manual-review/evidence</code></td></tr>
+      <tr><td>Storage/quota reconciliation</td><td>pending if applicable</td><td><code>GET /api/admin/users/:id/storage/reconciliation</code></td></tr>
+    </tbody>
+  </table>
+  <h2>Safety</h2>
+  <ul>
+    <li>No live R2 listing or mutation is authorized.</li>
+    <li>No production Backfill, Access-Switch, or Reset was executed.</li>
+    <li><code>ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION</code> remains disabled.</li>
+    <li>Tenant isolation remains unclaimed.</li>
+  </ul>
+  <h2>Redaction</h2>
+  <p>This packet contains no raw private R2 keys, cookies, auth headers, raw idempotency keys, raw request hashes, provider payloads, Stripe values, Cloudflare tokens, or secrets.</p>
+</body>
+</html>

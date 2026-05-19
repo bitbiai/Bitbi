@@ -63,7 +63,7 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Evidence archive/index coverage from `npm run evidence:index` or `npm run evidence:index:markdown`; unsafe markers must remain classified, not pasted into readiness evidence.
 - Admin/platform budget switch/cap/reconciliation/repair/report/archive evidence where AI cost controls are in scope.
 - Fetch Metadata/same-origin CSRF hardening evidence for browser state-changing routes and documented webhook/ingest/link exemptions.
-- Tenant asset/manual-review/reset evidence decisions before any ownership/backfill/reset claim.
+- Fresh post-cleanup tenant asset/manual-review/reset evidence decisions before any ownership/backfill/access-switch/reset claim. Pre-cleanup counts are historical after the operator manually deleted most old images/videos.
 - Admin mutation guardrail checks from `npm run check:route-policies`, including high-risk route notes for MFA, same-origin/Fetch Metadata coverage, fail-closed rate limits, confirmation/idempotency rationale, and audit logging.
 - Data lifecycle guardrail evidence from `npm run check:data-lifecycle`: lifecycle approve/export/archive cleanup require `Idempotency-Key` plus `confirm=true`, and `execute-safe` requires `confirm=true` before `dryRun:false`.
 
@@ -137,8 +137,8 @@ Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only w
 - Stripe dashboard configuration, live webhook receipt, duplicate-event idempotency, wrong Price ID rejection, missing-webhook-secret fail-closed behavior, and no-raw-payload/signature rendering still require operator evidence before live billing readiness can be claimed.
 - Internal AI Worker caller policy is enforced for provider-cost routes, but live provider/cap/operator evidence is still required before readiness claims.
 - Canary/readiness tooling includes local-only safety contract checks and skipped-by-default live checks; missing live URLs or credentials must remain pending/blocked, not treated as success.
-- Tenant ownership backfill and access-switch readiness are blocked.
-- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
+- Tenant ownership backfill and access-switch readiness are blocked; current post-cleanup evidence is pending.
+- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided, and old reset candidate counts are stale after manual media cleanup. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
 - Production readiness cannot be claimed from local tests alone.
 
 ## Safe Validation Commands

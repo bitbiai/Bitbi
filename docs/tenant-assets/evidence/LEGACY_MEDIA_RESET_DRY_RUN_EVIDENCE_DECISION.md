@@ -8,6 +8,10 @@ Sanitized evidence status: `pending_sanitized_evidence_required`
 
 Dry-run topic status: not closed.
 
+Post-cleanup status: `superseded_by_manual_media_cleanup`
+
+P2-01 rebaseline note: the operator manually deleted most old images and videos after this historical reset dry-run evidence was collected. The historical candidate counts below are stale in addition to being rejected unsafe. Confirmed reset remains blocked until fresh post-cleanup sanitized dry-run/read-only evidence is collected and reviewed.
+
 ## Decision
 
 The current repository does not contain an accepted sanitized legacy media reset executor dry-run evidence package.

@@ -1,0 +1,68 @@
+{
+  "ok": false,
+  "status": "post_cleanup_evidence_pending",
+  "generatedAt": "2026-05-19T19:12:09Z",
+  "repoCommitAtPacketCreation": "1492404194eb9817e28588e6cc9644810fe49c82",
+  "source": "repo_pending_packet_only",
+  "manualCleanupReported": true,
+  "liveEndpointsCalledByCodex": false,
+  "productionD1Mutated": false,
+  "productionR2Listed": false,
+  "productionR2Mutated": false,
+  "ownershipBackfillExecuted": false,
+  "runtimeAccessSwitchActivated": false,
+  "confirmedLegacyMediaResetExecuted": false,
+  "tenantIsolationClaimed": false,
+  "productionReadiness": "blocked",
+  "evidenceTargets": [
+    {
+      "id": "tenant_asset_domain_state",
+      "status": "pending_live_authenticated_read_only_export",
+      "endpoint": "GET /api/admin/tenant-assets/domains/evidence"
+    },
+    {
+      "id": "ownership_backfill_dry_run",
+      "status": "pending_live_authenticated_read_only_export",
+      "endpoint": "GET /api/admin/tenant-assets/ownership-backfill/dry-run"
+    },
+    {
+      "id": "access_switch_shadow_diagnostics",
+      "status": "pending_live_authenticated_read_only_export",
+      "endpoint": "GET /api/admin/tenant-assets/access-switch/shadow-diagnostics"
+    },
+    {
+      "id": "legacy_media_reset_status_evidence",
+      "status": "pending_live_authenticated_read_only_export",
+      "endpoint": "GET /api/admin/tenant-assets/legacy-media-reset/evidence"
+    },
+    {
+      "id": "manual_review_queue_status",
+      "status": "pending_live_authenticated_read_only_export",
+      "endpoint": "GET /api/admin/tenant-assets/folders-images/manual-review/evidence"
+    },
+    {
+      "id": "storage_quota_reconciliation",
+      "status": "pending_if_applicable",
+      "endpoint": "GET /api/admin/users/:id/storage/reconciliation"
+    }
+  ],
+  "supersededEvidence": [
+    "docs/tenant-assets/evidence/MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md",
+    "docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md",
+    "docs/tenant-assets/evidence/2026-05-17-main-folders-images-manual-review-plan.md",
+    "docs/tenant-assets/evidence/2026-05-17-main-folders-images-review-import-dry-run.md",
+    "docs/tenant-assets/evidence/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md",
+    "docs/tenant-assets/evidence/2026-05-17-manual-review-status-operator-evidence-summary.md",
+    "docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md",
+    "docs/tenant-assets/evidence/2026-05-18-legacy-media-reset-dry-run-closure-summary.md"
+  ],
+  "redaction": {
+    "rawPrivateR2KeysIncluded": false,
+    "rawIdempotencyKeysIncluded": false,
+    "rawRequestHashesIncluded": false,
+    "cookiesOrAuthHeadersIncluded": false,
+    "providerPayloadsIncluded": false,
+    "stripeValuesIncluded": false,
+    "secretsIncluded": false
+  }
+}

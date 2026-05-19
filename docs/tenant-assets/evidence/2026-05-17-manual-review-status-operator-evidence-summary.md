@@ -6,6 +6,10 @@ Status: `operator_evidence_collected_needs_more_idempotency`
 
 Idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`
 
+Post-cleanup status: `superseded_by_manual_media_cleanup`
+
+P2-01 note: this evidence was collected before the operator manually deleted most old images and videos. The workflow evidence remains historical proof of route behavior, but counts and affected asset sets require a fresh manual-review queue/status export before they can guide Backfill, Access-Switch, Reset, or tenant-isolation decisions.
+
 Decision: the Phase 6.15-6.18 manual-review workflow has real main/live operator evidence for dry-run import, confirmed import, final queue export, and one queue status-change rollup. Backfill, access-check switching, tenant isolation, production readiness, and live billing readiness remain blocked.
 
 ## Source Evidence

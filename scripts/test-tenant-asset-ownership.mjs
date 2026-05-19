@@ -56,6 +56,9 @@ assert.equal(report.source, "repo_source_read_only");
 assert.equal(report.mutationMode, "dry_run_only");
 assert.equal(report.productionReadiness, "blocked");
 assert.equal(report.tenantIsolationReadiness, "blocked");
+assert.equal(report.postCleanupRebaseline.status, "post_cleanup_evidence_pending");
+assert.equal(report.postCleanupRebaseline.oldCountsSuperseded, true);
+assert.equal(report.postCleanupRebaseline.liveEvidenceRequired, true);
 
 assert.deepEqual(report.mutationSafety.emittedCommands, []);
 assert.equal(report.mutationSafety.d1Writes, false);
@@ -171,6 +174,7 @@ assert(!serialized.includes("cloudflare api"));
 
 const markdown = renderTenantAssetOwnershipMarkdown(report);
 assert(markdown.includes("# Tenant Asset Ownership Dry Run"));
+assert(markdown.includes("Post-cleanup rebaseline: post_cleanup_evidence_pending"));
 assert(markdown.includes("No R2 writes, moves, or deletes."));
 assert(markdown.includes("| ai_images | ai_images | user_id |"));
 
@@ -184,6 +188,9 @@ assert.equal(foldersImagesReport.phase, "6.2");
 assert.equal(foldersImagesReport.domain, "folders-images");
 assert.equal(foldersImagesReport.source, "repo_source_and_fixture_read_only");
 assert.equal(foldersImagesReport.mutationMode, "dry_run_only");
+assert.equal(foldersImagesReport.postCleanupRebaseline.status, "post_cleanup_evidence_pending");
+assert.equal(foldersImagesReport.postCleanupRebaseline.oldCountsSuperseded, true);
+assert.equal(foldersImagesReport.postCleanupRebaseline.liveEvidenceRequired, true);
 assert.equal(foldersImagesReport.fixture.folderCount, 4);
 assert.equal(foldersImagesReport.fixture.imageCount, 8);
 assert.deepEqual(foldersImagesReport.mutationSafety.emittedCommands, []);
@@ -1217,6 +1224,7 @@ assert(!/\bDROP\b/i.test(ownershipMigration));
 
 const focusedMarkdown = renderFoldersImagesOwnerMapMarkdown(foldersImagesReport);
 assert(focusedMarkdown.includes("# AI Folders & Images Owner-Map Dry Run"));
+assert(focusedMarkdown.includes("Post-cleanup rebaseline: post_cleanup_evidence_pending"));
 assert(focusedMarkdown.includes("No owner backfill SQL is emitted."));
 assert(focusedMarkdown.includes("asset_owner_type"));
 assert(focusedMarkdown.includes("image_list_read"));

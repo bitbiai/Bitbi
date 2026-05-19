@@ -1,8 +1,8 @@
 # AI Folders / Images Owner-Map Dry Run
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current dry-run/evidence baseline for `ai_folders` and `ai_images`. This file is not a phase log and does not approve backfill or access switching.
 
@@ -30,13 +30,15 @@ Dry-run planning uses these classes:
 
 Organization ownership requires explicit row-level evidence. UI active organization context, folder membership, or R2 key shape is not enough.
 
-## Current Evidence Decision
+## Post-Cleanup Evidence Decision
 
 Main owner-map evidence exists at `docs/tenant-assets/evidence/2026-05-17-main-folders-images-owner-map-evidence.md`.
 
-Current decision: `needs_manual_review`.
+Post-cleanup status: `post_cleanup_evidence_pending`.
 
-Key evidence counts:
+The operator manually deleted most old images and videos after that evidence was captured. The decision and counts are now historical retained evidence only, classified as `superseded_by_manual_media_cleanup` for current transition decisions. Use `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` before proposing Backfill, Access-Switch, Reset, or manual-review cleanup.
+
+Superseded key evidence counts:
 
 - Folders scanned: 16
 - Images scanned: 63
@@ -48,7 +50,7 @@ Key evidence counts:
 
 ## Current Blockers
 
-- Existing rows are not fully classified.
+- Existing current rows are not fully classified by fresh post-cleanup evidence.
 - Manual-review evidence still has idempotency gaps.
 - Public/gallery rows require explicit review.
 - Derivative/R2 ownership cannot be inferred from key shape alone.

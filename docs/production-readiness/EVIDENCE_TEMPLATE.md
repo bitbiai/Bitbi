@@ -195,6 +195,14 @@ This template records current evidence only. It does not approve production read
 
 ## Tenant Asset Evidence
 
+- Post-cleanup rebaseline decision path:
+- Post-cleanup rebaseline status: pending/collected/rejected
+- Pre-cleanup evidence classified stale/superseded by manual media cleanup: yes/no
+- Fresh domain evidence path:
+- Fresh ownership backfill dry-run evidence path:
+- Fresh Access-Switch shadow diagnostics evidence path:
+- Fresh legacy reset status/evidence path:
+- Fresh manual-review backlog/status evidence path:
 - Owner-map decision reviewed:
 - Manual-review evidence decision:
 - Manual-review idempotency gaps:

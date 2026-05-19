@@ -151,6 +151,18 @@ function classifyEvidence(relativePath, content, unsafeMarkers) {
   const lowerPath = relativePath.toLowerCase();
   const text = String(content || "").toLowerCase();
   if (unsafeMarkers.length > 0) return "rejected/unsafe";
+  if (
+    lowerPath.includes("post_cleanup_tenant_asset_evidence_rebaseline") ||
+    lowerPath.includes("2026-05-19-post-cleanup-rebaseline/")
+  ) {
+    return "pending";
+  }
+  if (
+    /^post-cleanup status:\s*`?superseded_by_manual_media_cleanup`?/m.test(text) ||
+    /^p2-01 note:.*no longer current after manual media cleanup/m.test(text)
+  ) {
+    return "stale/superseded";
+  }
   if (lowerPath.includes("/archive/") || lowerPath.includes("historical") || lowerPath.includes("retired")) return "historical";
   if (lowerPath.includes("template") || text.includes("operator to fill") || text.includes("evidence template")) return "template";
   if (/\baccepted\b|\bpass\b|evidence collected:\s*\*\*true\*\*/i.test(content)) return "accepted";

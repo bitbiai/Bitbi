@@ -10,6 +10,10 @@ Source evidence:
 
 - `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`
 
+Post-cleanup status: `superseded_by_manual_media_cleanup`
+
+P2-01 note: the operator manually deleted most old images and videos after this dry-run summary was recorded. The candidate counts in this document are retained as historical pre-cleanup context only and must not be treated as current reset evidence.
+
 ## Summary
 
 Phase 6.25 found real operator-provided live/main legacy media reset executor dry-run evidence. The evidence records a dry-run request and response for `POST /api/admin/tenant-assets/legacy-media-reset/execute`.

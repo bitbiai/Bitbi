@@ -1,8 +1,8 @@
 # Tenant Asset Evidence Index
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current evidence index for tenant asset ownership, manual review, and legacy media reset decisions. Evidence files are preserved; active current-state summaries should not duplicate full phase history.
 
@@ -10,17 +10,20 @@ Purpose: current evidence index for tenant asset ownership, manual review, and l
 
 | File | Current status | Notes |
 | --- | --- | --- |
-| `MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` | `needs_manual_review` | Main folder/image owner-map evidence requires manual review; access switch and backfill remain blocked. |
-| `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md` | `operator_evidence_collected_needs_more_idempotency`; idempotency completion `operator_evidence_pending_manual_review_idempotency_completion` | Import/queue/status evidence exists, but import replay, import conflict, successful standalone status-update, status replay, and status conflict evidence remain incomplete. |
-| `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` | `legacy_media_reset_dry_run_rejected_unsafe`; sanitized evidence `pending_sanitized_evidence_required` | The reset dry-run decision references prior live evidence with a raw idempotency key; the raw JSON is not present in the current checkout, no sanitized replacement is present, and confirmed reset remains blocked. |
+| `POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` | `post_cleanup_evidence_pending` | Current control file after manual media cleanup. Live authenticated read-only evidence is required before old counts can be used for Backfill, Access-Switch, or Reset decisions. |
+| `MAIN_FOLDERS_IMAGES_OWNER_MAP_DECISION.md` | `stale/superseded_by_manual_media_cleanup`; previous decision `needs_manual_review` retained | Old folder/image counts are historical after manual media deletion; access switch and backfill remain blocked until fresh evidence is collected. |
+| `MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_DECISION.md` | `stale/superseded_by_manual_media_cleanup`; previous idempotency status retained as historical | Import/queue/status evidence may reference removed assets; collect a fresh queue/status export before using counts. |
+| `LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` | `stale/superseded_by_manual_media_cleanup`; sanitized evidence still `pending_sanitized_evidence_required` | Prior reset counts are stale and the evidence was already rejected unsafe. Confirmed reset remains blocked. |
 
 ## Current Authoritative Evidence Summaries
 
 | File | Purpose |
 | --- | --- |
-| `2026-05-17-main-folders-images-owner-map-evidence.md` | Main folder/image owner-map evidence summary. |
-| `2026-05-17-manual-review-status-operator-evidence-summary.md` | Manual-review import/status operator evidence summary. |
-| `2026-05-18-legacy-media-reset-dry-run-closure-summary.md` | Legacy media reset dry-run closure summary and unsafe-evidence decision. |
+| `2026-05-17-main-folders-images-owner-map-evidence.md` | Historical pre-cleanup main folder/image owner-map evidence summary; counts are stale after manual media cleanup. |
+| `2026-05-17-manual-review-status-operator-evidence-summary.md` | Historical pre-cleanup manual-review import/status operator evidence summary; counts may reference removed assets. |
+| `2026-05-18-legacy-media-reset-dry-run-closure-summary.md` | Historical pre-cleanup legacy media reset dry-run closure summary and unsafe-evidence decision; counts are stale and evidence remains rejected unsafe. |
+| `2026-05-19-post-cleanup-rebaseline/README.md` | Pending post-cleanup evidence packet and operator command list. |
+| `2026-05-19-post-cleanup-rebaseline/pending-evidence-manifest.json` | Machine-readable pending evidence manifest. |
 
 ## Raw Or Operator-Provided Evidence
 
@@ -35,10 +38,10 @@ Purpose: current evidence index for tenant asset ownership, manual review, and l
 
 ## Current Evidence Facts
 
-- Owner-map evidence exists and shows folder/image legacy ownership remains unsafe for access-switch/backfill.
-- Manual-review tables and workflows exist; operator evidence is partially complete.
+- Owner-map evidence exists but old folder/image counts are stale after manual cleanup. Fresh authenticated read-only evidence is required.
+- Manual-review tables and workflows exist; old operator evidence is partially complete but may reference removed assets.
 - Manual-review idempotency completion is pending; use `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_RUNBOOK.md` and `docs/tenant-assets/MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE_TEMPLATE.md` before any backfill/access-switch readiness claim.
-- Legacy media reset dry-run evidence was reviewed in the decision docs, but the raw JSON is not present in the current checkout, no sanitized replacement is present, and the evidence is rejected unsafe; the reset dry-run topic is not closed.
+- Legacy media reset dry-run evidence was reviewed in the decision docs, but the raw JSON is not present in the current checkout, no sanitized replacement is present, the old counts are stale after cleanup, and the evidence is rejected unsafe; the reset dry-run topic is not closed.
 - Confirmed legacy media reset/deletion has not been approved or performed.
 - Tenant isolation, access-switch readiness, ownership backfill readiness, and production readiness remain unclaimed.
 

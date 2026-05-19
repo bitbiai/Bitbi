@@ -30,6 +30,17 @@ const NEXT_WORK_MANUAL_REVIEW_IDEMPOTENCY_EVIDENCE =
 const FOLDERS_IMAGES_OWNERSHIP_MIGRATION =
   "workers/auth/migrations/0056_add_ai_folder_image_ownership_metadata.sql";
 
+const POST_CLEANUP_REBASELINE = Object.freeze({
+  status: "post_cleanup_evidence_pending",
+  manualMediaCleanupReported: true,
+  oldCountsSuperseded: true,
+  liveEvidenceRequired: true,
+  currentEvidenceDecision: "docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md",
+  currentEvidencePacket: "docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/",
+  decisionMatrix: "docs/tenant-assets/POST_CLEANUP_TENANT_ISOLATION_DECISION_MATRIX.md",
+  operatorAction: "collect fresh authenticated read-only/admin evidence before Backfill, Access-Switch, Reset, or manual-review decisions",
+});
+
 export const FOLDERS_IMAGES_OWNER_MAP_CLASSES = Object.freeze([
   "personal_user_asset",
   "organization_asset",
@@ -1839,6 +1850,7 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
     mutationMode: "dry_run_only",
     productionReadiness: "blocked",
     tenantIsolationReadiness: "blocked",
+    postCleanupRebaseline: POST_CLEANUP_REBASELINE,
     budgetScope: "not_applicable",
     ownerMapClasses: FOLDERS_IMAGES_OWNER_MAP_CLASSES,
     readDiagnosticClasses: TENANT_ASSET_READ_DIAGNOSTIC_CLASSIFICATIONS,
@@ -2625,6 +2637,7 @@ export function buildTenantAssetOwnershipDryRunReport(repoRoot = process.cwd(), 
     mutationMode: "dry_run_only",
     productionReadiness: "blocked",
     tenantIsolationReadiness: "blocked",
+    postCleanupRebaseline: POST_CLEANUP_REBASELINE,
     ownerClasses: TENANT_ASSET_OWNER_CLASSES,
     summary: {
       assetDomainCount: assetDomains.length,
@@ -2676,6 +2689,7 @@ export function renderTenantAssetOwnershipMarkdown(report) {
     `Source: ${report.source}`,
     `Mutation mode: ${report.mutationMode}`,
     `Tenant isolation readiness: ${report.tenantIsolationReadiness}`,
+    `Post-cleanup rebaseline: ${report.postCleanupRebaseline?.status || "not_reported"}`,
     "",
     "## Summary",
     "",
@@ -2709,6 +2723,7 @@ export function renderFoldersImagesOwnerMapMarkdown(report) {
     `Source: ${report.source}`,
     `Mutation mode: ${report.mutationMode}`,
     `Tenant isolation readiness: ${report.tenantIsolationReadiness}`,
+    `Post-cleanup rebaseline: ${report.postCleanupRebaseline?.status || "not_reported"}`,
     "",
     "## Summary",
     "",
