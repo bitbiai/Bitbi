@@ -507,6 +507,11 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
   }),
+  adminRead("admin.data-lifecycle.requests.evidence", "/api/admin/data-lifecycle/requests/:id/evidence", "privacy", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
+    notes: "Read-only admin data lifecycle evidence packet. Returns bounded JSON/Markdown/HTML summaries for legal/storage documentation and never renders raw R2 keys, raw idempotency keys, request hashes, cookies, auth headers, tokens, Stripe payloads, or secret values.",
+  }),
   adminJsonWrite("admin.data-lifecycle.requests.plan", "POST", "/api/admin/data-lifecycle/requests/:id/plan", "privacy", "smallJson", "admin-data-lifecycle-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "data_lifecycle_request_planned" },

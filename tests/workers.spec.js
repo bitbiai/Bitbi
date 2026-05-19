@@ -40399,6 +40399,154 @@ test.describe('Worker routes', () => {
     expect(approveBlockedRes.status).toBe(409);
   });
 
+  test('admin data lifecycle request evidence packets are admin-only, printable, and redacted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-evidence-admin');
+    const subject = createContractUser({ id: 'lifecycle-evidence-subject', role: 'user', email: 'evidence@example.com' });
+    const other = createContractUser({ id: 'lifecycle-evidence-other', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [admin, subject, other],
+      profiles: [{
+        user_id: subject.id,
+        display_name: 'Evidence Subject',
+        bio: 'private bio',
+        website: '',
+        youtube_url: '',
+        has_avatar: 1,
+        avatar_updated_at: '2026-04-20T10:00:00.000Z',
+        created_at: '2026-04-20T09:00:00.000Z',
+        updated_at: '2026-04-20T10:00:00.000Z',
+      }],
+      aiImages: [{
+        id: 'evidence-img',
+        user_id: subject.id,
+        folder_id: null,
+        r2_key: 'users/lifecycle-evidence-subject/folders/unsorted/evidence-img.png',
+        thumb_key: 'users/lifecycle-evidence-subject/derivatives/v1/evidence-img/thumb.webp',
+        medium_key: 'users/lifecycle-evidence-subject/derivatives/v1/evidence-img/medium.webp',
+        prompt: 'prompt must stay out of packet previews',
+        model: '@cf/test-model',
+        steps: 4,
+        seed: 3,
+        created_at: '2026-04-20T12:00:00.000Z',
+      }],
+      passwordResetTokens: [{
+        id: 'evidence-reset-token',
+        user_id: subject.id,
+        token_hash: 'evidence-reset-token-hash-must-not-return',
+        expires_at: '2026-05-20T10:00:00.000Z',
+        used_at: null,
+        created_at: '2026-04-20T10:00:00.000Z',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const otherToken = await seedSession(env, other.id);
+
+    const createRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'delete',
+        subjectUserId: subject.id,
+        reason: 'Evidence packet test',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-evidence-create-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createRes.status).toBe(201);
+    const createBody = await createRes.json();
+
+    const planRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/plan`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-evidence-plan-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(planRes.status).toBe(200);
+
+    const nonAdminRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/evidence`, 'GET', undefined, {
+        Cookie: `bitbi_session=${otherToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdminRes.status).toBe(403);
+
+    const jsonRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/evidence?format=json`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(jsonRes.status).toBe(200);
+    expect(jsonRes.headers.get('cache-control')).toBe('no-store');
+    expect(jsonRes.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(jsonRes.headers.get('content-type')).toContain('application/json');
+    const jsonBody = await jsonRes.json();
+    expect(jsonBody.evidence).toMatchObject({
+      request: {
+        id: createBody.request.id,
+        type: 'delete',
+        status: 'planned',
+        dryRun: true,
+        subjectUserId: subject.id,
+      },
+      lifecycleState: {
+        approvalRequired: true,
+      },
+      redaction: {
+        privateR2KeysRendered: false,
+        rawIdempotencyKeysRendered: false,
+        rawRequestHashesRendered: false,
+      },
+    });
+    expect(jsonBody.evidence.availableActions.exportEvidence.formats).toEqual(['json', 'markdown', 'html']);
+    expect(jsonBody.evidence.planSummary.recordsToDeleteOrExpire).toBeGreaterThan(0);
+    const serialized = JSON.stringify(jsonBody);
+    expect(serialized).not.toContain('users/lifecycle-evidence-subject/folders/unsorted/evidence-img.png');
+    expect(serialized).not.toContain('derivatives/v1/evidence-img');
+    expect(serialized).not.toContain('evidence-reset-token-hash-must-not-return');
+    expect(serialized).not.toContain('token_hash');
+    expect(serialized).not.toContain('request_hash');
+    expect(serialized).not.toContain('dl-evidence-create-1');
+    expect(serialized).not.toContain('prompt must stay out');
+
+    const markdownRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/evidence?format=markdown`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(markdownRes.status).toBe(200);
+    expect(markdownRes.headers.get('content-type')).toContain('text/markdown');
+    const markdownBody = await markdownRes.text();
+    expect(markdownBody).toContain('BITBI Data Lifecycle Evidence Packet');
+    expect(markdownBody).toContain('No legal completion claim');
+    expect(markdownBody).not.toContain('users/lifecycle-evidence-subject');
+
+    const htmlRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/evidence?format=html`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(htmlRes.status).toBe(200);
+    expect(htmlRes.headers.get('content-type')).toContain('text/html');
+    const htmlBody = await htmlRes.text();
+    expect(htmlBody).toContain('Save as PDF');
+    expect(htmlBody).toContain('not legal advice');
+    expect(htmlBody).not.toContain('users/lifecycle-evidence-subject');
+  });
+
   test('admin data lifecycle APIs enforce admin, CSRF, idempotency, and fail-closed limiter behavior', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('lifecycle-security-admin');

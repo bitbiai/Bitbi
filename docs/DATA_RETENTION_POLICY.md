@@ -37,6 +37,8 @@ Purpose: current engineering retention baseline. This is not legal approval and 
 - No ownership backfill or access-switching through retention policy.
 - No billing/credit refunds through media reset.
 - Admin data lifecycle approval, export generation, expired archive cleanup, and non-dry-run safe execution require `Idempotency-Key`; high-risk approval/export/cleanup and `execute-safe` with `dryRun:false` also require explicit `confirm=true`.
+- Admin Data Lifecycle requests have a review overlay in the Admin Control Plane. It exposes request details, redacted subject/request metadata, plan generation, approval, safe execution where backend policy allows, disabled unsupported completion/close controls, and sanitized JSON/Markdown/HTML evidence exports for PDF-friendly browser storage.
+- Lifecycle evidence exports document current workflow state only. They are not legal advice, do not claim full legal/GDPR completion unless status/evidence says completed, and do not render raw private R2 keys, raw idempotency keys, request hashes, cookies, auth headers, tokens, Stripe/provider payloads, or secrets.
 - Data export/archive evidence should expose private storage references only as redacted categories, hashes, counts, or archive metadata, not raw private R2 keys.
 - Operator Timeline archive visibility is metadata-only. It reports retention policy/count posture from D1 where available and must not list or delete live R2 objects.
 

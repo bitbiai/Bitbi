@@ -762,6 +762,81 @@ export function apiAdminDataLifecycleRequests({ limit } = {}) {
     return request('GET', `/admin/data-lifecycle/requests${qs}`);
 }
 
+export function apiAdminDataLifecycleRequest(requestId) {
+    return request('GET', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}`);
+}
+
+export function apiAdminDataLifecycleGeneratePlan(requestId, { idempotencyKey } = {}) {
+    return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/plan`, {}, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('data-lifecycle-plan') },
+    });
+}
+
+export function apiAdminDataLifecycleApprove(requestId, { reason, idempotencyKey } = {}) {
+    return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/approve`, {
+        confirm: true,
+        reason: reason || 'Admin approved data lifecycle request from detail overlay.',
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('data-lifecycle-approve') },
+    });
+}
+
+export function apiAdminDataLifecycleExecuteSafe(requestId, { dryRun = true, idempotencyKey } = {}) {
+    const body = { dryRun: dryRun !== false };
+    if (dryRun === false) body.confirm = true;
+    return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/execute-safe`, body, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('data-lifecycle-execute-safe') },
+    });
+}
+
+export function apiAdminDataLifecycleGenerateExport(requestId, { idempotencyKey } = {}) {
+    return request('POST', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/generate-export`, {
+        confirm: true,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('data-lifecycle-export') },
+    });
+}
+
+export function apiAdminDataLifecycleRequestExport(requestId) {
+    return request('GET', `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/export`);
+}
+
+export async function apiAdminDataLifecycleRequestEvidence(requestId, { format = 'json' } = {}, options = {}) {
+    const params = new URLSearchParams();
+    params.set('format', format || 'json');
+    const exportPath = `/admin/data-lifecycle/requests/${encodeURIComponent(requestId)}/evidence`;
+    try {
+        const res = await fetch(BASE + exportPath + '?' + params, {
+            method: 'GET',
+            credentials: 'include',
+            headers: options.headers || {},
+        });
+        const text = await res.text();
+        if (res.ok) {
+            let data = null;
+            if ((res.headers.get('content-type') || '').includes('application/json')) {
+                try { data = JSON.parse(text); } catch { data = null; }
+            }
+            return {
+                ok: true,
+                text,
+                data,
+                status: res.status,
+                contentType: res.headers.get('content-type') || '',
+                filename: res.headers.get('content-disposition') || '',
+            };
+        }
+        let data = null;
+        try { data = JSON.parse(text); } catch { data = null; }
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
+}
+
 export function apiAdminDataLifecycleArchives({ limit, cursor } = {}) {
     const params = new URLSearchParams();
     if (limit) params.set('limit', String(limit));

@@ -1690,6 +1690,12 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.tenantAssetDomainEvidenceRequests = captures.tenantAssetDomainEvidenceRequests || [];
   captures.legacyResetDryRunExportRequests = captures.legacyResetDryRunExportRequests || [];
   captures.tenantReviewStatusUpdateRequests = captures.tenantReviewStatusUpdateRequests || [];
+  captures.lifecyclePlanRequests = captures.lifecyclePlanRequests || [];
+  captures.lifecycleApproveRequests = captures.lifecycleApproveRequests || [];
+  captures.lifecycleExecuteSafeRequests = captures.lifecycleExecuteSafeRequests || [];
+  captures.lifecycleGenerateExportRequests = captures.lifecycleGenerateExportRequests || [];
+  captures.lifecycleRequestExportRequests = captures.lifecycleRequestExportRequests || [];
+  captures.lifecycleEvidenceRequests = captures.lifecycleEvidenceRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -3731,20 +3737,189 @@ async function mockAdminControlPlane(page, captures = {}) {
     });
   });
 
+  const lifecycleRequests = captures.lifecycleRequests || [
+    {
+      id: 'dlr_control_delete',
+      type: 'delete',
+      status: 'submitted',
+      subjectUserId: 'user_member',
+      dryRun: true,
+      reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+      requestedByAdminId: 'admin_control',
+      approvalRequired: true,
+      createdAt: '2026-04-22T09:00:00.000Z',
+      updatedAt: '2026-04-22T09:00:00.000Z',
+      expiresAt: '2026-05-22T09:00:00.000Z',
+    },
+    {
+      id: 'dlr_control_1',
+      type: 'export',
+      status: 'archive_generated',
+      subjectUserId: 'user_member',
+      dryRun: true,
+      reason: 'Support export request',
+      requestedByAdminId: 'admin_control',
+      approvalRequired: true,
+      createdAt: '2026-04-22T09:10:00.000Z',
+      updatedAt: '2026-04-22T09:10:00.000Z',
+      expiresAt: '2026-05-22T09:10:00.000Z',
+    },
+  ];
+  const lifecycleItemsByRequest = {
+    dlr_control_delete: [],
+    dlr_control_1: [{
+      id: 'dli_control_export_0001',
+      resourceType: 'user',
+      resourceId: 'user_member',
+      tableName: 'users',
+      action: 'export',
+      status: 'planned',
+      summary: { email: 'member@example.com', role: 'user', status: 'active' },
+    }],
+  };
+  function lifecycleDetailPayload(requestId) {
+    const request = lifecycleRequests.find((entry) => entry.id === requestId);
+    return request ? { ok: true, request, items: lifecycleItemsByRequest[requestId] || [] } : null;
+  }
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/evidence(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    const requestId = decodeURIComponent(url.pathname.split('/').at(-2) || '');
+    const format = url.searchParams.get('format') || 'json';
+    captures.lifecycleEvidenceRequests.push({ requestId, format });
+    if (format === 'html') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>Data Lifecycle Evidence Packet</title><p>PDF-friendly storage: use browser print or Save as PDF.</p>',
+      });
+      return;
+    }
+    if (format === 'markdown') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/markdown',
+        body: '# BITBI Data Lifecycle Evidence Packet\n\nNo legal completion claim.\n',
+      });
+      return;
+    }
+    await fulfillJson(route, {
+      ok: true,
+      evidence: {
+        title: 'BITBI Data Lifecycle Evidence Packet',
+        request: { id: requestId, status: lifecycleRequests.find((entry) => entry.id === requestId)?.status || 'submitted' },
+        planSummary: { itemCount: (lifecycleItemsByRequest[requestId] || []).length },
+        redaction: { privateR2KeysRendered: false },
+      },
+    });
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/plan$/, async (route) => {
+    const request = route.request();
+    const requestId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    captures.lifecyclePlanRequests.push({ requestId, idempotencyKey: request.headers()['idempotency-key'] });
+    const row = lifecycleRequests.find((entry) => entry.id === requestId);
+    if (row) {
+      row.status = 'planned';
+      row.updatedAt = '2026-04-22T09:20:00.000Z';
+      lifecycleItemsByRequest[requestId] = [
+        {
+          id: 'dli_control_delete_0001',
+          resourceType: 'user',
+          resourceId: 'user_member',
+          tableName: 'users',
+          action: 'anonymize',
+          status: 'planned',
+          summary: { email: 'member@example.com', role: 'user', status: 'active' },
+        },
+        {
+          id: 'dli_control_delete_0002',
+          resourceType: 'session',
+          tableName: 'sessions',
+          action: 'revoke',
+          status: 'planned',
+          summary: { count: 1 },
+        },
+        {
+          id: 'dli_control_delete_0003',
+          resourceType: 'admin_audit_log',
+          tableName: 'admin_audit_log',
+          action: 'retain_or_anonymize',
+          status: 'planned',
+          summary: { count: 1 },
+        },
+      ];
+      await fulfillJson(route, { ok: true, request: row, items: lifecycleItemsByRequest[requestId] });
+      return;
+    }
+    await fulfillJson(route, { ok: false, code: 'request_not_found' }, 404);
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/approve$/, async (route) => {
+    const request = route.request();
+    const requestId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    captures.lifecycleApproveRequests.push({
+      requestId,
+      idempotencyKey: request.headers()['idempotency-key'],
+      body: request.postDataJSON(),
+    });
+    const row = lifecycleRequests.find((entry) => entry.id === requestId);
+    if (row) {
+      row.status = 'approved';
+      row.approvedAt = '2026-04-22T09:25:00.000Z';
+      row.updatedAt = '2026-04-22T09:25:00.000Z';
+      await fulfillJson(route, { ok: true, request: row });
+      return;
+    }
+    await fulfillJson(route, { ok: false, code: 'request_not_found' }, 404);
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/execute-safe$/, async (route) => {
+    const request = route.request();
+    const requestId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    const body = request.postDataJSON();
+    captures.lifecycleExecuteSafeRequests.push({
+      requestId,
+      idempotencyKey: request.headers()['idempotency-key'],
+      body,
+    });
+    const row = lifecycleRequests.find((entry) => entry.id === requestId);
+    if (row && body.dryRun === false) {
+      row.status = 'safe_actions_completed';
+      row.updatedAt = '2026-04-22T09:30:00.000Z';
+    }
+    await fulfillJson(route, {
+      ok: true,
+      request: row,
+      dryRun: body.dryRun !== false,
+      destructiveActionsDisabled: true,
+      actions: [{ tableName: 'sessions', action: 'revoke', status: body.dryRun === false ? 'completed' : 'would_execute' }],
+    });
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/generate-export$/, async (route) => {
+    const request = route.request();
+    const requestId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) || '');
+    captures.lifecycleGenerateExportRequests.push({
+      requestId,
+      idempotencyKey: request.headers()['idempotency-key'],
+      body: request.postDataJSON(),
+    });
+    await fulfillJson(route, { ok: true, archive: { id: 'dla_control_1', requestId, status: 'ready' } }, 201);
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+\/export$/, async (route) => {
+    const requestId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) || '');
+    captures.lifecycleRequestExportRequests.push({ requestId });
+    await fulfillJson(route, { ok: true, archive: { id: 'dla_control_1', requestId, status: 'ready' } });
+  });
+  await page.route(/\/api\/admin\/data-lifecycle\/requests\/[^/]+$/, async (route) => {
+    const requestId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() || '');
+    const detail = lifecycleDetailPayload(requestId);
+    if (!detail) {
+      await fulfillJson(route, { ok: false, code: 'request_not_found' }, 404);
+      return;
+    }
+    await fulfillJson(route, detail);
+  });
   await page.route('**/api/admin/data-lifecycle/requests?*', async (route) => {
     await fulfillJson(route, {
       ok: true,
-      requests: [
-        {
-          id: 'dlr_control_1',
-          type: 'export',
-          status: 'archive_generated',
-          subjectUserId: 'user_member',
-          dryRun: true,
-          createdAt: '2026-04-22T09:00:00.000Z',
-          expiresAt: '2026-05-22T09:00:00.000Z',
-        },
-      ],
+      requests: lifecycleRequests,
     });
   });
   await page.route('**/api/admin/data-lifecycle/exports?*', async (route) => {
@@ -10306,6 +10481,81 @@ test.describe('Admin Control Plane', () => {
     expect(renderedText).not.toContain('idempotencyKeyHash');
     expect(renderedText).not.toContain('requestFingerprintHash');
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('Data Lifecycle request detail overlay supports guarded workflow actions and evidence export', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#lifecycle');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionLifecycle')).toBeVisible();
+
+    const deleteRow = page.locator('#lifecycleRequests tr', { hasText: 'delete' }).first();
+    await expect(deleteRow).toContainText('submitted');
+    await deleteRow.getByRole('button', { name: 'Open' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Data Lifecycle Request Detail' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Subject / Target Snapshot');
+    await expect(dialog).toContainText('Current Lifecycle State');
+    await expect(dialog).toContainText('Generate Plan');
+    await expect(dialog).toContainText('Approval');
+    await expect(dialog).toContainText('Execute Safe');
+    await expect(dialog).toContainText('Mark Completed / Evidence');
+    await expect(dialog).toContainText('Reject / Close');
+    await expect(dialog).toContainText('Export Evidence');
+    await expect(dialog).toContainText('no legal completion claim');
+    await expect(dialog.getByRole('button', { name: 'Mark Completed / Evidence' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Reject / Close' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Execute Safe', exact: true })).toBeDisabled();
+
+    await dialog.getByRole('button', { name: 'Generate Plan' }).click();
+    await expect.poll(() => captures.lifecyclePlanRequests.length).toBe(1);
+    await expect(dialog).toContainText('Retained policy categories');
+    await expect(dialog).toContainText('admin_audit_log');
+    await expect(dialog.getByRole('button', { name: 'Approve' })).toBeEnabled();
+
+    await dialog.getByRole('button', { name: 'Approve' }).click();
+    await expect(dialog.locator('.admin-state')).toContainText('Approval acknowledgement is required.');
+    await dialog.getByLabel(/approval does not complete legal\/GDPR erasure/i).check();
+    await dialog.getByPlaceholder('Approval note / review reason').fill('Reviewed plan for static lifecycle overlay test');
+    await dialog.getByRole('button', { name: 'Approve' }).click();
+    await expect.poll(() => captures.lifecycleApproveRequests.length).toBe(1);
+    expect(captures.lifecycleApproveRequests[0].body).toMatchObject({
+      confirm: true,
+      reason: 'Reviewed plan for static lifecycle overlay test',
+    });
+    expect(captures.lifecycleApproveRequests[0].idempotencyKey).toMatch(/^data-lifecycle-approve-/);
+
+    await dialog.getByRole('button', { name: 'Execute Safe Dry-run' }).click();
+    await expect.poll(() => captures.lifecycleExecuteSafeRequests.length).toBe(1);
+    expect(captures.lifecycleExecuteSafeRequests[0].body).toMatchObject({ dryRun: true });
+    await dialog.getByLabel(/safe execution is limited/i).check();
+    await dialog.getByRole('button', { name: 'Execute Safe', exact: true }).click();
+    await expect.poll(() => captures.lifecycleExecuteSafeRequests.length).toBe(2);
+    expect(captures.lifecycleExecuteSafeRequests[1].body).toMatchObject({ dryRun: false, confirm: true });
+    expect(captures.lifecycleExecuteSafeRequests[1].idempotencyKey).toMatch(/^data-lifecycle-execute-safe-/);
+
+    const jsonDownload = page.waitForEvent('download', { timeout: 3000 }).catch(() => null);
+    await dialog.getByRole('button', { name: 'Export Evidence JSON' }).click();
+    await expect.poll(() => captures.lifecycleEvidenceRequests.some((entry) => entry.format === 'json')).toBe(true);
+    const downloadedJson = await jsonDownload;
+    if (downloadedJson) {
+      await downloadedJson.cancel();
+    }
+
+    await dialog.getByRole('button', { name: 'Export Evidence Markdown' }).click();
+    await expect.poll(() => captures.lifecycleEvidenceRequests.some((entry) => entry.format === 'markdown')).toBe(true);
+    await dialog.getByRole('button', { name: 'Open PDF-friendly HTML' }).click();
+    await expect.poll(() => captures.lifecycleEvidenceRequests.some((entry) => entry.format === 'html')).toBe(true);
+
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator('a[href*="/de/admin"]')).toHaveCount(0);
   });
 
   test('budget control aliases expose operator panels and keyboard help without replacing grouped nav', async ({

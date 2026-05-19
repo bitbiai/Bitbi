@@ -850,6 +850,7 @@
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
       "POST /api/admin/data-lifecycle/requests/:id/execute-safe",
+      "GET /api/admin/data-lifecycle/requests/:id/evidence",
       "GET /api/admin/data-lifecycle/requests/:id/export",
       "GET /api/admin/data-lifecycle/exports/:id"
     ],

@@ -32,6 +32,13 @@ import {
     apiAdminBillingReviews,
     apiAdminResolveBillingReview,
     apiAdminDataLifecycleArchives,
+    apiAdminDataLifecycleApprove,
+    apiAdminDataLifecycleExecuteSafe,
+    apiAdminDataLifecycleGenerateExport,
+    apiAdminDataLifecycleGeneratePlan,
+    apiAdminDataLifecycleRequest,
+    apiAdminDataLifecycleRequestEvidence,
+    apiAdminDataLifecycleRequestExport,
     apiAdminDataLifecycleRequests,
     apiAdminGrantOrganizationCredits,
     apiAdminGrantUserCredits,
@@ -734,6 +741,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     let selectedTenantReviewItemId = '';
     let billingReviewResolutionSubmitting = false;
     let tenantReviewStatusSubmitting = false;
+    let lifecycleDetailOverlay = null;
 
     function notify(message, type = 'success') {
         if (typeof showToast === 'function') showToast(message, type);
@@ -2559,6 +2567,493 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         await Promise.all([loadLifecycleRequests(), loadLifecycleArchives()]);
     }
 
+    function lifecycleRequestId(request) {
+        return request?.id || request?.requestId || request?.request_id || '';
+    }
+
+    function lifecycleItems(detail) {
+        return Array.isArray(detail?.items) ? detail.items : [];
+    }
+
+    function lifecyclePlanSummary(detail) {
+        const items = lifecycleItems(detail);
+        const byAction = {};
+        const byStatus = {};
+        const retained = new Set();
+        for (const item of items) {
+            byAction[item.action || 'unknown'] = (byAction[item.action || 'unknown'] || 0) + 1;
+            byStatus[item.status || 'unknown'] = (byStatus[item.status || 'unknown'] || 0) + 1;
+            if (['retain', 'retain_or_anonymize', 'retain_or_rekey', 'export_reference'].includes(item.action)) {
+                retained.add(item.tableName || item.resourceType || 'unknown');
+            }
+        }
+        return {
+            count: items.length,
+            byAction,
+            byStatus,
+            retainedCategories: Array.from(retained).sort(),
+            blockedCount: items.filter((item) => item.status === 'blocked').length,
+            safeActionCount: items.filter((item) => (
+                (item.tableName === 'sessions' && item.action === 'revoke') ||
+                (['password_reset_tokens', 'email_verification_tokens', 'siwe_challenges'].includes(item.tableName) && item.action === 'expire_or_delete') ||
+                (item.resourceType === 'data_export_archive' && item.action === 'expire')
+            )).length,
+        };
+    }
+
+    function lifecycleActionState(request, detail) {
+        const status = request?.status || '';
+        const summary = lifecyclePlanSummary(detail);
+        const hasPlan = summary.count > 0;
+        const planned = status === 'planned';
+        const approved = status === 'approved';
+        const safeCompleted = status === 'safe_actions_completed';
+        const exportRequest = request?.type === 'export';
+        return {
+            canPlan: ['submitted', 'planned', 'blocked'].includes(status),
+            canApprove: planned && hasPlan && summary.blockedCount === 0,
+            approveDisabledReason: planned
+                ? (hasPlan ? (summary.blockedCount ? 'Blocked plan items require manual review before approval.' : '') : 'Generate a plan before approval.')
+                : 'Request must be planned before approval.',
+            canExecuteDryRun: approved || safeCompleted,
+            canExecuteSafe: approved,
+            executeDisabledReason: approved || safeCompleted ? '' : 'Request must be approved before safe execution.',
+            canGeneratePrivateArchive: exportRequest && approved,
+            archiveDisabledReason: exportRequest ? 'Export request must be approved before archive generation.' : 'Private archives are only available for export requests.',
+            canMarkCompleted: false,
+            markCompletedReason: 'Manual completion/evidence status is not represented by the current lifecycle schema.',
+            canRejectClose: false,
+            rejectCloseReason: 'Rejected/closed lifecycle statuses are not represented by the current lifecycle schema.',
+        };
+    }
+
+    function formatLifecycleError(res, fallback) {
+        const parts = [apiUnavailableMessage(res, fallback)];
+        if (res?.code) parts.push(`Code: ${res.code}`);
+        if (res?.status) parts.push(`Status: ${res.status}`);
+        return parts.join(' ');
+    }
+
+    function lifecyclePanel(title, copy) {
+        const panel = el('section', 'admin-lifecycle-detail__panel');
+        panel.appendChild(el('h4', 'admin-lifecycle-detail__panel-title', title));
+        if (copy) panel.appendChild(el('p', 'admin-shell__desc', copy));
+        return panel;
+    }
+
+    function addActionButton(rowNode, label, { disabled, reason, onClick, secondary = false } = {}) {
+        const button = el('button', secondary ? 'btn-action btn-action--secondary' : 'btn-action', label);
+        button.type = 'button';
+        button.disabled = Boolean(disabled);
+        if (reason) button.title = reason;
+        if (typeof onClick === 'function') button.addEventListener('click', onClick);
+        rowNode.appendChild(button);
+        if (disabled && reason) rowNode.appendChild(el('span', 'admin-shell__desc', reason));
+        return button;
+    }
+
+    function renderLifecyclePlan(panel, detail) {
+        const items = lifecycleItems(detail);
+        const summary = lifecyclePlanSummary(detail);
+        panel.appendChild(detailRows([
+            ['Plan items', summary.count],
+            ['Blocked items', summary.blockedCount],
+            ['Safe executable actions', summary.safeActionCount],
+            ['Actions', renderJsonSummary(summary.byAction)],
+            ['Statuses', renderJsonSummary(summary.byStatus)],
+            ['Retained policy categories', summary.retainedCategories.join(', ') || 'Not reported'],
+        ]));
+        if (!items.length) {
+            panel.appendChild(el('p', 'admin-shell__desc', 'No plan items exist yet. Generate a plan before approval or safe execution.'));
+            return;
+        }
+        const { wrap, tbody } = table(['Resource', 'Table', 'Action', 'Status', 'Storage']);
+        for (const item of items.slice(0, 12)) {
+            const tr = document.createElement('tr');
+            addCell(tr, item.resourceType || '-');
+            addCell(tr, item.tableName || '-');
+            addCell(tr, item.action || '-');
+            addCell(tr, badge(item.status || '-', variantFor(item.status)));
+            addCell(tr, item.storageReference?.keyClass ? `${item.r2Bucket || item.storageReference.bucket || 'storage'} / ${item.storageReference.keyClass}` : '-');
+            tbody.appendChild(tr);
+        }
+        panel.appendChild(wrap);
+        if (items.length > 12) panel.appendChild(el('p', 'admin-shell__desc', `Showing 12 of ${items.length} redacted plan items.`));
+    }
+
+    function closeLifecycleDetailOverlay() {
+        if (!lifecycleDetailOverlay) return;
+        document.removeEventListener('keydown', lifecycleDetailOverlay.onKeydown, true);
+        lifecycleDetailOverlay.modal.remove();
+        const opener = lifecycleDetailOverlay.opener;
+        lifecycleDetailOverlay = null;
+        if (opener && typeof opener.focus === 'function') opener.focus();
+    }
+
+    function trapLifecycleOverlayFocus(event) {
+        if (event.key !== 'Tab' || !lifecycleDetailOverlay?.modal) return;
+        const focusable = Array.from(lifecycleDetailOverlay.modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+            .filter((node) => !node.disabled && node.offsetParent !== null);
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }
+
+    async function refreshLifecycleDetail(requestId, bodyNode) {
+        clear(bodyNode);
+        bodyNode.appendChild(el('p', 'admin-state', 'Loading lifecycle request detail...'));
+        const res = await apiAdminDataLifecycleRequest(requestId);
+        clear(bodyNode);
+        if (!res.ok) {
+            const box = el('div', 'admin-alert admin-alert--danger');
+            box.appendChild(el('strong', null, 'Lifecycle request detail failed.'));
+            box.appendChild(el('p', null, formatLifecycleError(res, 'Request detail unavailable.')));
+            bodyNode.appendChild(box);
+            return null;
+        }
+        renderLifecycleDetailBody(requestId, res.data, bodyNode);
+        return res.data;
+    }
+
+    async function runLifecycleAction({ requestId, button, bodyNode, stateNode, action, call, successMessage }) {
+        setSubmitting(button, true);
+        stateNode.textContent = `${action}...`;
+        stateNode.dataset.state = 'neutral';
+        try {
+            const res = await call();
+            if (!res.ok) {
+                stateNode.textContent = formatLifecycleError(res, `${action} failed.`);
+                stateNode.dataset.state = 'error';
+                notify(`${action} failed.`, 'error');
+                return;
+            }
+            stateNode.textContent = successMessage;
+            stateNode.dataset.state = 'success';
+            notify(successMessage, 'success');
+            await refreshLifecycleDetail(requestId, bodyNode);
+            await loadLifecycleRequests();
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    async function exportLifecycleEvidence(requestId, format, button, stateNode) {
+        setSubmitting(button, true);
+        stateNode.textContent = `Preparing ${format} evidence packet...`;
+        stateNode.dataset.state = 'neutral';
+        try {
+            const res = await apiAdminDataLifecycleRequestEvidence(requestId, { format });
+            if (!res.ok) {
+                stateNode.textContent = formatLifecycleError(res, 'Evidence export failed.');
+                stateNode.dataset.state = 'error';
+                notify('Evidence export failed.', 'error');
+                return;
+            }
+            const extension = format === 'markdown' ? 'md' : format;
+            const contentType = res.contentType || (format === 'html' ? 'text/html' : format === 'markdown' ? 'text/markdown' : 'application/json');
+            if (format === 'html' && typeof window.open === 'function' && typeof Blob !== 'undefined' && window.URL?.createObjectURL) {
+                const blob = new Blob([res.text || ''], { type: contentType });
+                const url = window.URL.createObjectURL(blob);
+                const popup = window.open(url, '_blank', 'noopener');
+                window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+                if (popup) {
+                    stateNode.textContent = 'PDF-friendly evidence HTML opened. Use browser print or Save as PDF.';
+                    stateNode.dataset.state = 'success';
+                    return;
+                }
+            }
+            downloadTextFile(`data-lifecycle-${requestId}-evidence.${extension}`, res.text || '', contentType);
+            stateNode.textContent = 'Evidence packet downloaded. No lifecycle execution occurred.';
+            stateNode.dataset.state = 'success';
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    function renderLifecycleDetailBody(requestId, detail, bodyNode) {
+        const request = detail?.request || {};
+        const actions = lifecycleActionState(request, detail);
+        const stateNode = el('p', 'admin-state', 'Ready. Actions remain guarded by backend confirmation, idempotency, approval, and safe execution policy.');
+
+        const header = el('div', 'admin-lifecycle-detail__summary');
+        header.appendChild(detailRows([
+            ['Request ID', request.id || requestId],
+            ['Type', request.type || '-'],
+            ['Status', badge(request.status || '-', variantFor(request.status))],
+            ['Dry-run', request.dryRun ? 'Yes' : 'No'],
+            ['Subject user', shortId(request.subjectUserId)],
+            ['Created', formatDate(request.createdAt)],
+            ['Expires', formatDate(request.expiresAt)],
+            ['Approval required', request.approvalRequired ? 'Yes' : 'No'],
+        ]));
+        const badges = el('div', 'admin-control-chip-row');
+        badges.append(
+            badge('approval required', request.approvalRequired ? 'legacy' : 'user'),
+            badge('evidence required', 'legacy'),
+            badge(request.dryRun ? 'dry-run planning' : 'execution state', request.dryRun ? 'user' : 'legacy'),
+            badge('no legal completion claim', 'disabled'),
+        );
+        header.appendChild(badges);
+        bodyNode.append(header, stateNode);
+
+        const grid = el('div', 'admin-lifecycle-detail__grid');
+
+        const subjectPanel = lifecyclePanel('Subject / Target Snapshot', 'Only safe request metadata and redacted plan summaries are shown.');
+        const userItem = lifecycleItems(detail).find((item) => item.resourceType === 'user');
+        subjectPanel.appendChild(detailRows([
+            ['User ID', request.subjectUserId || '-'],
+            ['Email snapshot', userItem?.summary?.email || 'Not available until plan captures a safe user item.'],
+            ['Role/status snapshot', [userItem?.summary?.role, userItem?.summary?.status].filter(Boolean).join(' / ') || 'Not available'],
+            ['Request source', request.reason?.includes('admin_delete_user_modal') ? 'Admin delete user modal' : 'Lifecycle request'],
+            ['Admin actor', request.requestedByAdminId ? shortId(request.requestedByAdminId) : 'Not reported'],
+            ['Reason', request.reason || 'Not recorded'],
+            ['Privacy caveat', 'Billing, audit, provider, and legal records may be retained or anonymized according to policy.'],
+        ]));
+        grid.appendChild(subjectPanel);
+
+        const statePanel = lifecyclePanel('Current Lifecycle State', 'This panel reflects request state; it does not claim legal completion.');
+        statePanel.appendChild(detailRows([
+            ['Submitted/planned/approved state', request.status || '-'],
+            ['Approved', request.approvedAt ? `Yes (${formatDate(request.approvedAt)})` : 'No'],
+            ['Execution state', request.status === 'safe_actions_completed' ? 'Safe actions completed' : 'Not completed'],
+            ['Evidence state', request.status === 'safe_actions_completed' ? 'Evidence available; legal completion still requires review.' : 'Evidence pending / partial.'],
+            ['Retention caveat', 'Do not delete billing ledger, Stripe/provider evidence, audit logs, or legal records from this overlay.'],
+        ]));
+        grid.appendChild(statePanel);
+
+        const planPanel = lifecyclePanel('Plan', 'Generate or inspect the redacted lifecycle plan. Raw private keys and secrets are not rendered.');
+        renderLifecyclePlan(planPanel, detail);
+        const planActions = el('div', 'admin-control-chip-row');
+        addActionButton(planActions, 'Generate Plan', {
+            disabled: !actions.canPlan,
+            reason: actions.canPlan ? '' : 'Plan generation is no longer available for this state.',
+            onClick: (event) => runLifecycleAction({
+                requestId,
+                button: event.currentTarget,
+                bodyNode,
+                stateNode,
+                action: 'Generate Plan',
+                call: () => apiAdminDataLifecycleGeneratePlan(requestId),
+                successMessage: 'Plan generated or refreshed.',
+            }),
+        });
+        planPanel.appendChild(planActions);
+        grid.appendChild(planPanel);
+
+        const approvePanel = lifecyclePanel('Approval', 'Approval moves a planned request into approved state. It is not legal completion and does not execute erasure.');
+        const approveCheckId = `lifecycle-approve-${requestId}`;
+        const approveLabel = el('label', 'admin-form__check');
+        const approveCheck = document.createElement('input');
+        approveCheck.type = 'checkbox';
+        approveCheck.id = approveCheckId;
+        approveLabel.append(approveCheck, document.createTextNode(' I understand approval does not complete legal/GDPR erasure.'));
+        const approveReason = document.createElement('textarea');
+        approveReason.className = 'admin-input';
+        approveReason.rows = 2;
+        approveReason.placeholder = 'Approval note / review reason';
+        const approveActions = el('div', 'admin-control-chip-row');
+        const approveButton = addActionButton(approveActions, 'Approve', {
+            disabled: !actions.canApprove,
+            reason: actions.canApprove ? '' : actions.approveDisabledReason,
+            onClick: (event) => {
+                if (!approveCheck.checked) {
+                    stateNode.textContent = 'Approval acknowledgement is required.';
+                    stateNode.dataset.state = 'error';
+                    return;
+                }
+                runLifecycleAction({
+                    requestId,
+                    button: event.currentTarget,
+                    bodyNode,
+                    stateNode,
+                    action: 'Approve',
+                    call: () => apiAdminDataLifecycleApprove(requestId, { reason: approveReason.value.trim() }),
+                    successMessage: 'Lifecycle request approved.',
+                });
+            },
+        });
+        approvePanel.append(approveLabel, approveReason, approveActions);
+        if (!actions.canApprove) approveButton.disabled = true;
+        grid.appendChild(approvePanel);
+
+        const executePanel = lifecyclePanel('Execute Safe', 'Safe execution is backend-gated. Destructive modes are blocked; dry-run is available after approval.');
+        executePanel.appendChild(detailRows([
+            ['Dry-run default', 'Yes'],
+            ['Non-dry-run requirements', 'Approved plan, Idempotency-Key, confirm=true, and backend safe-action policy.'],
+            ['Retained records', 'Billing, audit, legal, and provider evidence are retained/anonymized under policy.'],
+        ]));
+        const executeCheck = document.createElement('input');
+        executeCheck.type = 'checkbox';
+        const executeLabel = el('label', 'admin-form__check');
+        executeLabel.append(executeCheck, document.createTextNode(' I understand safe execution is limited and does not perform full legal erasure.'));
+        const executeActions = el('div', 'admin-control-chip-row');
+        addActionButton(executeActions, 'Execute Safe Dry-run', {
+            disabled: !actions.canExecuteDryRun,
+            reason: actions.executeDisabledReason,
+            secondary: true,
+            onClick: (event) => runLifecycleAction({
+                requestId,
+                button: event.currentTarget,
+                bodyNode,
+                stateNode,
+                action: 'Execute Safe Dry-run',
+                call: () => apiAdminDataLifecycleExecuteSafe(requestId, { dryRun: true }),
+                successMessage: 'Safe execution dry-run completed.',
+            }),
+        });
+        addActionButton(executeActions, 'Execute Safe', {
+            disabled: !actions.canExecuteSafe,
+            reason: actions.executeDisabledReason,
+            onClick: (event) => {
+                if (!executeCheck.checked) {
+                    stateNode.textContent = 'Safe execution acknowledgement is required.';
+                    stateNode.dataset.state = 'error';
+                    return;
+                }
+                runLifecycleAction({
+                    requestId,
+                    button: event.currentTarget,
+                    bodyNode,
+                    stateNode,
+                    action: 'Execute Safe',
+                    call: () => apiAdminDataLifecycleExecuteSafe(requestId, { dryRun: false }),
+                    successMessage: 'Safe lifecycle actions executed.',
+                });
+            },
+        });
+        executePanel.append(executeLabel, executeActions);
+        grid.appendChild(executePanel);
+
+        const completionPanel = lifecyclePanel('Completion / Evidence', 'Manual completion is intentionally not faked by this UI.');
+        completionPanel.appendChild(detailRows([
+            ['Mark Completed / Evidence', actions.markCompletedReason],
+            ['Current evidence', request.status === 'safe_actions_completed' ? 'Safe action evidence available for export.' : 'Pending or partial.'],
+            ['Audit trail', 'Use Admin Activity plus evidence export; raw logs are not rendered here.'],
+        ]));
+        const completionActions = el('div', 'admin-control-chip-row');
+        addActionButton(completionActions, 'Mark Completed / Evidence', {
+            disabled: true,
+            reason: actions.markCompletedReason,
+        });
+        completionPanel.appendChild(completionActions);
+        grid.appendChild(completionPanel);
+
+        const closePanel = lifecyclePanel('Reject / Close', 'Close/reject is shown for operator clarity but not enabled without schema support.');
+        closePanel.appendChild(detailRows([
+            ['Reject / Close', actions.rejectCloseReason],
+            ['Data mutation', 'No data deletion is performed by this disabled action.'],
+        ]));
+        const closeActions = el('div', 'admin-control-chip-row');
+        addActionButton(closeActions, 'Reject / Close', {
+            disabled: true,
+            reason: actions.rejectCloseReason,
+            secondary: true,
+        });
+        closePanel.appendChild(closeActions);
+        grid.appendChild(closePanel);
+
+        const exportPanel = lifecyclePanel('Export Evidence', 'Exports are sanitized JSON, Markdown, or printable HTML. Use browser Save as PDF for PDF-friendly storage.');
+        const exportActions = el('div', 'admin-control-chip-row');
+        addActionButton(exportActions, 'Export Evidence JSON', {
+            secondary: true,
+            onClick: (event) => exportLifecycleEvidence(requestId, 'json', event.currentTarget, stateNode),
+        });
+        addActionButton(exportActions, 'Export Evidence Markdown', {
+            secondary: true,
+            onClick: (event) => exportLifecycleEvidence(requestId, 'markdown', event.currentTarget, stateNode),
+        });
+        addActionButton(exportActions, 'Open PDF-friendly HTML', {
+            secondary: true,
+            onClick: (event) => exportLifecycleEvidence(requestId, 'html', event.currentTarget, stateNode),
+        });
+        if (request.type === 'export') {
+            addActionButton(exportActions, 'Generate Private Archive', {
+                disabled: !actions.canGeneratePrivateArchive,
+                reason: actions.archiveDisabledReason,
+                onClick: (event) => runLifecycleAction({
+                    requestId,
+                    button: event.currentTarget,
+                    bodyNode,
+                    stateNode,
+                    action: 'Generate Private Archive',
+                    call: () => apiAdminDataLifecycleGenerateExport(requestId),
+                    successMessage: 'Private export archive generated.',
+                }),
+            });
+            addActionButton(exportActions, 'Open Archive Metadata', {
+                secondary: true,
+                onClick: async (event) => {
+                    await runLifecycleAction({
+                        requestId,
+                        button: event.currentTarget,
+                        bodyNode,
+                        stateNode,
+                        action: 'Open Archive Metadata',
+                        call: () => apiAdminDataLifecycleRequestExport(requestId),
+                        successMessage: 'Archive metadata checked.',
+                    });
+                },
+            });
+        }
+        exportPanel.appendChild(exportActions);
+        exportPanel.appendChild(el('p', 'admin-shell__desc', 'Evidence packets include request state, plan summary, approval/execution state, retained categories, pending actions, generated timestamp, and redaction guarantees. They are not legal advice.'));
+        grid.appendChild(exportPanel);
+
+        const timelinePanel = lifecyclePanel('Timeline / Audit', 'Detailed immutable audit is available in Admin Activity; this overlay shows current lifecycle timestamps only.');
+        timelinePanel.appendChild(detailRows([
+            ['Created', formatDate(request.createdAt)],
+            ['Updated', formatDate(request.updatedAt)],
+            ['Approved', formatDate(request.approvedAt)],
+            ['Completed', formatDate(request.completedAt)],
+            ['Expires', formatDate(request.expiresAt)],
+            ['Audit caveat', 'Raw request hashes, idempotency keys, cookies, auth headers, and private R2 keys are never rendered.'],
+        ]));
+        grid.appendChild(timelinePanel);
+
+        bodyNode.appendChild(grid);
+    }
+
+    function openLifecycleDetailOverlay(requestId, opener) {
+        closeLifecycleDetailOverlay();
+        const modal = el('div', 'admin-lifecycle-modal');
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'adminLifecycleDetailTitle');
+        const backdrop = el('div', 'admin-lifecycle-modal__backdrop');
+        const dialog = el('div', 'admin-lifecycle-detail glass glass-card');
+        const header = el('div', 'admin-lifecycle-detail__header');
+        const title = el('h3', 'admin-section-title', 'Data Lifecycle Request Detail');
+        title.id = 'adminLifecycleDetailTitle';
+        const closeButton = el('button', 'btn-action btn-action--secondary', 'Close');
+        closeButton.type = 'button';
+        closeButton.addEventListener('click', closeLifecycleDetailOverlay);
+        header.append(title, closeButton);
+        const body = el('div', 'admin-lifecycle-detail__body');
+        dialog.append(header, body);
+        modal.append(backdrop, dialog);
+        backdrop.addEventListener('click', closeLifecycleDetailOverlay);
+        const onKeydown = (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeLifecycleDetailOverlay();
+                return;
+            }
+            trapLifecycleOverlayFocus(event);
+        };
+        lifecycleDetailOverlay = { modal, opener, onKeydown };
+        document.body.appendChild(modal);
+        document.addEventListener('keydown', onKeydown, true);
+        closeButton.focus();
+        refreshLifecycleDetail(requestId, body);
+    }
+
     async function loadLifecycleRequests() {
         const holder = byId('lifecycleRequests');
         setState('lifecycleRequestsState', 'Loading requests...');
@@ -2575,7 +3070,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             return;
         }
         setState('lifecycleRequestsState', `Showing ${requests.length} requests.`);
-        const { wrap, tbody } = table(['Type', 'Status', 'Subject', 'Dry-run', 'Created', 'Expires']);
+        const { wrap, tbody } = table(['Type', 'Status', 'Subject', 'Dry-run', 'Created', 'Expires', 'Review']);
         for (const request of requests) {
             const tr = document.createElement('tr');
             addCell(tr, request.type || '-');
@@ -2584,6 +3079,13 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             addCell(tr, request.dryRun ?? request.dry_run ? 'Yes' : 'No');
             addCell(tr, formatDate(request.createdAt || request.created_at));
             addCell(tr, formatDate(request.expiresAt || request.expires_at));
+            const requestId = lifecycleRequestId(request);
+            const actions = el('div', 'admin-control-chip-row');
+            const openButton = el('button', 'btn-action btn-action--secondary', 'Open');
+            openButton.type = 'button';
+            openButton.addEventListener('click', (event) => openLifecycleDetailOverlay(requestId, event.currentTarget));
+            actions.appendChild(openButton);
+            addCell(tr, actions);
             tbody.appendChild(tr);
         }
         holder.appendChild(wrap);
