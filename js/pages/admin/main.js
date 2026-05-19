@@ -178,6 +178,7 @@ const ADMIN_MFA_GATE_CODES = new Set([
 ]);
 let adminBootstrapped = false;
 let pendingAdminPanelTarget = null;
+let currentAdminUser = null;
 
 function resolveSectionRoute(name) {
     const routeName = name || 'dashboard';
@@ -492,13 +493,28 @@ function createBadge(text, variant) {
     return span;
 }
 
-function createActionBtn(label, onClick, danger) {
+function createActionBtn(label, onClick, danger, options = {}) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn-action' + (danger ? ' btn-action--danger' : '');
     btn.textContent = label;
+    if (options.title) btn.title = options.title;
+    if (options.disabled) {
+        btn.disabled = true;
+        btn.setAttribute('aria-disabled', 'true');
+    }
     btn.addEventListener('click', onClick);
     return btn;
+}
+
+function formatApiError(res, fallback = 'Request failed.') {
+    const message = res?.error || res?.data?.error || fallback;
+    const code = res?.code || res?.data?.code || null;
+    const status = res?.status || res?.data?.status || null;
+    const details = [];
+    if (code) details.push(`code: ${code}`);
+    if (status) details.push(`status: ${status}`);
+    return details.length ? `${message} (${details.join(', ')})` : message;
 }
 
 async function copyText(text, successMessage = 'Copied.') {
@@ -1333,10 +1349,17 @@ function buildMobileCard(user) {
         () => handleRevokeSessions(user.id),
     ));
 
+    const isSelf = currentAdminUser?.id && user.id === currentAdminUser.id;
     actions.appendChild(createActionBtn(
-        'Delete',
-        () => handleDeleteUser(user.id, user.email),
+        isSelf ? 'Self-delete blocked' : 'Delete',
+        (event) => handleDeleteUser(user, event),
         true,
+        {
+            disabled: isSelf,
+            title: isSelf
+                ? 'The currently signed-in admin account cannot delete itself.'
+                : 'Delete this user with explicit confirmation.',
+        },
     ));
 
     content.appendChild(meta);
@@ -2196,8 +2219,19 @@ function renderUsers(users) {
         );
 
         // Delete
+        const isSelf = currentAdminUser?.id && user.id === currentAdminUser.id;
         actionsWrap.appendChild(
-            createActionBtn('Delete', () => handleDeleteUser(user.id, user.email), true),
+            createActionBtn(
+                isSelf ? 'Self-delete blocked' : 'Delete',
+                (event) => handleDeleteUser(user, event),
+                true,
+                {
+                    disabled: isSelf,
+                    title: isSelf
+                        ? 'The currently signed-in admin account cannot delete itself.'
+                        : 'Delete this user with explicit confirmation.',
+                },
+            ),
         );
 
         tdActions.appendChild(actionsWrap);
@@ -2316,15 +2350,55 @@ async function handleRevokeSessions(userId) {
     }
 }
 
-async function handleDeleteUser(userId, email) {
-    if (!confirm(`Permanently delete user "${email}"?`)) return;
+async function handleDeleteUser(user, event) {
+    const userId = user?.id;
+    const email = user?.email || '(no email)';
+    if (!userId) {
+        showToast('Cannot delete user: missing user ID.', 'error');
+        return;
+    }
+    if (currentAdminUser?.id && userId === currentAdminUser.id) {
+        showToast('You cannot delete the currently signed-in admin account.', 'error');
+        return;
+    }
+
+    const role = user?.role || 'unknown';
+    const status = user?.status || 'unknown';
+    const confirmMessage = [
+        'Permanently delete this user?',
+        '',
+        `Email: ${email}`,
+        `User ID: ${userId}`,
+        `Role/status: ${role} / ${status}`,
+        '',
+        'This removes the operational account, active sessions, auth tokens, profile, avatar reference, and user-owned AI assets/folders through the guarded deletion lifecycle.',
+        'Audit, billing, legal, and retention-governed records may remain or be anonymized under the data retention policy.',
+        '',
+        'This is not full legal/GDPR erasure. Continue only after confirming the target is correct.',
+    ].join('\n');
+    if (!confirm(confirmMessage)) return;
+
+    const confirmationTarget = user?.email || userId;
+    const typed = prompt(`Type ${confirmationTarget} to confirm permanent deletion of user ${userId}.`);
+    if (typed !== confirmationTarget) {
+        showToast('User deletion cancelled: confirmation text did not match the target user.', 'error');
+        return;
+    }
+
+    const button = event?.currentTarget;
+    if (button) button.disabled = true;
     const res = await apiAdminDeleteUser(userId);
     if (res.ok) {
         statsCache = null;
-        showToast(res.data?.message || 'User deleted', 'success');
+        const scope = res.data?.deletionScope;
+        const scopeText = scope
+            ? ' Account, sessions, tokens, profile, and user-owned operational assets were handled; retention-governed records may remain.'
+            : '';
+        showToast(res.data?.message || `User deleted.${scopeText}`, 'success');
         loadUsers($searchInput.value.trim());
     } else {
-        showToast(res.error, 'error');
+        if (button) button.disabled = false;
+        showToast(formatApiError(res, 'Failed to delete user.'), 'error');
     }
 }
 
@@ -2442,6 +2516,7 @@ async function init() {
         return;
     }
 
+    currentAdminUser = me.data?.user || me.data?.admin || null;
     bootstrapAdminPanel();
 }
 

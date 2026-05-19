@@ -10817,6 +10817,178 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#userCreditModal')).toContainText('No member credit transactions yet.');
   });
 
+  test('Admin Users delete requires visible confirmation, sends explicit body, and removes the row', async ({
+    page,
+  }) => {
+    const adminUsers = [
+      {
+        id: 'user_member',
+        email: 'member@example.com',
+        role: 'user',
+        status: 'active',
+        created_at: '2026-04-18T11:05:00.000Z',
+        updated_at: '2026-04-18T11:05:00.000Z',
+      },
+      {
+        id: 'user_empty',
+        email: 'empty@example.com',
+        role: 'user',
+        status: 'active',
+        created_at: '2026-04-19T11:05:00.000Z',
+        updated_at: '2026-04-19T11:05:00.000Z',
+      },
+    ];
+    const captures = { adminUsers, userDeleteRequests: [] };
+    await mockAdminControlPlane(page, captures);
+    await page.route('**/api/admin/users/user_member', async (route) => {
+      const request = route.request();
+      captures.userDeleteRequests.push({
+        method: request.method(),
+        contentType: request.headers()['content-type'] || '',
+        body: request.postData() ? request.postDataJSON() : null,
+      });
+      adminUsers.splice(adminUsers.findIndex((user) => user.id === 'user_member'), 1);
+      await fulfillJson(route, {
+        ok: true,
+        deletedUserId: 'user_member',
+        deletionScope: {
+          accountDeleted: true,
+          sessionsDeleted: true,
+          tokensDeleted: true,
+          profileDeleted: true,
+          aiAssetsDeleted: { images: 0, textAssets: 0, folders: 0, cleanupObjectsQueued: 0 },
+          avatarCleanup: 'best_effort_completed',
+          retainedRecords: ['admin_audit_log', 'billing_ledger_and_provider_evidence_if_present'],
+        },
+      });
+    });
+
+    await page.goto('/admin/index.html#users');
+    await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
+    const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
+    const dialogs = [];
+    page.on('dialog', async (dialog) => {
+      dialogs.push({ type: dialog.type(), message: dialog.message() });
+      if (dialog.type() === 'prompt') {
+        await dialog.accept('member@example.com');
+      } else {
+        await dialog.accept();
+      }
+    });
+
+    await memberRow.getByRole('button', { name: 'Delete' }).click();
+    await expect.poll(() => captures.userDeleteRequests.length).toBe(1);
+
+    expect(dialogs).toHaveLength(2);
+    expect(dialogs[0].type).toBe('confirm');
+    expect(dialogs[0].message).toContain('Email: member@example.com');
+    expect(dialogs[0].message).toContain('User ID: user_member');
+    expect(dialogs[0].message).toContain('Role/status: user / active');
+    expect(dialogs[0].message).toContain('retention policy');
+    expect(dialogs[1].type).toBe('prompt');
+    expect(dialogs[1].message).toContain('Type member@example.com');
+    expect(captures.userDeleteRequests[0]).toEqual(expect.objectContaining({
+      method: 'DELETE',
+      contentType: expect.stringContaining('application/json'),
+      body: {
+        confirm: true,
+        confirmation: 'delete_user',
+      },
+    }));
+    await expect(page.locator('#userTbody tr', { hasText: 'member@example.com' })).toHaveCount(0);
+    await expect(page.locator('.admin-toast__item').last()).toContainText('User deleted');
+  });
+
+  test('Admin Users delete displays backend confirmation-required code and status', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, {});
+    await page.route('**/api/admin/users/user_member', async (route) => {
+      await fulfillJson(route, {
+        ok: false,
+        error: 'Explicit confirmation is required before permanently deleting a user.',
+        code: 'admin_delete_user_confirmation_required',
+        required: { confirm: true, confirmation: 'delete_user' },
+      }, 409);
+    });
+
+    await page.goto('/admin/index.html#users');
+    await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
+    page.on('dialog', async (dialog) => {
+      if (dialog.type() === 'prompt') {
+        await dialog.accept('member@example.com');
+      } else {
+        await dialog.accept();
+      }
+    });
+    await page.locator('#userTbody tr', { hasText: 'member@example.com' }).getByRole('button', { name: 'Delete' }).click();
+    const toast = page.locator('.admin-toast__item').last();
+    await expect(toast).toContainText('Explicit confirmation is required before permanently deleting a user.');
+    await expect(toast).toContainText('code: admin_delete_user_confirmation_required');
+    await expect(toast).toContainText('status: 409');
+  });
+
+  test('Admin Users delete displays backend lifecycle failure code and keeps the row', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, {});
+    await page.route('**/api/admin/users/user_member', async (route) => {
+      await fulfillJson(route, {
+        ok: false,
+        error: 'Failed to delete user-owned operational assets safely.',
+        code: 'admin_delete_user_lifecycle_failed',
+      }, 500);
+    });
+
+    await page.goto('/admin/index.html#users');
+    await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
+    page.on('dialog', async (dialog) => {
+      if (dialog.type() === 'prompt') {
+        await dialog.accept('member@example.com');
+      } else {
+        await dialog.accept();
+      }
+    });
+    const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
+    await memberRow.getByRole('button', { name: 'Delete' }).click();
+    const toast = page.locator('.admin-toast__item').last();
+    await expect(toast).toContainText('Failed to delete user-owned operational assets safely.');
+    await expect(toast).toContainText('code: admin_delete_user_lifecycle_failed');
+    await expect(toast).toContainText('status: 500');
+    await expect(memberRow).toHaveCount(1);
+  });
+
+  test('Admin Users disables self-delete for the signed-in admin account', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, {
+      adminUsers: [
+        {
+          id: 'admin-1',
+          email: 'admin@bitbi.ai',
+          role: 'admin',
+          status: 'active',
+          created_at: '2026-04-18T11:05:00.000Z',
+          updated_at: '2026-04-18T11:05:00.000Z',
+        },
+        {
+          id: 'user_member',
+          email: 'member@example.com',
+          role: 'user',
+          status: 'active',
+          created_at: '2026-04-19T11:05:00.000Z',
+          updated_at: '2026-04-19T11:05:00.000Z',
+        },
+      ],
+    });
+
+    await page.goto('/admin/index.html#users');
+    await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
+    const adminRow = page.locator('#userTbody tr', { hasText: 'admin@bitbi.ai' });
+    await expect(adminRow.getByRole('button', { name: 'Self-delete blocked' })).toBeDisabled();
+    await expect(page.locator('#userTbody tr', { hasText: 'member@example.com' }).getByRole('button', { name: 'Delete' })).toBeEnabled();
+  });
+
   test('Admin Users usage overlay shows unlimited storage for selected admin users', async ({
     page,
   }) => {

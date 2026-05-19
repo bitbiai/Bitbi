@@ -29378,10 +29378,104 @@ test.describe('Worker routes', () => {
           updated_at: '2026-04-01T00:00:00.000Z',
         },
       ],
+      sessions: [
+        {
+          id: 'target-session-delete',
+          user_id: 'user-plain',
+          token_hash: 'target-session-delete-hash',
+          created_at: '2026-04-01T00:00:00.000Z',
+          expires_at: '2026-06-01T00:00:00.000Z',
+          last_seen_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
+      emailVerificationTokens: [
+        {
+          id: 'verify-delete',
+          user_id: 'user-plain',
+          token_hash: 'verify-delete-hash',
+          expires_at: '2026-06-01T00:00:00.000Z',
+          created_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
+      passwordResetTokens: [
+        {
+          id: 'reset-delete',
+          user_id: 'user-plain',
+          token_hash: 'reset-delete-hash',
+          expires_at: '2026-06-01T00:00:00.000Z',
+          created_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
     });
 
     const adminToken = await seedSession(env, 'admin-1');
+    const memberToken = await seedSession(env, 'user-plain');
     const exec = createExecutionContext();
+    const unauthenticatedRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-plain', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.11',
+      }),
+      env,
+      exec.execCtx
+    );
+    expect(unauthenticatedRes.status).toBe(401);
+
+    const nonAdminRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/admin-1', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberToken}`,
+        'CF-Connecting-IP': '203.0.113.11',
+      }),
+      env,
+      exec.execCtx
+    );
+    expect(nonAdminRes.status).toBe(403);
+
+    const selfDeleteRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/admin-1', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.11',
+      }),
+      env,
+      exec.execCtx
+    );
+    expect(selfDeleteRes.status).toBe(400);
+    await expect(selfDeleteRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'You cannot delete your own account.',
+    });
+
+    const noBodyConfirmRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-plain', 'DELETE', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.11',
+      }),
+      env,
+      exec.execCtx
+    );
+    expect(noBodyConfirmRes.status).toBe(409);
+    await expect(noBodyConfirmRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Explicit confirmation is required before permanently deleting a user.',
+      code: 'admin_delete_user_confirmation_required',
+      required: {
+        confirm: true,
+        confirmation: 'delete_user',
+      },
+    });
+
     const missingConfirmRes = await authWorker.fetch(
       authJsonRequest('/api/admin/users/user-plain', 'DELETE', {}, {
         Origin: 'https://bitbi.ai',
@@ -29399,6 +29493,28 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.users.some((user) => user.id === 'user-plain')).toBe(true);
     expect(env.DB.state.adminAuditLog).toHaveLength(0);
 
+    const wrongConfirmRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-plain', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_member',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.11',
+      }),
+      env,
+      exec.execCtx
+    );
+    expect(wrongConfirmRes.status).toBe(409);
+    await expect(wrongConfirmRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'admin_delete_user_confirmation_required',
+      required: {
+        confirm: true,
+        confirmation: 'delete_user',
+      },
+    });
+
     const res = await authWorker.fetch(
       authJsonRequest('/api/admin/users/user-plain', 'DELETE', {
         confirm: true,
@@ -29414,11 +29530,28 @@ test.describe('Worker routes', () => {
     await exec.flush();
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({
+    const body = await res.json();
+    expect(body).toMatchObject({
       ok: true,
       deletedUserId: 'user-plain',
+      deletionScope: {
+        accountDeleted: true,
+        sessionsDeleted: true,
+        tokensDeleted: true,
+        profileDeleted: true,
+        avatarCleanup: 'best_effort_completed',
+        retainedRecords: expect.arrayContaining([
+          'admin_audit_log',
+          'billing_ledger_and_provider_evidence_if_present',
+        ]),
+      },
     });
+    expect(JSON.stringify(body)).not.toContain('avatars/user-plain');
     expect(env.DB.state.users.some((user) => user.id === 'user-plain')).toBe(false);
+    expect(env.DB.state.sessions.some((row) => row.user_id === 'user-plain')).toBe(false);
+    expect(env.DB.state.emailVerificationTokens.some((row) => row.user_id === 'user-plain')).toBe(false);
+    expect(env.DB.state.passwordResetTokens.some((row) => row.user_id === 'user-plain')).toBe(false);
+    expect(env.DB.state.profiles.some((row) => row.user_id === 'user-plain')).toBe(false);
     await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog).toHaveLength(1);
     expect(env.DB.state.adminAuditLog[0].action).toBe('delete_user');
@@ -40576,6 +40709,7 @@ test.describe('Worker routes', () => {
         'avatars/feedface': {
           body: new Uint8Array([4, 5]).buffer,
           httpMetadata: { contentType: 'image/png' },
+          failDelete: true,
         },
       },
     });
@@ -40597,10 +40731,26 @@ test.describe('Worker routes', () => {
     await exec.flush();
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({
+    const body = await res.json();
+    expect(body).toMatchObject({
       ok: true,
       deletedUserId: 'feedface',
+      deletionScope: {
+        accountDeleted: true,
+        sessionsDeleted: true,
+        tokensDeleted: true,
+        profileDeleted: true,
+        aiAssetsDeleted: {
+          images: 1,
+          textAssets: 1,
+          folders: 1,
+          cleanupObjectsQueued: 3,
+        },
+        avatarCleanup: 'best_effort_failed',
+      },
     });
+    expect(JSON.stringify(body)).not.toContain('users/feedface/');
+    expect(JSON.stringify(body)).not.toContain('avatars/feedface');
     expect(env.DB.state.users.some((row) => row.id === 'feedface')).toBe(false);
     expect(env.DB.state.profiles.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.favorites.some((row) => row.user_id === 'feedface')).toBe(false);
@@ -40617,7 +40767,7 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.objects.has('users/feedface/folders/projects/ab12cd34.png')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/feedface/folders/projects/aa55bb66.txt')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/feedface/derivatives/v1/aa55bb66/poster.webp')).toBe(true);
-    expect(env.PRIVATE_MEDIA.objects.has('avatars/feedface')).toBe(false);
+    expect(env.PRIVATE_MEDIA.objects.has('avatars/feedface')).toBe(true);
     await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog.at(-1).action).toBe('delete_user');
   });

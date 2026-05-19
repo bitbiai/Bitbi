@@ -65,8 +65,19 @@ const MAX_ADMIN_ACTIVITY_LIMIT = 100;
 const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0058_add_legacy_media_reset_actions.sql";
 const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
 
-function adminMutationConfirmationResponse(code, message) {
-  return json({ ok: false, error: message, code }, { status: 409 });
+function adminMutationConfirmationResponse(code, message, confirmation) {
+  return json(
+    {
+      ok: false,
+      error: message,
+      code,
+      required: {
+        confirm: true,
+        confirmation,
+      },
+    },
+    { status: 409 }
+  );
 }
 
 function buildAdminReadinessStatus(env) {
@@ -329,7 +340,7 @@ function requireAdminMutationConfirmation(body, {
   message,
 }) {
   if (body?.confirm !== true || body?.confirmation !== confirmation) {
-    return adminMutationConfirmationResponse(code, message);
+    return adminMutationConfirmationResponse(code, message, confirmation);
   }
   return null;
 }
@@ -1044,7 +1055,10 @@ export async function handleAdmin(ctx) {
       );
     }
 
-    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+      requiredContentType: false,
+    });
     if (parsed.response) return parsed.response;
     const confirmation = requireAdminMutationConfirmation(parsed.body, {
       confirmation: "delete_user",
@@ -1067,8 +1081,9 @@ export async function handleAdmin(ctx) {
     }
 
     const now = nowIso();
+    let aiDeletionSummary = null;
     try {
-      await deleteAllUserAiAssets({
+      aiDeletionSummary = await deleteAllUserAiAssets({
         env,
         userId: targetUserId,
         createdAt: now,
@@ -1085,15 +1100,22 @@ export async function handleAdmin(ctx) {
         throw error;
       }
       return json(
-        { ok: false, error: error.message },
+        {
+          ok: false,
+          error: error.message,
+          code: "admin_delete_user_lifecycle_failed",
+          branch: error.branch || "lifecycle_delete_failed",
+        },
         { status: error.status }
       );
     }
 
     // Avatar cleanup is best-effort because the destructive DB work already committed.
+    let avatarCleanup = "best_effort_completed";
     try {
       await env.PRIVATE_MEDIA.delete(`avatars/${targetUserId}`);
     } catch (e) {
+      avatarCleanup = "best_effort_failed";
       console.error("Admin delete: avatar cleanup failed", e);
     }
 
@@ -1122,6 +1144,25 @@ export async function handleAdmin(ctx) {
     return json({
       ok: true,
       deletedUserId: targetUserId,
+      deletionScope: {
+        accountDeleted: true,
+        sessionsDeleted: true,
+        tokensDeleted: true,
+        profileDeleted: true,
+        aiAssetsDeleted: {
+          images: aiDeletionSummary?.deletedAiImagesCount ?? 0,
+          textAssets: aiDeletionSummary?.deletedAiTextAssetsCount ?? 0,
+          folders: aiDeletionSummary?.deletedAiFoldersCount ?? null,
+          cleanupObjectsQueued: aiDeletionSummary?.cleanupObjectsQueuedCount ?? 0,
+        },
+        avatarCleanup,
+        retainedRecords: [
+          "admin_audit_log",
+          "user_activity_log_retention_governed",
+          "billing_ledger_and_provider_evidence_if_present",
+          "legal_or_compliance_records_if_present",
+        ],
+      },
     });
   }
 

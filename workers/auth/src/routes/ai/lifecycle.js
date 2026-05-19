@@ -773,22 +773,27 @@ export async function deleteAllUserAiAssets({
 }) {
   const imageRows = await loadUserAiImages(env, userId);
   const textRows = await loadUserAiTextAssets(env, userId, { allowMissingTable: true });
+  const imageDeleteIndex = 0;
+  let textDeleteIndex = -1;
+  let folderDeleteIndex = 1;
   const mutationStatements = [
     env.DB.prepare("DELETE FROM ai_images WHERE user_id = ?").bind(userId),
   ];
 
   if (textRows.length > 0) {
+    textDeleteIndex = mutationStatements.length;
     mutationStatements.push(
       env.DB.prepare("DELETE FROM ai_text_assets WHERE user_id = ?").bind(userId)
     );
   }
 
+  folderDeleteIndex = mutationStatements.length;
   mutationStatements.push(
     env.DB.prepare("DELETE FROM ai_folders WHERE user_id = ?").bind(userId),
     ...additionalStatements
   );
 
-  const { cleanupKeys } = await executeLifecycleBatch({
+  const { cleanupKeys, mutationResults } = await executeLifecycleBatch({
     env,
     cleanupKeys: collectCleanupKeys(imageRows, textRows),
     mutationStatements,
@@ -798,4 +803,12 @@ export async function deleteAllUserAiAssets({
   });
   await attemptInlineCleanup(env, cleanupKeys);
   await releaseDeletedAssetStorage(env, userId, imageRows, textRows);
+  return {
+    deletedAiImagesCount: mutationResults[imageDeleteIndex]?.meta?.changes ?? imageRows.length,
+    deletedAiTextAssetsCount: textDeleteIndex >= 0
+      ? (mutationResults[textDeleteIndex]?.meta?.changes ?? textRows.length)
+      : 0,
+    deletedAiFoldersCount: mutationResults[folderDeleteIndex]?.meta?.changes ?? null,
+    cleanupObjectsQueuedCount: cleanupKeys.length,
+  };
 }

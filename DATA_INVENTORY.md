@@ -22,6 +22,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - User accounts, profiles, wallets, sessions, verification/reset tokens, admin MFA state, recovery metadata, and activity logs exist.
 - Admin access requires appropriate authorization and MFA flows.
 - Secrets must never be printed into evidence.
+- Admin user deletion is an operational cleanup path, not a full legal erasure claim: it removes the account, sessions, verification/reset tokens, profile, and user-owned AI asset/folder metadata through guarded Admin deletion, while audit/activity, billing/credit, legal, and other retention-governed records may remain or be anonymized under policy.
 
 ## Current Billing And AI Cost Data
 

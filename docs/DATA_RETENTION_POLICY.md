@@ -28,6 +28,8 @@ Purpose: current engineering retention baseline. This is not legal approval and 
 
 ## Current Deletion Boundaries
 
+- Admin user deletion is operational account cleanup: it requires Admin auth/MFA, rate limiting, explicit JSON confirmation, self-delete prevention, and audit logging before removing the user row, sessions, auth tokens, profile, and user-owned AI asset/folder metadata through the guarded lifecycle helper. Avatar object cleanup is best-effort after the committed D1 mutation.
+- Admin user deletion is not full legal/GDPR erasure. Audit/activity evidence, billing/credit ledgers and provider evidence, legal/compliance records, and other retention-governed records may remain or be anonymized under an approved retention process.
 - No broad SQL deletes.
 - No direct R2 prefix deletes.
 - No live R2 listing as part of documentation/evidence phases.
