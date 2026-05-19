@@ -7,6 +7,10 @@ import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
 import {
+  createDataLifecycleRequest,
+  DataLifecycleError,
+} from "../lib/data-lifecycle.js";
+import {
   getActivityRetentionCutoff,
   getActivityRetentionMetadata,
 } from "../lib/activity-archive.js";
@@ -62,6 +66,8 @@ const DEFAULT_ADMIN_ACTIVITY_LIMIT = 50;
 const MAX_ADMIN_ACTIVITY_LIMIT = 100;
 const ADMIN_USER_DELETED_STATUS = "deleted";
 const ADMIN_USER_DELETED_PASSWORD_HASH = "deleted_account_disabled";
+const ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT = "ERASURE WORKFLOW";
+const ADMIN_DELETE_ERASURE_DEFAULT_REASON = "Admin initiated GDPR/data erasure workflow from Admin user deletion.";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
 const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0058_add_legacy_media_reset_actions.sql";
@@ -345,6 +351,180 @@ function requireAdminMutationConfirmation(body, {
     return adminMutationConfirmationResponse(code, message, confirmation);
   }
   return null;
+}
+
+function normalizeAdminDeleteErasureWorkflow(body) {
+  const workflowBody = body?.dataErasureWorkflow && typeof body.dataErasureWorkflow === "object"
+    ? body.dataErasureWorkflow
+    : {};
+  const requested = body?.startDataErasureWorkflow === true || workflowBody.start === true;
+  if (!requested) {
+    return {
+      requested: false,
+      response: null,
+      workflow: null,
+    };
+  }
+
+  const acknowledgement = String(
+    workflowBody.acknowledgement ?? body?.dataErasureAcknowledgement ?? ""
+  ).trim();
+  if (acknowledgement !== ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT) {
+    return {
+      requested: true,
+      workflow: null,
+      response: json(
+        {
+          ok: false,
+          error: "Explicit Data Erasure workflow acknowledgement is required before starting the privacy/legal review workflow.",
+          code: "admin_delete_user_erasure_acknowledgement_required",
+          required: {
+            dataErasureWorkflow: {
+              acknowledgement: ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT,
+            },
+          },
+          dataErasureWorkflow: {
+            started: false,
+            status: "acknowledgement_required",
+            executesImmediately: false,
+            evidenceRequired: true,
+          },
+        },
+        { status: 409 }
+      ),
+    };
+  }
+
+  const reason = String(workflowBody.reason || ADMIN_DELETE_ERASURE_DEFAULT_REASON).trim()
+    .slice(0, 500) || ADMIN_DELETE_ERASURE_DEFAULT_REASON;
+  const requestSource = String(workflowBody.requestSource || "admin_delete_user_modal").trim()
+    .replace(/[^a-zA-Z0-9_.:-]+/g, "_")
+    .slice(0, 80) || "admin_delete_user_modal";
+
+  return {
+    requested: true,
+    response: null,
+    workflow: {
+      acknowledgement,
+      reason,
+      requestSource,
+    },
+  };
+}
+
+function adminDeleteErasureNotRequested() {
+  return {
+    started: false,
+    status: "not_requested",
+    executesImmediately: false,
+    evidenceRequired: false,
+  };
+}
+
+function buildAdminDeleteErasureIdempotencyKey(targetUserId) {
+  const safeId = String(targetUserId || "user")
+    .replace(/[^a-zA-Z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 92) || "user";
+  return `admin-delete-erasure-${safeId}`.slice(0, 128);
+}
+
+async function startAdminDeleteDataErasureWorkflow({
+  env,
+  adminUser,
+  targetUser,
+  workflow,
+  now,
+  correlationId,
+  requestInfo,
+}) {
+  const result = await createDataLifecycleRequest({
+    env,
+    adminUser,
+    idempotencyKey: buildAdminDeleteErasureIdempotencyKey(targetUser.id),
+    body: {
+      type: "delete",
+      subjectUserId: targetUser.id,
+      reason: workflow.reason,
+    },
+  });
+  const request = result.request;
+  const workflowSummary = {
+    started: true,
+    status: request.status === "submitted" ? "pending_review" : request.status,
+    requestStatus: request.status,
+    requestId: request.id,
+    requestType: request.type,
+    reused: result.reused === true,
+    requiresApproval: request.approvalRequired === true,
+    executesImmediately: false,
+    evidenceRequired: true,
+    dryRun: request.dryRun === true,
+    requestSource: workflow.requestSource,
+  };
+
+  await enqueueAdminAuditEvent(
+    env,
+    {
+      adminUserId: adminUser.id,
+      action: "data_erasure_workflow_started_from_admin_delete",
+      targetUserId: targetUser.id,
+      meta: {
+        request_id: request.id,
+        request_type: request.type,
+        request_status: request.status,
+        workflow_status: workflowSummary.status,
+        reused: workflowSummary.reused,
+        request_source: workflow.requestSource,
+        executes_immediately: false,
+        evidence_required: true,
+        dry_run: request.dryRun === true,
+        target_email: targetUser.email,
+        target_role: targetUser.role,
+        target_status: targetUser.status,
+        actor_email: adminUser.email,
+      },
+      createdAt: now,
+    },
+    {
+      correlationId,
+      requestInfo,
+      allowDirectFallback: true,
+    }
+  );
+
+  return workflowSummary;
+}
+
+function adminDeleteOperationalFailurePayload({
+  error,
+  dependencySummary,
+  dataErasureWorkflow,
+}) {
+  const blockedDependency = error.branch === "user_delete_failed_dependency"
+    || error.branch === "retention_dependency_blocked";
+  return {
+    ok: false,
+    error: error.message,
+    code: blockedDependency
+      ? "admin_delete_user_dependency_blocked"
+      : "admin_delete_user_lifecycle_failed",
+    branch: error.branch || "lifecycle_delete_failed",
+    operationalDelete: {
+      completed: false,
+      status: "failed",
+      branch: error.branch || "lifecycle_delete_failed",
+    },
+    dataErasureWorkflow,
+    dependencySummary: {
+      mode: dependencySummary.mode,
+      blockingCategories: blockedDependency
+        ? dependencySummary.retainedPolicyRecords
+        : [error.details?.category || error.branch || "lifecycle_cleanup"],
+      safeCounts: dependencySummary.safeCounts,
+      unavailable: dependencySummary.unavailable,
+    },
+  };
 }
 
 function safeDeletedEmailForUser(userId) {
@@ -1340,6 +1520,8 @@ export async function handleAdmin(ctx) {
       message: "Explicit confirmation is required before permanently deleting a user.",
     });
     if (confirmation) return confirmation;
+    const erasureWorkflowRequest = normalizeAdminDeleteErasureWorkflow(parsed.body);
+    if (erasureWorkflowRequest.response) return erasureWorkflowRequest.response;
 
     const targetUser = await env.DB.prepare(
       "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
@@ -1355,6 +1537,45 @@ export async function handleAdmin(ctx) {
     }
 
     const now = nowIso();
+    let dataErasureWorkflow = adminDeleteErasureNotRequested();
+    if (erasureWorkflowRequest.requested) {
+      try {
+        dataErasureWorkflow = await startAdminDeleteDataErasureWorkflow({
+          env,
+          adminUser: result.user,
+          targetUser,
+          workflow: erasureWorkflowRequest.workflow,
+          now,
+          correlationId,
+          requestInfo: ctx,
+        });
+      } catch (error) {
+        const isLifecycleError = error instanceof DataLifecycleError;
+        return json(
+          {
+            ok: false,
+            error: isLifecycleError
+              ? error.message
+              : "Failed to start Data Erasure workflow before operational deletion.",
+            code: "admin_delete_user_erasure_workflow_failed",
+            operationalDelete: {
+              completed: false,
+              status: "not_started",
+            },
+            dataErasureWorkflow: {
+              started: false,
+              status: "failed",
+              errorCode: isLifecycleError ? error.code : "data_lifecycle_unavailable",
+              requiresApproval: true,
+              executesImmediately: false,
+              evidenceRequired: true,
+            },
+          },
+          { status: isLifecycleError ? error.status : 500 }
+        );
+      }
+    }
+
     const dependencySummary = await buildAdminUserDeleteDependencySummary(env, targetUserId);
     const deletedEmail = safeDeletedEmailForUser(targetUserId);
     let aiDeletionSummary = null;
@@ -1374,25 +1595,12 @@ export async function handleAdmin(ctx) {
       if (!(error instanceof AiAssetLifecycleError)) {
         throw error;
       }
-      const blockedDependency = error.branch === "user_delete_failed_dependency"
-        || error.branch === "retention_dependency_blocked";
       return json(
-        {
-          ok: false,
-          error: error.message,
-          code: blockedDependency
-            ? "admin_delete_user_dependency_blocked"
-            : "admin_delete_user_lifecycle_failed",
-          branch: error.branch || "lifecycle_delete_failed",
-          dependencySummary: {
-            mode: dependencySummary.mode,
-            blockingCategories: blockedDependency
-              ? dependencySummary.retainedPolicyRecords
-              : [error.details?.category || error.branch || "lifecycle_cleanup"],
-            safeCounts: dependencySummary.safeCounts,
-            unavailable: dependencySummary.unavailable,
-          },
-        },
+        adminDeleteOperationalFailurePayload({
+          error,
+          dependencySummary,
+          dataErasureWorkflow,
+        }),
         { status: error.status }
       );
     }
@@ -1407,6 +1615,12 @@ export async function handleAdmin(ctx) {
           error: "Operational user deletion did not reach the final account anonymization state.",
           code: "admin_delete_user_lifecycle_failed",
           branch: "user_anonymize_failed",
+          operationalDelete: {
+            completed: false,
+            status: "failed",
+            branch: "user_anonymize_failed",
+          },
+          dataErasureWorkflow,
           dependencySummary: {
             mode: dependencySummary.mode,
             blockingCategories: ["account_anonymization"],
@@ -1441,6 +1655,8 @@ export async function handleAdmin(ctx) {
           target_status: targetUser.status,
           actor_email: result.user.email,
           retained_policy_records: dependencySummary.retainedPolicyRecords,
+          data_erasure_workflow_requested: dataErasureWorkflow.started === true,
+          data_erasure_workflow_request_id: dataErasureWorkflow.requestId || null,
         },
         createdAt: now,
       },
@@ -1454,7 +1670,32 @@ export async function handleAdmin(ctx) {
     return json({
       ok: true,
       deletedUserId: targetUserId,
-      deletionMode: "operational_anonymized_delete",
+      deletionMode: dataErasureWorkflow.started
+        ? "operational_delete_with_erasure_workflow"
+        : "operational_delete",
+      operationalDelete: {
+        completed: true,
+        deletedUserId: targetUserId,
+        deletionMode: "operational_anonymized_delete",
+        deletionScope: {
+          accountDeletedOrAnonymized: true,
+          loginDisabled: true,
+          sessionsDeleted: true,
+          tokensDeleted: true,
+          profileDeleted: true,
+          aiAssetsDeleted: {
+            images: aiDeletionSummary?.deletedAiImagesCount ?? 0,
+            textAssets: aiDeletionSummary?.deletedAiTextAssetsCount ?? 0,
+            folders: aiDeletionSummary?.deletedAiFoldersCount ?? null,
+            cleanupObjectsQueued: aiDeletionSummary?.cleanupObjectsQueuedCount ?? 0,
+          },
+          aiFoldersDeleted: true,
+          storageQuotaCleaned: true,
+          avatarCleanup,
+          retainedPolicyRecords: dependencySummary.retainedPolicyRecords,
+        },
+      },
+      dataErasureWorkflow,
       deletionScope: {
         accountDeletedOrAnonymized: true,
         loginDisabled: true,

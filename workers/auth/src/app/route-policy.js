@@ -366,7 +366,7 @@ export const ROUTE_POLICIES = Object.freeze([
   }),
   adminJsonWrite("admin.users.delete", "DELETE", "/api/admin/users/:id", "admin", "smallJson", "admin-action-ip", {
     audit: { event: "delete_user" },
-    notes: "Irreversible high-risk admin user deletion. Requires confirm=true with confirmation=delete_user, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; D1 user/content deletion is paired with best-effort private avatar cleanup.",
+    notes: "Irreversible high-risk admin operational user deletion. Requires confirm=true with confirmation=delete_user, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; operational delete anonymizes/disables the account and user-owned operational data, may optionally start a dry-run/approval-required Data Lifecycle erasure workflow with a second acknowledgement, and does not claim immediate legal/GDPR erasure.",
   }),
   adminRead("admin.users.storage.read", "/api/admin/users/:id/storage", "admin", {
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],

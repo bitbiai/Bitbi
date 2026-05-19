@@ -10851,7 +10851,27 @@ test.describe('Admin Control Plane', () => {
       await fulfillJson(route, {
         ok: true,
         deletedUserId: 'user_member',
-        deletionMode: 'operational_anonymized_delete',
+        deletionMode: 'operational_delete',
+        operationalDelete: {
+          completed: true,
+          deletedUserId: 'user_member',
+          deletionMode: 'operational_anonymized_delete',
+          deletionScope: {
+            accountDeletedOrAnonymized: true,
+            loginDisabled: true,
+            sessionsDeleted: true,
+            tokensDeleted: true,
+            profileDeleted: true,
+            aiAssetsDeleted: { images: 0, textAssets: 0, folders: 0, cleanupObjectsQueued: 0 },
+            avatarCleanup: 'best_effort_completed',
+            retainedPolicyRecords: ['admin_audit_log', 'billing_ledger_and_provider_evidence_if_present'],
+          },
+        },
+        dataErasureWorkflow: {
+          started: false,
+          status: 'not_requested',
+          executesImmediately: false,
+        },
         deletionScope: {
           accountDeletedOrAnonymized: true,
           loginDisabled: true,
@@ -10868,27 +10888,23 @@ test.describe('Admin Control Plane', () => {
     await page.goto('/admin/index.html#users');
     await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
     const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
-    const dialogs = [];
-    page.on('dialog', async (dialog) => {
-      dialogs.push({ type: dialog.type(), message: dialog.message() });
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('member@example.com');
-      } else {
-        await dialog.accept();
-      }
-    });
 
     await memberRow.getByRole('button', { name: 'Delete' }).click();
+    const dialog = page.locator('[data-testid="admin-delete-user-dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Delete operational account only');
+    await expect(dialog).toContainText('Also start Data Erasure / GDPR workflow');
+    await expect(dialog).toContainText('Email');
+    await expect(dialog).toContainText('member@example.com');
+    await expect(dialog).toContainText('User ID');
+    await expect(dialog).toContainText('user_member');
+    await expect(dialog).toContainText('Audit, billing, legal, provider, and retention-governed records may remain');
+    await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeDisabled();
+    await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
+    await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeEnabled();
+    await dialog.locator('[data-testid="admin-delete-submit"]').click();
     await expect.poll(() => captures.userDeleteRequests.length).toBe(1);
 
-    expect(dialogs).toHaveLength(2);
-    expect(dialogs[0].type).toBe('confirm');
-    expect(dialogs[0].message).toContain('Email: member@example.com');
-    expect(dialogs[0].message).toContain('User ID: user_member');
-    expect(dialogs[0].message).toContain('Role/status: user / active');
-    expect(dialogs[0].message).toContain('retention policy');
-    expect(dialogs[1].type).toBe('prompt');
-    expect(dialogs[1].message).toContain('Type member@example.com');
     expect(captures.userDeleteRequests[0]).toEqual(expect.objectContaining({
       method: 'DELETE',
       contentType: expect.stringContaining('application/json'),
@@ -10897,9 +10913,76 @@ test.describe('Admin Control Plane', () => {
         confirmation: 'delete_user',
       },
     }));
+    expect(captures.userDeleteRequests[0].body.startDataErasureWorkflow).toBeUndefined();
     await expect(page.locator('#userTbody tr', { hasText: 'member@example.com' })).toHaveCount(0);
     await expect(page.locator('.admin-toast__item').last()).toContainText('User deleted');
-    await expect(page.locator('.admin-toast__item').last()).toContainText('Operational anonymized deletion completed');
+    await expect(page.locator('.admin-toast__item').last()).toContainText('Operational deletion completed');
+    await expect(page.locator('.admin-toast__item').last()).toContainText('Data Erasure workflow was not requested');
+  });
+
+  test('Admin Users delete can also start a Data Erasure workflow with second acknowledgement', async ({
+    page,
+  }) => {
+    const captures = { userDeleteRequests: [] };
+    await mockAdminControlPlane(page, captures);
+    await page.route('**/api/admin/users/user_member', async (route) => {
+      const request = route.request();
+      captures.userDeleteRequests.push({
+        method: request.method(),
+        body: request.postData() ? request.postDataJSON() : null,
+      });
+      await fulfillJson(route, {
+        ok: true,
+        deletedUserId: 'user_member',
+        deletionMode: 'operational_delete_with_erasure_workflow',
+        operationalDelete: {
+          completed: true,
+          deletedUserId: 'user_member',
+          deletionScope: {
+            accountDeletedOrAnonymized: true,
+            loginDisabled: true,
+          },
+        },
+        dataErasureWorkflow: {
+          started: true,
+          status: 'pending_review',
+          requestStatus: 'submitted',
+          requestId: 'dlr_delete_user_modal',
+          requestType: 'delete',
+          requiresApproval: true,
+          executesImmediately: false,
+          evidenceRequired: true,
+        },
+      });
+    });
+
+    await page.goto('/admin/index.html#users');
+    await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#userTbody tr', { hasText: 'member@example.com' }).getByRole('button', { name: 'Delete' }).click();
+    const dialog = page.locator('[data-testid="admin-delete-user-dialog"]');
+    await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
+    await dialog.locator('[data-testid="admin-delete-erasure-checkbox"]').check();
+    await expect(dialog).toContainText('This creates a formal data-erasure workflow');
+    await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeDisabled();
+    await dialog.locator('[data-testid="admin-delete-erasure-ack"]').fill('ERASURE WORKFLOW');
+    await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeEnabled();
+    await dialog.locator('[data-testid="admin-delete-submit"]').click();
+
+    await expect.poll(() => captures.userDeleteRequests.length).toBe(1);
+    expect(captures.userDeleteRequests[0].body).toMatchObject({
+      confirm: true,
+      confirmation: 'delete_user',
+      startDataErasureWorkflow: true,
+      dataErasureWorkflow: {
+        reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+        requestSource: 'admin_delete_user_modal',
+        acknowledgement: 'ERASURE WORKFLOW',
+      },
+    });
+    const toast = page.locator('.admin-toast__item').last();
+    await expect(toast).toContainText('Operational deletion completed');
+    await expect(toast).toContainText('Data Erasure workflow dlr_delete_user_modal started');
+    await expect.poll(() => new URL(page.url()).hash).toBe('#lifecycle');
   });
 
   test('Admin Users delete displays backend confirmation-required code and status', async ({
@@ -10917,14 +11000,10 @@ test.describe('Admin Control Plane', () => {
 
     await page.goto('/admin/index.html#users');
     await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
-    page.on('dialog', async (dialog) => {
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('member@example.com');
-      } else {
-        await dialog.accept();
-      }
-    });
     await page.locator('#userTbody tr', { hasText: 'member@example.com' }).getByRole('button', { name: 'Delete' }).click();
+    const dialog = page.locator('[data-testid="admin-delete-user-dialog"]');
+    await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
+    await dialog.locator('[data-testid="admin-delete-submit"]').click();
     const toast = page.locator('.admin-toast__item').last();
     await expect(toast).toContainText('Explicit confirmation is required before permanently deleting a user.');
     await expect(toast).toContainText('code: admin_delete_user_confirmation_required');
@@ -10941,6 +11020,13 @@ test.describe('Admin Control Plane', () => {
         error: 'Failed to delete user-owned operational assets safely.',
         code: 'admin_delete_user_lifecycle_failed',
         branch: 'user_delete_failed_dependency',
+        dataErasureWorkflow: {
+          started: true,
+          status: 'pending_review',
+          requestId: 'dlr_partial_failure',
+          executesImmediately: false,
+          evidenceRequired: true,
+        },
         dependencySummary: {
           blockingCategories: ['billing_ledger'],
           safeCounts: { member_credit_ledger: 1 },
@@ -10950,19 +11036,16 @@ test.describe('Admin Control Plane', () => {
 
     await page.goto('/admin/index.html#users');
     await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
-    page.on('dialog', async (dialog) => {
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('member@example.com');
-      } else {
-        await dialog.accept();
-      }
-    });
     const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
     await memberRow.getByRole('button', { name: 'Delete' }).click();
+    const dialog = page.locator('[data-testid="admin-delete-user-dialog"]');
+    await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
+    await dialog.locator('[data-testid="admin-delete-submit"]').click();
     const toast = page.locator('.admin-toast__item').last();
     await expect(toast).toContainText('Failed to delete user-owned operational assets safely.');
     await expect(toast).toContainText('code: admin_delete_user_lifecycle_failed');
     await expect(toast).toContainText('branch: user_delete_failed_dependency');
+    await expect(toast).toContainText('workflow: dlr_partial_failure/pending_review');
     await expect(toast).toContainText('Dependencies: billing_ledger');
     await expect(toast).toContainText('status: 500');
     await expect(memberRow).toHaveCount(1);
@@ -10987,15 +11070,11 @@ test.describe('Admin Control Plane', () => {
 
     await page.goto('/admin/index.html#users');
     await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
-    page.on('dialog', async (dialog) => {
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('member@example.com');
-      } else {
-        await dialog.accept();
-      }
-    });
     const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
     await memberRow.getByRole('button', { name: 'Delete' }).click();
+    const dialog = page.locator('[data-testid="admin-delete-user-dialog"]');
+    await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
+    await dialog.locator('[data-testid="admin-delete-submit"]').click();
     const toast = page.locator('.admin-toast__item').last();
     await expect(toast).toContainText('User deletion is blocked by retained policy-controlled records.');
     await expect(toast).toContainText('code: admin_delete_user_retention_dependency_blocked');

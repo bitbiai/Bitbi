@@ -3530,6 +3530,152 @@
         padding: clamp(1rem, 2vw, 1.5rem);
     }
 
+    .admin-delete-dialog {
+        position: fixed;
+        inset: 0;
+        z-index: 240;
+        display: grid;
+        place-items: center;
+        padding: clamp(1rem, 3vw, 2rem);
+    }
+
+    .admin-delete-dialog__backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.82);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+    }
+
+    .admin-delete-dialog__panel {
+        position: relative;
+        width: min(100%, 44rem);
+        max-block-size: min(88vh, 50rem);
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        overflow: hidden;
+        border-color: rgba(255, 70, 70, 0.3);
+        background:
+            radial-gradient(circle at 10% 0%, rgba(255, 70, 70, 0.14), transparent 22rem),
+            radial-gradient(circle at 90% 0%, rgba(0, 240, 255, 0.08), transparent 24rem),
+            rgba(8, 12, 16, 0.98);
+    }
+
+    .admin-delete-dialog__header,
+    .admin-delete-dialog__actions {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        padding: clamp(1rem, 2vw, 1.35rem);
+        border-block-end: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .admin-delete-dialog__actions {
+        justify-content: flex-end;
+        border-block-start: 1px solid rgba(255, 255, 255, 0.08);
+        border-block-end: 0;
+    }
+
+    .admin-delete-dialog__eyebrow {
+        margin: 0 0 var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(255, 120, 120, 0.86);
+    }
+
+    .admin-delete-dialog__header h2,
+    .admin-delete-dialog__block h3 {
+        margin: 0;
+    }
+
+    .admin-delete-dialog__body {
+        min-height: 0;
+        overflow: auto;
+        display: grid;
+        gap: var(--space-4);
+        padding: clamp(1rem, 2vw, 1.35rem);
+    }
+
+    .admin-delete-dialog__identity,
+    .admin-delete-dialog__block {
+        display: grid;
+        gap: var(--space-3);
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .admin-delete-dialog__meta-row {
+        display: grid;
+        grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr);
+        gap: var(--space-3);
+        align-items: start;
+    }
+
+    .admin-delete-dialog__meta-label,
+    .admin-delete-dialog__field span {
+        color: rgba(255, 255, 255, 0.58);
+        font-family: var(--font-mono);
+        font-size: 12px;
+    }
+
+    .admin-delete-dialog__meta-value {
+        overflow-wrap: anywhere;
+    }
+
+    .admin-delete-dialog__block p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.68);
+        line-height: 1.5;
+    }
+
+    .admin-delete-dialog__warning {
+        color: rgba(255, 205, 120, 0.88) !important;
+    }
+
+    .admin-delete-dialog__checkbox {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        font-weight: 700;
+    }
+
+    .admin-delete-dialog__erasure-details {
+        display: grid;
+        gap: var(--space-3);
+    }
+
+    .admin-delete-dialog__erasure-details[hidden] {
+        display: none !important;
+    }
+
+    .admin-delete-dialog__field {
+        display: grid;
+        gap: var(--space-2);
+    }
+
+    .admin-delete-dialog__field input {
+        width: 100%;
+        min-height: 2.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.06);
+        color: white;
+        padding: 0.72rem 0.85rem;
+        font: inherit;
+    }
+
+    .btn-action--danger {
+        border-color: rgba(255, 70, 70, 0.42);
+        background: rgba(160, 26, 26, 0.28);
+        color: white;
+    }
+
     .admin-credit-modal__identity {
         display: flex;
         flex-wrap: wrap;

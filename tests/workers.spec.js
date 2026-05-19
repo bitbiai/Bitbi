@@ -29534,7 +29534,24 @@ test.describe('Worker routes', () => {
     expect(body).toMatchObject({
       ok: true,
       deletedUserId: 'user-plain',
-      deletionMode: 'operational_anonymized_delete',
+      deletionMode: 'operational_delete',
+      operationalDelete: {
+        completed: true,
+        deletedUserId: 'user-plain',
+        deletionMode: 'operational_anonymized_delete',
+        deletionScope: {
+          accountDeletedOrAnonymized: true,
+          loginDisabled: true,
+          sessionsDeleted: true,
+          tokensDeleted: true,
+          profileDeleted: true,
+        },
+      },
+      dataErasureWorkflow: {
+        started: false,
+        status: 'not_requested',
+        executesImmediately: false,
+      },
       deletionScope: {
         accountDeletedOrAnonymized: true,
         loginDisabled: true,
@@ -29580,6 +29597,281 @@ test.describe('Worker routes', () => {
     await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog).toHaveLength(1);
     expect(env.DB.state.adminAuditLog[0].action).toBe('operational_delete_user');
+  });
+
+  test('admin delete can start a dry-run data erasure workflow before operational deletion', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('admin-erasure-delete'),
+        createContractUser({ id: 'user-erasure-delete', role: 'user', email: 'erase-me@example.com' }),
+      ],
+      memberCreditLedger: [
+        {
+          id: 'ledger-erasure-delete',
+          user_id: 'user-erasure-delete',
+          amount: 10,
+          balance_after: 10,
+          entry_type: 'grant',
+          feature_key: 'ai.image.generate',
+          source: 'daily_member_top_up',
+          idempotency_key: 'ledger-erasure-delete-key',
+          request_hash: 'ledger-erasure-delete-hash',
+          created_by_user_id: null,
+          created_at: nowIso(),
+          metadata_json: '{}',
+        },
+      ],
+    });
+
+    const adminToken = await seedSession(env, 'admin-erasure-delete');
+    const exec = createExecutionContext();
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-erasure-delete', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+        startDataErasureWorkflow: true,
+        dataErasureWorkflow: {
+          reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+          requestSource: 'admin_delete_user_modal',
+          acknowledgement: 'ERASURE WORKFLOW',
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.19',
+      }),
+      env,
+      exec.execCtx
+    );
+    await exec.flush();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      deletedUserId: 'user-erasure-delete',
+      deletionMode: 'operational_delete_with_erasure_workflow',
+      operationalDelete: {
+        completed: true,
+        deletedUserId: 'user-erasure-delete',
+        deletionMode: 'operational_anonymized_delete',
+      },
+      dataErasureWorkflow: {
+        started: true,
+        status: 'pending_review',
+        requestStatus: 'submitted',
+        requestType: 'delete',
+        requiresApproval: true,
+        executesImmediately: false,
+        evidenceRequired: true,
+        dryRun: true,
+        requestSource: 'admin_delete_user_modal',
+      },
+      deletionScope: {
+        accountDeletedOrAnonymized: true,
+        retainedPolicyRecords: expect.arrayContaining([
+          'billing_ledger',
+          'data_lifecycle_records',
+        ]),
+      },
+    });
+    expect(body.dataErasureWorkflow.requestId).toMatch(/^dlr_/);
+    expect(env.DB.state.dataLifecycleRequests).toHaveLength(1);
+    expect(env.DB.state.dataLifecycleRequests[0]).toMatchObject({
+      id: body.dataErasureWorkflow.requestId,
+      type: 'delete',
+      subject_user_id: 'user-erasure-delete',
+      requested_by_admin_id: 'admin-erasure-delete',
+      status: 'submitted',
+      approval_required: 1,
+      dry_run: 1,
+      idempotency_key: 'admin-delete-erasure-user-erasure-delete',
+    });
+    expect(env.DB.state.memberCreditLedger.some((row) => row.user_id === 'user-erasure-delete')).toBe(true);
+    expect(env.DB.state.users.find((row) => row.id === 'user-erasure-delete')).toMatchObject({
+      status: 'deleted',
+      password_hash: 'deleted_account_disabled',
+      verification_method: 'operational_delete',
+    });
+    await drainActivityIngestQueue(authWorker, env);
+    const auditActions = env.DB.state.adminAuditLog.map((row) => row.action);
+    expect(auditActions).toEqual(expect.arrayContaining([
+      'data_erasure_workflow_started_from_admin_delete',
+      'operational_delete_user',
+    ]));
+  });
+
+  test('admin delete with erasure workflow requires second acknowledgement and fails before mutation', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('admin-erasure-ack'),
+        createContractUser({ id: 'user-erasure-ack', role: 'user', email: 'ack@example.com' }),
+      ],
+    });
+
+    const adminToken = await seedSession(env, 'admin-erasure-ack');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-erasure-ack', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+        startDataErasureWorkflow: true,
+        dataErasureWorkflow: {
+          reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+          requestSource: 'admin_delete_user_modal',
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.19',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'admin_delete_user_erasure_acknowledgement_required',
+      required: {
+        dataErasureWorkflow: {
+          acknowledgement: 'ERASURE WORKFLOW',
+        },
+      },
+      dataErasureWorkflow: {
+        started: false,
+        status: 'acknowledgement_required',
+        executesImmediately: false,
+      },
+    });
+    expect(env.DB.state.dataLifecycleRequests).toHaveLength(0);
+    expect(env.DB.state.users.find((row) => row.id === 'user-erasure-ack')).toMatchObject({
+      status: 'active',
+    });
+  });
+
+  test('admin delete reports data erasure workflow creation failure before operational deletion', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      missingTables: ['data_lifecycle_requests'],
+      users: [
+        createAdminUser('admin-erasure-fail'),
+        createContractUser({ id: 'user-erasure-fail', role: 'user', email: 'erasure-fail@example.com' }),
+      ],
+    });
+
+    const adminToken = await seedSession(env, 'admin-erasure-fail');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-erasure-fail', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+        startDataErasureWorkflow: true,
+        dataErasureWorkflow: {
+          reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+          requestSource: 'admin_delete_user_modal',
+          acknowledgement: 'ERASURE WORKFLOW',
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.19',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'admin_delete_user_erasure_workflow_failed',
+      operationalDelete: {
+        completed: false,
+        status: 'not_started',
+      },
+      dataErasureWorkflow: {
+        started: false,
+        status: 'failed',
+        errorCode: 'data_lifecycle_unavailable',
+        executesImmediately: false,
+        evidenceRequired: true,
+      },
+    });
+    expect(env.DB.state.users.find((row) => row.id === 'user-erasure-fail')).toMatchObject({
+      status: 'active',
+    });
+  });
+
+  test('admin delete reports partial state when erasure workflow starts but operational cleanup fails', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      failQueries: ['DELETE FROM favorites WHERE user_id = ?'],
+      users: [
+        createAdminUser('admin-erasure-partial'),
+        createContractUser({ id: 'user-erasure-partial', role: 'user', email: 'partial@example.com' }),
+      ],
+      favorites: [
+        {
+          id: 11,
+          user_id: 'user-erasure-partial',
+          item_type: 'gallery',
+          item_id: 'favorite-partial',
+          title: 'Favorite',
+          thumb_url: '/favorite.png',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const adminToken = await seedSession(env, 'admin-erasure-partial');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-erasure-partial', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+        startDataErasureWorkflow: true,
+        dataErasureWorkflow: {
+          reason: 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+          requestSource: 'admin_delete_user_modal',
+          acknowledgement: 'ERASURE WORKFLOW',
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.19',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: false,
+      code: 'admin_delete_user_lifecycle_failed',
+      branch: 'favorites_delete_failed',
+      operationalDelete: {
+        completed: false,
+        status: 'failed',
+        branch: 'favorites_delete_failed',
+      },
+      dataErasureWorkflow: {
+        started: true,
+        status: 'pending_review',
+        requestStatus: 'submitted',
+        requestType: 'delete',
+        requiresApproval: true,
+        executesImmediately: false,
+        evidenceRequired: true,
+      },
+      dependencySummary: {
+        blockingCategories: expect.arrayContaining(['user_preference_cleanup']),
+      },
+    });
+    expect(body.dataErasureWorkflow.requestId).toMatch(/^dlr_/);
+    expect(env.DB.state.dataLifecycleRequests).toHaveLength(1);
+    expect(env.DB.state.users.find((row) => row.id === 'user-erasure-partial')).toMatchObject({
+      status: 'active',
+    });
   });
 
   test('admin delete reports precise lifecycle branch when operational cleanup fails', async () => {
@@ -40924,7 +41216,24 @@ test.describe('Worker routes', () => {
     expect(body).toMatchObject({
       ok: true,
       deletedUserId: 'feedface',
-      deletionMode: 'operational_anonymized_delete',
+      deletionMode: 'operational_delete',
+      operationalDelete: {
+        completed: true,
+        deletedUserId: 'feedface',
+        deletionMode: 'operational_anonymized_delete',
+        deletionScope: {
+          accountDeletedOrAnonymized: true,
+          loginDisabled: true,
+          sessionsDeleted: true,
+          tokensDeleted: true,
+          profileDeleted: true,
+        },
+      },
+      dataErasureWorkflow: {
+        started: false,
+        status: 'not_requested',
+        executesImmediately: false,
+      },
       deletionScope: {
         accountDeletedOrAnonymized: true,
         loginDisabled: true,

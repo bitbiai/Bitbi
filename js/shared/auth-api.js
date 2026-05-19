@@ -206,11 +206,23 @@ export function apiAdminRevokeSessions(userId) {
     });
 }
 
-export function apiAdminDeleteUser(userId) {
-    return request('DELETE', `/admin/users/${userId}`, {
+export function apiAdminDeleteUser(userId, options = {}) {
+    const body = {
         confirm: true,
         confirmation: 'delete_user',
-    });
+    };
+    if (options?.startDataErasureWorkflow === true) {
+        const workflow = options.dataErasureWorkflow && typeof options.dataErasureWorkflow === 'object'
+            ? options.dataErasureWorkflow
+            : {};
+        body.startDataErasureWorkflow = true;
+        body.dataErasureWorkflow = {
+            reason: workflow.reason || 'Admin initiated GDPR/data erasure workflow from Admin user deletion.',
+            requestSource: workflow.requestSource || 'admin_delete_user_modal',
+            acknowledgement: workflow.acknowledgement || '',
+        };
+    }
+    return request('DELETE', `/admin/users/${userId}`, body);
 }
 
 export function apiAdminLatestAvatars() {
