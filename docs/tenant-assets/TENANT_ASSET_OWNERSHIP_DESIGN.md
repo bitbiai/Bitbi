@@ -1,8 +1,8 @@
 # Tenant Asset Ownership Design
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current tenant asset ownership design baseline. Historical phase detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md` and tenant evidence docs.
 
@@ -14,7 +14,7 @@ Purpose: current tenant asset ownership design baseline. Historical phase detail
 - New personal folder/image writes assign high-confidence personal ownership metadata.
 - Existing legacy rows may still be null, mixed, ambiguous, or unsafe; do not assume tenant isolation.
 - Runtime folder/image access checks have not switched to ownership metadata.
-- Ownership backfill remains blocked.
+- Global ownership backfill readiness remains blocked; only the new Admin high-risk executor may write locally classified safe folder/image rows after dry-run/evidence review and exact confirmation.
 
 ## Current Owner Model
 
@@ -39,6 +39,7 @@ Existing `user_id` remains compatibility/access evidence, not sufficient proof o
 - Manual-review admin workflows exist for import, queue reads, item detail, event history, evidence export, status updates, and Admin Control Plane visibility.
 - `tenant_asset_media_reset_actions` and `tenant_asset_media_reset_action_events`: reset action tracking exists from migration `0058_add_legacy_media_reset_actions.sql`.
 - Legacy media reset dry-run/reporting and a dry-run-default executor path exist for first-pass folders/images/derivatives/public references.
+- Admin Tenant Isolation Execution controls now expose three warning-gated stages: Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset. Each stage has a visible warning/exclamation explainer, dry-run or shadow diagnostics, evidence export, explicit disabled reasons, and exact confirmation requirements.
 
 ## Current Evidence State
 
@@ -46,11 +47,13 @@ Existing `user_id` remains compatibility/access evidence, not sufficient proof o
 - Manual-review operator evidence exists with decision `operator_evidence_collected_needs_more_idempotency`.
 - Legacy media reset dry-run evidence remains rejected unsafe because prior live evidence exposed a raw idempotency key, the raw JSON is absent from the current checkout, and no sanitized replacement evidence is accepted.
 - Confirmed reset/deletion is not approved.
+- Ownership Backfill dry-run/evidence can classify `ai_folders` and `ai_images` into safe, blocked, manual-review, deferred, already-owned, and legacy-unclassified categories. Non-dry-run backfill remains high-risk and must use Admin/MFA, `Idempotency-Key`, reason, explicit supported domain scope, bounded batch limits, and exact typed confirmation `BACKFILL OWNERSHIP`.
+- Access-Switch status and shadow diagnostics are read-only. Runtime enforcement remains blocked until durable switch state, shadow evidence, rollback criteria, and operator approval exist.
 
 ## Current Non-Goals And Blocked Claims
 
-- No ownership backfill is approved.
-- No access-check switch is approved.
+- No ungated ownership backfill is approved.
+- No access-check switch or enforced Access-Switch mode is approved.
 - No existing source asset ownership metadata rewrite is approved.
 - No organization ownership claim is approved for old rows.
 - No confirmed legacy media reset/deletion is approved.
@@ -73,7 +76,7 @@ npm run dry-run:tenant-assets:images
 npm run test:tenant-assets
 ```
 
-These commands are local/source/fixture checks. They do not call live endpoints, deploy, mutate D1/R2, run backfills, or switch access checks.
+These commands are local/source/fixture checks. They do not call live endpoints, deploy, mutate production D1/R2, run live backfills, or switch live access checks. Admin evidence exports and dry-runs are operator aids only.
 
 ## Next Audit Starting Point
 

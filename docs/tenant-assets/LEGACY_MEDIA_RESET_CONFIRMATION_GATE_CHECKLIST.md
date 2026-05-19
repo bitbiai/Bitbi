@@ -1,12 +1,14 @@
 # Legacy Media Reset Confirmation Gate Checklist
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 Purpose: define the evidence gate that must pass before any later confirmed legacy media reset execution phase can be proposed.
 
 This checklist does not authorize deletion. Confirmed reset execution must be a separate explicitly approved phase. Prior live/main executor dry-run evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json` contained a raw idempotency key, the raw JSON is absent from the current checkout, and no sanitized replacement is accepted. The gate remains closed.
 
 Runtime safety note: confirmed execution is also hard-disabled by default in the Auth Worker unless optional env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly `true` or boolean `true`. Absence of the gate is the expected safe posture and must not block normal dry-run/reporting use.
+
+Admin control-plane note: the Tenant Isolation Execution panel now shows Legacy Media Reset beside Ownership Backfill and Runtime Access-Switch with a visible warning/exclamation marker. The explainer states that reset may retire public references, enqueue cleanup, delete legacy media rows, release storage, and remove media access. The confirmed reset control remains disabled by default while the backend gate is off, sanitized evidence is missing, or Backfill/Access-Switch evidence has not been reviewed.
 
 ## Required Evidence
 
@@ -56,11 +58,13 @@ A future confirmed execution request must include explicit operator acknowledgem
 - Same-origin write protection.
 - `Idempotency-Key` required and not committed raw.
 - `confirm: true` required.
+- Exact typed confirmation `CONFIRMED LEGACY MEDIA RESET` required for `dryRun: false`.
 - Bounded reason required.
 - Latest dry-run evidence confirmed or recomputed by the server.
 - `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` intentionally enabled only for the separately approved confirmation phase.
 - Evidence export captured before execution.
 - Evidence export captured after execution in the later approved phase.
+- Ownership Backfill and Access-Switch evidence reviewed first; reset must not be executed as the first tenant-isolation transition step.
 
 ## Blockers
 

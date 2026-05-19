@@ -1688,6 +1688,12 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.platformBudgetEvidenceArchiveCleanupRequests = captures.platformBudgetEvidenceArchiveCleanupRequests || [];
   captures.tenantReviewEvidenceExportRequests = captures.tenantReviewEvidenceExportRequests || [];
   captures.tenantAssetDomainEvidenceRequests = captures.tenantAssetDomainEvidenceRequests || [];
+  captures.tenantBackfillDryRunRequests = captures.tenantBackfillDryRunRequests || [];
+  captures.tenantBackfillExecuteRequests = captures.tenantBackfillExecuteRequests || [];
+  captures.tenantAccessSwitchStatusRequests = captures.tenantAccessSwitchStatusRequests || [];
+  captures.tenantAccessSwitchShadowRequests = captures.tenantAccessSwitchShadowRequests || [];
+  captures.tenantIsolationEvidenceExportRequests = captures.tenantIsolationEvidenceExportRequests || [];
+  captures.tenantLegacyResetStatusRequests = captures.tenantLegacyResetStatusRequests || [];
   captures.legacyResetDryRunExportRequests = captures.legacyResetDryRunExportRequests || [];
   captures.tenantReviewStatusUpdateRequests = captures.tenantReviewStatusUpdateRequests || [];
   captures.lifecyclePlanRequests = captures.lifecyclePlanRequests || [];
@@ -2164,6 +2170,148 @@ async function mockAdminControlPlane(page, captures = {}) {
         ],
         limitations: ['No live R2 listing.', 'No backfill/access-switch/reset approval.'],
       },
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/ownership-backfill\/dry-run(?:\?.*)?$/, async (route) => {
+    captures.tenantBackfillDryRunRequests.push({ url: route.request().url() });
+    await fulfillJson(route, {
+      ok: true,
+      report: {
+        reportVersion: 'tenant-isolation-ownership-backfill-v1',
+        generatedAt: '2026-05-19T12:00:00.000Z',
+        source: 'local_d1_read_only',
+        productionReadiness: 'blocked',
+        tenantIsolationClaimed: false,
+        ownershipBackfillReadiness: 'blocked_until_operator_evidence_review',
+        backfillPerformed: false,
+        d1Mutated: false,
+        r2LiveListed: false,
+        r2ObjectsMutated: false,
+        requiredExecutionConfirmation: 'BACKFILL OWNERSHIP',
+        summary: {
+          totalCandidates: 4,
+          safeCandidates: 2,
+          classifications: {
+            safe_to_backfill: 2,
+            needs_manual_review: 1,
+            blocked_public_unsafe: 1,
+            blocked_missing_evidence: 0,
+            already_owned: 3,
+          },
+        },
+        candidates: [
+          { domain: 'ai_folders', assetId: 'folder-missing', classification: 'safe_to_backfill', reason: 'legacy_user_id_can_seed_personal_owner' },
+          { domain: 'ai_images', assetId: 'image-private', classification: 'safe_to_backfill', reason: 'private_image_legacy_user_can_seed_personal_owner' },
+          { domain: 'ai_images', assetId: 'image-public', classification: 'blocked_public_unsafe', reason: 'public_gallery_reference_requires_review' },
+        ],
+        warnings: ['Dry-run only: no ownership metadata was written.'],
+      },
+    });
+  });
+  await page.route('**/api/admin/tenant-assets/ownership-backfill/execute', async (route) => {
+    const request = route.request();
+    const body = request.postDataJSON();
+    captures.tenantBackfillExecuteRequests.push({
+      body,
+      idempotencyKey: request.headers()['idempotency-key'],
+    });
+    await fulfillJson(route, {
+      ok: true,
+      backfill: {
+        dryRun: body.dryRun !== false,
+        executionMode: body.dryRun === false ? 'safe_rows_only' : 'dry_run_only',
+        rowsConsidered: 2,
+        rowsWritten: body.dryRun === false ? 2 : 0,
+        rowsBlocked: 2,
+        accessChecksChanged: false,
+        r2LiveListed: false,
+        r2ObjectsMutated: false,
+        tenantIsolationClaimed: false,
+        productionReadiness: 'blocked',
+      },
+    });
+  });
+  await page.route('**/api/admin/tenant-assets/access-switch/status', async (route) => {
+    captures.tenantAccessSwitchStatusRequests.push({ url: route.request().url() });
+    await fulfillJson(route, {
+      ok: true,
+      status: {
+        reportVersion: 'tenant-isolation-access-switch-status-v1',
+        generatedAt: '2026-05-19T12:01:00.000Z',
+        currentMode: 'off',
+        sourceOfTruth: 'legacy_user_id_runtime_access_checks',
+        runtimeSwitchRepoSupported: false,
+        liveSwitchEnabled: false,
+        tenantIsolationClaimed: false,
+        productionReadiness: 'blocked',
+        mismatchCounts: { unsafe: 2, manualReview: 1, metadataMissing: 3 },
+        disabledActions: {
+          enforced: 'Enforced access-switch is blocked in static mock.',
+        },
+      },
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/access-switch\/shadow-diagnostics(?:\?.*)?$/, async (route) => {
+    captures.tenantAccessSwitchShadowRequests.push({ url: route.request().url() });
+    await fulfillJson(route, {
+      ok: true,
+      report: {
+        reportVersion: 'tenant-isolation-access-switch-shadow-v1',
+        generatedAt: '2026-05-19T12:02:00.000Z',
+        currentMode: 'off',
+        runtimeBehaviorChanged: false,
+        accessChecksChanged: false,
+        r2LiveListed: false,
+        r2ObjectsMutated: false,
+        tenantIsolationClaimed: false,
+        productionReadiness: 'blocked',
+        summary: {
+          mismatchCount: 3,
+          foldersWithNullOwnershipMetadata: 1,
+          imagesWithNullOwnershipMetadata: 2,
+          enforcedModeAllowed: false,
+        },
+        samples: [
+          { domain: 'ai_images', mismatchType: 'metadata_missing', reason: 'ownership_metadata_missing' },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/admin/tenant-assets/legacy-media-reset/status', async (route) => {
+    captures.tenantLegacyResetStatusRequests.push({ url: route.request().url() });
+    await fulfillJson(route, {
+      ok: true,
+      status: {
+        reportVersion: 'tenant-isolation-legacy-media-reset-status-v1',
+        generatedAt: '2026-05-19T12:03:00.000Z',
+        dryRunAvailable: true,
+        confirmedExecutionGate: {
+          name: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION',
+          enabled: false,
+          valueExposed: false,
+        },
+        sanitizedEvidenceStatus: 'pending_blocking',
+        confirmedReadiness: 'blocked',
+        dangerousOperationsApproved: false,
+        productionReadiness: 'blocked',
+        tenantIsolationClaimed: false,
+      },
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/(ownership-backfill\/evidence|access-switch\/evidence|legacy-media-reset\/evidence|tenant-isolation\/evidence)(?:\?.*)?$/, async (route) => {
+    captures.tenantIsolationEvidenceExportRequests.push({ url: route.request().url() });
+    const url = new URL(route.request().url());
+    const format = url.searchParams.get('format') || 'json';
+    const contentType = format === 'html' ? 'text/html' : format === 'markdown' ? 'text/markdown' : 'application/json';
+    await route.fulfill({
+      status: 200,
+      contentType,
+      headers: {
+        'content-disposition': `attachment; filename="tenant-isolation-static.${format === 'markdown' ? 'md' : format}"`,
+      },
+      body: format === 'json'
+        ? JSON.stringify({ ok: true, tenantIsolationClaimed: false, productionReadiness: 'blocked' })
+        : 'Tenant Isolation Execution Evidence\nTenant isolation claimed: no\nProduction readiness: blocked\n',
     });
   });
   await page.route('**/api/admin/users/*/storage/reconciliation', async (route) => {
@@ -10156,7 +10304,7 @@ test.describe('Admin Control Plane', () => {
     await mockAdminAiLab(page);
   });
 
-  test('renders command center and major admin sections from existing APIs', async ({
+  test('renders command center, tenant isolation execution, and major admin sections from existing APIs', async ({
     page,
   }) => {
     const captures = {};
@@ -10529,7 +10677,57 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionTenantAssets')).toContainText('Access switch');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Live R2 listing/deletion');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Reconciliation dry-run');
-    await expect(page.locator('#sectionTenantAssets').getByRole('button', { name: /enable|execute|backfill|access switch|confirmed reset|delete|list live r2/i })).toHaveCount(0);
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Isolation Execution');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Dangerous operations');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('No production readiness claim');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant isolation not claimed');
+    await page.getByRole('button', { name: 'Ownership Backfill danger explanation' }).click();
+    let dangerDialog = page.getByRole('dialog', { name: /Ownership Backfill danger explanation/i });
+    await expect(dangerDialog).toContainText('What changes');
+    await expect(dangerDialog).toContainText('BACKFILL OWNERSHIP');
+    await expect(dangerDialog).toContainText('Affected domains');
+    await dangerDialog.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Runtime Access-Switch danger explanation' }).click();
+    dangerDialog = page.getByRole('dialog', { name: /Runtime Access-Switch danger explanation/i });
+    await expect(dangerDialog).toContainText('which ownership signal runtime reads use');
+    await expect(dangerDialog).toContainText('ENABLE ACCESS SWITCH');
+    await dangerDialog.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Legacy Media Reset danger explanation' }).click();
+    dangerDialog = page.getByRole('dialog', { name: /Legacy Media Reset danger explanation/i });
+    await expect(dangerDialog).toContainText('CONFIRMED LEGACY MEDIA RESET');
+    await expect(dangerDialog).toContainText('retire public references');
+    await dangerDialog.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Run Backfill Dry-run' }).click();
+    await expect(page.locator('#tenantIsolationBackfillState')).toContainText('Dry-run loaded');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('safe to backfill');
+    await expect(page.getByRole('button', { name: 'Write Safe Ownership Metadata' })).toBeDisabled();
+    await page.locator('#tenantBackfillReason').fill('Static tenant isolation backfill evidence test');
+    await page.locator('#tenantBackfillConfirmation').fill('BACKFILL OWNERSHIP');
+    await page.getByRole('button', { name: 'Execute Endpoint Dry-run' }).click();
+    await expect.poll(() => captures.tenantBackfillExecuteRequests.length).toBe(1);
+    expect(captures.tenantBackfillExecuteRequests[0].idempotencyKey).toMatch(/^tenant-ownership-backfill-/);
+    expect(captures.tenantBackfillExecuteRequests[0].body).toMatchObject({
+      dryRun: true,
+      confirm: true,
+      confirmation: 'BACKFILL OWNERSHIP',
+      reason: 'Static tenant isolation backfill evidence test',
+    });
+    page.once('dialog', (dialog) => {
+      expect(dialog.message()).toContain('does not switch access checks');
+      dialog.accept();
+    });
+    await page.getByRole('button', { name: 'Write Safe Ownership Metadata' }).click();
+    await expect.poll(() => captures.tenantBackfillExecuteRequests.length).toBe(2);
+    expect(captures.tenantBackfillExecuteRequests[1].body.dryRun).toBe(false);
+    await page.getByRole('button', { name: 'Run Shadow Diagnostics' }).click();
+    await expect(page.locator('#tenantIsolationAccessState')).toContainText('Shadow diagnostics completed');
+    await expect(page.getByRole('button', { name: 'Enable Enforced Access-Switch' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Confirmed Execute Reset' })).toBeDisabled();
+    await expect(page.locator('#tenantIsolationResetState')).toContainText('Legacy reset status loaded');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('gate disabled');
+    await page.getByRole('button', { name: 'Export Combined Markdown' }).click();
+    await expect.poll(() => captures.tenantIsolationEvidenceExportRequests.some((entry) => entry.url.includes('tenant-isolation/evidence') && entry.url.includes('format=markdown'))).toBe(true);
+    await expect(page.locator('#sectionTenantAssets').getByRole('button', { name: /list live r2|delete live|enable live billing|deploy|remote migration/i })).toHaveCount(0);
     expect(captures.tenantAssetDomainEvidenceRequests).toHaveLength(1);
 
     await clickAdminNavSection(page, 'readiness');

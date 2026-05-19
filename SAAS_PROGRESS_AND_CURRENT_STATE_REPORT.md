@@ -16,7 +16,7 @@ This report is not production readiness, live billing readiness, legal complianc
 | Operations | Release plan/preflight, final RC matrix/Go-No-Go manifest, Auth/AI compatibility checks, readiness checks, production execution dossier, Cloudflare resource model, rollback drill, incident runbooks, Operator Timeline/Triage, evidence index tooling, restore guidance, and evidence templates exist; live evidence remains incomplete. |
 | Billing | Credit ledgers, guarded Stripe scaffolding, read-only billing evidence status, canary skeleton tooling, review queue, and reconciliation exist; live billing readiness remains blocked. |
 | AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
-| Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Reset dry-run/executor foundations exist; confirmed reset is hard-disabled by default and remains blocked. |
+| Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist. Admin Tenant Isolation Execution now exposes warning-gated Backfill dry-run/execution controls, Access-Switch shadow diagnostics, and Legacy Reset status/evidence controls. Reset confirmed execution is hard-disabled by default and remains blocked. |
 | Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, safe executor foundations, final completion, close/reject, retained-category evidence, and JSON/Markdown/HTML evidence exports exist; completion remains evidence/policy-controlled and is not automatic legal advice. |
 | Admin UX | Admin Control Plane exposes implemented operator panels, including readiness/evidence status and production execution command copy, without proving production readiness. |
 
@@ -31,13 +31,14 @@ This report is not production readiness, live billing readiness, legal complianc
 - Release Candidate tooling can generate `npm run release:rc` / `npm run release:rc:markdown` and the plan-only `npm run rc:check` final validation matrix. It supports code-merge/deploy preparation only and keeps production readiness blocked.
 - Admin/platform AI budget controls include classified-route metadata, caller-policy compatibility checks, Cloudflare master switches, D1 app switches, selected platform caps, read-only reconciliation, explicit repair actions, evidence reports, and archive tooling.
 - Tenant asset tooling includes folder/image owner-map evidence, nullable ownership metadata, manual-review import/read/status/Admin visibility, reset dry-run/reporting, and reset action tracking/executor endpoints.
+- Tenant Isolation Execution tooling adds visible danger explainers, redacted evidence export, exact confirmation guidance, and disabled reasons for Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset. It does not list/mutate live R2, change runtime access decisions, execute reset, or claim tenant isolation.
 
 ## Current Blockers
 
 - Production readiness is blocked until live/manual Cloudflare, Worker, D1/R2/Queue/DO, health, header, alert, restore, rollback, and Stripe evidence is recorded.
 - Cloudflare resource model output is repo-declared evidence only until operator live evidence is attached for resources, secrets by presence, dashboard-managed WAF/static headers/RUM/alerts/custom domains, and deployment state.
 - Live billing readiness is blocked until bounded canaries, Stripe dashboard/webhook evidence, verified no-credit-before-webhook behavior, invoice/payment evidence, and approved remediation/accounting/legal workflows exist.
-- Tenant isolation is not claimed; existing legacy asset rows are not backfilled and access checks have not switched to ownership metadata.
+- Tenant isolation is not claimed; existing legacy asset rows are not globally backfilled and access checks have not switched to ownership metadata. Backfill dry-run and strictly gated safe-row execution exist for reviewed folder/image rows only, while Access-Switch enforcement remains blocked pending shadow evidence and durable switch policy.
 - Confirmed legacy media reset is blocked because the dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout and no sanitized replacement evidence is present.
 - Manual-review evidence still lacks import replay, import conflict, standalone successful status-update, status replay, and status conflict evidence.
 - Operator timeline/evidence index output is triage support only. It does not approve live billing, production readiness, tenant isolation, ownership backfill, access switching, or confirmed reset.

@@ -580,6 +580,77 @@ export function apiAdminTenantAssetDomainEvidence(options) {
     return request('GET', '/admin/tenant-assets/domains/evidence', undefined, options);
 }
 
+export function apiAdminOwnershipBackfillDryRun({ limit = 50, includeDetails = true } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    params.set('includeDetails', includeDetails === false ? 'false' : 'true');
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/tenant-assets/ownership-backfill/dry-run' + qs, undefined, options);
+}
+
+export function apiAdminOwnershipBackfillExecute(payload = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/tenant-assets/ownership-backfill/execute', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminAccessSwitchStatus(options) {
+    return request('GET', '/admin/tenant-assets/access-switch/status', undefined, options);
+}
+
+export function apiAdminAccessSwitchShadowDiagnostics({ limit = 50 } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/tenant-assets/access-switch/shadow-diagnostics' + qs, undefined, options);
+}
+
+export function apiAdminLegacyMediaResetStatus(options) {
+    return request('GET', '/admin/tenant-assets/legacy-media-reset/status', undefined, options);
+}
+
+export async function apiAdminTenantIsolationEvidenceExport({
+    scope = 'combined',
+    format = 'json',
+    limit = 50,
+} = {}, options = {}) {
+    const params = new URLSearchParams();
+    params.set('format', format);
+    params.set('limit', String(limit || 50));
+    const paths = {
+        backfill: '/admin/tenant-assets/ownership-backfill/evidence',
+        access: '/admin/tenant-assets/access-switch/evidence',
+        reset: '/admin/tenant-assets/legacy-media-reset/evidence',
+        combined: '/admin/tenant-assets/tenant-isolation/evidence',
+    };
+    const exportPath = paths[scope] || paths.combined;
+    try {
+        const res = await fetch(BASE + exportPath + '?' + params, {
+            method: 'GET',
+            credentials: 'include',
+            headers: options.headers || {},
+        });
+        const text = await res.text();
+        if (res.ok) {
+            return {
+                ok: true,
+                text,
+                status: res.status,
+                contentType: res.headers.get('content-type') || '',
+                filename: res.headers.get('content-disposition') || '',
+            };
+        }
+        let data = null;
+        try { data = JSON.parse(text); } catch { data = null; }
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
+}
+
 export async function apiAdminLegacyMediaResetDryRunExport({
     format = 'json',
     limit = 50,

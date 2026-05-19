@@ -6800,6 +6800,96 @@ class MockD1 {
       row.asset_owner_type && row.ownership_status && (row.owning_user_id || row.owning_organization_id)
     );
 
+    if (query === 'SELECT id, user_id, folder_id, visibility, published_at, asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id, ownership_status, ownership_source, ownership_confidence, ownership_assigned_at, created_at FROM ai_images ORDER BY created_at DESC, id DESC LIMIT ?') {
+      const [limit] = bindings;
+      const rows = this.state.aiImages
+        .slice()
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, Number(limit) || 50)
+        .map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          folder_id: row.folder_id ?? null,
+          visibility: row.visibility ?? 'private',
+          published_at: row.published_at ?? null,
+          asset_owner_type: row.asset_owner_type ?? null,
+          owning_user_id: row.owning_user_id ?? null,
+          owning_organization_id: row.owning_organization_id ?? null,
+          created_by_user_id: row.created_by_user_id ?? null,
+          ownership_status: row.ownership_status ?? null,
+          ownership_source: row.ownership_source ?? null,
+          ownership_confidence: row.ownership_confidence ?? null,
+          ownership_assigned_at: row.ownership_assigned_at ?? null,
+          created_at: row.created_at,
+        }));
+      return { results: rows };
+    }
+
+    if (query.startsWith('UPDATE ai_folders SET asset_owner_type = ?, owning_user_id = ?, owning_organization_id = ?, created_by_user_id = ?, ownership_status = ?, ownership_source = ?, ownership_confidence = ?, ownership_metadata_json = ?, ownership_assigned_at = ? WHERE id = ? AND user_id = ?')) {
+      const [
+        assetOwnerType,
+        owningUserId,
+        owningOrganizationId,
+        createdByUserId,
+        ownershipStatus,
+        ownershipSource,
+        ownershipConfidence,
+        ownershipMetadataJson,
+        ownershipAssignedAt,
+        folderId,
+        userId,
+      ] = bindings;
+      const row = this.state.aiFolders.find((item) => item.id === folderId && item.user_id === userId);
+      if (!row || hasOwnershipMetadata(row)) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        asset_owner_type: assetOwnerType,
+        owning_user_id: owningUserId,
+        owning_organization_id: owningOrganizationId,
+        created_by_user_id: createdByUserId,
+        ownership_status: ownershipStatus,
+        ownership_source: ownershipSource,
+        ownership_confidence: ownershipConfidence,
+        ownership_metadata_json: ownershipMetadataJson,
+        ownership_assigned_at: ownershipAssignedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_images SET asset_owner_type = ?, owning_user_id = ?, owning_organization_id = ?, created_by_user_id = ?, ownership_status = ?, ownership_source = ?, ownership_confidence = ?, ownership_metadata_json = ?, ownership_assigned_at = ? WHERE id = ? AND user_id = ? AND COALESCE(visibility, 'private') != 'public'")) {
+      const [
+        assetOwnerType,
+        owningUserId,
+        owningOrganizationId,
+        createdByUserId,
+        ownershipStatus,
+        ownershipSource,
+        ownershipConfidence,
+        ownershipMetadataJson,
+        ownershipAssignedAt,
+        imageId,
+        userId,
+      ] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      if (!row || hasOwnershipMetadata(row) || String(row.visibility || 'private') === 'public') {
+        return { success: true, meta: { changes: 0 } };
+      }
+      Object.assign(row, {
+        asset_owner_type: assetOwnerType,
+        owning_user_id: owningUserId,
+        owning_organization_id: owningOrganizationId,
+        created_by_user_id: createdByUserId,
+        ownership_status: ownershipStatus,
+        ownership_source: ownershipSource,
+        ownership_confidence: ownershipConfidence,
+        ownership_metadata_json: ownershipMetadataJson,
+        ownership_assigned_at: ownershipAssignedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === 'SELECT COUNT(*) AS total FROM ai_folders') {
       return { total: this.state.aiFolders.length };
     }

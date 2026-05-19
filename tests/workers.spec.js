@@ -1622,6 +1622,228 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(markdown).not.toContain('raw prompt should never be reported');
   });
 
+  test('tenant isolation execution control plane gates backfill, access switch, and reset evidence', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    env.DB.state.aiImages.push({
+      id: 'image-private-backfill-safe',
+      user_id: 'tenant-legacy-user',
+      folder_id: null,
+      visibility: 'private',
+      r2_key: 'users/tenant-legacy-user/private/should-not-render.png',
+      prompt: 'tenant isolation prompt should not render',
+      created_at: '2026-05-17T09:30:00.000Z',
+    });
+    const beforeR2ListCalls = env.USER_IMAGES.listCalls.length;
+    const beforeR2DeleteCalls = env.USER_IMAGES.deleteCalls.length;
+    const beforePublicImage = JSON.stringify(env.DB.state.aiImages.find((row) => row.id === 'image-public-missing'));
+
+    const dryRun = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/ownership-backfill/dry-run?limit=10&includeDetails=true', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRun.status).toBe(200);
+    const dryRunBody = await dryRun.json();
+    expect(dryRunBody.report).toMatchObject({
+      available: true,
+      backfillPerformed: false,
+      d1Mutated: false,
+      r2LiveListed: false,
+      tenantIsolationClaimed: false,
+      productionReadiness: 'blocked',
+      requiredExecutionConfirmation: 'BACKFILL OWNERSHIP',
+    });
+    expect(dryRunBody.report.summary.classifications.safe_to_backfill).toBeGreaterThanOrEqual(2);
+    expect(dryRunBody.report.summary.classifications.blocked_public_unsafe).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(dryRunBody)).not.toContain('should-not-render.png');
+    expect(JSON.stringify(dryRunBody)).not.toContain('tenant isolation prompt should not render');
+
+    const missingKey = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/ownership-backfill/execute',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'BACKFILL OWNERSHIP',
+          reason: 'local dry-run only',
+        },
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+
+    const wrongConfirmation = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/ownership-backfill/execute',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'BACKFILL',
+          reason: 'local dry-run only',
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-backfill-wrong-confirmation-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(wrongConfirmation.status).toBe(400);
+
+    const dryExecute = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/ownership-backfill/execute',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'BACKFILL OWNERSHIP',
+          reason: 'local execution endpoint dry-run only',
+          batchLimit: 10,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-backfill-dry-run-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryExecute.status).toBe(200);
+    const dryExecuteBody = await dryExecute.json();
+    expect(dryExecuteBody.backfill).toMatchObject({
+      dryRun: true,
+      executionMode: 'dry_run_only',
+      rowsWritten: 0,
+      accessChecksChanged: false,
+      r2LiveListed: false,
+      tenantIsolationClaimed: false,
+    });
+    expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing').ownership_status).toBeNull();
+
+    const execute = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/ownership-backfill/execute',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'BACKFILL OWNERSHIP',
+          reason: 'local safe ownership backfill for fixture rows',
+          domains: ['ai_folders', 'ai_images'],
+          batchLimit: 10,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-backfill-execute-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(execute.status).toBe(200);
+    const executeBody = await execute.json();
+    expect(executeBody.backfill).toMatchObject({
+      dryRun: false,
+      executionMode: 'safe_rows_only',
+      accessChecksChanged: false,
+      r2LiveListed: false,
+      r2ObjectsMutated: false,
+      tenantIsolationClaimed: false,
+      productionReadiness: 'blocked',
+    });
+    expect(executeBody.backfill.rowsWritten).toBeGreaterThanOrEqual(2);
+    expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing')).toMatchObject({
+      asset_owner_type: 'personal_user_asset',
+      owning_user_id: 'tenant-legacy-user',
+      ownership_status: 'current',
+      ownership_source: 'legacy_default',
+      ownership_confidence: 'medium',
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === 'image-private-backfill-safe')).toMatchObject({
+      asset_owner_type: 'personal_user_asset',
+      owning_user_id: 'tenant-legacy-user',
+      ownership_status: 'current',
+      ownership_source: 'legacy_default',
+      ownership_confidence: 'medium',
+    });
+    expect(JSON.stringify(env.DB.state.aiImages.find((row) => row.id === 'image-public-missing'))).toBe(beforePublicImage);
+    expect(env.USER_IMAGES.listCalls.length).toBe(beforeR2ListCalls);
+    expect(env.USER_IMAGES.deleteCalls.length).toBe(beforeR2DeleteCalls);
+    expect(JSON.stringify(executeBody)).not.toContain('tenant-backfill-execute-001');
+    expect(JSON.stringify(executeBody)).not.toContain('should-not-render.png');
+
+    const accessStatus = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/access-switch/status', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(accessStatus.status).toBe(200);
+    const accessStatusBody = await accessStatus.json();
+    expect(accessStatusBody.status).toMatchObject({
+      currentMode: 'off',
+      runtimeSwitchRepoSupported: false,
+      liveSwitchEnabled: false,
+      tenantIsolationClaimed: false,
+      productionReadiness: 'blocked',
+    });
+
+    const shadow = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/access-switch/shadow-diagnostics?limit=10', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(shadow.status).toBe(200);
+    const shadowBody = await shadow.json();
+    expect(shadowBody.report).toMatchObject({
+      currentMode: 'off',
+      runtimeBehaviorChanged: false,
+      accessChecksChanged: false,
+      tenantIsolationClaimed: false,
+      productionReadiness: 'blocked',
+    });
+    expect(shadowBody.report.summary.enforcedModeAllowed).toBe(false);
+
+    const accessEvidence = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/access-switch/evidence?format=html&limit=10', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(accessEvidence.status).toBe(200);
+    expect(accessEvidence.headers.get('content-type')).toContain('text/html');
+    const accessHtml = await accessEvidence.text();
+    expect(accessHtml).toContain('Access-Switch Evidence');
+    expect(accessHtml).not.toContain('should-not-render.png');
+
+    const resetStatus = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/legacy-media-reset/status', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(resetStatus.status).toBe(200);
+    const resetStatusBody = await resetStatus.json();
+    expect(resetStatusBody.status).toMatchObject({
+      dryRunAvailable: true,
+      sanitizedEvidenceStatus: 'pending_blocking',
+      confirmedReadiness: 'blocked',
+      dangerousOperationsApproved: false,
+      tenantIsolationClaimed: false,
+      productionReadiness: 'blocked',
+    });
+    expect(resetStatusBody.status.confirmedExecutionGate).toMatchObject({
+      name: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION',
+      enabled: false,
+      valueExposed: false,
+    });
+
+    const combinedEvidence = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/tenant-isolation/evidence?format=markdown&limit=10', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(combinedEvidence.status).toBe(200);
+    const markdown = await combinedEvidence.text();
+    expect(markdown).toContain('Tenant Isolation Execution Evidence');
+    expect(markdown).toContain('Tenant isolation claimed: no');
+    expect(markdown).not.toContain('should-not-render.png');
+  });
+
   test('missing ownership tables return safe unavailable evidence status', async () => {
     const { authWorker, env, authHeaders } = await createTenantEvidenceHarness({
       missingTables: ['ai_images'],
@@ -2970,6 +3192,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
         {
           dryRun: false,
           confirm: true,
+          confirmation: 'CONFIRMED LEGACY MEDIA RESET',
           reason: 'approved local test reset only',
           acknowledgeNoCreditRefund: true,
           acknowledgeIrreversibleDeletion: true,
@@ -3022,6 +3245,26 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     const publicAckHarness = await createTenantEvidenceHarness({
       legacyMediaResetConfirmedExecutionGate: 'true',
     });
+    const missingPhrase = await publicAckHarness.authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/legacy-media-reset/execute',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          reason: 'approved local test reset only',
+          acknowledgeNoCreditRefund: true,
+          acknowledgeIrreversibleDeletion: true,
+          acknowledgePublicContentRemoval: true,
+        },
+        { ...publicAckHarness.authHeaders, 'Idempotency-Key': 'legacy-reset-precondition-phrase-001' }
+      ),
+      publicAckHarness.env,
+      createExecutionContext().execCtx
+    );
+    expect(missingPhrase.status).toBe(400);
+    expect((await missingPhrase.json()).code).toBe('tenant_asset_legacy_media_reset_confirmation_phrase_required');
+
     const missingPublicAck = await publicAckHarness.authWorker.fetch(
       authJsonRequest(
         '/api/admin/tenant-assets/legacy-media-reset/execute',
@@ -3029,6 +3272,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
         {
           dryRun: false,
           confirm: true,
+          confirmation: 'CONFIRMED LEGACY MEDIA RESET',
           reason: 'approved local test reset only',
           acknowledgeNoCreditRefund: true,
           acknowledgeIrreversibleDeletion: true,
@@ -3091,6 +3335,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
           {
             dryRun: false,
             confirm: true,
+            confirmation: 'CONFIRMED LEGACY MEDIA RESET',
             limit: 10,
             reason: 'should be blocked before any reset mutation',
             domains: ['ai_images', 'ai_folders', 'ai_image_derivatives', 'public_gallery_references'],
@@ -3173,6 +3418,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     const requestBody = {
       dryRun: false,
       confirm: true,
+      confirmation: 'CONFIRMED LEGACY MEDIA RESET',
       limit: 10,
       reason: 'retire first-pass legacy media rows in local harness only',
       domains: ['ai_images', 'ai_folders', 'ai_image_derivatives', 'public_gallery_references'],
@@ -4224,6 +4470,73 @@ test.describe('Phase 1-E auth route policy registry', () => {
       csrf: 'safe-method',
       rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-evidence-ip', failClosed: true }),
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/ownership-backfill/dry-run')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.ownership-backfill.dry-run',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-evidence-ip', failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/ownership-backfill/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.ownership-backfill.evidence',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/tenant-assets/ownership-backfill/execute')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.ownership-backfill.execute',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json' }),
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-isolation-execution-ip', failClosed: true }),
+      notes: expect.stringContaining('BACKFILL OWNERSHIP'),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/access-switch/status')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.access-switch.status',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/access-switch/shadow-diagnostics')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.access-switch.shadow-diagnostics',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/access-switch/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.access-switch.evidence',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/status')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.status',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.legacy-media-reset.evidence',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/tenant-isolation/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.tenant-isolation.evidence',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      sensitivity: 'high',
+      csrf: 'safe-method',
     }));
     expect(getRoutePolicy('GET', '/api/admin/tenant-assets/legacy-media-reset/dry-run')).toEqual(expect.objectContaining({
       id: 'admin.tenant-assets.legacy-media-reset.dry-run',

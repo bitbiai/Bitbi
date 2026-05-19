@@ -70,6 +70,29 @@ import {
   TENANT_ASSET_DOMAIN_EVIDENCE_ENDPOINT,
   buildTenantAssetDomainEvidenceReport,
 } from "../lib/tenant-asset-domain-registry.js";
+import {
+  TENANT_ISOLATION_ACCESS_SWITCH_EVIDENCE_ENDPOINT,
+  TENANT_ISOLATION_ACCESS_SWITCH_SHADOW_ENDPOINT,
+  TENANT_ISOLATION_ACCESS_SWITCH_STATUS_ENDPOINT,
+  TENANT_ISOLATION_EXECUTION_EVIDENCE_ENDPOINT,
+  TENANT_ISOLATION_LEGACY_MEDIA_RESET_EVIDENCE_ENDPOINT,
+  TENANT_ISOLATION_LEGACY_MEDIA_RESET_STATUS_ENDPOINT,
+  TENANT_ISOLATION_OWNERSHIP_BACKFILL_DRY_RUN_ENDPOINT,
+  TENANT_ISOLATION_OWNERSHIP_BACKFILL_EVIDENCE_ENDPOINT,
+  TENANT_ISOLATION_OWNERSHIP_BACKFILL_EXECUTE_ENDPOINT,
+  TenantIsolationExecutionError,
+  buildAccessSwitchShadowDiagnostics,
+  buildAccessSwitchStatus,
+  buildLegacyMediaResetEvidence,
+  buildLegacyMediaResetStatus,
+  buildOwnershipBackfillDryRunReport,
+  buildTenantIsolationEvidencePacket,
+  executeOwnershipBackfill,
+  exportTenantIsolationEvidenceHtml,
+  exportTenantIsolationEvidenceJson,
+  exportTenantIsolationEvidenceMarkdown,
+  tenantIsolationOptionsFromSearch,
+} from "../lib/tenant-isolation-execution.js";
 import { withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
 
 const TENANT_ASSET_EVIDENCE_RATE_LIMIT = "admin-tenant-asset-evidence-ip";
@@ -77,6 +100,7 @@ const TENANT_ASSET_MANUAL_REVIEW_IMPORT_RATE_LIMIT = "admin-tenant-asset-manual-
 const TENANT_ASSET_MANUAL_REVIEW_QUEUE_RATE_LIMIT = "admin-tenant-asset-manual-review-queue-ip";
 const TENANT_ASSET_MANUAL_REVIEW_STATUS_RATE_LIMIT = "admin-tenant-asset-manual-review-status-ip";
 const TENANT_ASSET_LEGACY_MEDIA_RESET_RATE_LIMIT = "admin-tenant-asset-legacy-media-reset-ip";
+const TENANT_ISOLATION_EXECUTION_RATE_LIMIT = "admin-tenant-isolation-execution-ip";
 
 async function enforceTenantAssetEvidenceRateLimit(ctx) {
   const result = await evaluateSharedRateLimit(
@@ -168,6 +192,24 @@ async function enforceTenantAssetLegacyMediaResetRateLimit(ctx) {
   return null;
 }
 
+async function enforceTenantIsolationExecutionRateLimit(ctx) {
+  const result = await evaluateSharedRateLimit(
+    ctx.env,
+    TENANT_ISOLATION_EXECUTION_RATE_LIMIT,
+    getClientIp(ctx.request),
+    10,
+    900_000,
+    sensitiveRateLimitOptions({
+      component: "admin-tenant-isolation-execution",
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
+  );
+  if (result.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
+  if (result.limited) return rateLimitResponse();
+  return null;
+}
+
 function evidenceErrorResponse(error, correlationId) {
   if (error instanceof TenantAssetEvidenceReportError) {
     return withCorrelationId(json({
@@ -218,6 +260,18 @@ function manualReviewStatusErrorResponse(error, correlationId) {
 
 function legacyMediaResetErrorResponse(error, correlationId) {
   if (error instanceof TenantAssetLegacyMediaResetError) {
+    return withCorrelationId(json({
+      ok: false,
+      error: error.message,
+      code: error.code,
+      fields: error.fields,
+    }, { status: error.status }), correlationId);
+  }
+  throw error;
+}
+
+function tenantIsolationErrorResponse(error, correlationId) {
+  if (error instanceof TenantIsolationExecutionError) {
     return withCorrelationId(json({
       ok: false,
       error: error.message,
@@ -353,6 +407,46 @@ function legacyMediaResetActionEvidenceExportResponse(report, { format, correlat
   }), correlationId);
 }
 
+function tenantIsolationEvidenceExportResponse(report, { format, correlationId, filenamePrefix = "tenant-isolation-evidence", title = "Tenant Isolation Execution Evidence" }) {
+  const safeGenerated = String(report.generatedAt || new Date().toISOString())
+    .replace(/[^0-9A-Za-z.-]/g, "-")
+    .slice(0, 40);
+  if (format === "markdown") {
+    return withCorrelationId(new Response(exportTenantIsolationEvidenceMarkdown(report, { title }), {
+      status: 200,
+      headers: {
+        "content-type": "text/markdown; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "content-disposition": `attachment; filename="${filenamePrefix}-${safeGenerated}.md"`,
+      },
+    }), correlationId);
+  }
+  if (format === "html") {
+    return withCorrelationId(new Response(exportTenantIsolationEvidenceHtml(report, { title }), {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "content-disposition": `attachment; filename="${filenamePrefix}-${safeGenerated}.html"`,
+      },
+    }), correlationId);
+  }
+  return withCorrelationId(new Response(exportTenantIsolationEvidenceJson(report), {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "content-disposition": `attachment; filename="${filenamePrefix}-${safeGenerated}.json"`,
+    },
+  }), correlationId);
+}
+
 export async function handleAdminTenantAssets(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
   if (!pathname.startsWith("/api/admin/tenant-assets/")) {
@@ -367,6 +461,166 @@ export async function handleAdminTenantAssets(ctx) {
     if (limited) return limited;
     const report = await buildTenantAssetDomainEvidenceReport(env);
     return withCorrelationId(json({ ok: true, report }), correlationId);
+  }
+
+  if (pathname === TENANT_ISOLATION_OWNERSHIP_BACKFILL_DRY_RUN_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetEvidenceRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const report = await buildOwnershipBackfillDryRunReport(env, tenantIsolationOptionsFromSearch(url.searchParams));
+      return withCorrelationId(json({ ok: true, report }), correlationId);
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ISOLATION_OWNERSHIP_BACKFILL_EVIDENCE_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetEvidenceRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const options = tenantIsolationOptionsFromSearch(url.searchParams, {
+        format: url.searchParams.get("format") || "json",
+        includeDetails: true,
+      });
+      const report = await buildOwnershipBackfillDryRunReport(env, {
+        ...options,
+        includeDetails: true,
+      });
+      return tenantIsolationEvidenceExportResponse(report, {
+        format: report.options?.format || options.format || "json",
+        correlationId,
+        filenamePrefix: "tenant-isolation-ownership-backfill-evidence",
+        title: "Ownership Backfill Evidence",
+      });
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  // POST /api/admin/tenant-assets/ownership-backfill/execute
+  // route-policy: admin.tenant-assets.ownership-backfill.execute
+  if (pathname === TENANT_ISOLATION_OWNERSHIP_BACKFILL_EXECUTE_ENDPOINT && method === "POST") {
+    const limited = await enforceTenantIsolationExecutionRateLimit(ctx);
+    if (limited) return limited;
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    try {
+      const result = await executeOwnershipBackfill(env, {
+        request: parsed.body,
+        adminUser: admin.user,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+        correlationId,
+        requestInfo: ctx,
+      });
+      return withCorrelationId(json({ ok: true, backfill: result }), correlationId);
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ISOLATION_ACCESS_SWITCH_STATUS_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetEvidenceRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const status = await buildAccessSwitchStatus(env);
+      return withCorrelationId(json({ ok: true, status }), correlationId);
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ISOLATION_ACCESS_SWITCH_SHADOW_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetEvidenceRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const report = await buildAccessSwitchShadowDiagnostics(env, tenantIsolationOptionsFromSearch(url.searchParams));
+      return withCorrelationId(json({ ok: true, report }), correlationId);
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ISOLATION_ACCESS_SWITCH_EVIDENCE_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetEvidenceRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const options = tenantIsolationOptionsFromSearch(url.searchParams, {
+        format: url.searchParams.get("format") || "json",
+      });
+      const [status, shadowDiagnostics] = await Promise.all([
+        buildAccessSwitchStatus(env),
+        buildAccessSwitchShadowDiagnostics(env, options),
+      ]);
+      const report = {
+        ok: true,
+        reportVersion: "tenant-isolation-access-switch-evidence-v1",
+        generatedAt: shadowDiagnostics.generatedAt,
+        productionReadiness: "blocked",
+        tenantIsolationClaimed: false,
+        r2LiveListed: false,
+        r2ObjectsMutated: false,
+        status,
+        shadowDiagnostics,
+      };
+      return tenantIsolationEvidenceExportResponse(report, {
+        format: options.format || "json",
+        correlationId,
+        filenamePrefix: "tenant-isolation-access-switch-evidence",
+        title: "Access-Switch Evidence",
+      });
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ISOLATION_LEGACY_MEDIA_RESET_STATUS_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetLegacyMediaResetRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const status = await buildLegacyMediaResetStatus(env);
+      return withCorrelationId(json({ ok: true, status }), correlationId);
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ISOLATION_LEGACY_MEDIA_RESET_EVIDENCE_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetLegacyMediaResetRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const options = tenantIsolationOptionsFromSearch(url.searchParams, {
+        format: url.searchParams.get("format") || "json",
+        includeDetails: true,
+      });
+      const report = await buildLegacyMediaResetEvidence(env, options);
+      return tenantIsolationEvidenceExportResponse(report, {
+        format: options.format || "json",
+        correlationId,
+        filenamePrefix: "tenant-isolation-legacy-media-reset-evidence",
+        title: "Legacy Media Reset Evidence",
+      });
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ISOLATION_EXECUTION_EVIDENCE_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetEvidenceRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const options = tenantIsolationOptionsFromSearch(url.searchParams, {
+        format: url.searchParams.get("format") || "json",
+      });
+      const report = await buildTenantIsolationEvidencePacket(env, options);
+      return tenantIsolationEvidenceExportResponse(report, {
+        format: options.format || "json",
+        correlationId,
+        filenamePrefix: "tenant-isolation-execution-evidence",
+        title: "Tenant Isolation Execution Evidence",
+      });
+    } catch (error) {
+      return tenantIsolationErrorResponse(error, correlationId);
+    }
   }
 
   if (

@@ -1,8 +1,8 @@
 # Tenant Asset Domain Expansion Roadmap
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current-state roadmap for expanding tenant asset ownership evidence beyond folders/images. This is not approval for backfill, access-switching, confirmed reset, deletion, tenant isolation, live billing, or production readiness.
 
@@ -26,6 +26,7 @@ Purpose: current-state roadmap for expanding tenant asset ownership evidence bey
 - `GET /api/admin/tenant-assets/domains/evidence` provides an admin/MFA read-only cross-domain registry and evidence-readiness report.
 - The Admin Tenant Asset Center renders the domain matrix, blocked claims, evidence template paths, and storage safety guidance.
 - Admin selected-user storage reconciliation is available at `GET /api/admin/users/:id/storage/reconciliation`.
+- Admin Tenant Isolation Execution controls now surface Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset together with warning/exclamation explainers, dry-run/diagnostics, evidence export, exact confirmation requirements, and disabled reasons. This is an operator control plane, not approval to execute in production.
 - These surfaces are bounded, redacted, D1-metadata based, and do not list or mutate R2.
 
 ## Proposed Later Additive Migrations
@@ -40,14 +41,17 @@ Do not add these automatically. Each requires a separate approved migration pack
 
 ## Evidence Required Before Ownership Backfill
 
+- Use the Admin Ownership Backfill dry-run and evidence export first. The write endpoint remains high-risk and requires Admin/MFA, `Idempotency-Key`, reason, explicit domain scope, bounded batch limit, and exact typed confirmation `BACKFILL OWNERSHIP`.
 - Sanitized owner-map evidence for all covered and newly added domains.
 - Manual-review replay/conflict/status-success evidence accepted for the review workflow.
 - Storage reconciliation evidence showing recorded counters, D1 metadata bytes, missing-byte rows, and orphan metadata.
 - Remote migration verification through the current release checkpoint.
 - Operator sign-off that raw private R2 keys, idempotency keys, request hashes, cookies, tokens, and secrets are absent from committed evidence.
+- Unsafe, public, missing-evidence, manual-review, deferred-domain, and legacy-unclassified rows must remain blocked unless separately reviewed and approved.
 
 ## Evidence Required Before Access Switch
 
+- Use the Admin Access-Switch shadow diagnostics before any mode change. The current repo status reports enforced runtime switching as blocked because no durable enforced switch state is approved.
 - Backfilled or inherited ownership state must be proven complete for the target domain.
 - Dual-read comparison must show no unsafe divergence between legacy user checks and proposed owner checks.
 - Public/gallery depublish behavior must be reviewed separately.
@@ -56,6 +60,7 @@ Do not add these automatically. Each requires a separate approved migration pack
 
 ## Evidence Required Before Confirmed Reset Or Deletion
 
+- Review Backfill and Access-Switch evidence before considering reset. The Admin reset control remains warning-gated and confirmed execution is disabled by default.
 - Sanitized legacy reset dry-run evidence must be accepted for dry-run only.
 - Confirmed execution must remain blocked until a future approved confirmation package explicitly authorizes it.
 - `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` must stay disabled unless a separate operator-approved phase enables it.

@@ -3122,6 +3122,96 @@
         background: rgba(239, 68, 68, 0.1);
     }
 
+    .admin-danger-marker {
+        inline-size: 32px;
+        block-size: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        border: 1px solid rgba(239, 68, 68, 0.55);
+        background: rgba(239, 68, 68, 0.14);
+        color: rgba(255, 214, 214, 0.95);
+        font-family: var(--font-mono);
+        font-size: 18px;
+        font-weight: 800;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .admin-danger-marker:hover,
+    .admin-danger-marker:focus-visible {
+        color: #fff;
+        background: rgba(239, 68, 68, 0.24);
+        outline: 2px solid rgba(239, 68, 68, 0.45);
+        outline-offset: 2px;
+    }
+
+    .admin-tenant-exec-hero {
+        margin-block: var(--space-5);
+    }
+
+    .admin-tenant-sequence {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-3);
+        padding: 0;
+        margin: var(--space-5) 0;
+        list-style: none;
+    }
+
+    .admin-tenant-sequence li {
+        min-width: 0;
+        padding: var(--space-3);
+        border: var(--border-subtle);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.76);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-tenant-exec-grid {
+        align-items: stretch;
+    }
+
+    .admin-tenant-exec-card {
+        border-color: rgba(239, 68, 68, 0.2);
+    }
+
+    .admin-tenant-exec-card__top {
+        align-items: flex-start;
+        gap: var(--space-3);
+    }
+
+    .admin-tenant-exec-card__heading {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-width: 0;
+    }
+
+    .admin-tenant-exec-card__heading .admin-section-title {
+        margin: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-tenant-danger-dialog {
+        max-inline-size: min(900px, calc(100vw - 32px));
+    }
+
+    @media (max-width: 760px) {
+        .admin-tenant-sequence {
+            grid-template-columns: 1fr;
+        }
+
+        .admin-tenant-exec-card__top {
+            flex-direction: column;
+        }
+    }
+
     /* ── Toast Notifications ── */
     .admin-toast {
         position: fixed;

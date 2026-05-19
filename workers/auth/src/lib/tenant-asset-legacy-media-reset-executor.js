@@ -19,6 +19,8 @@ export const TENANT_ASSET_LEGACY_MEDIA_RESET_EXECUTOR_VERSION =
   "tenant-asset-legacy-media-reset-executor-v1";
 export const LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION_GATE =
   "ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION";
+export const LEGACY_MEDIA_RESET_CONFIRMATION_PHRASE =
+  "CONFIRMED LEGACY MEDIA RESET";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 50;
@@ -288,6 +290,16 @@ export function normalizeLegacyMediaResetActionRequest(input = {}) {
       code: "tenant_asset_legacy_media_reset_confirmation_required",
     });
   }
+  const confirmation = normalizeSafeText(input.confirmation ?? input.confirmationPhrase, {
+    maxLength: 100,
+    field: "confirmation",
+  });
+  if (dryRun === false && confirmation !== LEGACY_MEDIA_RESET_CONFIRMATION_PHRASE) {
+    throw new TenantAssetLegacyMediaResetExecutorError("Legacy media reset execution requires exact typed confirmation.", {
+      code: "tenant_asset_legacy_media_reset_confirmation_phrase_required",
+      fields: { requiredConfirmation: LEGACY_MEDIA_RESET_CONFIRMATION_PHRASE },
+    });
+  }
   const inputAcknowledgements = input.acknowledgements && typeof input.acknowledgements === "object"
     ? input.acknowledgements
     : {};
@@ -316,6 +328,7 @@ export function normalizeLegacyMediaResetActionRequest(input = {}) {
   return {
     dryRun,
     confirm,
+    confirmation,
     reason,
     domains,
     limit: normalizeLimit(input.limit),
@@ -345,6 +358,7 @@ export async function buildLegacyMediaResetRequestHash(request) {
     operation: "legacy_media_reset_execute",
     dryRun: request.dryRun === true,
     confirm: request.dryRun ? false : request.confirm === true,
+    confirmation: request.dryRun ? null : request.confirmation,
     domains: request.domains,
     limit: request.limit,
     includeFolders: request.includeFolders,

@@ -1,8 +1,8 @@
 # Tenant Asset Migration Risk Matrix
 
-Date: 2026-05-18
+Date: 2026-05-19
 
-Current release truth: latest auth D1 migration is `0058_add_legacy_media_reset_actions.sql`.
+Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.
 
 Purpose: current risk register for tenant asset ownership and legacy media reset work. This is not phase history and does not approve destructive execution.
 
@@ -26,11 +26,13 @@ Purpose: current risk register for tenant asset ownership and legacy media reset
 - Manual-review statuses can record operator review state only.
 - Reset dry-run evidence can support blocker review only because the current file is unsafe.
 - Action tracking can preserve reset executor dry-run/execute evidence, but confirmed execution is not approved.
+- The Admin Tenant Isolation Execution panel can run bounded dry-runs/diagnostics and export redacted evidence for Ownership Backfill, Access-Switch, and Legacy Media Reset. Its warning/exclamation markers explain action impact, affected domains, evidence requirements, rollback limits, and exact confirmation phrases.
+- The Ownership Backfill executor is available only through strict Admin/MFA/idempotency/confirmation gates and may write only locally classified safe `ai_folders`/`ai_images` ownership metadata in approved non-production/mock execution. It does not prove global backfill readiness.
 
 ## Current Blocked Actions
 
-- Ownership backfill.
-- Runtime access-check switching.
+- Ungated ownership backfill.
+- Runtime access-check switching or enforced Access-Switch mode.
 - Existing ownership metadata rewrite.
 - Confirmed legacy media reset/deletion.
 - Live R2 listing, broad prefix deletion, or uncontrolled SQL deletion.
@@ -42,8 +44,9 @@ Purpose: current risk register for tenant asset ownership and legacy media reset
 Before any future backfill, access switch, or confirmed reset:
 
 1. Current evidence must be sanitized and complete.
-2. Operator approval must be explicit and bounded.
+2. Operator approval must be explicit and bounded; default actions must remain dry-run/diagnostics.
 3. Required migrations must be applied remotely before dependent Worker deploys.
-4. Admin/MFA/same-origin/idempotency/reason/acknowledgement requirements must be satisfied for destructive paths.
+4. Admin/MFA/same-origin/idempotency/reason/acknowledgement and exact typed confirmation requirements must be satisfied for destructive paths.
 5. Before/after evidence exports must be captured.
 6. Public/gallery, derivative/R2, quota, manual-review, and deferred-domain impacts must be reviewed separately.
+7. Reset must not be executed before Backfill and Access-Switch evidence is reviewed and the reset confirmation gate is separately approved.

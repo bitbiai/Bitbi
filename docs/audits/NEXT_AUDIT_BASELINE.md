@@ -18,6 +18,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Admin Control Plane exists for implemented admin operations, including users, Operator Timeline/Triage, billing evidence status, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
 - Admin user delete now has two safe modes: operational anonymized deletion, and operational anonymized deletion plus a dry-run/approval-required Data Erasure workflow request. Both require Admin auth/MFA, rate limiting, explicit confirmation, self-delete prevention, dependency preflight, labeled cleanup diagnostics, login/session disablement, and guarded cleanup of operational user-owned data. The optional Data Erasure/GDPR workflow is not executed immediately and does not claim full legal erasure while retention-governed audit/billing/lifecycle/legal evidence remains policy-controlled.
 - Admin Data Lifecycle request review now has a large detail overlay plus sanitized evidence packet export. The overlay wires guarded request detail, plan generation, approval, safe execution, final completion, reject/close, private archive metadata, and JSON/Markdown/HTML evidence packet actions. Final states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review`; printable HTML is PDF-friendly through browser Save as PDF, not binary PDF generation or legal advice.
+- Admin Tenant Isolation Execution now surfaces Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset together. Each high-risk card has a warning/exclamation explainer, dry-run or shadow diagnostics, redacted evidence export, exact confirmation guidance, and disabled reasons. The panel does not execute reset, switch runtime access, list/mutate live R2, or claim tenant isolation.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify
@@ -53,7 +54,8 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Existing legacy rows remain mixed/null/unclassified unless evidence proves otherwise.
 - Main owner-map evidence exists and required manual review.
 - Runtime access checks still rely on existing behavior; reads have not switched to ownership metadata.
-- Ownership backfill remains blocked.
+- Ownership Backfill dry-run/evidence and a strictly gated executor exist for locally classified safe folder/image rows. Non-dry-run backfill requires Admin/MFA, `Idempotency-Key`, reason, explicit supported domain scope, bounded batch limit, and exact typed confirmation `BACKFILL OWNERSHIP`; unsafe/manual-review/public/missing-evidence/deferred rows remain blocked.
+- Access-Switch status and shadow diagnostics exist as read-only evidence surfaces. Enforced mode remains blocked because durable switch state and reviewed shadow evidence are not approved.
 - Tenant isolation remains unclaimed.
 
 ## Current Manual Review Queue State
@@ -72,6 +74,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Legacy media reset executor design exists.
 - Reset action/event tracking and a dry-run-default executor path exist for first-pass domains only: `ai_images`, `ai_folders`, `ai_image_derivatives`, and `public_gallery_references`.
 - Confirmed reset execution is hard-disabled by default unless optional operator env gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
+- Confirmed reset also requires exact typed confirmation `CONFIRMED LEGACY MEDIA RESET`, `Idempotency-Key`, reason, scope/evidence acknowledgements, and reviewed Backfill/Access-Switch evidence in any future approved phase.
 - Video, music, text assets, profile avatars, data lifecycle exports, audit archives, unknown media tables, and manual-review supersession remain deferred.
 - The reset dry-run decision references prior live/main evidence at `docs/tenant-assets/evidence/legacy-media-reset-dry-run-live.json`; that raw JSON is not present in the current checkout, no sanitized replacement is present, and the current decision remains `legacy_media_reset_dry_run_rejected_unsafe` because the evidence exposed a raw idempotency key.
 - Confirmed reset/deletion remains blocked.
@@ -107,6 +110,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Apply/verify remote auth migrations through `0059` before dependent Auth Worker deploys.
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
+- Use the Admin Tenant Isolation Execution dry-runs/diagnostics and exports to review Backfill, Access-Switch, and Reset in that order. Do not execute Reset before Backfill and Access-Switch evidence is reviewed.
 - Collect production-readiness evidence with no secret exposure.
 - Generate the production execution dossier, Cloudflare resource model, and rollback drill before any deploy window; keep their verdicts blocked until live/manual evidence is attached and reviewed.
 - Generate the RC validation matrix and RC Go/No-Go manifest before any merge/cutover handoff; treat them as code-merge/deploy-preparation evidence only.
