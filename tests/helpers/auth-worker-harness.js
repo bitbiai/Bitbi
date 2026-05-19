@@ -12,6 +12,70 @@ function normalizeSql(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
 }
 
+const USER_DEPENDENCY_TABLE_STATE = {
+  sessions: 'sessions',
+  email_verification_tokens: 'emailVerificationTokens',
+  password_reset_tokens: 'passwordResetTokens',
+  profiles: 'profiles',
+  linked_wallets: 'linkedWallets',
+  siwe_challenges: 'siweChallenges',
+  favorites: 'favorites',
+  ai_images: 'aiImages',
+  ai_text_assets: 'aiTextAssets',
+  ai_folders: 'aiFolders',
+  ai_generation_log: 'aiGenerationLog',
+  ai_daily_quota_usage: 'aiDailyQuotaUsage',
+  ai_video_jobs: 'aiVideoJobs',
+  member_ai_usage_attempts: 'memberAiUsageAttempts',
+  user_asset_storage_usage: 'userAssetStorageUsage',
+  admin_mfa_credentials: 'adminMfaCredentials',
+  admin_mfa_recovery_codes: 'adminMfaRecoveryCodes',
+  admin_mfa_failed_attempts: 'adminMfaFailedAttempts',
+  organization_memberships: 'organizationMemberships',
+  organizations: 'organizations',
+  member_credit_ledger: 'memberCreditLedger',
+  member_usage_events: 'memberUsageEvents',
+  member_credit_buckets: 'memberCreditBuckets',
+  member_credit_bucket_events: 'memberCreditBucketEvents',
+  billing_member_checkout_sessions: 'billingMemberCheckoutSessions',
+  billing_member_subscriptions: 'billingMemberSubscriptions',
+  billing_member_subscription_checkout_sessions: 'billingMemberSubscriptionCheckoutSessions',
+  billing_checkout_sessions: 'billingCheckoutSessions',
+  billing_provider_events: 'billingProviderEvents',
+  credit_ledger: 'creditLedger',
+  usage_events: 'usageEvents',
+  ai_usage_attempts: 'aiUsageAttempts',
+  admin_ai_usage_attempts: 'adminAiUsageAttempts',
+  admin_audit_log: 'adminAuditLog',
+  user_activity_log: 'userActivityLog',
+  activity_search_index: 'activitySearchIndex',
+  data_lifecycle_requests: 'dataLifecycleRequests',
+  data_export_archives: 'dataExportArchives',
+  ai_asset_manual_review_items: 'aiAssetManualReviewItems',
+  ai_asset_manual_review_events: 'aiAssetManualReviewEvents',
+  tenant_asset_media_reset_actions: 'tenantAssetMediaResetActions',
+  tenant_asset_media_reset_action_events: 'tenantAssetMediaResetActionEvents',
+};
+
+function countUserDependencyRows(state, query, bindings) {
+  const match = query.match(/^SELECT COUNT\(\*\) AS cnt FROM ([a-z_]+) WHERE (.+)$/);
+  if (!match) return null;
+  const [, tableName, whereClause] = match;
+  const stateKey = USER_DEPENDENCY_TABLE_STATE[tableName];
+  if (!stateKey) return null;
+  const rows = Array.isArray(state[stateKey]) ? state[stateKey] : [];
+  const clauses = whereClause.split(/\s+OR\s+/).map((clause) => clause.trim());
+  if (clauses.length !== bindings.length) return null;
+  const columns = clauses.map((clause) => {
+    const columnMatch = clause.match(/^([a-z_]+) = \?$/);
+    return columnMatch ? columnMatch[1] : null;
+  });
+  if (columns.some((column) => !column)) return null;
+  return {
+    cnt: rows.filter((row) => columns.some((column, index) => row[column] === bindings[index])).length,
+  };
+}
+
 function normalizeManualReviewItemRow(row) {
   return {
     id: row.id,
@@ -840,6 +904,7 @@ class MockD1 {
   constructor(seed = {}) {
     this.missingTables = new Set(Array.isArray(seed.missingTables) ? seed.missingTables : []);
     this.failUsageEventInsert = Boolean(seed.failUsageEventInsert);
+    this.failQueries = Array.isArray(seed.failQueries) ? seed.failQueries.map((value) => String(value)) : [];
     this.runCalls = [];
     this.state = {
       users: [],
@@ -986,6 +1051,10 @@ class MockD1 {
       });
     }
 
+    if (this.failQueries.some((value) => query.includes(value))) {
+      throw new Error('forced query failure');
+    }
+
     if (this.missingTables.has('rate_limit_counters') && query.includes('rate_limit_counters')) {
       throw new Error('no such table: rate_limit_counters');
     }
@@ -1127,6 +1196,11 @@ class MockD1 {
     }
     if (this.missingTables.has('openclaw_ingest_nonces') && query.includes('openclaw_ingest_nonces')) {
       throw new Error('no such table: openclaw_ingest_nonces');
+    }
+
+    const userDependencyCount = countUserDependencyRows(this.state, query, bindings);
+    if (userDependencyCount) {
+      return userDependencyCount;
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -4699,9 +4773,13 @@ class MockD1 {
       && query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')
     ) {
       let index = 0;
+      let excludedStatus = null;
       let search = null;
       let cursor = null;
-      if (query.includes('WHERE email LIKE ?')) {
+      if (query.includes('status <> ?')) {
+        excludedStatus = bindings[index++];
+      }
+      if (query.includes('email LIKE ?')) {
         search = String(bindings[index++] || '').replace(/^%|%$/g, '');
       }
       if (query.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
@@ -4714,6 +4792,9 @@ class MockD1 {
       }
       const limit = bindings[index];
       let rows = this.state.users.slice();
+      if (excludedStatus) {
+        rows = rows.filter((row) => row.status !== excludedStatus);
+      }
       if (search) {
         rows = rows.filter((row) => String(row.email || '').includes(search));
       }
@@ -4770,7 +4851,12 @@ class MockD1 {
     }
 
     if (query.startsWith('SELECT COUNT(*) AS totalUsers, COALESCE(SUM(CASE WHEN role = \'admin\' THEN 1 ELSE 0 END), 0) AS admins,')) {
-      const users = this.state.users || [];
+      const users = (this.state.users || []).filter((row) => {
+        if (query.includes("WHERE status <> 'deleted'")) {
+          return row.status !== 'deleted';
+        }
+        return true;
+      });
       const nowMs = Date.now();
       const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
       let admins = 0;
@@ -4944,6 +5030,13 @@ class MockD1 {
       const before = this.state.linkedWallets.length;
       this.state.linkedWallets = this.state.linkedWallets.filter((row) => row.user_id !== userId);
       return { success: true, meta: { changes: before - this.state.linkedWallets.length } };
+    }
+
+    if (query === 'DELETE FROM siwe_challenges WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.siweChallenges.length;
+      this.state.siweChallenges = this.state.siweChallenges.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.siweChallenges.length } };
     }
 
     if (query === 'DELETE FROM email_verification_tokens WHERE user_id = ?') {
@@ -5121,6 +5214,64 @@ class MockD1 {
         (row) => !(row.user_id === userId && row.item_type === itemType && row.item_id === itemId)
       );
       return { success: true, meta: { changes: before - this.state.favorites.length } };
+    }
+
+    if (query === 'DELETE FROM favorites WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.favorites.length;
+      this.state.favorites = this.state.favorites.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.favorites.length } };
+    }
+
+    if (query === 'DELETE FROM user_asset_storage_usage WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.userAssetStorageUsage.length;
+      this.state.userAssetStorageUsage = this.state.userAssetStorageUsage.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.userAssetStorageUsage.length } };
+    }
+
+    if (query === 'DELETE FROM ai_generation_log WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.aiGenerationLog.length;
+      this.state.aiGenerationLog = this.state.aiGenerationLog.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.aiGenerationLog.length } };
+    }
+
+    if (query === 'DELETE FROM ai_daily_quota_usage WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.aiDailyQuotaUsage.length;
+      this.state.aiDailyQuotaUsage = this.state.aiDailyQuotaUsage.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.aiDailyQuotaUsage.length } };
+    }
+
+    if (query === 'DELETE FROM member_ai_usage_attempts WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.memberAiUsageAttempts.length;
+      this.state.memberAiUsageAttempts = this.state.memberAiUsageAttempts.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.memberAiUsageAttempts.length } };
+    }
+
+    if (query === 'DELETE FROM organization_memberships WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.organizationMemberships.length;
+      this.state.organizationMemberships = this.state.organizationMemberships.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.organizationMemberships.length } };
+    }
+
+    if (query === "UPDATE users SET email = ?, password_hash = ?, status = ?, email_verified_at = NULL, verification_method = ?, updated_at = ? WHERE id = ? AND status != ?") {
+      const [email, passwordHash, status, verificationMethod, updatedAt, userId, excludedStatus] = bindings;
+      const row = this.state.users.find((entry) => entry.id === userId && entry.status !== excludedStatus);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      if (this.state.users.some((entry) => entry.id !== userId && entry.email === email)) {
+        throw new Error('UNIQUE constraint failed: users.email');
+      }
+      row.email = email;
+      row.password_hash = passwordHash;
+      row.status = status;
+      row.email_verified_at = null;
+      row.verification_method = verificationMethod;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query === 'DELETE FROM users WHERE id = ?') {

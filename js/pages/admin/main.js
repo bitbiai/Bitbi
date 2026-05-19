@@ -511,10 +511,21 @@ function formatApiError(res, fallback = 'Request failed.') {
     const message = res?.error || res?.data?.error || fallback;
     const code = res?.code || res?.data?.code || null;
     const status = res?.status || res?.data?.status || null;
+    const branch = res?.branch || res?.data?.branch || null;
+    const summary = res?.dependencySummary || res?.data?.dependencySummary || null;
     const details = [];
     if (code) details.push(`code: ${code}`);
+    if (branch) details.push(`branch: ${branch}`);
     if (status) details.push(`status: ${status}`);
-    return details.length ? `${message} (${details.join(', ')})` : message;
+    const dependencies = Array.isArray(summary?.blockingCategories)
+        ? summary.blockingCategories.filter(Boolean).slice(0, 4).join(', ')
+        : '';
+    const suffix = details.length ? ` (${details.join(', ')})` : '';
+    const dependencyText = dependencies ? ` Dependencies: ${dependencies}.` : '';
+    const retentionText = branch === 'retention_dependency_blocked' || code === 'admin_delete_user_retention_dependency_blocked'
+        ? ' This is a backend policy/schema dependency, not a confirmation or network issue.'
+        : '';
+    return `${message}${suffix}${dependencyText}${retentionText}`;
 }
 
 async function copyText(text, successMessage = 'Copied.') {
@@ -2391,8 +2402,9 @@ async function handleDeleteUser(user, event) {
     if (res.ok) {
         statsCache = null;
         const scope = res.data?.deletionScope;
+        const mode = res.data?.deletionMode;
         const scopeText = scope
-            ? ' Account, sessions, tokens, profile, and user-owned operational assets were handled; retention-governed records may remain.'
+            ? ` ${mode === 'operational_anonymized_delete' ? 'Operational anonymized deletion completed.' : 'Deletion completed.'} Login, sessions, tokens, profile, and user-owned operational assets were handled; retention-governed records may remain.`
             : '';
         showToast(res.data?.message || `User deleted.${scopeText}`, 'success');
         loadUsers($searchInput.value.trim());

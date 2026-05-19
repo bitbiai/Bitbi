@@ -130,11 +130,71 @@ function toBatchFailure(error, {
     unavailable ? unavailableMessage : failureMessage,
     unavailable ? 503 : 500,
     {
-      branch: unavailable ? "service_unavailable" : (branch || "batch_error"),
+      branch: unavailable ? (branch || "service_unavailable") : (branch || "batch_error"),
       details,
       cause: error,
     }
   );
+}
+
+function normalizeLifecycleStatement(entry, fallbackIndex) {
+  if (entry?.statement) {
+    return {
+      statement: entry.statement,
+      branch: entry.branch || `lifecycle_statement_${fallbackIndex}_failed`,
+      label: entry.label || entry.branch || `lifecycle_statement_${fallbackIndex}`,
+      category: entry.category || "lifecycle",
+    };
+  }
+  return {
+    statement: entry,
+    branch: `lifecycle_statement_${fallbackIndex}_failed`,
+    label: `lifecycle_statement_${fallbackIndex}`,
+    category: "lifecycle",
+  };
+}
+
+async function executeLabeledLifecycleStatements({
+  env,
+  cleanupKeys,
+  mutationStatements,
+  createdAt = nowIso(),
+  unavailableMessage,
+  failureMessage,
+  details = null,
+}) {
+  const queueStatements = buildCleanupQueueStatements(env, cleanupKeys, createdAt).map((statement, index) => ({
+    statement,
+    branch: "cleanup_queue_insert_failed",
+    label: `cleanup_queue_insert_${index + 1}`,
+    category: "asset_cleanup_queue",
+  }));
+  const normalizedMutations = mutationStatements.map((entry, index) => (
+    normalizeLifecycleStatement(entry, index + 1)
+  ));
+  const results = [];
+
+  for (const item of [...queueStatements, ...normalizedMutations]) {
+    try {
+      results.push(await item.statement.run());
+    } catch (error) {
+      throw toBatchFailure(error, {
+        unavailableMessage,
+        failureMessage,
+        branch: item.branch,
+        details: {
+          ...(details || {}),
+          statement: item.label,
+          category: item.category,
+        },
+      });
+    }
+  }
+
+  return {
+    mutationResults: results.slice(queueStatements.length),
+    cleanupKeys: dedupeCleanupKeys(cleanupKeys),
+  };
 }
 
 async function executeLifecycleBatch({
@@ -783,23 +843,36 @@ export async function deleteAllUserAiAssets({
   if (textRows.length > 0) {
     textDeleteIndex = mutationStatements.length;
     mutationStatements.push(
-      env.DB.prepare("DELETE FROM ai_text_assets WHERE user_id = ?").bind(userId)
+      {
+        statement: env.DB.prepare("DELETE FROM ai_text_assets WHERE user_id = ?").bind(userId),
+        branch: "ai_text_assets_delete_failed",
+        label: "ai_text_assets_delete",
+        category: "user_owned_ai_assets",
+      }
     );
   }
 
   folderDeleteIndex = mutationStatements.length;
-  mutationStatements.push(
-    env.DB.prepare("DELETE FROM ai_folders WHERE user_id = ?").bind(userId),
-    ...additionalStatements
-  );
+  mutationStatements[imageDeleteIndex] = {
+    statement: mutationStatements[imageDeleteIndex],
+    branch: "ai_images_delete_failed",
+    label: "ai_images_delete",
+    category: "user_owned_ai_assets",
+  };
+  mutationStatements.push({
+    statement: env.DB.prepare("DELETE FROM ai_folders WHERE user_id = ?").bind(userId),
+    branch: "ai_folders_delete_failed",
+    label: "ai_folders_delete",
+    category: "user_owned_ai_assets",
+  }, ...additionalStatements);
 
-  const { cleanupKeys, mutationResults } = await executeLifecycleBatch({
+  const { cleanupKeys, mutationResults } = await executeLabeledLifecycleStatements({
     env,
     cleanupKeys: collectCleanupKeys(imageRows, textRows),
     mutationStatements,
     createdAt,
     unavailableMessage: "Service temporarily unavailable. Please try again later.",
-    failureMessage: "Failed to delete user. Please try again.",
+    failureMessage: "Failed to complete operational user deletion. Review the deletion branch for the blocked cleanup category.",
   });
   await attemptInlineCleanup(env, cleanupKeys);
   await releaseDeletedAssetStorage(env, userId, imageRows, textRows);

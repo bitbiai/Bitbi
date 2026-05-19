@@ -29534,27 +29534,106 @@ test.describe('Worker routes', () => {
     expect(body).toMatchObject({
       ok: true,
       deletedUserId: 'user-plain',
+      deletionMode: 'operational_anonymized_delete',
       deletionScope: {
-        accountDeleted: true,
+        accountDeletedOrAnonymized: true,
+        loginDisabled: true,
         sessionsDeleted: true,
         tokensDeleted: true,
         profileDeleted: true,
         avatarCleanup: 'best_effort_completed',
-        retainedRecords: expect.arrayContaining([
+        retainedPolicyRecords: expect.arrayContaining([
           'admin_audit_log',
           'billing_ledger_and_provider_evidence_if_present',
         ]),
       },
     });
     expect(JSON.stringify(body)).not.toContain('avatars/user-plain');
-    expect(env.DB.state.users.some((user) => user.id === 'user-plain')).toBe(false);
+    const deletedUser = env.DB.state.users.find((user) => user.id === 'user-plain');
+    expect(deletedUser).toMatchObject({
+      id: 'user-plain',
+      status: 'deleted',
+      password_hash: 'deleted_account_disabled',
+      verification_method: 'operational_delete',
+    });
+    expect(deletedUser.email).toMatch(/^deleted\+user-plain@deleted\.bitbi\.invalid$/);
     expect(env.DB.state.sessions.some((row) => row.user_id === 'user-plain')).toBe(false);
     expect(env.DB.state.emailVerificationTokens.some((row) => row.user_id === 'user-plain')).toBe(false);
     expect(env.DB.state.passwordResetTokens.some((row) => row.user_id === 'user-plain')).toBe(false);
     expect(env.DB.state.profiles.some((row) => row.user_id === 'user-plain')).toBe(false);
+    const listAfterDelete = await authWorker.fetch(
+      authJsonRequest('/api/admin/users', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.11',
+      }),
+      env,
+      exec.execCtx
+    );
+    await expect(listAfterDelete.json()).resolves.toMatchObject({
+      ok: true,
+      users: expect.not.arrayContaining([
+        expect.objectContaining({ id: 'user-plain' }),
+      ]),
+    });
+    expect(env.DB.state.sessions.some((row) => row.token_hash === memberToken)).toBe(false);
     await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog).toHaveLength(1);
-    expect(env.DB.state.adminAuditLog[0].action).toBe('delete_user');
+    expect(env.DB.state.adminAuditLog[0].action).toBe('operational_delete_user');
+  });
+
+  test('admin delete reports precise lifecycle branch when operational cleanup fails', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      failQueries: ['DELETE FROM favorites WHERE user_id = ?'],
+      users: [
+        createAdminUser('admin-delete-branch'),
+        createContractUser({ id: 'user-delete-branch', role: 'user', email: 'delete-branch@example.com' }),
+      ],
+      favorites: [
+        {
+          id: 10,
+          user_id: 'user-delete-branch',
+          item_type: 'gallery',
+          item_id: 'favorite-branch',
+          title: 'Favorite',
+          thumb_url: '/favorite.png',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const adminToken = await seedSession(env, 'admin-delete-branch');
+    const exec = createExecutionContext();
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/user-delete-branch', 'DELETE', {
+        confirm: true,
+        confirmation: 'delete_user',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.17',
+      }),
+      env,
+      exec.execCtx
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: false,
+      code: 'admin_delete_user_lifecycle_failed',
+      branch: 'favorites_delete_failed',
+      dependencySummary: {
+        mode: 'operational_anonymized_delete',
+        blockingCategories: expect.arrayContaining(['user_preference_cleanup']),
+        safeCounts: expect.objectContaining({
+          favorites: 1,
+        }),
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain('batch_error');
+    expect(env.DB.state.users.find((row) => row.id === 'user-delete-branch')?.status).toBe('active');
   });
 
   test('admin session revocation requires explicit confirmation before mutation', async () => {
@@ -40631,6 +40710,57 @@ test.describe('Worker routes', () => {
           created_at: nowIso(),
         },
       ],
+      linkedWallets: [
+        {
+          id: 'wallet-feedface',
+          user_id: 'feedface',
+          address_normalized: '0xfeedface',
+          address_display: '0xfeedface',
+          chain_id: '1',
+          is_primary: 1,
+          linked_at: nowIso(),
+          last_login_at: null,
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        },
+      ],
+      siweChallenges: [
+        {
+          id: 'siwe-feedface',
+          nonce: 'nonce-feedface',
+          intent: 'login',
+          user_id: 'feedface',
+          address_normalized: '0xfeedface',
+          domain: 'bitbi.ai',
+          uri: 'https://bitbi.ai',
+          chain_id: '1',
+          statement: '',
+          issued_at: nowIso(),
+          expires_at: '2026-06-01T00:00:00.000Z',
+          used_at: null,
+          requested_ip: '203.0.113.20',
+          created_at: nowIso(),
+        },
+      ],
+      organizationMemberships: [
+        {
+          id: 'membership-feedface',
+          organization_id: 'org-feedface',
+          user_id: 'feedface',
+          role: 'member',
+          status: 'active',
+          created_by_user_id: 'admin-2',
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        },
+      ],
+      userAssetStorageUsage: [
+        {
+          user_id: 'feedface',
+          used_bytes: 128,
+          updated_at: nowIso(),
+        },
+      ],
       aiFolders: [
         {
           id: 'c0ffee12',
@@ -40676,6 +40806,65 @@ test.describe('Worker routes', () => {
           id: 'gen-1',
           user_id: 'feedface',
           created_at: nowIso(),
+        },
+      ],
+      aiDailyQuotaUsage: [
+        {
+          id: 'quota-feedface',
+          user_id: 'feedface',
+          day_start: '2026-05-18T00:00:00.000Z',
+          slot: 1,
+          status: 'reserved',
+          created_at: nowIso(),
+          expires_at: '2026-05-19T00:00:00.000Z',
+          consumed_at: null,
+        },
+      ],
+      memberAiUsageAttempts: [
+        {
+          id: 'member-attempt-feedface',
+          user_id: 'feedface',
+          feature_key: 'ai.image.generate',
+          operation_key: 'member_image_generation',
+          route: '/api/ai/generate',
+          idempotency_key: 'attempt-key',
+          request_fingerprint: 'attempt-fingerprint',
+          credit_cost: 1,
+          quantity: 1,
+          status: 'reserved',
+          provider_status: 'not_started',
+          billing_status: 'reserved',
+          result_status: 'none',
+          created_at: nowIso(),
+          updated_at: nowIso(),
+          expires_at: '2026-06-01T00:00:00.000Z',
+          metadata_json: '{}',
+        },
+      ],
+      memberCreditLedger: [
+        {
+          id: 'ledger-feedface',
+          user_id: 'feedface',
+          amount: 10,
+          balance_after: 10,
+          entry_type: 'grant',
+          feature_key: 'ai.image.generate',
+          source: 'daily_member_top_up',
+          idempotency_key: 'ledger-key',
+          request_hash: 'ledger-request-hash',
+          created_by_user_id: null,
+          created_at: nowIso(),
+          metadata_json: '{}',
+        },
+      ],
+      r2CleanupQueue: [
+        {
+          id: 1,
+          r2_key: 'users/feedface/folders/projects/ab12cd34.png',
+          status: 'pending',
+          created_at: nowIso(),
+          attempts: 0,
+          last_attempt_at: null,
         },
       ],
       userActivityLog: [
@@ -40735,8 +40924,10 @@ test.describe('Worker routes', () => {
     expect(body).toMatchObject({
       ok: true,
       deletedUserId: 'feedface',
+      deletionMode: 'operational_anonymized_delete',
       deletionScope: {
-        accountDeleted: true,
+        accountDeletedOrAnonymized: true,
+        loginDisabled: true,
         sessionsDeleted: true,
         tokensDeleted: true,
         profileDeleted: true,
@@ -40746,29 +40937,46 @@ test.describe('Worker routes', () => {
           folders: 1,
           cleanupObjectsQueued: 3,
         },
+        aiFoldersDeleted: true,
+        storageQuotaCleaned: true,
         avatarCleanup: 'best_effort_failed',
+        retainedPolicyRecords: expect.arrayContaining([
+          'billing_ledger',
+          'admin_audit_log',
+        ]),
       },
     });
     expect(JSON.stringify(body)).not.toContain('users/feedface/');
     expect(JSON.stringify(body)).not.toContain('avatars/feedface');
-    expect(env.DB.state.users.some((row) => row.id === 'feedface')).toBe(false);
+    expect(env.DB.state.users.find((row) => row.id === 'feedface')).toMatchObject({
+      status: 'deleted',
+      password_hash: 'deleted_account_disabled',
+      verification_method: 'operational_delete',
+    });
     expect(env.DB.state.profiles.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.favorites.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.linkedWallets.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.siweChallenges.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.organizationMemberships.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.userAssetStorageUsage.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.aiFolders.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.aiImages.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.aiTextAssets.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.aiGenerationLog.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.aiDailyQuotaUsage.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.memberAiUsageAttempts.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.memberCreditLedger.some((row) => row.user_id === 'feedface')).toBe(true);
     expect(env.DB.state.userActivityLog.some((row) => row.user_id === 'feedface')).toBe(true);
-    expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key).sort()).toEqual([
+    expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key).sort()).toEqual(expect.arrayContaining([
       'users/feedface/derivatives/v1/aa55bb66/poster.webp',
       'users/feedface/folders/projects/aa55bb66.txt',
       'users/feedface/folders/projects/ab12cd34.png',
-    ]);
+    ]));
     expect(env.USER_IMAGES.objects.has('users/feedface/folders/projects/ab12cd34.png')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/feedface/folders/projects/aa55bb66.txt')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/feedface/derivatives/v1/aa55bb66/poster.webp')).toBe(true);
     expect(env.PRIVATE_MEDIA.objects.has('avatars/feedface')).toBe(true);
     await drainActivityIngestQueue(authWorker, env);
-    expect(env.DB.state.adminAuditLog.at(-1).action).toBe('delete_user');
+    expect(env.DB.state.adminAuditLog.at(-1).action).toBe('operational_delete_user');
   });
 });

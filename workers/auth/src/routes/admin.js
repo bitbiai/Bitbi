@@ -60,6 +60,8 @@ const DEFAULT_ADMIN_USERS_LIMIT = 50;
 const MAX_ADMIN_USERS_LIMIT = 100;
 const DEFAULT_ADMIN_ACTIVITY_LIMIT = 50;
 const MAX_ADMIN_ACTIVITY_LIMIT = 100;
+const ADMIN_USER_DELETED_STATUS = "deleted";
+const ADMIN_USER_DELETED_PASSWORD_HASH = "deleted_account_disabled";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
 const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0058_add_legacy_media_reset_actions.sql";
@@ -345,6 +347,271 @@ function requireAdminMutationConfirmation(body, {
   return null;
 }
 
+function safeDeletedEmailForUser(userId) {
+  const safeId = String(userId || "user")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "user";
+  return `deleted+${safeId}@deleted.bitbi.invalid`;
+}
+
+function adminUserLifecycleStatement({ statement, branch, label, category }) {
+  return { statement, branch, label, category };
+}
+
+function normalizeCountValue(row) {
+  const value = row?.cnt ?? row?.count ?? row?.total ?? 0;
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function isMissingOptionalDependencyTable(error) {
+  return /no such table/i.test(String(error?.message || error || ""));
+}
+
+async function countAdminUserDependency(env, { id, sql, bindings, optional = true }) {
+  try {
+    const row = await env.DB.prepare(sql).bind(...bindings).first();
+    return { id, count: normalizeCountValue(row), available: true };
+  } catch (error) {
+    if (optional && isMissingOptionalDependencyTable(error)) {
+      return { id, count: null, available: false };
+    }
+    throw error;
+  }
+}
+
+async function buildAdminUserDeleteDependencySummary(env, userId) {
+  const counts = await Promise.all([
+    countAdminUserDependency(env, { id: "sessions", sql: "SELECT COUNT(*) AS cnt FROM sessions WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "email_verification_tokens", sql: "SELECT COUNT(*) AS cnt FROM email_verification_tokens WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "password_reset_tokens", sql: "SELECT COUNT(*) AS cnt FROM password_reset_tokens WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "profiles", sql: "SELECT COUNT(*) AS cnt FROM profiles WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "linked_wallets", sql: "SELECT COUNT(*) AS cnt FROM linked_wallets WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "siwe_challenges", sql: "SELECT COUNT(*) AS cnt FROM siwe_challenges WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "favorites", sql: "SELECT COUNT(*) AS cnt FROM favorites WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "ai_images", sql: "SELECT COUNT(*) AS cnt FROM ai_images WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "ai_text_assets", sql: "SELECT COUNT(*) AS cnt FROM ai_text_assets WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "ai_folders", sql: "SELECT COUNT(*) AS cnt FROM ai_folders WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "ai_generation_log", sql: "SELECT COUNT(*) AS cnt FROM ai_generation_log WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "ai_daily_quota_usage", sql: "SELECT COUNT(*) AS cnt FROM ai_daily_quota_usage WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "ai_video_jobs", sql: "SELECT COUNT(*) AS cnt FROM ai_video_jobs WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "member_ai_usage_attempts", sql: "SELECT COUNT(*) AS cnt FROM member_ai_usage_attempts WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "asset_storage_quota", sql: "SELECT COUNT(*) AS cnt FROM user_asset_storage_usage WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "admin_mfa_credentials", sql: "SELECT COUNT(*) AS cnt FROM admin_mfa_credentials WHERE admin_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "admin_mfa_recovery_codes", sql: "SELECT COUNT(*) AS cnt FROM admin_mfa_recovery_codes WHERE admin_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "admin_mfa_failed_attempts", sql: "SELECT COUNT(*) AS cnt FROM admin_mfa_failed_attempts WHERE admin_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "organization_memberships", sql: "SELECT COUNT(*) AS cnt FROM organization_memberships WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "organizations_created", sql: "SELECT COUNT(*) AS cnt FROM organizations WHERE created_by_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "organization_memberships_created", sql: "SELECT COUNT(*) AS cnt FROM organization_memberships WHERE created_by_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "member_credit_ledger", sql: "SELECT COUNT(*) AS cnt FROM member_credit_ledger WHERE user_id = ? OR created_by_user_id = ?", bindings: [userId, userId] }),
+    countAdminUserDependency(env, { id: "member_usage_events", sql: "SELECT COUNT(*) AS cnt FROM member_usage_events WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "member_credit_buckets", sql: "SELECT COUNT(*) AS cnt FROM member_credit_buckets WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "member_credit_bucket_events", sql: "SELECT COUNT(*) AS cnt FROM member_credit_bucket_events WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "billing_member_checkout_sessions", sql: "SELECT COUNT(*) AS cnt FROM billing_member_checkout_sessions WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "billing_member_subscriptions", sql: "SELECT COUNT(*) AS cnt FROM billing_member_subscriptions WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "billing_member_subscription_checkout_sessions", sql: "SELECT COUNT(*) AS cnt FROM billing_member_subscription_checkout_sessions WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "billing_checkout_sessions", sql: "SELECT COUNT(*) AS cnt FROM billing_checkout_sessions WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "billing_provider_events", sql: "SELECT COUNT(*) AS cnt FROM billing_provider_events WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "credit_ledger_created", sql: "SELECT COUNT(*) AS cnt FROM credit_ledger WHERE created_by_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "usage_events", sql: "SELECT COUNT(*) AS cnt FROM usage_events WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "ai_usage_attempts", sql: "SELECT COUNT(*) AS cnt FROM ai_usage_attempts WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "admin_ai_usage_attempts", sql: "SELECT COUNT(*) AS cnt FROM admin_ai_usage_attempts WHERE admin_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "admin_audit_log", sql: "SELECT COUNT(*) AS cnt FROM admin_audit_log WHERE admin_user_id = ? OR target_user_id = ?", bindings: [userId, userId] }),
+    countAdminUserDependency(env, { id: "user_activity_log", sql: "SELECT COUNT(*) AS cnt FROM user_activity_log WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "activity_search_index", sql: "SELECT COUNT(*) AS cnt FROM activity_search_index WHERE actor_user_id = ? OR target_user_id = ?", bindings: [userId, userId] }),
+    countAdminUserDependency(env, { id: "data_lifecycle_requests", sql: "SELECT COUNT(*) AS cnt FROM data_lifecycle_requests WHERE subject_user_id = ? OR requested_by_user_id = ? OR requested_by_admin_id = ? OR approved_by_admin_id = ?", bindings: [userId, userId, userId, userId] }),
+    countAdminUserDependency(env, { id: "data_export_archives", sql: "SELECT COUNT(*) AS cnt FROM data_export_archives WHERE subject_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "manual_review_items", sql: "SELECT COUNT(*) AS cnt FROM ai_asset_manual_review_items WHERE legacy_owner_user_id = ? OR proposed_owning_user_id = ? OR assigned_to_user_id = ? OR reviewed_by_user_id = ? OR created_by_user_id = ?", bindings: [userId, userId, userId, userId, userId] }),
+    countAdminUserDependency(env, { id: "manual_review_events", sql: "SELECT COUNT(*) AS cnt FROM ai_asset_manual_review_events WHERE actor_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "legacy_media_reset_actions", sql: "SELECT COUNT(*) AS cnt FROM tenant_asset_media_reset_actions WHERE operator_user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "legacy_media_reset_events", sql: "SELECT COUNT(*) AS cnt FROM tenant_asset_media_reset_action_events WHERE actor_user_id = ?", bindings: [userId] }),
+  ]);
+
+  const safeCounts = {};
+  const unavailable = [];
+  for (const item of counts) {
+    if (item.available) {
+      safeCounts[item.id] = item.count;
+    } else {
+      unavailable.push(item.id);
+    }
+  }
+
+  const retainedCategoryMap = [
+    ["admin_audit_log", ["admin_audit_log", "activity_search_index"]],
+    ["user_activity_log_retention", ["user_activity_log"]],
+    ["billing_ledger", [
+      "member_credit_ledger",
+      "member_usage_events",
+      "member_credit_buckets",
+      "member_credit_bucket_events",
+      "billing_member_checkout_sessions",
+      "billing_member_subscriptions",
+      "billing_member_subscription_checkout_sessions",
+      "billing_checkout_sessions",
+      "billing_provider_events",
+      "credit_ledger_created",
+      "usage_events",
+    ]],
+    ["organization_relationship_history", [
+      "organizations_created",
+      "organization_memberships_created",
+    ]],
+    ["data_lifecycle_records", [
+      "data_lifecycle_requests",
+      "data_export_archives",
+    ]],
+    ["ai_usage_attempt_evidence", [
+      "ai_usage_attempts",
+      "admin_ai_usage_attempts",
+    ]],
+    ["tenant_manual_review_evidence", [
+      "manual_review_items",
+      "manual_review_events",
+      "legacy_media_reset_actions",
+      "legacy_media_reset_events",
+    ]],
+  ];
+  const retainedPolicyRecords = retainedCategoryMap
+    .filter(([, ids]) => ids.some((id) => Number(safeCounts[id] || 0) > 0))
+    .map(([category]) => category);
+  if (!retainedPolicyRecords.includes("admin_audit_log")) {
+    retainedPolicyRecords.unshift("admin_audit_log");
+  }
+  if (!retainedPolicyRecords.includes("billing_ledger_and_provider_evidence_if_present")) {
+    retainedPolicyRecords.push("billing_ledger_and_provider_evidence_if_present");
+  }
+  if (!retainedPolicyRecords.includes("legal_or_compliance_records_if_present")) {
+    retainedPolicyRecords.push("legal_or_compliance_records_if_present");
+  }
+
+  return {
+    mode: "operational_anonymized_delete",
+    safeCounts,
+    unavailable,
+    retainedPolicyRecords,
+  };
+}
+
+function buildAdminUserOperationalDeleteStatements(env, {
+  userId,
+  deletedEmail,
+  now,
+  unavailable = [],
+}) {
+  const unavailableSet = new Set(unavailable);
+  const statements = [
+    adminUserLifecycleStatement({
+      statement: env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+      branch: "sessions_delete_failed",
+      label: "sessions_delete",
+      category: "auth_session_cleanup",
+    }),
+    adminUserLifecycleStatement({
+      statement: env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(userId),
+      branch: "tokens_delete_failed",
+      label: "email_verification_tokens_delete",
+      category: "auth_token_cleanup",
+    }),
+    adminUserLifecycleStatement({
+      statement: env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(userId),
+      branch: "tokens_delete_failed",
+      label: "password_reset_tokens_delete",
+      category: "auth_token_cleanup",
+    }),
+  ];
+  const pushOptional = (tableId, item) => {
+    if (!unavailableSet.has(tableId)) statements.push(adminUserLifecycleStatement(item));
+  };
+  pushOptional("admin_mfa_recovery_codes", {
+    statement: env.DB.prepare("DELETE FROM admin_mfa_recovery_codes WHERE admin_user_id = ?").bind(userId),
+    branch: "admin_mfa_delete_failed",
+    label: "admin_mfa_recovery_codes_delete",
+    category: "admin_mfa_cleanup",
+  });
+  pushOptional("admin_mfa_credentials", {
+    statement: env.DB.prepare("DELETE FROM admin_mfa_credentials WHERE admin_user_id = ?").bind(userId),
+    branch: "admin_mfa_delete_failed",
+    label: "admin_mfa_credentials_delete",
+    category: "admin_mfa_cleanup",
+  });
+  pushOptional("admin_mfa_failed_attempts", {
+    statement: env.DB.prepare("DELETE FROM admin_mfa_failed_attempts WHERE admin_user_id = ?").bind(userId),
+    branch: "admin_mfa_delete_failed",
+    label: "admin_mfa_failed_attempts_delete",
+    category: "admin_mfa_cleanup",
+  });
+  pushOptional("linked_wallets", {
+    statement: env.DB.prepare("DELETE FROM linked_wallets WHERE user_id = ?").bind(userId),
+    branch: "wallet_links_delete_failed",
+    label: "linked_wallets_delete",
+    category: "wallet_cleanup",
+  });
+  pushOptional("siwe_challenges", {
+    statement: env.DB.prepare("DELETE FROM siwe_challenges WHERE user_id = ?").bind(userId),
+    branch: "wallet_challenges_delete_failed",
+    label: "siwe_challenges_delete",
+    category: "wallet_cleanup",
+  });
+  statements.push(
+    adminUserLifecycleStatement({
+      statement: env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(userId),
+      branch: "profile_delete_failed",
+      label: "profile_delete",
+      category: "profile_cleanup",
+    })
+  );
+  pushOptional("favorites", {
+    statement: env.DB.prepare("DELETE FROM favorites WHERE user_id = ?").bind(userId),
+    branch: "favorites_delete_failed",
+    label: "favorites_delete",
+    category: "user_preference_cleanup",
+  });
+  pushOptional("asset_storage_quota", {
+    statement: env.DB.prepare("DELETE FROM user_asset_storage_usage WHERE user_id = ?").bind(userId),
+    branch: "storage_quota_delete_failed",
+    label: "user_asset_storage_usage_delete",
+    category: "asset_storage_cleanup",
+  });
+  pushOptional("ai_generation_log", {
+    statement: env.DB.prepare("DELETE FROM ai_generation_log WHERE user_id = ?").bind(userId),
+    branch: "ai_generation_log_delete_failed",
+    label: "ai_generation_log_delete",
+    category: "ai_operational_history_cleanup",
+  });
+  pushOptional("ai_daily_quota_usage", {
+    statement: env.DB.prepare("DELETE FROM ai_daily_quota_usage WHERE user_id = ?").bind(userId),
+    branch: "ai_daily_quota_delete_failed",
+    label: "ai_daily_quota_usage_delete",
+    category: "ai_quota_cleanup",
+  });
+  pushOptional("member_ai_usage_attempts", {
+    statement: env.DB.prepare("DELETE FROM member_ai_usage_attempts WHERE user_id = ?").bind(userId),
+    branch: "member_ai_usage_attempts_delete_failed",
+    label: "member_ai_usage_attempts_delete",
+    category: "ai_attempt_cleanup",
+  });
+  pushOptional("organization_memberships", {
+    statement: env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = ?").bind(userId),
+    branch: "organization_memberships_delete_failed",
+    label: "organization_memberships_delete",
+    category: "organization_access_cleanup",
+  });
+  statements.push(
+    adminUserLifecycleStatement({
+      statement: env.DB.prepare(
+        "UPDATE users SET email = ?, password_hash = ?, status = ?, email_verified_at = NULL, verification_method = ?, updated_at = ? WHERE id = ? AND status != ?"
+      ).bind(deletedEmail, ADMIN_USER_DELETED_PASSWORD_HASH, ADMIN_USER_DELETED_STATUS, "operational_delete", now, userId, ADMIN_USER_DELETED_STATUS),
+      branch: "user_anonymize_failed",
+      label: "user_account_anonymize",
+      category: "account_anonymization",
+    })
+  );
+  return statements;
+}
+
 function normalizeAdminUserSearch(value) {
   return String(value || "").trim();
 }
@@ -579,8 +846,8 @@ export async function handleAdmin(ctx) {
       return paginationErrorResponse("Invalid cursor.");
     }
 
-    const conditions = [];
-    const bindings = [];
+    const conditions = ["status <> ?"];
+    const bindings = [ADMIN_USER_DELETED_STATUS];
 
     if (search) {
       conditions.push("email LIKE ?");
@@ -683,6 +950,12 @@ export async function handleAdmin(ctx) {
       .first();
 
     if (!targetUser) {
+      return json(
+        { ok: false, error: "User not found." },
+        { status: 404 }
+      );
+    }
+    if (targetUser.status === ADMIN_USER_DELETED_STATUS) {
       return json(
         { ok: false, error: "User not found." },
         { status: 404 }
@@ -945,7 +1218,8 @@ export async function handleAdmin(ctx) {
               THEN 1 ELSE 0 END), 0) AS verifiedUsers,
          COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-7 days')
               THEN 1 ELSE 0 END), 0) AS recentRegistrations
-       FROM users`
+       FROM users
+       WHERE status <> 'deleted'`
     ).first();
 
     return json({
@@ -1081,32 +1355,66 @@ export async function handleAdmin(ctx) {
     }
 
     const now = nowIso();
+    const dependencySummary = await buildAdminUserDeleteDependencySummary(env, targetUserId);
+    const deletedEmail = safeDeletedEmailForUser(targetUserId);
     let aiDeletionSummary = null;
     try {
       aiDeletionSummary = await deleteAllUserAiAssets({
         env,
         userId: targetUserId,
         createdAt: now,
-        additionalStatements: [
-          env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
-          env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
-          env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
-          env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
-          env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
-        ],
+        additionalStatements: buildAdminUserOperationalDeleteStatements(env, {
+          userId: targetUserId,
+          deletedEmail,
+          now,
+          unavailable: dependencySummary.unavailable,
+        }),
       });
     } catch (error) {
       if (!(error instanceof AiAssetLifecycleError)) {
         throw error;
       }
+      const blockedDependency = error.branch === "user_delete_failed_dependency"
+        || error.branch === "retention_dependency_blocked";
       return json(
         {
           ok: false,
           error: error.message,
-          code: "admin_delete_user_lifecycle_failed",
+          code: blockedDependency
+            ? "admin_delete_user_dependency_blocked"
+            : "admin_delete_user_lifecycle_failed",
           branch: error.branch || "lifecycle_delete_failed",
+          dependencySummary: {
+            mode: dependencySummary.mode,
+            blockingCategories: blockedDependency
+              ? dependencySummary.retainedPolicyRecords
+              : [error.details?.category || error.branch || "lifecycle_cleanup"],
+            safeCounts: dependencySummary.safeCounts,
+            unavailable: dependencySummary.unavailable,
+          },
         },
         { status: error.status }
+      );
+    }
+
+    const anonymizedUser = await env.DB.prepare(
+      "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
+    ).bind(targetUserId).first();
+    if (!anonymizedUser || anonymizedUser.status !== ADMIN_USER_DELETED_STATUS || anonymizedUser.email !== deletedEmail) {
+      return json(
+        {
+          ok: false,
+          error: "Operational user deletion did not reach the final account anonymization state.",
+          code: "admin_delete_user_lifecycle_failed",
+          branch: "user_anonymize_failed",
+          dependencySummary: {
+            mode: dependencySummary.mode,
+            blockingCategories: ["account_anonymization"],
+            safeCounts: dependencySummary.safeCounts,
+            unavailable: dependencySummary.unavailable,
+          },
+        },
+        { status: 500 }
       );
     }
 
@@ -1123,14 +1431,16 @@ export async function handleAdmin(ctx) {
       env,
       {
         adminUserId: result.user.id,
-        action: "delete_user",
+        action: "operational_delete_user",
         targetUserId,
         meta: {
           deletedUserId: targetUserId,
+          deletion_mode: "operational_anonymized_delete",
           target_email: targetUser.email,
           target_role: targetUser.role,
           target_status: targetUser.status,
           actor_email: result.user.email,
+          retained_policy_records: dependencySummary.retainedPolicyRecords,
         },
         createdAt: now,
       },
@@ -1144,8 +1454,10 @@ export async function handleAdmin(ctx) {
     return json({
       ok: true,
       deletedUserId: targetUserId,
+      deletionMode: "operational_anonymized_delete",
       deletionScope: {
-        accountDeleted: true,
+        accountDeletedOrAnonymized: true,
+        loginDisabled: true,
         sessionsDeleted: true,
         tokensDeleted: true,
         profileDeleted: true,
@@ -1155,13 +1467,10 @@ export async function handleAdmin(ctx) {
           folders: aiDeletionSummary?.deletedAiFoldersCount ?? null,
           cleanupObjectsQueued: aiDeletionSummary?.cleanupObjectsQueuedCount ?? 0,
         },
+        aiFoldersDeleted: true,
+        storageQuotaCleaned: true,
         avatarCleanup,
-        retainedRecords: [
-          "admin_audit_log",
-          "user_activity_log_retention_governed",
-          "billing_ledger_and_provider_evidence_if_present",
-          "legal_or_compliance_records_if_present",
-        ],
+        retainedPolicyRecords: dependencySummary.retainedPolicyRecords,
       },
     });
   }

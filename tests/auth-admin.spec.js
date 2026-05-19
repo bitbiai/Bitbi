@@ -10851,14 +10851,16 @@ test.describe('Admin Control Plane', () => {
       await fulfillJson(route, {
         ok: true,
         deletedUserId: 'user_member',
+        deletionMode: 'operational_anonymized_delete',
         deletionScope: {
-          accountDeleted: true,
+          accountDeletedOrAnonymized: true,
+          loginDisabled: true,
           sessionsDeleted: true,
           tokensDeleted: true,
           profileDeleted: true,
           aiAssetsDeleted: { images: 0, textAssets: 0, folders: 0, cleanupObjectsQueued: 0 },
           avatarCleanup: 'best_effort_completed',
-          retainedRecords: ['admin_audit_log', 'billing_ledger_and_provider_evidence_if_present'],
+          retainedPolicyRecords: ['admin_audit_log', 'billing_ledger_and_provider_evidence_if_present'],
         },
       });
     });
@@ -10897,6 +10899,7 @@ test.describe('Admin Control Plane', () => {
     }));
     await expect(page.locator('#userTbody tr', { hasText: 'member@example.com' })).toHaveCount(0);
     await expect(page.locator('.admin-toast__item').last()).toContainText('User deleted');
+    await expect(page.locator('.admin-toast__item').last()).toContainText('Operational anonymized deletion completed');
   });
 
   test('Admin Users delete displays backend confirmation-required code and status', async ({
@@ -10937,6 +10940,11 @@ test.describe('Admin Control Plane', () => {
         ok: false,
         error: 'Failed to delete user-owned operational assets safely.',
         code: 'admin_delete_user_lifecycle_failed',
+        branch: 'user_delete_failed_dependency',
+        dependencySummary: {
+          blockingCategories: ['billing_ledger'],
+          safeCounts: { member_credit_ledger: 1 },
+        },
       }, 500);
     });
 
@@ -10954,7 +10962,46 @@ test.describe('Admin Control Plane', () => {
     const toast = page.locator('.admin-toast__item').last();
     await expect(toast).toContainText('Failed to delete user-owned operational assets safely.');
     await expect(toast).toContainText('code: admin_delete_user_lifecycle_failed');
+    await expect(toast).toContainText('branch: user_delete_failed_dependency');
+    await expect(toast).toContainText('Dependencies: billing_ledger');
     await expect(toast).toContainText('status: 500');
+    await expect(memberRow).toHaveCount(1);
+  });
+
+  test('Admin Users delete explains retention dependency failures as backend policy blockers', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, {});
+    await page.route('**/api/admin/users/user_member', async (route) => {
+      await fulfillJson(route, {
+        ok: false,
+        error: 'User deletion is blocked by retained policy-controlled records.',
+        code: 'admin_delete_user_retention_dependency_blocked',
+        branch: 'retention_dependency_blocked',
+        dependencySummary: {
+          blockingCategories: ['billing_ledger', 'data_lifecycle_records'],
+          safeCounts: { member_credit_ledger: 1, data_lifecycle_requests: 1 },
+        },
+      }, 409);
+    });
+
+    await page.goto('/admin/index.html#users');
+    await expect(page.locator('#sectionUsers')).toBeVisible({ timeout: 10_000 });
+    page.on('dialog', async (dialog) => {
+      if (dialog.type() === 'prompt') {
+        await dialog.accept('member@example.com');
+      } else {
+        await dialog.accept();
+      }
+    });
+    const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
+    await memberRow.getByRole('button', { name: 'Delete' }).click();
+    const toast = page.locator('.admin-toast__item').last();
+    await expect(toast).toContainText('User deletion is blocked by retained policy-controlled records.');
+    await expect(toast).toContainText('code: admin_delete_user_retention_dependency_blocked');
+    await expect(toast).toContainText('branch: retention_dependency_blocked');
+    await expect(toast).toContainText('Dependencies: billing_ledger, data_lifecycle_records');
+    await expect(toast).toContainText('backend policy/schema dependency');
     await expect(memberRow).toHaveCount(1);
   });
 

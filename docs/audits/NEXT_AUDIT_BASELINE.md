@@ -16,6 +16,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Browser state-changing requests require trusted Origin/Referer context, and protected writes with `Sec-Fetch-Site: cross-site` fail closed except for explicit webhook/ingest/link exemptions.
 - High-risk evidence/log surfaces should expose private storage keys only as bounded classes/hashes/counts, not raw internal R2 keys.
 - Admin Control Plane exists for implemented admin operations, including users, Operator Timeline/Triage, billing evidence status, billing review/reconciliation, lifecycle, readiness/evidence status, AI Lab, AI usage, budget controls, platform-budget evidence, tenant manual-review visibility, and related exports.
+- Admin user delete is operational anonymized deletion, not full legal erasure: it requires Admin auth/MFA, rate limiting, explicit confirmation, self-delete prevention, dependency preflight, labeled cleanup diagnostics, login/session disablement, and guarded cleanup of operational user-owned data while retention-governed audit/billing/lifecycle/legal evidence remains policy-controlled.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify
