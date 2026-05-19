@@ -1,0 +1,118 @@
+{
+  "ok": true,
+  "reportVersion": "tenant-isolation-access-switch-evidence-v1",
+  "generatedAt": "2026-05-19T20:02:45.194Z",
+  "productionReadiness": "blocked",
+  "tenantIsolationClaimed": false,
+  "r2LiveListed": false,
+  "r2ObjectsMutated": false,
+  "status": {
+    "ok": true,
+    "reportVersion": "tenant-isolation-access-switch-status-v1",
+    "generatedAt": "2026-05-19T20:02:45.198Z",
+    "source": "repo_config_and_local_d1_shadow_evidence",
+    "currentMode": "off",
+    "sourceOfTruth": "legacy_user_id_runtime_access_checks",
+    "runtimeSwitchRepoSupported": false,
+    "liveSwitchEnabled": false,
+    "shadowDiagnosticsAvailable": true,
+    "killSwitch": {
+      "supported": "not_persisted_in_repo",
+      "rollbackMode": "keep_legacy_user_id_access_checks"
+    },
+    "mismatchCounts": {
+      "unsafe": 0,
+      "manualReview": 1,
+      "metadataMissing": 1
+    },
+    "enabledActions": [
+      "shadow_diagnostics",
+      "evidence_export"
+    ],
+    "disabledActions": {
+      "shadow": "Shadow mode is diagnostic-only because runtime access decisions still use legacy user_id checks.",
+      "enforced": "Enforced access-switch is blocked: no durable feature flag/state model and unresolved shadow evidence.",
+      "off": "Already off; legacy runtime access checks remain active."
+    },
+    "tenantIsolationClaimed": false,
+    "postCleanupRebaseline": {
+      "status": "post_cleanup_evidence_pending",
+      "source": "access_switch_status_only",
+      "evidenceType": "status_pending_shadow_diagnostics",
+      "manualMediaCleanupReported": true,
+      "oldCountsSuperseded": true,
+      "staleEvidenceDecisionPath": "docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md",
+      "liveEvidenceRequired": true,
+      "tenantIsolationClaimed": false
+    },
+    "productionReadiness": "blocked"
+  },
+  "shadowDiagnostics": {
+    "ok": true,
+    "reportVersion": "tenant-isolation-access-switch-shadow-v1",
+    "generatedAt": "2026-05-19T20:02:45.194Z",
+    "source": "local_d1_read_only_shadow_diagnostics",
+    "currentMode": "off",
+    "runtimeBehaviorChanged": false,
+    "accessChecksChanged": false,
+    "r2LiveListed": false,
+    "r2ObjectsMutated": false,
+    "tenantIsolationClaimed": false,
+    "postCleanupRebaseline": {
+      "status": "post_cleanup_evidence_collected",
+      "source": "current_d1_read_only_shadow_diagnostics",
+      "evidenceType": "access_switch_shadow_diagnostics",
+      "manualMediaCleanupReported": true,
+      "oldCountsSuperseded": true,
+      "staleEvidenceDecisionPath": "docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md",
+      "liveEvidenceRequired": false,
+      "tenantIsolationClaimed": false
+    },
+    "productionReadiness": "blocked",
+    "summary": {
+      "totalFoldersScanned": 0,
+      "totalImagesScanned": 1,
+      "foldersWithOwnershipMetadata": 0,
+      "imagesWithOwnershipMetadata": 0,
+      "foldersWithNullOwnershipMetadata": 0,
+      "imagesWithNullOwnershipMetadata": 1,
+      "legacyUserOwnerMatchingNewOwningUser": 0,
+      "mismatchedUserIdVsOwningUserId": 0,
+      "organizationOwnedRowsFound": 0,
+      "ambiguousRows": 0,
+      "orphanFolderReferences": 0,
+      "publicImagesWithMissingOrAmbiguousOwnership": 0,
+      "derivativeOwnershipRisks": 0,
+      "simulatedDualReadSafeCount": 0,
+      "simulatedDualReadUnsafeCount": 0,
+      "needsManualReviewCount": 0,
+      "metadataConflictCount": 0,
+      "relationshipConflictCount": 0,
+      "classificationCounts": {
+        "metadata_missing": 1,
+        "not_applicable": 1
+      },
+      "severityCounts": {
+        "warning": 1,
+        "info": 1
+      },
+      "mismatchCount": 1,
+      "enforcedModeAllowed": false
+    },
+    "samples": [
+      {
+        "domain": "ai_images",
+        "assetId": "47a27f4496db386b120b631c3a05502e",
+        "mismatchType": "metadata_missing",
+        "severity": "warning",
+        "reason": "ownership_metadata_missing",
+        "legacyAccessResult": "legacy_user_id_signal_present",
+        "ownershipMetadataAccessResult": "metadata_missing_or_unsafe",
+        "recommendation": "Do not switch this image to ownership-metadata access without review."
+      }
+    ],
+    "disabledActions": {
+      "enforced": "Blocked until shadow diagnostics show no unresolved unsafe/manual-review/missing-metadata mismatches and a durable switch model exists."
+    }
+  }
+}

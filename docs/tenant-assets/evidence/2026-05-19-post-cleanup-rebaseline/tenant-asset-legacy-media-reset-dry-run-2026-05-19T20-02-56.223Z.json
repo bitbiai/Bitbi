@@ -1,0 +1,291 @@
+{
+  "ok": true,
+  "available": true,
+  "reportVersion": "tenant-asset-legacy-media-reset-dry-run-v1",
+  "generatedAt": "2026-05-19T20:02:56.223Z",
+  "source": "local_d1_read_only",
+  "domain": "legacy_personal_media_reset",
+  "runtimeBehaviorChanged": false,
+  "accessChecksChanged": false,
+  "tenantIsolationClaimed": false,
+  "ownershipBackfillPerformed": false,
+  "sourceAssetRowsMutated": false,
+  "reviewRowsMutated": false,
+  "r2LiveListed": false,
+  "r2ObjectsMutated": false,
+  "productionReadiness": "blocked",
+  "filters": {
+    "limit": 50,
+    "includeDetails": true,
+    "includeImages": true,
+    "includeFolders": true,
+    "includePublic": true,
+    "includeDerivatives": true,
+    "includeVideos": true,
+    "includeMusic": true,
+    "includeTextAssets": true,
+    "includeQuota": true,
+    "format": "json"
+  },
+  "summary": {
+    "totalLegacyCandidateRows": 15,
+    "totalFolders": 0,
+    "foldersWithNullOwnershipMetadata": 0,
+    "foldersWithOwnershipMetadata": 0,
+    "totalImages": 1,
+    "imagesWithNullOwnershipMetadata": 1,
+    "imagesWithOwnershipMetadata": 0,
+    "publicGalleryRows": 0,
+    "derivativePosterThumbReferences": 2,
+    "manualReviewItemsCurrentlyPresent": 283,
+    "manualReviewItemsPotentiallyObsoleteAfterReset": 283,
+    "videoRecordsFound": 14,
+    "musicRecordsFound": 0,
+    "textAssetRecordsFound": 0,
+    "estimatedStorageBytesReferencedFromD1": 51320954,
+    "domainsNotCovered": [],
+    "blockedCount": 284,
+    "ready_for_executor_count": 0,
+    "requires_manual_review_count": 285,
+    "not_safe_to_delete_count": 1
+  },
+  "domainCoverage": {
+    "ai_folders": {
+      "coverage": "covered_by_phase_6_21_dry_run",
+      "table": "ai_folders",
+      "resetReadiness": "future_executor_required"
+    },
+    "ai_images": {
+      "coverage": "covered_by_phase_6_21_dry_run",
+      "table": "ai_images",
+      "resetReadiness": "future_executor_required"
+    },
+    "public_gallery_mempics": {
+      "coverage": "covered_by_phase_6_21_dry_run",
+      "resetReadiness": "depublish_or_gallery_review_required"
+    },
+    "derivative_artifacts": {
+      "coverage": "covered_by_phase_6_21_dry_run",
+      "resetReadiness": "derivative_cleanup_required"
+    },
+    "ai_text_assets": {
+      "coverage": "partially_covered",
+      "resetReadiness": "future_phase_required"
+    },
+    "music_assets": {
+      "coverage": "partially_covered",
+      "resetReadiness": "future_phase_required"
+    },
+    "video_assets_and_jobs": {
+      "coverage": "partially_covered",
+      "resetReadiness": "future_phase_required"
+    },
+    "storage_quota": {
+      "coverage": "partially_covered",
+      "resetReadiness": "recalculate_or_verify_after_future_executor"
+    },
+    "manual_review_items": {
+      "coverage": "covered_by_phase_6_21_dry_run",
+      "resetReadiness": "future_supersede_policy_required"
+    },
+    "lifecycle_delete_paths": {
+      "coverage": "partially_covered",
+      "resetReadiness": "future_executor_must_reuse_existing_lifecycle_helpers"
+    }
+  },
+  "folderImageCandidates": {
+    "available": true,
+    "coverage": "covered_by_phase_6_21_dry_run",
+    "classifications": [
+      "candidate_requires_manual_review",
+      "candidate_requires_folder_child_handling",
+      "candidate_requires_existing_delete_path",
+      "blocked_unowned_or_org_unknown"
+    ],
+    "totalFolders": 0,
+    "activeFolders": 0,
+    "foldersWithNullOwnershipMetadata": 0,
+    "foldersWithOwnershipMetadata": 0,
+    "totalImages": 1,
+    "imagesWithNullOwnershipMetadata": 1,
+    "imagesWithOwnershipMetadata": 0,
+    "folderLinkedImages": 0,
+    "simplePrivateImages": 0,
+    "readyForFutureExecutorCount": 0,
+    "requiresManualReviewCount": 1,
+    "details": {
+      "folders": [],
+      "images": [
+        {
+          "id": "47a27f4496db386b120b631c3a05502e",
+          "assetDomain": "ai_images",
+          "visibility": "private",
+          "folderLinked": false,
+          "ownershipMetadataPresent": false,
+          "ownerType": null,
+          "ownershipStatus": null,
+          "hasDerivativeReference": true,
+          "createdAt": "2026-04-13T06:20:02.942Z",
+          "classification": "candidate_requires_derivative_cleanup"
+        }
+      ]
+    }
+  },
+  "publicGalleryCandidates": {
+    "available": true,
+    "coverage": "covered_by_phase_6_21_dry_run",
+    "classification": "candidate_requires_depublish_or_gallery_review",
+    "totalPublicRows": 0,
+    "publicImageRows": 0,
+    "publicTextRows": 0,
+    "publicMusicRows": 0,
+    "publicVideoRows": 0,
+    "noPublicStateChanged": true,
+    "warnings": [
+      "Public/gallery rows cannot be silently deleted by this dry run.",
+      "A future executor must deliberately depublish or delete public references and account for attribution/history impact.",
+      "Current public/gallery content would disappear only if a later explicitly approved deletion executor runs."
+    ]
+  },
+  "derivativeCandidates": {
+    "available": true,
+    "coverage": "covered_by_phase_6_21_dry_run",
+    "classification": "candidate_requires_derivative_cleanup",
+    "imagesWithDerivatives": 1,
+    "thumbReferences": 1,
+    "mediumReferences": 1,
+    "totalDerivativeReferences": 2,
+    "inferredFromD1Only": true,
+    "r2ExistenceChecked": false,
+    "requirements": [
+      "A future executor must clean parent and derivative references through existing lifecycle queue/delete logic.",
+      "No live R2 existence check, list, move, or delete is performed by this dry run."
+    ]
+  },
+  "videoCandidates": {
+    "available": true,
+    "coverage": "partially_covered",
+    "classification": "candidate_requires_existing_delete_path",
+    "totalVideoRows": 14,
+    "savedVideoAssets": {
+      "totalSavedVideoRows": 0,
+      "publicSavedVideoRows": 0
+    },
+    "videoJobs": {
+      "totalVideoJobRows": 14,
+      "outputReferences": 8,
+      "posterReferences": 0,
+      "scopeRollup": {
+        "admin": 14
+      },
+      "statusRollup": {
+        "succeeded": 8,
+        "failed": 6
+      }
+    },
+    "notes": [
+      "Video reset coverage is conservative because generated video jobs and saved video assets use different tables.",
+      "A future phase must confirm which video job states are safe to retire before any executor can delete rows or queued artifacts."
+    ]
+  },
+  "musicCandidates": {
+    "available": true,
+    "coverage": "partially_covered",
+    "classification": "candidate_requires_existing_delete_path",
+    "totalMusicRows": 0,
+    "publicMusicRows": 0,
+    "lifecycleCoverage": "ai_text_assets lifecycle delete paths exist, but ownership metadata reset coverage is not claimed in Phase 6.21."
+  },
+  "textAssetCandidates": {
+    "available": true,
+    "coverage": "partially_covered",
+    "classification": "candidate_requires_existing_delete_path",
+    "totalTextAssetRows": 0,
+    "publicTextAssetRows": 0,
+    "posterReferences": 0,
+    "sourceModuleRollup": {},
+    "notes": [
+      "Text/audio/video assets share ai_text_assets and existing lifecycle delete paths, but Phase 6 ownership work did not add ownership metadata for this table.",
+      "Do not claim text/music/video reset coverage complete without a future coverage phase or executor design."
+    ]
+  },
+  "quotaImpact": {
+    "available": true,
+    "coverage": "partially_covered",
+    "classification": "candidate_requires_existing_delete_path",
+    "usageRows": 5,
+    "recordedUsedBytes": 507604,
+    "estimatedD1ReferencedBytes": 51320954,
+    "r2ObjectSizesChecked": false,
+    "requirements": [
+      "A future executor must recalculate or verify quota after deletion.",
+      "This dry run never calls R2 head/list and uses only D1-stored byte counts."
+    ]
+  },
+  "manualReviewImpact": {
+    "available": true,
+    "coverage": "covered_by_phase_6_21_dry_run",
+    "totalReviewItems": 283,
+    "totalEvents": 286,
+    "folderReviewItems": 16,
+    "imageRelatedReviewItems": 267,
+    "reviewStatusRollup": {
+      "pending_review": 149,
+      "review_in_progress": 1,
+      "approved_personal_user_asset": 1,
+      "approved_organization_asset": 0,
+      "approved_legacy_unclassified": 0,
+      "approved_platform_admin_test_asset": 0,
+      "blocked_public_unsafe": 84,
+      "blocked_derivative_risk": 43,
+      "blocked_relationship_conflict": 0,
+      "blocked_missing_evidence": 0,
+      "needs_legal_privacy_review": 0,
+      "deferred": 5,
+      "rejected": 0,
+      "superseded": 0
+    },
+    "issueCategoryRollup": {
+      "metadata_missing": 66,
+      "public_unsafe": 84,
+      "derivative_risk": 43,
+      "dual_read_unsafe": 0,
+      "manual_review_needed": 42,
+      "relationship_review": 43,
+      "legacy_unclassified": 0,
+      "future_org_ownership_review": 0,
+      "platform_admin_test_review": 0,
+      "safe_observe_only": 5
+    },
+    "obsoleteIfResetSucceeds": 283,
+    "reviewRowsMutated": false,
+    "notes": [
+      "A future reset may make some review items obsolete, but Phase 6.21 does not supersede or mutate review rows."
+    ]
+  },
+  "blockedReasons": [
+    "Phase 6.21 is dry-run only and has no deletion executor.",
+    "Public/gallery rows require explicit depublish or gallery review before any future deletion.",
+    "Derivative/poster/thumb cleanup requires existing lifecycle queue/delete logic; no R2 listing or mutation was performed.",
+    "Manual-review rows are not superseded or mutated by this report.",
+    "Backfill and access-switch decisions remain blocked."
+  ],
+  "futureExecutorRequirements": [
+    "Default dryRun=true and require explicit confirm=true, bounded reason, and Idempotency-Key.",
+    "Require admin auth, production MFA, same-origin writes, bounded JSON, and fail-closed rate limits.",
+    "Use existing safe lifecycle/delete helpers and durable cleanup queue; never direct uncontrolled SQL or R2 deletion.",
+    "Write audit evidence, verify no source/orphan rows remain, and recalculate or verify storage quota.",
+    "Supersede manual-review items only in a separately approved phase."
+  ],
+  "recommendations": [
+    "Review this dry-run evidence before deciding whether a reset executor is cleaner than ownership metadata backfill.",
+    "Design a future executor before any deletion, depublish, R2 cleanup, quota recalculation, or manual-review supersede action.",
+    "Keep tenant isolation, access switch, and production readiness blocked until reset or backfill evidence is separately reviewed."
+  ],
+  "limitations": [
+    "Counts are D1-only and may not reflect live R2 object existence.",
+    "No R2 list/head/delete/copy/move operation is performed.",
+    "Video/music/text reset coverage is conservative and may require a coverage expansion before executor work.",
+    "This report does not mutate source asset rows, review rows, ownership metadata, public visibility, quota records, or access checks."
+  ]
+}

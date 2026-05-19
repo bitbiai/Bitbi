@@ -1,0 +1,74 @@
+{
+  "ok": true,
+  "available": true,
+  "reportVersion": "tenant-isolation-ownership-backfill-v1",
+  "generatedAt": "2026-05-19T20:00:31.327Z",
+  "source": "local_d1_read_only",
+  "productionReadiness": "blocked",
+  "tenantIsolationClaimed": false,
+  "ownershipBackfillReadiness": "blocked_until_operator_evidence_review",
+  "backfillPerformed": false,
+  "d1Mutated": false,
+  "r2LiveListed": false,
+  "r2ObjectsMutated": false,
+  "postCleanupRebaseline": {
+    "status": "post_cleanup_evidence_collected",
+    "source": "current_d1_read_only_backfill_dry_run",
+    "evidenceType": "ownership_backfill_dry_run",
+    "manualMediaCleanupReported": true,
+    "oldCountsSuperseded": true,
+    "staleEvidenceDecisionPath": "docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md",
+    "liveEvidenceRequired": false,
+    "tenantIsolationClaimed": false
+  },
+  "options": {
+    "limit": 50,
+    "domains": [
+      "ai_folders",
+      "ai_images"
+    ],
+    "deferredDomains": []
+  },
+  "summary": {
+    "totalCandidates": 1,
+    "safeCandidates": 1,
+    "rowsWritten": 0,
+    "classifications": {
+      "safe_to_backfill": 1,
+      "needs_manual_review": 0,
+      "blocked_public_unsafe": 0,
+      "blocked_missing_evidence": 0,
+      "deferred_domain": 0,
+      "already_owned": 0,
+      "legacy_unclassified": 0
+    },
+    "diagnosticMismatchCount": 0,
+    "manualReviewCount": 0
+  },
+  "candidates": [
+    {
+      "domain": "ai_images",
+      "assetId": "47a27f4496db386b120b631c3a05502e",
+      "classification": "safe_to_backfill",
+      "reason": "private_image_legacy_user_can_seed_personal_owner",
+      "status": "private",
+      "folderId": null,
+      "publicReference": false,
+      "ownerSignal": {
+        "legacyUserIdPresent": true,
+        "ownershipMetadataPresent": false,
+        "ownerType": null,
+        "ownershipStatus": null,
+        "owningUserIdPresent": false,
+        "owningOrganizationIdPresent": false
+      },
+      "recommendedAction": "Eligible for guarded BACKFILL OWNERSHIP execution in this domain only."
+    }
+  ],
+  "warnings": [
+    "Dry-run only: no ownership metadata was written.",
+    "Backfill can change future access decisions if access-switch enforcement is later enabled.",
+    "Unsafe, public, missing-evidence, manual-review, and deferred-domain rows remain blocked."
+  ],
+  "requiredExecutionConfirmation": "BACKFILL OWNERSHIP"
+}
