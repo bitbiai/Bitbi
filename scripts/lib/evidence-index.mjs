@@ -263,7 +263,7 @@ export function buildEvidenceIndex({
   const unsafeItems = items.filter((item) => item.unsafe);
   return {
     ok: unsafeItems.length === 0,
-    version: "omega-p1-wave10-evidence-index-v2",
+    version: "current-baseline-evidence-index-v1",
     generatedAt,
     mode: "local_filesystem_only",
     liveR2Listed: false,

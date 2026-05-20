@@ -29,7 +29,7 @@ const dossier = createProductionReadinessDossier({
   },
 });
 
-assert.equal(dossier.version, "omega-p1-wave9-readiness-dossier-v1");
+assert.equal(dossier.version, "current-baseline-readiness-dossier-v1");
 assert.equal(dossier.localOnly, true);
 assert.equal(dossier.nonMutating, true);
 assert.equal(dossier.externalCallsMade, false);

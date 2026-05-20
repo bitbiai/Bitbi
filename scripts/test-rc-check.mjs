@@ -8,7 +8,7 @@ import {
 
 const plan = createRcCheckPlan({ generatedAt: "2026-05-19T12:00:00.000Z" });
 
-assert.equal(plan.version, "omega-p1-wave10-rc-check-v1");
+assert.equal(plan.version, "current-baseline-rc-check-v1");
 assert.equal(plan.localOnly, true);
 assert.equal(plan.defaultRunsCommands, false);
 assert.equal(plan.stopOnFailure, true);

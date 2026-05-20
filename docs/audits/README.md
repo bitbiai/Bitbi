@@ -1,10 +1,10 @@
 # Audit And Documentation Index
 
-Last reconciled: 2026-05-18
+Last reconciled: 2026-05-20
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0060_add_app_settings.sql`.
 
-DOC-2 makes `docs/audits/NEXT_AUDIT_BASELINE.md` the clean starting point for the next deep audit. DOC-3 moves historical root phase reports to `docs/audits/archive/root-phase-reports/`. DOC-4 retires the old root audit docs into `docs/audits/archive/retired-audit-root-docs/`. Active docs should describe current state only; historical audit narrative is frozen separately.
+`docs/audits/NEXT_AUDIT_BASELINE.md` is the clean starting point for the next deep audit. Historical root reports live under `docs/audits/archive/root-phase-reports/`, and retired root audit docs live under `docs/audits/archive/retired-audit-root-docs/`. Active docs should describe current state only; historical audit narrative is frozen separately.
 
 ## Start Here
 
@@ -83,7 +83,7 @@ Keep these files for context only. Reconcile with the current baseline before re
 - Historical phase-by-phase narrative belongs in frozen historical docs only.
 - The repository root is for active top-level docs only. Historical phase reports belong in `docs/audits/archive/root-phase-reports/`.
 - Audit-specific plans/reports belong under `docs/audits/` or an archive. Do not create new root-level `AUDIT_*.md`, `ALPHA_AUDIT_*.md`, or `PHASE*.md` files.
-- Future completed phase reports should update current state or go directly to archive, not the repository root.
+- Future completed audit reports should update current state or go directly to archive, not the repository root.
 - Do not delete unique evidence files.
 - Do not update frozen historical reports just to modernize migration numbers.
 - New Markdown must be classified by doc-currentness tooling.

@@ -1,6 +1,6 @@
-# Alpha Audit Current Summary
+# Current Audit Summary
 
-Last updated: 2026-05-19
+Last updated: 2026-05-20
 
 Latest auth migration: `0060_add_app_settings.sql`
 
@@ -10,7 +10,7 @@ Production readiness: BLOCKED
 
 Live billing readiness: BLOCKED
 
-This is the short operator-facing audit summary. It does not approve deploys, live billing, legal compliance, full tenant isolation, access-check switching, ownership backfill, confirmed media reset, or full SaaS maturity.
+This is the short operator-facing audit summary. The old alpha/audit naming is historical; current audit work starts from `docs/audits/NEXT_AUDIT_BASELINE.md`. This summary does not approve deploys, live billing, legal compliance, full tenant isolation, access-check switching, ownership backfill, confirmed media reset, or full SaaS maturity.
 
 ## Current Done
 
@@ -21,7 +21,7 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - Admin/platform AI budget controls exist for classified routes: Cloudflare master switches, D1 app switches, selected platform caps, reconciliation, repair, report/export, and sanitized archives.
 - Admin Control Plane surfaces implemented operator panels, including readiness/evidence status, production execution, and Release Candidate / Go-No-Go command copy.
 - Local RC tooling exists: `npm run rc:check` prints the final validation matrix by default, and `npm run release:rc` / `npm run release:rc:markdown` generate a blocked Go/No-Go manifest for code-merge/deploy preparation.
-- Tenant asset folder/image metadata, owner-map evidence, manual-review import/queue/status/Admin visibility, reset dry-run/reporting, reset action tracking, and reset executor endpoints exist in repo.
+- Tenant asset folder/image metadata, owner-map evidence, manual-review import/queue/status/Admin visibility, post-cleanup manual-review classifier/supersession support, reset dry-run/reporting, reset action tracking, and reset executor endpoints exist in repo.
 
 ## Current Open Blockers
 
@@ -47,14 +47,14 @@ This is the short operator-facing audit summary. It does not approve deploys, li
 - New personal writes assign ownership metadata; existing rows remain mixed/null unless separately proven.
 - Manual-review item/event tables, import, queue/evidence, status update, and Admin visibility exist.
 - Reset action/event tables and a dry-run-default executor path exist for first-pass folders/images/derivatives/public references only.
-- Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
+- Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved operator package.
 - No confirmed deletion/reset, ownership backfill, access-switching, or tenant-isolation claim is approved.
 
 ## Next Recommended Step
 
-Recommended next audit entry point: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
+Recommended next audit entry point: Fresh Deep Audit From Current Baseline.
 
-If tenant reset work continues first, review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` and resolve the unsafe evidence blocker before any confirmation-review phase.
+If tenant reset work continues first, review `docs/tenant-assets/evidence/LEGACY_MEDIA_RESET_DRY_RUN_EVIDENCE_DECISION.md` and resolve the unsafe evidence blocker before any confirmation review.
 
 ## Historical Evidence Links
 

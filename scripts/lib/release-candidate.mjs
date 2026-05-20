@@ -7,7 +7,7 @@ import { buildEvidenceIndex } from "./evidence-index.mjs";
 import { createRollbackDrill } from "./rollback-drill.mjs";
 import { createRcCheckPlan } from "./rc-check.mjs";
 
-export const RELEASE_CANDIDATE_VERSION = "omega-p1-wave10-release-candidate-v1";
+export const RELEASE_CANDIDATE_VERSION = "current-baseline-release-candidate-v1";
 
 const BLOCKED_CLAIMS = Object.freeze([
   { id: "production_readiness", label: "Production readiness", status: "blocked" },
@@ -30,23 +30,23 @@ const REMAINING_EVIDENCE_BLOCKERS = Object.freeze([
   "rollback drill placeholders and smoke evidence",
 ]);
 
-const WAVE_MATRIX = Object.freeze([
-  { id: "p0-01", label: "P0-01 main release readiness gate", status: "complete_repo_supported" },
-  { id: "p0-02", label: "P0-02 confirmed legacy reset execution gate", status: "complete_default_off" },
-  { id: "p0-03", label: "P0-03 sanitized legacy reset dry-run evidence templates", status: "blocked_pending_operator_evidence" },
-  { id: "p0-04", label: "P0-04 manual-review idempotency evidence templates", status: "blocked_pending_operator_evidence" },
-  { id: "p0-05", label: "P0-05 active documentation drift cleanup", status: "complete_repo_supported" },
-  { id: "p1-wave-1", label: "P1 Wave 1 security/cost boundary hardening", status: "complete_repo_supported" },
-  { id: "p1-wave-2", label: "P1 Wave 2 release/canary/billing/admin mutation hardening", status: "complete_repo_supported" },
-  { id: "p1-wave-3", label: "P1 Wave 3 admin/data/observability/scale hardening", status: "complete_repo_supported" },
-  { id: "p1-wave-4", label: "P1 Wave 4 Admin Readiness & Evidence Dashboard", status: "complete_repo_supported" },
-  { id: "p1-wave-5", label: "P1 Wave 5 release cutover evidence and live-read-only verification", status: "complete_repo_supported_live_evidence_pending" },
-  { id: "p1-wave-6", label: "P1 Wave 6 tenant asset domain/storage evidence expansion", status: "complete_repo_supported_tenant_isolation_unclaimed" },
-  { id: "p1-wave-7", label: "P1 Wave 7 Billing Evidence Center / Financial Control Plane", status: "complete_repo_supported_live_billing_blocked" },
-  { id: "p1-wave-8", label: "P1 Wave 8 Operator Timeline/Triage and Evidence Index", status: "complete_repo_supported" },
-  { id: "p1-wave-9", label: "P1 Wave 9 production readiness execution framework", status: "complete_repo_supported_live_evidence_pending" },
-  { id: "p1-wave-10", label: "P1 Wave 10 Release Candidate consolidation", status: "implemented_local_only_candidate" },
-  { id: "dependency-hotfixes", label: "Dependency hotfixes for root and Worker package audit blockers", status: "complete_repo_supported" },
+const CURRENT_CAPABILITY_MATRIX = Object.freeze([
+  { id: "main-release-readiness-gate", label: "Main release readiness gate", status: "repo_supported_live_evidence_required" },
+  { id: "confirmed-reset-execution-gate", label: "Confirmed legacy reset execution gate", status: "complete_default_off" },
+  { id: "sanitized-reset-evidence-templates", label: "Sanitized legacy reset dry-run evidence templates", status: "blocked_pending_operator_evidence" },
+  { id: "manual-review-idempotency-evidence", label: "Manual-review idempotency evidence templates", status: "blocked_pending_operator_evidence" },
+  { id: "active-doc-currentness-baseline", label: "Active documentation current-state baseline", status: "complete_repo_supported" },
+  { id: "security-cost-boundaries", label: "Security and AI cost boundary hardening", status: "complete_repo_supported" },
+  { id: "release-billing-admin-guardrails", label: "Release, canary, billing, and admin mutation guardrails", status: "complete_repo_supported" },
+  { id: "admin-data-observability", label: "Admin data, observability, and scale guardrails", status: "complete_repo_supported" },
+  { id: "admin-readiness-dashboard", label: "Admin Readiness and Evidence Dashboard", status: "complete_repo_supported" },
+  { id: "cutover-live-readonly", label: "Release cutover evidence and live-read-only verification", status: "repo_supported_live_evidence_pending" },
+  { id: "tenant-asset-evidence", label: "Tenant asset domain and storage evidence expansion", status: "repo_supported_tenant_isolation_unclaimed" },
+  { id: "billing-evidence-center", label: "Billing Evidence Center and Financial Control Plane", status: "repo_supported_live_billing_blocked" },
+  { id: "operator-timeline-evidence-index", label: "Operator Timeline/Triage and Evidence Index", status: "complete_repo_supported" },
+  { id: "production-readiness-framework", label: "Production readiness execution framework", status: "repo_supported_live_evidence_pending" },
+  { id: "release-candidate-framework", label: "Release Candidate and Go/No-Go framework", status: "implemented_local_only_candidate" },
+  { id: "dependency-audit-hotfixes", label: "Dependency audit blocker hotfixes", status: "complete_repo_supported" },
 ]);
 
 function runGit(repoRoot, args) {
@@ -235,7 +235,7 @@ export function createReleaseCandidateManifest({
       liveUrlsRequired: checkPlan.liveUrlsRequired === true,
       secretsRequired: checkPlan.secretsRequired === true,
     },
-    waveCompletionMatrix: WAVE_MATRIX,
+    currentCapabilityMatrix: CURRENT_CAPABILITY_MATRIX,
     blockedClaims: BLOCKED_CLAIMS,
     remainingEvidenceBlockers: [...REMAINING_EVIDENCE_BLOCKERS],
     goNoGo: {
@@ -286,7 +286,7 @@ function list(values) {
 }
 
 export function renderReleaseCandidateMarkdown(manifest) {
-  const waves = manifest.waveCompletionMatrix
+  const capabilities = manifest.currentCapabilityMatrix
     .map((entry) => `| ${entry.id} | ${entry.label} | ${entry.status} |`)
     .join("\n");
   const blocked = manifest.blockedClaims
@@ -370,11 +370,11 @@ ${candidates || "| none | - | - |"}
 - Execute opt-in: \`${manifest.rcValidationMatrix.executeOptIn}\`
 - Command count: **${manifest.rcValidationMatrix.commandCount}**
 
-## P0/P1 Completion Matrix
+## Current Capability Matrix
 
 | ID | Scope | Status |
 | --- | --- | --- |
-${waves}
+${capabilities}
 
 ## Blocked Claims
 

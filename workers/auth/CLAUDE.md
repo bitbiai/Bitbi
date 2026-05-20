@@ -1,6 +1,6 @@
 # Auth Worker Current Guide
 
-Date: 2026-05-18
+Date: 2026-05-20
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
@@ -61,7 +61,7 @@ Change these conservatively and preserve existing guards.
 - Folder/image ownership metadata exists for new personal writes only.
 - Legacy rows remain unresolved; tenant isolation is not claimed.
 - Manual-review import/read/status/Admin visibility exists and writes review-state rows only.
-- Reset dry-run/reporting and reset action tracking/executor endpoints exist, but confirmed reset remains blocked and is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
+- Reset dry-run/reporting and reset action tracking/executor endpoints exist, but confirmed reset remains blocked and is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved operator package.
 - Current reset dry-run evidence is rejected unsafe because prior live evidence exposed a raw idempotency key, the raw JSON is absent from the checkout, and no sanitized replacement is accepted.
 
 Do not backfill ownership, switch access checks, rewrite source asset rows, mutate ownership metadata, execute confirmed reset, or list/delete live R2 unless a future task explicitly approves that scope.

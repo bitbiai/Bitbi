@@ -61,7 +61,7 @@ export function createBillingCanaryEvidenceSkeleton({
   operatorFields = {},
 } = {}) {
   return {
-    reportVersion: "omega-p1-wave7-billing-canary-evidence-v1",
+    reportVersion: "current-baseline-billing-canary-evidence-v1",
     generatedAt,
     productionReadiness: "blocked",
     liveBillingReadiness: "blocked",

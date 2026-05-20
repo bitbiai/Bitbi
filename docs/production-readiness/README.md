@@ -1,6 +1,6 @@
 # Production Readiness
 
-Date: 2026-05-19
+Date: 2026-05-20
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
@@ -84,7 +84,7 @@ The dashboard now includes a Live Evidence State panel. It distinguishes repo-su
 
 The dashboard also includes a Production Execution Framework panel. It surfaces repo-supported/deploy-pending/live-evidence-pending state, the Cloudflare resource model, the readiness dossier, post-deploy read-only verification, and rollback drill commands. These are copy-only operator aids; the browser does not deploy, run migrations, mutate Cloudflare, execute rollback, activate live billing, call providers, backfill ownership, switch tenant access checks, or enable reset execution.
 
-The dashboard also includes a Release Candidate / Go-No-Go panel. It shows RC status, CI unknown/pending state, a P0/P1 wave matrix, copy-only RC commands, and a Go/No-Go checklist. It does not execute commands in the browser and does not offer deploy, migration, rollback, live billing, reset, backfill, access-switch, Stripe, provider, or Cloudflare mutation actions.
+The dashboard also includes a Release Candidate / Go-No-Go panel. It shows RC status, CI unknown/pending state, a local validation matrix, copy-only RC commands, and a Go/No-Go checklist. It does not execute commands in the browser and does not offer deploy, migration, rollback, live billing, reset, backfill, access-switch, Stripe, provider, or Cloudflare mutation actions.
 
 ## Release Candidate Framework
 
@@ -96,7 +96,7 @@ npm run release:rc
 npm run release:rc:markdown
 ```
 
-`rc:check` is plan-only by default and prints the final local validation matrix. The RC manifest composes git state, release plan, latest migration checkpoint, Cloudflare resource model, readiness dossier, evidence index triage, P0/P1 completion matrix, blocked claims, remaining evidence blockers, rollback drill data, and operator next actions. Its Go/No-Go model allows code-merge/deploy preparation only when checks and review permit; production readiness and live billing readiness remain blocked.
+`rc:check` is plan-only by default and prints the final local validation matrix. The RC manifest composes git state, release plan, latest migration checkpoint, Cloudflare resource model, readiness dossier, evidence index triage, blocked claims, remaining evidence blockers, rollback drill data, and operator next actions. Its Go/No-Go model allows code-merge/deploy preparation only when checks and review permit; production readiness and live billing readiness remain blocked.
 
 ## Production Readiness Execution Framework
 
@@ -139,7 +139,7 @@ Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only w
 - Internal AI Worker caller policy is enforced for provider-cost routes, but live provider/cap/operator evidence is still required before readiness claims.
 - Canary/readiness tooling includes local-only safety contract checks and skipped-by-default live checks; missing live URLs or credentials must remain pending/blocked, not treated as success.
 - Tenant ownership backfill and access-switch readiness are blocked; current post-cleanup evidence is pending.
-- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided, and old reset candidate counts are stale after manual media cleanup. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
+- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided, and old reset candidate counts are stale after manual media cleanup. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved operator package.
 - Production readiness cannot be claimed from local tests alone.
 
 ## Safe Validation Commands

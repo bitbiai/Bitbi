@@ -53,7 +53,7 @@ Purpose: current control file after the operator manually deleted most old image
 
 ## Required Fresh Evidence
 
-Collect these through authenticated Admin read-only endpoints after deploy of the P2 control plane. Do not commit cookies, headers, raw private keys, raw idempotency keys, request hashes, signed URLs, or raw payloads.
+Collect these through authenticated Admin read-only endpoints after deploy of the current tenant-asset control plane. Do not commit cookies, headers, raw private keys, raw idempotency keys, request hashes, signed URLs, or raw payloads.
 
 1. Tenant asset domain evidence:
    - `GET /api/admin/tenant-assets/domains/evidence`
@@ -87,7 +87,7 @@ Collect these through authenticated Admin read-only endpoints after deploy of th
 | Manual Review Supersession | `dry_run_and_guarded_review_state_update_supported` | Supersession is a controlled D1 review-state update only. It can mark safely classified stale manual-review rows as `superseded`; it does not delete assets, mutate R2, backfill ownership, switch access checks, reset media, or claim tenant isolation. |
 | Legacy Media Reset | `status_and_evidence_only_confirmed_blocked` | Hard env gate disabled; manual-review/sanitized evidence blockers remain; Backfill/Access evidence must be reviewed first; exact confirmation/idempotency are not approved for production reset. |
 
-## P2-02 Execution Packet
+## Exact Candidate Execution Packet
 
 Pending execution packet path:
 

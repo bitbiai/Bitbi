@@ -22,7 +22,7 @@ This template records current evidence only. It does not approve production read
 - Final RC status reviewed as code-merge/deploy-preparation only:
 - Production readiness stayed blocked:
 - Live billing readiness stayed blocked:
-- P0/P1 wave matrix reviewed:
+- Historical hardening background reviewed only where relevant:
 - Remaining evidence blockers reviewed:
 - Evidence index unsafe-marker triage reviewed by file path and marker ID only:
 - No raw secret/marker values printed:
@@ -219,7 +219,7 @@ This template records current evidence only. It does not approve production read
 - Production readiness: blocked/ready/needs more evidence
 - Live billing readiness: blocked/ready/needs more evidence
 - Tenant isolation: not claimed/claimed with evidence
-- Confirmed media reset: blocked/approved in separate phase
+- Confirmed media reset: blocked/approved through separate future operator package
 - Evidence state: collected/incomplete/rejected
 - Blocked claims remain blocked: yes/no
 - Follow-up actions:

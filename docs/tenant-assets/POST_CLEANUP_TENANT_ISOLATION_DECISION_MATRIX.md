@@ -25,7 +25,7 @@ Backfill may proceed later only if all of these are true:
 
 Current result: `operator_live_execution_pending_for_single_ai_images_candidate`.
 
-P2-02 narrowed the execution contract to the single safe `ai_images` candidate `47a27f4496db386b120b631c3a05502e`. Execution may only proceed after fresh authenticated read-only preflight still matches exactly one safe candidate. The required scope is `domains:["ai_images"]`, `batchLimit:1`, `candidateAssetIds:["47a27f4496db386b120b631c3a05502e"]`, `Idempotency-Key`, operator reason, and exact `BACKFILL OWNERSHIP` confirmation.
+The current execution contract is narrowed to the single safe `ai_images` candidate `47a27f4496db386b120b631c3a05502e`. Execution may only proceed after fresh authenticated read-only preflight still matches exactly one safe candidate. The required scope is `domains:["ai_images"]`, `batchLimit:1`, `candidateAssetIds:["47a27f4496db386b120b631c3a05502e"]`, `Idempotency-Key`, operator reason, and exact `BACKFILL OWNERSHIP` confirmation.
 
 ## Manual Review Queue Supersession Decision
 
@@ -73,7 +73,7 @@ Reset may proceed later only if all of these are true:
 - derivative/R2 key-type counts are present as counts only;
 - storage/quota reconciliation evidence exists where applicable;
 - Backfill and Access-Switch evidence has been reviewed first;
-- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is intentionally enabled by an operator in a later approved phase;
+- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is intentionally enabled by an operator in a later approved operator package;
 - `Idempotency-Key` is present and not committed raw;
 - exact typed confirmation `CONFIRMED LEGACY MEDIA RESET` is present;
 - no automatic reset is run from this rebaseline package.

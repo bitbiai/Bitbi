@@ -5,7 +5,7 @@ import { buildEvidenceIndex } from "./evidence-index.mjs";
 import { buildCloudflareResourceModel } from "./cloudflare-resource-model.mjs";
 import { createRollbackDrill } from "./rollback-drill.mjs";
 
-export const READINESS_DOSSIER_VERSION = "omega-p1-wave9-readiness-dossier-v1";
+export const READINESS_DOSSIER_VERSION = "current-baseline-readiness-dossier-v1";
 
 const VALIDATION_COMMANDS = Object.freeze([
   "git status --short",

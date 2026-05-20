@@ -1,6 +1,6 @@
 # Data Retention Policy
 
-Date: 2026-05-18
+Date: 2026-05-20
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 

@@ -22,7 +22,7 @@ const drill = createRollbackDrill({
   },
 });
 
-assert.equal(drill.version, "omega-p1-wave9-rollback-drill-v1");
+assert.equal(drill.version, "current-baseline-rollback-drill-v1");
 assert.equal(drill.localOnly, true);
 assert.equal(drill.nonMutating, true);
 assert.equal(drill.rollbackExecuted, false);

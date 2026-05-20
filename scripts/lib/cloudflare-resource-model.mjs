@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadReleaseCompatibilityContext, validateReleaseCompatibility } from "./release-compat.mjs";
 
-export const CLOUDFLARE_RESOURCE_MODEL_VERSION = "omega-p1-wave9-cloudflare-resource-model-v1";
+export const CLOUDFLARE_RESOURCE_MODEL_VERSION = "current-baseline-cloudflare-resource-model-v1";
 
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);

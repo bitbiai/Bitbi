@@ -31,7 +31,7 @@ const manifest = createReleaseCandidateManifest({
   },
 });
 
-assert.equal(manifest.version, "omega-p1-wave10-release-candidate-v1");
+assert.equal(manifest.version, "current-baseline-release-candidate-v1");
 assert.equal(manifest.localOnly, true);
 assert.equal(manifest.nonMutating, true);
 assert.equal(manifest.externalCallsMade, false);
@@ -50,14 +50,15 @@ assert.equal(manifest.rcValidationMatrix.liveUrlsRequired, false);
 assert.equal(manifest.rcValidationMatrix.secretsRequired, false);
 assert(manifest.blockedClaims.some((claim) => claim.id === "tenant_isolation" && claim.status === "not_claimed"));
 assert(manifest.remainingEvidenceBlockers.includes("live billing canary evidence"));
-assert(manifest.waveCompletionMatrix.some((entry) => entry.id === "p1-wave-9"));
-assert(manifest.waveCompletionMatrix.some((entry) => entry.id === "p1-wave-10"));
+assert(manifest.currentCapabilityMatrix.some((entry) => entry.id === "production-readiness-framework"));
+assert(manifest.currentCapabilityMatrix.some((entry) => entry.id === "release-candidate-framework"));
 assert.equal(manifest.redactionGuarantees.unsafeEvidenceMarkerValuesPrinted, false);
 
 const markdown = renderReleaseCandidateMarkdown(manifest);
 assert(markdown.includes("Release Candidate Go/No-Go Manifest"));
 assert(markdown.includes("NO_GO_for_production_readiness_claim"));
-assert(markdown.includes("P1 Wave 10 Release Candidate consolidation"));
+assert(markdown.includes("Release Candidate and Go/No-Go framework"));
+assert(markdown.includes("Current Capability Matrix"));
 assert(markdown.includes("npm run rc:check"));
 assert(markdown.includes("Unsafe Marker Review Summary"));
 assert(!markdown.includes("Cookie:"));

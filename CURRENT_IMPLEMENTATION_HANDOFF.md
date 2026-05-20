@@ -1,6 +1,6 @@
 # Current Implementation Handoff
 
-Date: 2026-05-19
+Date: 2026-05-20
 
 Purpose: short restart guide for future Codex sessions. The primary current-state baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
@@ -14,7 +14,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Workers: `workers/auth` for primary API/auth/admin/media, `workers/ai` for internal AI service calls, and `workers/contact` for contact form.
 - Release/deploy contract: `config/release-compat.json`.
 - Documentation start point: `docs/audits/NEXT_AUDIT_BASELINE.md`.
-- Historical detail: `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence docs.
+- Historical detail is archive/background only: `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence docs.
 
 ## Current Implemented State
 
@@ -32,15 +32,15 @@ This handoff is not production approval, live billing approval, legal compliance
 - Admin Tenant Isolation Execution controls now group Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset. The cards show warning/exclamation explainers, dry-run or shadow diagnostics, redacted evidence export, exact confirmation requirements, and disabled reasons. Backfill writes are strictly limited to safe classified folder/image rows when explicitly confirmed; Access-Switch enforcement and confirmed Reset remain blocked.
 - Post-cleanup tenant-asset evidence rebaseline exists at `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` with status `post_cleanup_manual_review_supersession_supported_backfill_candidate_still_operator_pending`. It supersedes pre-cleanup owner-map, manual-review, and reset counts after the operator manually deleted most old images/videos, but copied evidence files do not automatically mutate D1 review rows.
 - Admin Users includes a Registration Availability switch backed by `app_settings`; it can disable new registrations for maintenance while leaving existing login/session/admin/MFA/password-reset/account access unaffected.
-- Legacy media reset work exists: read-only dry-run/reporting, executor design, reset action/event tables, a dry-run-default executor path, and evidence decision docs. Confirmed execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved confirmation phase.
+- Legacy media reset work exists: read-only dry-run/reporting, executor design, reset action/event tables, a dry-run-default executor path, and evidence decision docs. Confirmed execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved operator package.
 
 ## Current Blockers
 
 - Production readiness and live billing readiness are blocked.
 - Live deployment state is not proven by repo files; operator verification is required.
 - Remote auth migrations through `0060_add_app_settings.sql` must be applied before dependent Auth Worker deploys.
-- P2-02 adds a minimal `app_settings` table for the Admin registration availability switch. Missing settings default to registrations enabled so existing deployments do not accidentally lock out new signup before the migration is applied.
-- P2-02 also narrows the guarded Ownership Backfill executor with an optional candidate asset ID list. The post-cleanup single safe `ai_images` candidate remains operator-execution pending in this repo session because no authenticated live Admin preflight/execution context was provided.
+- The Admin registration availability switch uses the `app_settings` table. Missing settings default to registrations enabled so existing deployments do not accidentally lock out new signup before the migration is applied.
+- The guarded Ownership Backfill executor supports an optional candidate asset ID list. The post-cleanup single safe `ai_images` candidate remains operator-execution pending because no authenticated live Admin preflight/execution context has been provided.
 - Auth/AI caller-policy runtime changes require paired AI Worker then Auth Worker review/deploy ordering.
 - The single current safe `ai_images` post-cleanup ownership candidate is prepared for exact-candidate operator execution only; access checks still use existing runtime behavior.
 - Tenant isolation, access-switch enforcement, global ownership-backfill readiness, and confirmed reset/deletion remain blocked. Collect fresh post-cleanup Backfill dry-run/evidence first, Access-Switch shadow diagnostics second, and Reset status/evidence only after those are reviewed.
@@ -96,7 +96,7 @@ Use `npm run release:preflight` before merging substantial or release-sensitive 
 
 ## Recommended Next Work
 
-Recommended next audit entry point: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
+Recommended next audit entry point: Fresh Deep Audit From Current Baseline.
 
 If continuing tenant transition work first, collect the post-cleanup read-only evidence packet under `docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/`, run Manual Review Queue supersession dry-run/export, and review those results before any optional review-state supersession, Backfill execution, Access-Switch enforcement, or reset confirmation-review planning.
 

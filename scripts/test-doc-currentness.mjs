@@ -175,7 +175,7 @@ function writeFile(repo, relativePath, text) {
     "Production readiness remains BLOCKED",
     "Live billing readiness remains BLOCKED",
     "Tenant isolation remains NOT CLAIMED",
-    "English and German",
+    "All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.",
     "",
   ].join("\n"));
   const result = scanDocCurrentness(repo, {
@@ -196,7 +196,7 @@ function writeFile(repo, relativePath, text) {
     "Production readiness remains BLOCKED",
     "Live billing readiness remains BLOCKED",
     "Tenant isolation remains NOT CLAIMED",
-    "English and German",
+    "All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.",
     "",
   ].join("\n"));
   const result = scanDocCurrentness(repo, {
@@ -214,13 +214,23 @@ function writeFile(repo, relativePath, text) {
     "Production readiness remains BLOCKED",
     "Live billing readiness remains BLOCKED",
     "Tenant isolation remains NOT CLAIMED",
-    "English and German",
+    "All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.",
     "",
   ].join("\n"));
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
   });
   assert(result.violations.some((violation) => violation.type === "active-guidance-doc-missing-required-text"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "CURRENT_IMPLEMENTATION_HANDOFF.md", `Latest auth D1 migration: ${latest}\nP2-02 carried an old package label.\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "current-doc-phase-history"));
 }
 
 {

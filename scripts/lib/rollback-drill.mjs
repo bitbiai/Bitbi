@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createReleasePlanFromRepo } from "./release-plan.mjs";
 
-export const ROLLBACK_DRILL_VERSION = "omega-p1-wave9-rollback-drill-v1";
+export const ROLLBACK_DRILL_VERSION = "current-baseline-rollback-drill-v1";
 
 function runGit(repoRoot, args) {
   const result = spawnSync("git", args, {

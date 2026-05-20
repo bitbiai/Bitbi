@@ -1,6 +1,6 @@
 # SaaS Progress And Current State Report
 
-Date: 2026-05-19
+Date: 2026-05-20
 
 Purpose: compact current-state summary for restarting future audit work. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the canonical baseline.
 
@@ -38,7 +38,7 @@ This report is not production readiness, live billing readiness, legal complianc
 - Production readiness is blocked until live/manual Cloudflare, Worker, D1/R2/Queue/DO, health, header, alert, restore, rollback, and Stripe evidence is recorded.
 - Cloudflare resource model output is repo-declared evidence only until operator live evidence is attached for resources, secrets by presence, dashboard-managed WAF/static headers/RUM/alerts/custom domains, and deployment state.
 - Live billing readiness is blocked until bounded canaries, Stripe dashboard/webhook evidence, verified no-credit-before-webhook behavior, invoice/payment evidence, and approved remediation/accounting/legal workflows exist.
-- Tenant isolation is not claimed; current post-cleanup asset rows are not globally backfilled and access checks have not switched to ownership metadata. P2-02 supports exact-candidate backfill for the single safe `ai_images` candidate only after fresh authenticated preflight, while Access-Switch enforcement remains blocked pending post-backfill shadow evidence and durable switch policy.
+- Tenant isolation is not claimed; current post-cleanup asset rows are not globally backfilled and access checks have not switched to ownership metadata. Exact-candidate backfill is supported for the single safe `ai_images` candidate only after fresh authenticated preflight, while Access-Switch enforcement remains blocked pending post-backfill shadow evidence and durable switch policy.
 - Confirmed legacy media reset is blocked because the dry-run decision is rejected unsafe due raw idempotency key exposure; the raw JSON is not present in the current checkout, no sanitized replacement evidence is present, and old candidate counts are stale after manual media cleanup.
 - Manual-review evidence still needs operator-reviewed post-cleanup supersession dry-run/export output plus import replay, import conflict, standalone successful status-update, status replay, and status conflict evidence. Evidence files do not automatically remove D1 review rows, and supersession is not asset deletion.
 - Operator timeline/evidence index output is triage support only. It does not approve live billing, production readiness, tenant isolation, ownership backfill, access switching, or confirmed reset.
@@ -59,8 +59,8 @@ This report is not production readiness, live billing readiness, legal complianc
 
 Start the next audit from `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
-Recommended track: `NEXT-AUDIT-1 - Fresh Deep Audit From Current Baseline`.
+Recommended track: Fresh Deep Audit From Current Baseline.
 
 ## Historical Evidence
 
-Historical phase detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence documents. Do not expand this report with chronological phase logs.
+Historical detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence documents. Treat those files as archive/background only and do not expand this report with chronological logs.

@@ -120,7 +120,7 @@ const ACTIVE_GUIDANCE_DOC_RULES = Object.freeze([
       "Production readiness remains BLOCKED",
       "Live billing readiness remains BLOCKED",
       "Tenant isolation remains NOT CLAIMED",
-      "English and German",
+      "All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.",
     ],
     forbiddenPatterns: [
       {
@@ -292,7 +292,7 @@ export function scanDocCurrentness(repoRoot, options = {}) {
 
     const phaseMentionLimit = CURRENT_DOC_PHASE_MENTION_LIMITS[relativePath];
     if (Number.isInteger(phaseMentionLimit)) {
-      const phaseMentionCount = (text.match(/\bPhase\s+\d+(?:\.\d+)?\b/gi) || []).length;
+      const phaseMentionCount = (text.match(/\b(?:Phase\s+\d+(?:\.\d+)?|P\d+(?:-\d+)?|Wave\s+\d+)\b/gi) || []).length;
       if (phaseMentionCount > phaseMentionLimit) {
         violations.push({
           type: "current-doc-phase-history",

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-export const RC_CHECK_VERSION = "omega-p1-wave10-rc-check-v1";
+export const RC_CHECK_VERSION = "current-baseline-rc-check-v1";
 
 export const FINAL_RC_COMMANDS = Object.freeze([
   { category: "repository", command: "git status --short" },
