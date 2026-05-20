@@ -1710,6 +1710,9 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.lifecycleEvidenceRequests = captures.lifecycleEvidenceRequests || [];
   captures.registrationStatusRequests = captures.registrationStatusRequests || [];
   captures.registrationStatusUpdates = captures.registrationStatusUpdates || [];
+  captures.adminActivityRequests = captures.adminActivityRequests || [];
+  captures.userActivityRequests = captures.userActivityRequests || [];
+  captures.latestAvatarRequests = captures.latestAvatarRequests || [];
   const budgetSwitches = captures.aiBudgetSwitches || [
     {
       switchKey: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
@@ -1916,6 +1919,92 @@ async function mockAdminControlPlane(page, captures = {}) {
       ok: true,
       users: adminUsers,
       next_cursor: null,
+    });
+  });
+  const adminActivityEntries = captures.adminActivityEntries || Array.from({ length: 12 }, (_, index) => ({
+    id: `admin-log-${index + 1}`,
+    created_at: new Date(Date.UTC(2026, 4, 18, 12, 0 - index, 0)).toISOString(),
+    admin_user_id: 'admin_control_user',
+    admin_email: 'admin@example.com',
+    action: index % 2 === 0 ? 'change_role' : 'revoke_sessions',
+    target_user_id: index % 2 === 0 ? 'user_member' : 'user_empty',
+    target_email: index % 2 === 0 ? 'member@example.com' : 'empty@example.com',
+    meta_json: JSON.stringify(index % 2 === 0 ? { role: 'admin' } : { revokedSessions: 2 }),
+  }));
+  const userActivityEntries = captures.userActivityEntries || [
+    {
+      id: 'user-log-1',
+      created_at: '2026-05-18T11:55:00.000Z',
+      user_id: 'user_member',
+      user_email: 'member@example.com',
+      action: 'login',
+      meta_json: '{}',
+    },
+    {
+      id: 'user-log-2',
+      created_at: '2026-05-18T11:50:00.000Z',
+      user_id: 'user_empty',
+      user_email: 'empty@example.com',
+      action: 'update_profile',
+      meta_json: JSON.stringify({ fields: ['displayName'] }),
+    },
+  ];
+  await page.route(/\/api\/admin\/activity(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    captures.adminActivityRequests.push(url.searchParams.toString());
+    const cursor = url.searchParams.get('cursor');
+    await fulfillJson(route, {
+      ok: true,
+      entries: cursor === 'admin-page-2'
+        ? [{
+            id: 'admin-log-13',
+            created_at: '2026-05-18T11:35:00.000Z',
+            admin_user_id: 'admin_control_user',
+            admin_email: 'admin@example.com',
+            action: 'change_status',
+            target_user_id: 'user_member',
+            target_email: 'member@example.com',
+            meta_json: JSON.stringify({ status: 'active' }),
+          }]
+        : adminActivityEntries,
+      nextCursor: cursor === 'admin-page-2' ? null : 'admin-page-2',
+      counts: {
+        change_role: 6,
+        change_status: 1,
+        revoke_sessions: 6,
+        delete_user: 0,
+      },
+    });
+  });
+  await page.route(/\/api\/admin\/user-activity(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    captures.userActivityRequests.push(url.searchParams.toString());
+    await fulfillJson(route, {
+      ok: true,
+      entries: userActivityEntries,
+      nextCursor: null,
+      counts: {},
+    });
+  });
+  await page.route('**/api/admin/avatars/latest', async (route) => {
+    captures.latestAvatarRequests.push(route.request().url());
+    await fulfillJson(route, {
+      ok: true,
+      avatars: captures.latestAvatars || [
+        {
+          userId: 'user_member',
+          email: 'member@example.com',
+          displayName: 'Member Example',
+          updatedAt: '2026-05-18T11:45:00.000Z',
+        },
+      ],
+    });
+  });
+  await page.route(/\/api\/admin\/avatars\/(?!latest$)[^/?]+$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
     });
   });
   let registrationAvailability = captures.registrationAvailability || {
@@ -11087,6 +11176,98 @@ test.describe('Admin Control Plane', () => {
     expect(renderedText).not.toContain('idempotencyKeyHash');
     expect(renderedText).not.toContain('requestFingerprintHash');
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('Activity module keeps admin and user logs searchable, expandable, and paginated', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#activity');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionActivity')).toBeVisible();
+
+    await expect(page.locator('.admin-activity-mode')).toHaveText(['Admin Logs', 'User Logs']);
+    await expect(page.locator('#activityTitle')).toHaveText('Admin Audit Log');
+    await expect(page.locator('#activitySearch')).toBeVisible();
+    await expect(page.locator('#activityTbody tr')).toHaveCount(10);
+    await expect(page.locator('#activityTbodyMore tr')).toHaveCount(2);
+    await expect(page.locator('#activityExpand')).toBeVisible();
+    await expect(page.locator('#activityExpandLabel')).toContainText('Show 2 more entries');
+    await expect(page.locator('#activityLoadMoreBtn')).toBeVisible();
+    await expect(page.locator('#activitySummary')).toContainText('Role changes');
+    await expect(page.locator('#securitySummary')).toContainText('Sessions revoked');
+
+    await page.locator('#activityExpandBtn').click();
+    await expect(page.locator('#activityExpandBtn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#activityExpandLabel')).toHaveText('Hide older entries');
+    await page.locator('#activityLoadMoreBtn').click();
+    await expect.poll(() => captures.adminActivityRequests.some((query) => query.includes('cursor=admin-page-2'))).toBe(true);
+    await expect(page.locator('#activityTbodyMore tr')).toHaveCount(3);
+
+    await page.locator('#activitySearch').fill('member');
+    await expect.poll(() => captures.adminActivityRequests.some((query) => query.includes('search=member'))).toBe(true);
+
+    await page.getByRole('button', { name: 'User Logs' }).click();
+    await expect(page.locator('#activityTitle')).toHaveText('User Activity Log');
+    await expect(page.locator('#activityThead th')).toHaveText(['Time', 'User', 'Event', 'Details']);
+    await expect(page.locator('#activitySummaryArea')).toBeHidden();
+    await expect(page.locator('#activityTbody')).toContainText('member@example.com');
+    await expect.poll(() => captures.userActivityRequests.length).toBeGreaterThan(0);
+  });
+
+  test('Reference views remain read-only codebase references for content, media, and access', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#content');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionContent')).toBeVisible();
+    await expect(page.locator('#sectionContent')).toContainText(/Reference view.*reflects codebase definitions, not live system queries/);
+    await expect(page.locator('#contentGallery')).toContainText('items total');
+    await expect(page.locator('#contentSoundlab')).toContainText('Sound Lab Explore reads public music from Memtracks.');
+
+    await page.goto('/admin/index.html#media');
+    await expect(page.locator('#sectionMedia')).toBeVisible();
+    await expect(page.locator('#sectionMedia')).toContainText(/Reference view.*reflects codebase definitions, not live system queries/);
+    await expect(page.locator('#mediaGallery')).toContainText('Public items');
+    await expect(page.locator('#mediaAudio')).toContainText('Legacy bundled Free tracks are removed from the active Sound Lab UI.');
+
+    await page.goto('/admin/index.html#access');
+    await expect(page.locator('#sectionAccess')).toBeVisible();
+    await expect(page.locator('#sectionAccess')).toContainText(/Reference view.*reflects codebase definitions, not live system queries/);
+    await expect(page.locator('#accessGating')).toContainText('Sound Lab category gates');
+    await expect(page.locator('#accessRoles')).toContainText('Admin');
+    await expect(page.locator('#accessMap')).toContainText('Assets Manager');
+  });
+
+  test('Avatar dropdown and lightbox remain isolated from user management behavior', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#users');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionUsers')).toBeVisible();
+
+    await page.locator('#avatarToggle').click();
+    await expect(page.locator('#avatarDropdown')).toHaveClass(/admin-avatars--open/);
+    await expect.poll(() => captures.latestAvatarRequests.length).toBe(1);
+    await expect(page.locator('#avatarGrid .admin-avatars__item')).toHaveCount(1);
+
+    await page.locator('#avatarGrid .admin-avatars__item').first().click();
+    await expect(page.locator('#avatarLightbox')).toHaveClass(/admin-lightbox--visible/);
+    await expect(page.locator('#lightboxName')).toHaveText('Member Example');
+    await expect(page.locator('#lightboxEmail')).toHaveText('member@example.com');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#avatarLightbox')).not.toHaveClass(/admin-lightbox--visible/);
   });
 
   test('Data Lifecycle request detail overlay supports guarded workflow actions and evidence export', async ({

@@ -2,6 +2,11 @@ import {
     apiAdminUserBilling,
     apiAdminUsers,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    copyText as copyTextToClipboard,
+    createActionBtn,
+    createBadge,
+} from './ui.js?v=__ASSET_VERSION__';
 import { createAdminUserActions } from './user-actions.js?v=__ASSET_VERSION__';
 import { createAdminUserStorage } from './user-storage.js?v=__ASSET_VERSION__';
 
@@ -47,47 +52,13 @@ export function createAdminUsersDomain({
     let usersHasMore = false;
     let selectedInfoUser = null;
 
-    function createBadge(text, variant) {
-        const span = document.createElement('span');
-        span.className = `badge badge--${variant}`;
-        span.textContent = text;
-        return span;
-    }
-
-    function createActionBtn(label, onClick, danger, options = {}) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn-action' + (danger ? ' btn-action--danger' : '');
-        btn.textContent = label;
-        if (options.title) btn.title = options.title;
-        if (options.disabled) {
-            btn.disabled = true;
-            btn.setAttribute('aria-disabled', 'true');
-        }
-        btn.addEventListener('click', onClick);
-        return btn;
-    }
-
     async function copyText(text, successMessage = 'Copied.') {
         if (!text) return;
-        try {
-            if (navigator.clipboard?.writeText) {
-                await navigator.clipboard.writeText(text);
-            } else {
-                const textarea = document.createElement('textarea');
-                textarea.value = text;
-                textarea.setAttribute('readonly', '');
-                textarea.style.position = 'fixed';
-                textarea.style.insetInlineStart = '-9999px';
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                textarea.remove();
-            }
+        if (await copyTextToClipboard(text)) {
             showToast(successMessage, 'success');
-        } catch {
-            showToast('Copy failed.', 'error');
+            return;
         }
+        showToast('Copy failed.', 'error');
     }
 
     function shortUserId(userId) {

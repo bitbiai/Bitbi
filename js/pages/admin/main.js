@@ -13,14 +13,13 @@ import { initCookieConsent } from '../../shared/cookie-consent.js?v=__ASSET_VERS
 
 import {
     apiAdminMe,
-    apiAdminLatestAvatars,
     apiAdminStats,
-    apiAdminActivity,
-    apiAdminUserActivity,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
-import { galleryItems } from '../../shared/gallery-data.js?v=__ASSET_VERSION__';
+import { createAdminActivity } from './activity.js?v=__ASSET_VERSION__';
 import { createAdminAiLab } from './ai-lab.js?v=__ASSET_VERSION__';
+import { createAdminAvatarLightbox } from './avatar-lightbox.js?v=__ASSET_VERSION__';
 import { createAdminControlPlane } from './control-plane.js?v=__ASSET_VERSION__';
+import { createAdminReferenceViews } from './reference-views.js?v=__ASSET_VERSION__';
 import {
     ADMIN_MFA_GATE_CODES,
     createAdminMfaGate,
@@ -45,17 +44,6 @@ const $adminNav    = document.getElementById('adminNav');
 const $heroTitle   = document.getElementById('adminHeroTitle');
 const $heroDesc    = document.getElementById('adminHeroDesc');
 
-/* Avatar dropdown refs */
-const $avatarDropdown = document.getElementById('avatarDropdown');
-const $avatarToggle   = document.getElementById('avatarToggle');
-const $avatarGrid     = document.getElementById('avatarGrid');
-
-/* Lightbox refs */
-const $lightbox      = document.getElementById('avatarLightbox');
-const $lightboxImg   = document.getElementById('lightboxImg');
-const $lightboxName  = document.getElementById('lightboxName');
-const $lightboxEmail = document.getElementById('lightboxEmail');
-
 /* Section containers */
 const sections = {
     dashboard: document.getElementById('sectionDashboard'),
@@ -70,6 +58,9 @@ const sections = {
     'tenant-assets': document.getElementById('sectionTenantAssets'),
     readiness: document.getElementById('sectionReadiness'),
     users:     document.getElementById('sectionUsers'),
+    content:   document.getElementById('sectionContent'),
+    media:     document.getElementById('sectionMedia'),
+    access:    document.getElementById('sectionAccess'),
     'ai-lab':  document.getElementById('sectionAiLab'),
     activity:  document.getElementById('sectionActivity'),
     settings:  document.getElementById('sectionSettings'),
@@ -89,6 +80,9 @@ const sectionMeta = {
     'tenant-assets': { title: 'Tenant Assets', desc: 'Cross-domain ownership inventory, evidence gaps, and storage safety' },
     readiness: { title: 'Readiness',        desc: 'Release, migration, Cloudflare, and staging verification checklist' },
     users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
+    content:   { title: 'Content Reference', desc: 'Read-only codebase content definitions, not live system queries' },
+    media:     { title: 'Media Reference',   desc: 'Read-only codebase media inventory, not live R2 listing' },
+    access:    { title: 'Access Reference',  desc: 'Read-only codebase access map, not live authorization proof' },
     'ai-lab':  { title: 'AI Lab',           desc: 'Admin-only AI tests, previews, and model comparisons' },
     activity:  { title: 'Activity',         desc: 'Audit trail and admin actions' },
     settings:  { title: 'Admin Settings',   desc: 'Safe settings boundaries and deployment-owned configuration' },
@@ -117,6 +111,9 @@ function showToast(message, type = 'success') {
 
 const aiLab = createAdminAiLab({ showToast });
 const controlPlane = createAdminControlPlane({ showToast, formatDate });
+const adminActivity = createAdminActivity({ showToast, formatDate });
+const adminAvatars = createAdminAvatarLightbox();
+const referenceViews = createAdminReferenceViews();
 const adminMfaGate = createAdminMfaGate({ showToast, showGate: showAdminMfaGate });
 const adminUsers = createAdminUsersDomain({
     showToast,
@@ -168,48 +165,11 @@ function bootstrapAdminPanel() {
     $panel.style.display = '';
     $adminNav.style.display = '';
 
-    initAvatarDropdown();
-    initLightbox();
+    adminAvatars.bind();
     adminUsers.bind();
+    adminActivity.bind();
     registrationAvailability.bind();
     controlPlane.bind();
-
-    document.querySelectorAll('.admin-activity-mode').forEach(btn => {
-        btn.addEventListener('click', () => switchActivityMode(btn.dataset.mode));
-    });
-
-    const $actSearch = document.getElementById('activitySearch');
-    if ($actSearch) {
-        $actSearch.addEventListener('input', () => {
-            clearTimeout(activitySearchTimer);
-            activitySearchTimer = setTimeout(() => loadActivity(), 350);
-        });
-    }
-
-    const $expandBtn = document.getElementById('activityExpandBtn');
-    if ($expandBtn) {
-        $expandBtn.addEventListener('click', () => {
-            activityExpanded = !activityExpanded;
-            const $wrap = document.getElementById('activityExpand');
-            $wrap.classList.toggle('admin-activity-expand--open', activityExpanded);
-            const $label = document.getElementById('activityExpandLabel');
-            const restCount = activityEntries.length - ACTIVITY_VISIBLE;
-            $label.textContent = activityExpanded
-                ? 'Hide older entries'
-                : `Show ${restCount} more entr${restCount === 1 ? 'y' : 'ies'}`;
-            $expandBtn.setAttribute('aria-expanded', String(activityExpanded));
-        });
-    }
-
-    const $loadMoreBtn = document.getElementById('activityLoadMoreBtn');
-    if ($loadMoreBtn) {
-        $loadMoreBtn.addEventListener('click', () => {
-            if (activityNextCursor) {
-                activityExpanded = true;
-                loadActivity(true);
-            }
-        });
-    }
 
     initAdminNavGroups();
     initAdminNavLinkCollapse();
@@ -226,16 +186,6 @@ const dtf = new Intl.DateTimeFormat('de-DE', {
 function formatDate(iso) {
     if (!iso) return '\u2014';
     return dtf.format(new Date(iso));
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Render helpers
-   ═══════════════════════════════════════════════════════════ */
-function createBadge(text, variant) {
-    const span = document.createElement('span');
-    span.className = `badge badge--${variant}`;
-    span.textContent = text;
-    return span;
 }
 
 function formatApiError(res, fallback = 'Request failed.') {
@@ -279,48 +229,7 @@ let dashboardVersion = 0;
 let statsCache = null;    // { stats, fetchedAt }
 const STATS_TTL = 30_000; // 30 seconds
 
-let activityVersion = 0;
-let activityMode = 'admin'; // 'admin' | 'user'
-let activityEntries = [];   // all loaded entries for current mode
-let activityNextCursor = null;
-let activityExpanded = false;
-let activitySearchTimer = null;
-const ACTIVITY_LIMIT = 50;
-const ACTIVITY_VISIBLE = 10;
 let adminNavOffsetObserver = null;
-
-const ADMIN_ACTION_LABELS = {
-    change_role: 'Role Change',
-    change_status: 'Status Change',
-    revoke_sessions: 'Sessions Revoked',
-    delete_user: 'User Deleted',
-};
-const ADMIN_ACTION_VARIANTS = {
-    change_role: 'user',
-    change_status: 'legacy',
-    revoke_sessions: 'disabled',
-    delete_user: 'disabled',
-};
-const USER_ACTION_LABELS = {
-    register: 'Registration',
-    login: 'Login',
-    logout: 'Logout',
-    verify_email: 'Email Verified',
-    reset_password: 'Password Reset',
-    update_profile: 'Profile Update',
-    upload_avatar: 'Avatar Upload',
-    delete_avatar: 'Avatar Deleted',
-};
-const USER_ACTION_VARIANTS = {
-    register: 'active',
-    login: 'user',
-    logout: 'legacy',
-    verify_email: 'active',
-    reset_password: 'admin',
-    update_profile: 'user',
-    upload_avatar: 'user',
-    delete_avatar: 'disabled',
-};
 
 function syncAdminNavOffset() {
     const siteNav = document.querySelector('header .site-nav');
@@ -418,7 +327,10 @@ function showSection(name) {
         registrationAvailability.load();
         adminUsers.load();
     }
-    if (name === 'activity') loadActivity();
+    if (name === 'activity') adminActivity.load();
+    if (name === 'content') referenceViews.loadContent();
+    if (name === 'media') referenceViews.loadMedia();
+    if (name === 'access') referenceViews.loadAccess();
     if (name === 'ai-lab') aiLab.show();
 }
 
@@ -560,457 +472,6 @@ async function loadDashboard() {
         if ($updated) $updated.textContent = 'Failed to load stats';
         showToast('Failed to load dashboard stats.', 'error');
     }
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Activity
-   ═══════════════════════════════════════════════════════════ */
-function formatAdminMeta(action, metaJson) {
-    try {
-        const meta = JSON.parse(metaJson || '{}');
-        switch (action) {
-            case 'change_role':      return `New role: ${meta.role || '\u2014'}`;
-            case 'change_status':    return `New status: ${meta.status || '\u2014'}`;
-            case 'revoke_sessions':  return `${meta.revokedSessions || 0} sessions revoked`;
-            case 'delete_user': {
-                const parts = [];
-                if (meta.target_role) parts.push(`was ${meta.target_role}`);
-                if (meta.target_status && meta.target_status !== 'active') parts.push(meta.target_status);
-                return parts.length ? `Account deleted (${parts.join(', ')})` : 'Account deleted';
-            }
-            default:                 return Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(', ') || '\u2014';
-        }
-    } catch { return '\u2014'; }
-}
-
-function formatUserMeta(action, metaJson) {
-    try {
-        const meta = JSON.parse(metaJson || '{}');
-        switch (action) {
-            case 'register':        return meta.email || '\u2014';
-            case 'update_profile':  return meta.fields ? `Updated: ${meta.fields.join(', ')}` : '\u2014';
-            case 'upload_avatar':   return meta.type || '\u2014';
-            default:                return '\u2014';
-        }
-    } catch { return '\u2014'; }
-}
-
-function buildAdminRow(entry) {
-    const tr = document.createElement('tr');
-    const tdTime = document.createElement('td');
-    tdTime.textContent = formatDate(entry.created_at);
-    tr.appendChild(tdTime);
-
-    const tdAdmin = document.createElement('td');
-    tdAdmin.textContent = entry.admin_email || (entry.admin_user_id?.slice(0, 8) + '\u2026');
-    tr.appendChild(tdAdmin);
-
-    const tdAction = document.createElement('td');
-    tdAction.appendChild(createBadge(
-        ADMIN_ACTION_LABELS[entry.action] || entry.action,
-        ADMIN_ACTION_VARIANTS[entry.action] || 'user',
-    ));
-    tr.appendChild(tdAction);
-
-    const tdTarget = document.createElement('td');
-    tdTarget.textContent = entry.target_email || (entry.target_user_id ? entry.target_user_id.slice(0, 8) + '\u2026' : '\u2014');
-    tr.appendChild(tdTarget);
-
-    const tdDetails = document.createElement('td');
-    tdDetails.className = 'hide-mobile';
-    tdDetails.textContent = formatAdminMeta(entry.action, entry.meta_json);
-    tr.appendChild(tdDetails);
-    return tr;
-}
-
-function buildUserRow(entry) {
-    const tr = document.createElement('tr');
-    const tdTime = document.createElement('td');
-    tdTime.textContent = formatDate(entry.created_at);
-    tr.appendChild(tdTime);
-
-    const tdUser = document.createElement('td');
-    tdUser.textContent = entry.user_email || (entry.user_id?.slice(0, 8) + '\u2026');
-    tr.appendChild(tdUser);
-
-    const tdAction = document.createElement('td');
-    tdAction.appendChild(createBadge(
-        USER_ACTION_LABELS[entry.action] || entry.action,
-        USER_ACTION_VARIANTS[entry.action] || 'user',
-    ));
-    tr.appendChild(tdAction);
-
-    const tdDetails = document.createElement('td');
-    tdDetails.textContent = formatUserMeta(entry.action, entry.meta_json);
-    tr.appendChild(tdDetails);
-    return tr;
-}
-
-function renderActivityEntries() {
-    const $tbody = document.getElementById('activityTbody');
-    const $tbodyMore = document.getElementById('activityTbodyMore');
-    const $table = document.getElementById('activityTable');
-    const $expand = document.getElementById('activityExpand');
-    const $expandLabel = document.getElementById('activityExpandLabel');
-    const $loadMore = document.getElementById('activityLoadMore');
-    const $empty = document.getElementById('activityEmpty');
-
-    $tbody.replaceChildren();
-    $tbodyMore.replaceChildren();
-
-    if (activityEntries.length === 0) {
-        $table.style.display = 'none';
-        $expand.style.display = 'none';
-        $empty.style.display = '';
-        return;
-    }
-
-    $empty.style.display = 'none';
-    $table.style.display = '';
-
-    const buildRow = activityMode === 'admin' ? buildAdminRow : buildUserRow;
-
-    // Top 10 visible
-    const visible = activityEntries.slice(0, ACTIVITY_VISIBLE);
-    for (const entry of visible) {
-        $tbody.appendChild(buildRow(entry));
-    }
-
-    // Remaining behind expand
-    const rest = activityEntries.slice(ACTIVITY_VISIBLE);
-    if (rest.length > 0 || activityNextCursor) {
-        $expand.style.display = '';
-        $expandLabel.textContent = activityExpanded
-            ? 'Hide older entries'
-            : `Show ${rest.length} more entr${rest.length === 1 ? 'y' : 'ies'}`;
-
-        for (const entry of rest) {
-            $tbodyMore.appendChild(buildRow(entry));
-        }
-
-        // Load more button (cursor pagination within expanded area)
-        if (activityNextCursor) {
-            $loadMore.style.display = '';
-        } else {
-            $loadMore.style.display = 'none';
-        }
-
-        // Restore expanded state
-        const $expandWrap = document.getElementById('activityExpand');
-        if (activityExpanded) {
-            $expandWrap.classList.add('admin-activity-expand--open');
-        } else {
-            $expandWrap.classList.remove('admin-activity-expand--open');
-        }
-    } else {
-        $expand.style.display = 'none';
-    }
-}
-
-async function loadActivity(appendMode) {
-    const $loading = document.getElementById('activityLoading');
-    const $empty = document.getElementById('activityEmpty');
-    const $table = document.getElementById('activityTable');
-
-    const myVersion = ++activityVersion;
-    const searchVal = document.getElementById('activitySearch')?.value.trim() || '';
-
-    if (!appendMode) {
-        activityEntries = [];
-        activityNextCursor = null;
-        activityExpanded = false;
-        $loading.style.display = '';
-        $empty.style.display = 'none';
-        $table.style.display = 'none';
-        document.getElementById('activityExpand').style.display = 'none';
-    }
-
-    const cursor = appendMode ? activityNextCursor : null;
-    const fetchFn = activityMode === 'admin' ? apiAdminActivity : apiAdminUserActivity;
-    const res = await fetchFn(ACTIVITY_LIMIT, cursor, searchVal || undefined);
-
-    if (myVersion !== activityVersion) return;
-    $loading.style.display = 'none';
-
-    if (!res.ok) {
-        showToast('Failed to load activity log.', 'error');
-        return;
-    }
-
-    const { entries, nextCursor, counts, unavailable, reason } = res.data || {};
-    activityNextCursor = nextCursor || null;
-
-    // Handle schema-unavailable gracefully (migration 0012 not applied)
-    if (unavailable) {
-        const $empty = document.getElementById('activityEmpty');
-        $empty.textContent = reason || 'User activity logging is not yet available.';
-        $empty.style.display = '';
-        document.getElementById('activitySummaryArea').style.display = 'none';
-        return;
-    }
-
-    if (appendMode) {
-        activityEntries = activityEntries.concat(entries || []);
-    } else {
-        activityEntries = entries || [];
-    }
-
-    // Summary cards (admin mode only)
-    const $summaryArea = document.getElementById('activitySummaryArea');
-    if (activityMode === 'admin') {
-        $summaryArea.style.display = '';
-        renderActivitySummary(counts || {});
-    } else {
-        $summaryArea.style.display = 'none';
-    }
-
-    renderActivityEntries();
-}
-
-function renderActivitySummary(counts) {
-    const summaryEl = document.getElementById('activitySummary');
-    if (summaryEl) {
-        let html = '<div class="admin-inventory">';
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Role changes</span><span class="admin-inventory__count">${counts.change_role || 0}</span></div>`;
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Status changes</span><span class="admin-inventory__count">${counts.change_status || 0}</span></div>`;
-        html += '</div>';
-        summaryEl.innerHTML = html;
-    }
-
-    const securityEl = document.getElementById('securitySummary');
-    if (securityEl) {
-        let html = '<div class="admin-inventory">';
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Sessions revoked</span><span class="admin-inventory__count">${counts.revoke_sessions || 0}</span></div>`;
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Users deleted</span><span class="admin-inventory__count">${counts.delete_user || 0}</span></div>`;
-        html += '</div>';
-        securityEl.innerHTML = html;
-    }
-}
-
-function switchActivityMode(mode) {
-    if (mode === activityMode) return;
-    activityMode = mode;
-
-    // Update mode buttons
-    document.querySelectorAll('.admin-activity-mode').forEach(btn => {
-        btn.classList.toggle('admin-activity-mode--active', btn.dataset.mode === mode);
-    });
-
-    // Update title/desc and table headers
-    const $title = document.getElementById('activityTitle');
-    const $desc = document.getElementById('activityDesc');
-    const $thead = document.getElementById('activityThead');
-
-    if (mode === 'admin') {
-        $title.textContent = 'Admin Audit Log';
-        $desc.textContent = 'Recent administrative actions.';
-        $thead.innerHTML = '<tr><th>Time</th><th>Admin</th><th>Action</th><th>Target</th><th class="hide-mobile">Details</th></tr>';
-    } else {
-        $title.textContent = 'User Activity Log';
-        $desc.textContent = 'Recent user events and actions.';
-        $thead.innerHTML = '<tr><th>Time</th><th>User</th><th>Event</th><th class="hide-mobile">Details</th></tr>';
-    }
-
-    // Clear search
-    const $search = document.getElementById('activitySearch');
-    if ($search) $search.value = '';
-
-    loadActivity();
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Reference note helper
-   ═══════════════════════════════════════════════════════════ */
-function injectRefNote(sectionId) {
-    const el = document.getElementById(sectionId);
-    if (!el || el.querySelector('.admin-reference-note')) return;
-    const note = document.createElement('div');
-    note.className = 'admin-reference-note';
-    note.textContent = 'Reference view \u2014 reflects codebase definitions, not live system queries';
-    el.insertBefore(note, el.firstChild);
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Content (read-only reference from codebase data)
-   ═══════════════════════════════════════════════════════════ */
-function loadContent() {
-    injectRefNote('sectionContent');
-
-    // Gallery (from imported gallery-data.js)
-    const galEl = document.getElementById('contentGallery');
-    if (galEl) {
-        const catLabels = { mempics: 'Mempics' };
-        const cats = {};
-        for (const item of galleryItems) {
-            cats[item.category] = (cats[item.category] || 0) + 1;
-        }
-        let html = '<div class="admin-inventory">';
-        for (const [key, count] of Object.entries(cats)) {
-            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${catLabels[key] || key}</span><span class="admin-inventory__count">${count}</span></div>`;
-        }
-        html += `</div><div class="admin-inventory__total">${galleryItems.length} items total</div>`;
-        galEl.innerHTML = html;
-    }
-
-    // Sound Lab
-    const sndEl = document.getElementById('contentSoundlab');
-    if (sndEl) {
-        let html = '<div class="admin-inventory">';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Published member tracks</span><span class="admin-inventory__meta">Memtracks</span></div>';
-        html += '</div><div class="admin-inventory__total">Sound Lab Explore reads public music from Memtracks.</div>';
-        sndEl.innerHTML = html;
-    }
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Media (read-only reference from codebase data)
-   ═══════════════════════════════════════════════════════════ */
-function loadMedia() {
-    injectRefNote('sectionMedia');
-    const total = galleryItems.length;
-
-    const galEl = document.getElementById('mediaGallery');
-    if (galEl) {
-        let html = '<div class="admin-inventory">';
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Public items</span><span class="admin-inventory__count">${total}</span></div>`;
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Thumbnails (480w)</span><span class="admin-inventory__count">${total}</span></div>`;
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Previews (900\u20131600w)</span><span class="admin-inventory__count">${total}</span></div>`;
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Full resolution</span><span class="admin-inventory__count">${total}</span></div>`;
-        html += `</div><div class="admin-inventory__total">${total * 3} image files &middot; pub.bitbi.ai</div>`;
-        galEl.innerHTML = html;
-    }
-
-    const audEl = document.getElementById('mediaAudio');
-    if (audEl) {
-        let html = '<div class="admin-inventory">';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Published music assets</span><span class="admin-inventory__meta">USER_IMAGES</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Public playback</span><span class="admin-inventory__meta">/api/gallery/memtracks</span></div>';
-        html += '</div><div class="admin-inventory__total">Legacy bundled Free tracks are removed from the active Sound Lab UI.</div>';
-        audEl.innerHTML = html;
-    }
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Access (read-only reference from codebase data)
-   ═══════════════════════════════════════════════════════════ */
-function loadAccess() {
-    injectRefNote('sectionAccess');
-    const gatingEl = document.getElementById('accessGating');
-    if (gatingEl) {
-        let html = '<div class="admin-inventory">';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab category gates</span><span class="admin-inventory__meta">Removed</span></div>';
-        html += '</div><div class="admin-inventory__total">Sound Lab Explore shows published member tracks directly.</div>';
-        gatingEl.innerHTML = html;
-    }
-
-    const rolesEl = document.getElementById('accessRoles');
-    if (rolesEl) {
-        let html = '<div class="admin-inventory">';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">User</span><span class="admin-inventory__meta">Profile, favorites, Assets Manager, view content</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Admin</span><span class="admin-inventory__meta">All user permissions + user management, audit log</span></div>';
-        html += '</div>';
-        rolesEl.innerHTML = html;
-    }
-
-    const mapEl = document.getElementById('accessMap');
-    if (mapEl) {
-        let html = '<div class="admin-inventory">';
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Gallery (${galleryItems.length} items)</span><span class="badge badge--active">Public</span></div>`;
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab Memtracks</span><span class="badge badge--active">Public when published</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Experiments (4)</span><span class="badge badge--active">Public</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Video Exclusives</span><span class="badge badge--admin">Auth</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Assets Manager</span><span class="badge badge--admin">Auth</span></div>';
-        html += '</div>';
-        mapEl.innerHTML = html;
-    }
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Avatar Dropdown (Users section)
-   ═══════════════════════════════════════════════════════════ */
-let avatarsLoaded = false;
-
-async function loadLatestAvatars() {
-    $avatarGrid.replaceChildren();
-    const msg = document.createElement('div');
-    msg.className = 'admin-avatars__empty';
-    msg.textContent = 'Loading...';
-    $avatarGrid.appendChild(msg);
-
-    const res = await apiAdminLatestAvatars();
-    avatarsLoaded = true;
-
-    if (!res.ok) {
-        msg.textContent = 'Failed to load avatars.';
-        return;
-    }
-
-    const avatars = res.data?.avatars ?? [];
-
-    if (avatars.length === 0) {
-        msg.textContent = 'No avatars uploaded yet.';
-        return;
-    }
-
-    $avatarGrid.replaceChildren();
-
-    for (const avatar of avatars) {
-        const item = document.createElement('button');
-        item.className = 'admin-avatars__item';
-        item.type = 'button';
-        item.setAttribute('aria-label', `View avatar for ${avatar.displayName || avatar.email}`);
-
-        const img = document.createElement('img');
-        img.className = 'admin-avatars__thumb';
-        img.src = `/api/admin/avatars/${avatar.userId}`;
-        img.alt = '';
-        img.loading = 'lazy';
-        img.decoding = 'async';
-
-        item.appendChild(img);
-        item.addEventListener('click', () => openLightbox(avatar));
-        $avatarGrid.appendChild(item);
-    }
-}
-
-function initAvatarDropdown() {
-    $avatarToggle.addEventListener('click', async () => {
-        const isOpen = $avatarDropdown.classList.toggle('admin-avatars--open');
-        $avatarToggle.setAttribute('aria-expanded', String(isOpen));
-
-        if (isOpen && !avatarsLoaded) {
-            await loadLatestAvatars();
-        }
-    });
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Lightbox
-   ═══════════════════════════════════════════════════════════ */
-function openLightbox(avatar) {
-    $lightboxImg.src = `/api/admin/avatars/${avatar.userId}`;
-    $lightboxImg.alt = `Avatar of ${avatar.displayName || avatar.email}`;
-    $lightboxName.textContent = avatar.displayName || avatar.email;
-    $lightboxEmail.textContent = avatar.displayName ? avatar.email : '';
-    $lightbox.classList.add('admin-lightbox--visible');
-    $lightbox.setAttribute('aria-hidden', 'false');
-}
-
-function closeLightbox() {
-    $lightbox.classList.remove('admin-lightbox--visible');
-    $lightbox.setAttribute('aria-hidden', 'true');
-    $lightboxImg.src = '';
-}
-
-function initLightbox() {
-    $lightbox.addEventListener('click', (e) => {
-        if (e.target === $lightbox) closeLightbox();
-    });
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && $lightbox.classList.contains('admin-lightbox--visible')) {
-            closeLightbox();
-        }
-    });
 }
 
 /* ═══════════════════════════════════════════════════════════
