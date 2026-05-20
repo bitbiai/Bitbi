@@ -586,6 +586,20 @@ export function apiAdminTenantAssetManualReviewEvidence({ limit = 25, includeIte
     return request('GET', '/admin/tenant-assets/folders-images/manual-review/evidence' + qs, undefined, options);
 }
 
+export function apiAdminTenantAssetManualReviewPostCleanupDryRun({ limit = 500, sampleLimit = 25 } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (sampleLimit) params.set('sampleLimit', String(sampleLimit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', '/admin/tenant-assets/manual-review/post-cleanup/dry-run' + qs, undefined, options);
+}
+
+export function apiAdminTenantAssetManualReviewPostCleanupSupersede(payload = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/tenant-assets/manual-review/post-cleanup/supersede', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminTenantAssetDomainEvidence(options) {
     return request('GET', '/admin/tenant-assets/domains/evidence', undefined, options);
 }
@@ -706,6 +720,43 @@ export async function apiAdminTenantAssetManualReviewEvidenceExport({
     params.set('limit', String(limit || 50));
     params.set('includeItems', includeItems === false ? 'false' : 'true');
     const exportPath = '/admin/tenant-assets/folders-images/manual-review/evidence/export';
+    try {
+        const res = await fetch(BASE + exportPath + '?' + params, {
+            method: 'GET',
+            credentials: 'include',
+            headers: options.headers || {},
+        });
+        const text = await res.text();
+        if (res.ok) {
+            return {
+                ok: true,
+                text,
+                status: res.status,
+                contentType: res.headers.get('content-type') || '',
+                filename: res.headers.get('content-disposition') || '',
+            };
+        }
+        let data = null;
+        try { data = JSON.parse(text); } catch { data = null; }
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
+}
+
+export async function apiAdminTenantAssetManualReviewPostCleanupEvidenceExport({
+    format = 'json',
+    limit = 500,
+    sampleLimit = 50,
+} = {}, options = {}) {
+    const params = new URLSearchParams();
+    params.set('format', format);
+    params.set('limit', String(limit || 500));
+    params.set('sampleLimit', String(sampleLimit || 50));
+    const exportPath = '/admin/tenant-assets/manual-review/post-cleanup/evidence';
     try {
         const res = await fetch(BASE + exportPath + '?' + params, {
             method: 'GET',

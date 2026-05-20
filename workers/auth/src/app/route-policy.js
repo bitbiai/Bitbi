@@ -730,6 +730,24 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Phase 6.16 bounded sanitized JSON/Markdown export for manual-review queue evidence. It performs no status update, ownership backfill, access switch, source asset mutation, R2 action, provider call, Stripe call, credit mutation, or billing behavior change.",
   }),
+  adminRead("admin.tenant-assets.manual-review.post-cleanup.dry-run", "/api/admin/tenant-assets/manual-review/post-cleanup/dry-run", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-manual-review-queue-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "OMEGA-P2-03 read-only post-cleanup manual-review classifier. It compares current D1 review rows with bounded ai_folders/ai_images metadata, exposes only redacted classifications, performs no D1 mutation, no source asset update, no R2 listing/mutation, no Backfill, no Access-Switch, no Reset, and no tenant-isolation claim.",
+  }),
+  adminRead("admin.tenant-assets.manual-review.post-cleanup.evidence", "/api/admin/tenant-assets/manual-review/post-cleanup/evidence", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-tenant-asset-manual-review-queue-ip", failClosed: true },
+    sensitivity: "high",
+    notes: "OMEGA-P2-03 bounded sanitized post-cleanup manual-review supersession evidence export. Supports JSON/Markdown/HTML, exposes no raw private R2 keys, raw idempotency keys, request hashes, secrets, tokens, cookies, provider payloads, Stripe data, or readiness claims, and performs no mutation.",
+  }),
+  adminJsonWrite("admin.tenant-assets.manual-review.post-cleanup.supersede", "POST", "/api/admin/tenant-assets/manual-review/post-cleanup/supersede", "privacy", "smallJson", "admin-tenant-asset-manual-review-supersede-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    sensitivity: "high",
+    audit: { event: "tenant_asset_manual_review_post_cleanup_supersede_requested" },
+    notes: "OMEGA-P2-03 guarded manual-review supersession executor. Requires Admin/MFA, same-origin JSON, fail-closed rate limiting, Idempotency-Key, confirm=true, exact confirmation phrase SUPERSEDE STALE REVIEW ITEMS, bounded reason, and explicit batchLimit. Dry-run is default. Non-dry-run may write only ai_asset_manual_review_items review_status=superseded plus superseded events for rows currently classified safe superseded_asset_missing, superseded_after_manual_media_cleanup, or superseded_by_owner_metadata_present; active, blocked, pending manual-review, deferred, legal/privacy, and unknown rows remain untouched. It deletes no rows/assets, performs no Backfill, no Access-Switch, no Reset, no R2 listing/mutation, no provider/Stripe/Cloudflare calls, and no tenant isolation claim.",
+  }),
 
   adminRead("admin.mfa.status", "/api/admin/mfa/status", "admin-mfa", {
     mfa: "admin-bootstrap-allowed",

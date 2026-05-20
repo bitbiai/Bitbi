@@ -861,6 +861,15 @@
         margin-block-start: var(--space-4);
     }
 
+    .admin-control-form > .admin-control-card-head,
+    .admin-control-form > .admin-state {
+        grid-column: 1 / -1;
+    }
+
+    .admin-alert {
+        margin-block: var(--space-4);
+    }
+
     .admin-command-block {
         margin-block: var(--space-4);
         padding: var(--space-4);
@@ -3822,6 +3831,12 @@
         background:
             linear-gradient(135deg, rgba(0, 240, 255, 0.08), transparent 40%),
             rgba(255, 255, 255, 0.04);
+    }
+
+    .admin-alert--warning {
+        border-color: rgba(245, 158, 11, 0.35);
+        background: rgba(245, 158, 11, 0.09);
+        color: rgba(255, 242, 204, 0.95);
     }
 
     .admin-lifecycle-detail__hero-main {

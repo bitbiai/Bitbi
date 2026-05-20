@@ -161,6 +161,13 @@ async function loadTenantAssetManualReviewStatusModule() {
   return import(modulePath);
 }
 
+async function loadTenantAssetManualReviewPostCleanupModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-manual-review-post-cleanup.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadTenantAssetLegacyMediaResetModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'workers/auth/src/lib/tenant-asset-legacy-media-reset.js')
@@ -1416,6 +1423,61 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     return res.json();
   }
 
+  function manualReviewItemRow(overrides = {}) {
+    const id = overrides.id || `ta_mri_test_${Math.random().toString(16).slice(2)}`;
+    const now = overrides.created_at || '2026-05-17T13:00:00.000Z';
+    return {
+      id,
+      asset_domain: overrides.asset_domain || 'ai_images',
+      asset_id: overrides.asset_id ?? null,
+      related_asset_id: overrides.related_asset_id ?? null,
+      source_table: overrides.source_table ?? (overrides.asset_domain === 'ai_folders' ? 'ai_folders' : 'ai_images'),
+      source_row_id: overrides.source_row_id ?? overrides.asset_id ?? null,
+      issue_category: overrides.issue_category || 'metadata_missing',
+      review_status: overrides.review_status || 'pending_review',
+      severity: overrides.severity || 'warning',
+      priority: overrides.priority || 'medium',
+      legacy_owner_user_id: null,
+      proposed_asset_owner_type: null,
+      proposed_owning_user_id: null,
+      proposed_owning_organization_id: null,
+      proposed_ownership_status: 'pending_review',
+      proposed_ownership_source: null,
+      proposed_ownership_confidence: null,
+      evidence_source_path: 'current_evidence_report',
+      evidence_report_generated_at: '2026-05-17T12:59:00.000Z',
+      evidence_summary_json: '{"source":"test"}',
+      safe_notes: 'Test manual-review row.',
+      assigned_to_user_id: null,
+      reviewed_by_user_id: null,
+      reviewed_at: null,
+      created_by_user_id: 'tenant-evidence-admin',
+      created_at: now,
+      updated_at: overrides.updated_at || now,
+      superseded_by_id: null,
+      metadata_json: '{"source":"test"}',
+      ...overrides,
+    };
+  }
+
+  function manualReviewEventRow(overrides = {}) {
+    return {
+      id: overrides.id || `ta_mre_test_${Math.random().toString(16).slice(2)}`,
+      review_item_id: overrides.review_item_id,
+      event_type: overrides.event_type || 'created',
+      old_status: overrides.old_status ?? null,
+      new_status: overrides.new_status || 'pending_review',
+      actor_user_id: 'tenant-evidence-admin',
+      actor_email: null,
+      reason: 'test event',
+      idempotency_key: '0'.repeat(64),
+      request_hash: '1'.repeat(64),
+      event_metadata_json: '{"source":"test"}',
+      created_at: overrides.created_at || '2026-05-17T13:00:00.000Z',
+      ...overrides,
+    };
+  }
+
   test('admin can fetch bounded sanitized folders/images ownership evidence without mutations', async () => {
     const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
     const beforeState = JSON.stringify(env.DB.state);
@@ -2503,6 +2565,468 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     expect(markdown).toContain('Access checks changed: no');
     expect(markdown).toContain('Backfill performed: no');
     expect(markdown).not.toContain('raw-public-image.png');
+  });
+
+  test('post-cleanup manual review dry-run classifies stale and active rows without mutations', async () => {
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    env.DB.state.aiImages.push({
+      id: 'image-derivative-missing-owner',
+      user_id: 'tenant-legacy-user',
+      folder_id: null,
+      visibility: 'private',
+      r2_key: 'users/tenant-legacy-user/derivative/raw-derivative.png',
+      thumb_key: 'users/tenant-legacy-user/derivative/thumb.webp',
+      medium_key: null,
+      prompt: 'derivative prompt should not render',
+      created_at: '2026-05-17T09:30:00.000Z',
+    });
+    env.DB.state.aiAssetManualReviewItems.push(
+      manualReviewItemRow({
+        id: 'ta_mri_missing_asset',
+        asset_domain: 'ai_images',
+        asset_id: 'image-deleted-after-cleanup',
+        source_table: 'ai_images',
+        source_row_id: 'image-deleted-after-cleanup',
+        issue_category: 'metadata_missing',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_owner_resolved',
+        asset_domain: 'ai_images',
+        asset_id: 'image-safe',
+        source_table: 'ai_images',
+        source_row_id: 'image-safe',
+        issue_category: 'metadata_missing',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_active_missing',
+        asset_domain: 'ai_folders',
+        asset_id: 'folder-missing',
+        source_table: 'ai_folders',
+        source_row_id: 'folder-missing',
+        issue_category: 'metadata_missing',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_public_unsafe',
+        asset_domain: 'public_gallery',
+        asset_id: 'image-public-missing',
+        source_table: 'ai_images',
+        source_row_id: 'image-public-missing',
+        issue_category: 'public_unsafe',
+        review_status: 'blocked_public_unsafe',
+        severity: 'critical',
+        priority: 'high',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_derivative_risk',
+        asset_domain: 'derivative',
+        asset_id: 'image-derivative-missing-owner',
+        source_table: 'ai_images',
+        source_row_id: 'image-derivative-missing-owner',
+        issue_category: 'derivative_risk',
+        review_status: 'blocked_derivative_risk',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_deferred',
+        asset_domain: 'ai_text_assets',
+        asset_id: 'text-unsupported',
+        source_table: null,
+        source_row_id: null,
+        issue_category: 'safe_observe_only',
+        review_status: 'deferred',
+        severity: 'info',
+        priority: 'low',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_unknown',
+        asset_domain: 'relationship',
+        asset_id: null,
+        source_table: null,
+        source_row_id: null,
+        issue_category: 'relationship_review',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_in_progress',
+        asset_domain: 'ai_images',
+        asset_id: 'image-public-missing',
+        source_table: 'ai_images',
+        source_row_id: 'image-public-missing',
+        issue_category: 'manual_review_needed',
+        review_status: 'review_in_progress',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_legal',
+        asset_domain: 'ai_images',
+        asset_id: 'image-public-missing',
+        source_table: 'ai_images',
+        source_row_id: 'image-public-missing',
+        issue_category: 'manual_review_needed',
+        review_status: 'needs_legal_privacy_review',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_superseded_historical',
+        asset_domain: 'ai_images',
+        asset_id: 'image-safe',
+        source_table: 'ai_images',
+        source_row_id: 'image-safe',
+        issue_category: 'metadata_missing',
+        review_status: 'superseded',
+      }),
+    );
+    env.DB.state.aiAssetManualReviewEvents.push(
+      manualReviewEventRow({ id: 'ta_mre_post_cleanup_created', review_item_id: 'ta_mri_missing_asset' })
+    );
+    const beforeItems = JSON.stringify(env.DB.state.aiAssetManualReviewItems);
+    const beforeEvents = JSON.stringify(env.DB.state.aiAssetManualReviewEvents);
+    const beforeImages = JSON.stringify(env.DB.state.aiImages);
+    const beforeFolders = JSON.stringify(env.DB.state.aiFolders);
+    const beforeR2Lists = env.USER_IMAGES.listCalls.length;
+
+    const dryRun = await authWorker.fetch(
+      authJsonRequest('/api/admin/tenant-assets/manual-review/post-cleanup/dry-run?limit=50&sampleLimit=20', 'GET', undefined, authHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRun.status).toBe(200);
+    const body = await dryRun.json();
+    expect(body.report).toMatchObject({
+      dryRun: true,
+      d1Mutated: false,
+      r2Mutated: false,
+      tenantIsolationClaimed: false,
+      postCleanupEvidencePath: 'docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/',
+    });
+    expect(body.report.summary).toMatchObject({
+      totalReviewItems: env.DB.state.aiAssetManualReviewItems.length,
+      supersededCandidates: 2,
+      assetMissingCandidates: 1,
+      ownerMetadataResolvedCandidates: 1,
+      stillBlockedPublicUnsafe: 1,
+      stillBlockedDerivativeRisk: 1,
+      stillPendingManualReview: 1,
+      stillDeferred: 1,
+      needsLegalPrivacyReview: 1,
+      unknownRequiresManualReview: 1,
+      eventsCount: env.DB.state.aiAssetManualReviewEvents.length,
+      latestImportAt: '2026-05-17T13:00:00.000Z',
+      accessSwitchReadiness: 'blocked',
+      resetReadiness: 'blocked',
+    });
+    expect(body.report.summary.categoryCounts).toEqual(expect.objectContaining({
+      active_current_review: 1,
+      superseded_asset_missing: 1,
+      superseded_after_manual_media_cleanup: 1,
+      superseded_by_owner_metadata_present: 1,
+      still_blocked_public_unsafe: 1,
+      still_blocked_derivative_risk: 1,
+      still_pending_manual_review: 1,
+      still_deferred: 1,
+      needs_legal_privacy_review: 1,
+      unknown_requires_manual_review: 1,
+    }));
+    expect(body.report.safeSampleItems.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'ta_mri_missing_asset',
+      'ta_mri_owner_resolved',
+    ]));
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('raw-derivative.png');
+    expect(serialized).not.toContain('derivative prompt should not render');
+    expect(serialized).not.toContain('Bearer ');
+    expect(serialized).not.toContain('bitbi_session=');
+    expect(serialized).not.toContain('sk_live_');
+    expect(JSON.stringify(env.DB.state.aiAssetManualReviewItems)).toBe(beforeItems);
+    expect(JSON.stringify(env.DB.state.aiAssetManualReviewEvents)).toBe(beforeEvents);
+    expect(JSON.stringify(env.DB.state.aiImages)).toBe(beforeImages);
+    expect(JSON.stringify(env.DB.state.aiFolders)).toBe(beforeFolders);
+    expect(env.USER_IMAGES.listCalls.length).toBe(beforeR2Lists);
+
+    for (const [format, contentType] of [
+      ['json', 'application/json'],
+      ['markdown', 'text/markdown'],
+      ['html', 'text/html'],
+    ]) {
+      const exportRes = await authWorker.fetch(
+        authJsonRequest(`/api/admin/tenant-assets/manual-review/post-cleanup/evidence?format=${format}&limit=50`, 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(exportRes.status).toBe(200);
+      expect(exportRes.headers.get('content-type')).toContain(contentType);
+      const text = await exportRes.text();
+      expect(text).toContain(format === 'json' ? 'supersededCandidates' : 'Manual Review Queue Post-Cleanup Supersession Evidence');
+      expect(text).not.toContain('raw-derivative.png');
+      expect(text).not.toContain('0'.repeat(64));
+    }
+  });
+
+  test('post-cleanup manual review supersede endpoint is guarded and mutates only safe rows', async () => {
+    const nonAdmin = await createTenantEvidenceHarness({
+      user: createContractUser({ id: 'tenant-review-supersede-member', role: 'user' }),
+    });
+    const denied = await nonAdmin.authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'member should be denied',
+          batchLimit: 1,
+        },
+        { ...nonAdmin.authHeaders, 'Idempotency-Key': 'tenant-review-supersede-denied-001' }
+      ),
+      nonAdmin.env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const { authWorker, env, authHeaders } = await createTenantEvidenceHarness();
+    env.DB.state.aiAssetManualReviewItems.push(
+      manualReviewItemRow({
+        id: 'ta_mri_supersede_missing',
+        asset_domain: 'ai_images',
+        asset_id: 'image-removed-safe',
+        source_table: 'ai_images',
+        source_row_id: 'image-removed-safe',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_supersede_owner',
+        asset_domain: 'ai_images',
+        asset_id: 'image-safe',
+        source_table: 'ai_images',
+        source_row_id: 'image-safe',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_supersede_public_blocked',
+        asset_domain: 'public_gallery',
+        asset_id: 'image-public-missing',
+        source_table: 'ai_images',
+        source_row_id: 'image-public-missing',
+        issue_category: 'public_unsafe',
+        review_status: 'blocked_public_unsafe',
+        severity: 'critical',
+        priority: 'high',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_supersede_deferred',
+        asset_domain: 'ai_text_assets',
+        asset_id: 'text-deferred',
+        source_table: null,
+        source_row_id: null,
+        issue_category: 'safe_observe_only',
+        review_status: 'deferred',
+      }),
+      manualReviewItemRow({
+        id: 'ta_mri_supersede_unknown',
+        asset_domain: 'relationship',
+        asset_id: null,
+        source_table: null,
+        source_row_id: null,
+        issue_category: 'relationship_review',
+      }),
+    );
+    const beforeImages = JSON.stringify(env.DB.state.aiImages);
+    const beforeFolders = JSON.stringify(env.DB.state.aiFolders);
+    const beforeEvents = env.DB.state.aiAssetManualReviewEvents.length;
+    const beforeR2Lists = env.USER_IMAGES.listCalls.length;
+
+    const missingKey = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'missing idempotency',
+          batchLimit: 2,
+        },
+        authHeaders
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+
+    const missingConfirmation = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        { dryRun: true, confirm: true, reason: 'missing phrase', batchLimit: 2 },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-guard-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingConfirmation.status).toBe(400);
+
+    const missingReason = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          batchLimit: 2,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-guard-002' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingReason.status).toBe(400);
+
+    const missingBatch = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'missing batch',
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-guard-003' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingBatch.status).toBe(400);
+
+    const dryRun = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: true,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'dry-run post-cleanup supersession only',
+          batchLimit: 2,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-dry-run-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRun.status).toBe(200);
+    const dryRunBody = await dryRun.json();
+    expect(dryRunBody.supersession).toMatchObject({
+      dryRun: true,
+      rowsConsidered: 2,
+      rowsSuperseded: 0,
+      eventRowsCreated: 0,
+      d1Mutated: false,
+      r2Mutated: false,
+      tenantIsolationClaimed: false,
+    });
+    expect(env.DB.state.aiAssetManualReviewEvents).toHaveLength(beforeEvents);
+    expect(env.DB.state.aiAssetManualReviewItems.find((item) => item.id === 'ta_mri_supersede_missing').review_status).toBe('pending_review');
+
+    const mismatch = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'selected unsafe row should fail',
+          batchLimit: 2,
+          selectedItemIds: ['ta_mri_supersede_public_blocked'],
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-mismatch-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mismatch.status).toBe(409);
+
+    const execute = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'local safe supersession execution test',
+          batchLimit: 2,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-execute-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(execute.status).toBe(200);
+    const executeBody = await execute.json();
+    expect(executeBody.supersession).toMatchObject({
+      dryRun: false,
+      rowsConsidered: 2,
+      rowsSuperseded: 2,
+      eventRowsCreated: 2,
+      d1Mutated: true,
+      r2Mutated: false,
+      tenantIsolationClaimed: false,
+      noBackfill: true,
+      noAccessSwitch: true,
+      noSourceAssetMutation: true,
+      noR2Operation: true,
+    });
+    expect(env.DB.state.aiAssetManualReviewItems.find((item) => item.id === 'ta_mri_supersede_missing').review_status).toBe('superseded');
+    expect(env.DB.state.aiAssetManualReviewItems.find((item) => item.id === 'ta_mri_supersede_owner').review_status).toBe('superseded');
+    expect(env.DB.state.aiAssetManualReviewItems.find((item) => item.id === 'ta_mri_supersede_public_blocked').review_status).toBe('blocked_public_unsafe');
+    expect(env.DB.state.aiAssetManualReviewItems.find((item) => item.id === 'ta_mri_supersede_deferred').review_status).toBe('deferred');
+    expect(env.DB.state.aiAssetManualReviewItems.find((item) => item.id === 'ta_mri_supersede_unknown').review_status).toBe('pending_review');
+    expect(env.DB.state.aiAssetManualReviewEvents.length).toBe(beforeEvents + 2);
+    const supersededEvents = env.DB.state.aiAssetManualReviewEvents.filter((event) => event.event_type === 'superseded');
+    expect(supersededEvents).toHaveLength(2);
+    expect(supersededEvents.every((event) => /^[a-f0-9]{64}$/.test(event.idempotency_key))).toBe(true);
+    expect(JSON.stringify(env.DB.state.aiImages)).toBe(beforeImages);
+    expect(JSON.stringify(env.DB.state.aiFolders)).toBe(beforeFolders);
+    expect(env.USER_IMAGES.listCalls.length).toBe(beforeR2Lists);
+    const serialized = JSON.stringify(executeBody);
+    expect(serialized).not.toContain('tenant-review-supersede-execute-001');
+    expect(serialized).not.toContain('raw-public-image.png');
+    expect(serialized).not.toContain('local safe supersession execution test');
+
+    const replay = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'local safe supersession execution test',
+          batchLimit: 2,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-execute-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).supersession.idempotency.replayed).toBe(true);
+
+    const conflict = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/manual-review/post-cleanup/supersede',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+          reason: 'different request conflicts',
+          batchLimit: 1,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-review-supersede-execute-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
   });
 
   test('manual review status helper enforces conservative transitions', async () => {
@@ -4763,6 +5287,27 @@ test.describe('Phase 1-E auth route policy registry', () => {
       auth: 'admin',
       mfa: 'admin-production-required',
       csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/manual-review/post-cleanup/dry-run')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.manual-review.post-cleanup.dry-run',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-manual-review-queue-ip', failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/tenant-assets/manual-review/post-cleanup/evidence')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.manual-review.post-cleanup.evidence',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-manual-review-queue-ip', failClosed: true }),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/tenant-assets/manual-review/post-cleanup/supersede')).toEqual(expect.objectContaining({
+      id: 'admin.tenant-assets.manual-review.post-cleanup.supersede',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'same-origin-required',
+      rateLimit: expect.objectContaining({ id: 'admin-tenant-asset-manual-review-supersede-ip', failClosed: true }),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
       id: 'admin.ai.usage-attempts.cleanup-expired',

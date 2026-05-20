@@ -1687,6 +1687,9 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.platformBudgetEvidenceArchiveExpireRequests = captures.platformBudgetEvidenceArchiveExpireRequests || [];
   captures.platformBudgetEvidenceArchiveCleanupRequests = captures.platformBudgetEvidenceArchiveCleanupRequests || [];
   captures.tenantReviewEvidenceExportRequests = captures.tenantReviewEvidenceExportRequests || [];
+  captures.tenantReviewPostCleanupDryRunRequests = captures.tenantReviewPostCleanupDryRunRequests || [];
+  captures.tenantReviewPostCleanupEvidenceExportRequests = captures.tenantReviewPostCleanupEvidenceExportRequests || [];
+  captures.tenantReviewPostCleanupSupersedeRequests = captures.tenantReviewPostCleanupSupersedeRequests || [];
   captures.tenantAssetDomainEvidenceRequests = captures.tenantAssetDomainEvidenceRequests || [];
   captures.tenantBackfillDryRunRequests = captures.tenantBackfillDryRunRequests || [];
   captures.tenantBackfillExecuteRequests = captures.tenantBackfillExecuteRequests || [];
@@ -3822,6 +3825,99 @@ async function mockAdminControlPlane(page, captures = {}) {
     };
   }
 
+  function tenantReviewPostCleanupReport() {
+    const safeItem = tenantReviewItems.find((item) => item.id === 'ta_mri_static_pending_1');
+    const activeItems = tenantReviewItems.filter((item) => item.id !== 'ta_mri_static_pending_1');
+    return {
+      ok: true,
+      report: {
+        ok: true,
+        available: true,
+        reportVersion: 'tenant-asset-manual-review-post-cleanup-v1',
+        generatedAt: '2026-05-19T20:00:00.000Z',
+        source: 'local_d1_read_only_post_cleanup_classifier',
+        sourceEndpoint: '/api/admin/tenant-assets/manual-review/post-cleanup/dry-run',
+        dryRun: true,
+        domain: 'folders_images_manual_review_post_cleanup',
+        postCleanupEvidencePath: 'docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/',
+        runtimeBehaviorChanged: false,
+        accessChecksChanged: false,
+        tenantIsolationClaimed: false,
+        backfillPerformed: false,
+        sourceAssetRowsMutated: false,
+        reviewRowsMutated: false,
+        d1Mutated: false,
+        r2LiveListed: false,
+        r2Mutated: false,
+        productionReadiness: 'blocked',
+        summary: {
+          totalReviewItems: tenantReviewItems.length,
+          scannedReviewItems: tenantReviewItems.length,
+          activeCurrentItems: activeItems.length,
+          supersededCandidates: safeItem ? 1 : 0,
+          assetMissingCandidates: 0,
+          ownerMetadataResolvedCandidates: safeItem ? 1 : 0,
+          manualCleanupSupersededCandidates: 0,
+          stillBlockedPublicUnsafe: tenantReviewItems.filter((item) => item.reviewStatus === 'blocked_public_unsafe').length,
+          stillBlockedDerivativeRisk: tenantReviewItems.filter((item) => item.reviewStatus === 'blocked_derivative_risk').length,
+          stillBlocked: activeItems.length,
+          stillPendingManualReview: 0,
+          stillDeferred: 0,
+          unknownRequiresManualReview: 0,
+          eventsCount: tenantReviewEvents.length,
+          totalEvents: tenantReviewEvents.length,
+          latestImportAt: '2026-05-17T13:02:00.000Z',
+          latestStatusAt: tenantReviewEvents.map((event) => event.createdAt).sort().at(-1) || null,
+          postCleanupEvidencePath: 'docs/tenant-assets/evidence/2026-05-19-post-cleanup-rebaseline/',
+          tenantIsolationClaimed: false,
+          accessSwitchReadiness: 'blocked',
+          backfillReadiness: 'blocked',
+          resetReadiness: 'blocked',
+          d1Mutated: false,
+          r2Mutated: false,
+          categoryCounts: {
+            active_current_review: 0,
+            superseded_asset_missing: 0,
+            superseded_after_manual_media_cleanup: 0,
+            superseded_by_owner_metadata_present: safeItem ? 1 : 0,
+            still_blocked_public_unsafe: tenantReviewItems.filter((item) => item.reviewStatus === 'blocked_public_unsafe').length,
+            still_blocked_derivative_risk: tenantReviewItems.filter((item) => item.reviewStatus === 'blocked_derivative_risk').length,
+            still_pending_manual_review: 0,
+            still_deferred: 0,
+            needs_legal_privacy_review: 0,
+            unknown_requires_manual_review: 0,
+          },
+        },
+        categoryCounts: {
+          superseded_by_owner_metadata_present: safeItem ? 1 : 0,
+          still_blocked_public_unsafe: tenantReviewItems.filter((item) => item.reviewStatus === 'blocked_public_unsafe').length,
+          still_blocked_derivative_risk: tenantReviewItems.filter((item) => item.reviewStatus === 'blocked_derivative_risk').length,
+        },
+        safeSampleItems: safeItem ? [{
+          ...safeItem,
+          classification: 'superseded_by_owner_metadata_present',
+          reason: 'current_source_asset_has_owner_metadata',
+          supersessionEligible: true,
+          sourceAsset: {
+            sourceTable: 'ai_images',
+            assetExists: true,
+            ownershipMetadataPresent: true,
+            publicReference: false,
+            derivativeReference: false,
+          },
+        }] : [],
+        activeSampleItems: activeItems.map((item) => ({
+          ...item,
+          classification: item.issueCategory === 'public_unsafe' ? 'still_blocked_public_unsafe' : 'still_blocked_derivative_risk',
+          reason: 'current_blocker_still_present',
+          supersessionEligible: false,
+        })),
+        blockedClaims: ['tenant_isolation', 'access_switch_readiness', 'ownership_backfill_readiness', 'confirmed_legacy_media_reset_readiness'],
+        recommendedNextAction: 'Export this dry-run evidence, review safe candidates, then optionally run guarded supersession with exact confirmation.',
+      },
+    };
+  }
+
   function filteredTenantReviewItems(url) {
     const params = url.searchParams;
     return tenantReviewItems.filter((item) => (
@@ -3842,6 +3938,72 @@ async function mockAdminControlPlane(page, captures = {}) {
         'content-disposition': 'attachment; filename="tenant-asset-manual-review-evidence-static.json"',
       },
       body: JSON.stringify(tenantReviewEvidenceReport().report),
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/manual-review\/post-cleanup\/dry-run(?:\?.*)?$/, async (route) => {
+    captures.tenantReviewPostCleanupDryRunRequests.push({ url: route.request().url() });
+    await fulfillJson(route, tenantReviewPostCleanupReport());
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/manual-review\/post-cleanup\/evidence(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    captures.tenantReviewPostCleanupEvidenceExportRequests.push({ url: route.request().url() });
+    const format = url.searchParams.get('format') || 'json';
+    const contentType = format === 'markdown' ? 'text/markdown' : format === 'html' ? 'text/html' : 'application/json';
+    const extension = format === 'markdown' ? 'md' : format;
+    await route.fulfill({
+      status: 200,
+      contentType,
+      headers: {
+        'content-disposition': `attachment; filename="tenant-asset-manual-review-post-cleanup-static.${extension}"`,
+      },
+      body: format === 'json'
+        ? JSON.stringify(tenantReviewPostCleanupReport().report)
+        : 'Manual Review Queue Post-Cleanup Supersession Evidence',
+    });
+  });
+  await page.route(/\/api\/admin\/tenant-assets\/manual-review\/post-cleanup\/supersede$/, async (route) => {
+    const request = route.request();
+    const body = request.postDataJSON();
+    captures.tenantReviewPostCleanupSupersedeRequests.push({
+      idempotencyKey: request.headers()['idempotency-key'],
+      body,
+    });
+    const safeItem = tenantReviewItems.find((item) => item.id === 'ta_mri_static_pending_1');
+    if (!body.dryRun && safeItem) {
+      const oldStatus = safeItem.reviewStatus;
+      safeItem.reviewStatus = 'superseded';
+      safeItem.reviewedAt = '2026-05-19T20:05:00.000Z';
+      safeItem.updatedAt = '2026-05-19T20:05:00.000Z';
+      tenantReviewEvents.push({
+        id: 'ta_mre_static_superseded_1',
+        reviewItemId: safeItem.id,
+        eventType: 'superseded',
+        oldStatus,
+        newStatus: 'superseded',
+        actorUserIdPresent: true,
+        actorEmailPresent: false,
+        reasonPresent: true,
+        idempotencyKeyStoredAsHash: true,
+        requestHashStored: true,
+        eventMetadataSummary: { source: 'post_cleanup_supersession' },
+        createdAt: '2026-05-19T20:05:00.000Z',
+      });
+    }
+    await fulfillJson(route, {
+      ok: true,
+      supersession: {
+        reportVersion: 'tenant-asset-manual-review-post-cleanup-supersede-v1',
+        dryRun: body.dryRun !== false,
+        rowsConsidered: safeItem ? 1 : 0,
+        rowsSuperseded: body.dryRun === false && safeItem ? 1 : 0,
+        rowsSkipped: Math.max(0, tenantReviewItems.length - 1),
+        skippedByReason: { still_blocked_public_unsafe: 1, still_blocked_derivative_risk: 1 },
+        eventRowsCreated: body.dryRun === false && safeItem ? 1 : 0,
+        idempotency: { required: true, storedAs: 'sha256', replayed: false },
+        d1Mutated: body.dryRun === false,
+        r2Mutated: false,
+        tenantIsolationClaimed: false,
+      },
     });
   });
   await page.route(/\/api\/admin\/tenant-assets\/folders-images\/manual-review\/evidence(?:\?.*)?$/, async (route) => {
@@ -10730,6 +10892,36 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#tenantReviewSummary')).toContainText('Access switch blocked');
     await expect(page.locator('#tenantReviewSummary')).toContainText('Backfill blocked');
     await expect(page.locator('#tenantReviewSummary')).toContainText('Review-state only');
+    await expect(page.locator('#tenantReviewPostCleanupBanner')).toContainText('Post-cleanup evidence collected');
+    await expect(page.locator('#tenantReviewPostCleanupBanner')).toContainText('Review queue still contains pre-cleanup rows');
+    await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Active current');
+    await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Superseded candidates');
+    await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Still blocked');
+    await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Still pending manual review');
+    await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Deferred');
+    await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Unknown/manual review required');
+    await expect(page.getByRole('button', { name: 'Run post-cleanup supersession dry-run' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export supersession evidence JSON' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export supersession evidence Markdown' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export supersession evidence HTML/PDF-friendly' })).toBeVisible();
+    await page.getByRole('button', { name: 'Supersede stale review items warning' }).click();
+    await expect(page.locator('#tenantReviewSupersedeState')).toContainText('This does not delete assets');
+    await expect(page.getByRole('button', { name: 'Supersede stale review items', exact: true })).toBeDisabled();
+    await page.locator('#tenantReviewSupersedeConfirmation').fill('SUPERSEDE STALE REVIEW ITEMS');
+    await expect(page.getByRole('button', { name: 'Supersede stale review items', exact: true })).toBeDisabled();
+    await page.locator('#tenantReviewSupersedeReason').fill('Static post-cleanup supersession evidence dry-run');
+    await expect(page.getByRole('button', { name: 'Supersede stale review items', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Supersede stale review items', exact: true }).click();
+    await expect.poll(() => captures.tenantReviewPostCleanupSupersedeRequests.length).toBe(1);
+    expect(captures.tenantReviewPostCleanupSupersedeRequests[0].idempotencyKey).toMatch(/^tenant-review-supersede-/);
+    expect(captures.tenantReviewPostCleanupSupersedeRequests[0].body).toMatchObject({
+      dryRun: true,
+      confirm: true,
+      confirmation: 'SUPERSEDE STALE REVIEW ITEMS',
+      reason: 'Static post-cleanup supersession evidence dry-run',
+      batchLimit: 25,
+    });
+    await expect(page.locator('#tenantReviewSupersedeState')).toContainText('Supersession executor dry-run completed');
     await expect(page.locator('#tenantReviewList')).toContainText('metadata missing');
     await expect(page.locator('#tenantReviewList')).toContainText('public unsafe');
     await expect(page.locator('#tenantReviewList')).toContainText('derivative risk');

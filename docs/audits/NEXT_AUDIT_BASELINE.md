@@ -19,7 +19,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Admin user delete now has two safe modes: operational anonymized deletion, and operational anonymized deletion plus a dry-run/approval-required Data Erasure workflow request. Both require Admin auth/MFA, rate limiting, explicit confirmation, self-delete prevention, dependency preflight, labeled cleanup diagnostics, login/session disablement, and guarded cleanup of operational user-owned data. The optional Data Erasure/GDPR workflow is not executed immediately and does not claim full legal erasure while retention-governed audit/billing/lifecycle/legal evidence remains policy-controlled.
 - Admin Data Lifecycle request review now has a large detail overlay plus sanitized evidence packet export. The overlay wires guarded request detail, plan generation, approval, safe execution, final completion, reject/close, private archive metadata, and JSON/Markdown/HTML evidence packet actions. Final states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review`; printable HTML is PDF-friendly through browser Save as PDF, not binary PDF generation or legal advice.
 - Admin Tenant Isolation Execution now surfaces Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset together. Each high-risk card has a warning/exclamation explainer, dry-run or shadow diagnostics, redacted evidence export, exact confirmation guidance, and disabled reasons. The panel does not execute reset, switch runtime access, list/mutate live R2, or claim tenant isolation.
-- Post-cleanup tenant-asset evidence rebaseline is pending after the operator manually deleted most old images/videos. Pre-cleanup owner-map, manual-review, and reset counts are stale/superseded and must not be used as current transition evidence.
+- Post-cleanup tenant-asset evidence rebaseline exists after the operator manually deleted most old images/videos. Pre-cleanup owner-map, manual-review, and reset counts are stale/superseded and must not be used as current transition evidence. Manual-review rows remain in D1 until classified and, if approved, explicitly superseded through the guarded review-state workflow.
 - This baseline does not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, or confirmed legacy media reset readiness.
 
 ## Current Deployment State To Verify
@@ -55,7 +55,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - New personal folder/image writes assign high-confidence personal ownership metadata.
 - Existing current rows remain mixed/null/unclassified unless fresh post-cleanup evidence proves otherwise. Current post-cleanup evidence identifies one exact safe `ai_images` ownership candidate for operator execution only.
 - Main owner-map evidence exists as historical retained evidence, but old counts are superseded by manual media cleanup.
-- Current post-cleanup decision: `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` with status `post_cleanup_single_backfill_candidate_prepared_operator_execution_pending`.
+- Current post-cleanup decision: `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md` with status `post_cleanup_manual_review_supersession_supported_backfill_candidate_still_operator_pending`.
 - Runtime access checks still rely on existing behavior; reads have not switched to ownership metadata.
 - Ownership Backfill dry-run/evidence and a strictly gated executor exist for locally classified safe folder/image rows. Non-dry-run backfill requires Admin/MFA, `Idempotency-Key`, reason, explicit supported domain scope, bounded batch limit, exact typed confirmation `BACKFILL OWNERSHIP`, and may be narrowed to exact candidate asset IDs; unsafe/manual-review/public/missing-evidence/deferred rows remain blocked.
 - Access-Switch status and shadow diagnostics exist as read-only evidence surfaces. Enforced mode remains blocked because durable switch state and reviewed shadow evidence are not approved.
@@ -65,12 +65,13 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 
 - Manual-review item/event tables exist.
 - Admin import, queue read/detail/events/evidence/export, status workflow, and Admin visibility exist for review-state rows.
+- Post-cleanup manual-review dry-run classification, JSON/Markdown/HTML evidence export, and guarded supersession endpoint exist.
 - Manual-review operator evidence exists for import/queue/status workflow as historical evidence.
-- Current post-cleanup decision: `post_cleanup_evidence_pending`; old queue/status counts may reference removed assets.
+- Current post-cleanup decision: `post_cleanup_supersession_dry_run_supported`; old queue/status counts may reference removed assets and evidence files do not automatically mutate D1 review rows.
 - Prior decision retained for workflow traceability: `operator_evidence_collected_needs_more_idempotency`.
 - Idempotency completion status: `operator_evidence_pending_manual_review_idempotency_completion`.
 - Remaining gap: import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence are incomplete.
-- Manual-review status changes do not backfill ownership or switch runtime access behavior.
+- Manual-review status changes and supersession updates do not delete assets, backfill ownership, switch runtime access behavior, execute reset, mutate R2, or claim tenant isolation.
 
 ## Current Legacy Media Reset State
 
@@ -113,6 +114,7 @@ Current release truth: `config/release-compat.json` declares latest auth D1 migr
 - Verify live deployment state for Auth Worker, Static/Pages, AI Worker, and Contact Worker.
 - Apply/verify remote auth migrations through `0060` before dependent Auth Worker deploys.
 - Re-run authenticated read-only preflight before any Backfill execution. The only currently prepared target is the single safe `ai_images` candidate recorded in `docs/tenant-assets/evidence/2026-05-19-post-cleanup-backfill-execution/`; Access-Switch enforcement and Reset confirmation remain blocked.
+- Run Manual Review Queue post-cleanup dry-run, export evidence, and only run guarded supersession with `SUPERSEDE STALE REVIEW ITEMS` after reviewing safe candidates.
 - Provide a sanitized legacy media reset dry-run evidence package using `docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md` before any confirmation review.
 - Complete manual-review idempotency evidence gaps.
 - Use the Admin Tenant Isolation Execution dry-runs/diagnostics and exports to review Backfill, Access-Switch, and Reset in that order. Do not execute Reset before Backfill and Access-Switch evidence is reviewed.

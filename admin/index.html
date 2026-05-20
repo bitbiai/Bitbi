@@ -957,12 +957,45 @@
                             <span class="badge badge--disabled">Backfill blocked</span>
                             <span class="badge badge--legacy">Tenant isolation not claimed</span>
                             <span class="badge badge--user">No R2 action</span>
-                            <button type="button" id="tenantReviewRefresh" class="btn-action">Refresh</button>
-                            <button type="button" id="tenantReviewExportJson" class="btn-action btn-action--secondary">Export JSON</button>
+                            <button type="button" id="tenantReviewRefresh" class="btn-action">Refresh queue</button>
+                            <button type="button" id="tenantReviewDryRunPostCleanup" class="btn-action">Run post-cleanup supersession dry-run</button>
+                            <button type="button" id="tenantReviewExportJson" class="btn-action btn-action--secondary">Export queue JSON</button>
+                            <button type="button" id="tenantReviewExportPostCleanupJson" class="btn-action btn-action--secondary">Export supersession evidence JSON</button>
+                            <button type="button" id="tenantReviewExportPostCleanupMarkdown" class="btn-action btn-action--secondary">Export supersession evidence Markdown</button>
+                            <button type="button" id="tenantReviewExportPostCleanupHtml" class="btn-action btn-action--secondary">Export supersession evidence HTML/PDF-friendly</button>
                         </div>
                     </div>
                     <div id="tenantReviewState" class="admin-state" aria-live="polite">Loading tenant asset manual-review evidence...</div>
                     <div id="tenantReviewSummary"></div>
+                    <div class="admin-alert admin-alert--warning" id="tenantReviewPostCleanupBanner" role="status">
+                        <strong>Post-cleanup evidence collected.</strong>
+                        Review queue still contains pre-cleanup rows. Run supersession dry-run before treating counts as current.
+                    </div>
+                    <div id="tenantReviewPostCleanupSummary"></div>
+                    <form id="tenantReviewSupersedeForm" class="admin-control-form glass glass-card" aria-describedby="tenantReviewSupersedeState">
+                        <div class="admin-control-card-head">
+                            <h3 class="admin-section-title">Post-Cleanup Supersession</h3>
+                            <button type="button" id="tenantReviewSupersedeWarning" class="admin-danger-marker" aria-label="Supersede stale review items warning" title="This does not delete assets. It marks manual-review rows as superseded when the referenced asset no longer exists or ownership evidence has superseded the old review. Active/blocking/manual-review rows remain untouched.">!</button>
+                        </div>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Exact confirmation</span>
+                            <input id="tenantReviewSupersedeConfirmation" class="admin-ai__input" autocomplete="off" placeholder="SUPERSEDE STALE REVIEW ITEMS">
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Operator reason</span>
+                            <textarea id="tenantReviewSupersedeReason" class="admin-ai__textarea" rows="3" maxlength="500" placeholder="Record why the dry-run evidence supports superseding stale review rows."></textarea>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Batch limit</span>
+                            <input id="tenantReviewSupersedeBatchLimit" class="admin-ai__input" type="number" min="1" max="100" step="1" value="25">
+                        </label>
+                        <label class="admin-ai__field admin-ai__field--inline">
+                            <input id="tenantReviewSupersedeDryRun" type="checkbox" checked>
+                            <span>Dry-run only</span>
+                        </label>
+                        <button type="submit" id="tenantReviewSupersedeSubmit" class="btn-action btn-action--danger" disabled>Supersede stale review items</button>
+                        <div id="tenantReviewSupersedeState" class="admin-state" aria-live="polite">Run a post-cleanup dry-run and enter the exact confirmation plus reason to enable supersession.</div>
+                    </form>
                     <form id="tenantReviewFilter" class="admin-control-filter glass glass-card">
                         <label class="admin-ai__field">
                             <span class="admin-ai__label">Review status</span>

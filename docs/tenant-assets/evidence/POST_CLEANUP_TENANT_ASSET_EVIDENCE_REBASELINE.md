@@ -6,7 +6,7 @@ Generated: 2026-05-19T19:12:09Z
 
 Repo commit at packet creation: `1492404194eb9817e28588e6cc9644810fe49c82`
 
-Decision status: `post_cleanup_single_backfill_candidate_prepared_operator_execution_pending`
+Decision status: `post_cleanup_manual_review_supersession_supported_backfill_candidate_still_operator_pending`
 
 Purpose: current control file after the operator manually deleted most old images and videos. This file supersedes pre-cleanup count evidence for decision-making. It does not delete evidence history and does not fabricate live results.
 
@@ -31,7 +31,7 @@ Purpose: current control file after the operator manually deleted most old image
 | Ownership Backfill dry-run | `post_cleanup_evidence_collected_single_safe_candidate` | One `ai_images` candidate is prepared for exact-candidate guarded execution only after fresh authenticated preflight. |
 | Access-Switch shadow diagnostics | `post_cleanup_evidence_collected_metadata_missing_before_backfill` | Enforced Access-Switch remains blocked. |
 | Legacy Media Reset status/evidence | `post_cleanup_evidence_collected_reset_blocked` | Confirmed reset remains blocked; old reset counts are stale and previously unsafe. |
-| Manual-review backlog/status | `pending_live_read_only_evidence` | Old queue counts may reference removed assets. |
+| Manual-review backlog/status | `post_cleanup_supersession_dry_run_supported` | Old queue counts may reference removed assets; D1 rows are not automatically removed by uploaded evidence files. Use the post-cleanup dry-run classifier and evidence export before treating queue counts as current. |
 | Storage/quota reconciliation | `pending_live_read_only_evidence_if_applicable` | Required before reset/delete/accounting decisions; no live R2 listing. |
 
 ## Evidence Classification After Manual Cleanup
@@ -71,6 +71,10 @@ Collect these through authenticated Admin read-only endpoints after deploy of th
 5. Manual-review evidence:
    - `GET /api/admin/tenant-assets/folders-images/manual-review/evidence?format=json`
    - `GET /api/admin/tenant-assets/folders-images/manual-review/items?limit=100`
+   - `GET /api/admin/tenant-assets/manual-review/post-cleanup/dry-run?limit=500&sampleLimit=50`
+   - `GET /api/admin/tenant-assets/manual-review/post-cleanup/evidence?format=json&limit=500`
+   - `GET /api/admin/tenant-assets/manual-review/post-cleanup/evidence?format=markdown&limit=500`
+   - `GET /api/admin/tenant-assets/manual-review/post-cleanup/evidence?format=html&limit=500`
 6. Storage/quota reconciliation:
    - Run selected-user D1 metadata reconciliation only where relevant. Do not list live R2.
 
@@ -80,6 +84,7 @@ Collect these through authenticated Admin read-only endpoints after deploy of th
 | --- | --- | --- |
 | Ownership Backfill | `operator_live_execution_pending_for_single_ai_images_candidate` | Fresh authenticated preflight must still match exactly; `Idempotency-Key`, exact `BACKFILL OWNERSHIP` confirmation, reason, `domains:["ai_images"]`, `batchLimit:1`, and exact candidate ID allow-list are required. |
 | Access-Switch | `shadow_only_enforced_blocked` | Current mismatch is expected before the single candidate is backfilled; post-backfill shadow diagnostics are still required; durable switch/rollback path is not approved. |
+| Manual Review Supersession | `dry_run_and_guarded_review_state_update_supported` | Supersession is a controlled D1 review-state update only. It can mark safely classified stale manual-review rows as `superseded`; it does not delete assets, mutate R2, backfill ownership, switch access checks, reset media, or claim tenant isolation. |
 | Legacy Media Reset | `status_and_evidence_only_confirmed_blocked` | Hard env gate disabled; manual-review/sanitized evidence blockers remain; Backfill/Access evidence must be reviewed first; exact confirmation/idempotency are not approved for production reset. |
 
 ## P2-02 Execution Packet

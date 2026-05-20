@@ -47,6 +47,18 @@ import {
   updateTenantAssetManualReviewStatus,
 } from "../lib/tenant-asset-manual-review-status.js";
 import {
+  TENANT_ASSET_MANUAL_REVIEW_POST_CLEANUP_DRY_RUN_ENDPOINT,
+  TENANT_ASSET_MANUAL_REVIEW_POST_CLEANUP_EVIDENCE_ENDPOINT,
+  TENANT_ASSET_MANUAL_REVIEW_POST_CLEANUP_SUPERSEDE_ENDPOINT,
+  TenantAssetManualReviewPostCleanupError,
+  buildManualReviewPostCleanupDryRunReport,
+  executeManualReviewPostCleanupSupersede,
+  exportManualReviewPostCleanupEvidenceHtml,
+  exportManualReviewPostCleanupEvidenceJson,
+  exportManualReviewPostCleanupEvidenceMarkdown,
+  postCleanupDryRunOptionsFromSearch,
+} from "../lib/tenant-asset-manual-review-post-cleanup.js";
+import {
   TENANT_ASSET_LEGACY_MEDIA_RESET_DRY_RUN_ENDPOINT,
   TENANT_ASSET_LEGACY_MEDIA_RESET_DRY_RUN_EXPORT_ENDPOINT,
   TenantAssetLegacyMediaResetError,
@@ -99,6 +111,7 @@ const TENANT_ASSET_EVIDENCE_RATE_LIMIT = "admin-tenant-asset-evidence-ip";
 const TENANT_ASSET_MANUAL_REVIEW_IMPORT_RATE_LIMIT = "admin-tenant-asset-manual-review-import-ip";
 const TENANT_ASSET_MANUAL_REVIEW_QUEUE_RATE_LIMIT = "admin-tenant-asset-manual-review-queue-ip";
 const TENANT_ASSET_MANUAL_REVIEW_STATUS_RATE_LIMIT = "admin-tenant-asset-manual-review-status-ip";
+const TENANT_ASSET_MANUAL_REVIEW_SUPERSEDE_RATE_LIMIT = "admin-tenant-asset-manual-review-supersede-ip";
 const TENANT_ASSET_LEGACY_MEDIA_RESET_RATE_LIMIT = "admin-tenant-asset-legacy-media-reset-ip";
 const TENANT_ISOLATION_EXECUTION_RATE_LIMIT = "admin-tenant-isolation-execution-ip";
 
@@ -165,6 +178,24 @@ async function enforceTenantAssetManualReviewStatusRateLimit(ctx) {
     900_000,
     sensitiveRateLimitOptions({
       component: "admin-tenant-asset-manual-review-status",
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
+  );
+  if (result.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
+  if (result.limited) return rateLimitResponse();
+  return null;
+}
+
+async function enforceTenantAssetManualReviewSupersedeRateLimit(ctx) {
+  const result = await evaluateSharedRateLimit(
+    ctx.env,
+    TENANT_ASSET_MANUAL_REVIEW_SUPERSEDE_RATE_LIMIT,
+    getClientIp(ctx.request),
+    10,
+    900_000,
+    sensitiveRateLimitOptions({
+      component: "admin-tenant-asset-manual-review-supersede",
       correlationId: ctx.correlationId || null,
       requestInfo: ctx,
     })
@@ -248,6 +279,18 @@ function manualReviewQueueErrorResponse(error, correlationId) {
 
 function manualReviewStatusErrorResponse(error, correlationId) {
   if (error instanceof TenantAssetManualReviewStatusError) {
+    return withCorrelationId(json({
+      ok: false,
+      error: error.message,
+      code: error.code,
+      fields: error.fields,
+    }, { status: error.status }), correlationId);
+  }
+  throw error;
+}
+
+function manualReviewPostCleanupErrorResponse(error, correlationId) {
+  if (error instanceof TenantAssetManualReviewPostCleanupError) {
     return withCorrelationId(json({
       ok: false,
       error: error.message,
@@ -344,6 +387,46 @@ function manualReviewEvidenceExportResponse(report, { format, correlationId }) {
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "content-disposition": `attachment; filename="tenant-asset-manual-review-evidence-${safeGenerated}.json"`,
+    },
+  }), correlationId);
+}
+
+function manualReviewPostCleanupEvidenceExportResponse(report, { format, correlationId }) {
+  const safeGenerated = String(report.generatedAt || new Date().toISOString())
+    .replace(/[^0-9A-Za-z.-]/g, "-")
+    .slice(0, 40);
+  if (format === "markdown") {
+    return withCorrelationId(new Response(exportManualReviewPostCleanupEvidenceMarkdown(report), {
+      status: 200,
+      headers: {
+        "content-type": "text/markdown; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "content-disposition": `attachment; filename="tenant-asset-manual-review-post-cleanup-${safeGenerated}.md"`,
+      },
+    }), correlationId);
+  }
+  if (format === "html") {
+    return withCorrelationId(new Response(exportManualReviewPostCleanupEvidenceHtml(report), {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "content-disposition": `attachment; filename="tenant-asset-manual-review-post-cleanup-${safeGenerated}.html"`,
+      },
+    }), correlationId);
+  }
+  return withCorrelationId(new Response(exportManualReviewPostCleanupEvidenceJson(report), {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "content-disposition": `attachment; filename="tenant-asset-manual-review-post-cleanup-${safeGenerated}.json"`,
     },
   }), correlationId);
 }
@@ -759,6 +842,53 @@ export async function handleAdminTenantAssets(ctx) {
       return withCorrelationId(json({ ok: true, ...action }), correlationId);
     } catch (error) {
       return legacyMediaResetErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ASSET_MANUAL_REVIEW_POST_CLEANUP_DRY_RUN_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetManualReviewQueueRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const report = await buildManualReviewPostCleanupDryRunReport(env, postCleanupDryRunOptionsFromSearch(url.searchParams));
+      return withCorrelationId(json({ ok: true, report }), correlationId);
+    } catch (error) {
+      return manualReviewPostCleanupErrorResponse(error, correlationId);
+    }
+  }
+
+  if (pathname === TENANT_ASSET_MANUAL_REVIEW_POST_CLEANUP_EVIDENCE_ENDPOINT && method === "GET") {
+    const limited = await enforceTenantAssetManualReviewQueueRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const options = postCleanupDryRunOptionsFromSearch(url.searchParams, {
+        format: url.searchParams.get("format") || "json",
+      });
+      const report = await buildManualReviewPostCleanupDryRunReport(env, options);
+      return manualReviewPostCleanupEvidenceExportResponse(report, {
+        format: options.format || "json",
+        correlationId,
+      });
+    } catch (error) {
+      return manualReviewPostCleanupErrorResponse(error, correlationId);
+    }
+  }
+
+  // POST /api/admin/tenant-assets/manual-review/post-cleanup/supersede
+  // route-policy: admin.tenant-assets.manual-review.post-cleanup.supersede
+  if (pathname === TENANT_ASSET_MANUAL_REVIEW_POST_CLEANUP_SUPERSEDE_ENDPOINT && method === "POST") {
+    const limited = await enforceTenantAssetManualReviewSupersedeRateLimit(ctx);
+    if (limited) return limited;
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    try {
+      const result = await executeManualReviewPostCleanupSupersede(env, {
+        request: parsed.body,
+        adminUser: admin.user,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+      });
+      return withCorrelationId(json({ ok: true, supersession: result }), correlationId);
+    } catch (error) {
+      return manualReviewPostCleanupErrorResponse(error, correlationId);
     }
   }
 

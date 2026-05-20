@@ -62,6 +62,9 @@ import {
     apiAdminTenantAssetManualReviewEvidenceExport,
     apiAdminTenantAssetManualReviewItem,
     apiAdminTenantAssetManualReviewItems,
+    apiAdminTenantAssetManualReviewPostCleanupDryRun,
+    apiAdminTenantAssetManualReviewPostCleanupEvidenceExport,
+    apiAdminTenantAssetManualReviewPostCleanupSupersede,
     apiAdminUpdateTenantAssetManualReviewStatus,
     apiAdminUsers,
     apiAdminUserBilling,
@@ -149,6 +152,8 @@ const TENANT_REVIEW_STATUS_TRANSITIONS = {
     rejected: ['superseded'],
     superseded: [],
 };
+
+const TENANT_REVIEW_SUPERSEDE_CONFIRMATION = 'SUPERSEDE STALE REVIEW ITEMS';
 
 const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0059_add_data_lifecycle_completion_state.sql';
 
@@ -750,6 +755,8 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     let selectedTenantReviewItemId = '';
     let billingReviewResolutionSubmitting = false;
     let tenantReviewStatusSubmitting = false;
+    let tenantReviewSupersedeSubmitting = false;
+    let tenantReviewPostCleanupReport = null;
     let lifecycleDetailOverlay = null;
 
     function notify(message, type = 'success') {
@@ -3349,25 +3356,34 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     }
 
     function tenantReviewSummaryCards(summary = {}) {
+        const activeCurrent = summary.activeCurrentItems ?? summary.reviewStatusRollup?.review_in_progress ?? 0;
+        const pendingManual = summary.stillPendingManualReview ?? summary.reviewStatusRollup?.pending_review ?? 0;
+        const deferred = summary.stillDeferred ?? summary.reviewStatusRollup?.deferred ?? 0;
+        const supersededCandidates = summary.supersededCandidates ?? 0;
+        const stillBlocked = summary.stillBlocked ?? (
+            Number(summary.issueCategoryRollup?.public_unsafe || 0) +
+            Number(summary.issueCategoryRollup?.derivative_risk || 0) +
+            Number(summary.terminalBlockedCount || 0)
+        );
         return [
             {
-                title: 'Review Queue',
-                badge: { label: `${summary.totalReviewItems ?? 0} items`, variant: 'user' },
-                copy: 'Manual-review rows only. This queue does not change ownership metadata or runtime access checks.',
+                title: 'Historical Review Items',
+                badge: { label: `${summary.totalReviewItems ?? 0} total`, variant: 'user' },
+                copy: 'Manual-review rows currently stored in D1. Post-cleanup dry-run determines whether old rows are still current.',
                 meta: [
-                    ['Pending', summary.reviewStatusRollup?.pending_review ?? 0],
-                    ['In progress', summary.reviewStatusRollup?.review_in_progress ?? 0],
-                    ['Critical', summary.severityRollup?.critical ?? 0],
+                    ['Active current', activeCurrent],
+                    ['Superseded candidates', supersededCandidates],
+                    ['Events', summary.eventsCount ?? summary.totalEvents ?? 0],
                 ],
             },
             {
-                title: 'Blocked Review Signals',
+                title: 'Current Review Split',
                 badge: { label: 'Access blocked', variant: 'disabled' },
                 copy: 'Blocked categories remain evidence for human review only.',
                 meta: [
-                    ['Public unsafe', summary.issueCategoryRollup?.public_unsafe ?? 0],
-                    ['Derivative risk', summary.issueCategoryRollup?.derivative_risk ?? 0],
-                    ['Terminal blocked', summary.terminalBlockedCount ?? 0],
+                    ['Still blocked', stillBlocked],
+                    ['Still pending manual review', pendingManual],
+                    ['Deferred', deferred],
                 ],
             },
             {
@@ -3375,12 +3391,54 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 badge: { label: 'Review-state only', variant: 'legacy' },
                 copy: 'Status events are audit evidence. They do not approve backfill, tenant isolation, or production readiness.',
                 meta: [
+                    ['Unknown/manual review required', summary.unknownRequiresManualReview ?? 0],
                     ['Status changes', summary.statusChangedEventsCount ?? 0],
-                    ['Terminal approved', summary.terminalApprovedCount ?? 0],
                     ['Latest status update', formatDate(summary.latestStatusUpdateTimestamp)],
                 ],
             },
         ];
+    }
+
+    function mergedTenantReviewSummary(baseSummary = {}, postCleanupSummary = {}) {
+        return {
+            ...baseSummary,
+            ...postCleanupSummary,
+            totalReviewItems: postCleanupSummary.totalReviewItems ?? baseSummary.totalReviewItems,
+            totalEvents: postCleanupSummary.totalEvents ?? baseSummary.totalEvents,
+            eventsCount: postCleanupSummary.eventsCount ?? baseSummary.totalEvents,
+            latestStatusUpdateTimestamp: postCleanupSummary.latestStatusAt ?? baseSummary.latestStatusUpdateTimestamp,
+            mostRecentImportTimestamp: postCleanupSummary.latestImportAt ?? baseSummary.mostRecentImportTimestamp,
+        };
+    }
+
+    function renderTenantReviewPostCleanupSummary(report) {
+        const container = byId('tenantReviewPostCleanupSummary');
+        clear(container);
+        if (!container || !report?.summary) return;
+        const summary = report.summary;
+        renderCards(container, tenantReviewSummaryCards(mergedTenantReviewSummary({}, summary)));
+        const chips = el('div', 'admin-control-chip-row');
+        chips.append(
+            badge('Post-cleanup dry-run evidence', 'active'),
+            badge(`Safe candidates ${summary.supersededCandidates ?? 0}`, Number(summary.supersededCandidates || 0) > 0 ? 'legacy' : 'disabled'),
+            badge('D1 not mutated', 'user'),
+            badge('R2 not listed', 'user'),
+            badge('Tenant isolation not claimed', 'legacy'),
+        );
+        container.appendChild(chips);
+    }
+
+    function tenantReviewSupersedeInputsReady() {
+        const confirmation = byId('tenantReviewSupersedeConfirmation')?.value.trim() || '';
+        const reason = byId('tenantReviewSupersedeReason')?.value.trim() || '';
+        const safeCount = Number(tenantReviewPostCleanupReport?.summary?.supersededCandidates || 0);
+        return Boolean(tenantReviewPostCleanupReport && safeCount > 0 && confirmation === TENANT_REVIEW_SUPERSEDE_CONFIRMATION && reason);
+    }
+
+    function updateTenantReviewSupersedeControls() {
+        const submit = byId('tenantReviewSupersedeSubmit');
+        if (!submit) return;
+        submit.disabled = !tenantReviewSupersedeInputsReady() || tenantReviewSupersedeSubmitting;
     }
 
     function tenantReviewFilters() {
@@ -3406,7 +3464,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
         const report = res.data?.report || {};
         const summary = report.summary || {};
-        renderCards(summaryNode, tenantReviewSummaryCards(summary));
+        renderCards(summaryNode, tenantReviewSummaryCards(mergedTenantReviewSummary(summary, tenantReviewPostCleanupReport?.summary || {})));
         const safety = el('div', 'admin-control-chip-row');
         safety.append(
             badge('Access switch blocked', 'disabled'),
@@ -3417,13 +3475,46 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         );
         summaryNode.appendChild(safety);
         const statusText = [
-            `Total ${summary.totalReviewItems ?? 0} review item${Number(summary.totalReviewItems || 0) === 1 ? '' : 's'}`,
+            `Historical total ${summary.totalReviewItems ?? 0} review item${Number(summary.totalReviewItems || 0) === 1 ? '' : 's'}`,
+            `active current ${tenantReviewPostCleanupReport?.summary?.activeCurrentItems ?? 'run dry-run'}`,
+            `superseded candidates ${tenantReviewPostCleanupReport?.summary?.supersededCandidates ?? 'run dry-run'}`,
             `events ${summary.totalEvents ?? 0}`,
             `latest import ${formatDate(summary.mostRecentImportTimestamp)}`,
             `latest status ${formatDate(summary.latestStatusUpdateTimestamp)}`,
         ].join(' | ');
         setState('tenantReviewState', statusText);
         return report;
+    }
+
+    async function runTenantReviewPostCleanupDryRun(button) {
+        if (button) setSubmitting(button, true);
+        setState('tenantReviewSupersedeState', 'Running post-cleanup supersession dry-run...');
+        try {
+            const res = await apiAdminTenantAssetManualReviewPostCleanupDryRun({
+                limit: 500,
+                sampleLimit: 50,
+            });
+            if (!res.ok) {
+                tenantReviewPostCleanupReport = null;
+                renderTenantReviewPostCleanupSummary(null);
+                setState('tenantReviewSupersedeState', apiUnavailableMessage(res, 'Post-cleanup supersession dry-run failed.'), 'error');
+                updateTenantReviewSupersedeControls();
+                return null;
+            }
+            tenantReviewPostCleanupReport = res.data?.report || {};
+            renderTenantReviewPostCleanupSummary(tenantReviewPostCleanupReport);
+            const summary = tenantReviewPostCleanupReport.summary || {};
+            setState(
+                'tenantReviewSupersedeState',
+                `Dry-run complete: active current ${summary.activeCurrentItems ?? 0}, safe superseded candidates ${summary.supersededCandidates ?? 0}, still blocked ${summary.stillBlocked ?? 0}, unknown/manual review ${summary.unknownRequiresManualReview ?? 0}. No D1 or R2 mutation occurred.`,
+                'success',
+            );
+            updateTenantReviewSupersedeControls();
+            await loadTenantAssetManualReviewEvidence();
+            return tenantReviewPostCleanupReport;
+        } finally {
+            if (button) setSubmitting(button, false);
+        }
     }
 
     function renderTenantReviewEvents(container, events) {
@@ -3626,6 +3717,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             loadTenantAssetManualReviewEvidence(),
             loadTenantAssetManualReviewItems(),
         ]);
+        await runTenantReviewPostCleanupDryRun();
     }
 
     async function exportTenantAssetManualReviewEvidenceJson(button) {
@@ -3648,6 +3740,85 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             notify('Tenant asset evidence export prepared.', 'success');
         } finally {
             setSubmitting(button, false);
+        }
+    }
+
+    async function exportTenantAssetManualReviewPostCleanupEvidence(button, format) {
+        setSubmitting(button, true);
+        setState('tenantReviewSupersedeState', `Preparing post-cleanup supersession ${format.toUpperCase()} evidence export...`);
+        try {
+            const res = await apiAdminTenantAssetManualReviewPostCleanupEvidenceExport({
+                format,
+                limit: 500,
+                sampleLimit: 50,
+            });
+            if (!res.ok) {
+                setState('tenantReviewSupersedeState', apiUnavailableMessage(res, 'Post-cleanup supersession evidence export failed.'), 'error');
+                notify('Supersession evidence export failed.', 'error');
+                return;
+            }
+            const extension = format === 'markdown' ? 'md' : format;
+            const fallback = `tenant-asset-manual-review-post-cleanup-${new Date().toISOString().slice(0, 10)}.${extension}`;
+            downloadTextFile(filenameFromContentDisposition(res.filename, fallback), res.text || '', res.contentType || 'application/octet-stream');
+            setState('tenantReviewSupersedeState', `Post-cleanup supersession ${format.toUpperCase()} evidence prepared. No mutation was performed.`, 'success');
+            notify('Supersession evidence export prepared.', 'success');
+        } finally {
+            setSubmitting(button, false);
+        }
+    }
+
+    async function handleTenantReviewSupersedeSubmit(event) {
+        event.preventDefault();
+        if (tenantReviewSupersedeSubmitting) return;
+        updateTenantReviewSupersedeControls();
+        if (!tenantReviewSupersedeInputsReady()) {
+            setState('tenantReviewSupersedeState', 'Run dry-run first, then enter exact confirmation and reason. Safe superseded candidates must be present.', 'error');
+            return;
+        }
+        const dryRun = byId('tenantReviewSupersedeDryRun')?.checked !== false;
+        if (!dryRun) {
+            const confirmed = window.confirm('Mark stale manual-review rows as superseded? This does not delete assets, backfill ownership, switch access checks, reset media, or touch R2.');
+            if (!confirmed) {
+                setState('tenantReviewSupersedeState', 'Supersession cancelled.', 'neutral');
+                return;
+            }
+        }
+        const batchLimit = Number(byId('tenantReviewSupersedeBatchLimit')?.value || 25);
+        const submit = byId('tenantReviewSupersedeSubmit');
+        tenantReviewSupersedeSubmitting = true;
+        setSubmitting(submit, true);
+        setState('tenantReviewSupersedeState', dryRun ? 'Submitting supersession executor dry-run...' : 'Submitting guarded supersession update...');
+        try {
+            const res = await apiAdminTenantAssetManualReviewPostCleanupSupersede({
+                dryRun,
+                confirm: true,
+                confirmation: TENANT_REVIEW_SUPERSEDE_CONFIRMATION,
+                reason: byId('tenantReviewSupersedeReason')?.value.trim() || '',
+                batchLimit,
+            }, { idempotencyKey: createIdempotencyKey('tenant-review-supersede') });
+            if (!res.ok) {
+                setState('tenantReviewSupersedeState', apiUnavailableMessage(res, 'Manual-review supersession request failed.'), 'error');
+                notify('Manual-review supersession failed.', 'error');
+                return;
+            }
+            const result = res.data?.supersession || {};
+            setState(
+                'tenantReviewSupersedeState',
+                `${dryRun ? 'Supersession executor dry-run' : 'Supersession'} completed: considered ${result.rowsConsidered ?? 0}, superseded ${result.rowsSuperseded ?? 0}, skipped ${result.rowsSkipped ?? 0}. Tenant isolation remains unclaimed.`,
+                'success',
+            );
+            notify(dryRun ? 'Supersession dry-run completed.' : 'Review rows superseded.', 'success');
+            await runTenantReviewPostCleanupDryRun();
+            await loadTenantAssetManualReviewItems();
+            setState(
+                'tenantReviewSupersedeState',
+                `${dryRun ? 'Supersession executor dry-run' : 'Supersession'} completed: considered ${result.rowsConsidered ?? 0}, superseded ${result.rowsSuperseded ?? 0}, skipped ${result.rowsSkipped ?? 0}. Tenant isolation remains unclaimed.`,
+                'success',
+            );
+        } finally {
+            tenantReviewSupersedeSubmitting = false;
+            setSubmitting(submit, false);
+            updateTenantReviewSupersedeControls();
         }
     }
 
@@ -5156,9 +5327,28 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             notify(copied ? 'Runbook path copied.' : 'Copy failed.', copied ? 'success' : 'error');
         });
         byId('tenantReviewRefresh')?.addEventListener('click', loadTenantAssetManualReviewQueue);
+        byId('tenantReviewDryRunPostCleanup')?.addEventListener('click', (event) => {
+            runTenantReviewPostCleanupDryRun(event.currentTarget);
+        });
         byId('tenantReviewExportJson')?.addEventListener('click', (event) => {
             exportTenantAssetManualReviewEvidenceJson(event.currentTarget);
         });
+        byId('tenantReviewExportPostCleanupJson')?.addEventListener('click', (event) => {
+            exportTenantAssetManualReviewPostCleanupEvidence(event.currentTarget, 'json');
+        });
+        byId('tenantReviewExportPostCleanupMarkdown')?.addEventListener('click', (event) => {
+            exportTenantAssetManualReviewPostCleanupEvidence(event.currentTarget, 'markdown');
+        });
+        byId('tenantReviewExportPostCleanupHtml')?.addEventListener('click', (event) => {
+            exportTenantAssetManualReviewPostCleanupEvidence(event.currentTarget, 'html');
+        });
+        byId('tenantReviewSupersedeWarning')?.addEventListener('click', () => {
+            setState('tenantReviewSupersedeState', 'This does not delete assets. It marks manual-review rows as superseded when the referenced asset no longer exists or ownership evidence has superseded the old review. Active/blocking/manual-review rows remain untouched.');
+        });
+        byId('tenantReviewSupersedeForm')?.addEventListener('submit', handleTenantReviewSupersedeSubmit);
+        byId('tenantReviewSupersedeConfirmation')?.addEventListener('input', updateTenantReviewSupersedeControls);
+        byId('tenantReviewSupersedeReason')?.addEventListener('input', updateTenantReviewSupersedeControls);
+        byId('tenantReviewSupersedeBatchLimit')?.addEventListener('input', updateTenantReviewSupersedeControls);
         byId('tenantReviewFilter')?.addEventListener('submit', (event) => {
             event.preventDefault();
             selectedTenantReviewItemId = '';

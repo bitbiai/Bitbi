@@ -62,6 +62,9 @@ const REQUIRED_LOOKUPS = [
   ["POST", "/api/admin/tenant-assets/folders-images/manual-review/items/ta_mri_123/status", "admin.tenant-assets.folders-images.manual-review.items.status.update"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/evidence", "admin.tenant-assets.folders-images.manual-review.evidence.read"],
   ["GET", "/api/admin/tenant-assets/folders-images/manual-review/evidence/export", "admin.tenant-assets.folders-images.manual-review.evidence.export"],
+  ["GET", "/api/admin/tenant-assets/manual-review/post-cleanup/dry-run", "admin.tenant-assets.manual-review.post-cleanup.dry-run"],
+  ["GET", "/api/admin/tenant-assets/manual-review/post-cleanup/evidence", "admin.tenant-assets.manual-review.post-cleanup.evidence"],
+  ["POST", "/api/admin/tenant-assets/manual-review/post-cleanup/supersede", "admin.tenant-assets.manual-review.post-cleanup.supersede"],
   ["GET", "/api/orgs", "orgs.list"],
   ["POST", "/api/orgs", "orgs.create"],
   ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef", "orgs.read"],
@@ -172,6 +175,10 @@ const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [
   {
     id: "admin.tenant-assets.folders-images.manual-review.items.status.update",
     requiredNoteFragments: ["Idempotency-Key", "confirm=true"],
+  },
+  {
+    id: "admin.tenant-assets.manual-review.post-cleanup.supersede",
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true", "SUPERSEDE STALE REVIEW ITEMS", "Dry-run is default"],
   },
   {
     id: "admin.tenant-assets.legacy-media-reset.execute",

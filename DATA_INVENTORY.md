@@ -42,8 +42,9 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 
 - `ai_folders` and `ai_images` include nullable ownership metadata.
 - New personal folder/image writes assign ownership metadata.
-- Current post-cleanup folder/image evidence shows one exact safe `ai_images` ownership candidate prepared for operator execution; no global backfill or Access-Switch claim is made. Prior owner-map/manual-review/reset counts are stale after the operator manually deleted most old images/videos.
+- Current post-cleanup folder/image evidence shows one exact safe `ai_images` ownership candidate prepared for operator execution; no global backfill or Access-Switch claim is made. Prior owner-map/manual-review/reset counts are stale after the operator manually deleted most old images/videos, and copied evidence files do not automatically mutate D1 review rows.
 - `ai_asset_manual_review_items` and `ai_asset_manual_review_events` store manual-review state and events.
+- Manual-review post-cleanup classification/export can split historical D1 review rows from active current, blocked, pending, deferred, unknown, and safe supersession candidates. Guarded supersession marks safe rows `superseded` only; it does not delete media rows or mutate source assets/R2.
 - `tenant_asset_media_reset_actions` and `tenant_asset_media_reset_action_events` store reset action/evidence tracking.
 - `ai_text_assets`, video jobs, music/audio assets, profile avatars, lifecycle exports, audit archives, and unknown media tables remain outside first-pass reset execution. Confirmed first-pass reset is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is explicitly enabled in a future approved phase; no sanitized reset dry-run evidence package is currently accepted.
 - Admin Tenant Isolation Execution provides warning-gated controls for Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset. Backfill dry-run/evidence classifies folder/image rows and the high-risk executor can write only safe classified ownership metadata when explicitly confirmed with Admin/MFA, `Idempotency-Key`, reason, supported domain scope, and `BACKFILL OWNERSHIP`. Access-Switch remains read-only status/shadow diagnostics; enforced runtime switching is blocked. Reset remains dry-run/evidence/status by default and confirmed execution requires the disabled backend gate plus `CONFIRMED LEGACY MEDIA RESET`.
@@ -53,9 +54,9 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 ## Current Evidence State
 
 - Folder/image owner-map evidence exists as historical retained evidence and now requires post-cleanup refresh before use in current decisions.
-- Manual-review operator evidence exists but old queue/status counts may reference removed assets; it still needs post-cleanup refresh plus import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
+- Manual-review operator evidence exists but old queue/status counts may reference removed assets; it still needs post-cleanup dry-run/export review plus import replay, import conflict, successful standalone status-update response, status replay, and status conflict evidence.
 - Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout, and old candidate counts are stale after manual cleanup.
-- Post-cleanup rebaseline status is `post_cleanup_single_backfill_candidate_prepared_operator_execution_pending` in `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`.
+- Post-cleanup rebaseline status is `post_cleanup_manual_review_supersession_supported_backfill_candidate_still_operator_pending` in `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`.
 - Confirmed media reset/deletion has not been approved or performed.
 - Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical/stale-superseded states, and reports unsafe marker IDs without printing raw values.
 - Production readiness dossier, Cloudflare resource model, rollback drill, RC Go/No-Go manifest, and final RC validation matrix tooling exist as local-only evidence organizers. They keep production readiness blocked, do not call live services, and do not mutate D1/R2/Queues/Cloudflare/GitHub/Stripe/provider state.

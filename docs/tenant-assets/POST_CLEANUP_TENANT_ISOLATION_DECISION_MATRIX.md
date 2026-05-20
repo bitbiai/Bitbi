@@ -4,7 +4,7 @@ Date: 2026-05-19
 
 Purpose: decision matrix after the operator manually deleted most old images and videos. This document does not approve production execution, tenant isolation, ownership backfill readiness, Access-Switch readiness, or confirmed legacy reset readiness.
 
-Current evidence status: `post_cleanup_single_backfill_candidate_prepared_operator_execution_pending`
+Current evidence status: `post_cleanup_manual_review_supersession_supported_backfill_candidate_still_operator_pending`
 
 Current evidence packet: `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`
 
@@ -26,6 +26,27 @@ Backfill may proceed later only if all of these are true:
 Current result: `operator_live_execution_pending_for_single_ai_images_candidate`.
 
 P2-02 narrowed the execution contract to the single safe `ai_images` candidate `47a27f4496db386b120b631c3a05502e`. Execution may only proceed after fresh authenticated read-only preflight still matches exactly one safe candidate. The required scope is `domains:["ai_images"]`, `batchLimit:1`, `candidateAssetIds:["47a27f4496db386b120b631c3a05502e"]`, `Idempotency-Key`, operator reason, and exact `BACKFILL OWNERSHIP` confirmation.
+
+## Manual Review Queue Supersession Decision
+
+Manual-review rows are not automatically removed or updated when post-cleanup evidence files are copied into the repo. The queue must be treated as D1 review-state history until current D1 rows are classified.
+
+The repo now supports:
+
+- read-only post-cleanup classifier: `GET /api/admin/tenant-assets/manual-review/post-cleanup/dry-run`;
+- evidence export: `GET /api/admin/tenant-assets/manual-review/post-cleanup/evidence?format=json|markdown|html`;
+- guarded review-state supersession: `POST /api/admin/tenant-assets/manual-review/post-cleanup/supersede`.
+
+Supersession may proceed later only if all of these are true:
+
+- the dry-run classifies rows as safe supersession candidates;
+- evidence export is reviewed first;
+- `Idempotency-Key` is present and not committed raw;
+- exact typed confirmation `SUPERSEDE STALE REVIEW ITEMS` is present;
+- operator reason and bounded batch limit are present;
+- only `superseded_asset_missing`, `superseded_after_manual_media_cleanup`, or `superseded_by_owner_metadata_present` rows are selected.
+
+Current result: `dry_run_and_guarded_review_state_update_supported`. This is not reset, not asset deletion, not ownership backfill, not Access-Switch activation, and not a tenant-isolation claim.
 
 ## Access-Switch Decision
 

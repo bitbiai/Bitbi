@@ -5498,6 +5498,24 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query === 'SELECT id, user_id, status, asset_owner_type, owning_user_id, owning_organization_id, ownership_status, ownership_source, ownership_confidence, created_at FROM ai_folders WHERE id = ? LIMIT 1') {
+      const [folderId] = bindings;
+      const row = this.state.aiFolders.find((item) => item.id === folderId);
+      if (!row) return null;
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        status: row.status ?? 'active',
+        asset_owner_type: row.asset_owner_type ?? null,
+        owning_user_id: row.owning_user_id ?? null,
+        owning_organization_id: row.owning_organization_id ?? null,
+        ownership_status: row.ownership_status ?? null,
+        ownership_source: row.ownership_source ?? null,
+        ownership_confidence: row.ownership_confidence ?? null,
+        created_at: row.created_at,
+      };
+    }
+
     if (query === 'SELECT folder_id, COUNT(*) AS cnt FROM ai_images WHERE user_id = ? GROUP BY folder_id') {
       const [userId] = bindings;
       const counts = new Map();
@@ -6891,6 +6909,28 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query === 'SELECT id, user_id, folder_id, visibility, published_at, asset_owner_type, owning_user_id, owning_organization_id, ownership_status, ownership_source, ownership_confidence, thumb_key, medium_key, created_at FROM ai_images WHERE id = ? LIMIT 1') {
+      const [imageId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId);
+      if (!row) return null;
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        folder_id: row.folder_id ?? null,
+        visibility: row.visibility ?? 'private',
+        published_at: row.published_at ?? null,
+        asset_owner_type: row.asset_owner_type ?? null,
+        owning_user_id: row.owning_user_id ?? null,
+        owning_organization_id: row.owning_organization_id ?? null,
+        ownership_status: row.ownership_status ?? null,
+        ownership_source: row.ownership_source ?? null,
+        ownership_confidence: row.ownership_confidence ?? null,
+        thumb_key: row.thumb_key ?? null,
+        medium_key: row.medium_key ?? null,
+        created_at: row.created_at,
+      };
+    }
+
     if (query.startsWith('UPDATE ai_folders SET asset_owner_type = ?, owning_user_id = ?, owning_organization_id = ?, created_by_user_id = ?, ownership_status = ?, ownership_source = ?, ownership_confidence = ?, ownership_metadata_json = ?, ownership_assigned_at = ? WHERE id = ? AND user_id = ?')) {
       const [
         assetOwnerType,
@@ -7643,6 +7683,22 @@ class MockD1 {
         superseded_by_id,
         metadata_json,
       });
+      this._lastChanges = 1;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE ai_asset_manual_review_items SET review_status = ?, reviewed_by_user_id = ?, reviewed_at = ?, updated_at = ?, superseded_by_id = ? WHERE id = ? AND review_status != ?')) {
+      const [review_status, reviewed_by_user_id, reviewed_at, updated_at, superseded_by_id, id, excludedStatus] = bindings;
+      const row = this.state.aiAssetManualReviewItems.find((entry) => entry.id === id && entry.review_status !== excludedStatus);
+      if (!row) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      row.review_status = review_status;
+      row.reviewed_by_user_id = reviewed_by_user_id;
+      row.reviewed_at = reviewed_at;
+      row.updated_at = updated_at;
+      row.superseded_by_id = superseded_by_id;
       this._lastChanges = 1;
       return { success: true, meta: { changes: 1 } };
     }
