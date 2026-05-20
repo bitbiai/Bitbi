@@ -90,6 +90,8 @@ const STATIC_RECOMMENDED_CHECKS = Object.freeze([
 const STATIC_DEPLOY_MESSAGE =
   "Static deploy remains manual in this flow: push or merge to main to trigger the existing GitHub Pages workflow (.github/workflows/static.yml).";
 
+export const STATIC_DEPLOY_DEPENDENCY_ACKNOWLEDGEMENT = "I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED";
+
 function normalizePathname(value) {
   return String(value || "").replace(/\\/g, "/").replace(/^\.?\//, "");
 }
@@ -831,6 +833,154 @@ export function validateReleasePlan(plan, context) {
     issues.push(`Release planner found uncategorized changed files: ${plan.impacts.uncategorizedFiles.join(", ")}.`);
   }
   return normalizeUnique(issues);
+}
+
+export function evaluateStaticDeploySafety(plan, {
+  eventName = "",
+  acknowledgement = "",
+} = {}) {
+  const reasons = [];
+  const warnings = [];
+  const workflowEvent = String(eventName || "").trim();
+  const normalizedAcknowledgement = String(acknowledgement || "").trim();
+  const malformed = !plan || typeof plan !== "object" || Array.isArray(plan);
+
+  if (malformed) {
+    return {
+      ok: false,
+      allowed: false,
+      mode: "blocked",
+      failClosed: true,
+      bypassedByAcknowledgement: false,
+      acknowledgementAccepted: false,
+      acknowledgementRequired: STATIC_DEPLOY_DEPENDENCY_ACKNOWLEDGEMENT,
+      reasons: ["Release plan could not be parsed as an object."],
+      warnings,
+      changedFiles: [],
+      staticRequired: false,
+      workerDeploys: [],
+      schemaApplies: [],
+      nonStaticDeploySteps: [],
+      requiredManualPrerequisites: [],
+    };
+  }
+
+  const changedFiles = Array.isArray(plan.changedFiles) ? plan.changedFiles : [];
+  const deploySteps = Array.isArray(plan.deploySteps) ? plan.deploySteps : [];
+  const workerDeploys = Array.isArray(plan.workerDeploys) ? plan.workerDeploys : [];
+  const schemaApplies = Array.isArray(plan.schemaApplies) ? plan.schemaApplies : [];
+  const impacts = plan.impacts && typeof plan.impacts === "object" ? plan.impacts : {};
+  const staticRequired = impacts.static?.required === true || deploySteps.some((step) => step?.type === "static");
+  const impactedWorkers = Object.keys(impacts.workers || {});
+  const impactedCheckpoints = Object.keys(impacts.schemaCheckpoints || {});
+  const uncategorizedFiles = Array.isArray(impacts.uncategorizedFiles) ? impacts.uncategorizedFiles : [];
+  const validationOnlyFiles = Array.isArray(impacts.validationOnlyFiles) ? impacts.validationOnlyFiles : [];
+  const ignoredFiles = Array.isArray(impacts.ignoredFiles) ? impacts.ignoredFiles : [];
+  const consistencyIssues = Array.isArray(plan.consistencyIssues) ? plan.consistencyIssues : [];
+  const requiredManualPrerequisites = Array.isArray(plan.manualPrerequisites?.required)
+    ? plan.manualPrerequisites.required
+    : [];
+  const nonStaticDeploySteps = deploySteps.filter((step) => step?.type !== "static");
+  const staticDeploySteps = deploySteps.filter((step) => step?.type === "static");
+  const missingCoreFields = !plan.impacts || !Array.isArray(plan.deploySteps);
+
+  if (missingCoreFields) {
+    reasons.push("Release plan is missing required deploy impact fields.");
+  }
+  if (uncategorizedFiles.length > 0) {
+    reasons.push(`Release plan has uncategorized changed files: ${uncategorizedFiles.join(", ")}.`);
+  }
+  if (consistencyIssues.length > 0) {
+    reasons.push(`Release plan has consistency issues: ${consistencyIssues.join("; ")}.`);
+  }
+
+  const runtimeReasons = [];
+  if (workerDeploys.length > 0 || impactedWorkers.length > 0) {
+    runtimeReasons.push(`Worker deploys are required: ${(workerDeploys.map((step) => step.worker || step.id).filter(Boolean).join(", ") || impactedWorkers.join(", "))}.`);
+  }
+  if (schemaApplies.length > 0 || impactedCheckpoints.length > 0) {
+    runtimeReasons.push(`Schema applies are required: ${(schemaApplies.map((step) => step.checkpoint || step.id).filter(Boolean).join(", ") || impactedCheckpoints.join(", "))}.`);
+  }
+  if (nonStaticDeploySteps.length > 0) {
+    runtimeReasons.push(`Non-static deploy steps are present: ${nonStaticDeploySteps.map((step) => step.id || step.type || "unknown").join(", ")}.`);
+  }
+  if (requiredManualPrerequisites.length > 0) {
+    runtimeReasons.push(`Required manual prerequisites are present: ${requiredManualPrerequisites.map((entry) => entry.id || entry.name || entry.kind).join(", ")}.`);
+  }
+  reasons.push(...runtimeReasons);
+
+  const relevantChangedFiles = changedFiles.filter((file) => !ignoredFiles.includes(file));
+  const noRuntimeOrPlanBlockers =
+    workerDeploys.length === 0 &&
+    schemaApplies.length === 0 &&
+    nonStaticDeploySteps.length === 0 &&
+    requiredManualPrerequisites.length === 0 &&
+    uncategorizedFiles.length === 0 &&
+    consistencyIssues.length === 0 &&
+    impactedWorkers.length === 0 &&
+    impactedCheckpoints.length === 0;
+  const validationOnly =
+    !missingCoreFields &&
+    !staticRequired &&
+    noRuntimeOrPlanBlockers &&
+    (
+      relevantChangedFiles.length === 0 ||
+      validationOnlyFiles.length === relevantChangedFiles.length
+    );
+  const staticOnly =
+    !missingCoreFields &&
+    staticRequired &&
+    staticDeploySteps.length > 0 &&
+    noRuntimeOrPlanBlockers;
+
+  const acknowledgementAccepted =
+    workflowEvent === "workflow_dispatch" &&
+    normalizedAcknowledgement === STATIC_DEPLOY_DEPENDENCY_ACKNOWLEDGEMENT;
+  const acknowledgementEligible =
+    acknowledgementAccepted &&
+    !missingCoreFields &&
+    uncategorizedFiles.length === 0 &&
+    consistencyIssues.length === 0 &&
+    runtimeReasons.length > 0;
+
+  let mode = "blocked";
+  let allowed = false;
+  let bypassedByAcknowledgement = false;
+
+  if (validationOnly) {
+    mode = "validation_only";
+    allowed = true;
+  } else if (staticOnly) {
+    mode = "static_only";
+    allowed = true;
+  } else if (acknowledgementEligible) {
+    mode = "workflow_dispatch_acknowledged";
+    allowed = true;
+    bypassedByAcknowledgement = true;
+    warnings.push("Manual workflow_dispatch acknowledgement accepted. This records operator ownership only and does not prove production readiness.");
+  }
+
+  if (!allowed && reasons.length === 0) {
+    reasons.push("Release plan is neither validation-only nor static-only.");
+  }
+
+  return {
+    ok: allowed,
+    allowed,
+    mode,
+    failClosed: !allowed,
+    bypassedByAcknowledgement,
+    acknowledgementAccepted,
+    acknowledgementRequired: STATIC_DEPLOY_DEPENDENCY_ACKNOWLEDGEMENT,
+    reasons: normalizeUnique(reasons),
+    warnings,
+    changedFiles,
+    staticRequired,
+    workerDeploys,
+    schemaApplies,
+    nonStaticDeploySteps,
+    requiredManualPrerequisites,
+  };
 }
 
 export function buildPreflightCommands(plan) {

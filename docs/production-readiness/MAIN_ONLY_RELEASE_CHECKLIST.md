@@ -1,6 +1,6 @@
 # Main-Only Release Checklist
 
-Last updated: 2026-05-19
+Last updated: 2026-05-20
 
 Default verdict: **BLOCKED**
 
@@ -33,6 +33,8 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | `npm run validate:release` |  | BLOCKED |
 | `npm run test:release-compat` |  | BLOCKED |
 | `npm run test:release-plan` |  | BLOCKED |
+| `npm run test:static-deploy-safety` |  | BLOCKED |
+| `npm run check:static-deploy-safety` |  | BLOCKED |
 | `npm run test:readiness-evidence` |  | BLOCKED |
 | `npm run test:cloudflare-resource-model` |  | BLOCKED |
 | `npm run test:readiness-dossier` |  | BLOCKED |
@@ -64,6 +66,10 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | Cloudflare dashboard/settings/secrets change | no, unless separately approved and recorded |  |
 
 If `npm run release:plan` for the reviewed runtime diff reports unexpected deploy units, stop and reconcile before deploying.
+
+Static Pages auto-deploy is guarded by release-plan safety. The Pages workflow may continue automatically only for validation-only or static/pages-only release plans. Push runs compare `github.event.before` to `github.sha`; manual runs compare `release_plan_base_ref` to the workflow SHA. If Worker deploys, auth D1 schema applies, required manual prerequisites, binding/config/runtime-coupled changes, other non-static deploy steps, malformed release-plan output, or ambiguous base/head context are present, the workflow must block before Pages artifact upload.
+
+Manual `workflow_dispatch` acknowledgement, if used, must be exactly `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`, must happen only after the operator handles the release-plan deploy order, is ignored on push, and does not prove production readiness, live billing readiness, deploy approval, or live evidence.
 
 ## 4. Production Execution Framework Evidence
 
@@ -117,6 +123,8 @@ Operator action only. Do not deploy from this checklist automatically.
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Static/pages deployed from reviewed main commit |  | BLOCKED |
+| Release-plan static deploy guard allowed validation-only/static-only deploy or blocked until dependencies were handled |  | BLOCKED |
+| If workflow_dispatch acknowledgement was used, exact acknowledgement and dependency evidence were recorded |  | BLOCKED |
 | Pages deployment/build id recorded if available |  | BLOCKED |
 | Admin Control Plane loads |  | BLOCKED |
 | Production Execution Framework panel renders copy-only commands |  | BLOCKED |

@@ -8,6 +8,15 @@ on:
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+    inputs:
+      release_plan_base_ref:
+        description: "Git base ref/SHA for release-plan comparison. Defaults to HEAD^ for manual reruns."
+        required: false
+        default: "HEAD^"
+      release_plan_dependency_acknowledgement:
+        description: "Optional manual static deploy acknowledgement after release-plan Worker/schema dependencies are handled. Must equal I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED."
+        required: false
+        default: ""
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
@@ -74,6 +83,8 @@ jobs:
         run: npm run test:release-compat
       - name: Run release planner tests
         run: npm run test:release-plan
+      - name: Run static deploy safety tests
+        run: npm run test:static-deploy-safety
       - name: Run Cloudflare deploy prerequisite tests
         run: npm run test:cloudflare-prereqs
       - name: Run Cloudflare resource model tests
@@ -131,6 +142,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Setup Pages
         uses: actions/configure-pages@v6
       - name: Validate JS import paths
@@ -242,6 +255,15 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Check static deploy release-plan safety
+        env:
+          STATIC_DEPLOY_EVENT: ${{ github.event_name }}
+          STATIC_DEPLOY_ACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_plan_dependency_acknowledgement || '' }}
+          STATIC_DEPLOY_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_plan_base_ref || github.event.before }}
+          STATIC_DEPLOY_HEAD_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run check:static-deploy-safety -- --base "${STATIC_DEPLOY_BASE_REF:-}" --head "${STATIC_DEPLOY_HEAD_REF:-}" --event-name "$STATIC_DEPLOY_EVENT" --acknowledgement "$STATIC_DEPLOY_ACK"
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run smoke tests

@@ -1,6 +1,6 @@
 # Main-Only Release Runbook
 
-Last updated: 2026-05-19
+Last updated: 2026-05-20
 
 Status: **operator-run release discipline only**. This runbook does not deploy, approve production readiness, approve live billing, run remote migrations, call Stripe APIs, mutate Cloudflare, mutate GitHub settings, change secrets, or perform rollback actions.
 
@@ -21,6 +21,8 @@ Use `npm run release:plan` as the current deploy-unit source. The current auth m
 ```
 
 Static/pages, Auth Worker, AI Worker, Contact Worker, and remote auth migration requirements are release-plan dependent. Repo-supported readiness is not live readiness; Cloudflare resource declarations and Wrangler parity still require operator live evidence.
+
+The GitHub Pages static workflow is release-plan guarded. Automatic static deploy is allowed only when the release plan is validation-only or static/pages-only. Push runs compare `github.event.before` to `github.sha`; manual `workflow_dispatch` runs compare the supplied `release_plan_base_ref` to the current workflow SHA. If the base/head range is missing, unavailable in checkout, or has no merge base, the workflow fails closed before artifact upload unless a manual `workflow_dispatch` acknowledgement is supplied after the operator has handled dependencies. The workflow never deploys Workers or runs migrations.
 
 ## Non-Negotiable Safety Rules
 
@@ -67,6 +69,8 @@ npm run check:doc-currentness
 npm run validate:release
 npm run test:release-compat
 npm run test:release-plan
+npm run test:static-deploy-safety
+npm run check:static-deploy-safety
 npm run test:readiness-evidence
 npm run test:cloudflare-resource-model
 npm run test:readiness-dossier
@@ -126,7 +130,16 @@ Do not change secrets, bindings, dashboard settings, or live billing flags as pa
 
 ## 6. Deploy Static/Pages, If Required
 
-Operator action only. Deploy the reviewed `main` commit using the existing static/pages process only if `npm run release:plan` requires static/pages. Record:
+Operator action only. Deploy the reviewed `main` commit using the existing static/pages process only if `npm run release:plan` requires static/pages. On push to `main`, the GitHub Pages workflow checks the release plan before upload/deploy:
+
+- validation-only changes: static workflow may continue;
+- static/pages-only changes: static workflow may continue;
+- Worker, schema, migration, binding/config, required manual prerequisite, or other non-static deploy steps: static workflow blocks before Pages artifact upload;
+- malformed or unparseable release-plan state: static workflow fails closed.
+
+If static deploy blocks, inspect the guard output, run `npm run release:plan`, deploy affected units in the reported order through the approved operator process, and record evidence. A manual `workflow_dispatch` rerun may acknowledge handled dependencies only with the exact phrase `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`; that acknowledgement is accepted only on `workflow_dispatch`, is ignored on push, is operator-owned, and is not production readiness, live billing readiness, deploy approval, or proof that live evidence exists.
+
+Record:
 
 - operator
 - date/time
@@ -134,6 +147,7 @@ Operator action only. Deploy the reviewed `main` commit using the existing stati
 - Pages build/deployment id if available
 - rollback target
 - Admin Control Plane asset version or cache evidence if available
+- release-plan guard result and whether any manual acknowledgement was used
 
 ## 7. Run Live Readiness Evidence Collector
 
