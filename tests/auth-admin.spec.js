@@ -10598,6 +10598,10 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminWorkbench')).toContainText('Operations Triage');
     await expect(page.locator('#adminWorkbench')).toContainText('Read-only plus guarded mutation');
     await expect(page.locator('#adminWorkbench')).toContainText('Tenant isolation, backfill readiness, access switch, and reset remain blocked/unclaimed.');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Billing Evidence' })).toHaveAttribute('href', '#billing-events');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open AI Budget Controls' })).toHaveAttribute('href', '#ai-budget-switches');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Data Lifecycle' })).toHaveAttribute('href', '#lifecycle');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Operations Triage' })).toHaveAttribute('href', '#operations');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Tenant Asset Safety' })).toHaveAttribute('href', '#tenant-assets');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Release & Deploy Safety' })).toHaveAttribute('href', '#readiness');
     await expect(page.locator('#statTotal')).toHaveText('12');

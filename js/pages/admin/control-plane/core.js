@@ -285,6 +285,59 @@ export function renderCards(container, cards) {
     container.appendChild(grid);
 }
 
+export function readinessSection(title, desc) {
+    const section = el('section', 'admin-control-subsection');
+    const header = el('div', 'admin-control-subsection__header');
+    const copy = el('div');
+    copy.append(el('h3', 'admin-section-title', title));
+    if (desc) copy.append(el('p', 'admin-shell__desc', desc));
+    header.appendChild(copy);
+    section.appendChild(header);
+    return section;
+}
+
+export function readinessCards(items, mapper) {
+    const holder = el('div');
+    renderCards(holder, items.map(mapper));
+    return holder.firstElementChild || holder;
+}
+
+export function simpleList(items, preferredKeys) {
+    const list = el('div', 'admin-inventory');
+    for (const item of items) {
+        const name = item.id || item.jobId || item.job_id || item.messageId || 'item';
+        const summary = preferredKeys
+            .filter((key) => !isSensitiveKey(key))
+            .map((key) => item[key] ?? item[key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)])
+            .filter(Boolean)
+            .map(safeSummaryValue)
+            .join(' | ');
+        list.appendChild(row(shortId(name), summary || renderJsonSummary(item)));
+    }
+    return list;
+}
+
+export function downloadTextFile(filename, text, type) {
+    if (typeof Blob === 'undefined' || !window.URL?.createObjectURL) return false;
+    const blob = new Blob([text || ''], { type: type || 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+    return true;
+}
+
+export function filenameFromContentDisposition(value, fallback) {
+    const text = String(value || '');
+    const match = text.match(/filename="?([^";]+)"?/i);
+    return match?.[1] || fallback;
+}
+
 export function operatorGuidancePanel({ eyebrow, title = 'Next Safe Action', copy, badges = [], items = [] } = {}) {
     const panel = el('section', 'admin-operator-guidance glass glass-card reveal visible');
     const header = el('div', 'admin-operator-guidance__header');
