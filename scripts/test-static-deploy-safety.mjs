@@ -12,12 +12,33 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const GUARD_ENV_KEYS = Object.freeze([
+  "GITHUB_EVENT_NAME",
+  "BITBI_STATIC_DEPLOY_GUARD_EVENT_NAME",
+  "BITBI_STATIC_DEPLOY_GUARD_BASE_REF",
+  "BITBI_STATIC_DEPLOY_GUARD_HEAD_REF",
+  "BITBI_STATIC_DEPLOY_GUARD_ACK",
+  "BITBI_STATIC_DEPLOY_GUARD_FIXTURE",
+  "STATIC_DEPLOY_EVENT",
+  "STATIC_DEPLOY_BASE_REF",
+  "STATIC_DEPLOY_HEAD_REF",
+  "STATIC_DEPLOY_ACK",
+]);
 
 function safetyFor(files, options = {}) {
   const plan = createReleasePlanFromRepo(repoRoot, { files });
   return {
     plan,
     safety: evaluateStaticDeploySafety(plan, options),
+  };
+}
+
+function cleanGuardEnv(extraEnv = {}) {
+  const env = { ...process.env };
+  for (const key of GUARD_ENV_KEYS) delete env[key];
+  return {
+    ...env,
+    ...extraEnv,
   };
 }
 
@@ -28,10 +49,7 @@ function guard(args, options = {}) {
     {
       cwd: repoRoot,
       encoding: "utf8",
-      env: {
-        ...process.env,
-        ...options.env,
-      },
+      env: cleanGuardEnv(options.env),
     }
   );
 }
@@ -260,6 +278,19 @@ function writeJsonFixture(name, value) {
   assert.equal(result.status, 0);
   assert(result.stdout.includes("- Event: local"));
   assert(result.stdout.includes("- Status: allowed"));
+}
+
+{
+  const result = guard([], {
+    env: {
+      BITBI_STATIC_DEPLOY_GUARD_EVENT_NAME: "push",
+      BITBI_STATIC_DEPLOY_GUARD_BASE_REF: "HEAD",
+      BITBI_STATIC_DEPLOY_GUARD_HEAD_REF: "HEAD",
+    },
+  });
+  assert.equal(result.status, 0);
+  assert(result.stdout.includes("- Event: push"));
+  assert(result.stdout.includes("- Plan source: git-diff base=HEAD head=HEAD"));
 }
 
 console.log("Static deploy safety tests passed.");
