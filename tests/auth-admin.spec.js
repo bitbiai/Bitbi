@@ -11311,12 +11311,17 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => captures.latestAvatarRequests.length).toBe(1);
     await expect(page.locator('#avatarGrid .admin-avatars__item')).toHaveCount(1);
 
-    await page.locator('#avatarGrid .admin-avatars__item').first().click();
+    const avatarItem = page.locator('#avatarGrid .admin-avatars__item').first();
+    await avatarItem.click();
     await expect(page.locator('#avatarLightbox')).toHaveClass(/admin-lightbox--visible/);
     await expect(page.locator('#lightboxName')).toHaveText('Member Example');
     await expect(page.locator('#lightboxEmail')).toHaveText('member@example.com');
+    await expect(page.locator('#avatarLightboxClose')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#avatarLightboxClose')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(page.locator('#avatarLightbox')).not.toHaveClass(/admin-lightbox--visible/);
+    await expect(avatarItem).toBeFocused();
   });
 
   test('Data Lifecycle request detail overlay supports guarded workflow actions and evidence export', async ({
@@ -11332,10 +11337,12 @@ test.describe('Admin Control Plane', () => {
 
     const deleteRow = page.locator('#lifecycleRequests tr', { hasText: 'delete' }).first();
     await expect(deleteRow).toContainText('submitted');
-    await deleteRow.getByRole('button', { name: 'Open' }).click();
+    const lifecycleOpenButton = deleteRow.getByRole('button', { name: 'Open' });
+    await lifecycleOpenButton.click();
 
     const dialog = page.getByRole('dialog', { name: 'Data Lifecycle Request Detail' });
     await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.admin-lifecycle-detail__header').getByRole('button', { name: 'Close', exact: true })).toBeFocused();
     await expect(dialog).toContainText('Subject Snapshot');
     await expect(dialog).toContainText('Current Lifecycle State');
     await expect(dialog).toContainText('Generate Plan');
@@ -11416,6 +11423,7 @@ test.describe('Admin Control Plane', () => {
 
     await dialog.locator('.admin-lifecycle-detail__header').getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    await expect(lifecycleOpenButton).toBeFocused();
     await expect(page.locator('a[href*="/de/admin"]')).toHaveCount(0);
   });
 
@@ -11866,16 +11874,19 @@ test.describe('Admin Control Plane', () => {
     await expect(memberRow.getByRole('button', { name: 'Delete' })).toBeVisible();
     await expect(memberRow.getByRole('button', { name: 'Delete' })).toHaveAttribute('title', 'Delete this user with explicit confirmation.');
 
-    await memberRow.getByRole('button', { name: 'Info' }).click();
+    const memberInfoButton = memberRow.getByRole('button', { name: 'Info' });
+    await memberInfoButton.click();
     await expect(page.locator('#userInfoModal')).toBeVisible();
     await expect(page.locator('#userInfoModal')).toContainText('member@example.com');
     await expect(page.locator('#userInfoModal')).toContainText('user_member');
     await expect(page.locator('#userInfoModal [data-info-action="credits"]')).toContainText('Credits');
     await expect(page.locator('#userInfoModal [data-info-action="usage"]')).toContainText('Usage');
+    await expect(page.locator('#userInfoModal [data-info-action="credits"]')).toBeFocused();
 
     await page.locator('#userInfoModal [data-info-action="credits"]').click();
     await expect(page.locator('#userInfoModal')).toBeHidden();
     await expect(page.locator('#userCreditModal')).toBeVisible();
+    await expect(page.locator('#userCreditModal .admin-credit-modal__close')).toBeFocused();
     await expect(page.locator('#userCreditModal')).toContainText('member@example.com');
     await expect(page.locator('#userCreditModal')).toContainText('user_member');
     await expect(page.locator('#userCreditModal')).toContainText('Current balance');
@@ -11884,10 +11895,11 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#userCreditModal')).toContainText('org_image_credit_catalog');
     await expect(page.locator('#userCreditModal').getByRole('button', { name: 'Copy user ID user_member' })).toBeVisible();
 
-    await page.locator('#userCreditModal .admin-credit-modal__close').click();
+    await page.keyboard.press('Escape');
     await expect(page.locator('#userCreditModal')).toBeHidden();
+    await expect(memberInfoButton).toBeFocused();
 
-    await memberRow.getByRole('button', { name: 'Info' }).click();
+    await memberInfoButton.click();
     await page.locator('#userInfoModal [data-info-action="usage"]').click();
     await expect(page.locator('#userInfoModal')).toBeHidden();
     await expect(page.locator('#userStorageModal')).toBeVisible();
@@ -11971,8 +11983,9 @@ test.describe('Admin Control Plane', () => {
       }),
     }));
     await expect(page.locator('#userStorageModal').getByRole('link', { name: 'Open' }).first()).toHaveAttribute('href', '/api/admin/users/user_member/assets/a100cafe/file');
-    await page.locator('#userStorageModal .admin-credit-modal__close').click();
+    await page.keyboard.press('Escape');
     await expect(page.locator('#userStorageModal')).toBeHidden();
+    await expect(memberInfoButton).toBeFocused();
 
     const emptyRow = page.locator('#userTbody tr', { hasText: 'empty@example.com' });
     await emptyRow.getByRole('button', { name: 'Info' }).click();
@@ -12125,6 +12138,11 @@ test.describe('Admin Control Plane', () => {
     await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeDisabled();
     await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
     await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeEnabled();
+    await dialog.locator('[data-testid="admin-delete-submit"]').focus();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Cancel user deletion' })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeFocused();
     await dialog.locator('[data-testid="admin-delete-submit"]').click();
     await expect.poll(() => captures.userDeleteRequests.length).toBe(1);
 
@@ -12578,6 +12596,28 @@ test.describe('Admin nav accordion behavior', () => {
     // Clicking the currently open group toggles it closed.
     await systemToggle.click();
     await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('nav accordion supports keyboard expansion, child focus, and Escape collapse', async ({ page }) => {
+    await page.goto('/admin/index.html#dashboard');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    const usersGroup = page.locator('.admin-nav__group:has(a[data-section="users"])');
+    const usersToggle = usersGroup.locator('> .admin-nav__group-toggle');
+    const usersLink = usersGroup.locator('a[data-section="users"]');
+
+    await usersToggle.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(usersToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(usersLink).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(usersToggle).toBeFocused();
+
+    await page.keyboard.press('End');
+    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
+    await expect(systemToggle).toBeFocused();
   });
 
   test('cold deep link to #ai-lab auto-expands the AI group on load', async ({ page }) => {

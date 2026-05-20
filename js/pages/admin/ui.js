@@ -35,6 +35,60 @@ export function focusElementSafely(target, { preventScroll = true } = {}) {
     }
 }
 
+function isFocusableVisible(target) {
+    if (!(target instanceof HTMLElement)) return false;
+    if (target.hidden || target.closest('[hidden]')) return false;
+    if (target.closest('[aria-hidden="true"]')) return false;
+    if (target.hasAttribute('disabled') || target.getAttribute('aria-disabled') === 'true') return false;
+    const style = window.getComputedStyle(target);
+    if (style.visibility === 'hidden' || style.display === 'none') return false;
+    return !!(target.offsetWidth || target.offsetHeight || target.getClientRects().length);
+}
+
+export function getFocusableElements(container) {
+    if (!(container instanceof HTMLElement)) return [];
+    return Array.from(container.querySelectorAll([
+        'a[href]',
+        'button',
+        'input',
+        'select',
+        'textarea',
+        'summary',
+        '[tabindex]:not([tabindex="-1"])',
+        '[contenteditable="true"]',
+    ].join(','))).filter(isFocusableVisible);
+}
+
+export function trapFocusWithin(container, event) {
+    if (!(container instanceof HTMLElement) || !event || event.key !== 'Tab') return false;
+    const focusable = getFocusableElements(container);
+    if (!focusable.length) return false;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!container.contains(document.activeElement)) {
+        event.preventDefault();
+        focusElementSafely(first);
+        return true;
+    }
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        focusElementSafely(last);
+        return true;
+    }
+    if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        focusElementSafely(first);
+        return true;
+    }
+    return false;
+}
+
+export function restoreFocusSafely(target) {
+    if (!(target instanceof HTMLElement)) return false;
+    if (!document.contains(target)) return false;
+    return focusElementSafely(target);
+}
+
 export function renderRiskNote(text, {
     title = 'Operator safety note',
     className = '',

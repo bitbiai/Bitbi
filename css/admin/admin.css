@@ -3648,6 +3648,32 @@
         border: 1px solid rgba(0, 240, 255, 0.15);
     }
 
+    .admin-lightbox__close {
+        position: absolute;
+        inset-block-start: var(--space-3);
+        inset-inline-end: var(--space-3);
+        z-index: 2;
+        inline-size: 2.35rem;
+        block-size: 2.35rem;
+        display: inline-grid;
+        place-items: center;
+        border-radius: var(--radius-full);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(0, 0, 0, 0.62);
+        color: rgba(255, 255, 255, 0.86);
+        font-size: 1.35rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .admin-lightbox__close:hover,
+    .admin-lightbox__close:focus-visible {
+        color: #fff;
+        border-color: rgba(0, 240, 255, 0.5);
+        outline: 2px solid rgba(0, 240, 255, 0.42);
+        outline-offset: 2px;
+    }
+
     .admin-lightbox__img {
         display: block;
         width: 100%;
@@ -3762,6 +3788,16 @@
     .admin-credit-modal__close:hover {
         color: white;
         border-color: rgba(0, 240, 255, 0.26);
+    }
+
+    .admin-credit-modal__close:focus-visible,
+    .btn-action:focus-visible,
+    .admin-info-modal__action:focus-visible,
+    .admin-usage-modal__folder-select:focus-visible,
+    .admin-delete-dialog__checkbox input:focus-visible,
+    .admin-delete-dialog__field input:focus-visible {
+        outline: 2px solid rgba(0, 240, 255, 0.42);
+        outline-offset: 2px;
     }
 
     .admin-credit-modal__body {

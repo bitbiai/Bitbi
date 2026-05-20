@@ -1,4 +1,9 @@
 import { apiAdminLatestAvatars } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    focusElementSafely,
+    restoreFocusSafely,
+    trapFocusWithin,
+} from './ui.js?v=__ASSET_VERSION__';
 
 export function createAdminAvatarLightbox() {
     const refs = {
@@ -9,22 +14,34 @@ export function createAdminAvatarLightbox() {
         lightboxImg: document.getElementById('lightboxImg'),
         lightboxName: document.getElementById('lightboxName'),
         lightboxEmail: document.getElementById('lightboxEmail'),
+        lightboxClose: document.getElementById('avatarLightboxClose'),
     };
     let avatarsLoaded = false;
+    let lightboxOpener = null;
 
-    function openLightbox(avatar) {
+    function openLightbox(avatar, opener = null) {
+        lightboxOpener = opener instanceof HTMLElement
+            ? opener
+            : document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
         refs.lightboxImg.src = `/api/admin/avatars/${avatar.userId}`;
         refs.lightboxImg.alt = `Avatar of ${avatar.displayName || avatar.email}`;
         refs.lightboxName.textContent = avatar.displayName || avatar.email;
         refs.lightboxEmail.textContent = avatar.displayName ? avatar.email : '';
         refs.lightbox.classList.add('admin-lightbox--visible');
         refs.lightbox.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+        focusElementSafely(refs.lightboxClose || refs.lightbox);
     }
 
     function closeLightbox() {
         refs.lightbox.classList.remove('admin-lightbox--visible');
         refs.lightbox.setAttribute('aria-hidden', 'true');
         refs.lightboxImg.src = '';
+        document.body.classList.remove('modal-open');
+        restoreFocusSafely(lightboxOpener);
+        lightboxOpener = null;
     }
 
     async function loadLatestAvatars() {
@@ -65,7 +82,7 @@ export function createAdminAvatarLightbox() {
             img.decoding = 'async';
 
             item.appendChild(img);
-            item.addEventListener('click', () => openLightbox(avatar));
+            item.addEventListener('click', (event) => openLightbox(avatar, event.currentTarget));
             refs.grid.appendChild(item);
         }
     }
@@ -89,10 +106,15 @@ export function createAdminAvatarLightbox() {
         refs.lightbox.addEventListener('click', (event) => {
             if (event.target === refs.lightbox) closeLightbox();
         });
+        refs.lightboxClose?.addEventListener('click', closeLightbox);
         document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && refs.lightbox.classList.contains('admin-lightbox--visible')) {
+            if (!refs.lightbox.classList.contains('admin-lightbox--visible')) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
                 closeLightbox();
+                return;
             }
+            trapFocusWithin(refs.lightbox, event);
         });
     }
 

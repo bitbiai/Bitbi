@@ -2568,8 +2568,9 @@
 </footer>
 
 <!-- Avatar Lightbox -->
-<div id="avatarLightbox" class="admin-lightbox" aria-hidden="true">
+<div id="avatarLightbox" class="admin-lightbox" role="dialog" aria-modal="true" aria-labelledby="lightboxName" aria-describedby="lightboxEmail" aria-hidden="true">
     <div class="admin-lightbox__content">
+        <button id="avatarLightboxClose" type="button" class="admin-lightbox__close" aria-label="Close avatar preview">&times;</button>
         <img id="lightboxImg" class="admin-lightbox__img" src="" alt="">
         <div id="lightboxLabel" class="admin-lightbox__label">
             <div id="lightboxName"></div>
@@ -2580,7 +2581,7 @@
 
 <div id="userInfoModal" class="admin-credit-modal admin-info-modal" hidden aria-hidden="true">
     <div class="admin-credit-modal__backdrop" data-user-info-close aria-hidden="true"></div>
-    <section class="admin-credit-modal__dialog admin-info-modal__dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="userInfoModalTitle">
+    <section class="admin-credit-modal__dialog admin-info-modal__dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="userInfoModalTitle" aria-describedby="userInfoModalSubtitle">
         <header class="admin-credit-modal__header">
             <div>
                 <p class="admin-credit-modal__eyebrow">User information</p>
@@ -2595,7 +2596,7 @@
 
 <div id="userStorageModal" class="admin-credit-modal admin-usage-modal" hidden aria-hidden="true">
     <div class="admin-credit-modal__backdrop" data-user-storage-close aria-hidden="true"></div>
-    <section class="admin-credit-modal__dialog admin-usage-modal__dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="userStorageModalTitle">
+    <section class="admin-credit-modal__dialog admin-usage-modal__dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="userStorageModalTitle" aria-describedby="userStorageModalSubtitle">
         <header class="admin-credit-modal__header">
             <div>
                 <p class="admin-credit-modal__eyebrow">Assets Manager</p>
@@ -2612,7 +2613,7 @@
 
 <div id="userCreditModal" class="admin-credit-modal" hidden aria-hidden="true">
     <div class="admin-credit-modal__backdrop" data-user-credit-close aria-hidden="true"></div>
-    <section class="admin-credit-modal__dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="userCreditModalTitle">
+    <section class="admin-credit-modal__dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="userCreditModalTitle" aria-describedby="userCreditModalSubtitle">
         <header class="admin-credit-modal__header">
             <div>
                 <p class="admin-credit-modal__eyebrow">Member credit account</p>

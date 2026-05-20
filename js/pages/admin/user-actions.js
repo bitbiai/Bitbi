@@ -7,6 +7,8 @@ import {
 import {
     focusElementSafely,
     renderRiskNote,
+    restoreFocusSafely,
+    trapFocusWithin,
 } from './ui.js?v=__ASSET_VERSION__';
 
 function deleteDialogText(tag, className, text) {
@@ -157,7 +159,7 @@ function openDeleteUserDialog(user) {
             document.removeEventListener('keydown', onKeydown);
             document.body.classList.remove('modal-open');
             modal.remove();
-            previousFocus?.focus?.();
+            restoreFocusSafely(previousFocus);
             resolve(value);
         };
         const updateSubmitState = () => {
@@ -168,19 +170,7 @@ function openDeleteUserDialog(user) {
         };
         const onKeydown = (event) => {
             if (event.key === 'Escape') close({ confirmed: false });
-            if (event.key !== 'Tab') return;
-            const focusable = Array.from(modal.querySelectorAll('button:not([disabled]), input:not([disabled])'))
-                .filter((el) => el instanceof HTMLElement && el.offsetParent !== null);
-            if (!focusable.length) return;
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first.focus();
-            }
+            trapFocusWithin(modal, event);
         };
 
         erasureCheckbox.addEventListener('change', () => {

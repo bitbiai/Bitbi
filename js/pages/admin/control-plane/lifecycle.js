@@ -35,6 +35,11 @@ import {
     table,
     variantFor,
 } from './core.js?v=__ASSET_VERSION__';
+import {
+    focusElementSafely,
+    restoreFocusSafely,
+    trapFocusWithin,
+} from '../ui.js?v=__ASSET_VERSION__';
 
 export function createLifecycleDomain({ notify, formatDate }) {
     let lifecycleDetailOverlay = null;
@@ -274,24 +279,17 @@ export function createLifecycleDomain({ notify, formatDate }) {
         document.removeEventListener('keydown', lifecycleDetailOverlay.onKeydown, true);
         lifecycleDetailOverlay.modal.remove();
         const opener = lifecycleDetailOverlay.opener;
+        const requestId = lifecycleDetailOverlay.requestId;
         lifecycleDetailOverlay = null;
-        if (opener && typeof opener.focus === 'function') opener.focus();
+        if (restoreFocusSafely(opener)) return;
+        const refreshedOpener = Array.from(document.querySelectorAll('[data-lifecycle-request-open]'))
+            .find((button) => button instanceof HTMLElement && button.dataset.lifecycleRequestOpen === requestId);
+        focusElementSafely(refreshedOpener);
     }
 
     function trapLifecycleOverlayFocus(event) {
-        if (event.key !== 'Tab' || !lifecycleDetailOverlay?.modal) return;
-        const focusable = Array.from(lifecycleDetailOverlay.modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
-            .filter((node) => !node.disabled && node.offsetParent !== null);
-        if (!focusable.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-        }
+        if (!lifecycleDetailOverlay?.modal) return;
+        trapFocusWithin(lifecycleDetailOverlay.modal, event);
     }
 
     async function refreshLifecycleDetail(requestId, bodyNode) {
@@ -741,10 +739,10 @@ export function createLifecycleDomain({ notify, formatDate }) {
             }
             trapLifecycleOverlayFocus(event);
         };
-        lifecycleDetailOverlay = { modal, opener, onKeydown };
+        lifecycleDetailOverlay = { modal, opener, requestId, onKeydown };
         document.body.appendChild(modal);
         document.addEventListener('keydown', onKeydown, true);
-        closeButton.focus();
+        focusElementSafely(closeButton);
         refreshLifecycleDetail(requestId, body);
     }
 
@@ -777,6 +775,7 @@ export function createLifecycleDomain({ notify, formatDate }) {
             const actions = el('div', 'admin-control-chip-row');
             const openButton = el('button', 'btn-action btn-action--secondary', 'Open');
             openButton.type = 'button';
+            openButton.dataset.lifecycleRequestOpen = requestId;
             openButton.addEventListener('click', (event) => openLifecycleDetailOverlay(requestId, event.currentTarget));
             actions.appendChild(openButton);
             addCell(tr, actions);

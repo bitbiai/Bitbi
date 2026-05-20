@@ -16,6 +16,8 @@ import {
 import {
     focusElementSafely,
     renderRiskNote,
+    restoreFocusSafely,
+    trapFocusWithin,
 } from './ui.js?v=__ASSET_VERSION__';
 
 const numberFormatter = new Intl.NumberFormat('en-US');
@@ -54,6 +56,7 @@ export function createAdminUserStorage({
         nextCursor: null,
         hasMore: false,
     };
+    let storageModalOpener = null;
 
     function syncBodyLock() {
         const hasOpenModal = [
@@ -71,8 +74,10 @@ export function createAdminUserStorage({
         syncBodyLock();
     }
 
-    function close() {
+    function close({ restoreFocus = true } = {}) {
         setModalOpen(false);
+        if (restoreFocus) restoreFocusSafely(storageModalOpener);
+        storageModalOpener = null;
     }
 
     function resetState(user) {
@@ -433,8 +438,13 @@ export function createAdminUserStorage({
         });
     }
 
-    async function open(user) {
+    async function open(user, opener = null) {
         if (!refs.modal || !refs.body) return;
+        storageModalOpener = opener instanceof HTMLElement
+            ? opener
+            : document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
         if (refs.title) refs.title.textContent = 'Usage';
         if (refs.subtitle) refs.subtitle.textContent = `${user.email || 'Selected user'} • ${shortUserId(user.id)}`;
         setModalOpen(true);
@@ -546,6 +556,16 @@ export function createAdminUserStorage({
         refs.modal.dataset.bound = '1';
         refs.modal.querySelectorAll('[data-user-storage-close]').forEach((button) => {
             button.addEventListener('click', close);
+        });
+        refs.modal.addEventListener('keydown', (event) => {
+            if (refs.modal.hidden) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                close();
+                return;
+            }
+            trapFocusWithin(refs.modal, event);
         });
     }
 

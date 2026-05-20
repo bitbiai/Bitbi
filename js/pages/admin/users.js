@@ -6,6 +6,9 @@ import {
     copyText as copyTextToClipboard,
     createActionBtn,
     createBadge,
+    focusElementSafely,
+    restoreFocusSafely,
+    trapFocusWithin,
 } from './ui.js?v=__ASSET_VERSION__';
 import { createAdminUserActions } from './user-actions.js?v=__ASSET_VERSION__';
 import { createAdminUserStorage } from './user-storage.js?v=__ASSET_VERSION__';
@@ -51,6 +54,8 @@ export function createAdminUsersDomain({
     let usersNextCursor = null;
     let usersHasMore = false;
     let selectedInfoUser = null;
+    let infoModalOpener = null;
+    let creditModalOpener = null;
 
     async function copyText(text, successMessage = 'Copied.') {
         if (!text) return;
@@ -107,8 +112,10 @@ export function createAdminUsersDomain({
         setModalOpen(refs.creditModal, open);
     }
 
-    function closeUserCreditDetails() {
+    function closeUserCreditDetails({ restoreFocus = true } = {}) {
         setUserCreditModalOpen(false);
+        if (restoreFocus) restoreFocusSafely(creditModalOpener);
+        creditModalOpener = null;
     }
 
     function userCreditState(message, variant = '') {
@@ -122,9 +129,11 @@ export function createAdminUsersDomain({
         setModalOpen(refs.infoModal, open);
     }
 
-    function closeUserInfoDetails() {
+    function closeUserInfoDetails({ restoreFocus = true } = {}) {
         selectedInfoUser = null;
         setUserInfoModalOpen(false);
+        if (restoreFocus) restoreFocusSafely(infoModalOpener);
+        infoModalOpener = null;
     }
 
     function renderInfoUserIdentity(user) {
@@ -175,8 +184,9 @@ export function createAdminUsersDomain({
             label: 'Credits',
             description: 'Inspect personal credit balance and recent member credit transactions.',
             open: (user) => {
-                closeUserInfoDetails();
-                openUserCreditDetails(user);
+                const restoreTarget = infoModalOpener;
+                closeUserInfoDetails({ restoreFocus: false });
+                openUserCreditDetails(user, restoreTarget);
             },
         },
         {
@@ -184,8 +194,9 @@ export function createAdminUsersDomain({
             label: 'Usage',
             description: 'Inspect Assets Manager storage, folders, files, visibility, and management actions.',
             open: (user) => {
-                closeUserInfoDetails();
-                storage.open(user);
+                const restoreTarget = infoModalOpener;
+                closeUserInfoDetails({ restoreFocus: false });
+                storage.open(user, restoreTarget);
             },
         },
     ];
@@ -305,7 +316,7 @@ export function createAdminUsersDomain({
 
     function appendUserActions(actionsWrap, user) {
         actionsWrap.appendChild(
-            createActionBtn('Info', () => openUserInfoDetails(user)),
+            createActionBtn('Info', (event) => openUserInfoDetails(user, event?.currentTarget)),
         );
 
         const newRole = user.role === 'admin' ? 'user' : 'admin';
@@ -374,13 +385,19 @@ export function createAdminUsersDomain({
         refs.infoModalBody.appendChild(grid);
     }
 
-    function openUserInfoDetails(user) {
+    function openUserInfoDetails(user, opener = null) {
         if (!refs.infoModal || !refs.infoModalBody) return;
+        infoModalOpener = opener instanceof HTMLElement
+            ? opener
+            : document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
         selectedInfoUser = user;
         if (refs.infoModalTitle) refs.infoModalTitle.textContent = 'Info';
         if (refs.infoModalSubtitle) refs.infoModalSubtitle.textContent = `${user.email || 'Selected user'} • ${shortUserId(user.id)}`;
         renderUserInfoDetails(user);
         setUserInfoModalOpen(true);
+        focusElementSafely(refs.infoModal.querySelector('[data-info-action]'));
     }
 
     function creditMetric(label, value) {
@@ -497,13 +514,19 @@ export function createAdminUsersDomain({
         refs.creditModalBody.appendChild(renderUserCreditTransactions(transactions));
     }
 
-    async function openUserCreditDetails(user) {
+    async function openUserCreditDetails(user, opener = null) {
         if (!refs.creditModal || !refs.creditModalBody) return;
+        creditModalOpener = opener instanceof HTMLElement
+            ? opener
+            : document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
         if (refs.creditModalTitle) refs.creditModalTitle.textContent = 'Credit details';
         if (refs.creditModalSubtitle) refs.creditModalSubtitle.textContent = `${user.email || 'Selected user'} • ${shortUserId(user.id)}`;
         refs.creditModalBody.textContent = '';
         refs.creditModalBody.appendChild(userCreditState('Loading credit details...'));
         setUserCreditModalOpen(true);
+        focusElementSafely(refs.creditModal.querySelector('button[data-user-credit-close]'));
 
         let res = null;
         try {
@@ -654,11 +677,31 @@ export function createAdminUsersDomain({
             refs.creditModal.querySelectorAll('[data-user-credit-close]').forEach((button) => {
                 button.addEventListener('click', closeUserCreditDetails);
             });
+            refs.creditModal.addEventListener('keydown', (event) => {
+                if (refs.creditModal.hidden) return;
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeUserCreditDetails();
+                    return;
+                }
+                trapFocusWithin(refs.creditModal, event);
+            });
         }
         if (refs.infoModal && refs.infoModal.dataset.bound !== '1') {
             refs.infoModal.dataset.bound = '1';
             refs.infoModal.querySelectorAll('[data-user-info-close]').forEach((button) => {
                 button.addEventListener('click', closeUserInfoDetails);
+            });
+            refs.infoModal.addEventListener('keydown', (event) => {
+                if (refs.infoModal.hidden) return;
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeUserInfoDetails();
+                    return;
+                }
+                trapFocusWithin(refs.infoModal, event);
             });
         }
         storage.bind();

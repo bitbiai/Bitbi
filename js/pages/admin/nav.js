@@ -50,6 +50,34 @@ export function createAdminNav() {
                 }
                 setAdminNavGroupExpanded(group, !isExpanded);
             });
+            toggle.addEventListener('keydown', (event) => {
+                const groupList = Array.from(document.querySelectorAll('.admin-nav__group'));
+                const index = groupList.indexOf(group);
+                if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    groupList.forEach((other) => {
+                        if (other !== group) setAdminNavGroupExpanded(other, false);
+                    });
+                    setAdminNavGroupExpanded(group, true);
+                    group.querySelector('.admin-nav__link')?.focus();
+                    return;
+                }
+                if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    const previous = groupList[(index - 1 + groupList.length) % groupList.length];
+                    previous?.querySelector('.admin-nav__group-toggle')?.focus();
+                    return;
+                }
+                if (event.key === 'Home') {
+                    event.preventDefault();
+                    groupList[0]?.querySelector('.admin-nav__group-toggle')?.focus();
+                    return;
+                }
+                if (event.key === 'End') {
+                    event.preventDefault();
+                    groupList[groupList.length - 1]?.querySelector('.admin-nav__group-toggle')?.focus();
+                }
+            });
         });
     }
 
@@ -67,6 +95,14 @@ export function createAdminNav() {
                     return;
                 }
                 pendingLinkCollapseGroup = group;
+            });
+            link.addEventListener('keydown', (event) => {
+                if (event.key !== 'Escape') return;
+                const group = link.closest('.admin-nav__group');
+                if (!group) return;
+                event.preventDefault();
+                setAdminNavGroupExpanded(group, false);
+                group.querySelector('.admin-nav__group-toggle')?.focus();
             });
         });
     }
