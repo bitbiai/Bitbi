@@ -11178,6 +11178,51 @@ test.describe('Admin Control Plane', () => {
     expect(consoleErrors).toEqual([]);
   });
 
+  test('Admin router preserves cold deep links, hero metadata, and Workbench navigation', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#readiness');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionReadiness')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Readiness');
+    await expect(page.locator('#adminHeroDesc')).toHaveText('Release, migration, Cloudflare, and staging verification checklist');
+
+    await page.goto('/admin/index.html#tenant-assets');
+    await expect(page.locator('#sectionTenantAssets')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Tenant Assets');
+    await expect(page.locator('#adminHeroDesc')).toHaveText('Cross-domain ownership inventory, evidence gaps, and storage safety');
+
+    await page.goto('/admin/index.html#users');
+    await expect(page.locator('#sectionUsers')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('User Management');
+
+    await page.goto('/admin/index.html#activity');
+    await expect(page.locator('#sectionActivity')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Activity');
+
+    await page.goto('/admin/index.html#settings');
+    await expect(page.locator('#sectionSettings')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Admin Settings');
+
+    await page.goto('/admin/index.html#dashboard');
+    await expect(page.locator('#sectionDashboard')).toBeVisible();
+    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Release & Deploy Safety' }).click();
+    await expect(page).toHaveURL(/#readiness$/);
+    await expect(page.locator('#sectionReadiness')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Readiness');
+
+    await clickAdminNavSection(page, 'dashboard');
+    await expect(page.locator('#sectionDashboard')).toBeVisible();
+    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Tenant Asset Safety' }).click();
+    await expect(page).toHaveURL(/#tenant-assets$/);
+    await expect(page.locator('#sectionTenantAssets')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Tenant Assets');
+  });
+
   test('Activity module keeps admin and user logs searchable, expandable, and paginated', async ({
     page,
   }) => {
