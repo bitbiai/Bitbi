@@ -4,6 +4,10 @@ import {
     apiAdminDeleteUser,
     apiAdminRevokeSessions,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    focusElementSafely,
+    renderRiskNote,
+} from './ui.js?v=__ASSET_VERSION__';
 
 function deleteDialogText(tag, className, text) {
     const el = document.createElement(tag);
@@ -76,11 +80,17 @@ function openDeleteUserDialog(user) {
         operationalBlock.className = 'admin-delete-dialog__block';
         const retentionWarning = deleteDialogText('p', 'admin-delete-dialog__warning', 'Audit, billing, legal, provider, and retention-governed records may remain or be anonymized under policy. This is not a completed legal/GDPR erasure.');
         retentionWarning.id = 'adminDeleteDialogDescription';
-        modal.setAttribute('aria-describedby', retentionWarning.id);
+        const frictionWarning = renderRiskNote(
+            'The delete request is sent only after the exact confirmation matches. Backend audit logging, deletion lifecycle safeguards, and retention blockers still apply.',
+            { title: 'Confirmation required' }
+        );
+        frictionWarning.id = 'adminDeleteDialogFriction';
+        modal.setAttribute('aria-describedby', `${retentionWarning.id} ${frictionWarning.id}`);
         operationalBlock.append(
             deleteDialogText('h3', null, 'Delete operational account only'),
             deleteDialogText('p', null, 'Default mode removes or disables the operational account, sessions, auth tokens, profile, avatar reference, and user-owned AI assets/folders through the guarded deletion lifecycle.'),
-            retentionWarning
+            retentionWarning,
+            frictionWarning
         );
 
         const erasureBlock = document.createElement('div');
@@ -178,7 +188,7 @@ function openDeleteUserDialog(user) {
             erasureAckInput.disabled = !erasureCheckbox.checked;
             if (!erasureCheckbox.checked) erasureAckInput.value = '';
             updateSubmitState();
-            if (erasureCheckbox.checked) erasureAckInput.focus();
+            if (erasureCheckbox.checked) focusElementSafely(erasureAckInput);
         });
         confirmInput.addEventListener('input', updateSubmitState);
         erasureAckInput.addEventListener('input', updateSubmitState);
@@ -202,7 +212,7 @@ function openDeleteUserDialog(user) {
         document.addEventListener('keydown', onKeydown);
         document.body.classList.add('modal-open');
         document.body.appendChild(modal);
-        confirmInput.focus();
+        focusElementSafely(confirmInput);
     });
 }
 

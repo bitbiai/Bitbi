@@ -5891,6 +5891,8 @@ test.describe('Admin MFA gate', () => {
 
     await expect(page.locator('#adminMfaGate')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#adminMfaTitle')).toHaveText('Admin MFA Enrollment Required');
+    await expect(page.locator('#adminMfaNotice')).toContainText('Admin access cannot be bypassed from this page.');
+    await expect(page.locator('#adminMfaSetupBtn')).toBeFocused();
     await expect(page.locator('#adminMfaEnrollmentBlock')).toBeVisible();
     await expect(page.locator('#adminMfaVerifyBlock')).toBeHidden();
 
@@ -6025,6 +6027,8 @@ test.describe('Admin MFA gate', () => {
 
     await expect(page.locator('#adminMfaGate')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#adminMfaTitle')).toHaveText('Admin MFA Verification Required');
+    await expect(page.locator('#adminMfaNotice')).toContainText('cannot bypass MFA');
+    await expect(page.locator('#adminMfaVerifyCode')).toBeFocused();
     await expect(page.locator('#adminMfaEnrollmentBlock')).toBeHidden();
     await expect(page.locator('#adminMfaVerifyBlock')).toBeVisible();
 
@@ -11684,6 +11688,8 @@ test.describe('Admin Control Plane', () => {
 
     await page.locator('#billingReviewsList').getByRole('button', { name: 'Inspect Review' }).first().click();
     await expect(reviewDetail).toContainText('invoice.payment_failed');
+    await expect(reviewDetail).toContainText('Resolution records operator review metadata only');
+    await expect(reviewDetail).toContainText('does not perform payment, credit, account, or Stripe remediation');
     await reviewDetail.getByRole('button', { name: 'Mark Resolved' }).click();
     await expect(page.locator('#billingReviewResolutionState')).toContainText('Resolution note and confirmation are required.');
     expect(captures.billingReviewResolutionRequests).toHaveLength(0);
@@ -11885,14 +11891,21 @@ test.describe('Admin Control Plane', () => {
     await page.locator('#userInfoModal [data-info-action="usage"]').click();
     await expect(page.locator('#userInfoModal')).toBeHidden();
     await expect(page.locator('#userStorageModal')).toBeVisible();
+    await expect(page.locator('#userStorageModal .admin-credit-modal__close')).toBeFocused();
     await expect(page.locator('#userStorageModal')).toContainText('member@example.com');
     await expect(page.locator('#userStorageModal')).toContainText('14,5 MB / 50 MB');
+    await expect(page.locator('#userStorageModal')).toContainText('Storage mutation safety');
+    await expect(page.locator('#userStorageModal')).toContainText('Mutation controls below are scoped to this selected user');
+    await expect(page.locator('#userStorageModal')).toContainText('generated Idempotency-Key');
+    await expect(page.locator('#userStorageModal')).toContainText('raw private R2 keys');
     await expect(page.locator('#userStorageModal')).toContainText('Launches');
     await expect(page.locator('#userStorageModal')).toContainText('Launch Key Visual');
     await expect(page.locator('#userStorageModal')).toContainText('Release Notes');
     await expect(page.locator('#userStorageModal')).toContainText('a100cafe');
     await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Rename' }).first()).toBeVisible();
     await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Delete' }).first()).toBeVisible();
+    await expect(page.locator('#userStorageModal')).toContainText('Folder delete requires browser confirmation, an operator reason, and a generated Idempotency-Key');
+    await expect(page.locator('#userStorageModal')).toContainText('Asset rename, move, visibility, and delete actions apply only to this selected user');
     await expect(page.locator('#userStorageModal')).toContainText('Storage reconciliation dry-run');
     await expect(page.locator('#userStorageModal')).toContainText('Storage usage is calculated from active Assets Manager files owned by this user.');
     await page.locator('#userStorageModal').getByRole('button', { name: 'Run D1 metadata reconciliation' }).click();
@@ -11908,6 +11921,7 @@ test.describe('Admin Control Plane', () => {
         return;
       }
       expect(dialog.message()).toContain('does not list live R2');
+      expect(dialog.message()).toContain('generated Idempotency-Key');
       dialog.accept();
     };
     page.on('dialog', deleteDialogHandler);
@@ -11923,6 +11937,37 @@ test.describe('Admin Control Plane', () => {
         reason: 'Delete selected test asset after admin storage review',
         targetUserId: 'user_member',
         assetId: 'a100cafe',
+      }),
+    }));
+    const storageModalText = await page.locator('#userStorageModal').innerText();
+    expect(storageModalText).not.toContain('USER_IMAGES/');
+    expect(storageModalText).not.toContain('r2://');
+
+    const folderDeleteDialogs = [];
+    const folderDeleteHandler = (dialog) => {
+      folderDeleteDialogs.push(dialog.type());
+      if (dialog.type() === 'prompt') {
+        dialog.accept('Delete selected folder after admin storage review');
+        return;
+      }
+      expect(dialog.message()).toContain('generated Idempotency-Key');
+      expect(dialog.message()).toContain('does not list live R2');
+      dialog.accept();
+    };
+    page.on('dialog', folderDeleteHandler);
+    const foldersSection = page.locator('#userStorageModal .admin-usage-modal__section', { hasText: 'Folders' });
+    await foldersSection.locator('tr', { hasText: 'Launches' }).getByRole('button', { name: 'Delete' }).click();
+    page.off('dialog', folderDeleteHandler);
+    expect(folderDeleteDialogs).toEqual(['confirm', 'prompt']);
+    const folderDeleteRequest = captures.storageRequests.find((request) => request.method === 'DELETE' && request.path.endsWith('/folders/f100cafe'));
+    expect(folderDeleteRequest).toEqual(expect.objectContaining({
+      idempotencyKey: expect.stringMatching(/^admin-storage-folder-delete-/),
+      body: expect.objectContaining({
+        confirm: true,
+        confirmation: 'delete_user_folder',
+        reason: 'Delete selected folder after admin storage review',
+        targetUserId: 'user_member',
+        folderId: 'f100cafe',
       }),
     }));
     await expect(page.locator('#userStorageModal').getByRole('link', { name: 'Open' }).first()).toHaveAttribute('href', '/api/admin/users/user_member/assets/a100cafe/file');
@@ -11950,12 +11995,19 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#registrationAvailabilityPanel')).toBeVisible();
     await expect(page.locator('#registrationAvailabilityStatusText')).toHaveText('Registrations enabled');
     await expect(page.locator('#registrationAvailabilityPanel')).toContainText('This only affects creation of new accounts. Existing users, admins, sessions, MFA, password reset, and profile/account access remain available.');
+    await expect(page.locator('#registrationAvailabilityPanel')).toContainText('Saving uses a generated Idempotency-Key');
     await expect(page.locator('#registrationAvailabilityMessageText')).toContainText('Registrations are temporarily disabled due to maintenance work');
 
     await page.locator('#registrationEnabledToggle').setChecked(false);
+    await page.locator('#registrationAvailabilitySaveBtn').click();
+    await expect(page.locator('#registrationAvailabilityState')).toContainText('A reason is required when disabling new registrations.');
+    await expect(page.locator('#registrationAvailabilityReason')).toBeFocused();
+    expect(captures.registrationStatusUpdates).toHaveLength(0);
+
     await page.locator('#registrationAvailabilityReason').fill('SaaS buildout maintenance window');
     page.once('dialog', (dialog) => {
       expect(dialog.message()).toContain('Disable new user registrations');
+      expect(dialog.message()).toContain('Existing users will still be able to sign in.');
       dialog.accept();
     });
     await page.locator('#registrationAvailabilitySaveBtn').click();
@@ -12067,6 +12119,9 @@ test.describe('Admin Control Plane', () => {
     await expect(dialog).toContainText('User ID');
     await expect(dialog).toContainText('user_member');
     await expect(dialog).toContainText('Audit, billing, legal, provider, and retention-governed records may remain');
+    await expect(dialog).toContainText('Confirmation required');
+    await expect(dialog).toContainText('exact confirmation matches');
+    await expect(dialog.locator('[data-testid="admin-delete-confirm-input"]')).toBeFocused();
     await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeDisabled();
     await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
     await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeEnabled();
@@ -12131,6 +12186,7 @@ test.describe('Admin Control Plane', () => {
     await dialog.locator('[data-testid="admin-delete-confirm-input"]').fill('member@example.com');
     await dialog.locator('[data-testid="admin-delete-erasure-checkbox"]').check();
     await expect(dialog).toContainText('This creates a formal data-erasure workflow');
+    await expect(dialog.locator('[data-testid="admin-delete-erasure-ack"]')).toBeFocused();
     await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeDisabled();
     await dialog.locator('[data-testid="admin-delete-erasure-ack"]').fill('ERASURE WORKFLOW');
     await expect(dialog.locator('[data-testid="admin-delete-submit"]')).toBeEnabled();

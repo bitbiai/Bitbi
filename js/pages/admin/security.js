@@ -4,6 +4,7 @@ import {
     apiAdminMfaStatus,
     apiAdminMfaVerify,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import { focusElementSafely } from './ui.js?v=__ASSET_VERSION__';
 
 export const ADMIN_MFA_GATE_CODES = new Set([
     'admin_mfa_enrollment_required',
@@ -139,19 +140,21 @@ export function createAdminMfaGate({ showToast, showGate, reload } = {}) {
             refs.enableCode.value = '';
             setNotice(
                 setupPending
-                    ? 'If you already saved the setup secret, enter a current authenticator code below. Otherwise generate a fresh setup secret and recovery codes now.'
-                    : 'Generate a setup secret, add it to your authenticator app, then confirm with a current code to enable MFA.',
+                    ? 'If you already saved the setup secret, enter a current authenticator code below. Otherwise generate a fresh setup secret and recovery codes now. Admin access cannot be bypassed from this page.'
+                    : 'Generate a setup secret, add it to your authenticator app, then confirm with a current code to enable MFA. Admin access cannot be bypassed from this page.',
                 'info'
             );
+            focusElementSafely(setupPending ? refs.enableCode : refs.setupBtn);
         } else {
             refs.verifyCode.value = '';
             refs.recoveryCode.value = '';
             setNotice(
                 code === 'admin_mfa_invalid_or_expired'
-                    ? 'Verify again to renew admin access.'
-                    : 'Admin access stays locked until MFA verification succeeds.',
+                    ? 'Verify again to renew admin access. Admin access cannot be bypassed from this page.'
+                    : 'Admin access stays locked until MFA verification succeeds; this UI cannot bypass MFA.',
                 'info'
             );
+            focusElementSafely(refs.verifyCode);
         }
     }
 

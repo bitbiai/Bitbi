@@ -13,6 +13,10 @@ import {
     formatAssetStorageUsage,
     formatStorageBytes,
 } from '../../shared/storage-format.js?v=__ASSET_VERSION__';
+import {
+    focusElementSafely,
+    renderRiskNote,
+} from './ui.js?v=__ASSET_VERSION__';
 
 const numberFormatter = new Intl.NumberFormat('en-US');
 
@@ -118,6 +122,13 @@ export function createAdminUserStorage({
         return card;
     }
 
+    function sectionNote(text) {
+        const note = document.createElement('p');
+        note.className = 'admin-credit-modal__muted admin-usage-modal__section-note';
+        note.textContent = text;
+        return note;
+    }
+
     function renderStorageMetrics(payload = {}) {
         const metrics = document.createElement('div');
         metrics.className = 'admin-credit-modal__metrics admin-usage-modal__metrics';
@@ -190,6 +201,7 @@ export function createAdminUserStorage({
         title.className = 'admin-credit-modal__section-title';
         title.textContent = 'Folders';
         section.appendChild(title);
+        section.appendChild(sectionNote('Folder rename/delete actions are scoped to this selected user. Folder delete requires browser confirmation, an operator reason, and a generated Idempotency-Key.'));
 
         const wrap = document.createElement('div');
         wrap.className = 'admin-credit-modal__table-wrap admin-usage-modal__table-wrap';
@@ -285,6 +297,7 @@ export function createAdminUserStorage({
         title.textContent = 'Files and assets';
         header.appendChild(title);
         section.appendChild(header);
+        section.appendChild(sectionNote('Asset rename, move, visibility, and delete actions apply only to this selected user. Delete requires confirmation, an operator reason, and idempotency; raw private R2 keys are never displayed.'));
 
         const wrap = document.createElement('div');
         wrap.className = 'admin-credit-modal__table-wrap admin-usage-modal__table-wrap';
@@ -350,6 +363,10 @@ export function createAdminUserStorage({
             ? 'This user has unlimited Assets Manager storage because the account is an admin.'
             : 'Storage usage is calculated from active Assets Manager files owned by this user.';
         refs.body.appendChild(note);
+        refs.body.appendChild(renderRiskNote(
+            'Mutation controls below are scoped to this selected user. Delete actions require browser confirmation, an operator reason, and a generated Idempotency-Key. This overlay never lists live R2 or renders raw private R2 keys.',
+            { title: 'Storage mutation safety', className: 'admin-usage-modal__risk-note' }
+        ));
 
         refs.body.appendChild(renderStorageReconciliationDetails(storageModalState.reconciliation));
         refs.body.appendChild(renderFoldersTable(user, payload.folders || []));
@@ -421,6 +438,7 @@ export function createAdminUserStorage({
         if (refs.title) refs.title.textContent = 'Usage';
         if (refs.subtitle) refs.subtitle.textContent = `${user.email || 'Selected user'} • ${shortUserId(user.id)}`;
         setModalOpen(true);
+        focusElementSafely(refs.modal.querySelector('button[data-user-storage-close]'));
         await loadDetails(user);
     }
 
@@ -467,7 +485,7 @@ export function createAdminUserStorage({
 
     async function handleDeleteAsset(user, asset) {
         const target = `${getAssetDisplayName(asset)} (${asset.id})`;
-        if (!confirm(`Delete asset "${target}" for ${user.email || user.id}?\n\nThis is an admin storage mutation. It does not prove tenant isolation and does not list live R2.`)) return;
+        if (!confirm(`Delete asset "${target}" for ${user.email || user.id}?\n\nThis is an admin storage mutation. It requires a reason and generated Idempotency-Key. It does not prove tenant isolation and does not list live R2.`)) return;
         const reason = prompt('Reason for asset deletion (required, at least 8 characters)', 'Admin storage cleanup requested after review');
         if (reason === null) return;
         const trimmedReason = reason.trim();
@@ -503,7 +521,7 @@ export function createAdminUserStorage({
 
     async function handleDeleteFolder(user, folder) {
         const target = `${folder.name || folder.id} (${folder.id})`;
-        if (!confirm(`Delete folder "${target}" and its assets for ${user.email || user.id}?\n\nThis is irreversible or cleanup-queued under existing safeguards. It does not prove tenant isolation and does not list live R2.`)) return;
+        if (!confirm(`Delete folder "${target}" and its assets for ${user.email || user.id}?\n\nThis is irreversible or cleanup-queued under existing safeguards. It requires a reason and generated Idempotency-Key. It does not prove tenant isolation and does not list live R2.`)) return;
         const reason = prompt('Reason for folder deletion (required, at least 8 characters)', 'Admin storage folder cleanup requested after review');
         if (reason === null) return;
         const trimmedReason = reason.trim();

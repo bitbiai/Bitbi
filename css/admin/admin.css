@@ -3878,6 +3878,29 @@
         color: rgba(255, 205, 120, 0.88) !important;
     }
 
+    .admin-risk-note {
+        display: grid;
+        gap: 0.25rem;
+        padding: var(--space-3);
+        border: 1px solid rgba(255, 205, 120, 0.24);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 205, 120, 0.07);
+        color: rgba(255, 235, 190, 0.88);
+        line-height: 1.5;
+    }
+
+    .admin-risk-note__title {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 220, 150, 0.95);
+    }
+
+    .admin-risk-note__text {
+        color: rgba(255, 255, 255, 0.72);
+    }
+
     .admin-delete-dialog__checkbox {
         display: flex;
         align-items: center;
@@ -4313,8 +4336,18 @@
         margin-block-start: 0;
     }
 
+    .admin-usage-modal__risk-note {
+        margin-block-start: 0;
+    }
+
     .admin-usage-modal__section {
         min-width: 0;
+    }
+
+    .admin-usage-modal__section-note {
+        margin-block: -0.3rem var(--space-3);
+        max-inline-size: 58rem;
+        line-height: 1.55;
     }
 
     .admin-usage-modal__section-header {
@@ -4465,10 +4498,17 @@
     }
 
     .admin-registration-panel__message p,
-    .admin-registration-panel__footer p {
+    .admin-registration-panel__footer p,
+    .admin-registration-panel__help {
         margin: 0;
         color: rgba(255, 255, 255, 0.68);
         line-height: 1.55;
+    }
+
+    .admin-registration-panel__help {
+        margin-block-start: var(--space-2);
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.58);
     }
 
     .admin-registration-panel__field {

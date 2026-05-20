@@ -1351,7 +1351,8 @@
                             </div>
                             <label class="admin-registration-panel__field">
                                 <span>Reason / operator note</span>
-                                <textarea id="registrationAvailabilityReason" rows="2" maxlength="500" placeholder="Required when disabling new registrations."></textarea>
+                                <textarea id="registrationAvailabilityReason" rows="2" maxlength="500" placeholder="Required when disabling new registrations." aria-describedby="registrationAvailabilityReasonHelp"></textarea>
+                                <p id="registrationAvailabilityReasonHelp" class="admin-registration-panel__help">Disabling new registrations requires an operator reason. Saving uses a generated Idempotency-Key and does not disable existing login, sessions, MFA, password reset, or account access.</p>
                             </label>
                             <div class="admin-registration-panel__footer">
                                 <button id="registrationAvailabilitySaveBtn" type="button" class="btn-action">Save registration availability</button>
