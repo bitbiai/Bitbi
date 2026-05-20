@@ -650,6 +650,33 @@ function renderCards(container, cards) {
     container.appendChild(grid);
 }
 
+function operatorGuidancePanel({ eyebrow, title = 'Next Safe Action', copy, badges = [], items = [] } = {}) {
+    const panel = el('section', 'admin-operator-guidance glass glass-card reveal visible');
+    const header = el('div', 'admin-operator-guidance__header');
+    const text = el('div');
+    if (eyebrow) text.append(el('p', 'admin-operator-guidance__eyebrow', eyebrow));
+    text.append(el('h3', 'admin-section-title', title));
+    if (copy) text.append(el('p', 'admin-shell__desc', copy));
+    header.appendChild(text);
+    if (badges.length) {
+        const badgeRow = el('div', 'admin-control-toolbar__badges');
+        for (const item of badges) badgeRow.appendChild(badge(item.label, item.variant));
+        header.appendChild(badgeRow);
+    }
+    panel.appendChild(header);
+    if (items.length) {
+        const grid = el('div', 'admin-operator-guidance__grid');
+        for (const item of items) {
+            const row = el('div', 'admin-operator-guidance__item');
+            if (item.badge) row.appendChild(badge(item.badge.label, item.badge.variant));
+            row.append(el('strong', null, item.title), el('span', null, item.copy));
+            grid.appendChild(row);
+        }
+        panel.appendChild(grid);
+    }
+    return panel;
+}
+
 function statusVariant(value) {
     const status = String(value || '').toLowerCase();
     if (status.includes('implemented') || status === 'available' || status === 'repo_supported') return 'active';
@@ -4586,7 +4613,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             const card = el('article', 'admin-control-card glass glass-card reveal visible');
             const top = el('div', 'admin-control-card__top');
             top.append(el('h3', 'admin-section-title', item[0]), badge(statusLabel(item[1]), 'disabled'));
-            card.append(top, el('p', 'admin-shell__desc', 'Requires separate approved evidence and implementation package. This dashboard offers no execution control.'));
+            card.append(top, el('p', 'admin-shell__desc', 'Requires separate approved evidence and operator implementation plan. This dashboard offers no execution control.'));
             grid.appendChild(card);
         }
         section.appendChild(grid);
@@ -4617,6 +4644,33 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         ]);
         hero.append(copy, facts);
         container.appendChild(hero);
+
+        container.appendChild(operatorGuidancePanel({
+            eyebrow: 'Tenant asset safety',
+            copy: 'Review D1 metadata evidence and manual-review dry-runs first. Backfill, access switching, confirmed reset, and live R2 operations remain blocked unless separately approved with operator evidence.',
+            badges: [
+                { label: 'Read-only evidence', variant: 'user' },
+                { label: 'Tenant isolation unclaimed', variant: 'legacy' },
+                { label: 'Backfill/access/reset blocked', variant: 'disabled' },
+            ],
+            items: [
+                {
+                    badge: { label: 'Review first', variant: 'user' },
+                    title: 'Open the manual-review queue',
+                    copy: 'Use Operations to run the post-cleanup supersession dry-run and export evidence before treating old counts as current.',
+                },
+                {
+                    badge: { label: 'Diagnostics', variant: 'legacy' },
+                    title: 'Use evidence actions',
+                    copy: 'Copy current templates and roadmap paths; browser actions remain refresh/copy/export only.',
+                },
+                {
+                    badge: { label: 'Blocked', variant: 'disabled' },
+                    title: 'Do not execute tenant changes here',
+                    copy: 'No browser control lists or mutates live R2, performs ownership backfill, enables access-switching, or executes reset/delete operations.',
+                },
+            ],
+        }));
 
         const matrix = readinessSection('Tenant Asset Domain Matrix', 'Broader current-state domain inventory. Metrics are D1 metadata only when available and never live R2 proof.');
         renderTenantDomainMatrix(matrix, report.domains || []);
@@ -4750,6 +4804,33 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             meta: item.meta,
         })));
         container.appendChild(releaseSection);
+
+        container.appendChild(operatorGuidancePanel({
+            eyebrow: 'Release evidence workflow',
+            copy: 'Collect read-only evidence before requesting deploy approval. This dashboard is an operator map; it does not deploy, migrate, call Stripe, enable reset, or prove live readiness.',
+            badges: [
+                { label: 'Repo evidence only', variant: 'user' },
+                { label: 'Live evidence required', variant: 'legacy' },
+                { label: 'Blocked until reviewed', variant: 'disabled' },
+            ],
+            items: [
+                {
+                    badge: { label: 'Read-only', variant: 'user' },
+                    title: 'Generate local packets',
+                    copy: 'Use release plan, cutover evidence, readiness dossier, resource model, rollback drill, and evidence index from an operator terminal.',
+                },
+                {
+                    badge: { label: 'Operator proof', variant: 'legacy' },
+                    title: 'Attach live read-only evidence',
+                    copy: 'Remote D1 migration status, Worker/static deploy IDs, health checks, security headers, billing canary, and rollback owner remain operator-supplied.',
+                },
+                {
+                    badge: { label: 'Blocked', variant: 'disabled' },
+                    title: 'Keep claims blocked',
+                    copy: 'Production readiness, live billing readiness, tenant isolation, ownership backfill, access-switch readiness, confirmed reset readiness, and legal completion remain unclaimed.',
+                },
+            ],
+        }));
     }
 
     function renderReadinessStatusGrid(container, title, desc, items) {
@@ -4887,7 +4968,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Release Candidate Status',
                 badge: rc.status || 'blocked',
-                copy: 'The RC package is repo-supported for code merge or deploy preparation only. Production readiness and live billing readiness remain blocked until live/manual evidence is collected and reviewed.',
+                copy: 'The release candidate framework is repo-supported for code merge or deploy preparation only. Production readiness and live billing readiness remain blocked until live/manual evidence is collected and reviewed.',
                 meta: [
                     ['CI status', rc.ciStatus || 'unknown'],
                     ['RC use', rc.releaseCandidateUse || 'code merge / deploy preparation only'],

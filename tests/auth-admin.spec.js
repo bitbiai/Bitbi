@@ -10584,6 +10584,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneTitle')).toContainText('Operate BITBI');
     await expect(page.locator('#sectionDashboard')).toContainText('Production blocked');
     await expect(page.locator('#sectionDashboard')).toContainText('Testmode only');
+    await expect(page.locator('#sectionDashboard')).toContainText('Next Safe Action');
+    await expect(page.locator('#sectionDashboard')).toContainText('Review evidence first');
+    await expect(page.locator('#sectionDashboard')).toContainText('Evidence-index success does not prove production readiness');
     await expect(page.locator('#statTotal')).toHaveText('12');
 
     await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeAttached();
@@ -10615,6 +10618,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Budget Controls');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Tenant Asset Manual Review');
     await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
+    await expect(page.locator('#adminPanel')).not.toContainText(/OMEGA|P0\/P1 Wave Matrix|P1 Wave|implementation package/);
 
     await clickAdminNavSection(page, 'security');
     await expect(page).toHaveURL(/#security$/);
@@ -10629,6 +10633,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#orgDetail')).toContainText('member@example.com');
 
     await clickAdminNavSection(page, 'billing');
+    await expect(page.locator('#sectionBilling')).toContainText('Billing operator flow');
+    await expect(page.locator('#sectionBilling')).toContainText('Manual grants are guarded');
+    await expect(page.locator('#sectionBilling')).toContainText('generated Idempotency-Key');
     await expect(page.locator('#sectionBilling')).toContainText('Free');
     await expect(page.locator('#sectionBilling')).toContainText('ai.text.generate');
     await page.locator('#orgBillingSearch').fill('Control Plane Org');
@@ -10864,11 +10871,17 @@ test.describe('Admin Control Plane', () => {
     });
 
     await clickAdminNavSection(page, 'lifecycle');
+    await expect(page.locator('#sectionLifecycle')).toContainText('Privacy operations');
+    await expect(page.locator('#sectionLifecycle')).toContainText('Next Safe Action');
+    await expect(page.locator('#sectionLifecycle')).toContainText('No blanket completion');
     await expect(page.locator('#sectionLifecycle')).toContainText('archive_generated');
     await expect(page.locator('#sectionLifecycle')).toContainText('execute-only rather than dry-run');
     await expect(page.locator('#sectionLifecycle').getByRole('button', { name: /delete|execute/i })).toHaveCount(0);
 
     await clickAdminNavSection(page, 'operations');
+    await expect(page.locator('#sectionOperations')).toContainText('Operator triage');
+    await expect(page.locator('#sectionOperations')).toContainText('Next Safe Action');
+    await expect(page.locator('#sectionOperations')).toContainText('Manual review is not backfill');
     await expect(page.locator('#sectionOperations')).toContainText('Operator Timeline / Triage');
     await expect(page.locator('#operatorTimelineState')).toContainText('Read-only redacted operator timeline');
     await expect(page.locator('#operatorTimelineSummary')).toContainText('metadata only no r2 listing');
@@ -10892,6 +10905,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#tenantReviewSummary')).toContainText('Access switch blocked');
     await expect(page.locator('#tenantReviewSummary')).toContainText('Backfill blocked');
     await expect(page.locator('#tenantReviewSummary')).toContainText('Review-state only');
+    await expect(page.locator('#sectionOperations')).toContainText('Tenant review workflow');
+    await expect(page.locator('#sectionOperations')).toContainText('Dry-run first');
+    await expect(page.locator('#sectionOperations')).toContainText('No asset deletion');
     await expect(page.locator('#tenantReviewPostCleanupBanner')).toContainText('Post-cleanup evidence collected');
     await expect(page.locator('#tenantReviewPostCleanupBanner')).toContainText('Review queue still contains pre-cleanup rows');
     await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Active current');
@@ -10960,6 +10976,9 @@ test.describe('Admin Control Plane', () => {
     await clickAdminNavSection(page, 'tenant-assets');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Asset Center');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Asset Domain Matrix');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Next Safe Action');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Review D1 metadata evidence and manual-review dry-runs first');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Do not execute tenant changes here');
     await expect(page.locator('#sectionTenantAssets')).toContainText('AI folders');
     await expect(page.locator('#sectionTenantAssets')).toContainText('AI text assets');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Public gallery references: Memtracks');
@@ -11026,6 +11045,9 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Readiness & Evidence Dashboard');
+    await expect(page.locator('#sectionReadiness')).toContainText('Release evidence workflow');
+    await expect(page.locator('#sectionReadiness')).toContainText('Next Safe Action');
+    await expect(page.locator('#sectionReadiness')).toContainText('Keep claims blocked');
     await expect(page.locator('#sectionReadiness')).toContainText('0060_add_app_settings.sql');
     await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Confirmed legacy media reset readiness');
@@ -11162,6 +11184,9 @@ test.describe('Admin Control Plane', () => {
     await expect(aiGroup).toHaveClass(/admin-nav__group--active/);
     await expect(aiGroup).toHaveClass(/admin-nav__group--expanded/);
     await expect(page.locator('#sectionAiBudgetSwitches')).toBeVisible();
+    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('AI cost controls');
+    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('Next Safe Action');
+    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('Switch and archive writes are guarded');
     await expect(page.locator('#platformBudgetCapsPanel')).toBeVisible();
     await expect(page.locator('#platformBudgetCapsPanel')).toContainText('not customer billing');
     await expect(page.locator('#platformBudgetCapsPanel')).toContainText('Cap required');
@@ -11338,6 +11363,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     const center = page.locator('#billingEvidencePanel');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Billing evidence');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Next Safe Action');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('This page never calls Stripe or adjusts credits');
     await expect(page.locator('#billingEvidenceState')).toContainText('Production readiness and live billing readiness remain BLOCKED');
     await expect(center).toContainText('Live Billing Readiness');
     await expect(center).toContainText('Credit Packs');

@@ -264,6 +264,38 @@
                     </div>
                 </div>
 
+                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="dashboardNextSafeActionTitle">
+                    <div class="admin-operator-guidance__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">Operator clarity</p>
+                            <h3 id="dashboardNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
+                            <p class="admin-shell__desc">Start with read-only evidence refreshes. Repo evidence health is operator context, not live production proof.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges" aria-label="Dashboard blocked claims">
+                            <span class="badge badge--disabled">Production readiness blocked</span>
+                            <span class="badge badge--disabled">Live billing readiness blocked</span>
+                            <span class="badge badge--legacy">Tenant isolation unclaimed</span>
+                        </div>
+                    </div>
+                    <div class="admin-operator-guidance__grid">
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--user">Read-only</span>
+                            <strong>Review evidence first</strong>
+                            <span>Open Readiness Matrix, Billing Evidence, Tenant Asset Safety, and Operations before considering any guarded mutation.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Guarded</span>
+                            <strong>Execute later</strong>
+                            <span>Mutating controls require admin/MFA, an operator reason, generated Idempotency-Key, and exact backend confirmations where required.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--disabled">Blocked</span>
+                            <strong>Do not infer readiness</strong>
+                            <span>Evidence-index success does not prove production readiness, live billing readiness, tenant isolation, confirmed reset readiness, or legal completion.</span>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Stats Cards -->
                 <div class="admin-stats-meta">
                     <span id="statsUpdated" class="admin-stats-updated"></span>
@@ -373,6 +405,37 @@
                  BILLING / CREDITS / ENTITLEMENTS
                  ═══════════════════════════════════════ -->
             <div id="sectionBilling" class="admin-section" style="display:none">
+                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="billingNextSafeActionTitle">
+                    <div class="admin-operator-guidance__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">Billing operator flow</p>
+                            <h3 id="billingNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
+                            <p class="admin-shell__desc">Inspect plans, entitlement keys, and balances before any manual grant. Manual credits are a guarded D1 mutation, not live billing readiness evidence.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges">
+                            <span class="badge badge--user">Read first</span>
+                            <span class="badge badge--legacy">Reason required</span>
+                            <span class="badge badge--disabled">Live billing blocked</span>
+                        </div>
+                    </div>
+                    <div class="admin-operator-guidance__grid">
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--user">Read-only</span>
+                            <strong>Use lookups first</strong>
+                            <span>Find organization or member billing state and compare against Billing Evidence before adding credits.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Mutating</span>
+                            <strong>Manual grants are guarded</strong>
+                            <span>Grant buttons create credit ledger changes and require reason plus browser-generated Idempotency-Key.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--disabled">Blocked</span>
+                            <strong>Live proof remains external</strong>
+                            <span>Stripe canary, webhook, duplicate-event, and operator evidence are required before any live billing readiness claim.</span>
+                        </div>
+                    </div>
+                </section>
                 <div class="admin-shell-grid">
                     <div class="admin-shell glass glass-card reveal visible">
                         <div class="admin-control-card-head">
@@ -436,7 +499,7 @@
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Manual User Credit Grant</h3>
-                        <p class="admin-shell__desc">Admin-only member grant. Manual credits add to the user balance and are not overwritten by daily top-ups.</p>
+                        <p class="admin-shell__desc">Admin-only member grant. Manual credits add to the user balance and are not overwritten by daily top-ups. This mutates D1 credit state and requires a reason plus generated Idempotency-Key.</p>
                         <form id="userCreditGrantForm" class="admin-control-form">
                             <label class="admin-ai__field">
                                 <span class="admin-ai__label">User email</span>
@@ -473,6 +536,37 @@
                         <span class="badge badge--user">Testmode only event log</span>
                     </div>
                 </div>
+                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="billingEventsNextSafeActionTitle">
+                    <div class="admin-operator-guidance__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">Billing evidence</p>
+                            <h3 id="billingEventsNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
+                            <p class="admin-shell__desc">Refresh Billing Evidence, review blocked billing events, and copy the evidence checklist. This page never calls Stripe or adjusts credits.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges">
+                            <span class="badge badge--user">Read-only evidence</span>
+                            <span class="badge badge--legacy">Operator review only</span>
+                            <span class="badge badge--disabled">Production blocked</span>
+                        </div>
+                    </div>
+                    <div class="admin-operator-guidance__grid">
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--user">Evidence</span>
+                            <strong>Collect missing proof</strong>
+                            <span>Use the evidence checklist for live config, checkout canary, webhook receipt, and duplicate-event idempotency proof.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Review</span>
+                            <strong>Classify events manually</strong>
+                            <span>Resolve or dismiss review records only after human review; those actions do not call Stripe or repair credits.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--disabled">Blocked</span>
+                            <strong>No readiness shortcut</strong>
+                            <span>Local reconciliation and sanitized provider logs remain insufficient for live billing readiness without operator canary evidence.</span>
+                        </div>
+                    </div>
+                </section>
                 <div class="admin-control-subsection">
                     <div class="admin-control-subsection__header">
                         <div>
@@ -602,7 +696,7 @@
                 <div id="aiAttemptDetail" class="admin-control-detail glass glass-card" hidden></div>
                 <div class="admin-shell glass glass-card reveal visible">
                     <h3 class="admin-section-title">Cleanup Expired Attempts</h3>
-                    <p class="admin-shell__desc">Dry-run is the default. Execute mode releases stale reservations and cleans only eligible expired replay metadata/temporary replay objects.</p>
+                    <p class="admin-shell__desc">Dry-run is the default. Execute mode is mutating: it releases stale reservations and cleans only eligible expired replay metadata/temporary replay objects with a generated Idempotency-Key.</p>
                     <form id="aiCleanupForm" class="admin-control-form admin-control-form--inline">
                         <label class="admin-ai__field">
                             <span class="admin-ai__label">Limit</span>
@@ -640,6 +734,37 @@
                     </div>
                     <button type="button" id="aiBudgetSwitchesRefresh" class="btn-action">Refresh</button>
                 </div>
+                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="aiBudgetNextSafeActionTitle">
+                    <div class="admin-operator-guidance__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">AI cost controls</p>
+                            <h3 id="aiBudgetNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
+                            <p class="admin-shell__desc">Verify effective switch state, cap state, reconciliation, and sanitized archive evidence before enabling any provider-cost path.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges">
+                            <span class="badge badge--user">Review first</span>
+                            <span class="badge badge--legacy">Reason required</span>
+                            <span class="badge badge--disabled">No Cloudflare var edit</span>
+                        </div>
+                    </div>
+                    <div class="admin-operator-guidance__grid">
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--user">Diagnostics</span>
+                            <strong>Check effective state</strong>
+                            <span>Cloudflare master flag, D1 app switch, and platform budget cap must all allow the path.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Mutating</span>
+                            <strong>Switch and archive writes are guarded</strong>
+                            <span>Updates require operator reason and generated Idempotency-Key; evidence archives do not approve production readiness.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--disabled">Blocked</span>
+                            <strong>Live evidence still required</strong>
+                            <span>Admin budget controls do not prove customer billing, provider safety, or production readiness.</span>
+                        </div>
+                    </div>
+                </section>
                 <div class="admin-shell glass glass-card reveal visible admin-operator-map" aria-labelledby="aiBudgetOperatorMapTitle">
                     <div class="admin-section-heading-row">
                         <h3 id="aiBudgetOperatorMapTitle" class="admin-section-title">Operator Control Map</h3>
@@ -824,6 +949,37 @@
                         <span class="badge badge--disabled">No legal compliance claim</span>
                     </div>
                 </div>
+                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="lifecycleNextSafeActionTitle">
+                    <div class="admin-operator-guidance__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">Privacy operations</p>
+                            <h3 id="lifecycleNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
+                            <p class="admin-shell__desc">Inspect requests, generate plans, and export evidence. Full legal/GDPR completion is only claimable per completed request evidence.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges">
+                            <span class="badge badge--user">Plan first</span>
+                            <span class="badge badge--legacy">Evidence required</span>
+                            <span class="badge badge--disabled">No automatic legal claim</span>
+                        </div>
+                    </div>
+                    <div class="admin-operator-guidance__grid">
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--user">Read-only</span>
+                            <strong>Review request detail</strong>
+                            <span>Open the request overlay and inspect retained categories, plan state, and evidence before any action.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Guarded</span>
+                            <strong>State changes require evidence</strong>
+                            <span>Approvals, safe execution, completion, rejection, and close flows stay backend-guarded and idempotent.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--disabled">Blocked</span>
+                            <strong>No blanket completion</strong>
+                            <span>One completed lifecycle request does not prove full legal readiness or unrelated data erasure completion.</span>
+                        </div>
+                    </div>
+                </section>
                 <div class="admin-shell-grid">
                     <div class="admin-shell glass glass-card reveal visible">
                         <div class="admin-control-card-head">
@@ -862,6 +1018,37 @@
                     </div>
                     <button type="button" id="operationsRefresh" class="btn-action">Refresh</button>
                 </div>
+                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="operationsNextSafeActionTitle">
+                    <div class="admin-operator-guidance__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">Operator triage</p>
+                            <h3 id="operationsNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
+                            <p class="admin-shell__desc">Use timeline filters, copy the evidence index/runbook, then review tenant manual-review dry-run results before any guarded status change.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges">
+                            <span class="badge badge--user">No external calls</span>
+                            <span class="badge badge--legacy">Review first</span>
+                            <span class="badge badge--disabled">Dangerous operations unavailable</span>
+                        </div>
+                    </div>
+                    <div class="admin-operator-guidance__grid">
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--user">Read-only</span>
+                            <strong>Start with timeline</strong>
+                            <span>Filter by attention, source, severity, and status to find evidence gaps without executing remediation.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Review-state only</span>
+                            <strong>Manual review is not backfill</strong>
+                            <span>Tenant review status updates record review evidence only; they do not change ownership or access checks.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--disabled">Blocked</span>
+                            <strong>No live execution here</strong>
+                            <span>Deploys, remote migrations, R2 listing/deletion, live billing, backfill, access-switch, and reset execution are absent or disabled.</span>
+                        </div>
+                    </div>
+                </section>
                 <div class="admin-control-subsection">
                     <div class="admin-control-subsection__header">
                         <div>
@@ -967,6 +1154,20 @@
                     </div>
                     <div id="tenantReviewState" class="admin-state" aria-live="polite">Loading tenant asset manual-review evidence...</div>
                     <div id="tenantReviewSummary"></div>
+                    <section class="admin-operator-guidance admin-operator-guidance--compact" aria-labelledby="tenantReviewNextSafeActionTitle">
+                        <div class="admin-operator-guidance__header">
+                            <div>
+                                <p class="admin-operator-guidance__eyebrow">Tenant review workflow</p>
+                                <h3 id="tenantReviewNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
+                                <p class="admin-shell__desc">Run the post-cleanup supersession dry-run, export evidence, and review safe candidates before exact-confirmation execution.</p>
+                            </div>
+                            <div class="admin-control-toolbar__badges">
+                                <span class="badge badge--user">Dry-run first</span>
+                                <span class="badge badge--legacy">Exact confirmation required</span>
+                                <span class="badge badge--disabled">No asset deletion</span>
+                            </div>
+                        </div>
+                    </section>
                     <div class="admin-alert admin-alert--warning" id="tenantReviewPostCleanupBanner" role="status">
                         <strong>Post-cleanup evidence collected.</strong>
                         Review queue still contains pre-cleanup rows. Run supersession dry-run before treating counts as current.
