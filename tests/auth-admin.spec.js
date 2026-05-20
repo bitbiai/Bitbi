@@ -11004,6 +11004,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionTenantAssets')).toContainText('R2 USER_IMAGES object family');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Ownership backfill');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Access switch');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Confirmed legacy reset');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Live R2 listing/deletion');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Reconciliation dry-run');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Isolation Execution');
@@ -11270,6 +11271,7 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Current Release Truth');
     await expect(readiness).toContainText('0060_add_app_settings.sql');
     await expect(readiness).toContainText('not live deploy proof');
+    await expect(readiness).toContainText('Repo evidence only');
     await expect(readiness).toContainText('Live Evidence State');
     await expect(readiness).toContainText('live evidence pending');
     await expect(readiness).toContainText('Release cutover manifest');
