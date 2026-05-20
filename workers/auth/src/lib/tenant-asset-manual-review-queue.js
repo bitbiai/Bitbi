@@ -601,7 +601,7 @@ export async function buildTenantAssetManualReviewEvidenceReport(env, input = {}
       recommendations: [
         "Use this report as operator evidence for review queue visibility only.",
         "Do not backfill ownership or switch access checks from this report.",
-        "Use the Phase 6.17 status workflow only for explicit review-status changes; assignment, notes, backfill planning, and Admin UI workflows remain separate future work.",
+        "Use the manual-review status workflow only for explicit review-status changes; assignment, notes, backfill planning, and Admin UI workflows remain separate future work.",
       ],
       limitations: [
         "This report reads manual-review state tables only.",

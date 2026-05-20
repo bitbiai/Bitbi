@@ -716,7 +716,7 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     sensitivity: "high",
     audit: { event: "tenant_asset_manual_review_status_update_requested" },
-    notes: "Phase 6.17 admin-approved manual-review status workflow. Requires Idempotency-Key, confirm=true, bounded reason, admin auth/MFA, same-origin JSON, and fail-closed rate limiting; writes only ai_asset_manual_review_items.review_status/review metadata and ai_asset_manual_review_events. It performs no ownership backfill, access-check switch, ai_folders/ai_images update, ownership metadata update, R2 listing/mutation, provider call, Stripe call, credit mutation, or billing behavior change.",
+    notes: "Admin-approved manual-review status workflow. Requires Idempotency-Key, confirm=true, bounded reason, admin auth/MFA, same-origin JSON, and fail-closed rate limiting; writes only ai_asset_manual_review_items.review_status/review metadata and ai_asset_manual_review_events. It performs no ownership backfill, access-check switch, ai_folders/ai_images update, ownership metadata update, R2 listing/mutation, provider call, Stripe call, credit mutation, or billing behavior change.",
   }),
   adminRead("admin.tenant-assets.folders-images.manual-review.evidence.read", "/api/admin/tenant-assets/folders-images/manual-review/evidence", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],

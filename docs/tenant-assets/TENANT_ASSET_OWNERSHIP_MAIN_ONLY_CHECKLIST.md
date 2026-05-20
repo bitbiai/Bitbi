@@ -14,7 +14,7 @@ This checklist is for owner-run evidence collection from `main` after the read-o
 | Reviewed commit SHA recorded |  | blocked |
 | Local validation completed |  | blocked |
 | Release plan reviewed |  | blocked |
-| Remote auth D1 migration `0058_add_legacy_media_reset_actions.sql` verified before Auth Worker deploy |  | blocked |
+| Remote auth D1 migration status verified through the latest auth schema checkpoint from `config/release-compat.json` before Auth Worker deploy |  | blocked |
 | Auth Worker containing tenant asset evidence endpoint deployed by operator if not already live |  | blocked |
 | No static/Admin UI deploy is required for evidence docs-only work |  | blocked |
 | Admin account and MFA path confirmed |  | blocked |

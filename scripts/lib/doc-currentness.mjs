@@ -53,6 +53,8 @@ const SUPERSEDED_STALE_DOCS = new Set([
   "docs/cloudflare-rate-limiting-wave1.md",
   "docs/gallery-exclusive-little-monster-cleanup.md",
   "docs/soundlab-free-exclusive-cleanup.md",
+  "docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md",
+  "docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md",
 ]);
 
 const ACTIVE_RUNBOOK_POLICY_DOCS = new Set([
@@ -69,8 +71,6 @@ const ACTIVE_RUNBOOK_POLICY_DOCS = new Set([
   "docs/ai-image-derivatives-runbook.md",
   "docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md",
   "docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md",
-  "docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md",
-  "docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md",
 ]);
 
 const ACTIVE_DOMAIN_DESIGN_DOCS = new Set([
@@ -102,6 +102,18 @@ const CURRENT_AUTH_MIGRATION_CLAIM_PATTERNS = Object.freeze([
   {
     id: "auth-migrations-through",
     regex: /\bauth\s+migrations?\b.*\b(?:through|to)\b/i,
+  },
+  {
+    id: "auth-d1-migration-verified-through",
+    regex: /\bauth\s+D1\s+migration\b.*\bverified\b.*\b(?:through|to|before)\b/i,
+  },
+  {
+    id: "migration-status-verified-through",
+    regex: /\bmigration\s+status\b.*\bverified\b.*\b(?:through|to)\b/i,
+  },
+  {
+    id: "required-migration-through",
+    regex: /\brequired\s+(?:auth\s+D1\s+)?migration\b.*\b(?:through|to)\b/i,
   },
   {
     id: "apply-auth-migrations-through",
@@ -150,6 +162,11 @@ const ACTIVE_GUIDANCE_DOC_RULES = Object.freeze([
       },
     ],
   },
+]);
+
+const ACTIVE_STALE_MIGRATION_SCAN_CATEGORIES = new Set([
+  "active_domain_design",
+  "active_runbook_policy",
 ]);
 
 function readJsonFile(filePath) {
@@ -389,7 +406,7 @@ export function scanDocCurrentness(repoRoot, options = {}) {
       if (category === "ignored") continue;
       markdownInventory.push({ path: markdownPath, category });
       categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-      if (category === "active_domain_design" && !staleMigrationClaimScanPaths.has(markdownPath)) {
+      if (ACTIVE_STALE_MIGRATION_SCAN_CATEGORIES.has(category) && !staleMigrationClaimScanPaths.has(markdownPath)) {
         const text = fs.readFileSync(path.join(repoRoot, markdownPath), "utf8");
         scanStaleCurrentAuthMigrationClaims(markdownPath, text, latest, violations);
         staleMigrationClaimScanPaths.add(markdownPath);

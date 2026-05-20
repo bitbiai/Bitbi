@@ -2066,9 +2066,9 @@ async function mockAdminControlPlane(page, captures = {}) {
           'blocked claims acknowledged',
         ],
         waveMatrix: [
-          'P0-01 through P0-05 repo-supported; evidence blockers remain visible',
-          'P1 Waves 1-9 repo-supported; live/manual evidence remains pending where applicable',
-          'P1 Wave 10 RC framework is local-only and does not prove production readiness',
+          'Core readiness gates are repo-supported; evidence blockers remain visible',
+          'Security, cost, Admin, lifecycle, tenant asset, and release controls are repo-supported; live/manual evidence remains pending where applicable',
+          'Release candidate framework is local-only and does not prove production readiness',
         ],
         dangerousActionsOffered: false,
         browserExecutesCommands: false,
@@ -2083,20 +2083,20 @@ async function mockAdminControlPlane(page, captures = {}) {
         { label: 'Confirmed media deletion/reset', status: 'not_approved' },
       ],
       hardeningStatus: [
-        { label: 'P0-01 main release readiness gate', status: 'implemented_repo_supported' },
-        { label: 'P0-02 confirmed legacy reset gate', status: 'implemented_default_off' },
-        { label: 'P0-03 sanitized legacy reset dry-run evidence', status: 'pending_blocking' },
-        { label: 'P0-04 manual-review idempotency evidence', status: 'pending_blocking' },
-        { label: 'P0-05 active documentation drift cleanup', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 1 security/cost hardening', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 2 release/canary/billing/admin mutation hardening', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 4 Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 6 tenant asset/storage evidence expansion', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 7 billing evidence/control plane', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 9 production readiness execution framework', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 10 release candidate consolidation', status: 'implemented_repo_supported_go_no_go_blocked' },
+        { label: 'Main release readiness gate', status: 'implemented_repo_supported' },
+        { label: 'Confirmed legacy reset gate', status: 'implemented_default_off' },
+        { label: 'Sanitized legacy reset dry-run evidence', status: 'pending_blocking' },
+        { label: 'Manual-review idempotency evidence', status: 'pending_blocking' },
+        { label: 'Active documentation drift cleanup', status: 'implemented_repo_supported' },
+        { label: 'Security and cost hardening', status: 'implemented_repo_supported' },
+        { label: 'Release, canary, billing, and admin mutation hardening', status: 'implemented_repo_supported' },
+        { label: 'Admin, data, observability, and scale hardening', status: 'implemented_repo_supported' },
+        { label: 'Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
+        { label: 'Live evidence and cutover tooling', status: 'implemented_repo_supported' },
+        { label: 'Tenant asset and storage evidence expansion', status: 'implemented_repo_supported' },
+        { label: 'Billing evidence and control plane', status: 'implemented_repo_supported' },
+        { label: 'Production execution framework', status: 'implemented_repo_supported' },
+        { label: 'Release candidate consolidation', status: 'implemented_repo_supported_go_no_go_blocked' },
       ],
       runtimeSafetyGates: [
         {
@@ -11029,7 +11029,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionReadiness')).toContainText('0060_add_app_settings.sql');
     await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Confirmed legacy media reset readiness');
-    await expect(page.locator('#sectionReadiness')).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
+    await expect(page.locator('#sectionReadiness')).toContainText('Admin, data, observability, and scale hardening');
     await expect(page.locator('#sectionReadiness')).toContainText('ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION');
     await expect(page.locator('#sectionReadiness')).toContainText('Legacy reset sanitized dry-run evidence');
     await expect(page.locator('#sectionReadiness')).toContainText('Command Center');
@@ -11240,7 +11240,7 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Rollback Drill');
     await expect(readiness).toContainText('Release Candidate / Go-No-Go');
     await expect(readiness).toContainText('Release Candidate Status');
-    await expect(readiness).toContainText('P0/P1 Wave Matrix');
+    await expect(readiness).toContainText('Readiness Matrix');
     await expect(readiness).toContainText('Final RC Commands');
     await expect(readiness).toContainText('Go/No-Go Checklist');
     await expect(readiness).toContainText('repo-supported');
@@ -11255,16 +11255,18 @@ test.describe('Admin Control Plane', () => {
     await expect(readiness).toContainText('Production readiness');
     await expect(readiness).toContainText('Live billing readiness');
     await expect(readiness).toContainText('Tenant isolation');
-    await expect(readiness).toContainText('P0-02 confirmed legacy reset gate');
-    await expect(readiness).toContainText('P0-03 sanitized legacy reset dry-run evidence');
-    await expect(readiness).toContainText('P0-04 manual-review idempotency evidence');
-    await expect(readiness).toContainText('P1 Wave 1 security/cost hardening');
-    await expect(readiness).toContainText('P1 Wave 2 release/canary/billing/admin mutation hardening');
-    await expect(readiness).toContainText('P1 Wave 3 admin/data/observability/scale hardening');
-    await expect(readiness).toContainText('P1 Wave 5 live evidence/cutover tooling');
-    await expect(readiness).toContainText('P1 Wave 7 billing evidence/control plane');
-    await expect(readiness).toContainText('P1 Wave 9 production readiness execution framework');
-    await expect(readiness).toContainText('P1 Wave 10 release candidate consolidation');
+    await expect(readiness).toContainText('Confirmed legacy reset gate');
+    await expect(readiness).toContainText('Sanitized legacy reset dry-run evidence');
+    await expect(readiness).toContainText('Manual-review idempotency evidence');
+    await expect(readiness).toContainText('Security and cost hardening');
+    await expect(readiness).toContainText('Release, canary, billing, and admin mutation hardening');
+    await expect(readiness).toContainText('Admin, data, observability, and scale hardening');
+    await expect(readiness).toContainText('Live evidence and cutover tooling');
+    await expect(readiness).toContainText('Billing evidence and control plane');
+    await expect(readiness).toContainText('Production execution framework');
+    await expect(readiness).toContainText('Release candidate consolidation');
+    await expect(readiness).not.toContainText('P0/P1 Wave Matrix');
+    await expect(readiness).not.toContainText('P1 Wave');
     await expect(readiness).toContainText('Runtime Safety Gates');
     await expect(readiness).toContainText('disabled default off');
     await expect(readiness).toContainText('Fetch Metadata CSRF hardening');

@@ -11,7 +11,7 @@ The active workflow is **main-only**. There is no required separate staging envi
 ## Prerequisites
 
 - The reviewed Auth Worker code containing the tenant asset evidence endpoints is deployed by the operator, if not already live.
-- Remote auth D1 migration status is verified through `0058_add_legacy_media_reset_actions.sql` before deploying Auth Worker code that depends on the current schema foundation.
+- Remote auth D1 migration status is verified through the latest auth schema checkpoint reported by `config/release-compat.json` before deploying Auth Worker code that depends on the current schema foundation.
 - The operator has a platform admin account and completes admin MFA where required.
 - Evidence is saved in an operator-approved private evidence location. Do not commit live evidence files if they contain user ids or production row identifiers.
 - Sanitized in-repo summaries, pending records, or approved redacted exports belong under `docs/tenant-assets/evidence/`.

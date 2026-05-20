@@ -2,6 +2,8 @@
 
 Last updated: 2026-05-15
 
+Current-state note: this checklist is retained as superseded/stale context for a historical member image gateway release slice. Do not use it as current release truth. For current deploy and migration boundaries, use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md`, `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`, `config/release-compat.json`, and `npm run release:plan`.
+
 Default verdict: **BLOCKED**
 
 Allowed final verdicts:

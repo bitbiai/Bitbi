@@ -23,7 +23,7 @@ This workflow is main-only. Do not mark evidence as collected unless it came fro
 | Item | Evidence | Result |
 | --- | --- | --- |
 | Auth Worker contains tenant asset evidence endpoint |  | blocked |
-| Remote auth D1 migration status verified through `0058_add_legacy_media_reset_actions.sql` |  | blocked |
+| Remote auth D1 migration status verified through the latest auth schema checkpoint from `config/release-compat.json` |  | blocked |
 | Admin account approved for evidence collection |  | blocked |
 | Admin MFA completed where required |  | blocked |
 | Evidence storage location approved and private |  | blocked |

@@ -6,14 +6,14 @@ import { scanDocCurrentness } from "./lib/doc-currentness.mjs";
 
 const latest = "0060_add_app_settings.sql";
 
-function makeRepo() {
+function makeRepo(latestMigration = latest) {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-doc-currentness-"));
   fs.mkdirSync(path.join(repo, "config"), { recursive: true });
   fs.writeFileSync(path.join(repo, "config", "release-compat.json"), JSON.stringify({
     release: {
       schemaCheckpoints: {
         auth: {
-          latest,
+          latest: latestMigration,
         },
       },
     },
@@ -76,6 +76,59 @@ function writeFile(repo, relativePath, text) {
 
 {
   const repo = makeRepo();
+  writeFile(repo, "README.md", "Remote auth D1 migration status verified through `0058_add_legacy_media_reset_actions.sql` before deploy.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+    requireLatest: false,
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "stale-latest-migration");
+  assert.equal(result.violations[0].rule, "auth-d1-migration-verified-through");
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", "auth D1 migration verified through `0048_add_member_ai_usage_attempts.sql` before Auth Worker deploy.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+    requireLatest: false,
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "stale-latest-migration");
+  assert.match(result.violations[0].message, /0048_add_member_ai_usage_attempts\.sql/);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: latest auth D1 migration is ${latest}.\n`);
+  writeFile(repo, "docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md", "Required migration through `0059_add_data_lifecycle_completion_state.sql` before current deploy.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+    requireLatest: false,
+  });
+  assert(result.violations.some((violation) => violation.type === "stale-latest-migration"
+    && violation.file === "docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md"
+    && violation.rule === "required-migration-through"));
+  assert.equal(
+    result.markdownInventory.find((entry) => entry.path === "docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md")?.category,
+    "active_runbook_policy"
+  );
+}
+
+{
+  const repo = makeRepo("0061_future_release_contract.sql");
+  writeFile(repo, "README.md", "Latest auth D1 migration: `0060_add_app_settings.sql`\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+    requireLatest: false,
+  });
+  assert.equal(result.latest, "0061_future_release_contract.sql");
+  assert.equal(result.violations.length, 1);
+  assert.match(result.violations[0].message, /0061_future_release_contract\.sql/);
+}
+
+{
+  const repo = makeRepo();
   writeFile(repo, "README.md", "Current auth migration: `0060`\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
@@ -93,6 +146,20 @@ function writeFile(repo, relativePath, text) {
   });
   assert.deepEqual(result.violations, []);
   assert.equal(result.categoryCounts.historical_phase_report, 1);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md", "Latest auth migration is `0048_add_member_ai_usage_attempts.sql`.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(
+    result.markdownInventory.find((entry) => entry.path === "docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md")?.category,
+    "superseded_stale"
+  );
 }
 
 {

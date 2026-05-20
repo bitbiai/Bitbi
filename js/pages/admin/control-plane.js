@@ -291,9 +291,9 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
             'blocked claims acknowledged',
         ],
         waveMatrix: [
-            'P0-01 through P0-05 repo-supported; evidence blockers remain visible',
-            'P1 Waves 1-9 repo-supported; live/manual evidence remains pending where applicable',
-            'P1 Wave 10 RC framework is local-only and does not prove production readiness',
+            'Core readiness gates are repo-supported; evidence blockers remain visible',
+            'Security, cost, Admin, lifecycle, tenant asset, and release controls are repo-supported; live/manual evidence remains pending where applicable',
+            'Release candidate framework is local-only and does not prove production readiness',
         ],
         dangerousActionsOffered: false,
         browserExecutesCommands: false,
@@ -321,18 +321,18 @@ const READINESS_FALLBACK_STATUS = Object.freeze({
         { label: 'Confirmed media deletion/reset', status: 'not_approved' },
     ],
     hardeningStatus: [
-        { label: 'P0-01 main release readiness gate', status: 'implemented_repo_supported' },
-        { label: 'P0-02 confirmed legacy reset gate', status: 'implemented_default_off' },
-        { label: 'P0-03 sanitized legacy reset dry-run evidence', status: 'pending_blocking' },
-        { label: 'P0-04 manual-review idempotency evidence', status: 'pending_blocking' },
-        { label: 'P0-05 active documentation drift cleanup', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 1 security/cost hardening', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 2 release/canary/billing/admin mutation hardening', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 3 admin/data/observability/scale hardening', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 4 Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 5 live evidence/cutover tooling', status: 'implemented_repo_supported' },
-        { label: 'P1 Wave 9 production execution framework', status: 'implemented_repo_supported_live_evidence_pending' },
-        { label: 'P1 Wave 10 release candidate consolidation', status: 'implemented_repo_supported_go_no_go_blocked' },
+        { label: 'Main release readiness gate', status: 'implemented_repo_supported' },
+        { label: 'Confirmed legacy reset gate', status: 'implemented_default_off' },
+        { label: 'Sanitized legacy reset dry-run evidence', status: 'pending_blocking' },
+        { label: 'Manual-review idempotency evidence', status: 'pending_blocking' },
+        { label: 'Active documentation drift cleanup', status: 'implemented_repo_supported' },
+        { label: 'Security and cost hardening', status: 'implemented_repo_supported' },
+        { label: 'Release, canary, billing, and admin mutation hardening', status: 'implemented_repo_supported' },
+        { label: 'Admin, data, observability, and scale hardening', status: 'implemented_repo_supported' },
+        { label: 'Admin Readiness & Evidence Dashboard', status: 'implemented_repo_supported' },
+        { label: 'Live evidence and cutover tooling', status: 'implemented_repo_supported' },
+        { label: 'Production execution framework', status: 'implemented_repo_supported_live_evidence_pending' },
+        { label: 'Release candidate consolidation', status: 'implemented_repo_supported_go_no_go_blocked' },
     ],
     runtimeSafetyGates: [
         { label: 'ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION', expected: 'off', enabled: false, status: 'disabled_default_off' },
@@ -3540,7 +3540,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     function appendTenantReviewStatusForm(container, item) {
         const allowed = allowedTenantReviewTransitions(item.reviewStatus);
         if (!allowed.length) {
-            container.appendChild(el('p', 'admin-shell__desc', 'This review status has no outgoing transition in the Phase 6.17 workflow.'));
+            container.appendChild(el('p', 'admin-shell__desc', 'This review status has no outgoing transition in the manual-review status workflow.'));
             return;
         }
         const form = el('form', 'admin-control-form');
@@ -4711,7 +4711,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const copy = el('div');
         copy.append(el('p', 'admin-control-hero__eyebrow', 'Readiness & Evidence Dashboard'));
         copy.append(el('h2', 'admin-control-hero__title', 'Current platform state, blocked claims, and safe operator actions.'));
-        copy.append(el('p', 'admin-control-hero__copy', 'This dashboard centralizes repo-supported OMEGA/P1 readiness state. It does not prove live deploy status, live billing readiness, tenant isolation, ownership backfill readiness, access-switch readiness, or confirmed reset readiness.'));
+        copy.append(el('p', 'admin-control-hero__copy', 'This dashboard centralizes repo-supported readiness state. It does not prove live deploy status, live billing readiness, tenant isolation, ownership backfill readiness, access-switch readiness, or confirmed reset readiness.'));
         const badges = el('div', 'admin-control-hero__badges');
         badges.append(
             badge('Production blocked', 'disabled'),
@@ -4898,9 +4898,9 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 ],
             },
             {
-                title: 'P0/P1 Wave Matrix',
+                title: 'Readiness Matrix',
                 badge: 'Evidence blockers visible',
-                copy: 'Completed waves are repo-supported current state. Evidence blockers stay visible and do not become live readiness claims.',
+                copy: 'Implemented capability areas are repo-supported current state. Evidence blockers stay visible and do not become live readiness claims.',
                 meta: [
                     ['Matrix', (rc.waveMatrix || []).join(', ')],
                 ],
@@ -5227,7 +5227,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         renderReleaseCandidate(container, status);
         renderLiveEvidenceState(container, status);
         renderReadinessStatusGrid(container, 'Blocked Claims', 'These claims remain blocked or unclaimed unless separate operator evidence proves otherwise.', status.blockedClaims);
-        renderReadinessStatusGrid(container, 'P0/P1 Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);
+        renderReadinessStatusGrid(container, 'Current Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);
         renderReadinessStatusGrid(container, 'Runtime Safety Gates', 'Safety gates and controls are shown as operator signals; missing gate values are safe/default-off unless explicitly enabled.', status.runtimeSafetyGates);
         renderReadinessStatusGrid(container, 'Evidence Status', 'Evidence gaps stay visible because they block readiness claims.', status.evidenceStatuses);
         renderEvidenceCenter(container);

@@ -48,7 +48,7 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 | `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` | Security/community policy. |
 | `docs/runbooks/*.md`, `docs/ops/*.md` | Incident/operator runbooks. |
 | `docs/BACKUP_RESTORE_DRILL.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/SLO_ALERT_BASELINE.md` | Operational readiness baselines. |
-| `docs/production-readiness/*CHECKLIST.md`, `docs/production-readiness/*RUNBOOK.md` | Release/evidence checklists and runbooks. |
+| `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`, `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` | Current release/evidence checklist and runbook. |
 | `docs/ai-image-derivatives-runbook.md` | AI derivative operational runbook. |
 
 ## Historical / Frozen Evidence
@@ -76,6 +76,8 @@ Keep these files for context only. Reconcile with the current baseline before re
 | `docs/cloudflare-rate-limiting-wave1.md` | Historical/dashboard-managed WAF note. |
 | `docs/gallery-exclusive-little-monster-cleanup.md` | Historical cleanup note; no deletion without live verification. |
 | `docs/soundlab-free-exclusive-cleanup.md` | Historical cleanup note; no deletion without live verification. |
+| `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` | Superseded historical release-slice checklist; use current main-only release docs and `config/release-compat.json` for release truth. |
+| `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` | Superseded historical release-slice checklist; use current main-only release docs and `config/release-compat.json` for release truth. |
 
 ## Documentation Rules
 

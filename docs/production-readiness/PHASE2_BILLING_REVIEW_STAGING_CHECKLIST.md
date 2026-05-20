@@ -2,6 +2,8 @@
 
 Last updated: 2026-05-15
 
+Current-state note: this checklist is retained as superseded/stale context for the historical billing review/reconciliation release slice. Do not use it as current release truth. For current deploy and migration boundaries, use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md`, `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`, `config/release-compat.json`, and `npm run release:plan`.
+
 Status: **planning and evidence capture only**. This checklist does not approve production deployment, live billing, Stripe remediation, credit clawback, or automatic reconciliation.
 
 Scope covered:
