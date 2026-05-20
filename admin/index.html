@@ -296,6 +296,22 @@
                     </div>
                 </section>
 
+                <section id="adminWorkbench" class="admin-workbench glass glass-card reveal visible" aria-labelledby="adminWorkbenchTitle" aria-live="polite">
+                    <div class="admin-workbench__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">Operator Workbench</p>
+                            <h3 id="adminWorkbenchTitle" class="admin-section-title">Operator Tasks</h3>
+                            <p class="admin-shell__desc">Task-oriented map of read-only evidence, blocked claims, and guarded execution areas. It does not execute backend actions.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges" aria-label="Workbench safety summary">
+                            <span class="badge badge--user">Review first</span>
+                            <span class="badge badge--legacy">Execute later</span>
+                            <span class="badge badge--disabled">Blocked claims remain</span>
+                        </div>
+                    </div>
+                    <div id="adminWorkbenchTasks" class="admin-workbench__grid"></div>
+                </section>
+
                 <!-- Stats Cards -->
                 <div class="admin-stats-meta">
                     <span id="statsUpdated" class="admin-stats-updated"></span>
@@ -372,6 +388,14 @@
                     <a href="#readiness" class="admin-quick-link glass glass-card reveal" data-nav="readiness">
                         <span class="admin-quick-link__icon">&#x2705;</span>
                         <span class="admin-quick-link__label">Readiness</span>
+                    </a>
+                    <a href="#tenant-assets" class="admin-quick-link glass glass-card reveal" data-nav="tenant-assets">
+                        <span class="admin-quick-link__icon">TA</span>
+                        <span class="admin-quick-link__label">Tenant Assets</span>
+                    </a>
+                    <a href="#operations" class="admin-quick-link glass glass-card reveal" data-nav="operations">
+                        <span class="admin-quick-link__icon">Ops</span>
+                        <span class="admin-quick-link__label">Operations</span>
                     </a>
                 </div>
 

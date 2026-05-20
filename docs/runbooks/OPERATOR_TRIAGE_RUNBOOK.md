@@ -16,11 +16,12 @@ Purpose: safe operator procedure for using the Admin Operator Timeline, evidence
 
 ## First Response
 
-1. Open `/admin/#operations` and refresh Operator Timeline / Triage.
-2. Filter by source, severity, status, or attention required.
-3. Use only safe links: Billing Reviews, Billing Reconciliation, Tenant Asset Center, Manual Review Queue, Data Lifecycle, AI Budget Evidence, Readiness/Evidence Dashboard, or Activity Log.
-4. Copy event IDs into the incident notes. Do not paste raw secrets, payloads, signatures, cookies, authorization headers, raw idempotency keys, raw request hashes, or private R2 keys.
-5. Run local evidence inventory when repo evidence is relevant:
+1. Open `/admin/` and review the Operator Workbench task cards for the safest current section.
+2. Open `/admin/#operations` and refresh Operator Timeline / Triage.
+3. Filter by source, severity, status, or attention required.
+4. Use only safe links: Release & Deploy Safety, Production Evidence, Billing Reviews, Billing Reconciliation, Tenant Asset Center, Manual Review Queue, Data Lifecycle, AI Budget Evidence, Readiness/Evidence Dashboard, or Activity Log.
+5. Copy event IDs into the incident notes. Do not paste raw secrets, payloads, signatures, cookies, authorization headers, raw idempotency keys, raw request hashes, or private R2 keys.
+6. Run local evidence inventory when repo evidence is relevant:
 
 ```bash
 npm run evidence:index

@@ -10587,6 +10587,19 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionDashboard')).toContainText('Next Safe Action');
     await expect(page.locator('#sectionDashboard')).toContainText('Review evidence first');
     await expect(page.locator('#sectionDashboard')).toContainText('Evidence-index success does not prove production readiness');
+    await expect(page.locator('#adminWorkbench')).toContainText('Operator Tasks');
+    await expect(page.locator('#adminWorkbench .admin-workbench-card')).toHaveCount(7);
+    await expect(page.locator('#adminWorkbench')).toContainText('Release & Deploy Safety');
+    await expect(page.locator('#adminWorkbench')).toContainText('Production Evidence');
+    await expect(page.locator('#adminWorkbench')).toContainText('Billing Evidence');
+    await expect(page.locator('#adminWorkbench')).toContainText('AI Budget Controls');
+    await expect(page.locator('#adminWorkbench')).toContainText('Tenant Asset Safety');
+    await expect(page.locator('#adminWorkbench')).toContainText('Data Lifecycle');
+    await expect(page.locator('#adminWorkbench')).toContainText('Operations Triage');
+    await expect(page.locator('#adminWorkbench')).toContainText('Read-only plus guarded mutation');
+    await expect(page.locator('#adminWorkbench')).toContainText('Tenant isolation, backfill readiness, access switch, and reset remain blocked/unclaimed.');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Tenant Asset Safety' })).toHaveAttribute('href', '#tenant-assets');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Release & Deploy Safety' })).toHaveAttribute('href', '#readiness');
     await expect(page.locator('#statTotal')).toHaveText('12');
 
     await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeAttached();
@@ -10618,6 +10631,8 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Budget Controls');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Tenant Asset Manual Review');
     await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Tenant Assets' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Operations' }).first()).toBeVisible();
     await expect(page.locator('#adminPanel')).not.toContainText(/OMEGA|P0\/P1 Wave Matrix|P1 Wave|implementation package/);
 
     await clickAdminNavSection(page, 'security');
