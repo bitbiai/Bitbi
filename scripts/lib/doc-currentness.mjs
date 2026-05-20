@@ -83,30 +83,45 @@ const ACTIVE_DOMAIN_DESIGN_DOCS = new Set([
   "docs/ai-cost-gateway/ADMIN_SYNC_VIDEO_DEBUG_RETIREMENT_AUDIT.md",
 ]);
 
-const STALE_LATEST_PATTERNS = Object.freeze([
+const AUTH_MIGRATION_REFERENCE_REGEX = /\b\d{4}(?:_[a-z0-9_]+(?:\.sql)?)?\b/gi;
+
+const CURRENT_RELEASE_TRUTH_CODE_PATHS = Object.freeze([
+  "js/pages/admin/control-plane.js",
+  "workers/auth/src/routes/admin.js",
+]);
+
+const CURRENT_AUTH_MIGRATION_CLAIM_PATTERNS = Object.freeze([
   {
     id: "latest-auth-migration",
-    regex: /\b(?:latest|current)\s+(?:auth\s+)?(?:D1\s+)?migration\b.*\b004[06](?:_[a-z0-9_]+)?(?:\.sql)?\b/i,
+    regex: /\b(?:latest|current)\s+(?:auth\s+)?(?:D1\s+)?migration\b/i,
   },
   {
     id: "latest-auth-d1-migration",
-    regex: /\blatest\s+auth\s+D1\s+migration\b.*\b004[06](?:_[a-z0-9_]+)?(?:\.sql)?\b/i,
+    regex: /\blatest\s+auth\s+D1\s+migration\b/i,
   },
   {
     id: "auth-migrations-through",
-    regex: /\bauth\s+migrations?\b.*\b(?:through|to)\b\s+`?\b004[06](?:_[a-z0-9_]+)?(?:\.sql)?\b`?/i,
+    regex: /\bauth\s+migrations?\b.*\b(?:through|to)\b/i,
   },
   {
     id: "apply-auth-migrations-through",
-    regex: /\bapply(?:ing)?\b.*\bauth\s+migrations?\b.*\b(?:through|to)\b\s+`?\b004[06](?:_[a-z0-9_]+)?(?:\.sql)?\b`?/i,
+    regex: /\bapply(?:ing)?\b.*\bauth\s+migrations?\b.*\b(?:through|to)\b/i,
   },
   {
     id: "migrations-numbered-through",
-    regex: /\bmigrations?\s+in\s+`?migrations\/?`?.*\bthrough\b\s+`?\b004[06](?:_[a-z0-9_]+)?(?:\.sql)?\b`?/i,
+    regex: /\bmigrations?\s+in\s+`?migrations\/?`?.*\bthrough\b/i,
   },
   {
     id: "release-compat-tracks",
-    regex: /\brelease\s+compat(?:ibility)?\b.*\b(?:tracks|declares|records|validates)\b.*\b004[06](?:_[a-z0-9_]+)?(?:\.sql)?\b/i,
+    regex: /\brelease\s+compat(?:ibility)?\b.*\b(?:tracks|declares|records|validates)\b/i,
+  },
+  {
+    id: "current-auth-schema-checkpoint",
+    regex: /\bCURRENT_AUTH_SCHEMA_CHECKPOINT\b/,
+  },
+  {
+    id: "latest-auth-migration-field",
+    regex: /\blatestAuthMigration\b/i,
   },
 ]);
 
@@ -218,6 +233,51 @@ function safeExcerpt(line) {
   return cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
 }
 
+function findAuthMigrationReferences(line) {
+  const references = String(line || "").match(AUTH_MIGRATION_REFERENCE_REGEX) || [];
+  return [...new Set(references)];
+}
+
+function isExpectedAuthMigrationReference(reference, latest) {
+  if (reference === latest) return true;
+  if (/^\d{4}$/.test(reference)) return reference === latest.slice(0, 4);
+  if (!reference.endsWith(".sql")) return `${reference}.sql` === latest;
+  return false;
+}
+
+function findStaleCurrentAuthMigrationClaim(line, latest) {
+  const references = findAuthMigrationReferences(line);
+  if (!references.length) return null;
+
+  for (const pattern of CURRENT_AUTH_MIGRATION_CLAIM_PATTERNS) {
+    if (!pattern.regex.test(line)) continue;
+    const staleReferences = references.filter((reference) => !isExpectedAuthMigrationReference(reference, latest));
+    if (!staleReferences.length) return null;
+    return {
+      rule: pattern.id,
+      staleReferences,
+    };
+  }
+
+  return null;
+}
+
+function scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violations) {
+  const lines = String(text || "").split(/\r?\n/);
+  lines.forEach((line, index) => {
+    const staleClaim = findStaleCurrentAuthMigrationClaim(line, latest);
+    if (!staleClaim) return;
+    violations.push({
+      type: "stale-latest-migration",
+      file: relativePath,
+      line: index + 1,
+      rule: staleClaim.rule,
+      message: `Current source appears to claim ${staleClaim.staleReferences.join(", ")} as the latest/current auth migration; expected ${latest} from config/release-compat.json.`,
+      excerpt: safeExcerpt(line),
+    });
+  });
+}
+
 function scanActiveGuidanceDocs(repoRoot, violations, scannedDocs) {
   for (const rule of ACTIVE_GUIDANCE_DOC_RULES) {
     const relativePath = normalizePathname(rule.file);
@@ -262,6 +322,7 @@ export function scanDocCurrentness(repoRoot, options = {}) {
   const checkMarkdownInventory = options.checkMarkdownInventory !== false;
   const violations = [];
   const scannedDocs = [];
+  const staleMigrationClaimScanPaths = new Set();
 
   for (const relativePath of currentDocs) {
     const absolutePath = path.join(repoRoot, relativePath);
@@ -314,20 +375,8 @@ export function scanDocCurrentness(repoRoot, options = {}) {
       });
     }
 
-    lines.forEach((line, index) => {
-      for (const pattern of STALE_LATEST_PATTERNS) {
-        if (!pattern.regex.test(line)) continue;
-        violations.push({
-          type: "stale-latest-migration",
-          file: relativePath,
-          line: index + 1,
-          rule: pattern.id,
-          message: `Current doc appears to claim 0040 or 0046 as the latest/current auth migration; expected ${latest}.`,
-          excerpt: safeExcerpt(line),
-        });
-        break;
-      }
-    });
+    scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violations);
+    staleMigrationClaimScanPaths.add(relativePath);
   }
 
   scanActiveGuidanceDocs(repoRoot, violations, scannedDocs);
@@ -340,6 +389,11 @@ export function scanDocCurrentness(repoRoot, options = {}) {
       if (category === "ignored") continue;
       markdownInventory.push({ path: markdownPath, category });
       categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+      if (category === "active_domain_design" && !staleMigrationClaimScanPaths.has(markdownPath)) {
+        const text = fs.readFileSync(path.join(repoRoot, markdownPath), "utf8");
+        scanStaleCurrentAuthMigrationClaims(markdownPath, text, latest, violations);
+        staleMigrationClaimScanPaths.add(markdownPath);
+      }
       if (category === "unknown_needs_review") {
         violations.push({
           type: "unclassified-markdown",
@@ -368,6 +422,13 @@ export function scanDocCurrentness(repoRoot, options = {}) {
         });
       }
     }
+  }
+
+  for (const relativePath of CURRENT_RELEASE_TRUTH_CODE_PATHS) {
+    const absolutePath = path.join(repoRoot, relativePath);
+    if (!fs.existsSync(absolutePath)) continue;
+    const text = fs.readFileSync(absolutePath, "utf8");
+    scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violations);
   }
 
   return {

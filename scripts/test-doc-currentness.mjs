@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { scanDocCurrentness } from "./lib/doc-currentness.mjs";
 
-const latest = "0053_add_platform_budget_caps.sql";
+const latest = "0060_add_app_settings.sql";
 
 function makeRepo() {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-doc-currentness-"));
@@ -52,8 +52,53 @@ function writeFile(repo, relativePath, text) {
 
 {
   const repo = makeRepo();
+  writeFile(repo, "README.md", "Latest auth D1 migration: `0059_add_data_lifecycle_completion_state.sql`\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+    requireLatest: false,
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "stale-latest-migration");
+  assert.match(result.violations[0].message, /0059_add_data_lifecycle_completion_state\.sql/);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", "Current auth migration: `0059`\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+    requireLatest: false,
+  });
+  assert.equal(result.violations.length, 1);
+  assert.equal(result.violations[0].type, "stale-latest-migration");
+  assert.match(result.violations[0].message, /0059/);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", "Current auth migration: `0060`\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+    requireLatest: false,
+  });
+  assert.deepEqual(result.violations, []);
+}
+
+{
+  const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md", "Latest auth D1 migration at that historical phase: `0040_add_live_stripe_credit_pack_scope.sql`\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(result.categoryCounts.historical_phase_report, 1);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md", "Latest auth D1 migration at that historical phase: `0059_add_data_lifecycle_completion_state.sql`\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
   });
@@ -242,6 +287,39 @@ function writeFile(repo, relativePath, text) {
   });
   assert.deepEqual(result.violations, []);
   assert.equal(result.categoryCounts.active_domain_design, 1);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md", "Current release truth: latest auth D1 migration is `0059_add_data_lifecycle_completion_state.sql`.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "stale-latest-migration"
+    && violation.file === "docs/tenant-assets/AI_FOLDERS_IMAGES_SCHEMA_ACCESS_PLAN.md"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "js/pages/admin/control-plane.js", "const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0059_add_data_lifecycle_completion_state.sql';\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "stale-latest-migration"
+    && violation.file === "js/pages/admin/control-plane.js"
+    && violation.rule === "current-auth-schema-checkpoint"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "js/pages/admin/control-plane.js", `const CURRENT_AUTH_SCHEMA_CHECKPOINT = '${latest}';\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
 }
 
 console.log("Doc currentness tests passed.");

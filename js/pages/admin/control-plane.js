@@ -155,7 +155,7 @@ const TENANT_REVIEW_STATUS_TRANSITIONS = {
 
 const TENANT_REVIEW_SUPERSEDE_CONFIRMATION = 'SUPERSEDE STALE REVIEW ITEMS';
 
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0059_add_data_lifecycle_completion_state.sql';
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0060_add_app_settings.sql';
 
 const READINESS_FALLBACK_STATUS = Object.freeze({
     releaseTruth: {
