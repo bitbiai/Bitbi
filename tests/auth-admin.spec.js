@@ -11618,7 +11618,10 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionUsers')).toBeVisible();
+    await expect(page.locator('#searchForm')).toBeVisible();
+    await expect(page.locator('#userLoadMoreBtn')).toBeHidden();
     await expect(page.locator('#userTbody tr')).toHaveCount(2);
+    await expect(page.locator('#userPagination')).toContainText('Showing all 2 users.');
 
     const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
     await expect(memberRow).toContainText('user_member');
@@ -11629,6 +11632,7 @@ test.describe('Admin Control Plane', () => {
     await expect(memberRow.getByRole('button', { name: 'Disable' })).toBeVisible();
     await expect(memberRow.getByRole('button', { name: 'Revoke Sessions' })).toBeVisible();
     await expect(memberRow.getByRole('button', { name: 'Delete' })).toBeVisible();
+    await expect(memberRow.getByRole('button', { name: 'Delete' })).toHaveAttribute('title', 'Delete this user with explicit confirmation.');
 
     await memberRow.getByRole('button', { name: 'Info' }).click();
     await expect(page.locator('#userInfoModal')).toBeVisible();
@@ -11664,6 +11668,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Rename' }).first()).toBeVisible();
     await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Delete' }).first()).toBeVisible();
     await expect(page.locator('#userStorageModal')).toContainText('Storage reconciliation dry-run');
+    await expect(page.locator('#userStorageModal')).toContainText('Storage usage is calculated from active Assets Manager files owned by this user.');
     await page.locator('#userStorageModal').getByRole('button', { name: 'Run D1 metadata reconciliation' }).click();
     await expect(page.locator('#userStorageModal')).toContainText('D1 metadata only');
     await expect(page.locator('#userStorageModal')).toContainText('needs_review');

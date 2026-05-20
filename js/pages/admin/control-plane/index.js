@@ -15,13 +15,18 @@ import {
 } from '../../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     CONTROL_SECTIONS,
-    badge,
     byId,
     capabilityProbe,
     clear,
     el,
     renderCards,
 } from './core.js?v=__ASSET_VERSION__';
+import {
+    renderSecurityPosturePanel,
+} from '../security.js?v=__ASSET_VERSION__';
+import {
+    renderAdminSettingsPanel,
+} from '../settings.js?v=__ASSET_VERSION__';
 import {
     renderAdminWorkbench,
 } from './guidance.js?v=__ASSET_VERSION__';
@@ -146,57 +151,11 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     }
 
     function renderSecurity() {
-        const container = byId('controlSecurity');
-        if (!container) return;
-        renderCards(container, [
-            {
-                title: 'Route Policy Registry',
-                badge: { label: 'Repo checked', variant: 'active' },
-                copy: 'High-risk auth-worker routes are registered and checked by npm run check:route-policies.',
-                meta: [['Scope', 'Review/CI metadata, not a live dashboard signal']],
-            },
-            {
-                title: 'Fail-Closed Limiters',
-                badge: { label: 'Sensitive routes', variant: 'active' },
-                copy: 'Auth, admin, AI, billing, lifecycle, and webhook mutation paths use fail-closed rate limiting where implemented.',
-                meta: [['Live verification', 'Required in staging/production']],
-            },
-            {
-                title: 'Admin MFA',
-                badge: { label: 'Production gated', variant: 'active' },
-                copy: 'Admin access is centrally MFA-gated in production and backed by durable failed-attempt state.',
-                meta: [['Secrets', 'Managed by deployment configuration only']],
-            },
-            {
-                title: 'Service Auth / Replay',
-                badge: { label: 'HMAC + nonce', variant: 'active' },
-                copy: 'Auth-to-AI service calls use HMAC authentication and Durable Object replay protection.',
-                meta: [['Secret values', 'Never shown in this UI']],
-            },
-            {
-                title: 'Production Readiness',
-                badge: { label: 'Blocked', variant: 'disabled' },
-                copy: 'This UI reflects repo/runtime API state. It does not prove live Cloudflare resources, migrations, WAF, headers, or Stripe endpoint readiness.',
-                meta: [['Required checks', 'Staging verification and live prereq validation']],
-            },
-        ]);
+        renderSecurityPosturePanel({ container: byId('controlSecurity'), renderCards });
     }
 
     function renderSettings() {
-        const container = byId('adminSettingsPanel');
-        if (!container) return;
-        renderCards(container, [
-            {
-                title: 'Admin Settings',
-                badge: { label: 'Deployment-owned', variant: 'legacy' },
-                copy: 'No safe backend admin settings API exists for mutable deployment configuration. Secrets and production flags stay in Cloudflare/deployment workflows.',
-            },
-            {
-                title: 'Local UI Preferences',
-                badge: { label: 'Future', variant: 'user' },
-                copy: 'Table density and saved filters can be added later as local-only preferences without backend mutation.',
-            },
-        ]);
+        renderAdminSettingsPanel({ container: byId('adminSettingsPanel'), renderCards });
     }
 
     function bind() {
