@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
+import { classifyFirstPartyMarkdownPath } from "./doc-currentness.mjs";
 
 const DEFAULT_SCAN_TARGETS = Object.freeze([
   "docs/production-readiness",
@@ -19,54 +21,72 @@ const MARKERS = Object.freeze([
   {
     id: "stripe_api_key",
     label: "Stripe API key",
+    markerClass: "secret_like",
     pattern: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_]{8,}\b/g,
   },
   {
     id: "stripe_webhook_secret",
     label: "Stripe webhook secret",
+    markerClass: "webhook_secret_like",
     pattern: /\bwhsec_[A-Za-z0-9_]{8,}\b/g,
   },
   {
     id: "stripe_signature",
     label: "Stripe signature header",
-    pattern: /\bStripe-Signature\b|^\s*stripe-signature\s*:/gim,
+    markerClass: "stripe_signature_like",
+    pattern: /\bStripe-Signature\b|^[^\S\r\n]*stripe-signature[^\S\r\n]*:/gim,
   },
   {
     id: "authorization_header",
     label: "Authorization header",
-    pattern: /^\s*Authorization\s*:|Bearer\s+[A-Za-z0-9._~+/=-]{12,}/gim,
+    markerClass: "authorization_header_like",
+    pattern: /^[^\S\r\n]*Authorization[^\S\r\n]*:|Bearer\s+[A-Za-z0-9._~+/=-]{12,}/gim,
   },
   {
     id: "cookie_header",
     label: "Cookie header",
-    pattern: /^\s*(?:Cookie|Set-Cookie)\s*:/gim,
+    markerClass: "cookie_header_like",
+    pattern: /^[^\S\r\n]*(?:Cookie|Set-Cookie)[^\S\r\n]*:/gim,
   },
   {
     id: "raw_idempotency_key",
     label: "Raw idempotency key",
-    pattern: /^\s*Idempotency-Key\s*:\s*\S+|\bidempotencyKey\s*[:=]\s*["']?[A-Za-z0-9_.:-]{12,}/gim,
+    markerClass: "idempotency_key_like",
+    pattern: /^[^\S\r\n]*Idempotency-Key[^\S\r\n]*:[^\S\r\n]*\S+|\bidempotencyKey\s*[:=]\s*["']?[A-Za-z0-9_.:-]{12,}/gim,
   },
   {
     id: "raw_request_hash",
     label: "Raw request hash",
+    markerClass: "request_hash_like",
     pattern: /\b(?:request_hash|requestHash)\s*[:=]\s*["']?[a-f0-9]{32,}/gim,
   },
   {
     id: "raw_r2_key",
     label: "Raw R2/storage key",
+    markerClass: "private_storage_key_like",
     pattern: /\b(?:r2_key|storage_key|storageKey|object_key|objectKey)\s*[:=]\s*["']?(?!\[redacted\])[^"',\s}]{8,}/gim,
   },
   {
     id: "raw_payload",
     label: "Raw provider payload",
+    markerClass: "raw_payload_like",
     pattern: /\b(?:raw_payload|rawPayload|payload_body|payloadBody)\s*[:=]/gim,
   },
   {
     id: "secret_token_value",
     label: "Secret/token value",
+    markerClass: "token_like",
     pattern: /\b(?:secret|token|password)\s*[:=]\s*["']?(?!\[redacted\]|present|missing)[A-Za-z0-9_./+=:-]{12,}/gim,
   },
+  {
+    id: "private_key_material",
+    label: "Private key material",
+    markerClass: "private_key_like",
+    pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g,
+  },
 ]);
+
+const SUPPRESSED_MARKER_PLACEHOLDER = "[unsafe-marker-value-suppressed]";
 
 function statOrNull(filePath) {
   try {
@@ -116,12 +136,35 @@ function listEvidenceFiles(repoRoot, targets = DEFAULT_SCAN_TARGETS) {
 export function detectUnsafeEvidenceMarkers(content) {
   const text = String(content || "");
   return MARKERS.map((marker) => {
-    const matches = text.match(marker.pattern) || [];
+    let count = 0;
     marker.pattern.lastIndex = 0;
-    return matches.length
-      ? { id: marker.id, label: marker.label, count: matches.length }
+    for (const match of text.matchAll(marker.pattern)) {
+      const line = getLineForMatch(text, match.index || 0);
+      if (isSuppressedUnsafeMarkerLine(line)) continue;
+      count += 1;
+    }
+    marker.pattern.lastIndex = 0;
+    return count
+      ? {
+        id: marker.id,
+        label: marker.label,
+        markerClass: marker.markerClass,
+        count,
+        rawValueSuppressed: true,
+      }
       : null;
   }).filter(Boolean);
+}
+
+function getLineForMatch(text, index) {
+  const start = text.lastIndexOf("\n", Math.max(0, index - 1)) + 1;
+  const end = text.indexOf("\n", index);
+  return text.slice(start, end === -1 ? text.length : end);
+}
+
+function isSuppressedUnsafeMarkerLine(line) {
+  return /\[(?:redacted|suppressed|unsafe-marker-value-suppressed)\]/i.test(line)
+    || /<redacted>/i.test(line);
 }
 
 function classifySource(relativePath, content) {
@@ -173,23 +216,39 @@ function classifyEvidence(relativePath, content, unsafeMarkers) {
 function classifyUnsafeReviewCandidate(relativePath, content) {
   const lowerPath = relativePath.toLowerCase();
   const text = String(content || "").toLowerCase();
+  const documentClassification = classifyReviewDocument(relativePath, content);
   if (lowerPath.includes("/archive/") || lowerPath.includes("historical") || lowerPath.includes("retired")) {
-    return {
+    return enrichUnsafeReview({
       triage: "historical_archive_candidate",
+      documentClassification,
+      readinessImpact: "review_required",
+      blockingReadiness: true,
+      recommendedOperatorAction: "leave_blocked_until_reviewed",
       action: "manual review before redaction; preserve frozen history unless policy requires rotation/redaction",
-    };
+      safeReason: "Historical/archive evidence is not current truth, but unresolved unsafe-marker candidates still block readiness evidence until an operator reviews and documents the decision.",
+    });
   }
   if (lowerPath.includes("template") || text.includes("operator to fill") || text.includes("example only")) {
-    return {
+    return enrichUnsafeReview({
       triage: "template_example_candidate",
+      documentClassification,
+      readinessImpact: "review_required",
+      blockingReadiness: true,
+      recommendedOperatorAction: "replace_with_sanitized_placeholder",
       action: "replace with fragmented or redacted examples; do not use provider-secret-looking literals",
-    };
+      safeReason: "Template/example evidence must use sanitized placeholders or fragmented examples before it can support readiness evidence.",
+    });
   }
   if (text.includes("[redacted]") || text.includes("redacted marker") || text.includes("placeholder only")) {
-    return {
+    return enrichUnsafeReview({
       triage: "accepted_redacted_marker",
+      documentClassification,
+      readinessImpact: "sanitized",
+      blockingReadiness: false,
+      recommendedOperatorAction: "verify_false_positive",
       action: "verify the marker is a redacted label only and contains no raw value",
-    };
+      safeReason: "The candidate appears to be a redacted placeholder. Verify that no raw value is present before treating it as accepted.",
+    });
   }
   if (
     lowerPath.startsWith("docs/production-readiness/")
@@ -198,15 +257,67 @@ function classifyUnsafeReviewCandidate(relativePath, content) {
     || lowerPath === "saas_progress_and_current_state_report.md"
     || lowerPath === "data_inventory.md"
   ) {
-    return {
+    return enrichUnsafeReview({
       triage: "active_current_blocker",
+      documentClassification,
+      readinessImpact: "blocking",
+      blockingReadiness: true,
+      recommendedOperatorAction: "redact_sensitive_value",
       action: "redact or replace before using as current evidence; do not bypass push protection",
-    };
+      safeReason: "Active/current evidence with unsafe-marker candidates is not safe for readiness packets until redacted or replaced.",
+    });
   }
-  return {
+  return enrichUnsafeReview({
     triage: "needs_manual_review",
+    documentClassification,
+    readinessImpact: "unresolved",
+    blockingReadiness: true,
+    recommendedOperatorAction: "leave_blocked_until_reviewed",
     action: "review path and marker IDs; redact if active evidence, preserve only if intentionally historical",
+    safeReason: "The file is not classified strongly enough for automatic acceptance; review by path and marker metadata only.",
+  });
+}
+
+function classifyReviewDocument(relativePath, content) {
+  const normalized = normalizeRelativePath("/", `/${relativePath}`);
+  const lowerPath = normalized.toLowerCase();
+  const text = String(content || "").toLowerCase();
+  if (lowerPath.includes("template") || text.includes("operator to fill")) {
+    return "template";
+  }
+  if (lowerPath.endsWith(".md")) {
+    const category = classifyFirstPartyMarkdownPath(normalized);
+    if ([
+      "active_current",
+      "active_runbook_policy",
+      "active_domain_design",
+      "historical_phase_report",
+      "superseded_stale",
+      "unknown_needs_review",
+    ].includes(category)) {
+      return category;
+    }
+  }
+  if (lowerPath.includes("/archive/")) return "archive";
+  if (lowerPath.includes("historical") || lowerPath.includes("retired")) return "historical_phase_report";
+  return "unknown_needs_review";
+}
+
+function enrichUnsafeReview(review) {
+  return {
+    ...review,
+    rawValueSuppressed: true,
+    safePlaceholder: SUPPRESSED_MARKER_PLACEHOLDER,
   };
+}
+
+function markerReference(filePath, markerId) {
+  const digest = crypto
+    .createHash("sha256")
+    .update(`${filePath}\n${markerId}`)
+    .digest("hex")
+    .slice(0, 12);
+  return `umr_${digest}`;
 }
 
 export function classifyEvidenceFile({ repoRoot, absolutePath, stat }) {
@@ -220,6 +331,7 @@ export function classifyEvidenceFile({ repoRoot, absolutePath, stat }) {
   return {
     path: relativePath,
     source: classifySource(relativePath, content),
+    documentClassification: classifyReviewDocument(relativePath, content),
     classification,
     unsafe: unsafeMarkers.length > 0,
     unsafeMarkers,
@@ -242,11 +354,35 @@ function buildUnsafeReviewSummary(unsafeItems) {
   const candidates = unsafeItems.map((item) => ({
     path: item.path,
     markerIds: item.unsafeMarkers.map((marker) => marker.id).sort(),
+    markerClasses: [...new Set(item.unsafeMarkers.map((marker) => marker.markerClass))].sort(),
+    markerReferences: item.unsafeMarkers
+      .map((marker) => markerReference(item.path, marker.id))
+      .sort(),
+    markers: item.unsafeMarkers
+      .map((marker) => ({
+        markerReference: markerReference(item.path, marker.id),
+        markerId: marker.id,
+        markerClass: marker.markerClass,
+        count: marker.count,
+        rawValueSuppressed: true,
+        safePlaceholder: SUPPRESSED_MARKER_PLACEHOLDER,
+      }))
+      .sort((left, right) => left.markerReference.localeCompare(right.markerReference)),
+    documentClassification: item.unsafeReview?.documentClassification || item.documentClassification || "unknown_needs_review",
+    readinessImpact: item.unsafeReview?.readinessImpact || "unresolved",
+    blockingReadiness: item.unsafeReview?.blockingReadiness !== false,
+    recommendedOperatorAction: item.unsafeReview?.recommendedOperatorAction || "leave_blocked_until_reviewed",
+    safeReason: item.unsafeReview?.safeReason || "Review path and marker metadata only; raw values are suppressed.",
+    rawValueSuppressed: true,
+    safePlaceholder: SUPPRESSED_MARKER_PLACEHOLDER,
     triage: item.unsafeReview?.triage || "needs_manual_review",
     action: item.unsafeReview?.action || "review marker IDs without printing raw values",
   }));
   return {
     byTriage: countBy(candidates, "triage"),
+    byDocumentClassification: countBy(candidates, "documentClassification"),
+    byReadinessImpact: countBy(candidates, "readinessImpact"),
+    blockingCandidateCount: candidates.filter((candidate) => candidate.blockingReadiness).length,
     candidates,
   };
 }
@@ -301,9 +437,17 @@ export function renderEvidenceIndexMarkdown(index) {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([triage, count]) => `| ${triage} | ${count} |`)
     .join("\n");
+  const documentRows = Object.entries(index.unsafeReviewSummary?.byDocumentClassification || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([classification, count]) => `| ${classification} | ${count} |`)
+    .join("\n");
+  const readinessRows = Object.entries(index.unsafeReviewSummary?.byReadinessImpact || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([impact, count]) => `| ${impact} | ${count} |`)
+    .join("\n");
   const candidateRows = (index.unsafeReviewSummary?.candidates || [])
     .slice(0, 100)
-    .map((candidate) => `| \`${candidate.path}\` | ${candidate.markerIds.join(", ")} | ${candidate.triage} |`)
+    .map((candidate) => `| \`${candidate.path}\` | ${candidate.markerReferences.join(", ")} | ${candidate.markerClasses.join(", ")} | ${candidate.documentClassification} | ${candidate.readinessImpact} | ${candidate.recommendedOperatorAction} | ${candidate.rawValueSuppressed} | \`${candidate.safePlaceholder}\` |`)
     .join("\n");
   return `# Evidence Archive Index
 
@@ -334,9 +478,17 @@ ${classificationRows || "| none | 0 |"}
 | --- | ---: |
 ${triageRows || "| none | 0 |"}
 
-| Path | Marker IDs | Triage |
-| --- | --- | --- |
-${candidateRows || "| none | - | - |"}
+| Document classification | Count |
+| --- | ---: |
+${documentRows || "| none | 0 |"}
+
+| Readiness impact | Count |
+| --- | ---: |
+${readinessRows || "| none | 0 |"}
+
+| Path | Marker refs | Marker classes | Document classification | Readiness impact | Recommended action | Raw value suppressed | Safe placeholder |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+${candidateRows || "| none | - | - | - | - | - | - | - |"}
 
 ## Items
 

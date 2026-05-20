@@ -102,8 +102,9 @@ Production execution or Cloudflare resource blocker:
 - Use `npm run release:rollback-drill` to document rollback readiness; do not execute rollback from triage.
 
 Evidence index unsafe-marker candidate:
-- Review candidates by file path and marker ID only.
-- Classify active-current blockers for redaction/replacement before readiness evidence use.
+- Run `npm run evidence:index` or `npm run evidence:index:markdown` and review the Unsafe Marker Review Summary only.
+- Review candidates by file path, marker reference, marker class, document classification, readiness impact, and recommended action. Raw values are suppressed and must stay suppressed.
+- Treat unresolved candidates as readiness blockers until an operator verifies false positive, replaces the value with a sanitized placeholder, redacts sensitive content, moves sanitized evidence, or records an acceptance reason.
 - Classify historical archive candidates carefully; preserve frozen history unless policy requires redaction and secret rotation.
 - Do not paste raw values into tickets, evidence docs, or chat, and do not use GitHub unblock links for committed provider-secret-looking fixtures.
 

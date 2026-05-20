@@ -39,7 +39,10 @@ Options:
 
 This helper scans committed/local repo evidence files only. It does not read live
 R2, call Cloudflare, call Stripe, call providers, deploy, migrate, delete,
-repair, issue refunds, create checkouts, mutate credits, or mutate subscriptions.`);
+repair, issue refunds, create checkouts, mutate credits, or mutate subscriptions.
+Unsafe-marker review output is limited to file paths, marker references, marker
+classes, document classification, readiness impact, and recommended action. Raw
+candidate values are suppressed and unresolved candidates keep ok:false.`);
   process.exit(0);
 }
 
