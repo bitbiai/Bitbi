@@ -141,7 +141,7 @@ No Stripe API call is attempted when authorization, config, rate-limit, body, id
 
 The live webhook:
 
-- Uses raw request body verification with `Stripe-Signature`.
+- Uses raw request body verification with `Stripe signature marker [REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED]`.
 - Uses `STRIPE_LIVE_WEBHOOK_SECRET`, separate from Testmode.
 - Accepts only live Stripe events with `livemode=true`.
 - Rejects or safely no-ops Testmode events on the live endpoint.

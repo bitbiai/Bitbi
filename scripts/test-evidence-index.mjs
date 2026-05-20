@@ -32,7 +32,7 @@ write("docs/production-readiness/evidence/accepted.md", "# Accepted Evidence\n\n
 write("docs/production-readiness/EVIDENCE_TEMPLATE.md", "# Evidence Template\n\noperator to fill\n");
 write("docs/production-readiness/evidence/billing-pending.md", "# Billing Evidence\n\nLive billing readiness remains blocked and pending operator evidence.\n");
 write("docs/production-readiness/UNSAFE_TEMPLATE.md", `# Unsafe Template\n\noperator to fill\nexample only\n${rawSignature}\n`);
-write("docs/production-readiness/sanitized-placeholder.md", `# Sanitized Placeholder\n\n${["Stripe", "Signature"].join("-")}: [redacted]\nAuthorization: Bearer [redacted]\nIdempotency-Key: [unsafe-marker-value-suppressed]\nsecret: [redacted]\n`);
+write("docs/production-readiness/sanitized-placeholder.md", `# Sanitized Placeholder\n\n${["Stripe", "Signature"].join("-")}: [redacted]\nAuthorization: Bearer [redacted]\nIdempotency-Key: [unsafe-marker-value-suppressed]\ntoken: [REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED]\nsecret: [redacted]\n`);
 write("docs/audits/archive/historical.md", "# Historical Evidence\n\nHistorical phase report.\n");
 write("docs/audits/archive/unsafe-historical.md", `# Historical Unsafe Evidence\n\nHistorical phase report with ${rawR2Key}\n`);
 write("docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md", "# Post-Cleanup Rebaseline\n\nDecision status: `post_cleanup_evidence_pending`\n\n| File | Classification |\n| --- | --- |\n| `old.md` | `stale/superseded_by_manual_media_cleanup` |\n");
@@ -50,7 +50,7 @@ assert(markers.some((marker) => marker.id === "raw_idempotency_key"));
 assert(markers.some((marker) => marker.id === "private_key_material"));
 assert(markers.every((marker) => marker.rawValueSuppressed === true));
 assert(markers.every((marker) => typeof marker.markerClass === "string" && marker.markerClass.endsWith("_like")));
-assert.equal(detectUnsafeEvidenceMarkers("Stripe-Signature: [redacted]\nAuthorization: Bearer [redacted]\nIdempotency-Key: [unsafe-marker-value-suppressed]\nsecret: [redacted]\n").length, 0);
+assert.equal(detectUnsafeEvidenceMarkers("Stripe-Signature: [redacted]\nAuthorization: Bearer [redacted]\nIdempotency-Key: [unsafe-marker-value-suppressed]\ntoken: [REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED]\nsecret: [redacted]\n").length, 0);
 
 const index = buildEvidenceIndex({
   repoRoot: tmp,

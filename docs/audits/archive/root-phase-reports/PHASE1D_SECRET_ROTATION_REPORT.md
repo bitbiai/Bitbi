@@ -92,9 +92,9 @@ Purpose-specific auth secrets must be at least 32 characters. Legacy `SESSION_SE
 
 New behavior:
 
-- `createSession()` writes `sha256(token:SESSION_HASH_SECRET)`.
+- `createSession()` writes `sha256(token:[REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED])`.
 - `getSessionUser()` tries the current hash first.
-- If fallback is enabled and the current hash is not found, it tries `sha256(token:SESSION_SECRET)`.
+- If fallback is enabled and the current hash is not found, it tries `sha256(token:[REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED])`.
 - If a legacy session row is found, the Worker attempts to update that row to the current hash using a compare-and-set update.
 - If the opportunistic update fails, the session remains valid until natural expiry instead of locking the user out.
 

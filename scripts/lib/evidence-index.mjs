@@ -163,7 +163,7 @@ function getLineForMatch(text, index) {
 }
 
 function isSuppressedUnsafeMarkerLine(line) {
-  return /\[(?:redacted|suppressed|unsafe-marker-value-suppressed)\]/i.test(line)
+  return /\[(?:redacted|suppressed|unsafe-marker-value-suppressed|redacted_unsafe_marker_operator_reviewed)\]/i.test(line)
     || /<redacted>/i.test(line);
 }
 

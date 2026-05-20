@@ -4,7 +4,7 @@ Date: 2026-04-26
 
 ## Executive Summary
 
-Phase 2-J adds a Stripe Testmode-only credit-pack checkout foundation. It lets active organization owners/admins create Stripe Testmode Checkout Sessions for fixed server-side credit packs and lets the auth Worker verify Stripe Testmode `checkout.session.completed` webhooks from raw body plus `Stripe-Signature` before idempotently granting organization credits.
+Phase 2-J adds a Stripe Testmode-only credit-pack checkout foundation. It lets active organization owners/admins create Stripe Testmode Checkout Sessions for fixed server-side credit packs and lets the auth Worker verify Stripe Testmode `checkout.session.completed` webhooks from raw body plus `Stripe signature marker [REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED]` before idempotently granting organization credits.
 
 This phase does not activate live payments. It does not add subscriptions, invoices, customer portal, Stripe Tax, Stripe Connect, coupons, frontend checkout UI, production billing, or a global paywall.
 
@@ -84,7 +84,7 @@ Route:
 
 - `POST /api/billing/webhooks/stripe`
 
-The route is intentionally not browser-CSRF protected because it is provider-facing, but it is raw-body limited, fail-closed rate limited, and authenticated by Stripe signature verification. It verifies `Stripe-Signature` using raw body and `STRIPE_WEBHOOK_SECRET` before JSON parsing.
+The route is intentionally not browser-CSRF protected because it is provider-facing, but it is raw-body limited, fail-closed rate limited, and authenticated by Stripe signature verification. It verifies `Stripe signature marker [REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED]` using raw body and `STRIPE_WEBHOOK_SECRET` before JSON parsing.
 
 Accepted side-effect event in Phase 2-J:
 

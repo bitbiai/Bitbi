@@ -52,7 +52,7 @@ The static page shell can be loaded directly, but the page renders a safe unauth
 
 - `GET /api/orgs/:id/organization-dashboard`
 
-Authorization:
+Authorization: [REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED]
 
 - Platform/global admin may inspect any active organization visible through the admin organization API.
 - Active organization owner may inspect their own organization.

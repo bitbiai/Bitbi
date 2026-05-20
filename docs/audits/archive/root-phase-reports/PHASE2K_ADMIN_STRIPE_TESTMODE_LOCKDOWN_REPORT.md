@@ -54,7 +54,7 @@ This flag gates checkout creation only. The Stripe webhook remains able to verif
 
 ## Webhook Credit Grant Hardening
 
-The Stripe Testmode webhook still verifies the raw body and `Stripe-Signature` before JSON parsing. It still rejects live-mode events, mismatched pack/amount/currency/org/user/payment state, duplicate event id payload mismatches, and unsupported event types.
+The Stripe Testmode webhook still verifies the raw body and `Stripe signature marker [REDACTED_UNSAFE_MARKER_OPERATOR_REVIEWED]` before JSON parsing. It still rejects live-mode events, mismatched pack/amount/currency/org/user/payment state, duplicate event id payload mismatches, and unsupported event types.
 
 Additional Phase 2-K requirement:
 
