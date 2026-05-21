@@ -1791,7 +1791,7 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
     });
     expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing').ownership_status).toBeNull();
 
-    const execute = await authWorker.fetch(
+    const broadExecute = await authWorker.fetch(
       authJsonRequest(
         '/api/admin/tenant-assets/ownership-backfill/execute',
         'POST',
@@ -1808,40 +1808,27 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       env,
       createExecutionContext().execCtx
     );
-    expect(execute.status).toBe(200);
-    const executeBody = await execute.json();
-    expect(executeBody.backfill).toMatchObject({
-      dryRun: false,
-      executionMode: 'safe_rows_only',
-      accessChecksChanged: false,
-      r2LiveListed: false,
-      r2ObjectsMutated: false,
-      tenantIsolationClaimed: false,
-      productionReadiness: 'blocked',
-      postCleanupRebaseline: expect.objectContaining({
-        oldCountsSuperseded: true,
-      }),
+    expect(broadExecute.status).toBe(409);
+    const broadExecuteBody = await broadExecute.json();
+    expect(broadExecuteBody).toMatchObject({
+      ok: false,
+      code: 'tenant_isolation_backfill_exact_candidate_required',
+      fields: {
+        requiredDomain: 'ai_images',
+        requestedDomains: ['ai_folders', 'ai_images'],
+        requiredBatchLimit: 1,
+        requestedBatchLimit: 10,
+        requiredCandidateAssetIds: 1,
+        requestedCandidateAssetIds: 0,
+      },
     });
-    expect(executeBody.backfill.rowsWritten).toBeGreaterThanOrEqual(2);
-    expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing')).toMatchObject({
-      asset_owner_type: 'personal_user_asset',
-      owning_user_id: 'tenant-legacy-user',
-      ownership_status: 'current',
-      ownership_source: 'legacy_default',
-      ownership_confidence: 'medium',
-    });
-    expect(env.DB.state.aiImages.find((row) => row.id === 'image-private-backfill-safe')).toMatchObject({
-      asset_owner_type: 'personal_user_asset',
-      owning_user_id: 'tenant-legacy-user',
-      ownership_status: 'current',
-      ownership_source: 'legacy_default',
-      ownership_confidence: 'medium',
-    });
+    expect(env.DB.state.aiFolders.find((row) => row.id === 'folder-missing').ownership_status).toBeNull();
+    expect(env.DB.state.aiImages.find((row) => row.id === 'image-private-backfill-safe').ownership_status).toBeUndefined();
     expect(JSON.stringify(env.DB.state.aiImages.find((row) => row.id === 'image-public-missing'))).toBe(beforePublicImage);
     expect(env.USER_IMAGES.listCalls.length).toBe(beforeR2ListCalls);
     expect(env.USER_IMAGES.deleteCalls.length).toBe(beforeR2DeleteCalls);
-    expect(JSON.stringify(executeBody)).not.toContain('tenant-backfill-execute-001');
-    expect(JSON.stringify(executeBody)).not.toContain('should-not-render.png');
+    expect(JSON.stringify(broadExecuteBody)).not.toContain('tenant-backfill-execute-001');
+    expect(JSON.stringify(broadExecuteBody)).not.toContain('should-not-render.png');
 
     const accessStatus = await authWorker.fetch(
       authJsonRequest('/api/admin/tenant-assets/access-switch/status', 'GET', undefined, authHeaders),
@@ -1941,6 +1928,37 @@ test.describe('Phase 6.7 tenant asset ownership admin evidence report', () => {
       r2_key: 'users/tenant-legacy-user/private/exact-candidate.png',
       prompt: 'exact candidate prompt should not render',
       created_at: '2026-05-19T09:30:00.000Z',
+    });
+
+    const missingExactCandidate = await authWorker.fetch(
+      authJsonRequest(
+        '/api/admin/tenant-assets/ownership-backfill/execute',
+        'POST',
+        {
+          dryRun: false,
+          confirm: true,
+          confirmation: 'BACKFILL OWNERSHIP',
+          reason: 'local exact-candidate required proof',
+          domains: ['ai_images'],
+          batchLimit: 1,
+        },
+        { ...authHeaders, 'Idempotency-Key': 'tenant-backfill-exact-required-001' }
+      ),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingExactCandidate.status).toBe(409);
+    await expect(missingExactCandidate.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'tenant_isolation_backfill_exact_candidate_required',
+      fields: {
+        requiredDomain: 'ai_images',
+        requestedDomains: ['ai_images'],
+        requiredBatchLimit: 1,
+        requestedBatchLimit: 1,
+        requiredCandidateAssetIds: 1,
+        requestedCandidateAssetIds: 0,
+      },
     });
 
     const mismatch = await authWorker.fetch(
@@ -7485,6 +7503,14 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       createExecutionContext().execCtx
     );
     expect(missingSignature.status).toBe(401);
+    const missingSignatureBody = await missingSignature.json();
+    expect(missingSignatureBody).toEqual(expect.objectContaining({
+      ok: false,
+      code: 'stripe_webhook_invalid_signature',
+    }));
+    expect(JSON.stringify(missingSignatureBody)).not.toContain(payload.id);
+    expect(JSON.stringify(missingSignatureBody)).not.toContain('cs_test_phase2j_01');
+    expect(JSON.stringify(missingSignatureBody)).not.toContain(STRIPE_WEBHOOK_SECRET);
     expect(env.DB.state.creditLedger).toHaveLength(0);
 
     const invalidSignature = await worker.fetch(
@@ -7496,6 +7522,14 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       createExecutionContext().execCtx
     );
     expect(invalidSignature.status).toBe(401);
+    const invalidSignatureBody = await invalidSignature.json();
+    expect(invalidSignatureBody).toEqual(expect.objectContaining({
+      ok: false,
+      code: 'stripe_webhook_invalid_signature',
+    }));
+    expect(JSON.stringify(invalidSignatureBody)).not.toContain('Stripe-Signature');
+    expect(JSON.stringify(invalidSignatureBody)).not.toContain(payload.id);
+    expect(JSON.stringify(invalidSignatureBody)).not.toContain('cs_test_phase2j_01');
 
     const staleTimestamp = Math.floor((Date.now() - (10 * 60_000)) / 1000);
     const stale = await worker.fetch(
@@ -7753,6 +7787,42 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
   function latestBillingActionSummary(env) {
     return JSON.parse(env.DB.state.billingEventActions.at(-1).summary_json);
   }
+
+  test('live Stripe webhook verification fails closed with redacted response before credit grants', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const owner = createContractUser({ id: 'phase2l-owner', role: 'user' });
+    const env = createAuthTestEnv(seedLiveBillingOrg({ owner }));
+    const payload = liveStripeCompletedPayload({
+      id: 'evt_phase2l_invalid_signature',
+      session: {
+        id: 'cs_live_phase2l_invalid_signature',
+        payment_intent: 'pi_live_phase2l_invalid_signature',
+      },
+    });
+
+    const invalidSignature = await worker.fetch(
+      await signedLiveStripeWebhookRequest({
+        body: payload,
+        signatureOverride: `t=${Math.floor(Date.now() / 1000)},v1=${'0'.repeat(64)}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(invalidSignature.status).toBe(401);
+    const body = await invalidSignature.json();
+    expect(body).toEqual(expect.objectContaining({
+      ok: false,
+      code: 'stripe_webhook_invalid_signature',
+    }));
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+    expect(JSON.stringify(body)).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
+    expect(JSON.stringify(body)).not.toContain(payload.id);
+    expect(JSON.stringify(body)).not.toContain('cs_live_phase2l_invalid_signature');
+    expect(JSON.stringify(body)).not.toContain('Stripe-Signature');
+  });
 
   test('organization live checkout is restricted to platform admins and active organization owners', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');

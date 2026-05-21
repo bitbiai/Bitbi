@@ -50,6 +50,8 @@ export const POST_CLEANUP_REBASELINE_STATUS = Object.freeze({
   COLLECTED: "post_cleanup_evidence_collected",
 });
 const SUPPORTED_BACKFILL_DOMAINS = Object.freeze(["ai_folders", "ai_images"]);
+const EXACT_BACKFILL_WRITE_DOMAIN = "ai_images";
+const EXACT_BACKFILL_WRITE_LIMIT = 1;
 const DEFERRED_BACKFILL_DOMAINS = Object.freeze([
   "ai_image_derivatives",
   "ai_text_assets",
@@ -472,8 +474,7 @@ export function normalizeOwnershipBackfillExecuteRequest(input = {}) {
     maxLength: 500,
     required: true,
   });
-  const normalized = normalizeBackfillDomains(input);
-  return {
+  const normalized = {
     dryRun,
     confirm,
     confirmation,
@@ -483,8 +484,29 @@ export function normalizeOwnershipBackfillExecuteRequest(input = {}) {
       maxValue: 50,
     }),
     candidateAssetIds: normalizeCandidateAssetIds(input),
-    ...normalized,
+    ...normalizeBackfillDomains(input),
   };
+  if (!normalized.dryRun) {
+    const exactDomainOnly =
+      normalized.domains.length === 1 && normalized.domains[0] === EXACT_BACKFILL_WRITE_DOMAIN;
+    const exactBatchOnly = normalized.batchLimit === EXACT_BACKFILL_WRITE_LIMIT;
+    const exactCandidateOnly = normalized.candidateAssetIds.length === 1;
+    if (!exactDomainOnly || !exactBatchOnly || !exactCandidateOnly) {
+      throw new TenantIsolationExecutionError("Ownership backfill writes require one exact ai_images candidate.", {
+        status: 409,
+        code: "tenant_isolation_backfill_exact_candidate_required",
+        fields: {
+          requiredDomain: EXACT_BACKFILL_WRITE_DOMAIN,
+          requestedDomains: normalized.domains,
+          requiredBatchLimit: EXACT_BACKFILL_WRITE_LIMIT,
+          requestedBatchLimit: normalized.batchLimit,
+          requiredCandidateAssetIds: 1,
+          requestedCandidateAssetIds: normalized.candidateAssetIds.length,
+        },
+      });
+    }
+  }
+  return normalized;
 }
 
 function ownershipUpdateBindings(row, domain, adminUser, now) {
