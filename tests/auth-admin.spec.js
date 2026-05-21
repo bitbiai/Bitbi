@@ -6749,6 +6749,16 @@ test.describe('Credits dashboard live credit packs', () => {
     const response = await page.goto('/account/credits.html?scope=member');
     expect(response.status()).toBe(200);
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'How credits fit into creation' })).toBeVisible();
+    await expect(page.locator('.credits-onboarding')).toContainText('Generate Lab shows estimates before you submit');
+    await expect(page.locator('.credits-onboarding').getByRole('link', { name: 'Create in Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=credits',
+    );
+    await expect(page.locator('.credits-onboarding').getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=credits',
+    );
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
@@ -7374,6 +7384,16 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.legal-hero__title')).toHaveText('Assets Manager');
     await expect(page.locator('#studioSavedAssetsCard')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Storage status' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your library starts after you save from Generate Lab' })).toBeVisible();
+    await expect(page.locator('.assets-manager__first-run')).toContainText('First saved asset?');
+    await expect(page.locator('.assets-manager__first-run').getByRole('link', { name: 'Create first asset' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=assets-manager',
+    );
+    await expect(page.locator('.assets-manager__first-run').getByRole('link', { name: 'Check credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member',
+    );
     await expect(page.locator('#studioStorageInsight')).toContainText('0 MB / 50 MB used. 50 MB remains available');
     await expect(page.locator('#studioFolderGrid')).toBeVisible();
     await expect(page.locator('#studioImageGrid')).toHaveCount(1);
@@ -10687,6 +10707,17 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#memberControlCenter')).toBeVisible();
     await expect(page.locator('#memberControlCenter')).toContainText('Your BITBI workspace');
     await expect(page.locator('#memberControlCenter')).toContainText('Credits and Pro status live in Credits.');
+    await expect(page.locator('.profile__onboarding-steps')).toHaveAttribute('aria-label', 'Suggested first-run steps');
+    await expect(page.locator('#memberControlCenter')).toContainText('Review credits');
+    await expect(page.locator('#memberControlCenter')).toContainText('Create in Generate Lab');
+    await expect(page.locator('#memberControlCenter').getByRole('link', { name: 'Start creating' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=profile',
+    );
+    await expect(page.locator('#memberControlCenter').getByRole('link', { name: 'View assets' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=profile',
+    );
     await expect(page.locator('#profileGenerateLabLink')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#profileAssetsManagerLink')).toHaveAttribute('href', '/account/assets-manager.html');
     await expect(page.locator('#profileMemberCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');

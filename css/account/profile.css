@@ -812,6 +812,59 @@
         line-height: 1.45;
     }
 
+    .profile__onboarding-steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-3);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: none;
+    }
+
+    .profile__onboarding-steps li {
+        display: grid;
+        align-content: start;
+        gap: var(--space-2);
+        min-block-size: 10rem;
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .profile__onboarding-steps strong {
+        color: rgba(255, 255, 255, 0.94);
+        font-family: var(--font-display);
+        font-size: 1rem;
+        line-height: 1.25;
+    }
+
+    .profile__onboarding-steps span {
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.84rem;
+        line-height: 1.55;
+    }
+
+    .profile__onboarding-steps a {
+        align-self: end;
+        color: rgba(0, 240, 255, 0.9);
+        font-family: var(--font-mono);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-decoration: none;
+        text-transform: uppercase;
+    }
+
+    .profile__onboarding-steps a:hover,
+    .profile__onboarding-steps a:focus-visible {
+        color: rgba(255, 255, 255, 0.95);
+        outline: none;
+        text-decoration: underline;
+        text-underline-offset: 0.25em;
+    }
+
     .profile__control-actions {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -861,6 +914,7 @@
 
     @media (max-width: 1023px) {
         .profile__control-status,
+        .profile__onboarding-steps,
         .profile__control-actions {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -872,8 +926,13 @@
         }
 
         .profile__control-status,
+        .profile__onboarding-steps,
         .profile__control-actions {
             grid-template-columns: 1fr;
+        }
+
+        .profile__onboarding-steps li {
+            min-block-size: 0;
         }
 
         .profile__control-link {

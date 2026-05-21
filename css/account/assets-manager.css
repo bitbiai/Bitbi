@@ -213,6 +213,62 @@
         color: rgba(0, 240, 255, 0.92);
     }
 
+    .assets-manager__first-run {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr);
+        gap: var(--space-4);
+        align-items: stretch;
+        margin-block: 0 var(--space-5);
+        padding: var(--space-4);
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        border-radius: var(--radius-lg);
+        background:
+            linear-gradient(135deg, rgba(0, 240, 255, 0.065), rgba(255, 179, 0, 0.04)),
+            rgba(255, 255, 255, 0.032);
+    }
+
+    .assets-manager__first-run-head {
+        display: grid;
+        align-content: start;
+        gap: var(--space-2);
+    }
+
+    .assets-manager__first-run-steps {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-2);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .assets-manager__first-run-steps li {
+        display: grid;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .assets-manager__first-run-steps strong {
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 0.92rem;
+    }
+
+    .assets-manager__first-run-steps span {
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.84rem;
+        line-height: 1.5;
+    }
+
+    .assets-manager__first-run-actions {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+    }
+
     .assets-manager__handoff[hidden] {
         display: none;
     }
@@ -419,11 +475,17 @@
             grid-template-columns: 1fr;
         }
 
+        .assets-manager__first-run,
+        .assets-manager__first-run-steps {
+            grid-template-columns: 1fr;
+        }
+
         .assets-manager__workspace-actions {
             justify-content: stretch;
         }
 
-        .assets-manager__workspace-link {
+        .assets-manager__workspace-link,
+        .assets-manager__first-run-actions {
             width: 100%;
         }
 

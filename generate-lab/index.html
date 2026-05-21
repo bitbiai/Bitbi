@@ -84,6 +84,7 @@
             <p class="generate-lab__eyebrow">Generate Lab</p>
             <h1 id="generateLabMobileTitle">Desktop workspace</h1>
             <p>Generate Lab is optimized for desktop creation workflows. Please open it on a desktop or larger screen to use the full image, video, and music workspace.</p>
+            <p>On mobile, use these shortcuts to review credits, update profile basics, or check saved assets before you continue creating on desktop.</p>
             <div class="generate-lab__mobile-actions" aria-label="Member workspace shortcuts">
                 <a href="/account/profile.html?returnContext=generate-lab" class="generate-lab__mobile-link">Profile</a>
                 <a href="/account/credits.html?scope=member" class="generate-lab__mobile-link">Credits</a>
@@ -105,6 +106,19 @@
             <a href="/account/credits.html?scope=member">Credits</a>
             <a href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent">Assets Manager</a>
         </nav>
+
+        <section class="generate-lab__first-run reveal" aria-labelledby="generateFirstRunTitle">
+            <div>
+                <p class="generate-lab__eyebrow">First time here?</p>
+                <h2 id="generateFirstRunTitle">Create, preview, save, then manage</h2>
+                <p>Choose a model, write a clear prompt, review the credit estimate, generate a preview, and save only the outputs you want in Assets Manager.</p>
+            </div>
+            <ol class="generate-lab__first-run-steps">
+                <li><strong>Credits</strong><span>Estimates appear before submit; backend checks remain the source of truth.</span></li>
+                <li><strong>Save</strong><span>Saved output appears in your private Assets Manager library.</span></li>
+                <li><strong>Recover</strong><span>If saving fails, use the retry guidance in the result stage before leaving.</span></li>
+            </ol>
+        </section>
 
         <div class="generate-lab__workspace reveal">
             <aside class="generate-lab__panel generate-lab__panel--left" aria-label="Generate Lab model selection">

@@ -11,7 +11,8 @@
 
   .credits-hero,
   .credits-shell,
-  .credits-workspace-nav {
+  .credits-workspace-nav,
+  .credits-onboarding {
     width: min(var(--container-management), calc(100vw - clamp(1rem, 4vw, 4rem)));
     margin-inline: auto;
   }
@@ -156,6 +157,68 @@
     border-color: rgba(0, 240, 255, 0.28);
     background: rgba(0, 240, 255, 0.13);
     color: rgba(0, 240, 255, 0.92);
+  }
+
+  .credits-onboarding {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr);
+    gap: 1rem;
+    align-items: stretch;
+    margin-block: 0 1.25rem;
+    padding: clamp(1rem, 2vw, 1.35rem);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1.25rem;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .credits-onboarding h2,
+  .credits-onboarding p {
+    margin: 0;
+  }
+
+  .credits-onboarding h2 {
+    color: rgba(255, 255, 255, 0.94);
+    font-size: clamp(1.08rem, 1.8vw, 1.3rem);
+  }
+
+  .credits-onboarding p,
+  .credits-onboarding__steps span {
+    color: rgba(255, 255, 255, 0.64);
+    line-height: 1.55;
+  }
+
+  .credits-onboarding__steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.7rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .credits-onboarding__steps li {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .credits-onboarding__steps strong {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.92rem;
+  }
+
+  .credits-onboarding__steps span {
+    font-size: 0.84rem;
+  }
+
+  .credits-onboarding__actions {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
   }
 
   .credits-legal {
@@ -667,15 +730,19 @@
   @media (max-width: 760px) {
     .credits-hero,
     .credits-shell,
-    .credits-workspace-nav {
+    .credits-workspace-nav,
+    .credits-onboarding {
       width: min(100% - 1rem, 100%);
     }
 
-    .credits-workspace-nav {
+    .credits-workspace-nav,
+    .credits-onboarding,
+    .credits-onboarding__steps {
       grid-template-columns: 1fr;
     }
 
     .credits-workspace-nav__actions,
+    .credits-onboarding__actions,
     .credits-workspace-nav__link {
       width: 100%;
     }

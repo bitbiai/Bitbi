@@ -192,6 +192,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="memberControlCenter"');
     expect(enProfile).toContain('Member Control Center');
     expect(enProfile).toContain('href="/generate-lab/"');
+    expect(enProfile).toContain('Suggested first-run steps');
+    expect(enProfile).toContain('href="/generate-lab/?source=profile"');
+    expect(enProfile).toContain('href="/account/assets-manager.html?source=profile"');
     expect(enProfile).toContain('href="/account/assets-manager.html"');
     expect(enProfile).toContain('href="/account/credits.html?scope=member"');
     expect(enProfile).toContain('href="#profileForm"');
@@ -199,40 +202,61 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="memberControlCenter"');
     expect(deProfile).toContain('Mitglieder-Kontrollzentrum');
     expect(deProfile).toContain('href="/de/generate-lab/"');
+    expect(deProfile).toContain('Empfohlene erste Schritte');
+    expect(deProfile).toContain('href="/de/generate-lab/?source=profile"');
+    expect(deProfile).toContain('href="/de/account/assets-manager.html?source=profile"');
     expect(deProfile).toContain('href="/de/account/assets-manager.html"');
     expect(deProfile).toContain('href="/de/account/credits.html?scope=member"');
     expect(deProfile).toContain('href="#profileForm"');
 
     expect(enCredits).toContain('credits-workspace-nav');
     expect(enCredits).toContain('Keep creating from your credits context');
+    expect(enCredits).toContain('credits-onboarding');
+    expect(enCredits).toContain('How credits fit into creation');
     expect(enCredits).toContain('href="/generate-lab/"');
+    expect(enCredits).toContain('href="/generate-lab/?source=credits"');
     expect(enCredits).toContain('href="/account/assets-manager.html"');
+    expect(enCredits).toContain('href="/account/assets-manager.html?source=credits"');
     expect(enCredits).toContain('href="/account/profile.html"');
 
     expect(deCredits).toContain('credits-workspace-nav');
     expect(deCredits).toContain('Aus dem Credits-Kontext weiter erstellen');
+    expect(deCredits).toContain('credits-onboarding');
+    expect(deCredits).toContain('So passen Credits zur Erstellung');
     expect(deCredits).toContain('href="/de/generate-lab/"');
+    expect(deCredits).toContain('href="/de/generate-lab/?source=credits"');
     expect(deCredits).toContain('href="/de/account/assets-manager.html"');
+    expect(deCredits).toContain('href="/de/account/assets-manager.html?source=credits"');
     expect(deCredits).toContain('href="/de/account/profile.html"');
 
     expect(enAssets).toContain('assets-manager__workspace-nav');
     expect(enAssets).toContain('Move between creation, credits, and profile');
+    expect(enAssets).toContain('assets-manager__first-run');
+    expect(enAssets).toContain('Your library starts after you save from Generate Lab');
     expect(enAssets).toContain('href="/generate-lab/"');
+    expect(enAssets).toContain('href="/generate-lab/?source=assets-manager"');
     expect(enAssets).toContain('href="/account/credits.html?scope=member"');
     expect(enAssets).toContain('href="/account/profile.html"');
 
     expect(deAssets).toContain('assets-manager__workspace-nav');
     expect(deAssets).toContain('Zwischen Erstellung, Credits und Profil wechseln');
+    expect(deAssets).toContain('assets-manager__first-run');
+    expect(deAssets).toContain('Ihre Bibliothek beginnt nach dem Speichern aus Generate Lab');
     expect(deAssets).toContain('href="/de/generate-lab/"');
+    expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager"');
     expect(deAssets).toContain('href="/de/account/credits.html?scope=member"');
     expect(deAssets).toContain('href="/de/account/profile.html"');
 
     expect(enGenerate).toContain('generate-lab__member-nav');
+    expect(enGenerate).toContain('generate-lab__first-run');
+    expect(enGenerate).toContain('Create, preview, save, then manage');
     expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab"');
     expect(enGenerate).toContain('href="/account/credits.html?scope=member"');
     expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
 
     expect(deGenerate).toContain('generate-lab__member-nav');
+    expect(deGenerate).toContain('generate-lab__first-run');
+    expect(deGenerate).toContain('Erstellen, prüfen, speichern, verwalten');
     expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab"');
     expect(deGenerate).toContain('href="/de/account/credits.html?scope=member"');
     expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
@@ -470,12 +494,28 @@ test.describe('Bilingual locale pages', () => {
       'The BITBI wallet workspace',
       'Member Control Center',
       'Your BITBI workspace',
+      'Suggested first-run steps',
+      'Review credits',
+      'Create in Generate Lab',
+      'Find saved output',
+      'Complete profile basics',
       'Continue creating',
       'Manage saved assets',
       'Profile settings',
       'Credits and Pro status live in Credits',
       'Keep creating from your credits context',
+      'First-run guide',
+      'How credits fit into creation',
+      'Check balance',
+      'Create carefully',
+      'Save and review',
       'Move between creation, credits, and profile',
+      'First saved asset?',
+      'Your library starts after you save from Generate Lab',
+      'Create first asset',
+      'First time here?',
+      'Create, preview, save, then manage',
+      'On mobile, use these shortcuts',
       'Organization context',
       'Organization dashboard is not available',
       'Selected organization',

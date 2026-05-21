@@ -1970,6 +1970,11 @@ test.describe('Homepage', () => {
       'href',
       '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
     );
+    const firstRunGuide = page.locator('.generate-lab__first-run');
+    await expect(firstRunGuide).toBeVisible();
+    await expect(firstRunGuide).toContainText('Create, preview, save, then manage');
+    await expect(firstRunGuide).toContainText('backend checks remain the source of truth');
+    await expect(firstRunGuide).toContainText('Saved output appears in your private Assets Manager library');
     await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
@@ -2676,6 +2681,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Desktop workspace' })).toBeVisible();
     await expect(page.getByText('Generate Lab is optimized for desktop creation workflows.')).toBeVisible();
+    await expect(page.getByText('On mobile, use these shortcuts to review credits')).toBeVisible();
     await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/account/profile.html?returnContext=generate-lab');
     await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Credits' })).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Assets Manager' })).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');

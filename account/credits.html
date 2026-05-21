@@ -98,6 +98,23 @@
         </div>
     </nav>
 
+    <section class="credits-onboarding" aria-labelledby="creditsOnboardingTitle">
+        <div>
+            <p class="credits-eyebrow">First-run guide</p>
+            <h2 id="creditsOnboardingTitle">How credits fit into creation</h2>
+            <p>Credits are checked by the backend when you generate and save. This page shows account context; Generate Lab remains the place to create and Assets Manager is where saved work appears.</p>
+        </div>
+        <ol class="credits-onboarding__steps">
+            <li><strong>Check balance</strong><span>Use the summary and ledger below as the source of truth for available credits.</span></li>
+            <li><strong>Create carefully</strong><span>Generate Lab shows estimates before you submit; final enforcement stays server-side.</span></li>
+            <li><strong>Save and review</strong><span>After saving, open Assets Manager and refresh if a new item is still processing.</span></li>
+        </ol>
+        <div class="credits-onboarding__actions" aria-label="First-run credit actions">
+            <a href="/generate-lab/?source=credits" class="credits-workspace-nav__link credits-workspace-nav__link--primary">Create in Generate Lab</a>
+            <a href="/account/assets-manager.html?source=credits" class="credits-workspace-nav__link">Open Assets Manager</a>
+        </div>
+    </section>
+
     <section class="credits-shell" aria-label="Credits dashboard">
         <div id="creditsLoading" class="credits-state glass glass-card">Loading credits dashboard...</div>
         <div id="creditsDenied" class="credits-state glass glass-card" hidden>
