@@ -1721,7 +1721,8 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const manualReviewQueueHelper = "workers/auth/src/lib/tenant-asset-manual-review-queue.js";
   const manualReviewStatusHelper = "workers/auth/src/lib/tenant-asset-manual-review-status.js";
   const authApiClientFile = "js/shared/auth-api.js";
-  const adminControlPlaneFile = "js/pages/admin/control-plane.js";
+  const adminControlPlaneTenantAssetsFile = "js/pages/admin/control-plane/tenant-assets/index.js";
+  const adminControlPlaneManualReviewFile = "js/pages/admin/control-plane/tenant-assets/manual-review.js";
   const adminIndexFile = "admin/index.html";
   const manualReviewStatusOperatorEvidenceRunbookFile = "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_RUNBOOK.md";
   const manualReviewStatusOperatorEvidenceTemplateFile = "docs/tenant-assets/MANUAL_REVIEW_STATUS_OPERATOR_EVIDENCE_TEMPLATE.md";
@@ -1766,8 +1767,12 @@ export function buildFoldersImagesOwnerMapDryRunReport(repoRoot = process.cwd(),
   const manualReviewStatusWorkflowAdded = fileExists(repoRoot, manualReviewStatusHelper);
   const manualReviewClientWrappersAdded = readText(repoRoot, authApiClientFile).includes("apiAdminTenantAssetManualReviewEvidence")
     && readText(repoRoot, authApiClientFile).includes("apiAdminUpdateTenantAssetManualReviewStatus");
-  const manualReviewAdminVisibilityAdded = readText(repoRoot, adminControlPlaneFile).includes("loadTenantAssetManualReviewQueue")
-    && readText(repoRoot, adminIndexFile).includes("tenantReviewSummary");
+  const manualReviewAdminVisibilityAdded = readText(repoRoot, adminControlPlaneTenantAssetsFile).includes("createTenantManualReviewDomain")
+    && readText(repoRoot, adminControlPlaneTenantAssetsFile).includes("loadTenantAssetManualReviewQueue")
+    && readText(repoRoot, adminControlPlaneManualReviewFile).includes("loadTenantAssetManualReviewQueue")
+    && readText(repoRoot, adminControlPlaneManualReviewFile).includes("apiAdminTenantAssetManualReviewEvidence")
+    && readText(repoRoot, adminIndexFile).includes("tenantReviewSummary")
+    && readText(repoRoot, adminIndexFile).includes("tenantReviewItemsState");
   const manualReviewStatusOperatorEvidenceAdded = manualReviewStatusWorkflowAdded
     && manualReviewQueueReadApiAdded
     && readText(repoRoot, manualReviewQueueHelper).includes("latestStatusUpdateTimestamp")
