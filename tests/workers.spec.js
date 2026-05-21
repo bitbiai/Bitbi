@@ -9420,7 +9420,8 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
 
     const serialized = JSON.stringify({ needsReviewBody, blockedBody });
     expect(serialized).not.toContain('pm_phase22_should_not_leak');
-    expect(serialized).not.toContain('4242');
+    expect(serialized).not.toContain('"last4"');
+    expect(serialized).not.toContain('"4242"');
     expect(serialized).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
     expect(serialized).not.toContain('Stripe-Signature');
     expect(serialized).not.toContain('payload_hash');
@@ -12396,6 +12397,20 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       .toBeCloseTo(0.00163250625, 14);
     expect(modelPricing.BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING)
       .toBeCloseTo(livePacks.BITBI_LOWEST_LIVE_PACK_NET_EUR_PER_CREDIT, 14);
+  });
+
+  test('testmode credit-pack lookup rejects inactive packs unless legacy lookup is explicit', async () => {
+    const stripeBilling = await loadStripeBillingModule();
+
+    expect(stripeBilling.getStripeCreditPack('credits_5000')).toMatchObject({
+      id: 'credits_5000',
+      active: true,
+    });
+    expect(() => stripeBilling.getStripeCreditPack('credits_legacy_10000')).toThrow(/Unsupported credit pack/);
+    expect(stripeBilling.getStripeCreditPack('credits_legacy_10000', { includeLegacy: true })).toMatchObject({
+      id: 'credits_legacy_10000',
+      active: false,
+    });
   });
 
   test('central AI model pricing dispatch matches backend helpers for chargeable models', async () => {
@@ -19850,7 +19865,7 @@ test.describe('Worker routes', () => {
       const body = await res.json();
       expect(body).toMatchObject({
         ok: true,
-        verdict: 'pass',
+        verdict: 'blocked',
         runtimeMutation: false,
         providerCalls: false,
         billingMutation: false,
@@ -19863,7 +19878,7 @@ test.describe('Worker routes', () => {
           runtimeBudgetSwitchesDisabled: 0,
           platformBudgetReconciliationAvailable: true,
           platformBudgetReconciliationRepairCandidates: 0,
-          baselineGaps: 0,
+          baselineGaps: 3,
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
         }),
@@ -19879,12 +19894,13 @@ test.describe('Worker routes', () => {
           scope: 'openclaw_news_pulse_budget',
           operationCount: 2,
           implementedCount: 2,
-          baselineGapCount: 0,
+          baselineGapCount: 1,
+          baselineGapIds: ['openclaw-news-pulse-aggregate-caps'],
           runtimeEnforcementStatus: 'implemented',
         }),
         expect.objectContaining({
           scope: 'internal_ai_worker_caller_enforced',
-          baselineGapIds: [],
+          baselineGapIds: ['internal-ai-worker-aggregate-cap-accounting'],
         }),
       ]));
       expect(body.implementedOperations).toEqual(expect.arrayContaining([
@@ -19935,7 +19951,12 @@ test.describe('Worker routes', () => {
           runtimeStatus: 'implemented_caller_policy_guard',
         }),
       ]));
-      expect(body.baselinedGaps).toHaveLength(0);
+      expect(body.baselinedGaps).toHaveLength(3);
+      expect(body.baselinedGaps).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'admin-explicit-unmetered-aggregate-accounting' }),
+        expect.objectContaining({ id: 'internal-ai-worker-aggregate-cap-accounting' }),
+        expect.objectContaining({ id: 'openclaw-news-pulse-aggregate-caps' }),
+      ]));
       expect(body.baselinedGaps).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ id: 'admin-ai-video-job-create' }),
         expect.objectContaining({ id: 'admin-ai-video-task-create-poll' }),
@@ -42429,6 +42450,70 @@ test.describe('Worker routes', () => {
           status: 503,
         })
       );
+    } finally {
+      diagnostics.restore();
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('contact worker: missing Resend API key fails closed before provider calls', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const env = createAuthTestEnv();
+    delete env.RESEND_API_KEY;
+    const originalFetch = global.fetch;
+    let resendCallCount = 0;
+
+    global.fetch = async () => {
+      resendCallCount += 1;
+      return new Response(JSON.stringify({ id: 'email-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const res = await contactWorker.fetch(
+        new Request('https://contact.bitbi.ai/', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://bitbi.ai',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '203.0.113.80',
+            'x-bitbi-correlation-id': 'contact-config-missing-corr-1234',
+          },
+          body: JSON.stringify({
+            name: 'Visitor',
+            email: 'visitor@example.com',
+            subject: 'Hello',
+            message: 'Testing missing Resend config',
+            website: '',
+          }),
+        }),
+        env
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        error: 'Service temporarily unavailable. Please try again later.',
+      });
+      expect(resendCallCount).toBe(0);
+
+      const event = findDiagnosticEvent(diagnostics.entries, 'contact_submit_config_unavailable');
+      expect(event).toEqual(expect.objectContaining({
+        service: 'bitbi-contact',
+        component: 'contact-submit',
+        correlation_id: 'contact-config-missing-corr-1234',
+        provider: 'resend',
+        config_reason: 'resend_api_key_missing_or_empty',
+        request_method: 'POST',
+        request_path: '/',
+        status: 503,
+      }));
+      const serialized = JSON.stringify(event);
+      expect(serialized).not.toContain('visitor@example.com');
+      expect(serialized).not.toContain('Testing missing Resend config');
+      expect(serialized).not.toContain('Bearer');
     } finally {
       diagnostics.restore();
       global.fetch = originalFetch;

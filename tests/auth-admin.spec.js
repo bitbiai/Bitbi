@@ -2308,7 +2308,7 @@ async function mockAdminControlPlane(page, captures = {}) {
     captures.tenantBackfillDryRunRequests.push({ url: route.request().url() });
     await fulfillJson(route, {
       ok: true,
-      report: {
+      report: captures.tenantBackfillDryRunReport || {
         reportVersion: 'tenant-isolation-ownership-backfill-v1',
         generatedAt: '2026-05-19T12:00:00.000Z',
         source: 'local_d1_read_only',
@@ -2326,10 +2326,10 @@ async function mockAdminControlPlane(page, captures = {}) {
         },
         requiredExecutionConfirmation: 'BACKFILL OWNERSHIP',
         summary: {
-          totalCandidates: 4,
-          safeCandidates: 2,
+          totalCandidates: 3,
+          safeCandidates: 1,
           classifications: {
-            safe_to_backfill: 2,
+            safe_to_backfill: 1,
             needs_manual_review: 1,
             blocked_public_unsafe: 1,
             blocked_missing_evidence: 0,
@@ -2337,8 +2337,8 @@ async function mockAdminControlPlane(page, captures = {}) {
           },
         },
         candidates: [
-          { domain: 'ai_folders', assetId: 'folder-missing', classification: 'safe_to_backfill', reason: 'legacy_user_id_can_seed_personal_owner' },
           { domain: 'ai_images', assetId: 'image-private', classification: 'safe_to_backfill', reason: 'private_image_legacy_user_can_seed_personal_owner' },
+          { domain: 'ai_folders', assetId: 'folder-missing', classification: 'needs_manual_review', reason: 'folder_candidate_requires_manual_review' },
           { domain: 'ai_images', assetId: 'image-public', classification: 'blocked_public_unsafe', reason: 'public_gallery_reference_requires_review' },
         ],
         warnings: ['Dry-run only: no ownership metadata was written.'],
@@ -11126,25 +11126,35 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#tenantIsolationBackfillState')).toContainText('Post-cleanup dry-run loaded');
     await expect(page.locator('#sectionTenantAssets')).toContainText('post cleanup evidence collected');
     await expect(page.locator('#sectionTenantAssets')).toContainText('safe to backfill');
+    await expect(page.locator('#tenantBackfillExactCandidate')).toContainText('Exact candidate asset ID');
+    await expect(page.locator('#tenantBackfillExactCandidate')).toContainText('image-private');
     await expect(page.getByRole('button', { name: 'Write Safe Ownership Metadata' })).toBeDisabled();
     await page.locator('#tenantBackfillReason').fill('Static tenant isolation backfill evidence test');
     await page.locator('#tenantBackfillConfirmation').fill('BACKFILL OWNERSHIP');
     await page.getByRole('button', { name: 'Execute Endpoint Dry-run' }).click();
     await expect.poll(() => captures.tenantBackfillExecuteRequests.length).toBe(1);
     expect(captures.tenantBackfillExecuteRequests[0].idempotencyKey).toMatch(/^tenant-ownership-backfill-/);
-    expect(captures.tenantBackfillExecuteRequests[0].body).toMatchObject({
+    expect(captures.tenantBackfillExecuteRequests[0].body).toEqual({
       dryRun: true,
       confirm: true,
       confirmation: 'BACKFILL OWNERSHIP',
       reason: 'Static tenant isolation backfill evidence test',
+      domains: ['ai_images'],
+      batchLimit: 1,
+      candidateAssetIds: ['image-private'],
     });
     page.once('dialog', (dialog) => {
+      expect(dialog.message()).toContain('image-private');
       expect(dialog.message()).toContain('does not switch access checks');
       dialog.accept();
     });
     await page.getByRole('button', { name: 'Write Safe Ownership Metadata' }).click();
     await expect.poll(() => captures.tenantBackfillExecuteRequests.length).toBe(2);
     expect(captures.tenantBackfillExecuteRequests[1].body.dryRun).toBe(false);
+    expect(captures.tenantBackfillExecuteRequests[1].body.domains).toEqual(['ai_images']);
+    expect(captures.tenantBackfillExecuteRequests[1].body.domains).not.toContain('ai_folders');
+    expect(captures.tenantBackfillExecuteRequests[1].body.batchLimit).toBe(1);
+    expect(captures.tenantBackfillExecuteRequests[1].body.candidateAssetIds).toEqual(['image-private']);
     await page.getByRole('button', { name: 'Run Shadow Diagnostics' }).click();
     await expect(page.locator('#tenantIsolationAccessState')).toContainText('Post-cleanup shadow diagnostics completed');
     await expect(page.getByRole('button', { name: 'Enable Enforced Access-Switch' })).toBeDisabled();
@@ -11180,6 +11190,62 @@ test.describe('Admin Control Plane', () => {
     expect(renderedText).not.toContain('idempotencyKeyHash');
     expect(renderedText).not.toContain('requestFingerprintHash');
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('Tenant ownership backfill execution stays disabled without one exact ai_images candidate', async ({
+    page,
+  }) => {
+    const captures = {
+      tenantBackfillDryRunReport: {
+        reportVersion: 'tenant-isolation-ownership-backfill-v1',
+        generatedAt: '2026-05-19T12:10:00.000Z',
+        source: 'local_d1_read_only',
+        productionReadiness: 'blocked',
+        tenantIsolationClaimed: false,
+        ownershipBackfillReadiness: 'blocked_until_operator_evidence_review',
+        backfillPerformed: false,
+        d1Mutated: false,
+        r2LiveListed: false,
+        r2ObjectsMutated: false,
+        postCleanupRebaseline: {
+          status: 'post_cleanup_evidence_collected',
+          oldCountsSuperseded: true,
+          liveEvidenceRequired: false,
+        },
+        requiredExecutionConfirmation: 'BACKFILL OWNERSHIP',
+        summary: {
+          totalCandidates: 2,
+          safeCandidates: 1,
+          classifications: {
+            safe_to_backfill: 1,
+            needs_manual_review: 0,
+            blocked_public_unsafe: 1,
+            blocked_missing_evidence: 0,
+            already_owned: 0,
+          },
+        },
+        candidates: [
+          { domain: 'ai_folders', assetId: 'folder-only', classification: 'safe_to_backfill', reason: 'folder_candidate_is_not_current_exact_evidence' },
+          { domain: 'ai_images', assetId: 'image-public', classification: 'blocked_public_unsafe', reason: 'public_gallery_reference_requires_review' },
+        ],
+        warnings: ['Dry-run only: no ownership metadata was written.'],
+      },
+    };
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#tenant-assets');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#sectionTenantAssets')).toBeVisible();
+    await page.getByRole('button', { name: 'Run Backfill Dry-run' }).click();
+    await expect(page.locator('#tenantBackfillExactCandidate')).toContainText('No exact safe ai_images candidate ID is available');
+    await expect(page.getByRole('button', { name: 'Execute Endpoint Dry-run' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Write Safe Ownership Metadata' })).toBeDisabled();
+
+    await page.locator('#tenantBackfillReason').fill('Static blocked exact-candidate test');
+    await page.locator('#tenantBackfillConfirmation').fill('BACKFILL OWNERSHIP');
+    await expect(page.getByRole('button', { name: 'Execute Endpoint Dry-run' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Write Safe Ownership Metadata' })).toBeDisabled();
+    expect(captures.tenantBackfillExecuteRequests).toHaveLength(0);
   });
 
   test('Admin router preserves cold deep links, hero metadata, and Workbench navigation', async ({

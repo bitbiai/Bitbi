@@ -58,13 +58,21 @@ The registry separates current enforcement status from target policy. Do not mar
 
 Evidence/report/archive layers must remain bounded and sanitized. They must not call providers or Stripe, mutate credits, mutate billing, run repairs automatically, or prove live readiness by themselves.
 
-## Current Highest-Risk Gaps
+## Current Machine-Baselined Policy Gaps
+
+`config/ai-cost-policy-baseline.json` encodes the current technical AI cost policy gaps that remain accepted only under the guarded baseline:
 
 - Internal AI Worker caller-policy enforcement is fail-closed for provider-cost routes; aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work.
-- Platform budget scopes outside `platform_admin_lab_budget`, especially OpenClaw/News Pulse aggregate caps.
-- Admin explicit-unmetered branches without durable aggregate accounting.
-- Live/manual evidence for provider behavior, cap behavior, and billing/canary behavior.
+- OpenClaw/News Pulse visual routes are switch-gated and metadata-countable; aggregate cap enforcement for `openclaw_news_pulse_budget` remains future work.
+- The explicit unmetered Admin Image exception is classified and switch-controlled; durable aggregate accounting for `explicit_unmetered_admin` remains future work.
+
+These baseline allowances do not mark provider-cost coverage complete, do not approve broad unmetered provider use, and are rejected by strict AI-cost policy mode until replaced with durable enforcement.
+
+## Current Evidence / Readiness Gaps Outside The Machine Baseline
+
+- Live/manual evidence for provider behavior, cap behavior, and billing/canary behavior remains required.
 - Legal/accounting/operator readiness for customer billing remains outside the AI cost gateway itself.
+- Production readiness and live billing readiness remain blocked by current baseline rules.
 
 ## Verification Commands
 

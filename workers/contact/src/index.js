@@ -49,6 +49,10 @@ function protectionsUnavailableResponse(origin) {
     });
 }
 
+function hasResendApiKey(env) {
+    return typeof env?.RESEND_API_KEY === 'string' && env.RESEND_API_KEY.trim().length > 0;
+}
+
 function healthResponse() {
     return new Response(JSON.stringify({ ok: true, service: 'bitbi-contact', status: 'ok' }), {
         status: 200,
@@ -148,6 +152,22 @@ export default {
                 status: 429,
                 headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
             });
+        }
+
+        if (!hasResendApiKey(env)) {
+            logDiagnostic({
+                service: 'bitbi-contact',
+                component: 'contact-submit',
+                event: 'contact_submit_config_unavailable',
+                level: 'error',
+                correlationId,
+                provider: 'resend',
+                config_reason: 'resend_api_key_missing_or_empty',
+                status: 503,
+                duration_ms: getDurationMs(startedAt),
+                ...getRequestLogFields(requestInfo),
+            });
+            return protectionsUnavailableResponse(origin);
         }
 
         try {

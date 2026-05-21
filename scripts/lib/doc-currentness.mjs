@@ -86,7 +86,7 @@ const ACTIVE_DOMAIN_DESIGN_DOCS = new Set([
 const AUTH_MIGRATION_REFERENCE_REGEX = /\b\d{4}(?:_[a-z0-9_]+(?:\.sql)?)?\b/gi;
 
 const CURRENT_RELEASE_TRUTH_CODE_PATHS = Object.freeze([
-  "js/pages/admin/control-plane.js",
+  "js/pages/admin/control-plane/core.js",
   "workers/auth/src/routes/admin.js",
 ]);
 

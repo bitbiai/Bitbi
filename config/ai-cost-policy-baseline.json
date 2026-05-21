@@ -1,5 +1,74 @@
 {
   "version": "ai-cost-policy-baseline-2026-05-15",
-  "description": "Known AI provider-cost baseline allowances. Provider-cost internal AI Worker routes now require explicit caller policy; member image, music, and video remain gateway-migrated.",
-  "knownGaps": []
+  "description": "Known AI provider-cost baseline allowances. Provider-cost internal AI Worker routes require explicit caller policy; member image, music, and video remain gateway-migrated. This machine baseline tracks current technical policy gaps only; live/operator/legal/accounting evidence gaps remain blocked outside this config.",
+  "knownGaps": [
+    {
+      "id": "internal-ai-worker-aggregate-cap-accounting",
+      "route": "/internal/ai/*",
+      "functions": ["invokeAi", "invokeAiVideo", "createVideoProviderTask", "pollVideoProviderTask"],
+      "category": "internal",
+      "reason": "Internal AI Worker provider-cost routes fail closed on service auth and caller-policy metadata, but aggregate cap accounting for the caller-enforced internal scope remains future work.",
+      "temporaryAllowanceReason": "Accepted only because provider execution is service-bound and caller-policy gated; this does not claim live cap enforcement for the internal_ai_worker_caller_enforced aggregate scope.",
+      "targetBudgetScope": "internal_ai_worker_caller_enforced",
+      "targetFuturePhase": "Future internal caller-enforced aggregate cap accounting",
+      "severity": "P2",
+      "ownerDomain": "ai-worker",
+      "killSwitchTarget": "service auth, caller route kill switches, and future aggregate internal AI Worker cap switch",
+      "futureEnforcementPath": "Add a central aggregate ledger/cap for caller-enforced internal AI Worker provider-cost routes after scope-specific evidence and rollback design.",
+      "providerCostBearing": true,
+      "registryOperationIds": [
+        "internal.text.generate",
+        "internal.image.generate",
+        "internal.embeddings.generate",
+        "internal.music.generate",
+        "internal.video.generate",
+        "internal.compare",
+        "internal.live_agent",
+        "internal.video_task.create",
+        "internal.video_task.poll"
+      ],
+      "coveredByRegistryMetadata": true,
+      "allowedUnmigratedForNow": true,
+      "external_or_internal_only": true
+    },
+    {
+      "id": "openclaw-news-pulse-aggregate-caps",
+      "routes": ["/api/openclaw/news-pulse/ingest"],
+      "routePolicyIds": ["openclaw.news_pulse.ingest"],
+      "category": "platform",
+      "reason": "OpenClaw/News Pulse visual provider work has runtime switch and duplicate-suppression metadata, but durable aggregate cap enforcement for openclaw_news_pulse_budget remains future work.",
+      "temporaryAllowanceReason": "Accepted while News Pulse visuals remain switch-gated and metadata-countable; this does not claim live cap enforcement.",
+      "targetBudgetScope": "openclaw_news_pulse_budget",
+      "targetFuturePhase": "Future OpenClaw/News Pulse aggregate cap enforcement",
+      "severity": "P2",
+      "ownerDomain": "news-pulse",
+      "killSwitchTarget": "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
+      "futureEnforcementPath": "Add aggregate cap enforcement over News Pulse visual ingest and scheduled/backfill provider work with bounded evidence and operator rollback notes.",
+      "providerCostBearing": true,
+      "registryOperationIds": [
+        "platform.news_pulse.visual.ingest",
+        "platform.news_pulse.visual.scheduled"
+      ],
+      "coveredByRegistryMetadata": true,
+      "allowedUnmigratedForNow": true
+    },
+    {
+      "id": "admin-explicit-unmetered-aggregate-accounting",
+      "routes": ["/api/admin/ai/test-image"],
+      "routePolicyIds": ["admin.ai.test-image"],
+      "category": "admin",
+      "reason": "The explicit unmetered Admin Image exception is classified and switch-controlled, but durable aggregate accounting for explicit_unmetered_admin provider-cost usage remains future work.",
+      "temporaryAllowanceReason": "Accepted only for the narrow explicit unmetered admin branch; unknown admin image models are blocked before provider work and this does not approve broad unmetered provider use.",
+      "targetBudgetScope": "explicit_unmetered_admin",
+      "targetFuturePhase": "Future explicit-unmetered admin aggregate accounting",
+      "severity": "P2",
+      "ownerDomain": "admin-ai",
+      "killSwitchTarget": "Admin Image budget switch and explicit model allowlist",
+      "futureEnforcementPath": "Add durable aggregate accounting and evidence for explicit unmetered admin provider-cost branches before expanding usage.",
+      "providerCostBearing": true,
+      "registryOperationIds": ["admin.image.test.unmetered"],
+      "coveredByRegistryMetadata": true,
+      "allowedUnmigratedForNow": true
+    }
+  ]
 }

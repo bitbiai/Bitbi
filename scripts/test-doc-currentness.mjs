@@ -370,23 +370,34 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
-  writeFile(repo, "js/pages/admin/control-plane.js", "const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0059_add_data_lifecycle_completion_state.sql';\n");
+  writeFile(repo, "js/pages/admin/control-plane/core.js", "const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0059_add_data_lifecycle_completion_state.sql';\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
   });
   assert(result.violations.some((violation) => violation.type === "stale-latest-migration"
-    && violation.file === "js/pages/admin/control-plane.js"
+    && violation.file === "js/pages/admin/control-plane/core.js"
     && violation.rule === "current-auth-schema-checkpoint"));
 }
 
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
-  writeFile(repo, "js/pages/admin/control-plane.js", `const CURRENT_AUTH_SCHEMA_CHECKPOINT = '${latest}';\n`);
+  writeFile(repo, "js/pages/admin/control-plane/core.js", `const CURRENT_AUTH_SCHEMA_CHECKPOINT = '${latest}';\n`);
+  writeFile(repo, "js/pages/admin/control-plane.js", "export * from './control-plane/core.js';\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
   });
   assert.deepEqual(result.violations, []);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "js/pages/admin/control-plane.js", "const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0059_add_data_lifecycle_completion_state.sql';\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert(!result.violations.some((violation) => violation.file === "js/pages/admin/control-plane.js"));
 }
 
 console.log("Doc currentness tests passed.");

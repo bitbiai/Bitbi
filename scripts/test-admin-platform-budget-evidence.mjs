@@ -22,7 +22,7 @@ const report = buildAdminPlatformBudgetEvidenceReport({ generatedAt });
 
 assert.equal(report.ok, true);
 assert.equal(report.generatedAt, generatedAt);
-assert.equal(report.verdict, "pass");
+assert.equal(report.verdict, "blocked");
 assert.equal(report.runtimeMutation, false);
 assert.equal(report.providerCalls, false);
 assert.equal(report.billingMutation, false);
@@ -51,6 +51,7 @@ assert.equal(report.summary.platformBudgetReconciliationAvailable, false);
 assert.equal(report.summary.platformBudgetReconciliationVerdict, "not_run");
 assert.equal(report.summary.platformBudgetReconciliationRepairCandidates, 0);
 assert(report.summary.switchEnforcedNotCapEnforcedOperations >= 4);
+assert.equal(report.summary.baselineGaps, 3);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 assert.equal(report.adminAiUsageAttempts.cleanup.registered, true);
@@ -151,19 +152,21 @@ assert(["partial", "implemented"].includes(platformLabScope.runtimeEnforcementSt
 
 const explicitUnmeteredScope = report.budgetScopes.find((entry) => entry.scope === "explicit_unmetered_admin");
 assert(explicitUnmeteredScope.operationIds.includes("admin.image.test.unmetered"));
-assert.equal(explicitUnmeteredScope.baselineGapCount, 0);
+assert.equal(explicitUnmeteredScope.baselineGapCount, 1);
+assert(explicitUnmeteredScope.baselineGapIds.includes("admin-explicit-unmetered-aggregate-accounting"));
 assert.equal(explicitUnmeteredScope.implementedCount, 1);
 
 const openClawScope = report.budgetScopes.find((entry) => entry.scope === "openclaw_news_pulse_budget");
 assert.equal(openClawScope.operationCount, 2);
 assert.equal(openClawScope.implementedCount, 2);
-assert.equal(openClawScope.baselineGapCount, 0);
+assert.equal(openClawScope.baselineGapCount, 1);
+assert(openClawScope.baselineGapIds.includes("openclaw-news-pulse-aggregate-caps"));
 assert.equal(openClawScope.runtimeEnforcementStatus, "implemented");
 assert(openClawScope.killSwitchTargets.includes("ENABLE_NEWS_PULSE_VISUAL_BUDGET runtime_enforced"));
 
 const internalScope = report.budgetScopes.find((entry) => entry.scope === "internal_ai_worker_caller_enforced");
 assert(internalScope.operationCount >= 9);
-assert.equal(internalScope.baselineGapIds.length, 0);
+assert(internalScope.baselineGapIds.includes("internal-ai-worker-aggregate-cap-accounting"));
 assert.equal(internalScope.runtimeEnforcementExists, false);
 assert(internalScope.implementedCount >= 4);
 
@@ -275,6 +278,11 @@ assert.equal(internalGuard.baselineAllowedInternalRoutes.length, 0);
 assert(internalGuard.remainingLimitations.some((entry) => entry.includes("missing policy fails closed")));
 
 const baselineIds = gapIds(report.baselinedGaps);
+assert.deepEqual(baselineIds, [
+  "admin-explicit-unmetered-aggregate-accounting",
+  "internal-ai-worker-aggregate-cap-accounting",
+  "openclaw-news-pulse-aggregate-caps",
+]);
 const liveAgent = report.implementedOperations.find((entry) => entry.operationId === "admin.live_agent");
 assert.equal(liveAgent.budgetScope, "platform_admin_lab_budget");
 assert.equal(liveAgent.runtimeStatus, "budget_metadata_with_stream_session_idempotency");
@@ -378,7 +386,7 @@ assert(retiredDebug.emergencyCompatibility.some((entry) => entry.includes("not t
     },
   });
   assert.equal(bounded.evidenceItems.length, 2);
-  assert.equal(bounded.baselinedGaps.length, 0);
+  assert.equal(bounded.baselinedGaps.length, 3);
   assert.equal(bounded.implementedOperations.length, 2);
   assert(bounded.budgetScopes.some((scope) => scope.operationIds.length <= 1));
   assert(bounded.warnings.some((warning) => warning.includes("truncated")));
@@ -429,7 +437,7 @@ assert(retiredDebug.emergencyCompatibility.some((entry) => entry.includes("not t
   assert.equal(first.stdout, second.stdout);
   const parsed = JSON.parse(first.stdout);
   assert.equal(parsed.generatedAt, generatedAt);
-  assert.equal(parsed.verdict, "pass");
+  assert.equal(parsed.verdict, "blocked");
   assert(!first.stdout.includes("secret-token-value"));
 }
 
@@ -441,7 +449,7 @@ assert(retiredDebug.emergencyCompatibility.some((entry) => entry.includes("not t
   ], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert(result.stdout.includes("# Admin/Platform AI Budget Evidence"));
-  assert(result.stdout.includes("Verdict: pass"));
+  assert(result.stdout.includes("Verdict: blocked"));
   assert(result.stdout.includes("admin.image.test.charged"));
   assert(result.stdout.includes("Admin Image Branches"));
   assert(result.stdout.includes("admin.video.sync_debug"));

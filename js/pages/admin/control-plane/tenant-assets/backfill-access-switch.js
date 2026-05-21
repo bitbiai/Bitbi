@@ -46,8 +46,8 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
         backfill: {
             name: 'Ownership Backfill',
             confirmation: 'BACKFILL OWNERSHIP',
-            changes: 'Writes tenant ownership metadata only for selected ai_folders and ai_images rows classified safe by bounded D1 dry-run evidence.',
-            domains: 'Supported write domains: ai_folders and ai_images. Deferred domains include derivatives, text/music/video assets, avatars, public galleries, and raw R2 object families.',
+            changes: 'Writes tenant ownership metadata only for the exact ai_images candidate selected from current bounded D1 dry-run evidence.',
+            domains: 'Current execution path is narrowed to one exact ai_images candidate ID with batchLimit 1. ai_folders and all deferred domains remain blocked from this UI execution path.',
             dryRun: 'Dry-run and evidence export read local D1 metadata only and do not list or mutate R2.',
             metadata: 'Can write asset_owner_type, owning_user_id, created_by_user_id, ownership_status/source/confidence, metadata JSON, and assigned timestamp for safe rows only.',
             access: 'Does not change runtime access decisions by itself, but it can affect a future access-switch if one is later enabled.',
@@ -221,10 +221,38 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
         }
     }
 
+    function getExactBackfillCandidate(report = tenantIsolationBackfillReport) {
+        const candidates = Array.isArray(report?.candidates) ? report.candidates : [];
+        const exactCandidates = candidates.filter((item) =>
+            item?.domain === 'ai_images'
+            && item?.classification === 'safe_to_backfill'
+            && typeof item.assetId === 'string'
+            && item.assetId.trim()
+        );
+        return exactCandidates.length === 1 ? exactCandidates[0] : null;
+    }
+
+    function explainExactBackfillCandidateBlock(report = tenantIsolationBackfillReport) {
+        if (!report) return 'Load the ownership backfill dry-run before using the execution endpoint.';
+        const candidates = Array.isArray(report?.candidates) ? report.candidates : [];
+        const exactCandidates = candidates.filter((item) =>
+            item?.domain === 'ai_images'
+            && item?.classification === 'safe_to_backfill'
+            && typeof item.assetId === 'string'
+            && item.assetId.trim()
+        );
+        if (exactCandidates.length === 0) {
+            return 'No exact safe ai_images candidate ID is available in the loaded dry-run. Execution remains disabled.';
+        }
+        return 'More than one safe ai_images candidate is present. This UI only supports one exact current evidence candidate with batchLimit 1.';
+    }
+
     function renderOwnershipBackfillControl() {
         const card = tenantIsolationCard('backfill', 'Ownership Backfill', 'dangerous');
-        card.appendChild(el('p', 'admin-shell__desc', 'Writes ownership metadata only for rows classified safe by a bounded dry-run. Unsafe, public, missing-evidence, manual-review, and deferred rows remain blocked.'));
+        card.appendChild(el('p', 'admin-shell__desc', 'Writes ownership metadata only for one exact ai_images candidate classified safe by a bounded dry-run. Unsafe, public, missing-evidence, manual-review, ai_folders, and deferred rows remain blocked.'));
         const summary = el('div', 'admin-inventory');
+        const exactCandidate = el('div', 'admin-inventory');
+        exactCandidate.id = 'tenantBackfillExactCandidate';
         const state = el('div', 'admin-state', 'Post-cleanup evidence pending. Run dry-run preview before any execution attempt.');
         state.id = 'tenantIsolationBackfillState';
         state.setAttribute('aria-live', 'polite');
@@ -243,6 +271,7 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
                 }
                 tenantIsolationBackfillReport = res.data?.report || {};
                 renderBackfillSummary(summary, tenantIsolationBackfillReport);
+                renderExactBackfillCandidate();
                 state.dataset.state = 'success';
                 state.textContent = 'Post-cleanup dry-run loaded. No ownership metadata was written.';
                 syncBackfillButtons();
@@ -255,54 +284,78 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
         reason.id = 'tenantBackfillReason';
         reason.className = 'admin-ai__textarea';
         reason.rows = 3;
-        reason.placeholder = 'Operator reason required for the execution endpoint.';
+        reason.placeholder = 'Operator reason required for exact ai_images candidate execution.';
         const confirmation = document.createElement('input');
         confirmation.id = 'tenantBackfillConfirmation';
         confirmation.className = 'admin-ai__input';
-        confirmation.placeholder = 'Type BACKFILL OWNERSHIP';
+        confirmation.placeholder = 'Type BACKFILL OWNERSHIP for the exact ai_images candidate';
         const executeDryRun = el('button', 'btn-action btn-action--secondary', 'Execute Endpoint Dry-run');
         executeDryRun.type = 'button';
         const executeWrite = el('button', 'btn-action btn-action--danger', 'Write Safe Ownership Metadata');
         executeWrite.type = 'button';
-        const blockedReason = el('p', 'admin-shell__desc', 'Write mode disabled until dry-run is loaded, safe candidates exist, reason is entered, and exact confirmation is typed.');
+        const blockedReason = el('p', 'admin-shell__desc', 'Execution disabled until dry-run evidence provides one exact safe ai_images candidate ID, reason is entered, and exact confirmation is typed.');
 
-        function safeCandidateCount() {
-            return Number(tenantIsolationBackfillReport?.summary?.safeCandidates ?? tenantIsolationBackfillReport?.summary?.classifications?.safe_to_backfill ?? 0);
-        }
         function formReady() {
             return Boolean(reason.value.trim() && confirmation.value.trim() === 'BACKFILL OWNERSHIP');
         }
+        function renderExactBackfillCandidate() {
+            clear(exactCandidate);
+            const candidate = getExactBackfillCandidate();
+            if (!candidate) {
+                exactCandidate.appendChild(el('p', 'admin-shell__desc', explainExactBackfillCandidateBlock()));
+                return;
+            }
+            exactCandidate.appendChild(detailRows([
+                ['Allowed execution domain', 'ai_images'],
+                ['Batch limit', '1'],
+                ['Exact candidate asset ID', candidate.assetId],
+                ['Classification', readableToken(candidate.classification)],
+                ['Reason', readableToken(candidate.reason)],
+            ]));
+        }
         function syncBackfillButtons() {
-            executeDryRun.disabled = !formReady();
-            executeWrite.disabled = !(tenantIsolationBackfillReport && safeCandidateCount() > 0 && formReady());
-            blockedReason.textContent = executeWrite.disabled
-                ? 'Write mode disabled until dry-run is loaded, safe candidates exist, reason is entered, and exact confirmation is typed.'
-                : 'Write mode will update only safe ai_folders/ai_images rows in the selected bounded batch. Tenant isolation is still not claimed.';
+            const candidate = getExactBackfillCandidate();
+            executeDryRun.disabled = !(candidate && formReady());
+            executeWrite.disabled = !(candidate && formReady());
+            if (!candidate) {
+                blockedReason.textContent = explainExactBackfillCandidateBlock();
+            } else if (!formReady()) {
+                blockedReason.textContent = 'Execution disabled until operator reason is entered and exact BACKFILL OWNERSHIP confirmation is typed.';
+            } else {
+                blockedReason.textContent = `Execution will target only ai_images candidate ${candidate.assetId} with batchLimit 1. Tenant isolation remains unclaimed.`;
+            }
         }
         reason.addEventListener('input', syncBackfillButtons);
         confirmation.addEventListener('input', syncBackfillButtons);
 
         async function runBackfillExecution(dryRunMode, button) {
+            const candidate = getExactBackfillCandidate();
+            if (!candidate) {
+                state.dataset.state = 'error';
+                state.textContent = explainExactBackfillCandidateBlock();
+                return;
+            }
             if (!formReady()) {
                 state.dataset.state = 'error';
                 state.textContent = 'Reason and exact BACKFILL OWNERSHIP confirmation are required.';
                 return;
             }
             if (!dryRunMode) {
-                const confirmed = window.confirm('Write ownership metadata for safe rows only? This does not switch access checks, does not reset media, and does not claim tenant isolation.');
+                const confirmed = window.confirm(`Write ownership metadata only for exact ai_images candidate ${candidate.assetId}? This does not switch access checks, does not reset media, and does not claim tenant isolation.`);
                 if (!confirmed) return;
             }
             setSubmitting(button, true);
             state.dataset.state = 'neutral';
-            state.textContent = dryRunMode ? 'Submitting backfill execution dry-run...' : 'Submitting guarded ownership metadata write...';
+            state.textContent = dryRunMode ? 'Submitting exact-candidate backfill execution dry-run...' : 'Submitting guarded exact-candidate ownership metadata write...';
             try {
                 const res = await apiAdminOwnershipBackfillExecute({
                     dryRun: dryRunMode,
                     confirm: true,
                     confirmation: 'BACKFILL OWNERSHIP',
                     reason: reason.value.trim(),
-                    domains: ['ai_folders', 'ai_images'],
-                    batchLimit: 25,
+                    domains: ['ai_images'],
+                    batchLimit: 1,
+                    candidateAssetIds: [candidate.assetId],
                 }, { idempotencyKey: createIdempotencyKey('tenant-ownership-backfill') });
                 if (!res.ok) {
                     state.dataset.state = 'error';
@@ -318,6 +371,7 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
                 if (refreshed.ok) {
                     tenantIsolationBackfillReport = refreshed.data?.report || {};
                     renderBackfillSummary(summary, tenantIsolationBackfillReport);
+                    renderExactBackfillCandidate();
                     syncBackfillButtons();
                 }
             } finally {
@@ -340,7 +394,8 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
         const actions = el('div', 'admin-control-chip-row');
         actions.append(executeDryRun, executeWrite);
         form.append(reasonLabel, confirmLabel, actions, blockedReason, state);
-        card.append(summary, form);
+        renderExactBackfillCandidate();
+        card.append(summary, exactCandidate, form);
         return card;
     }
 

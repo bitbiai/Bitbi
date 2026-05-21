@@ -113,6 +113,15 @@ export const STRIPE_CREDIT_PACKS = Object.freeze([
     active: true,
     sortOrder: 10000,
   }),
+  Object.freeze({
+    id: "credits_legacy_10000",
+    name: "Legacy 10000 Credit Pack",
+    credits: 10000,
+    amountCents: 150,
+    currency: "eur",
+    active: false,
+    sortOrder: 10000,
+  }),
 ]);
 
 export const STRIPE_LIVE_CREDIT_PACKS = BITBI_LIVE_CREDIT_PACKS;
@@ -525,7 +534,7 @@ function normalizePackId(value) {
   return packId;
 }
 
-export function getStripeCreditPack(packId) {
+export function getStripeCreditPack(packId, { includeLegacy = false } = {}) {
   const normalized = normalizePackId(packId);
   const pack = STRIPE_CREDIT_PACKS.find((entry) => entry.id === normalized);
   if (!pack || (!pack.active && !includeLegacy)) {
