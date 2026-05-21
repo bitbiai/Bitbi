@@ -124,6 +124,14 @@
                     <p id="labPromptHelp" class="generate-lab__help">Describe the subject, setting, style, mood, and lighting.</p>
                 </div>
 
+                <div id="labWorkflowStatus" class="generate-lab__workflow-status" role="status" aria-live="polite">
+                    <span class="generate-lab__workflow-dot" aria-hidden="true"></span>
+                    <div>
+                        <strong>Ready to configure</strong>
+                        <p>Pick a model, review estimated credits, then generate.</p>
+                    </div>
+                </div>
+
                 <div id="labResultStage" class="generate-lab__result-stage" aria-live="polite"></div>
 
                 <div class="generate-lab__recent">
@@ -347,6 +355,11 @@
                             <strong id="labCost">1 credit</strong>
                         </div>
                         <p id="labBalance" class="generate-lab__balance">Sign in to check credits.</p>
+                        <p id="labCostInsight" class="generate-lab__cost-insight">Estimate only. Backend validation confirms the final credit use before generation.</p>
+                        <div class="generate-lab__action-card-footer">
+                            <a id="labCreditsLink" class="generate-lab__text-link" href="/account/credits.html" target="bitbi-account" rel="noopener">Review credits</a>
+                            <span>Images remain in preview until you save them.</span>
+                        </div>
                         <button id="labGenerate" type="button" class="generate-lab__generate-btn">Generate</button>
                     </div>
                     <div id="labMessage" class="generate-lab__message" role="status" aria-live="polite"></div>

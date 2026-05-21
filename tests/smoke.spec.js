@@ -1976,6 +1976,10 @@ test.describe('Homepage', () => {
     await expect(page.getByLabel('Describe your image')).toBeVisible();
     await expect(page.getByRole('button', { name: /Sign in to Generate|Generate/i })).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('1 credit');
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Ready to configure');
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Pick a model, review estimated credits, then generate.');
+    await expect(page.locator('#labCostInsight')).toContainText('Estimated 1 credit');
+    await expect(page.locator('#labCreditsLink')).toHaveAttribute('href', '/account/credits.html');
     await expect(page.locator('.generate-lab__subtitle')).toHaveCSS('text-align', 'right');
     const expectLabAccent = async (primary, alt) => {
       const values = await page.locator('body').evaluate((node) => {
@@ -2000,6 +2004,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labImageOutputFormat')).toBeVisible();
     await expect(page.locator('#labImageBackground')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('50 credits');
+    await expect(page.locator('#labCostInsight')).toContainText('Estimated 50 credits');
     await expect(page.locator('#labImageRefPrimary .generate-lab-ref-images__slot')).toHaveCount(3);
     await expect(page.locator('#labImageRefExtra')).toBeHidden();
     await page.locator('#labImageRefToggle').click();
@@ -2022,6 +2027,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labCost')).toHaveText('35 credits');
     await page.selectOption('#labImageQuality', 'auto');
     await expect(page.locator('#labCost')).toHaveText('250 credits');
+    await expect(page.locator('#labCostInsight')).toContainText('Estimated 250 credits');
     await expect(page.locator('#labImageAutoCostHint')).toBeVisible();
     await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-1-schnell');
     await expect(page.locator('#labImageGptControls')).toBeHidden();
@@ -2084,6 +2090,102 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labCost')).toHaveText('150 credits');
   });
 
+  test('Generate Lab shows generation status, save retry guidance, and Assets Manager handoff', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    let saveAttempts = 0;
+    let assetListRequests = 0;
+
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-save-member', email: 'save@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 400 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { folders: [], counts: {}, unfolderedCount: 0 } }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      assetListRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
+      });
+    });
+    await page.route('**/api/ai/generate-image', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            imageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=',
+            mimeType: 'image/png',
+            prompt: 'Neon library archive',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+          },
+          billing: { balance_after: 399 },
+        }),
+      });
+    });
+    await page.route('**/api/ai/images/save', async (route) => {
+      saveAttempts += 1;
+      if (saveAttempts === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Temporary save failure.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { id: 'saved-image-one' } }),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Ready to configure');
+    await page.locator('#labPrompt').fill('Neon library archive');
+
+    await page.locator('#labGenerate').click();
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Generation in progress');
+    await expect(page.locator('#labGenerate')).toBeDisabled();
+
+    await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Preview ready');
+    await expect(page.locator('#labMessage')).toContainText('Image generated. Save it when you are ready.');
+    await expect(page.locator('#labCostInsight')).toContainText('You have 399 credits');
+    await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Needs attention');
+    await expect(page.locator('#labMessage')).toContainText('preview is still available');
+    await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Saved to Assets Manager');
+    await expect(page.locator('#labMessage')).toContainText('Image saved');
+    await expect(page.getByRole('button', { name: 'View in Assets Manager' })).toBeVisible();
+    await expect.poll(() => assetListRequests).toBeGreaterThanOrEqual(2);
+  });
+
   test('German Generate Lab shows HappyHorse video controls with localized labels', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
@@ -2118,6 +2220,11 @@ test.describe('Homepage', () => {
       });
     });
     await page.goto('/de/generate-lab/');
+
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Bereit zum Konfigurieren');
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Wählen Sie ein Modell, prüfen Sie die geschätzten Credits');
+    await expect(page.locator('#labCostInsight')).toContainText('Geschätzt 1 Credit');
+    await expect(page.locator('#labCreditsLink')).toHaveAttribute('href', '/de/account/credits.html');
 
     await page.getByRole('tab', { name: 'Video' }).click();
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();

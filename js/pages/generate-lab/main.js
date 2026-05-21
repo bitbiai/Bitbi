@@ -262,6 +262,68 @@ function setMessage(text = '', type = 'info') {
     refs.message.className = text ? `generate-lab__message generate-lab__message--${type}` : 'generate-lab__message';
 }
 
+const workflowStatusConfig = Object.freeze({
+    ready: {
+        title: 'generateLab.workflowReadyTitle',
+        copy: 'generateLab.workflowReadyCopy',
+        tone: 'ready',
+    },
+    generating: {
+        title: 'generateLab.workflowGeneratingTitle',
+        copy: 'generateLab.workflowGeneratingCopy',
+        tone: 'busy',
+    },
+    readyToSave: {
+        title: 'generateLab.workflowReadyToSaveTitle',
+        copy: 'generateLab.workflowReadyToSaveCopy',
+        tone: 'success',
+    },
+    saving: {
+        title: 'generateLab.workflowSavingTitle',
+        copy: 'generateLab.workflowSavingCopy',
+        tone: 'busy',
+    },
+    saved: {
+        title: 'generateLab.workflowSavedTitle',
+        copy: 'generateLab.workflowSavedCopy',
+        tone: 'success',
+    },
+    attention: {
+        title: 'generateLab.workflowNeedsAttentionTitle',
+        copy: 'generateLab.workflowNeedsAttentionCopy',
+        tone: 'error',
+    },
+});
+
+function setWorkflowStatus(status = 'ready') {
+    if (!refs.workflowStatus) return;
+    const config = workflowStatusConfig[status] || workflowStatusConfig.ready;
+    refs.workflowStatus.className = `generate-lab__workflow-status is-${config.tone}`;
+    refs.workflowStatus.replaceChildren(
+        el('span', { className: 'generate-lab__workflow-dot', attrs: { 'aria-hidden': 'true' } }),
+        el('div', {},
+            el('strong', { text: localeText(config.title) }),
+            el('p', { text: localeText(config.copy) }),
+        ),
+    );
+}
+
+function updateCostInsight(price, insufficient) {
+    if (!refs.costInsight) return;
+    refs.costInsight.classList.toggle('is-low', insufficient);
+    if (!state.loggedIn) {
+        refs.costInsight.textContent = localeText('generateLab.costInsightSignedOut');
+        return;
+    }
+    if (state.creditBalance === null) {
+        refs.costInsight.textContent = localeText('generateLab.costInsightEstimateOnly', { cost: formatCredits(price) });
+        return;
+    }
+    refs.costInsight.textContent = insufficient
+        ? localeText('generateLab.costInsightLow', { cost: formatCredits(price) })
+        : localeText('generateLab.costInsightReady', { cost: formatCredits(price), balance: state.creditBalance });
+}
+
 function setBusy(nextBusy, label = '') {
     state.busy = nextBusy;
     if (refs.generate) {
@@ -366,6 +428,7 @@ function updateActionState() {
         && (refs.imageQuality?.value === 'auto' || refs.imageSize?.value === 'auto');
 
     if (refs.cost) refs.cost.textContent = formatCredits(price);
+    updateCostInsight(price, insufficient);
     if (refs.imageReferenceCostHint) refs.imageReferenceCostHint.hidden = !(gptSelected && referenceCount > 0);
     if (refs.imageAutoCostHint) refs.imageAutoCostHint.hidden = !usesAutoImageSetting;
     if (refs.balance) {
@@ -631,6 +694,7 @@ function renderAllForSelection({ keepResult = false } = {}) {
         state.currentImageData = null;
         state.currentImageMeta = null;
         renderEmptyResult();
+        setWorkflowStatus('ready');
         setMessage('');
     }
 }
@@ -932,7 +996,26 @@ function renderImageResult({ imageData, prompt, meta }) {
         el('strong', { text: meta?.modelLabel || localeText('generateLab.generatedImage') }),
         el('span', { text: localeText('generateLab.imagePrivate') }),
     );
-    refs.resultStage?.replaceChildren(el('figure', { className: 'generate-lab__result-card generate-lab__result-card--image' }, img, caption, save));
+    const actions = el('div', { className: 'generate-lab__result-actions' },
+        save,
+        el('span', { className: 'generate-lab__result-note', text: localeText('generateLab.unsavedImageNote') }),
+    );
+    refs.resultStage?.replaceChildren(el('figure', { className: 'generate-lab__result-card generate-lab__result-card--image' }, img, caption, actions));
+}
+
+function renderImageSavedActions() {
+    const actions = refs.resultStage?.querySelector('.generate-lab__result-actions');
+    if (!actions) return;
+    const open = el('button', {
+        className: 'generate-lab__secondary-link',
+        text: localeText('generateLab.viewInAssetsManager'),
+        attrs: { type: 'button' },
+    });
+    open.addEventListener('click', openAssetsOverlay);
+    actions.replaceChildren(
+        open,
+        el('span', { className: 'generate-lab__result-note', text: localeText('generateLab.imageSavedActionCopy') }),
+    );
 }
 
 function renderVideoResult(data) {
@@ -1155,6 +1238,7 @@ async function handleSaveImage() {
     if (!state.currentImageMeta || (!state.currentImageData && !state.currentImageMeta.saveReference)) return;
     const folderId = refs.folderSelect?.value || null;
     setMessage(localeText('generateLab.savingImage'), 'info');
+    setWorkflowStatus('saving');
 
     let res;
     try {
@@ -1180,17 +1264,21 @@ async function handleSaveImage() {
         }
     } catch (error) {
         console.warn('Generate Lab image save failed:', error);
-        setMessage(localeText('studio.saveFailed'), 'error');
+        setMessage(localeText('generateLab.imageSaveFailedRetry', { error: localeText('studio.saveFailed') }), 'error');
+        setWorkflowStatus('attention');
         return;
     }
 
     if (!res.ok) {
-        setMessage(res.error || localeText('studio.saveFailed'), 'error');
+        setMessage(localeText('generateLab.imageSaveFailedRetry', { error: res.error || localeText('studio.saveFailed') }), 'error');
+        setWorkflowStatus('attention');
         return;
     }
 
     state.currentImageData = null;
     state.currentImageMeta = null;
+    renderImageSavedActions();
+    setWorkflowStatus('saved');
     setMessage(localeText('generateLab.imageSaved'), 'success');
     await loadRecentAssets();
 }
@@ -1311,6 +1399,7 @@ async function handleGenerate() {
     const prompt = refs.prompt?.value.trim() || '';
     if (!prompt) {
         setMessage(localeText('studio.promptRequired'), 'error');
+        setWorkflowStatus('attention');
         refs.prompt?.focus();
         return;
     }
@@ -1318,10 +1407,12 @@ async function handleGenerate() {
     const price = currentCreditEstimate();
     if (state.creditBalance !== null && state.creditBalance < price) {
         setMessage(localeText('generateLab.needCredits', { cost: formatCredits(price) }), 'error');
+        setWorkflowStatus('attention');
         return;
     }
 
     setMessage('');
+    setWorkflowStatus('generating');
     setBusy(true, state.mediaType === 'music' ? localeText('generateLab.generatingMusic') : state.mediaType === 'video' ? localeText('generateLab.generatingVideo') : localeText('generateLab.generatingImage'));
     renderLoadingResult(state.mediaType === 'music'
         ? localeText('generateLab.creatingTrack')
@@ -1343,7 +1434,8 @@ async function handleGenerate() {
 
     if (!res?.ok) {
         renderEmptyResult();
-        setMessage(res?.error || localeText('studio.generationFailed'), 'error');
+        setMessage(localeText('generateLab.generationFailedRetry', { error: res?.error || localeText('studio.generationFailed') }), 'error');
+        setWorkflowStatus('attention');
         return;
     }
 
@@ -1351,6 +1443,7 @@ async function handleGenerate() {
     if (typeof balanceAfter === 'number') {
         state.creditBalance = balanceAfter;
         updateAccountPanel();
+        updateActionState();
     }
     const success = state.mediaType === 'image'
         ? localeText('generateLab.imageGeneratedSave')
@@ -1358,6 +1451,7 @@ async function handleGenerate() {
             ? localeText('generateLab.videoGeneratedSaved')
             : localeText('generateLab.musicGeneratedSaved');
     setMessage(success, 'success');
+    setWorkflowStatus(state.mediaType === 'image' ? 'readyToSave' : 'saved');
     await loadRecentAssets();
 }
 
@@ -1540,6 +1634,7 @@ function cacheRefs() {
         prompt: byId('labPrompt'),
         promptLabel: byId('labPromptLabel'),
         promptHelp: byId('labPromptHelp'),
+        workflowStatus: byId('labWorkflowStatus'),
         resultStage: byId('labResultStage'),
         recentAssets: byId('labRecentAssets'),
         recentAssetsOpen: byId('labRecentAssetsOpen'),
@@ -1577,6 +1672,7 @@ function cacheRefs() {
         musicGenerateLyrics: byId('labMusicGenerateLyrics'),
         folderSelect: byId('labFolderSelect'),
         cost: byId('labCost'),
+        costInsight: byId('labCostInsight'),
         balance: byId('labBalance'),
         generate: byId('labGenerate'),
         message: byId('labMessage'),

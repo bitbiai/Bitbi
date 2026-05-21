@@ -415,6 +415,74 @@
         margin-block-end: 1rem;
     }
 
+    .generate-lab__workflow-status {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.75rem;
+        align-items: start;
+        margin-block: 0 1rem;
+        padding: 0.85rem 0.95rem;
+        border: 1px solid rgba(var(--lab-accent-rgb), 0.16);
+        border-radius: 1rem;
+        background:
+            linear-gradient(135deg, rgba(var(--lab-accent-rgb), 0.09), rgba(var(--lab-accent-alt-rgb), 0.045)),
+            rgba(255, 255, 255, 0.035);
+    }
+
+    .generate-lab__workflow-dot {
+        inline-size: 0.72rem;
+        block-size: 0.72rem;
+        margin-block-start: 0.28rem;
+        border-radius: 50%;
+        background: rgb(var(--lab-accent-rgb));
+        box-shadow: 0 0 0 0.35rem rgba(var(--lab-accent-rgb), 0.1);
+    }
+
+    .generate-lab__workflow-status strong {
+        display: block;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.92rem;
+    }
+
+    .generate-lab__workflow-status p {
+        margin: 0.25rem 0 0;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.82rem;
+        line-height: 1.45;
+    }
+
+    .generate-lab__workflow-status.is-busy {
+        border-color: rgba(var(--lab-accent-alt-rgb), 0.24);
+        background:
+            linear-gradient(135deg, rgba(var(--lab-accent-alt-rgb), 0.11), rgba(var(--lab-accent-rgb), 0.05)),
+            rgba(255, 255, 255, 0.04);
+    }
+
+    .generate-lab__workflow-status.is-busy .generate-lab__workflow-dot {
+        background: rgb(var(--lab-accent-alt-rgb));
+        box-shadow: 0 0 0 0.35rem rgba(var(--lab-accent-alt-rgb), 0.1);
+    }
+
+    .generate-lab__workflow-status.is-success {
+        border-color: rgba(153, 255, 207, 0.24);
+        background: rgba(153, 255, 207, 0.055);
+    }
+
+    .generate-lab__workflow-status.is-success .generate-lab__workflow-dot {
+        background: rgb(153, 255, 207);
+        box-shadow: 0 0 0 0.35rem rgba(153, 255, 207, 0.1);
+    }
+
+    .generate-lab__workflow-status.is-error {
+        border-color: rgba(255, 138, 138, 0.28);
+        background: rgba(255, 138, 138, 0.06);
+    }
+
+    .generate-lab__workflow-status.is-error .generate-lab__workflow-dot {
+        background: rgb(255, 138, 138);
+        box-shadow: 0 0 0 0.35rem rgba(255, 138, 138, 0.1);
+    }
+
     .generate-lab__label {
         display: block;
         font-family: var(--font-mono);
@@ -868,6 +936,45 @@
         color: rgba(255, 138, 138, 0.92);
     }
 
+    .generate-lab__cost-insight {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.82rem;
+        line-height: 1.45;
+    }
+
+    .generate-lab__cost-insight.is-low {
+        color: rgba(255, 174, 174, 0.95);
+    }
+
+    .generate-lab__action-card-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        color: rgba(255, 255, 255, 0.52);
+        font-size: 0.76rem;
+        line-height: 1.4;
+    }
+
+    .generate-lab__text-link {
+        color: rgba(255, 224, 150, 0.95);
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        text-decoration: none;
+    }
+
+    .generate-lab__text-link:hover,
+    .generate-lab__text-link:focus-visible {
+        color: rgba(255, 244, 190, 0.98);
+        outline: 2px solid rgba(var(--lab-accent-alt-rgb), 0.2);
+        outline-offset: 3px;
+    }
+
     .generate-lab__generate-btn,
     .generate-lab__secondary-btn {
         min-block-size: 3.2rem;
@@ -1049,7 +1156,14 @@
     .generate-lab__result-actions {
         display: flex;
         flex-wrap: wrap;
+        align-items: center;
         gap: 0.65rem;
+    }
+
+    .generate-lab__result-note {
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.82rem;
+        line-height: 1.45;
     }
 
     .generate-lab__secondary-link {
