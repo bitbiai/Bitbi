@@ -1,8 +1,8 @@
 # SaaS Progress And Current State Report
 
-Date: 2026-05-20
+Date: 2026-05-21
 
-Purpose: compact current-state summary for restarting future audit work. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the canonical baseline.
+Purpose: compact current-state summary for restarting future audit work. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the only active audit baseline.
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
@@ -18,15 +18,19 @@ This report is not production readiness, live billing readiness, legal complianc
 | AI cost | Member image/music/video and selected admin/platform routes have gateway, idempotency, switch, cap, repair, report, and archive foundations. |
 | Tenant assets | Folder/image ownership metadata exists for new personal writes only; legacy rows remain unresolved. Manual-review workflows exist, including post-cleanup dry-run classification, evidence export, and guarded review-state supersession. Admin Tenant Isolation Execution exposes warning-gated Backfill dry-run/execution controls, Access-Switch shadow diagnostics, and Legacy Reset status/evidence controls. Post-cleanup evidence shows one exact safe `ai_images` ownership candidate prepared for operator execution; Access-Switch and Reset remain blocked. |
 | Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, safe executor foundations, final completion, close/reject, retained-category evidence, and JSON/Markdown/HTML evidence exports exist; completion remains evidence/policy-controlled and is not automatic legal advice. |
-| Admin UX | Admin Control Plane exposes implemented operator panels, including readiness/evidence status and production execution command copy, without proving production readiness. |
+| Admin UX | Admin Control Plane is modularized and exposes implemented operator panels, readiness/evidence status, production execution command copy, clearer high-risk-flow guardrails, and improved accessibility/focus/modal/keyboard behavior without proving production readiness. |
 
 ## Current Implemented Capabilities
 
 - Static site and Cloudflare Worker architecture remain intentionally lightweight and Cloudflare-native.
 - Auth/session/MFA/security guardrails and route-policy checks are in place.
 - Organization/RBAC, billing/credits/entitlements, member credit buckets, and BITBI Pro scaffolding exist.
+- Documentation currentness and release-truth guardrails align active current docs to `config/release-compat.json`.
+- Static Pages deploy safety is release-plan-aware and fails closed for Worker/schema/manual dependency ranges that are not acknowledged through the guarded workflow path.
+- Admin Control Plane implementation is split across focused modules instead of a single large Admin entrypoint.
 - Billing control-plane evidence reports live Stripe prerequisite presence/shape only; it does not expose secrets, call Stripe, create checkouts, grant credits, issue refunds, or mutate subscriptions.
 - Operator Timeline/Triage provides an Admin-only read model for audit/activity, billing, AI budget, lifecycle, tenant, readiness, and archive metadata. Evidence index tooling classifies repo evidence as accepted, pending, rejected/unsafe, template, historical, or stale/superseded without live R2 listing or raw unsafe value output.
+- Current evidence index state is `ok:true` with `unsafeCount:0` from repo-local evidence indexing.
 - Production execution tooling can generate a local readiness dossier, Cloudflare resource model, and rollback drill. These validate repo declarations and organize operator evidence, but they do not call Cloudflare/GitHub/Stripe/providers, deploy, migrate, mutate resources, execute rollback, or convert repo-supported state into live readiness.
 - Release Candidate tooling can generate `npm run release:rc` / `npm run release:rc:markdown` and the plan-only `npm run rc:check` final validation matrix. It supports code-merge/deploy preparation only and keeps production readiness blocked.
 - Admin/platform AI budget controls include classified-route metadata, caller-policy compatibility checks, Cloudflare master switches, D1 app switches, selected platform caps, read-only reconciliation, explicit repair actions, evidence reports, and archive tooling.
@@ -63,4 +67,4 @@ Recommended track: Fresh Deep Audit From Current Baseline.
 
 ## Historical Evidence
 
-Historical detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence documents. Treat those files as archive/background only and do not expand this report with chronological logs.
+Historical detail is preserved in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and tenant evidence documents. Treat those files as archive/background only, not active backlog, and do not expand this report with chronological logs.

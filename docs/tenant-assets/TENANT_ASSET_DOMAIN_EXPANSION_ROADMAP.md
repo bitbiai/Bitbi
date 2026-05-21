@@ -1,6 +1,6 @@
 # Tenant Asset Domain Expansion Roadmap
 
-Date: 2026-05-19
+Date: 2026-05-21
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
@@ -32,7 +32,7 @@ Purpose: current-state roadmap for expanding tenant asset ownership evidence bey
 
 ## Proposed Later Additive Migrations
 
-Do not add these automatically. Each requires a separate approved migration package:
+Do not add these automatically. Each requires a separate approved migration change:
 
 - Add ownership metadata or verified ownership inheritance for `ai_text_assets`.
 - Add explicit parent ownership/evidence linkage for text posters, saved audio, saved video, and generated video job outputs.
@@ -63,12 +63,12 @@ Do not add these automatically. Each requires a separate approved migration pack
 
 - Review Backfill and Access-Switch evidence before considering reset. The Admin reset control remains warning-gated and confirmed execution is disabled by default.
 - Sanitized post-cleanup legacy reset dry-run evidence must be accepted for dry-run only.
-- Confirmed execution must remain blocked until a future approved confirmation package explicitly authorizes it.
-- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` must stay disabled unless a separate operator-approved phase enables it.
+- Confirmed execution must remain blocked until a future approved confirmation change explicitly authorizes it.
+- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` must stay disabled unless a separate operator-approved change enables it.
 - Storage quota before/after evidence must be available.
 - R2 cleanup must use approved D1-derived keys only; no live R2 listing is acceptable as a Codex step.
 
-## Required Tests For Future Packages
+## Required Tests For Future Changes
 
 - Registry coverage tests so known domains cannot silently disappear.
 - Admin endpoint tests for auth/MFA, bounded output, redaction, no mutation, and blocked claims.
@@ -78,7 +78,7 @@ Do not add these automatically. Each requires a separate approved migration pack
 
 ## Rollback And Recovery
 
-- Keep legacy `user_id` access checks available until a separately approved switch package proves rollback safety.
+- Keep legacy `user_id` access checks available until a separately approved switch change proves rollback safety.
 - Keep confirmed reset execution disabled by default.
 - Preserve action/evidence rows for operator review; do not delete evidence to hide uncertainty.
 - Record affected deploy units, previous Worker version, static rollback method, owner, and smoke-test steps before any future deployment.

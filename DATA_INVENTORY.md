@@ -1,6 +1,6 @@
 # Data Inventory
 
-Date: 2026-05-20
+Date: 2026-05-21
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
@@ -46,7 +46,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - `ai_asset_manual_review_items` and `ai_asset_manual_review_events` store manual-review state and events.
 - Manual-review post-cleanup classification/export can split historical D1 review rows from active current, blocked, pending, deferred, unknown, and safe supersession candidates. Guarded supersession marks safe rows `superseded` only; it does not delete media rows or mutate source assets/R2.
 - `tenant_asset_media_reset_actions` and `tenant_asset_media_reset_action_events` store reset action/evidence tracking.
-- `ai_text_assets`, video jobs, music/audio assets, profile avatars, lifecycle exports, audit archives, and unknown media tables remain outside first-pass reset execution. Confirmed first-pass reset is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is explicitly enabled in a future approved operator package; no sanitized reset dry-run evidence package is currently accepted.
+- `ai_text_assets`, video jobs, music/audio assets, profile avatars, lifecycle exports, audit archives, and unknown media tables remain outside first-pass reset execution. Confirmed first-pass reset is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is explicitly enabled in a future approved operator change; no sanitized reset dry-run evidence package is currently accepted.
 - Admin Tenant Isolation Execution provides warning-gated controls for Ownership Backfill, Runtime Access-Switch, and Legacy Media Reset. Backfill dry-run/evidence classifies folder/image rows and the high-risk executor can write only safe classified ownership metadata when explicitly confirmed with Admin/MFA, `Idempotency-Key`, reason, supported domain scope, and `BACKFILL OWNERSHIP`. Access-Switch remains read-only status/shadow diagnostics; enforced runtime switching is blocked. Reset remains dry-run/evidence/status by default and confirmed execution requires the disabled backend gate plus `CONFIRMED LEGACY MEDIA RESET`.
 - Data lifecycle request, approval, export archive, cleanup, safe-execution, final-completion, close/reject, retained-category, and evidence-status rows are admin-controlled evidence surfaces. High-risk lifecycle mutations require idempotency, explicit confirmation where needed, audit logging, and redacted private storage references.
 - Admin Data Lifecycle now includes a request detail overlay and evidence packet surface. Request detail, Generate Plan, Approve, Execute Safe, Mark Completed, Reject, Close, private export archive metadata, and JSON/Markdown/HTML evidence exports are Admin/MFA-gated and bounded. Final states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review` without claiming production readiness or unchecked legal erasure.
@@ -58,7 +58,7 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 - Legacy media reset dry-run decision evidence is rejected unsafe because it exposed a raw idempotency key; the raw JSON is not present in the current checkout, and old candidate counts are stale after manual cleanup.
 - Post-cleanup rebaseline status is `post_cleanup_manual_review_supersession_supported_backfill_candidate_still_operator_pending` in `docs/tenant-assets/evidence/POST_CLEANUP_TENANT_ASSET_EVIDENCE_REBASELINE.md`.
 - Confirmed media reset/deletion has not been approved or performed.
-- Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical/stale-superseded states, and reports unsafe marker IDs without printing raw values.
+- Local evidence index tooling inventories repo evidence files, classifies accepted/pending/rejected-unsafe/template/historical/stale-superseded states, and reports unsafe marker IDs without printing raw values. Current repo-local evidence index status is `ok:true` with `unsafeCount:0`.
 - Production readiness dossier, Cloudflare resource model, rollback drill, RC Go/No-Go manifest, and final RC validation matrix tooling exist as local-only evidence organizers. They keep production readiness blocked, do not call live services, and do not mutate D1/R2/Queues/Cloudflare/GitHub/Stripe/provider state.
 - Evidence index unsafe-marker candidates are actionable by file path and marker ID only. Active-current blockers, historical archive candidates, template/example candidates, accepted redacted markers, and manual-review cases must be reviewed without printing raw values.
 

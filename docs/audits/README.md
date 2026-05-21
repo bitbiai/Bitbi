@@ -1,19 +1,32 @@
 # Audit And Documentation Index
 
-Last reconciled: 2026-05-20
+Last reconciled: 2026-05-21
 
 Current release truth: `config/release-compat.json` declares latest auth D1 migration `0060_add_app_settings.sql`.
 
-`docs/audits/NEXT_AUDIT_BASELINE.md` is the clean starting point for the next deep audit. Historical root reports live under `docs/audits/archive/root-phase-reports/`, and retired root audit docs live under `docs/audits/archive/retired-audit-root-docs/`. Active docs should describe current state only; historical audit narrative is frozen separately.
+`docs/audits/NEXT_AUDIT_BASELINE.md` is the only active audit baseline. Historical audit docs are archive/background only; they are not an active backlog unless a future fresh audit reconfirms an item from current repo state.
 
 ## Start Here
 
 | File | Purpose |
 | --- | --- |
-| `docs/audits/NEXT_AUDIT_BASELINE.md` | Primary current-state baseline for future audit work. |
+| `docs/audits/NEXT_AUDIT_BASELINE.md` | Only active current-state baseline for future audit work. |
 | `CURRENT_IMPLEMENTATION_HANDOFF.md` | Short operational restart handoff. |
 | `docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md` | Short current audit summary. |
 | `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md` | Current SaaS progress snapshot. |
+
+## Future Audit Starter
+
+Copy this operating rule into the next audit:
+
+- Start from `docs/audits/NEXT_AUDIT_BASELINE.md`.
+- Inspect the current repository state before using historical conclusions.
+- Historical docs are background/evidence lineage only.
+- Reconfirm every finding from current code, tests, docs, or live/operator evidence before treating it as active.
+- Do not assume old blockers remain active unless still proven.
+- Do not assume blocked claims are resolved unless live/operator evidence proves them.
+- Produce new findings, scores, and roadmap from the current repository state.
+- Use new finding identifiers or classifications; do not carry forward old audit IDs as active work.
 
 ## Active Current Source Of Truth
 
@@ -53,7 +66,7 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 
 ## Historical / Frozen Evidence
 
-These files are not current source of truth. They may mention older migration numbers or past decisions in their original context.
+These files are not current source of truth. They may mention older migration numbers, old audit labels, or past decisions in their original context. Preserve unique evidence; do not delete or rewrite it blindly.
 
 | Files | Status |
 | --- | --- |
@@ -86,6 +99,8 @@ Keep these files for context only. Reconcile with the current baseline before re
 - The repository root is for active top-level docs only. Historical phase reports belong in `docs/audits/archive/root-phase-reports/`.
 - Audit-specific plans/reports belong under `docs/audits/` or an archive. Do not create new root-level `AUDIT_*.md`, `ALPHA_AUDIT_*.md`, or `PHASE*.md` files.
 - Future completed audit reports should update current state or go directly to archive, not the repository root.
+- Old Omega, priority, wave, package, or phase labels are not active backlog labels unless a fresh audit explicitly reopens them.
+- Active domain roadmaps are candidate design context only; future audit findings should be newly numbered or newly classified.
 - Do not delete unique evidence files.
 - Do not update frozen historical reports just to modernize migration numbers.
 - New Markdown must be classified by doc-currentness tooling.

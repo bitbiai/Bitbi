@@ -128,7 +128,7 @@ Decision state:
 
 Decision rationale:
 
-Next recommended phase:
+Next recommended follow-up:
 
 ## Redaction Review
 

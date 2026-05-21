@@ -219,7 +219,7 @@ This template records current evidence only. It does not approve production read
 - Production readiness: blocked/ready/needs more evidence
 - Live billing readiness: blocked/ready/needs more evidence
 - Tenant isolation: not claimed/claimed with evidence
-- Confirmed media reset: blocked/approved through separate future operator package
+- Confirmed media reset: blocked/approved through separate future operator-approved change
 - Evidence state: collected/incomplete/rejected
 - Blocked claims remain blocked: yes/no
 - Follow-up actions:

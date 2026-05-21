@@ -113,7 +113,7 @@ Do not invent commands. Do not run deploy or remote mutation commands during aud
 
 ## Documentation Hygiene
 
-- Active docs describe current state, deploy/migration prerequisites, pending operator actions, blocked claims, and next audit/work-package starting points.
+- Active docs describe current state, deploy/migration prerequisites, pending operator actions, blocked claims, and fresh audit/current work starting points.
 - Do not append long phase-by-phase history to active current-state docs.
 - Historical phase reports, retired root audit docs, and archive snapshots are frozen evidence. Do not rewrite them to current migration numbers.
 - Do not create new root-level `PHASE*.md`, `AUDIT_*.md`, or `ALPHA_AUDIT_*.md` reports.

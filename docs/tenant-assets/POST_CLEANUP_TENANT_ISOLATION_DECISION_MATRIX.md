@@ -1,6 +1,6 @@
 # Post-Cleanup Tenant Isolation Decision Matrix
 
-Date: 2026-05-19
+Date: 2026-05-21
 
 Purpose: decision matrix after the operator manually deleted most old images and videos. This document does not approve production execution, tenant isolation, ownership backfill readiness, Access-Switch readiness, or confirmed legacy reset readiness.
 
@@ -73,10 +73,10 @@ Reset may proceed later only if all of these are true:
 - derivative/R2 key-type counts are present as counts only;
 - storage/quota reconciliation evidence exists where applicable;
 - Backfill and Access-Switch evidence has been reviewed first;
-- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is intentionally enabled by an operator in a later approved operator package;
+- `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is intentionally enabled by an operator in a later approved operator change;
 - `Idempotency-Key` is present and not committed raw;
 - exact typed confirmation `CONFIRMED LEGACY MEDIA RESET` is present;
-- no automatic reset is run from this rebaseline package.
+- no automatic reset is run from this rebaseline reset.
 
 Current result: `status_and_evidence_only_confirmed_blocked`. Confirmed reset remains blocked; the hard gate remains disabled and reset must not run before Backfill/Access evidence is reviewed.
 

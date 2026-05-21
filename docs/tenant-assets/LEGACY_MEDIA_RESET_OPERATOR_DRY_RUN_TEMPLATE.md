@@ -103,7 +103,7 @@ Decision:
 - `legacy_media_reset_dry_run_collected_ready_for_confirmation_review`
 - `legacy_media_reset_dry_run_rejected_unsafe`
 
-Next recommended phase:
+Next recommended follow-up:
 
 Dry-run closure:
 

@@ -1,6 +1,6 @@
 # Production Readiness
 
-Date: 2026-05-20
+Date: 2026-05-21
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
@@ -139,7 +139,7 @@ Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only w
 - Internal AI Worker caller policy is enforced for provider-cost routes, but live provider/cap/operator evidence is still required before readiness claims.
 - Canary/readiness tooling includes local-only safety contract checks and skipped-by-default live checks; missing live URLs or credentials must remain pending/blocked, not treated as success.
 - Tenant ownership backfill and access-switch readiness are blocked; current post-cleanup evidence is pending.
-- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided, and old reset candidate counts are stale after manual media cleanup. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved operator package.
+- Legacy media reset dry-run evidence is rejected unsafe until sanitized evidence is provided, and old reset candidate counts are stale after manual media cleanup. No sanitized replacement is currently accepted. Confirmed reset execution is hard-disabled by default unless optional gate `ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION` is exactly enabled in a future approved operator change.
 - Production readiness cannot be claimed from local tests alone.
 
 ## Safe Validation Commands

@@ -1,6 +1,6 @@
 # AI Folders / Images Manual Review State Schema
 
-Date: 2026-05-20
+Date: 2026-05-21
 
 Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
 
@@ -42,7 +42,7 @@ Review items use bounded statuses such as `pending_review`, `review_in_progress`
 
 Events record safe review evidence such as creation/import/status changes. Responses must not expose raw prompts, provider payloads, private R2 keys, signed URLs, cookies, auth headers, Stripe data, Cloudflare tokens, private keys, raw idempotency keys, raw request fingerprints, or unsafe metadata.
 
-The existing schema already supports post-cleanup supersession with the `superseded` status, `superseded_by_id`, and `superseded` event type. No migration is needed for OMEGA-P2-03.
+The existing schema already supports post-cleanup supersession with the `superseded` status, `superseded_by_id`, and `superseded` event type. No new migration is needed for the current post-cleanup supersession support.
 
 Current issue categories include `metadata_missing`, `public_unsafe`, `derivative_risk`, and `dual_read_unsafe`. The helper surface still centers review-item creation through `create_review_item_from_evidence` semantics, and the schema keeps the domain/asset lookup indexed through `idx_ai_asset_manual_review_items_domain_asset`.
 
@@ -59,7 +59,7 @@ Admin status writes require an `Idempotency-Key`; import dry-runs create no revi
 
 Remote migration `0057_add_ai_asset_manual_review_state.sql` must be applied before deploying Auth Worker code that depends on manual-review tables.
 
-Remote migrations through `0060_add_app_settings.sql` are current release truth. OMEGA-P2-03 does not add a migration.
+Remote migrations through `0060_add_app_settings.sql` are current release truth. Current post-cleanup supersession support does not add a migration.
 
 ## Next Audit Questions
 

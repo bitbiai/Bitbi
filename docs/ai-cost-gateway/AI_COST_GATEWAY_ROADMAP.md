@@ -1,8 +1,8 @@
 # AI Cost Gateway Roadmap
 
-Date: 2026-05-18
+Date: 2026-05-21
 
-Status: current forward roadmap. This is not a historical phase plan and does not approve production readiness or live billing readiness.
+Status: domain candidate roadmap only. This is not a historical audit plan, not an active audit backlog, and does not approve production readiness or live billing readiness. Future audits must reconfirm any item from current repo state before treating it as active work.
 
 ## Current Baseline
 
@@ -22,38 +22,38 @@ Status: current forward roadmap. This is not a historical phase plan and does no
 - Do not migrate every internal AI Worker route at once.
 - Do not combine platform budget caps, billing readiness, and tenant asset ownership work into one large change.
 
-## P0 Safety / Truth Work
+## Safety / Truth Work
 
 | ID | Goal | Scope | Required evidence |
 | --- | --- | --- | --- |
-| AI-P0-01 | Keep release/readiness docs aligned with `config/release-compat.json`. | Docs/check tooling only. | Doc-currentness and release readiness checks pass. |
-| AI-P0-02 | Keep provider-cost route inventory current. | Registry, route-policy metadata, AI cost inventory docs, local tests. | `check:ai-cost-policy` and related tests detect route drift. |
-| AI-P0-03 | Collect live/operator evidence for current budget switches/caps/archive flows. | Operator evidence only; no new provider path. | Sanitized evidence archives, switch/cap state, no secret/provider payload leakage. |
+| AI-SAFETY-01 | Keep release/readiness docs aligned with `config/release-compat.json`. | Docs/check tooling only. | Doc-currentness and release readiness checks pass. |
+| AI-SAFETY-02 | Keep provider-cost route inventory current. | Registry, route-policy metadata, AI cost inventory docs, local tests. | `check:ai-cost-policy` and related tests detect route drift. |
+| AI-SAFETY-03 | Collect live/operator evidence for current budget switches/caps/archive flows. | Operator evidence only; no new provider path. | Sanitized evidence archives, switch/cap state, no secret/provider payload leakage. |
 
-## P1 Budget Coverage Work
+## Budget Coverage Work
 
 | ID | Goal | Candidate files | Notes |
 | --- | --- | --- | --- |
-| AI-P1-01 | Extend aggregate caps to `openclaw_news_pulse_budget`. | `news-pulse-visuals`, cap helpers, evidence report, Worker tests. | Start with one scope; preserve public read fallback and no customer billing changes. |
-| AI-P1-02 | Harden remaining internal AI Worker caller-policy gaps. | Auth callers, `workers/ai/src/lib/caller-policy.js`, route-policy, tests. | Migrate one caller family at a time and keep service auth as the first gate. |
-| AI-P1-03 | Add durable usage accounting for explicit-unmetered admin exceptions before any broader use. | Admin AI route, budget usage helpers, tests. | Keep exceptions disabled unless operator explicitly accepts bounded risk. |
-| AI-P1-04 | Review admin metadata-only replay policy route by route. | Admin idempotency helper, routes, evidence docs. | Full result replay should be added only where raw output storage is safe and useful. |
+| AI-COVERAGE-01 | Extend aggregate caps to `openclaw_news_pulse_budget`. | `news-pulse-visuals`, cap helpers, evidence report, Worker tests. | Start with one scope; preserve public read fallback and no customer billing changes. |
+| AI-COVERAGE-02 | Harden remaining internal AI Worker caller-policy gaps. | Auth callers, `workers/ai/src/lib/caller-policy.js`, route-policy, tests. | Migrate one caller family at a time and keep service auth as the first gate. |
+| AI-COVERAGE-03 | Add durable usage accounting for explicit-unmetered admin exceptions before any broader use. | Admin AI route, budget usage helpers, tests. | Keep exceptions disabled unless operator explicitly accepts bounded risk. |
+| AI-COVERAGE-04 | Review admin metadata-only replay policy route by route. | Admin idempotency helper, routes, evidence docs. | Full result replay should be added only where raw output storage is safe and useful. |
 
-## P2 Billing / Product Quality Work
-
-| ID | Goal | Scope | Notes |
-| --- | --- | --- | --- |
-| AI-P2-01 | Separate platform budget evidence from customer billing evidence in admin UX and docs. | Admin copy/docs/tests. | Avoid implying platform caps are Stripe/customer billing readiness. |
-| AI-P2-02 | Strengthen live canary runbooks for member AI debits. | Production-readiness docs/evidence templates. | No live billing claim without operator canaries and rollback proof. |
-| AI-P2-03 | Improve storage/transform cost visibility for derivatives and generated asset saves. | Storage quota/evidence docs, admin reports. | Keep separate from provider AI gateway unless provider calls are involved. |
-
-## P3 Maintainability Work
+## Billing / Product Quality Work
 
 | ID | Goal | Scope | Notes |
 | --- | --- | --- | --- |
-| AI-P3-01 | Reduce duplicated admin budget response shaping. | Admin AI helpers/tests. | Preserve response shapes consumed by Admin UI. |
-| AI-P3-02 | Keep AI cost docs current-state oriented. | `docs/ai-cost-gateway/`. | Historical implementation detail belongs in archived audit docs. |
-| AI-P3-03 | Add focused performance checks for evidence/report scans. | Script/report tests. | Avoid unbounded D1 scans and oversized archive payloads. |
+| AI-BILLING-01 | Separate platform budget evidence from customer billing evidence in admin UX and docs. | Admin copy/docs/tests. | Avoid implying platform caps are Stripe/customer billing readiness. |
+| AI-BILLING-02 | Strengthen live canary runbooks for member AI debits. | Production-readiness docs/evidence templates. | No live billing claim without operator canaries and rollback proof. |
+| AI-BILLING-03 | Improve storage/transform cost visibility for derivatives and generated asset saves. | Storage quota/evidence docs, admin reports. | Keep separate from provider AI gateway unless provider calls are involved. |
+
+## Maintainability Work
+
+| ID | Goal | Scope | Notes |
+| --- | --- | --- | --- |
+| AI-MAINT-01 | Reduce duplicated admin budget response shaping. | Admin AI helpers/tests. | Preserve response shapes consumed by Admin UI. |
+| AI-MAINT-02 | Keep AI cost docs current-state oriented. | `docs/ai-cost-gateway/`. | Historical implementation detail belongs in archived audit docs. |
+| AI-MAINT-03 | Add focused performance checks for evidence/report scans. | Script/report tests. | Avoid unbounded D1 scans and oversized archive payloads. |
 
 ## Safe Implementation Sequence
 
