@@ -10,8 +10,9 @@ Local sprint command: `npm run release:rollback-drill` passed. It was local-only
 
 Rollback drill commit context:
 
-- Current commit: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
-- Previous commit reference in local drill output: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
+- Current commit: `eef6e7db3e9a2ea80831feecf0336b94ddff0d7e`
+- Previous commit reference in local drill output: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
+- Final master closure refresh reran the local rollback drill. No rollback, deploy, remote migration, Cloudflare/GitHub API call, or resource mutation was executed.
 
 ## Rollback Evidence
 

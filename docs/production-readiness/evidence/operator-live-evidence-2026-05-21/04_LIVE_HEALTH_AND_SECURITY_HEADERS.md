@@ -18,6 +18,12 @@ Approved public live command results:
 - `npm run check:live-health -- --base-url https://bitbi.ai --contact-base-url https://contact.bitbi.ai --require-live`: Auth health returned `200`; Contact health returned `200`.
 - `npm run check:live-security-headers -- --base-url https://bitbi.ai --require-live`: Static site returned `200`; `x-content-type-options` present; `referrer-policy` present; `permissions-policy` and `content-security-policy` still require manual dashboard/header verification.
 
+Final master closure refresh:
+
+- Approval phrase remained present in the final sprint instruction.
+- The same public unauthenticated read-only commands were rerun successfully.
+- No admin-authenticated live checks, cookies, Authorization headers, response bodies, Stripe calls, Cloudflare API calls, deploys, migrations, or resource mutations were used.
+
 ## Public Site
 
 | Check | Evidence reference | Result |

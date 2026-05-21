@@ -4,7 +4,7 @@ Date: 2026-05-21
 
 Operator: pending human review; local repo evidence refreshed by Codex
 
-Reviewed commit: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
+Reviewed commit: `eef6e7db3e9a2ea80831feecf0336b94ddff0d7e`
 
 Branch: `main`
 
@@ -50,6 +50,7 @@ Baseline before evidence updates:
 - `npm run release:plan` reported changed files `0`, impacted deploy units none, worker deploys none, schema applies none, static required no, required manual prerequisites none.
 - `npm run check:static-deploy-safety -- --event-name push --acknowledgement ""` reported `allowed`, mode `validation_only`.
 - `npm run evidence:index` reported `ok:true`, `unsafeCount:0`, local filesystem only, no external calls.
+- Final master closure refresh used the current `main` commit above. Evidence edits remain documentation-only and are expected to stay validation-only.
 
 ## Scope Boundary
 
