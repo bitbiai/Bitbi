@@ -178,6 +178,17 @@
                 <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
             </div>
         </div>
+        <div class="admin-nav__group" role="group" aria-label="Reference views">
+            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupReference">
+                <span class="admin-nav__group-label">Reference</span>
+                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="admin-nav__group-items" id="adminNavGroupReference">
+                <a href="#content" class="admin-nav__link" data-section="content">Content Reference</a>
+                <a href="#media" class="admin-nav__link" data-section="media">Media Reference</a>
+                <a href="#access" class="admin-nav__link" data-section="access">Access Reference</a>
+            </div>
+        </div>
     </div>
 </nav>
 
@@ -280,17 +291,22 @@
                     <div class="admin-operator-guidance__grid">
                         <div class="admin-operator-guidance__item">
                             <span class="badge badge--user">Read-only</span>
-                            <strong>Review evidence first</strong>
-                            <span>Open Readiness Matrix, Billing Evidence, Tenant Asset Safety, and Operations before considering any guarded mutation.</span>
+                            <strong>Safe now</strong>
+                            <span>Use Dashboard, Readiness, Billing Evidence, Operations, and Reference Views for read-only review before any guarded mutation.</span>
                         </div>
                         <div class="admin-operator-guidance__item">
                             <span class="badge badge--legacy">Guarded</span>
-                            <strong>Execute later</strong>
+                            <strong>Guarded mutation</strong>
                             <span>Mutating controls require admin/MFA, an operator reason, generated Idempotency-Key, and exact backend confirmations where required.</span>
                         </div>
                         <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Evidence</span>
+                            <strong>Operator proof required</strong>
+                            <span>Live Cloudflare, Stripe, migration, header, canary, and rollback evidence must be collected outside repo-local checks.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
                             <span class="badge badge--disabled">Blocked</span>
-                            <strong>Do not infer readiness</strong>
+                            <strong>Blocked claims</strong>
                             <span>Evidence-index success does not prove production readiness, live billing readiness, tenant isolation, confirmed reset readiness, or legal completion.</span>
                         </div>
                     </div>
@@ -396,6 +412,18 @@
                     <a href="#operations" class="admin-quick-link glass glass-card reveal" data-nav="operations">
                         <span class="admin-quick-link__icon">Ops</span>
                         <span class="admin-quick-link__label">Operations</span>
+                    </a>
+                    <a href="#content" class="admin-quick-link glass glass-card reveal" data-nav="content">
+                        <span class="admin-quick-link__icon">Ref</span>
+                        <span class="admin-quick-link__label">Content Reference</span>
+                    </a>
+                    <a href="#media" class="admin-quick-link glass glass-card reveal" data-nav="media">
+                        <span class="admin-quick-link__icon">Media</span>
+                        <span class="admin-quick-link__label">Media Reference</span>
+                    </a>
+                    <a href="#access" class="admin-quick-link glass glass-card reveal" data-nav="access">
+                        <span class="admin-quick-link__icon">Access</span>
+                        <span class="admin-quick-link__label">Access Reference</span>
                     </a>
                 </div>
 

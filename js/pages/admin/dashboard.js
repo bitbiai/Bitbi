@@ -3,10 +3,13 @@ import { apiAdminStats } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 const STATS_TTL = 30_000;
 const STAT_IDS = ['statTotal', 'statActive', 'statAdmins', 'statVerified', 'statDisabled', 'statRecent'];
 
-const statsTimeFormatter = new Intl.DateTimeFormat('de-DE', {
+const ADMIN_OPERATOR_LOCALE = 'en-GB';
+
+const statsTimeFormatter = new Intl.DateTimeFormat(ADMIN_OPERATOR_LOCALE, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    hour12: false,
 });
 
 function renderStats(stats, updatedEl, fetchedAt) {

@@ -30,6 +30,11 @@ import {
 import {
     createTenantLegacyResetDomain,
 } from './legacy-reset.js?v=__ASSET_VERSION__';
+import {
+    focusElementSafely,
+    restoreFocusSafely,
+    trapFocusWithin,
+} from '../../ui.js?v=__ASSET_VERSION__';
 
 export function createTenantExecutionDomain({ notify, formatDate }) {
     function lifecycleTextBlock(label, value) {
@@ -85,7 +90,7 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
         if (!tenantIsolationDangerModal) return;
         tenantIsolationDangerModal.modal.remove();
         document.removeEventListener('keydown', tenantIsolationDangerModal.onKeydown, true);
-        tenantIsolationDangerModal.opener?.focus?.();
+        restoreFocusSafely(tenantIsolationDangerModal.opener);
         tenantIsolationDangerModal = null;
     }
 
@@ -130,12 +135,14 @@ export function createTenantExecutionDomain({ notify, formatDate }) {
             if (event.key === 'Escape') {
                 event.preventDefault();
                 closeTenantIsolationDangerModal();
+                return;
             }
+            trapFocusWithin(modal, event);
         };
         tenantIsolationDangerModal = { modal, opener, onKeydown };
         document.body.appendChild(modal);
         document.addEventListener('keydown', onKeydown, true);
-        close.focus();
+        focusElementSafely(close);
     }
 
     function tenantDangerButton(kind) {

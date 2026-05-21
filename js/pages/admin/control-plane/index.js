@@ -147,6 +147,13 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 copy: 'Release preflight is green, but live Cloudflare validation, migration verification, and main-only operator evidence remain deployment prerequisites.',
                 href: '#readiness',
             },
+            {
+                title: 'Reference Views',
+                badge: { label: 'Read-only', variant: 'user' },
+                copy: 'Open Content, Media, and Access Reference surfaces for codebase-only context. These views do not query live systems, list R2, or prove tenant authorization.',
+                href: '#content',
+                cta: 'Open references',
+            },
         ]);
     }
 

@@ -127,9 +127,12 @@ function bootstrapAdminPanel() {
 /* ═══════════════════════════════════════════════════════════
    Date formatter
    ═══════════════════════════════════════════════════════════ */
-const dtf = new Intl.DateTimeFormat('de-DE', {
+const ADMIN_OPERATOR_LOCALE = 'en-GB';
+
+const dtf = new Intl.DateTimeFormat(ADMIN_OPERATOR_LOCALE, {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
+    hour12: false,
 });
 function formatDate(iso) {
     if (!iso) return '\u2014';

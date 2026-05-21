@@ -77,6 +77,16 @@ const WORKBENCH_TASKS = Object.freeze([
         nextAction: 'Review timeline, evidence index commands, async diagnostics, and manual-review queue signals.',
         blockedReason: 'Triage evidence does not mutate live systems or prove readiness by itself.',
     },
+    {
+        id: 'reference-views',
+        title: 'Reference Views',
+        status: 'ready_to_review',
+        mode: 'Read-only reference',
+        href: '#content',
+        probe: null,
+        nextAction: 'Use Content, Media, and Access Reference views for codebase-only context before interpreting live evidence.',
+        blockedReason: 'Reference views do not query live systems, list R2, prove authorization, or unlock production claims.',
+    },
 ]);
 
 function statusVariant(status) {

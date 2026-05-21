@@ -410,10 +410,11 @@ function mergePreferences(savedPreferences) {
 
 function formatTime(date) {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
-    return new Intl.DateTimeFormat('de-DE', {
+    return new Intl.DateTimeFormat('en-GB', {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
+        hour12: false,
     }).format(date);
 }
 
