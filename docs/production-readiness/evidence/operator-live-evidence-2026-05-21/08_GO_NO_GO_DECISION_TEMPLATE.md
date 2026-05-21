@@ -4,7 +4,7 @@ Date: 2026-05-21
 
 Operator: pending human review; local status filled by Codex
 
-Reviewed commit: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
+Reviewed commit: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
 
 Default decision: NO-GO.
 
@@ -19,7 +19,7 @@ Choose one:
 - [ ] CONDITIONAL GO
 - [ ] DEFER
 
-Decision rationale: local validation and evidence-template refresh progressed, but Cloudflare live resource verification, Worker/static deployed-version evidence, live health/security-header evidence, Stripe canary/operator evidence, tenant isolation evidence, rollback owner assignment, and final operator signoff remain incomplete.
+Decision rationale: local validation, local evidence artifacts, and approved public read-only health/header checks progressed, but Cloudflare live resource verification, Worker/static deployed-version evidence, remote migration evidence, Stripe canary/operator evidence, tenant isolation evidence, rollback owner assignment, and final operator signoff remain incomplete.
 
 ## Required Evidence Checklist
 
@@ -30,7 +30,7 @@ Decision rationale: local validation and evidence-template refresh progressed, b
 - [ ] Static deploy state reviewed.
 - [ ] Cloudflare resources reviewed.
 - [ ] Secrets/bindings present by presence only.
-- [ ] Live health reviewed.
+- [x] Live health reviewed.
 - [ ] Security headers reviewed.
 - [ ] Stripe canary reviewed if billing is in scope.
 - [x] Tenant isolation remains unclaimed unless separately proven.
@@ -70,7 +70,7 @@ Fill only if choosing CONDITIONAL GO:
 | Release impact | validation-only evidence Markdown changes; no Worker/schema/static deploy required |
 | Cloudflare resources | repo-declared; live dashboard verification pending |
 | Worker/static deploy evidence | pending operator live verification |
-| Live health/security headers | pending explicit approval or manual evidence |
+| Live health/security headers | public health passed; static status and two headers passed; CSP/permissions/frame/cache/CORS/manual review pending |
 | Billing/Stripe | NO-GO; local evidence only; canary/operator review pending |
 | Tenant isolation/assets | unclaimed; no mutation executed; operator evidence pending |
 | Rollback/restore | local rollback drill passed; owner/live version evidence pending |

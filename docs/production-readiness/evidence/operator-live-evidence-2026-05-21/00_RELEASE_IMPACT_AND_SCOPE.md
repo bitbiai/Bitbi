@@ -4,7 +4,7 @@ Date: 2026-05-21
 
 Operator: pending human review; local repo evidence refreshed by Codex
 
-Reviewed commit: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
+Reviewed commit: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
 
 Branch: `main`
 
@@ -49,6 +49,7 @@ Baseline before evidence updates:
 - Working tree was clean at sprint start.
 - `npm run release:plan` reported changed files `0`, impacted deploy units none, worker deploys none, schema applies none, static required no, required manual prerequisites none.
 - `npm run check:static-deploy-safety -- --event-name push --acknowledgement ""` reported `allowed`, mode `validation_only`.
+- `npm run evidence:index` reported `ok:true`, `unsafeCount:0`, local filesystem only, no external calls.
 
 ## Scope Boundary
 

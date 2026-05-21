@@ -49,7 +49,7 @@ Checked items in this section mean the Codex-edited evidence content was reviewe
 
 ## Sprint Redaction Results
 
-- No live/remote commands were run.
+- Approved public unauthenticated read-only live health/header commands were run. No admin-authenticated live checks, Cloudflare API calls, Stripe API calls, deploys, migrations, provider calls, tenant mutations, R2 listing, or resource mutations were run.
 - No admin cookies, authorization headers, Stripe signatures, webhook secrets, payment methods, raw provider payloads, raw idempotency keys, private object keys, private media URLs, or raw personal data were added by Codex.
 - `npm run check:secrets` passed after evidence-template edits.
 - `npm run evidence:index` was `ok:true` with `unsafeCount:0` after evidence-template edits.

@@ -9,6 +9,7 @@ Current status: tenant isolation is unclaimed. This template does not execute ba
 Local sprint status:
 
 - `npm run test:tenant-assets` passed.
+- `npm run test:workers` passed 615 Worker tests, including tenant evidence/exact-candidate coverage.
 - No tenant ownership backfill was executed.
 - No access-switch enforcement was changed.
 - No legacy media reset/delete was executed.

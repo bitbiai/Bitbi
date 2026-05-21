@@ -12,6 +12,16 @@ Repo evidence source: `config/release-compat.json` and `npm run cloudflare:resou
 
 Local command status: passed; repo_config_only; no Cloudflare API calls; no mutations; issueCount `0`.
 
+Current resource-model summary:
+
+- Total repo-declared resources: `74`
+- Repo-validated resources: `36`
+- Live-verification-required resources: `11`
+- Optional/fail-closed resources: `8`
+- Dashboard-managed pending resources: `19`
+- Repo truth is live proof: `false`
+- Production readiness: `blocked`
+
 ## Workers
 
 | Worker | Expected name | Deployed version/commit | Evidence reference | Result |

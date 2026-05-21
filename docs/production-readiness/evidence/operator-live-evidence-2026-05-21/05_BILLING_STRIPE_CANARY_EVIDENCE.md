@@ -10,6 +10,19 @@ Local sprint command: `npm run billing:canary-evidence` passed as a local templa
 
 Local environment presence snapshot from the command showed live billing config values as missing in the local shell by name only. This is not a production secret audit and does not prove Cloudflare secret state.
 
+Required operator evidence remains pending for:
+
+- live credit-pack checkout canary
+- live subscription checkout canary
+- verified webhook receipt
+- duplicate webhook idempotency
+- wrong Price ID rejection
+- missing webhook secret fail-closed behavior
+- no-credit-before-webhook evidence
+- invoice/subscription grant evidence
+- refund/dispute/payment-failure policy review
+- redaction proof for raw Stripe payload/signature/secret material
+
 ## Billing Gate State
 
 | Check | Evidence reference | Result |

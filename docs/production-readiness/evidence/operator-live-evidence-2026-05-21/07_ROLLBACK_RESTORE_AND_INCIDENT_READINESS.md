@@ -10,8 +10,8 @@ Local sprint command: `npm run release:rollback-drill` passed. It was local-only
 
 Rollback drill commit context:
 
-- Current commit: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
-- Previous commit reference in local drill output: `4ebaddc85a1ab46357b0a7e57af9c721ba966b04`
+- Current commit: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
+- Previous commit reference in local drill output: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
 
 ## Rollback Evidence
 

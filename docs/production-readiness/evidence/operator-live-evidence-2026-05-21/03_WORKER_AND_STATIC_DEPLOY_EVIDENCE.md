@@ -4,7 +4,7 @@ Date: 2026-05-21
 
 Operator: pending human review; repo-derived expectations filled by Codex
 
-Reviewed commit: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
+Reviewed commit: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
 
 This template records operator evidence after an approved release process. It does not deploy or approve production readiness.
 
@@ -18,6 +18,12 @@ This template records operator evidence after an approved release process. It do
 - Non-static deploy steps: none
 - Required manual prerequisites: none
 - Push-based static deploy safety result: allowed, mode `validation_only`
+
+Local evidence artifact status:
+
+- `npm run release:plan`: no runtime deploy steps required by current diff.
+- `npm run release:cutover-evidence`: local-only, non-mutating, no deploy, no remote migration.
+- `npm run release:rc`: local-only release candidate manifest, final production readiness claim remains NO-GO.
 
 ## Worker Deploy State
 
