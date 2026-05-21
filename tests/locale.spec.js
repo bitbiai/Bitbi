@@ -133,6 +133,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.getByRole('heading', { name: 'BITBI Credits & Pro' })).toBeVisible();
     await expect(page.locator('main')).toContainText('Flexible credits for image, video, music, and asset generation.');
     await expect(page.locator('main')).toContainText('Secure payment continues on pay.bitbi.ai.');
+    await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Compare options');
+    await expect(page.getByRole('heading', { name: 'Pick the option that fits today' })).toBeVisible();
+    await expect(page.locator('#pricingDecision')).toContainText('Create every week');
     await expect(page.locator('main')).toContainText('Choose how you want to create');
     await expect(page.locator('.site-footer__links')).toContainText('Privacy');
 
@@ -141,6 +144,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.getByRole('heading', { name: 'BITBI Credits & Pro' })).toBeVisible();
     await expect(page.locator('main')).toContainText('Flexible Credits für Bild-, Video-, Musik- und Asset-Generierung.');
     await expect(page.locator('main')).toContainText('Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.');
+    await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Optionen vergleichen');
+    await expect(page.getByRole('heading', { name: 'Wählen Sie die passende Option für heute' })).toBeVisible();
+    await expect(page.locator('#pricingDecision')).toContainText('Jede Woche erstellen');
     await expect(page.locator('main')).toContainText('Wählen Sie, wie Sie erstellen möchten');
     await expect(page.locator('.site-footer__links')).toContainText('Datenschutz');
   });
@@ -163,10 +169,14 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('<link rel="alternate" hreflang="en" href="https://bitbi.ai/account/credits.html">');
     expect(enCredits).toContain('<link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/credits.html">');
     expect(enCredits).toContain('<link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/credits.html">');
+    expect(enCredits).toContain('Credits dashboard');
+    expect(enCredits).toContain('Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.');
     expect(deCredits).toContain('<link rel="canonical" href="https://bitbi.ai/de/account/credits.html">');
     expect(deCredits).toContain('<link rel="alternate" hreflang="en" href="https://bitbi.ai/account/credits.html">');
     expect(deCredits).toContain('<link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/credits.html">');
     expect(deCredits).toContain('<link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/credits.html">');
+    expect(deCredits).toContain('Credits-Dashboard');
+    expect(deCredits).toContain('Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.');
   });
 
   test('language switcher maps equivalent pages, preserves query strings, and stores preference', async ({ page }) => {

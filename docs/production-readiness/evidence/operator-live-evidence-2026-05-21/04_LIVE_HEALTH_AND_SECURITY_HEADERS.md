@@ -24,6 +24,12 @@ Final master closure refresh:
 - The same public unauthenticated read-only commands were rerun successfully.
 - No admin-authenticated live checks, cookies, Authorization headers, response bodies, Stripe calls, Cloudflare API calls, deploys, migrations, or resource mutations were used.
 
+Mega Packet refresh:
+
+- The current Mega Packet prompt did not provide a separate public live-check approval outside rule text, so Codex did not rerun live HTTP checks in this sprint.
+- Previously collected public read-only evidence remains recorded below: Auth health `200`, Contact health `200`, static site `200`, `x-content-type-options` present, and `referrer-policy` present.
+- CSP, permissions policy, frame policy, cache-control, CORS, HSTS, content-type, Admin indexing behavior, static asset caching, and health cache behavior remain pending manual/header review.
+
 ## Public Site
 
 | Check | Evidence reference | Result |
@@ -53,6 +59,25 @@ Final master closure refresh:
 | Referrer policy reviewed | Approved live header check reported header present | live read-only pass |
 | Permissions policy reviewed | Approved script classified as `MANUAL`; dashboard/header verification remains required | pending manual verification |
 | CORS/origin behavior reviewed for APIs | Not covered by current public health/header scripts | pending manual/API evidence |
+
+## Security Header Policy Review Matrix
+
+| Header / policy | Observed status | Evidence source | Recommendation | Risk if unresolved | Operator follow-up |
+| --- | --- | --- | --- | --- | --- |
+| `x-content-type-options` | observed present | previous approved public read-only header check | Keep `nosniff` on static and relevant Worker responses. | low | Attach sanitized header output or screenshot. |
+| `referrer-policy` | observed present | previous approved public read-only header check | Keep strict enough policy for public/member routes and verify legal/account flows. | low | Attach sanitized header output or screenshot. |
+| `content-security-policy` | pending | script classified manual / dashboard review required | Verify exact CSP source list, `frame-ancestors`, script/style/image/connect sources, and report-only vs enforce mode. | medium/high | Attach sanitized header output and Transform Rule status. |
+| `permissions-policy` | pending | script classified manual / dashboard review required | Verify least-privilege policy for camera, microphone, geolocation, payment, interest-cohort, and similar browser features. | medium | Attach sanitized header output and Transform Rule status. |
+| `X-Frame-Options` / CSP `frame-ancestors` | pending | not covered by current script output | Verify clickjacking protection through either `X-Frame-Options` or CSP `frame-ancestors`. | medium | Attach sanitized response headers. |
+| `cache-control` for HTML/API | pending | not covered by current script output | Verify HTML/auth/account/admin/API health responses are not over-cached and sensitive API responses use safe cache policy. | medium | Attach sanitized response headers by route class. |
+| CORS on API routes | pending | not covered by public health/header scripts | Verify allowed origins/methods/headers, credential behavior, preflight behavior, and safe failure for unknown origins. | high | Use manual/API evidence without cookies or Authorization headers. |
+| HSTS | pending | not covered by current script output | Verify `Strict-Transport-Security` on HTTPS domains if intended by dashboard policy. | medium | Attach sanitized response header output. |
+| `content-type` | pending | not covered by current script output | Verify HTML routes return `text/html`, JSON health/API routes return JSON content type, and no sniffing ambiguity. | low/medium | Attach sanitized response headers only. |
+| Admin robots/noindex behavior | pending | manual/browser/repo review required | Verify admin pages are not indexed if the current product policy requires that. | medium | Attach sanitized page/header/robots evidence. |
+| Static asset caching | pending | manual/header review required | Verify versioned assets can be cached while HTML remains safely refreshed. | medium | Attach sanitized asset response headers. |
+| Health endpoint cache behavior | pending | manual/header review required | Verify health endpoints expose no sensitive data and are not cached in a way that hides outages. | medium | Attach sanitized response headers/body summary only. |
+
+Security-header readiness remains incomplete until the pending rows above are verified with sanitized evidence.
 
 ## Approved Command Placeholder
 

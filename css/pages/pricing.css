@@ -22,6 +22,7 @@
     }
 
     .pricing-hero,
+    .pricing-decision,
     .pricing-card,
     .pricing-org,
     .pricing-legal,
@@ -35,6 +36,7 @@
     }
 
     .pricing-hero,
+    .pricing-decision,
     .pricing-org,
     .pricing-legal,
     .pricing-info,
@@ -290,9 +292,81 @@
     }
 
     .pricing-offers-section,
-    .pricing-guide-section {
+    .pricing-guide-section,
+    .pricing-decision-section {
         display: grid;
         gap: clamp(0.9rem, 2vw, 1.25rem);
+    }
+
+    .pricing-decision {
+        display: grid;
+        gap: clamp(1rem, 2vw, 1.35rem);
+    }
+
+    .pricing-decision__head {
+        max-inline-size: 54rem;
+    }
+
+    .pricing-decision__grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: clamp(0.85rem, 1.8vw, 1.15rem);
+    }
+
+    .pricing-decision__card {
+        display: grid;
+        gap: 0.55rem;
+        min-inline-size: 0;
+        padding: clamp(1rem, 2vw, 1.25rem);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1rem;
+        background: rgba(0, 0, 0, 0.16);
+    }
+
+    .pricing-decision__moment,
+    .pricing-decision__plan,
+    .pricing-decision__copy,
+    .pricing-decision__action,
+    .pricing-decision__note {
+        margin: 0;
+    }
+
+    .pricing-decision__moment {
+        color: rgba(0, 240, 255, 0.78);
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        line-height: 1.35;
+        text-transform: uppercase;
+    }
+
+    .pricing-decision__plan {
+        color: rgba(255, 255, 255, 0.94);
+        font-family: var(--font-display);
+        font-size: clamp(1.28rem, 2vw, 1.7rem);
+        line-height: 1.12;
+    }
+
+    .pricing-decision__copy,
+    .pricing-decision__action,
+    .pricing-decision__note {
+        color: rgba(255, 255, 255, 0.67);
+        line-height: 1.55;
+    }
+
+    .pricing-decision__action {
+        padding-block-start: 0.2rem;
+        color: rgba(255, 220, 140, 0.88);
+        font-weight: 750;
+    }
+
+    .pricing-decision__note {
+        max-inline-size: 58rem;
+        padding: 0.82rem 0.95rem;
+        border: 1px solid rgba(0, 240, 255, 0.16);
+        border-radius: 1rem;
+        background: rgba(0, 240, 255, 0.055);
     }
 
     .pricing-offers-grid {
@@ -665,6 +739,7 @@
         .pricing-hero,
         .pricing-grid,
         .pricing-offers-grid,
+        .pricing-decision__grid,
         .pricing-info-grid,
         .pricing-faq__list,
         .pricing-org__row {
@@ -701,6 +776,7 @@
         }
 
         .pricing-hero,
+        .pricing-decision,
         .pricing-card,
         .pricing-org,
         .pricing-legal,

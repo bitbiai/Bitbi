@@ -6408,6 +6408,8 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Select pack');
     await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Select pack');
     await expect(page.locator('#pricingBillingState')).toHaveCount(0);
+    await expect(page.locator('#pricingDecision')).toContainText('Pick the option that fits today');
+    await expect(page.locator('#pricingDecision')).toContainText('Run a larger session');
     await expect(page.locator('#pricingOffers')).toContainText('Choose how you want to create');
     await expect(page.locator('#pricingGuide')).toContainText('What happens after purchase');
     await expect(page.locator('.pricing-info-grid')).toContainText('Use credits across BITBI');

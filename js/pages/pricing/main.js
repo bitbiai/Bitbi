@@ -31,7 +31,7 @@ const COPY = Object.freeze({
         subtitle: 'Flexible credits for image, video, music, and asset generation.',
         heroCopy: 'Choose BITBI Pro for a monthly creative allowance, or buy one-time credits when you need extra room. Credits stay account-bound and checkout stays Stripe-hosted.',
         heroPrimary: 'Choose an option',
-        heroSecondary: 'How credits work',
+        heroSecondary: 'Compare options',
         trust: ['Secure Stripe checkout', 'Credits for AI generation', 'Manage in account'],
         heroStats: Object.freeze([
             ['6000', 'monthly Pro credits'],
@@ -75,6 +75,15 @@ const COPY = Object.freeze({
         creditPacks: 'Credit packs',
         offersTitle: 'Choose how you want to create',
         offersCopy: 'BITBI Pro is best for regular creation. One-time packs stay available for flexible top-ups without a subscription.',
+        decisionKicker: 'Plan picker',
+        decisionTitle: 'Pick the option that fits today',
+        decisionCopy: 'Choose by cadence, not by hype. BITBI keeps subscription credits and purchased credits separate so the next step stays clear.',
+        decisionCards: Object.freeze([
+            Object.freeze(['Create every week', 'BITBI Pro', 'Monthly credits and 5 GB storage for a predictable studio rhythm.', 'Choose this when BITBI is part of your regular workflow.']),
+            Object.freeze(['Run a larger session', 'Creator Credits', 'More prepaid credits for images, video tests, music, and reference-heavy batches.', 'Choose this for production bursts without a subscription.']),
+            Object.freeze(['Try a focused idea', 'Starter Credits', 'A smaller top-up for first tests, prototypes, and light experiments.', 'Choose this when you want low-commitment capacity.']),
+        ]),
+        decisionFootnote: 'Credits are added only after verified Stripe payment confirmation. They remain account-bound and are not transferable value.',
         included: 'Included',
         bestFor: 'Best for',
         subscriptionBestFor: 'Regular creators who want predictable monthly credits and more storage.',
@@ -128,7 +137,7 @@ const COPY = Object.freeze({
         subtitle: 'Flexible Credits für Bild-, Video-, Musik- und Asset-Generierung.',
         heroCopy: 'Wählen Sie BITBI Pro für ein monatliches Kreativkontingent oder kaufen Sie einmalige Credits, wenn Sie zusätzlichen Spielraum brauchen. Credits bleiben kontogebunden und der Checkout läuft über Stripe.',
         heroPrimary: 'Option auswählen',
-        heroSecondary: 'So funktionieren Credits',
+        heroSecondary: 'Optionen vergleichen',
         trust: ['Sicherer Stripe-Checkout', 'Credits für KI-Generierung', 'Im Konto verwalten'],
         heroStats: Object.freeze([
             ['6000', 'monatliche Pro-Credits'],
@@ -172,6 +181,15 @@ const COPY = Object.freeze({
         creditPacks: 'Credit-Pakete',
         offersTitle: 'Wählen Sie, wie Sie erstellen möchten',
         offersCopy: 'BITBI Pro eignet sich für regelmäßige Nutzung. Einmalige Pakete bleiben für flexible Aufladungen ohne Abo verfügbar.',
+        decisionKicker: 'Option wählen',
+        decisionTitle: 'Wählen Sie die passende Option für heute',
+        decisionCopy: 'Entscheiden Sie nach Nutzungstakt, nicht nach Hype. BITBI trennt Abo-Credits und gekaufte Credits, damit der nächste Schritt klar bleibt.',
+        decisionCards: Object.freeze([
+            Object.freeze(['Jede Woche erstellen', 'BITBI Pro', 'Monatliche Credits und 5 GB Speicher für einen planbaren Studio-Rhythmus.', 'Wählen Sie dies, wenn BITBI Teil Ihres regelmäßigen Workflows ist.']),
+            Object.freeze(['Größere Session starten', 'Creator Credits', 'Mehr Prepaid-Credits für Bilder, Video-Tests, Musik und referenzintensive Batches.', 'Wählen Sie dies für Produktionsspitzen ohne Abo.']),
+            Object.freeze(['Fokussierte Idee testen', 'Starter Credits', 'Eine kleinere Aufladung für erste Tests, Prototypen und leichte Experimente.', 'Wählen Sie dies, wenn Sie Kapazität mit geringer Verpflichtung möchten.']),
+        ]),
+        decisionFootnote: 'Credits werden erst nach bestätigter Stripe-Zahlung gutgeschrieben. Sie bleiben kontogebunden und sind kein übertragbarer Wert.',
         included: 'Enthalten',
         bestFor: 'Geeignet für',
         subscriptionBestFor: 'Regelmäßige Creator, die planbare Monats-Credits und mehr Speicher möchten.',
@@ -494,7 +512,7 @@ function createHero() {
     primary.textContent = t('heroPrimary');
     const secondary = document.createElement('a');
     secondary.className = 'pricing-hero__link';
-    secondary.href = '#pricingGuide';
+    secondary.href = '#pricingDecision';
     secondary.textContent = t('heroSecondary');
     actions.append(primary, secondary);
     copy.appendChild(actions);
@@ -526,6 +544,44 @@ function createHero() {
     trust.append(stats, note, detail);
     hero.append(copy, trust);
     return hero;
+}
+
+function createDecisionSection() {
+    const section = document.createElement('section');
+    section.id = 'pricingDecision';
+    section.className = 'pricing-decision-section';
+    section.setAttribute('aria-labelledby', 'pricingDecisionTitle');
+
+    const panel = document.createElement('div');
+    panel.className = 'pricing-decision glass glass-card reveal visible';
+
+    const head = document.createElement('div');
+    head.className = 'pricing-decision__head';
+    const title = createTextElement('h2', 'pricing-section-title', t('decisionTitle'));
+    title.id = 'pricingDecisionTitle';
+    head.append(
+        createTextElement('p', 'pricing-kicker', t('decisionKicker')),
+        title,
+        createTextElement('p', 'pricing-section-copy', t('decisionCopy')),
+    );
+
+    const grid = document.createElement('div');
+    grid.className = 'pricing-decision__grid';
+    for (const [moment, plan, copy, action] of (COPY[LOCALE] || COPY.en).decisionCards) {
+        const card = document.createElement('article');
+        card.className = 'pricing-decision__card';
+        card.append(
+            createTextElement('p', 'pricing-decision__moment', moment),
+            createTextElement('h3', 'pricing-decision__plan', plan),
+            createTextElement('p', 'pricing-decision__copy', copy),
+            createTextElement('p', 'pricing-decision__action', action),
+        );
+        grid.appendChild(card);
+    }
+
+    panel.append(head, grid, createTextElement('p', 'pricing-decision__note', t('decisionFootnote')));
+    section.appendChild(panel);
+    return section;
 }
 
 function createInfoSection(title, text, bullets = []) {
@@ -785,6 +841,7 @@ function renderPricingExperience() {
     shell.className = 'pricing-shell';
     renderReturnState(shell);
     shell.appendChild(createHero());
+    shell.appendChild(createDecisionSection());
     shell.appendChild(createOffersSection(auth));
     shell.appendChild(createCreditDestination(auth));
     shell.appendChild(createLegalCheckout(auth));

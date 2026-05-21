@@ -10,9 +10,9 @@ Local sprint command: `npm run release:rollback-drill` passed. It was local-only
 
 Rollback drill commit context:
 
-- Current commit: `eef6e7db3e9a2ea80831feecf0336b94ddff0d7e`
-- Previous commit reference in local drill output: `e68b51d2bfa86933833dee026f4be62dbe6b24c9`
-- Final master closure refresh reran the local rollback drill. No rollback, deploy, remote migration, Cloudflare/GitHub API call, or resource mutation was executed.
+- Current commit: `6be19411c897109c2d74e609b91fb9b5a88c8567`
+- Previous commit reference in local drill output: `eef6e7db3e9a2ea80831feecf0336b94ddff0d7e`
+- Final master closure and Mega Packet refreshes reran the local rollback drill. No rollback, deploy, remote migration, Cloudflare/GitHub API call, or resource mutation was executed.
 
 ## Rollback Evidence
 
@@ -49,10 +49,22 @@ Rollback drill commit context:
 | Escalation owners assigned | Operator to fill | pending |
 | Operator Timeline/Triage reviewed | Admin/operator evidence required | pending |
 
+## Mega Packet Rollback Follow-Up
+
+| Item | Evidence reference | Result |
+| --- | --- | --- |
+| `npm run release:rollback-drill` | Passed locally for commit `6be19411c897109c2d74e609b91fb9b5a88c8567`; no rollback executed | local pass |
+| `npm run test:rollback-drill` | Rollback drill tests passed | local pass |
+| Previous deploy ids captured | Operator Cloudflare/GitHub evidence required | pending |
+| Rollback owner assigned | Operator to fill before any release window | pending |
+| Restore drill executed | Separate staging/operator drill required; not run by Codex | pending |
+| Alerts/SLO dashboard verified | `docs/SLO_ALERT_BASELINE.md` and `docs/OBSERVABILITY_EVENTS.md` reviewed; dashboard evidence pending | partial / pending |
+| Escalation owners assigned | Operator to fill | pending |
+
 ## Post-Rollback Smoke Checks
 
-- Auth health: pending approved read-only live check
-- Public homepage: pending approved read-only live check
+- Auth health: previous approved public read-only check returned 200; rerun pending if a release occurs
+- Public homepage: previous approved public read-only check returned 200; rerun pending if a release occurs
 - Admin readiness: pending operator-authenticated browser evidence
 - Billing evidence: pending operator/Stripe canary evidence
 - Tenant asset evidence: pending operator/admin evidence

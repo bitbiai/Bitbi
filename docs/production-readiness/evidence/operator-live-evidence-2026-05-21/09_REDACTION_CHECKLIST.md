@@ -54,4 +54,6 @@ Checked items in this section mean the Codex-edited evidence content was reviewe
 - `npm run check:secrets` passed after evidence-template edits.
 - `npm run evidence:index` was `ok:true` with `unsafeCount:0` after evidence-template edits.
 - Final master closure refresh reran automated redaction gates after current evidence edits: `npm run check:secrets` passed, `npm run evidence:index` stayed `ok:true` with `unsafeCount:0`, and no raw sensitive live evidence was added.
+- Mega Packet refresh updated Cloudflare/deploy/D1/dashboard evidence templates only. It did not add raw dashboard exports, secret values, cookies, Authorization headers, Stripe signatures, webhook secrets, payment method data, raw provider payloads, raw idempotency keys, raw R2/private object keys, raw DB rows, private media URLs, or unredacted personal data.
+- Mega Packet final gates passed after evidence edits: `npm run check:secrets` passed, `npm run evidence:index` was `ok:true` with `unsafeCount:0`, `npm run check:doc-currentness` passed, `npm run test:doc-currentness` passed, `npm run release:plan` classified the diff as validation-only evidence Markdown with no deploy units, and `npm run check:static-deploy-safety -- --event-name push --acknowledgement ""` returned `allowed`, mode `validation_only`.
 - Human redaction reviewer/date: pending.

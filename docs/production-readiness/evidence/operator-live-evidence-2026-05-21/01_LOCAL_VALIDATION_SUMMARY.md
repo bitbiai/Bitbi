@@ -4,14 +4,14 @@ Date: 2026-05-21
 
 Operator: pending human review; local repo evidence refreshed by Codex
 
-Reviewed commit: `eef6e7db3e9a2ea80831feecf0336b94ddff0d7e`
+Reviewed commit: `6be19411c897109c2d74e609b91fb9b5a88c8567`
 
 This file records repo-local validation only. It does not prove production readiness, live billing readiness, tenant isolation, deploy completion, or legal compliance.
 
 ## Baseline
 
 - Branch: `main`
-- Commit: `eef6e7db3e9a2ea80831feecf0336b94ddff0d7e`
+- Commit: `6be19411c897109c2d74e609b91fb9b5a88c8567`
 - Working tree state: clean before evidence file updates
 - Latest auth D1 migration from `config/release-compat.json`: `0060_add_app_settings.sql`
 - Evidence index `ok`: `true`
@@ -74,6 +74,27 @@ This file records repo-local validation only. It does not prove production readi
 | `npm run check:static-deploy-safety -- --event-name push --acknowledgement ""` | pass | Status `allowed`; mode `validation_only`; push-based Pages safety guard would pass for the clean tree. |
 | `npm run validate:release` | pass | Release compatibility validation passed. |
 
+## Mega Packet Cloudflare / Deploy / Remote-D1 Refresh
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `git rev-parse HEAD` | pass | Current commit `6be19411c897109c2d74e609b91fb9b5a88c8567`. |
+| `npm run release:plan` | pass | Clean start gate: changed files `0`, impacted deploy units none, worker deploys none, schema applies none, static required no, non-static deploy steps none, required manual prerequisites none. |
+| `npm run check:static-deploy-safety -- --event-name push --acknowledgement ""` | pass | Clean start gate: `allowed`, mode `validation_only`. |
+| `npm run evidence:index` | pass | `ok:true`; `unsafeCount:0`; local filesystem only; no external calls; no secrets printed. |
+| `npm run check:secrets` | pass | Secret leakage guard passed. |
+| `npm run check:doc-currentness` | pass | Latest auth migration `0060_add_app_settings.sql`; 153 first-party Markdown files inventoried. |
+| `npm run test:doc-currentness` | pass | Doc currentness tests passed. |
+| `npm run validate:release` | pass | Release compatibility validation passed. |
+| `npm run test:release-compat` | pass | Release compatibility tests passed. |
+| `npm run validate:cloudflare-prereqs` | pass / production deploy blocked | Repo config passed; live Cloudflare validation skipped; production deploy readiness remains blocked. |
+| `npm run test:cloudflare-prereqs` | pass | Cloudflare prerequisite tests passed. |
+| `npm run test:cloudflare-resource-model` | pass | Cloudflare resource model tests passed. |
+| `npm run cloudflare:resource-model` | pass | Repo-config-only model; total resources `74`; issueCount `0`; Cloudflare API calls `false`; live evidence attached `false`. |
+| `npm run cloudflare:resource-model:markdown` | pass | Markdown model: 36 repo-validated resources, 11 live-verification-required status items, 8 optional/fail-closed, 19 dashboard-managed pending. |
+| `npm run release:rollback-drill` | pass | Local-only drill for current commit; no rollback/deploy/remote migration/API mutation executed. |
+| `npm run test:rollback-drill` | pass | Rollback drill tests passed. |
+
 ## Failed Or Skipped Commands
 
 For each skipped or failed command, record:
@@ -85,7 +106,7 @@ For each skipped or failed command, record:
 - Does this block production readiness? yes/no
 - Does this block live billing readiness? yes/no
 
-No Step 1 local refresh command failed. Live/manual evidence remains pending outside this local summary.
+No Step 1 or Mega Packet local refresh command failed. Live/manual evidence remains pending outside this local summary.
 
 ## Sprint Evidence Commands
 
@@ -105,7 +126,7 @@ No Step 1 local refresh command failed. Live/manual evidence remains pending out
 
 ## Final Master Closure Refresh
 
-- Current reviewed commit: `eef6e7db3e9a2ea80831feecf0336b94ddff0d7e`.
+- Current reviewed commit: `6be19411c897109c2d74e609b91fb9b5a88c8567`.
 - Broad local validation passed, including `npm run test:static` with 293 tests and `npm run test:workers` with 615 tests.
 - Approved public read-only live checks passed for Auth health, Contact health, static status, `x-content-type-options`, and `referrer-policy`; CSP, permissions policy, frame/cache/CORS review remain pending manual/dashboard evidence.
 - The validation result is still local/repo evidence plus limited public read-only checks. It does not prove production readiness, live billing readiness, tenant isolation, deployment completion, or operator approval.
