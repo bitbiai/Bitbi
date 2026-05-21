@@ -154,6 +154,21 @@ test.describe('Bilingual locale pages', () => {
     expect(creditsScript).toContain('https://pay.bitbi.ai');
   });
 
+  test('account credits pages expose canonical and hreflang metadata parity', () => {
+    const enCredits = repoFile('account/credits.html');
+    const deCredits = repoFile('de/account/credits.html');
+    expect(enCredits).toContain('<meta name="robots" content="noindex, nofollow">');
+    expect(deCredits).toContain('<meta name="robots" content="noindex, nofollow">');
+    expect(enCredits).toContain('<link rel="canonical" href="https://bitbi.ai/account/credits.html">');
+    expect(enCredits).toContain('<link rel="alternate" hreflang="en" href="https://bitbi.ai/account/credits.html">');
+    expect(enCredits).toContain('<link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/credits.html">');
+    expect(enCredits).toContain('<link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/credits.html">');
+    expect(deCredits).toContain('<link rel="canonical" href="https://bitbi.ai/de/account/credits.html">');
+    expect(deCredits).toContain('<link rel="alternate" hreflang="en" href="https://bitbi.ai/account/credits.html">');
+    expect(deCredits).toContain('<link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/credits.html">');
+    expect(deCredits).toContain('<link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/credits.html">');
+  });
+
   test('language switcher maps equivalent pages, preserves query strings, and stores preference', async ({ page }) => {
     await page.goto('/generate-lab/?source=locale-test');
     const deLink = page.locator('.locale-switcher__link[hreflang="de"]').first();

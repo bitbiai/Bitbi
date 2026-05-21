@@ -591,7 +591,7 @@ const STRINGS = Object.freeze({
             personalAccount: 'Personal member credit account.',
             platformAdminAccess: 'Platform admin access.',
             orgOwnerAccess: 'Active organization owner access.',
-            legalError: 'Bitte akzeptiere die AGB und bestätige die sofortige Bereitstellung der digitalen Credits.',
+            legalError: 'Please accept the terms and confirm immediate provision of the digital credits.',
             creatingCheckout: 'Creating checkout...',
             checkoutFailed: 'Checkout could not be created.',
             invalidCheckout: 'Checkout response was invalid.',

@@ -17,6 +17,7 @@ import {
     setActiveOrganizationId,
 } from '../../shared/active-organization.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { setupFocusTrap } from '../../shared/focus-trap.js';
 
 const $loading = document.getElementById('creditsLoading');
 const $denied = document.getElementById('creditsDenied');
@@ -51,14 +52,15 @@ const $subscriptionDialogConfirm = document.getElementById('creditsSubscriptionD
 const TERMS_VERSION = '2026-05-05';
 const LEDGER_VISIBLE_LIMIT = 5;
 const LOCALE = getCurrentLocale();
-const DATE_LOCALE = LOCALE === 'de' ? 'de-DE' : 'en-US';
+const FORMAT_LOCALE = LOCALE === 'de' ? 'de-DE' : 'en-US';
 const STRIPE_CHECKOUT_ORIGINS = new Set([
     'https://checkout.stripe.com',
     'https://pay.bitbi.ai',
 ]);
-const EURO_FORMATTER = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
-const NUMBER_FORMATTER = new Intl.NumberFormat('en-US');
-const MONTH_FORMATTER = new Intl.DateTimeFormat(DATE_LOCALE, { month: 'long', year: 'numeric' });
+const EURO_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE, { style: 'currency', currency: 'EUR' });
+const NUMBER_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE);
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat(FORMAT_LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
+const MONTH_FORMATTER = new Intl.DateTimeFormat(FORMAT_LOCALE, { month: 'long', year: 'numeric' });
 
 let currentUser = null;
 let eligibleOrganizations = [];
@@ -71,6 +73,7 @@ let legalError = '';
 let pendingSubscriptionAction = null;
 let subscriptionActionPending = false;
 let subscriptionFeedbackMessage = '';
+let subscriptionDialogFocusCleanup = null;
 
 function show(node) {
     if (node) node.hidden = false;
@@ -138,7 +141,7 @@ function formatCredits(value) {
 function formatDate(value) {
     if (!value) return localeText('credits.notReported');
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? localeText('credits.notReported') : date.toLocaleString(DATE_LOCALE);
+    return Number.isNaN(date.getTime()) ? localeText('credits.notReported') : DATE_TIME_FORMATTER.format(date);
 }
 
 function parseLedgerDate(value) {
@@ -181,11 +184,11 @@ function formatStorage(bytes) {
     const mb = number / (1024 * 1024);
     if (mb >= 1024) {
         const gb = mb / 1024;
-        return `${gb.toLocaleString(DATE_LOCALE, {
+        return `${gb.toLocaleString(FORMAT_LOCALE, {
             maximumFractionDigits: gb >= 10 ? 0 : 1,
         })} GB`;
     }
-    return `${mb.toLocaleString(DATE_LOCALE, {
+    return `${mb.toLocaleString(FORMAT_LOCALE, {
         maximumFractionDigits: mb >= 10 ? 0 : 1,
     })} MB`;
 }
@@ -824,6 +827,10 @@ function closeSubscriptionDialog() {
     if (!$subscriptionDialog) return;
     hide($subscriptionDialog);
     $subscriptionDialog.setAttribute('aria-hidden', 'true');
+    if (subscriptionDialogFocusCleanup) {
+        try { subscriptionDialogFocusCleanup(); } catch {}
+        subscriptionDialogFocusCleanup = null;
+    }
 }
 
 function openSubscriptionDialog(action) {
@@ -844,7 +851,13 @@ function openSubscriptionDialog(action) {
     $subscriptionDialogConfirm.classList.toggle('btn-secondary', !isReactivate);
     show($subscriptionDialog);
     $subscriptionDialog.setAttribute('aria-hidden', 'false');
-    $subscriptionDialogConfirm.focus();
+    if (subscriptionDialogFocusCleanup) {
+        try { subscriptionDialogFocusCleanup(); } catch {}
+        subscriptionDialogFocusCleanup = null;
+    }
+    subscriptionDialogFocusCleanup = setupFocusTrap($subscriptionDialog);
+    const focusTarget = isReactivate ? $subscriptionDialogConfirm : $subscriptionDialogCancel;
+    window.setTimeout(() => focusTarget?.focus(), 0);
 }
 
 async function confirmSubscriptionAction() {

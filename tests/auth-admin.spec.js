@@ -6642,7 +6642,7 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(cardWidths.every((width) => width >= 240)).toBe(true);
 
     await page.locator('[data-checkout-pack="live_credits_5000"]').click();
-    await expect(page.locator('.credits-legal__error')).toContainText('Bitte akzeptiere die AGB');
+    await expect(page.locator('.credits-legal__error')).toContainText('Please accept the terms');
     expect(checkoutRequests).toHaveLength(0);
 
     await page.locator('#creditsTermsAccepted').check();
@@ -6881,8 +6881,11 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Mitgliedskonto');
     await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(4);
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Gesamt verfügbar');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('10.300 Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Abo-Credits');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('6.000 Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Gekaufte Credits');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('4.000 Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Legacy-/Bonus-Credits');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('BITBI Pro');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Nächste Verlängerung');
@@ -6937,10 +6940,22 @@ test.describe('Credits dashboard live credit packs', () => {
 
     await page.goto('/account/credits.html?scope=member');
     await expect(page.locator('[data-subscription-action="cancel"]')).toBeVisible({ timeout: 10_000 });
-    await page.locator('[data-subscription-action="cancel"]').click();
+    const cancelAction = page.locator('[data-subscription-action="cancel"]');
+    await cancelAction.click();
     await expect(page.locator('#creditsSubscriptionDialog')).toBeVisible();
+    await expect(page.locator('#creditsSubscriptionDialog')).toHaveAttribute('aria-describedby', 'creditsSubscriptionDialogBody');
     await expect(page.locator('#creditsSubscriptionDialogTitle')).toHaveText('Cancel subscription at period end?');
     await expect(page.locator('#creditsSubscriptionDialogBody')).toContainText('remains active');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('creditsSubscriptionDialogCancel');
+    await page.keyboard.press('Shift+Tab');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('creditsSubscriptionDialogConfirm');
+    await page.keyboard.press('Tab');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('creditsSubscriptionDialogCancel');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#creditsSubscriptionDialog')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-subscription-action'))).toBe('cancel');
+    await cancelAction.click();
+    await expect(page.locator('#creditsSubscriptionDialog')).toBeVisible();
     await page.locator('#creditsSubscriptionDialogConfirm').click();
     await expect(page.locator('#creditsSubscriptionFeedback')).toContainText('Cancellation scheduled');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Cancels at period end');
@@ -6952,7 +6967,18 @@ test.describe('Credits dashboard live credit packs', () => {
     }));
     expect(subscriptionManageRequests[0].idempotencyKey).toMatch(/^member-subscription:cancel:/);
 
-    await page.locator('[data-subscription-action="reactivate"]').click();
+    const reactivateAction = page.locator('[data-subscription-action="reactivate"]');
+    await reactivateAction.click();
+    await expect(page.locator('#creditsSubscriptionDialogTitle')).toHaveText('Reactivate subscription?');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('creditsSubscriptionDialogConfirm');
+    await page.keyboard.press('Tab');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('creditsSubscriptionDialogCancel');
+    await page.keyboard.press('Shift+Tab');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('creditsSubscriptionDialogConfirm');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#creditsSubscriptionDialog')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-subscription-action'))).toBe('reactivate');
+    await reactivateAction.click();
     await expect(page.locator('#creditsSubscriptionDialogTitle')).toHaveText('Reactivate subscription?');
     await page.locator('#creditsSubscriptionDialogConfirm').click();
     await expect(page.locator('#creditsSubscriptionFeedback')).toContainText('Subscription reactivated');
