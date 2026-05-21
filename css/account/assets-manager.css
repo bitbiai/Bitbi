@@ -132,6 +132,116 @@
         display: none;
     }
 
+    .assets-manager__handoff {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-4);
+        align-items: center;
+        margin-block: 0 var(--space-5);
+        padding: var(--space-4);
+        border: 1px solid rgba(0, 240, 255, 0.2);
+        border-radius: var(--radius-lg);
+        background:
+            linear-gradient(135deg, rgba(0, 240, 255, 0.09), rgba(255, 179, 0, 0.055)),
+            rgba(255, 255, 255, 0.035);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
+    }
+
+    .assets-manager__handoff[hidden] {
+        display: none;
+    }
+
+    .assets-manager__handoff-copy {
+        display: grid;
+        gap: var(--space-2);
+        min-inline-size: 0;
+    }
+
+    .assets-manager__handoff-eyebrow {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(255, 179, 0, 0.82);
+    }
+
+    .assets-manager__handoff-title {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.94);
+        font-size: clamp(1rem, 2vw, 1.25rem);
+        line-height: 1.2;
+    }
+
+    .assets-manager__handoff-title:focus-visible {
+        outline: 2px solid rgba(0, 240, 255, 0.78);
+        outline-offset: 0.25rem;
+    }
+
+    .assets-manager__handoff-text,
+    .assets-manager__handoff-status {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.66);
+        font-size: 0.9rem;
+        line-height: 1.55;
+    }
+
+    .assets-manager__handoff-status:empty {
+        display: none;
+    }
+
+    .assets-manager__handoff-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: var(--space-2);
+    }
+
+    .assets-manager__handoff-btn {
+        min-block-size: 2.55rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        padding: 0.7rem 0.95rem;
+        background: rgba(255, 255, 255, 0.055);
+        color: rgba(255, 255, 255, 0.82);
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        line-height: 1.2;
+        text-align: center;
+        text-decoration: none;
+        text-transform: uppercase;
+        cursor: pointer;
+    }
+
+    .assets-manager__handoff-btn:hover,
+    .assets-manager__handoff-btn:focus-visible {
+        border-color: rgba(0, 240, 255, 0.38);
+        background: rgba(0, 240, 255, 0.12);
+        color: rgba(255, 255, 255, 0.94);
+        outline: none;
+    }
+
+    .assets-manager__handoff-btn--primary {
+        border-color: rgba(0, 240, 255, 0.28);
+        background: rgba(0, 240, 255, 0.13);
+        color: rgba(0, 240, 255, 0.92);
+    }
+
+    .assets-manager__handoff-btn--ghost {
+        background: transparent;
+    }
+
+    .assets-manager__handoff-btn:disabled {
+        cursor: wait;
+        opacity: 0.7;
+    }
+
     .assets-manager__overview {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -216,6 +326,19 @@
         .assets-manager__overview {
             grid-template-columns: 1fr;
             gap: var(--space-3);
+        }
+
+        .assets-manager__handoff {
+            grid-template-columns: 1fr;
+            padding: var(--space-3);
+        }
+
+        .assets-manager__handoff-actions {
+            justify-content: stretch;
+        }
+
+        .assets-manager__handoff-btn {
+            flex: 1 1 100%;
         }
 
         .assets-manager__overview-item {

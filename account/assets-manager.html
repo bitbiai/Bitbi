@@ -146,6 +146,20 @@
                     </div>
                 </div>
 
+                <section id="assetsHandoffBanner" class="assets-manager__handoff" role="status" aria-live="polite" aria-labelledby="assetsHandoffTitle" hidden>
+                    <div class="assets-manager__handoff-copy">
+                        <p class="assets-manager__handoff-eyebrow">From Generate Lab</p>
+                        <h3 id="assetsHandoffTitle" class="assets-manager__handoff-title" tabindex="-1">Looking for your latest creation?</h3>
+                        <p id="assetsHandoffCopy" class="assets-manager__handoff-text">Saved outputs load from your account library. If the new item is still processing or hidden by a folder view, refresh the list or show all assets.</p>
+                        <p id="assetsHandoffStatus" class="assets-manager__handoff-status" aria-live="polite"></p>
+                    </div>
+                    <div class="assets-manager__handoff-actions" aria-label="Generate Lab handoff actions">
+                        <button type="button" id="assetsHandoffRefresh" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Refresh assets</button>
+                        <a id="assetsHandoffReturn" class="assets-manager__handoff-btn" href="/generate-lab/">Back to Generate Lab</a>
+                        <button type="button" id="assetsHandoffDismiss" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost">Hide this note</button>
+                    </div>
+                </section>
+
                 <div class="assets-manager__overview" aria-label="Assets Manager overview">
                     <section class="assets-manager__overview-item" aria-labelledby="assetsStorageTitle">
                         <p class="assets-manager__overview-label">Storage</p>

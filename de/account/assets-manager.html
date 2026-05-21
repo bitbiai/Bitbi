@@ -150,6 +150,20 @@
                     </div>
                 </div>
 
+                <section id="assetsHandoffBanner" class="assets-manager__handoff" role="status" aria-live="polite" aria-labelledby="assetsHandoffTitle" hidden>
+                    <div class="assets-manager__handoff-copy">
+                        <p class="assets-manager__handoff-eyebrow">Aus Generate Lab</p>
+                        <h3 id="assetsHandoffTitle" class="assets-manager__handoff-title" tabindex="-1">Suchen Sie Ihre neueste Erstellung?</h3>
+                        <p id="assetsHandoffCopy" class="assets-manager__handoff-text">Gespeicherte Ergebnisse werden aus Ihrer Kontobibliothek geladen. Wenn das neue Asset noch verarbeitet wird oder durch eine Ordneransicht verborgen ist, aktualisieren Sie die Liste oder zeigen Sie alle Assets an.</p>
+                        <p id="assetsHandoffStatus" class="assets-manager__handoff-status" aria-live="polite"></p>
+                    </div>
+                    <div class="assets-manager__handoff-actions" aria-label="Generate-Lab-Übergabeaktionen">
+                        <button type="button" id="assetsHandoffRefresh" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Assets aktualisieren</button>
+                        <a id="assetsHandoffReturn" class="assets-manager__handoff-btn" href="/de/generate-lab/">Zurück zu Generate Lab</a>
+                        <button type="button" id="assetsHandoffDismiss" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost">Hinweis ausblenden</button>
+                    </div>
+                </section>
+
                 <div class="assets-manager__overview" aria-label="Assets-Manager-Überblick">
                     <section class="assets-manager__overview-item" aria-labelledby="assetsStorageTitle">
                         <p class="assets-manager__overview-label">Speicher</p>

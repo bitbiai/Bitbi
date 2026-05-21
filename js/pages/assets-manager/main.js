@@ -12,13 +12,37 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 
 import { apiGetMe } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
-import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('loadingState');
 const $denied  = document.getElementById('deniedState');
 const $content = document.getElementById('studioContent');
 
 let savedAssetsBrowser = null;
+
+function hasGenerateLabHandoff() {
+    try {
+        const url = new URL(window.location.href);
+        const params = url.searchParams;
+        return params.get('source') === 'generate-lab'
+            || params.get('recent') === '1'
+            || url.hash === '#generate-lab-recent';
+    } catch {
+        return false;
+    }
+}
+
+function clearGenerateLabHandoffQuery() {
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('source');
+        url.searchParams.delete('recent');
+        if (url.hash === '#generate-lab-recent') url.hash = '';
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+        // Query cleanup is only a UI convenience; keep the banner dismissible if history is unavailable.
+    }
+}
 
 function showState(el) {
     $loading.style.display = 'none';
@@ -27,7 +51,7 @@ function showState(el) {
     el.style.display = '';
 }
 
-function createBrowser() {
+function createBrowser({ fromGenerateLab = false } = {}) {
     savedAssetsBrowser = createSavedAssetsBrowser({
         refs: {
             root: document.getElementById('studioSavedAssetsCard'),
@@ -67,11 +91,58 @@ function createBrowser() {
             bulkMoveConfirm: document.getElementById('studioBulkMoveConfirm'),
             bulkMoveCancel: document.getElementById('studioBulkMoveCancel'),
         },
-        emptyStateMessage: localeText('assets.emptyDetailed'),
+        emptyStateMessage: fromGenerateLab ? localeText('assets.handoffEmptyCopy') : localeText('assets.emptyDetailed'),
+        emptyStateTitle: fromGenerateLab ? localeText('assets.handoffEmptyTitle') : localeText('assets.emptyStateTitle'),
+        emptyStateCtaLabel: fromGenerateLab ? localeText('assets.handoffEmptyCta') : localeText('assets.emptyStateCta'),
+        emptyStateCtaHref: fromGenerateLab ? localizedHref('/generate-lab/') : undefined,
+        loadFailedMessage: fromGenerateLab ? localeText('assets.handoffLoadFailedCopy') : localeText('assets.couldNotLoadAssetsHelp'),
+        loadFailedTitle: fromGenerateLab ? localeText('assets.handoffLoadFailedTitle') : localeText('assets.loadFailedTitle'),
+        loadFailedCtaLabel: fromGenerateLab ? localeText('assets.handoffEmptyCta') : '',
+        loadFailedCtaHref: fromGenerateLab ? localizedHref('/generate-lab/') : '',
         foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
     });
 
     return savedAssetsBrowser;
+}
+
+function initGenerateLabHandoff() {
+    const banner = document.getElementById('assetsHandoffBanner');
+    if (!banner) return;
+
+    const title = document.getElementById('assetsHandoffTitle');
+    const status = document.getElementById('assetsHandoffStatus');
+    const refresh = document.getElementById('assetsHandoffRefresh');
+    const dismiss = document.getElementById('assetsHandoffDismiss');
+    const returnLink = document.getElementById('assetsHandoffReturn');
+
+    if (returnLink) {
+        returnLink.href = localizedHref('/generate-lab/');
+    }
+
+    banner.hidden = false;
+    title?.focus?.({ preventScroll: true });
+
+    refresh?.addEventListener('click', async () => {
+        if (!savedAssetsBrowser) return;
+        refresh.disabled = true;
+        if (status) status.textContent = localeText('assets.handoffRefreshStarted');
+        try {
+            await savedAssetsBrowser.refresh({ preserveView: false });
+            await savedAssetsBrowser.openAllAssets();
+            if (status) status.textContent = localeText('assets.handoffRefreshDone');
+        } catch (error) {
+            console.warn('Assets Manager Generate Lab handoff refresh failed:', error);
+            if (status) status.textContent = localeText('assets.handoffRefreshFailed');
+        } finally {
+            refresh.disabled = false;
+        }
+    });
+
+    dismiss?.addEventListener('click', () => {
+        banner.hidden = true;
+        if (status) status.textContent = '';
+        clearGenerateLabHandoffQuery();
+    });
 }
 
 async function init() {
@@ -90,9 +161,15 @@ async function init() {
         return;
     }
 
+    const fromGenerateLab = hasGenerateLabHandoff();
+
     showState($content);
-    createBrowser();
+    createBrowser({ fromGenerateLab });
     await savedAssetsBrowser.init();
+    if (fromGenerateLab) {
+        initGenerateLabHandoff();
+        await savedAssetsBrowser.openAllAssets();
+    }
 }
 
 init();

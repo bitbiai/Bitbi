@@ -334,6 +334,13 @@ function populateGalleryFilter(selectEl, folders) {
 export function createSavedAssetsBrowser({
     refs = {},
     emptyStateMessage = localeText('assets.empty'),
+    emptyStateTitle = localeText('assets.emptyStateTitle'),
+    emptyStateCtaLabel = localeText('assets.emptyStateCta'),
+    emptyStateCtaHref,
+    loadFailedMessage = localeText('assets.couldNotLoadAssetsHelp'),
+    loadFailedTitle = localeText('assets.loadFailedTitle'),
+    loadFailedCtaLabel = '',
+    loadFailedCtaHref = '',
     foldersUnavailableMessage = localeText('assets.foldersUnavailable'),
     onFoldersChange = null,
 } = {}) {
@@ -379,6 +386,7 @@ export function createSavedAssetsBrowser({
             init: async () => {},
             show: async () => {},
             refresh: async () => {},
+            openAllAssets: async () => {},
             getFolders: () => [],
         };
     }
@@ -586,7 +594,7 @@ export function createSavedAssetsBrowser({
         empty.className = 'studio__gallery-empty';
         const title = document.createElement('h3');
         title.className = 'studio__gallery-empty-title';
-        title.textContent = options.title || localeText('assets.emptyStateTitle');
+        title.textContent = options.title || emptyStateTitle;
 
         const copy = document.createElement('p');
         copy.className = 'studio__gallery-empty-copy';
@@ -594,8 +602,10 @@ export function createSavedAssetsBrowser({
 
         empty.append(title, copy);
 
-        const ctaHref = options.ctaHref === undefined ? getCreateToolsHref() : options.ctaHref;
-        const ctaLabel = options.ctaLabel === undefined ? localeText('assets.emptyStateCta') : options.ctaLabel;
+        const ctaHref = options.ctaHref === undefined
+            ? (emptyStateCtaHref === undefined ? getCreateToolsHref() : emptyStateCtaHref)
+            : options.ctaHref;
+        const ctaLabel = options.ctaLabel === undefined ? emptyStateCtaLabel : options.ctaLabel;
         if (ctaHref && ctaLabel) {
             const cta = document.createElement('a');
             cta.className = 'studio__gallery-empty-link';
@@ -1301,10 +1311,10 @@ export function createSavedAssetsBrowser({
                 return;
             }
             currentAssets = [];
-            renderEmptyState(localeText('assets.couldNotLoadAssetsHelp'), {
-                title: localeText('assets.loadFailedTitle'),
-                ctaHref: '',
-                ctaLabel: '',
+            renderEmptyState(loadFailedMessage, {
+                title: loadFailedTitle,
+                ctaHref: loadFailedCtaHref,
+                ctaLabel: loadFailedCtaLabel,
             });
             showMsg(localeText('assets.couldNotLoadAssets'), 'error');
             return;
@@ -1349,7 +1359,7 @@ export function createSavedAssetsBrowser({
         updateAssetPaginationUi();
     }
 
-    function openAllAssets() {
+    async function openAllAssets() {
         hideNewFolderForm();
         hideDeleteFolderForm();
         hideRenameForm();
@@ -1359,7 +1369,7 @@ export function createSavedAssetsBrowser({
         $assetGrid.style.display = '';
         $folderBack?.classList.add('visible');
         $galleryFilter.value = ALL_ASSETS;
-        loadGallery();
+        await loadGallery();
         updateAssetPaginationUi();
     }
 
@@ -1676,7 +1686,7 @@ export function createSavedAssetsBrowser({
         const foldersOk = await loadFolders({ preserveFilter: preserveView });
         if (!foldersOk) {
             showMsg(foldersUnavailableMessage, 'error');
-            openAllAssets();
+            await openAllAssets();
             return;
         }
 
@@ -1800,7 +1810,7 @@ export function createSavedAssetsBrowser({
             showFolderView();
         } else {
             showMsg(foldersUnavailableMessage, 'error');
-            openAllAssets();
+            await openAllAssets();
         }
     }
 
@@ -1819,6 +1829,7 @@ export function createSavedAssetsBrowser({
         init,
         show,
         refresh,
+        openAllAssets,
         getFolders() {
             return folders.slice();
         },

@@ -7384,6 +7384,53 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(requests).toEqual([]);
   });
 
+  test('account Assets Manager surfaces Generate Lab handoff recovery and can dismiss the handoff', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page);
+
+    const response = await page.goto('/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    const banner = page.locator('#assetsHandoffBanner');
+    await expect(banner).toBeVisible();
+    await expect(page.locator('#assetsHandoffTitle')).toBeFocused();
+    await expect(banner).toContainText('Looking for your latest creation?');
+    await expect(banner.getByRole('link', { name: 'Back to Generate Lab' })).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.getByRole('heading', { name: 'Your recent creation is not visible yet' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create another output' })).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#studioImageGrid')).toBeVisible();
+    await expect(page.locator('#studioFolderGrid')).toBeHidden();
+
+    await banner.getByRole('button', { name: 'Refresh assets' }).click();
+    await expect(page.locator('#assetsHandoffStatus')).toContainText('Saved assets refreshed');
+
+    await banner.getByRole('button', { name: 'Hide this note' }).click();
+    await expect(banner).toBeHidden();
+    const url = new URL(page.url());
+    expect(url.searchParams.has('source')).toBe(false);
+    expect(url.searchParams.has('recent')).toBe(false);
+    expect(url.hash).toBe('');
+  });
+
+  test('German account Assets Manager keeps Generate Lab handoff parity', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page);
+
+    const response = await page.goto('/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    const banner = page.locator('#assetsHandoffBanner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('Suchen Sie Ihre neueste Erstellung?');
+    await expect(banner.getByRole('link', { name: 'Zurück zu Generate Lab' })).toHaveAttribute('href', '/de/generate-lab/');
+    await expect(page.getByRole('heading', { name: 'Ihre neueste Erstellung ist noch nicht sichtbar' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Weiteres Ergebnis erstellen' })).toHaveAttribute('href', '/de/generate-lab/');
+  });
+
   test('German account Assets Manager shows storage usage directly left of the private-by-default status', async ({
     page,
   }) => {

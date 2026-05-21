@@ -2182,7 +2182,13 @@ test.describe('Homepage', () => {
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Saved to Assets Manager');
     await expect(page.locator('#labMessage')).toContainText('Image saved');
-    await expect(page.getByRole('button', { name: 'View in Assets Manager' })).toBeVisible();
+    const handoffLink = page.getByRole('link', { name: 'View in Assets Manager' });
+    await expect(handoffLink).toBeVisible();
+    await expect(handoffLink).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    const handoffHref = await handoffLink.getAttribute('href');
+    expect(handoffHref).not.toContain('saved-image-one');
+    const sessionSnapshot = await page.evaluate(() => Object.values(sessionStorage).join('\n'));
+    expect(sessionSnapshot).not.toContain('saved-image-one');
     await expect.poll(() => assetListRequests).toBeGreaterThanOrEqual(2);
   });
 

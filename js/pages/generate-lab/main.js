@@ -27,7 +27,7 @@ import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
-import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import {
     GENERATE_LAB_MEDIA_TYPES,
     calculateGenerateLabCredits,
@@ -173,6 +173,21 @@ function installHeaderStatusPanel() {
 function formatCredits(credits) {
     const safe = Number.isFinite(Number(credits)) ? Number(credits) : 0;
     return localeText('generateLab.credits', { count: safe, plural: safe === 1 ? '' : 's' });
+}
+
+function getAssetsManagerHandoffHref() {
+    return `${localizedHref('/account/assets-manager.html')}?source=generate-lab&recent=1#generate-lab-recent`;
+}
+
+function buildAssetsManagerHandoffLink() {
+    return el('a', {
+        className: 'generate-lab__secondary-link',
+        text: localeText('generateLab.viewInAssetsManager'),
+        attrs: {
+            href: getAssetsManagerHandoffHref(),
+            'data-generate-lab-handoff': 'assets-manager',
+        },
+    });
 }
 
 function createIdempotencyKey(prefix) {
@@ -1006,14 +1021,8 @@ function renderImageResult({ imageData, prompt, meta }) {
 function renderImageSavedActions() {
     const actions = refs.resultStage?.querySelector('.generate-lab__result-actions');
     if (!actions) return;
-    const open = el('button', {
-        className: 'generate-lab__secondary-link',
-        text: localeText('generateLab.viewInAssetsManager'),
-        attrs: { type: 'button' },
-    });
-    open.addEventListener('click', openAssetsOverlay);
     actions.replaceChildren(
-        open,
+        buildAssetsManagerHandoffLink(),
         el('span', { className: 'generate-lab__result-note', text: localeText('generateLab.imageSavedActionCopy') }),
     );
 }
@@ -1044,13 +1053,9 @@ function renderVideoResult(data) {
         el('span', { text: localeText('generateLab.videoPrivate') }),
     );
     const actions = el('div', { className: 'generate-lab__result-actions' },
-        el('button', {
-            className: 'generate-lab__secondary-link',
-            text: localeText('studio.openAssetsManager'),
-            attrs: { type: 'button' },
-        }),
+        buildAssetsManagerHandoffLink(),
+        el('span', { className: 'generate-lab__result-note', text: localeText('generateLab.savedAssetActionCopy') }),
     );
-    actions.querySelector('button')?.addEventListener('click', openAssetsOverlay);
     refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__result-card generate-lab__result-card--video' }, video, meta, actions));
 }
 
@@ -1078,13 +1083,9 @@ function renderMusicResult(data) {
         el('span', { text: localeText('generateLab.musicPrivate') }),
     );
     const actions = el('div', { className: 'generate-lab__result-actions' },
-        el('button', {
-            className: 'generate-lab__secondary-link',
-            text: localeText('studio.openAssetsManager'),
-            attrs: { type: 'button' },
-        }),
+        buildAssetsManagerHandoffLink(),
+        el('span', { className: 'generate-lab__result-note', text: localeText('generateLab.savedAssetActionCopy') }),
     );
-    actions.querySelector('button')?.addEventListener('click', openAssetsOverlay);
     result.append(cover, audio, meta, actions);
     refs.resultStage?.replaceChildren(result);
     startAudioCoverPolling(data?.asset);
