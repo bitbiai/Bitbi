@@ -1,21 +1,21 @@
 # 01 - Local Validation Summary
 
-Date:
+Date: 2026-05-21
 
-Operator:
+Operator: pending human review; local repo evidence refreshed by Codex
 
-Reviewed commit:
+Reviewed commit: `4ebaddc85a1ab46357b0a7e57af9c721ba966b04`
 
 This file records repo-local validation only. It does not prove production readiness, live billing readiness, tenant isolation, deploy completion, or legal compliance.
 
 ## Baseline
 
-- Branch:
-- Commit:
-- Working tree state:
+- Branch: `main`
+- Commit: `4ebaddc85a1ab46357b0a7e57af9c721ba966b04`
+- Working tree state: clean before evidence file updates
 - Latest auth D1 migration from `config/release-compat.json`: `0060_add_app_settings.sql`
-- Evidence index `ok`:
-- Evidence index `unsafeCount`:
+- Evidence index `ok`: `true`
+- Evidence index `unsafeCount`: `0`
 
 ## Command Results
 
@@ -32,7 +32,7 @@ This file records repo-local validation only. It does not prove production readi
 | `npm run check:live-security-headers` |  | Expected skipped unless public base URL is configured. |
 | `npm run test:live-canary` |  | Local safe-mode tests only. |
 | `npm run check:js` |  |  |
-| `npm run test:release-compat` |  |  |
+| `npm run test:release-compat` | pass | Step 1 local refresh. |
 | `npm run test:release-plan` |  |  |
 | `npm run test:static-deploy-safety` |  |  |
 | `npm run validate:release` |  |  |
@@ -48,8 +48,8 @@ This file records repo-local validation only. It does not prove production readi
 | `npm run check:worker-body-parsers` |  |  |
 | `npm run check:admin-activity-query-shape` |  |  |
 | `npm run check:data-lifecycle` |  |  |
-| `npm run test:doc-currentness` |  |  |
-| `npm run check:doc-currentness` |  |  |
+| `npm run test:doc-currentness` | pass | Step 1 local refresh. |
+| `npm run check:doc-currentness` | pass | Latest auth migration `0060_add_app_settings.sql`; 153 first-party Markdown files inventoried. |
 | `npm run test:readiness-evidence` |  |  |
 | `npm run test:main-release-readiness` |  |  |
 | `npm run test:ai-cost-gateway` |  |  |
@@ -62,8 +62,16 @@ This file records repo-local validation only. It does not prove production readi
 | `npm run test:static` |  |  |
 | `npm run test:workers` |  |  |
 | `npm run test:tenant-assets` |  |  |
-| `npm run evidence:index` |  |  |
-| `git diff --check` |  |  |
+| `npm run evidence:index` | pass | `ok:true`; `unsafeCount:0`; local filesystem only; no external calls. |
+| `git diff --check` | pass | No whitespace errors before evidence file updates. |
+
+## Step 1 Release Gate Results
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `npm run release:plan` | pass | Changed files `0`; impacted deploy units none; worker deploys none; schema applies none; static required no; required manual prerequisites none. |
+| `npm run check:static-deploy-safety -- --event-name push --acknowledgement ""` | pass | Status `allowed`; mode `validation_only`; push-based Pages safety guard would pass for the clean tree. |
+| `npm run validate:release` | pass | Release compatibility validation passed. |
 
 ## Failed Or Skipped Commands
 
@@ -76,3 +84,4 @@ For each skipped or failed command, record:
 - Does this block production readiness? yes/no
 - Does this block live billing readiness? yes/no
 
+No Step 1 local refresh command failed or was skipped. Live/manual evidence remains pending outside this local summary.

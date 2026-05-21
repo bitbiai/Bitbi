@@ -41,6 +41,8 @@ Live endpoint checks require explicit operator approval. This template may be fi
 Only after explicit approval:
 
 ```text
+npm run check:live-health -- --base-url https://bitbi.ai --contact-base-url https://contact.bitbi.ai --require-live
+npm run check:live-security-headers -- --base-url https://bitbi.ai --require-live
 npm run readiness:live-readonly -- --static-url <public-url> --auth-worker-url <auth-origin> --contact-worker-url <contact-origin>
 ```
 
@@ -51,4 +53,3 @@ Approval record:
 - Command group:
 - Read-only: yes/no
 - Output redacted: yes/no
-
