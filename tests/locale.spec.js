@@ -201,6 +201,12 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('href="/account/assets-manager.html"');
     expect(enProfile).toContain('href="/account/credits.html?scope=member"');
     expect(enProfile).toContain('href="#profileForm"');
+    expect(enProfile).toContain('id="profileSecurityCard"');
+    expect(enProfile).toContain('Account security');
+    expect(enProfile).toContain('Your signed-in profile is the source of truth for account status.');
+    expect(enProfile).toContain('id="securityEmailStatus"');
+    expect(enProfile).toContain('id="securityReverifyBtn"');
+    expect(enProfile).toContain('href="/account/forgot-password.html"');
     expect(enProfile).toContain('Sign in to open your profile');
     expect(enProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
     expect(enProfile).toContain('href="/account/forgot-password.html"');
@@ -214,6 +220,12 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('href="/de/account/assets-manager.html"');
     expect(deProfile).toContain('href="/de/account/credits.html?scope=member"');
     expect(deProfile).toContain('href="#profileForm"');
+    expect(deProfile).toContain('id="profileSecurityCard"');
+    expect(deProfile).toContain('Kontosicherheit');
+    expect(deProfile).toContain('Ihr angemeldetes Profil ist die Quelle der Wahrheit für den Kontostatus.');
+    expect(deProfile).toContain('id="securityEmailStatus"');
+    expect(deProfile).toContain('id="securityReverifyBtn"');
+    expect(deProfile).toContain('href="/de/account/forgot-password.html"');
     expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
     expect(deProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
     expect(deProfile).toContain('href="/de/account/forgot-password.html"');
@@ -291,6 +303,42 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('href="/de/account/forgot-password.html"');
 
     for (const html of [deProfile, deCredits, deAssets, deGenerate]) {
+      expect(html).not.toContain('/de/admin');
+    }
+  });
+
+  test('account recovery and verification pages provide localized trust guidance', () => {
+    const enForgot = repoFile('account/forgot-password.html');
+    const deForgot = repoFile('de/account/forgot-password.html');
+    const enReset = repoFile('account/reset-password.html');
+    const deReset = repoFile('de/account/reset-password.html');
+    const enVerify = repoFile('account/verify-email.html');
+    const deVerify = repoFile('de/account/verify-email.html');
+
+    expect(enForgot).toContain('id="accountRecoveryTrust"');
+    expect(enForgot).toContain('Account recovery is private');
+    expect(enForgot).toContain('same success message whether or not an email exists');
+    expect(deForgot).toContain('id="accountRecoveryTrust"');
+    expect(deForgot).toContain('Kontowiederherstellung bleibt privat');
+    expect(deForgot).toContain('dieselbe Erfolgsmeldung, unabhängig davon, ob eine E-Mail existiert');
+
+    expect(enReset).toContain('id="resetSecurityTrust"');
+    expect(enReset).toContain('Before you change it');
+    expect(enReset).toContain('data-auth-entry="login"');
+    expect(enReset).toContain('href="/account/profile.html"');
+    expect(deReset).toContain('id="resetSecurityTrust"');
+    expect(deReset).toContain('Bevor Sie es ändern');
+    expect(deReset).toContain('data-auth-entry="login"');
+    expect(deReset).toContain('href="/de/account/profile.html"');
+
+    expect(enVerify).toContain('Email confirmation is checked by the backend account record');
+    expect(enVerify).toContain('href="/account/forgot-password.html"');
+    expect(enVerify).toContain('href="/account/profile.html"');
+    expect(deVerify).toContain('Die E-Mail-Bestätigung wird im Backend-Kontodatensatz geprüft');
+    expect(deVerify).toContain('href="/de/account/forgot-password.html"');
+    expect(deVerify).toContain('href="/de/account/profile.html"');
+
+    for (const html of [deForgot, deReset, deVerify]) {
       expect(html).not.toContain('/de/admin');
     }
   });
@@ -541,6 +589,18 @@ test.describe('Bilingual locale pages', () => {
       'Complete profile basics',
       'Continue creating',
       'Manage saved assets',
+      'Account trust',
+      'Account security',
+      'Your signed-in profile',
+      'Signed-in session',
+      'Email verification',
+      'Password reset is available',
+      'Send verification email',
+      'Account recovery is private',
+      'Before you change it',
+      'Sign in again',
+      'Open profile',
+      'Email confirmation is checked',
       'Profile settings',
       'Credits and Pro status live in Credits',
       'Keep creating from your credits context',

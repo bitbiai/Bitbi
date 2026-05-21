@@ -130,16 +130,22 @@
             <div id="invalidState" class="auth-page__state" style="display:none">
                 <div class="auth-page__state-icon" aria-hidden="true">&#128683;</div>
                 <h2 class="auth-page__state-title auth-page__state-title--error">Link ungültig oder abgelaufen</h2>
-                <p class="auth-page__state-text">Dieser Bestätigungslink ist nicht mehr gültig. Bitte fordern Sie auf der Anmeldeseite einen neuen an.</p>
-                <a href="/de/" class="auth-page__link">&larr; Zurück zur Startseite</a>
+                <p class="auth-page__state-text">Dieser Bestätigungslink ist nicht mehr gültig. Die E-Mail-Bestätigung wird im Backend-Kontodatensatz geprüft; fordern Sie eine frische E-Mail aus dem Anmeldefluss an oder setzen Sie das Passwort zurück, wenn Sie keinen Zugriff auf das Postfach haben.</p>
+                <div class="auth-page__actions">
+                    <button type="button" class="auth-page__button auth-page__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="login">Anmelden</button>
+                    <a href="/de/account/forgot-password.html" class="auth-page__link">Passwort zurücksetzen</a>
+                </div>
             </div>
 
             <!-- Success state -->
             <div id="successState" class="auth-page__state" style="display:none">
                 <div class="auth-page__state-icon" aria-hidden="true">&#9989;</div>
                 <h2 class="auth-page__state-title auth-page__state-title--success">E-Mail bestätigt</h2>
-                <p class="auth-page__state-text">Ihre E-Mail-Adresse wurde erfolgreich bestätigt. Sie können sich jetzt anmelden.</p>
-                <a href="/de/" class="auth-page__link">&larr; Zurück zur Startseite</a>
+                <p class="auth-page__state-text">Ihre E-Mail-Adresse wurde erfolgreich bestätigt. Melden Sie sich erneut an und öffnen Sie dann das Profil, um Kontostatus, Credits und gespeicherte Assets zu prüfen.</p>
+                <div class="auth-page__actions">
+                    <button type="button" class="auth-page__button auth-page__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="login">Anmelden</button>
+                    <a href="/de/account/profile.html" class="auth-page__link">Profil öffnen</a>
+                </div>
             </div>
 
         </div>

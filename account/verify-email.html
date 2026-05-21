@@ -126,16 +126,22 @@
             <div id="invalidState" class="auth-page__state" style="display:none">
                 <div class="auth-page__state-icon" aria-hidden="true">&#128683;</div>
                 <h2 class="auth-page__state-title auth-page__state-title--error">Link Invalid or Expired</h2>
-                <p class="auth-page__state-text">This verification link is no longer valid. Please request a new one from the login page.</p>
-                <a href="/" class="auth-page__link">&larr; Back to Homepage</a>
+                <p class="auth-page__state-text">This verification link is no longer valid. Email confirmation is checked by the backend account record; request a fresh email from the sign-in flow or reset password if you cannot access the mailbox.</p>
+                <div class="auth-page__actions">
+                    <button type="button" class="auth-page__button auth-page__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="login">Sign in</button>
+                    <a href="/account/forgot-password.html" class="auth-page__link">Reset password</a>
+                </div>
             </div>
 
             <!-- Success state -->
             <div id="successState" class="auth-page__state" style="display:none">
                 <div class="auth-page__state-icon" aria-hidden="true">&#9989;</div>
                 <h2 class="auth-page__state-title auth-page__state-title--success">Email Verified</h2>
-                <p class="auth-page__state-text">Your email has been confirmed successfully. You can now sign in.</p>
-                <a href="/" class="auth-page__link">&larr; Back to Homepage</a>
+                <p class="auth-page__state-text">Your email has been confirmed successfully. Sign in again, then open Profile to review account status, credits, and saved assets.</p>
+                <div class="auth-page__actions">
+                    <button type="button" class="auth-page__button auth-page__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="login">Sign in</button>
+                    <a href="/account/profile.html" class="auth-page__link">Open profile</a>
+                </div>
             </div>
 
         </div>

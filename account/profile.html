@@ -283,6 +283,49 @@
                     </div>
                 </div>
 
+                <section class="profile__card profile__security-card reveal" id="profileSecurityCard" aria-labelledby="profileSecurityTitle">
+                    <div class="profile__security-head">
+                        <p class="profile__control-eyebrow">Account trust</p>
+                        <h2 id="profileSecurityTitle" class="profile__title">Account security</h2>
+                        <p class="profile__security-copy">Your signed-in profile is the source of truth for account status. Use these recovery paths if profile loading, email verification, or password access needs attention.</p>
+                    </div>
+                    <div class="profile__security-grid" role="list" aria-label="Account security status">
+                        <div class="profile__security-item" role="listitem">
+                            <span class="profile__security-label">Signed-in session</span>
+                            <strong id="securitySessionStatus">Profile loaded from this session.</strong>
+                            <span>Sign out ends this browser session; reset password if you do not recognize account activity.</span>
+                        </div>
+                        <div class="profile__security-item" role="listitem">
+                            <span class="profile__security-label">Email verification</span>
+                            <strong id="securityEmailStatus">Checking verification status...</strong>
+                            <span id="securityEmailHint">Verification status comes from the backend account record.</span>
+                        </div>
+                        <div class="profile__security-item" role="listitem">
+                            <span class="profile__security-label">Recovery</span>
+                            <strong>Password reset is available.</strong>
+                            <span>Reset links are sent by email and do not expose whether an address exists.</span>
+                        </div>
+                    </div>
+                    <div class="profile__security-actions" aria-label="Account security actions">
+                        <a href="/account/forgot-password.html" class="profile__control-link">
+                            <span class="profile__control-link-label">Reset password</span>
+                            <span class="profile__control-link-copy">Use a one-time email link if you cannot access the account.</span>
+                        </a>
+                        <button type="button" id="securityReverifyBtn" class="profile__control-link profile__control-link--button" hidden>
+                            <span class="profile__control-link-label">Send verification email</span>
+                            <span class="profile__control-link-copy">Request a fresh confirmation email for legacy or pending status.</span>
+                        </button>
+                        <a href="/account/credits.html?scope=member" class="profile__control-link">
+                            <span class="profile__control-link-label">Review credits</span>
+                            <span class="profile__control-link-copy">Credit and Pro status stay account-bound.</span>
+                        </a>
+                        <a href="/account/assets-manager.html" class="profile__control-link">
+                            <span class="profile__control-link-label">Check saved assets</span>
+                            <span class="profile__control-link-copy">Saved creations stay tied to this signed-in account.</span>
+                        </a>
+                    </div>
+                </section>
+
                 <div class="profile__card reveal" id="walletSectionCard">
                     <div class="profile__wallet-head">
                         <div>

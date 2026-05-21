@@ -5693,6 +5693,7 @@ test.describe('Auth flow pages', () => {
     await expect(form).toBeAttached();
     await expect(form.locator('input[type="email"]')).toBeAttached();
     await expect(form.locator('button[type="submit"]')).toBeAttached();
+    await expect(page.locator('#accountRecoveryTrust')).toContainText('Account recovery is private');
   });
 
   test('reset password page loads with state containers', async ({ page }) => {
@@ -5701,6 +5702,8 @@ test.describe('Auth flow pages', () => {
     // Without a valid token, both state containers should exist in the DOM
     await expect(page.locator('#loadingState')).toBeAttached();
     await expect(page.locator('#invalidState')).toBeAttached();
+    await expect(page.locator('#resetSecurityTrust')).toBeAttached();
+    await expect(page.locator('#successState [data-auth-entry="login"]')).toHaveText('Sign in again');
   });
 
   test('verify email page loads with state containers', async ({ page }) => {
@@ -5708,6 +5711,8 @@ test.describe('Auth flow pages', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#loadingState')).toBeAttached();
     await expect(page.locator('#invalidState')).toBeAttached();
+    await expect(page.locator('#invalidState')).toContainText('Email confirmation is checked by the backend account record');
+    await expect(page.locator('#successState [data-auth-entry="login"]')).toHaveText('Sign in');
   });
 });
 
@@ -5727,6 +5732,7 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in');
     await expect(page.locator('#deniedState [data-auth-message-key="authRecovery.profileMessage"]')).toHaveCount(2);
     await expect(page.locator('#deniedState a[href="/account/forgot-password.html"]')).toHaveText('Reset password');
+    await expect(page.locator('#profileSecurityCard')).toBeAttached();
     await expect(page.locator('#profileContent')).not.toBeVisible();
   });
 

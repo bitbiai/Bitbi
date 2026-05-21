@@ -70,6 +70,10 @@ const $summaryEmail   = document.getElementById('summaryEmail');
 const $summaryRole    = document.getElementById('summaryRole');
 const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
+const $securitySessionStatus = document.getElementById('securitySessionStatus');
+const $securityEmailStatus = document.getElementById('securityEmailStatus');
+const $securityEmailHint = document.getElementById('securityEmailHint');
+const $securityReverifyBtn = document.getElementById('securityReverifyBtn');
 const $walletSectionCopy = document.getElementById('walletSectionCopy');
 const $walletSectionMsg = document.getElementById('walletSectionMsg');
 const $walletSectionRows = document.getElementById('walletSectionRows');
@@ -192,6 +196,73 @@ function createWalletPill(label, variant = '') {
     pill.className = `profile__wallet-pill${variant ? ` profile__wallet-pill--${variant}` : ''}`;
     pill.textContent = label;
     return pill;
+}
+
+function setSecurityReverifyButton({ hidden = false, busy = false, sent = false } = {}) {
+    if (!$securityReverifyBtn) return;
+    $securityReverifyBtn.hidden = hidden;
+    $securityReverifyBtn.disabled = busy || sent;
+
+    const label = $securityReverifyBtn.querySelector('.profile__control-link-label');
+    const copy = $securityReverifyBtn.querySelector('.profile__control-link-copy');
+    if (label) {
+        label.textContent = sent
+            ? localeText('profile.emailSent')
+            : busy
+                ? localeText('profile.sending')
+                : localeText('profile.sendVerificationEmail');
+    }
+    if (copy) {
+        copy.textContent = sent
+            ? localeText('profile.securityEmailSentHint')
+            : localeText('profile.sendVerificationEmailHint');
+    }
+}
+
+function renderSecurityPanel(account, { isLegacy = false, isVerified = false } = {}) {
+    if ($securitySessionStatus) {
+        $securitySessionStatus.textContent = localeText('profile.securitySessionLoaded');
+    }
+
+    if (!$securityEmailStatus || !$securityEmailHint) return;
+
+    if (isVerified) {
+        $securityEmailStatus.textContent = localeText('profile.securityEmailVerified');
+        $securityEmailHint.textContent = localeText('profile.securityEmailVerifiedHint');
+        setSecurityReverifyButton({ hidden: true });
+        return;
+    }
+
+    if (isLegacy) {
+        $securityEmailStatus.textContent = localeText('profile.securityEmailLegacy');
+        $securityEmailHint.textContent = localeText('profile.securityEmailLegacyHint');
+        setSecurityReverifyButton({ hidden: false });
+        $securityReverifyBtn.onclick = async () => {
+            setSecurityReverifyButton({ hidden: false, busy: true });
+            const res = await apiRequestReverification();
+            if (res.ok) {
+                $securityEmailStatus.textContent = localeText('profile.securityEmailSent');
+                $securityEmailHint.textContent = localeText('profile.securityEmailSentHint');
+                setSecurityReverifyButton({ hidden: false, sent: true });
+                return;
+            }
+            $securityEmailStatus.textContent = localeText('profile.securityEmailLegacy');
+            $securityEmailHint.textContent = localeText('profile.securityEmailSendFailed');
+            setSecurityReverifyButton({ hidden: false });
+        };
+        return;
+    }
+
+    if (account?.email_verified === false) {
+        $securityEmailStatus.textContent = localeText('profile.securityEmailUnverified');
+        $securityEmailHint.textContent = localeText('profile.securityEmailUnverifiedHint');
+        setSecurityReverifyButton({ hidden: true });
+        return;
+    }
+
+    $securityEmailStatus.textContent = localeText('profile.securityEmailUnknown');
+    $securityEmailHint.textContent = localeText('profile.securityEmailUnknownHint');
+    setSecurityReverifyButton({ hidden: true });
 }
 
 function addressesEqual(left, right) {
@@ -746,6 +817,7 @@ function renderProfile(profile, account) {
     $summaryVerified.textContent = '';
     const isLegacy = account.verification_method === 'legacy_auto';
     const isVerified = account.email_verified && !isLegacy;
+    renderSecurityPanel(account, { isLegacy, isVerified });
 
     const verifiedBadge = document.createElement('span');
     verifiedBadge.className = `profile__badge profile__badge--${isVerified ? 'verified' : isLegacy ? 'legacy' : 'unverified'}`;
