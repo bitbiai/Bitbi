@@ -6,6 +6,7 @@
 import { initMobileNav } from './navbar.js';
 import { initAuth } from './auth-state.js';
 import { initAuthModal } from './auth-modal.js';
+import { initAuthEntryActions } from './auth-entry-actions.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initWalletController } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from './audio/audio-ui.js?v=__ASSET_VERSION__';
@@ -266,6 +267,7 @@ export function initSiteHeader(options = {}) {
     initAuth()
         .then(() => {
             try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
+            try { initAuthEntryActions(); } catch (e) { console.warn('authEntryActions:', e); }
             try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
             if (generateLabContext) applyGenerateLabReturnLinks(document);
         })

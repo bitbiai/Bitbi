@@ -5723,6 +5723,10 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#deniedState')).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.locator('#deniedState')).toContainText('Sign in to open your profile');
+    await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in');
+    await expect(page.locator('#deniedState [data-auth-message-key="authRecovery.profileMessage"]')).toHaveCount(2);
+    await expect(page.locator('#deniedState a[href="/account/forgot-password.html"]')).toHaveText('Reset password');
     await expect(page.locator('#profileContent')).not.toBeVisible();
   });
 
@@ -5733,6 +5737,10 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#deniedState')).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.locator('#deniedState')).toContainText('Sign in to open Assets Manager');
+    await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in');
+    await expect(page.locator('#deniedState [data-auth-message-key="authRecovery.assetsMessage"]')).toHaveCount(2);
+    await expect(page.locator('#deniedState a[href="/account/forgot-password.html"]')).toHaveText('Reset password');
     await expect(page.locator('#studioContent')).not.toBeVisible();
   });
 
@@ -6602,6 +6610,10 @@ test.describe('Credits dashboard live credit packs', () => {
     });
     await page.goto('/account/credits.html');
     await expect(page.locator('#creditsDenied')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsDenied')).toContainText('Sign in to review credits');
+    await expect(page.locator('#creditsDenied [data-auth-entry="login"]')).toHaveText('Sign in');
+    await expect(page.locator('#creditsDenied [data-auth-message-key="authRecovery.creditsMessage"]')).toHaveCount(2);
+    await expect(page.locator('#creditsDenied a[href="/account/forgot-password.html"]')).toHaveText('Reset password');
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
 
     await page.unroute('**/api/me');

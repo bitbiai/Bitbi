@@ -230,6 +230,47 @@
         font-size: 0.9rem;
     }
 
+    .generate-lab__account-needed {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.9fr);
+        gap: 0.9rem;
+        align-items: center;
+        margin-block: 0 clamp(0.9rem, 1.4vw, 1.1rem);
+        padding: clamp(0.85rem, 1.4vw, 1.1rem);
+        border: 1px solid rgba(var(--lab-accent-alt-rgb), 0.18);
+        border-radius: 1.25rem;
+        background:
+            linear-gradient(135deg, rgba(var(--lab-accent-alt-rgb), 0.08), rgba(var(--lab-accent-rgb), 0.04)),
+            rgba(7, 14, 24, 0.62);
+        box-shadow: inset 0 1px rgba(255, 255, 255, 0.06), 0 18px 50px rgba(0, 0, 0, 0.18);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+    }
+
+    .generate-lab__account-needed h2,
+    .generate-lab__account-needed p {
+        margin: 0;
+    }
+
+    .generate-lab__account-needed h2 {
+        color: rgba(255, 255, 255, 0.94);
+        font-size: clamp(1rem, 1.45vw, 1.2rem);
+        line-height: 1.25;
+    }
+
+    .generate-lab__account-needed p {
+        color: rgba(255, 255, 255, 0.64);
+        line-height: 1.55;
+    }
+
+    .generate-lab__account-needed .auth-recovery__list {
+        margin-inline-start: 0;
+    }
+
+    .generate-lab__account-needed .auth-recovery__actions {
+        grid-column: 1 / -1;
+    }
+
     .generate-lab__account-panel {
         display: grid;
         grid-template-columns: auto auto auto;
@@ -1555,7 +1596,8 @@
 
     @media (max-width: 1240px) {
         .generate-lab__first-run,
-        .generate-lab__first-run-steps {
+        .generate-lab__first-run-steps,
+        .generate-lab__account-needed {
             grid-template-columns: 1fr;
         }
 
@@ -1638,6 +1680,7 @@
             min-block-size: 2.65rem;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             border-radius: 999px;
             padding-inline: 1rem;
             border: 1px solid rgba(0, 240, 255, 0.2);
@@ -1647,8 +1690,12 @@
             font-family: var(--font-mono);
             font-size: 0.72rem;
             font-weight: 800;
-            letter-spacing: 0.08em;
+            letter-spacing: 0;
             text-transform: uppercase;
+        }
+
+        .generate-lab__mobile-link--button {
+            cursor: pointer;
         }
     }
 

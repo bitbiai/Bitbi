@@ -63,6 +63,9 @@ function criticalAttributes(html) {
     'aria-describedby',
     'data-action',
     'data-category-link',
+    'data-auth-entry',
+    'data-auth-message-key',
+    'data-auth-message-target',
     'data-field',
     'data-mode',
     'data-models-link',
@@ -198,6 +201,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('href="/account/assets-manager.html"');
     expect(enProfile).toContain('href="/account/credits.html?scope=member"');
     expect(enProfile).toContain('href="#profileForm"');
+    expect(enProfile).toContain('Sign in to open your profile');
+    expect(enProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
+    expect(enProfile).toContain('href="/account/forgot-password.html"');
 
     expect(deProfile).toContain('id="memberControlCenter"');
     expect(deProfile).toContain('Mitglieder-Kontrollzentrum');
@@ -208,6 +214,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('href="/de/account/assets-manager.html"');
     expect(deProfile).toContain('href="/de/account/credits.html?scope=member"');
     expect(deProfile).toContain('href="#profileForm"');
+    expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
+    expect(deProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
+    expect(deProfile).toContain('href="/de/account/forgot-password.html"');
 
     expect(enCredits).toContain('credits-workspace-nav');
     expect(enCredits).toContain('Keep creating from your credits context');
@@ -218,6 +227,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('href="/account/assets-manager.html"');
     expect(enCredits).toContain('href="/account/assets-manager.html?source=credits"');
     expect(enCredits).toContain('href="/account/profile.html"');
+    expect(enCredits).toContain('Sign in to review credits');
+    expect(enCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
+    expect(enCredits).toContain('href="/account/forgot-password.html"');
 
     expect(deCredits).toContain('credits-workspace-nav');
     expect(deCredits).toContain('Aus dem Credits-Kontext weiter erstellen');
@@ -228,6 +240,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('href="/de/account/assets-manager.html"');
     expect(deCredits).toContain('href="/de/account/assets-manager.html?source=credits"');
     expect(deCredits).toContain('href="/de/account/profile.html"');
+    expect(deCredits).toContain('Anmelden, um Credits zu prüfen');
+    expect(deCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
+    expect(deCredits).toContain('href="/de/account/forgot-password.html"');
 
     expect(enAssets).toContain('assets-manager__workspace-nav');
     expect(enAssets).toContain('Move between creation, credits, and profile');
@@ -237,6 +252,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('href="/generate-lab/?source=assets-manager"');
     expect(enAssets).toContain('href="/account/credits.html?scope=member"');
     expect(enAssets).toContain('href="/account/profile.html"');
+    expect(enAssets).toContain('Sign in to open Assets Manager');
+    expect(enAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
+    expect(enAssets).toContain('href="/account/forgot-password.html"');
 
     expect(deAssets).toContain('assets-manager__workspace-nav');
     expect(deAssets).toContain('Zwischen Erstellung, Credits und Profil wechseln');
@@ -246,20 +264,31 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager"');
     expect(deAssets).toContain('href="/de/account/credits.html?scope=member"');
     expect(deAssets).toContain('href="/de/account/profile.html"');
+    expect(deAssets).toContain('Anmelden, um den Assets Manager zu öffnen');
+    expect(deAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
+    expect(deAssets).toContain('href="/de/account/forgot-password.html"');
 
     expect(enGenerate).toContain('generate-lab__member-nav');
     expect(enGenerate).toContain('generate-lab__first-run');
+    expect(enGenerate).toContain('generate-lab__account-needed');
     expect(enGenerate).toContain('Create, preview, save, then manage');
+    expect(enGenerate).toContain('Sign in before generation or saving');
+    expect(enGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab"');
     expect(enGenerate).toContain('href="/account/credits.html?scope=member"');
     expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
+    expect(enGenerate).toContain('href="/account/forgot-password.html"');
 
     expect(deGenerate).toContain('generate-lab__member-nav');
     expect(deGenerate).toContain('generate-lab__first-run');
+    expect(deGenerate).toContain('generate-lab__account-needed');
     expect(deGenerate).toContain('Erstellen, prüfen, speichern, verwalten');
+    expect(deGenerate).toContain('Vor Generierung oder Speichern anmelden');
+    expect(deGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab"');
     expect(deGenerate).toContain('href="/de/account/credits.html?scope=member"');
     expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
+    expect(deGenerate).toContain('href="/de/account/forgot-password.html"');
 
     for (const html of [deProfile, deCredits, deAssets, deGenerate]) {
       expect(html).not.toContain('/de/admin');
@@ -461,6 +490,11 @@ test.describe('Bilingual locale pages', () => {
       'View and manage your account',
       'Loading profile',
       'Sign In Required',
+      'Account needed',
+      'Sign in to open your profile',
+      'Your profile, wallet, favorites',
+      'Create account',
+      'Reset password',
       'Account Info',
       'Display Name',
       'Member Since',
@@ -468,6 +502,9 @@ test.describe('Bilingual locale pages', () => {
       'Save Changes',
       'Loading Assets Manager',
       'Organize, preview, publish, and manage your saved media',
+      'Private library',
+      'Sign in to open Assets Manager',
+      'Saved assets, folders, storage usage',
       'Saved Assets',
       'Storage details appear after your library loads',
       'Storage status',
@@ -483,6 +520,9 @@ test.describe('Bilingual locale pages', () => {
       'Organization billing',
       'Buy one-time live Stripe credit packs',
       'Loading credits dashboard',
+      'Sign in to review credits',
+      'Credits, BITBI Pro status',
+      'Checkout availability is shown',
       'Credit packs',
       'Recent purchases',
       'Recent credit activity',
@@ -514,6 +554,9 @@ test.describe('Bilingual locale pages', () => {
       'Your library starts after you save from Generate Lab',
       'Create first asset',
       'First time here?',
+      'Sign in before generation or saving',
+      'Generate Lab can show models',
+      'Mobile account actions',
       'Create, preview, save, then manage',
       'On mobile, use these shortcuts',
       'Organization context',

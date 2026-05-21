@@ -358,7 +358,11 @@ function requireMember() {
     const authState = getAuthState();
     if (state.loggedIn || authState.loggedIn) return true;
     try {
-        openAuthModal('register');
+        openAuthModal('register', {
+            message: localeText('authRecovery.generateMessage'),
+            target: 'register',
+            messageType: 'info',
+        });
     } catch {
         setMessage(localeText('generateLab.pleaseSignIn'), 'error');
     }

@@ -90,6 +90,10 @@
                 <a href="/account/credits.html?scope=member" class="generate-lab__mobile-link">Credits</a>
                 <a href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent" class="generate-lab__mobile-link">Assets Manager</a>
             </div>
+            <div class="generate-lab__mobile-actions" aria-label="Mobile account actions">
+                <button type="button" class="generate-lab__mobile-link generate-lab__mobile-link--button" data-auth-entry="login" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="login">Sign in</button>
+                <button type="button" class="generate-lab__mobile-link generate-lab__mobile-link--button" data-auth-entry="register" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="register">Create account</button>
+            </div>
             <a href="/" class="generate-lab__mobile-link" target="bitbi-main" rel="noopener">Back to BITBI</a>
         </div>
     </section>
@@ -106,6 +110,25 @@
             <a href="/account/credits.html?scope=member">Credits</a>
             <a href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent">Assets Manager</a>
         </nav>
+
+        <section class="generate-lab__account-needed auth-recovery reveal" aria-labelledby="generateAccountNeededTitle">
+            <div>
+                <p class="auth-recovery__eyebrow">Account needed</p>
+                <h2 id="generateAccountNeededTitle">Sign in before generation or saving</h2>
+                <p>Generate Lab can show models and credit estimates while signed out, but generation, saving, recent assets, and final credit checks require your BITBI account.</p>
+            </div>
+            <ul class="auth-recovery__list" aria-label="Generate Lab account guidance">
+                <li>Sign in to continue a session or recover after expiry.</li>
+                <li>Create an account before saving outputs to Assets Manager.</li>
+                <li>Credits stays the source for balances and BITBI Pro context.</li>
+            </ul>
+            <div class="auth-recovery__actions" aria-label="Generate Lab account actions">
+                <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="login">Sign in</button>
+                <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="register">Create account</button>
+                <a href="/account/forgot-password.html" class="auth-recovery__link">Reset password</a>
+                <a href="/account/credits.html?scope=member" class="auth-recovery__link">Review credits</a>
+            </div>
+        </section>
 
         <section class="generate-lab__first-run reveal" aria-labelledby="generateFirstRunTitle">
             <div>

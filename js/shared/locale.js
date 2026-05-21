@@ -327,6 +327,12 @@ const STRINGS = Object.freeze({
             sending: 'Sending...',
             resent: 'Verification email has been resent. Please check your inbox (and spam folder).',
         }),
+        authRecovery: Object.freeze({
+            profileMessage: 'Sign in to continue to your profile. Create an account if you are new to BITBI.',
+            creditsMessage: 'Sign in to review credits and BITBI Pro context. Create an account before generating or saving.',
+            assetsMessage: 'Sign in to open your private Assets Manager. Create an account before saving outputs.',
+            generateMessage: 'Create or sign in to a BITBI account before generating, saving, or loading recent assets.',
+        }),
         cookie: Object.freeze({
             label: 'Cookie preferences',
             title: 'Cookie Preferences',
@@ -966,6 +972,12 @@ const STRINGS = Object.freeze({
             resend: 'Erneut senden',
             sending: 'Wird gesendet...',
             resent: 'Die Bestätigungs-E-Mail wurde erneut gesendet. Bitte prüfen Sie Ihren Posteingang und Spam-Ordner.',
+        }),
+        authRecovery: Object.freeze({
+            profileMessage: 'Melden Sie sich an, um mit Ihrem Profil fortzufahren. Erstellen Sie ein Konto, wenn Sie neu bei BITBI sind.',
+            creditsMessage: 'Melden Sie sich an, um Credits und BITBI-Pro-Kontext zu prüfen. Erstellen Sie ein Konto, bevor Sie generieren oder speichern.',
+            assetsMessage: 'Melden Sie sich an, um Ihren privaten Assets Manager zu öffnen. Erstellen Sie ein Konto, bevor Sie Ergebnisse speichern.',
+            generateMessage: 'Erstellen Sie ein BITBI-Konto oder melden Sie sich an, bevor Sie generieren, speichern oder aktuelle Assets laden.',
         }),
         cookie: Object.freeze({
             label: 'Cookie-Einstellungen',

@@ -124,13 +124,22 @@
 
         <!-- Denied State -->
         <div id="deniedState" class="glass glass-card reveal" style="display:none">
-            <div class="profile-denied">
+            <div class="profile-denied auth-recovery" aria-labelledby="profileDeniedTitle">
                 <div class="profile-denied__icon" aria-hidden="true">&#128274;</div>
-                <h2 class="profile-denied__title">Anmeldung erforderlich</h2>
-                <p class="profile-denied__text">Bitte melden Sie sich an, um Ihr Profil zu sehen.</p>
-                <p style="margin-block-start:var(--space-4)">
-                    <a href="/de/" class="profile__link">&larr; Zurück zur Startseite</a>
-                </p>
+                <p class="auth-recovery__eyebrow">Konto erforderlich</p>
+                <h2 id="profileDeniedTitle" class="profile-denied__title">Anmelden, um Ihr Profil zu öffnen</h2>
+                <p class="profile-denied__text">Profil, Wallet, Favoriten und Mitglieder-Arbeitsbereich werden aus Ihrem angemeldeten BITBI-Konto geladen. Falls Ihre Sitzung abgelaufen ist, melden Sie sich erneut an und fahren Sie hier fort.</p>
+                <ul class="auth-recovery__list" aria-label="Profil-Anmeldehinweise">
+                    <li>Nutzen Sie Anmelden, wenn Sie bereits ein Konto haben.</li>
+                    <li>Erstellen Sie ein Konto, um Kreationen zu speichern, Credits zu verwalten und Profildaten in einem Arbeitsbereich zu behalten.</li>
+                    <li>Setzen Sie Ihr Passwort zurück, wenn Sie keinen Zugriff auf das Konto haben.</li>
+                </ul>
+                <div class="auth-recovery__actions" aria-label="Profil-Kontoaktionen">
+                    <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="login">Anmelden</button>
+                    <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="register">Konto erstellen</button>
+                    <a href="/de/account/forgot-password.html" class="auth-recovery__link">Passwort zurücksetzen</a>
+                    <a href="/de/" class="auth-recovery__link profile__link">&larr; Zurück zur Startseite</a>
+                </div>
             </div>
         </div>
 

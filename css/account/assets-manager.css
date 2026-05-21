@@ -2154,6 +2154,12 @@
         padding: var(--space-12) var(--space-6);
     }
 
+    .studio-denied.auth-recovery {
+        max-inline-size: 50rem;
+        margin-inline: auto;
+        text-align: start;
+    }
+
     .studio-denied__icon {
         font-size: 3rem;
         margin-block-end: var(--space-4);
@@ -2173,6 +2179,11 @@
         max-inline-size: 28rem;
         margin-inline: auto;
         line-height: 1.7;
+    }
+
+    .studio-denied.auth-recovery .studio-denied__text {
+        max-inline-size: none;
+        margin-inline: 0;
     }
 
     .studio-loading {

@@ -1365,6 +1365,12 @@
         padding: var(--space-12) var(--space-6);
     }
 
+    .profile-denied.auth-recovery {
+        max-inline-size: 46rem;
+        margin-inline: auto;
+        text-align: start;
+    }
+
     .profile-denied__icon {
         font-size: 3rem;
         margin-block-end: var(--space-4);
@@ -1384,6 +1390,11 @@
         max-inline-size: 28rem;
         margin-inline: auto;
         line-height: 1.7;
+    }
+
+    .profile-denied.auth-recovery .profile-denied__text {
+        max-inline-size: none;
+        margin-inline: 0;
     }
 
     /* ── Loading State ── */

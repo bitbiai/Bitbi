@@ -448,6 +448,99 @@
         text-align: center;
     }
 
+    /* ── Signed-out recovery panels ── */
+    .auth-recovery {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+        text-align: start;
+    }
+
+    .auth-recovery__eyebrow {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        color: rgba(0, 240, 255, 0.72);
+    }
+
+    .auth-recovery__list {
+        display: grid;
+        gap: var(--space-2);
+        margin: 0;
+        padding-inline-start: 1.1rem;
+        color: rgba(255, 255, 255, 0.68);
+        font-size: 0.9rem;
+        line-height: 1.65;
+    }
+
+    .auth-recovery__actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-3);
+    }
+
+    .auth-recovery__button,
+    .auth-recovery__link {
+        min-block-size: 2.75rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-full);
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        padding: 0.75rem 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: rgba(220, 253, 255, 0.92);
+        background: rgba(0, 240, 255, 0.06);
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+            transform 0.22s var(--ease-default),
+            border-color 0.22s var(--ease-default),
+            background-color 0.22s var(--ease-default),
+            box-shadow 0.22s var(--ease-default);
+    }
+
+    .auth-recovery__button--primary {
+        border-color: rgba(255, 179, 0, 0.34);
+        color: rgba(255, 247, 218, 0.96);
+        background: linear-gradient(135deg, rgba(255, 179, 0, 0.22), rgba(0, 240, 255, 0.12));
+    }
+
+    .auth-recovery__button:hover,
+    .auth-recovery__button:focus-visible,
+    .auth-recovery__link:hover,
+    .auth-recovery__link:focus-visible {
+        transform: translateY(-1px);
+        border-color: rgba(0, 240, 255, 0.42);
+        background: rgba(0, 240, 255, 0.12);
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+        outline: none;
+    }
+
+    .auth-recovery__button--primary:hover,
+    .auth-recovery__button--primary:focus-visible {
+        border-color: rgba(255, 179, 0, 0.54);
+        background: linear-gradient(135deg, rgba(255, 179, 0, 0.28), rgba(0, 240, 255, 0.16));
+    }
+
+    @media (max-width: 640px) {
+        .auth-recovery__actions {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .auth-recovery__button,
+        .auth-recovery__link {
+            width: 100%;
+            text-align: center;
+        }
+    }
+
     /* ── Locked Area ── */
     .locked-area {
         position: relative;

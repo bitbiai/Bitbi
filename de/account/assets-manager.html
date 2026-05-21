@@ -123,13 +123,23 @@
 
         <!-- Denied State -->
         <div id="deniedState" class="glass glass-card reveal" style="display:none">
-            <div class="studio-denied">
+            <div class="studio-denied auth-recovery" aria-labelledby="assetsDeniedTitle">
                 <div class="studio-denied__icon" aria-hidden="true">&#128274;</div>
-                <h2 class="studio-denied__title">Anmeldung erforderlich</h2>
-                <p class="studio-denied__text">Bitte melden Sie sich an, um den Assets Manager zu nutzen.</p>
-                <p style="margin-block-start:var(--space-4)">
-                    <a href="/de/" class="studio__back-link">&larr; Zurück zur Startseite</a>
-                </p>
+                <p class="auth-recovery__eyebrow">Private Bibliothek</p>
+                <h2 id="assetsDeniedTitle" class="studio-denied__title">Anmelden, um den Assets Manager zu öffnen</h2>
+                <p class="studio-denied__text">Gespeicherte Assets, Ordner, Speichernutzung und Veröffentlichungsaktionen sind privat an Ihr BITBI-Konto gebunden. Falls Ihre Sitzung nach dem Speichern abgelaufen ist, melden Sie sich erneut an und aktualisieren Sie die Bibliothek.</p>
+                <ul class="auth-recovery__list" aria-label="Assets-Manager-Anmeldehinweise">
+                    <li>Erstellen Sie ein Konto, bevor Sie Ergebnisse aus Generate Lab speichern.</li>
+                    <li>Nutzen Sie Passwort zurücksetzen, wenn Sie keinen Zugriff auf Ihr Konto haben.</li>
+                    <li>Weiteres Erstellen ist möglich, aber gespeicherte Ergebnisse erscheinen erst nach Konto-Anmeldung.</li>
+                </ul>
+                <div class="auth-recovery__actions" aria-label="Assets-Manager-Kontoaktionen">
+                    <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.assetsMessage" data-auth-message-target="login">Anmelden</button>
+                    <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-message-key="authRecovery.assetsMessage" data-auth-message-target="register">Konto erstellen</button>
+                    <a href="/de/account/forgot-password.html" class="auth-recovery__link">Passwort zurücksetzen</a>
+                    <a href="/de/generate-lab/" class="auth-recovery__link">Weiter erstellen</a>
+                    <a href="/de/" class="auth-recovery__link studio__back-link">&larr; Zurück zur Startseite</a>
+                </div>
             </div>
         </div>
 

@@ -1917,6 +1917,36 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .site-nav__cta')).toHaveText('Anmelden');
   });
 
+  test('Generate Lab signed-out recovery opens the account modal with guidance', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+
+    const recovery = page.locator('.generate-lab__account-needed');
+    await expect(recovery).toBeVisible();
+    await expect(recovery).toContainText('Sign in before generation or saving');
+    await expect(recovery).toContainText('generation, saving, recent assets, and final credit checks require your BITBI account');
+    await expect(recovery.getByRole('link', { name: 'Reset password' })).toHaveAttribute(
+      'href',
+      '/account/forgot-password.html',
+    );
+    await expect(page.locator('#authModal .auth-modal__overlay')).toHaveCount(1);
+
+    await recovery.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    await expect(page.locator('.auth-modal__tab.active')).toHaveText('Sign In');
+    await expect(page.locator('#authLoginMsg')).toContainText(
+      'Create or sign in to a BITBI account before generating, saving, or loading recent assets.',
+    );
+  });
+
   test('Generate Lab renders the desktop member workspace with supported models', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
