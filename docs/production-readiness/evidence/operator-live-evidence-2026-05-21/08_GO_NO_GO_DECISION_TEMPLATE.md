@@ -1,10 +1,10 @@
 # 08 - Go / No-Go Decision Template
 
-Date:
+Date: 2026-05-21
 
-Operator:
+Operator: pending human review; local status filled by Codex
 
-Reviewed commit:
+Reviewed commit: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
 
 Default decision: NO-GO.
 
@@ -15,16 +15,16 @@ This decision template does not create production readiness, live billing readin
 Choose one:
 
 - [ ] GO
-- [ ] NO-GO
+- [x] NO-GO
 - [ ] CONDITIONAL GO
 - [ ] DEFER
 
-Decision rationale:
+Decision rationale: local validation and evidence-template refresh progressed, but Cloudflare live resource verification, Worker/static deployed-version evidence, live health/security-header evidence, Stripe canary/operator evidence, tenant isolation evidence, rollback owner assignment, and final operator signoff remain incomplete.
 
 ## Required Evidence Checklist
 
-- [ ] Local validation passed.
-- [ ] Release impact known.
+- [x] Local validation passed.
+- [x] Release impact known.
 - [ ] Worker deploy state reviewed.
 - [ ] Remote auth migrations reviewed through `0060_add_app_settings.sql`.
 - [ ] Static deploy state reviewed.
@@ -33,12 +33,12 @@ Decision rationale:
 - [ ] Live health reviewed.
 - [ ] Security headers reviewed.
 - [ ] Stripe canary reviewed if billing is in scope.
-- [ ] Tenant isolation remains unclaimed unless separately proven.
-- [ ] Backfill/access/reset remain blocked unless separately approved.
+- [x] Tenant isolation remains unclaimed unless separately proven.
+- [x] Backfill/access/reset remain blocked unless separately approved.
 - [ ] Rollback owner assigned.
 - [ ] Restore/incident readiness reviewed.
 - [ ] Legal/accounting review done where needed.
-- [ ] Blocked claims not overclaimed.
+- [x] Blocked claims not overclaimed.
 - [ ] Redaction checklist passed.
 
 ## Conditional GO Conditions
@@ -54,11 +54,25 @@ Fill only if choosing CONDITIONAL GO:
 
 | Claim | Status | Evidence reference |
 | --- | --- | --- |
-| Production readiness | blocked unless proven |  |
-| Live billing readiness | blocked unless proven |  |
-| Tenant isolation | unclaimed unless proven |  |
-| Ownership backfill readiness | blocked unless exact approved evidence exists |  |
-| Access-switch readiness | blocked unless separately approved |  |
-| Confirmed legacy media reset | blocked unless separately approved |  |
-| Legal/GDPR completion | not certified by this package |  |
+| Production readiness | blocked unless proven | `02`, `03`, `04`, `07` still pending operator/live evidence |
+| Live billing readiness | blocked unless proven | `05` remains blocked pending Stripe/operator canary evidence |
+| Tenant isolation | unclaimed unless proven | `06` keeps isolation unclaimed and high-risk actions blocked |
+| Ownership backfill readiness | blocked unless exact approved evidence exists | `06` requires `ai_images`, `batchLimit:1`, one `candidateAssetIds`, operator approval |
+| Access-switch readiness | blocked unless separately approved | `06` records shadow-only/default blocked state |
+| Confirmed legacy media reset | blocked unless separately approved | `06` records no reset/delete and confirmed execution blocked |
+| Legal/GDPR completion | not certified by this package | legal/accounting/operator review pending |
 
+## Current Status Summary
+
+| Area | Status |
+| --- | --- |
+| Local validation | complete for sprint commands run |
+| Release impact | validation-only evidence Markdown changes; no Worker/schema/static deploy required |
+| Cloudflare resources | repo-declared; live dashboard verification pending |
+| Worker/static deploy evidence | pending operator live verification |
+| Live health/security headers | pending explicit approval or manual evidence |
+| Billing/Stripe | NO-GO; local evidence only; canary/operator review pending |
+| Tenant isolation/assets | unclaimed; no mutation executed; operator evidence pending |
+| Rollback/restore | local rollback drill passed; owner/live version evidence pending |
+| Redaction | automated checks pending final gate; human review pending |
+| Final operator signoff | pending |

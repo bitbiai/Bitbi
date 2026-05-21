@@ -4,7 +4,7 @@ Date: 2026-05-21
 
 Operator: pending human review; local repo evidence refreshed by Codex
 
-Reviewed commit: `4ebaddc85a1ab46357b0a7e57af9c721ba966b04`
+Reviewed commit: `aae6992da8bcfb6a80fe09b734bf745e257e1f64`
 
 Branch: `main`
 
@@ -24,8 +24,8 @@ npm run check:static-deploy-safety -- --event-name push --acknowledgement ""
 
 Choose one:
 
-- [x] noop / clean
-- [ ] validation-only
+- [ ] noop / clean
+- [x] validation-only
 - [ ] static-only
 - [ ] worker-impact
 - [ ] schema-impact
@@ -33,7 +33,7 @@ Choose one:
 
 Record exact output:
 
-- Changed files: `0`
+- Changed files: evidence Markdown files only in `docs/production-readiness/evidence/operator-live-evidence-2026-05-21/`
 - Impacted deploy units: none
 - Worker deploys: none
 - Schema applies: none
@@ -43,6 +43,12 @@ Record exact output:
 - Optional manual prerequisites: `auth-sensitive-post-waf-rule`, `static-security-transform-rules`, `cloudflare-rum-setting`
 - Push-based GitHub Pages workflow result: pass; `check:static-deploy-safety` status `allowed`, mode `validation_only`
 - If blocked, exact blocking reason: not blocked
+
+Baseline before evidence updates:
+
+- Working tree was clean at sprint start.
+- `npm run release:plan` reported changed files `0`, impacted deploy units none, worker deploys none, schema applies none, static required no, required manual prerequisites none.
+- `npm run check:static-deploy-safety -- --event-name push --acknowledgement ""` reported `allowed`, mode `validation_only`.
 
 ## Scope Boundary
 
