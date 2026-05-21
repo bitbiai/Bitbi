@@ -341,6 +341,8 @@ export function createSavedAssetsBrowser({
     loadFailedTitle = localeText('assets.loadFailedTitle'),
     loadFailedCtaLabel = '',
     loadFailedCtaHref = '',
+    emptyListStatus = localeText('assets.listEmptyStatus'),
+    loadFailedListStatus = localeText('assets.listLoadFailedStatus'),
     foldersUnavailableMessage = localeText('assets.foldersUnavailable'),
     onFoldersChange = null,
 } = {}) {
@@ -353,6 +355,7 @@ export function createSavedAssetsBrowser({
     const $folderBackBtn = refs.folderBackBtn;
     const $assetGrid = refs.assetGrid;
     const $galleryMsg = refs.galleryMsg;
+    const $listStatus = refs.listStatus;
     const $newFolderBtn = refs.newFolderBtn;
     const $deleteFolderBtn = refs.deleteFolderBtn;
     const $newFolderForm = refs.newFolderForm;
@@ -387,6 +390,7 @@ export function createSavedAssetsBrowser({
             show: async () => {},
             refresh: async () => {},
             openAllAssets: async () => {},
+            getViewState: () => ({ folderViewActive: true, assetCount: 0, filterValue: '' }),
             getFolders: () => [],
         };
     }
@@ -441,6 +445,48 @@ export function createSavedAssetsBrowser({
         if (!$galleryMsg) return;
         $galleryMsg.textContent = '';
         $galleryMsg.className = 'studio__msg';
+    }
+
+    function setListStatus(text = '', view = '') {
+        if (!$listStatus) return;
+        $listStatus.textContent = text || '';
+        $listStatus.hidden = !text;
+        if (view) {
+            $listStatus.dataset.view = view;
+        } else {
+            delete $listStatus.dataset.view;
+        }
+    }
+
+    function getAssetVerb(count) {
+        if (getCurrentLocale() !== 'de') return '';
+        return count === 1 ? 'wird' : 'werden';
+    }
+
+    function getCurrentFolderName(filterValue) {
+        if (filterValue === UNFOLDERED) return localeText('assets.assets');
+        const folder = folders.find((entry) => entry.id === filterValue);
+        return folder?.name || localeText('assets.folder');
+    }
+
+    function setCurrentAssetViewStatus() {
+        const count = currentAssets.length;
+        const filterValue = $galleryFilter.value;
+        const values = {
+            count,
+            countLabel: formatAssetCount(count),
+            verb: getAssetVerb(count),
+            folder: getCurrentFolderName(filterValue),
+        };
+        if (filterValue === UNFOLDERED) {
+            setListStatus(localeText('assets.unfolderedViewStatus', values), 'unfoldered');
+            return;
+        }
+        if (filterValue && filterValue !== ALL_ASSETS) {
+            setListStatus(localeText('assets.folderFilteredStatus', values), 'folder');
+            return;
+        }
+        setListStatus(localeText('assets.listNewestFirstStatus', values), 'all');
     }
 
     function getStorageInsightText(storageUsage, usageText) {
@@ -616,6 +662,10 @@ export function createSavedAssetsBrowser({
 
         $assetGrid.appendChild(empty);
         updateAssetPaginationUi();
+        setListStatus(
+            options.listStatus === undefined ? emptyListStatus : options.listStatus,
+            options.statusView || 'empty',
+        );
     }
 
     function updateAssetPaginationUi() {
@@ -917,6 +967,7 @@ export function createSavedAssetsBrowser({
         assetDeck?.setVisible(false);
         $folderBack?.classList.remove('visible');
         updateAssetPaginationUi();
+        setListStatus(localeText('assets.folderOverviewStatus'), 'folders');
 
         const total = unfolderedCount + folders.reduce((sum, folder) => sum + (folderCounts[folder.id] || 0), 0);
         $folderGrid.innerHTML = '';
@@ -1289,6 +1340,7 @@ export function createSavedAssetsBrowser({
             loading.textContent = localeText('assets.loading');
             $assetGrid.appendChild(loading);
             updateAssetPaginationUi();
+            setListStatus(localeText('assets.listLoadingStatus'), 'loading');
         } else {
             assetLoadingMore = true;
             updateAssetPaginationUi();
@@ -1315,6 +1367,8 @@ export function createSavedAssetsBrowser({
                 title: loadFailedTitle,
                 ctaHref: loadFailedCtaHref,
                 ctaLabel: loadFailedCtaLabel,
+                listStatus: loadFailedListStatus,
+                statusView: 'error',
             });
             showMsg(localeText('assets.couldNotLoadAssets'), 'error');
             return;
@@ -1343,6 +1397,7 @@ export function createSavedAssetsBrowser({
         });
         assetDeck?.refresh();
         updateAssetPaginationUi();
+        setCurrentAssetViewStatus();
     }
 
     function openFolder(folderId) {
@@ -1830,6 +1885,13 @@ export function createSavedAssetsBrowser({
         show,
         refresh,
         openAllAssets,
+        getViewState() {
+            return {
+                folderViewActive,
+                assetCount: currentAssets.length,
+                filterValue: $galleryFilter.value,
+            };
+        },
         getFolders() {
             return folders.slice();
         },

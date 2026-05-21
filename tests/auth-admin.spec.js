@@ -4578,6 +4578,10 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
       await route.fallback();
       return;
     }
+    if (typeof options.getAssetsHandler === 'function') {
+      const handled = await options.getAssetsHandler(route, url, assetStore);
+      if (handled !== false) return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -7398,10 +7402,15 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#assetsHandoffTitle')).toBeFocused();
     await expect(banner).toContainText('Looking for your latest creation?');
     await expect(banner.getByRole('link', { name: 'Back to Generate Lab' })).toHaveAttribute('href', '/generate-lab/');
+    await expect(banner.getByRole('button', { name: 'Show all assets' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Your recent creation is not visible yet' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Create another output' })).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#studioListStatus')).toContainText('No recent output is visible yet');
     await expect(page.locator('#studioImageGrid')).toBeVisible();
     await expect(page.locator('#studioFolderGrid')).toBeHidden();
+
+    await banner.getByRole('button', { name: 'Show all assets' }).click();
+    await expect(page.locator('#assetsHandoffStatus')).toContainText('Showing all saved assets');
 
     await banner.getByRole('button', { name: 'Refresh assets' }).click();
     await expect(page.locator('#assetsHandoffStatus')).toContainText('Saved assets refreshed');
@@ -7427,8 +7436,114 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('Suchen Sie Ihre neueste Erstellung?');
     await expect(banner.getByRole('link', { name: 'Zurück zu Generate Lab' })).toHaveAttribute('href', '/de/generate-lab/');
+    await expect(banner.getByRole('button', { name: 'Alle Assets anzeigen' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Ihre neueste Erstellung ist noch nicht sichtbar' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Weiteres Ergebnis erstellen' })).toHaveAttribute('href', '/de/generate-lab/');
+    await expect(page.locator('#studioListStatus')).toContainText('noch kein aktuelles Ergebnis sichtbar');
+  });
+
+  test('account Assets Manager clears folder filters from the Generate Lab handoff', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
+        ],
+        counts: {
+          'folder-launches': 1,
+        },
+        unfolderedCount: 1,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'recent-launch-poster',
+            asset_type: 'image',
+            folder_id: 'folder-launches',
+            title: 'Recent Launch Poster',
+            preview_text: 'Recent Launch Poster',
+            created_at: '2026-04-10T12:05:00.000Z',
+            file_url: '/api/ai/images/recent-launch-poster/file',
+          },
+          {
+            id: 'recent-loose-note',
+            asset_type: 'text',
+            folder_id: null,
+            title: 'Recent Loose Note',
+            file_name: 'recent-loose-note.txt',
+            source_module: 'compare',
+            mime_type: 'text/plain; charset=utf-8',
+            preview_text: 'A recent note outside folders.',
+            created_at: '2026-04-10T12:04:00.000Z',
+            file_url: '/api/ai/text-assets/recent-loose-note/file',
+          },
+        ],
+        folders: {
+          'folder-launches': [
+            {
+              id: 'recent-launch-poster',
+              asset_type: 'image',
+              folder_id: 'folder-launches',
+              title: 'Recent Launch Poster',
+              preview_text: 'Recent Launch Poster',
+              created_at: '2026-04-10T12:05:00.000Z',
+              file_url: '/api/ai/images/recent-launch-poster/file',
+            },
+          ],
+        },
+        unfoldered: [
+          {
+            id: 'recent-loose-note',
+            asset_type: 'text',
+            folder_id: null,
+            title: 'Recent Loose Note',
+            file_name: 'recent-loose-note.txt',
+            source_module: 'compare',
+            mime_type: 'text/plain; charset=utf-8',
+            preview_text: 'A recent note outside folders.',
+            created_at: '2026-04-10T12:04:00.000Z',
+            file_url: '/api/ai/text-assets/recent-loose-note/file',
+          },
+        ],
+      },
+    });
+
+    await page.goto('/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
+    await expect(page.locator('#studioListStatus')).toContainText('Showing 2 assets, newest first');
+
+    await page.locator('#studioGalleryFilter').selectOption('folder-launches');
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
+    await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset in "Launches"');
+
+    await page.locator('#assetsHandoffShowAll').click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
+    await expect(page.locator('#studioListStatus')).toContainText('Showing 2 assets, newest first');
+    await expect(page.locator('#studioGalleryFilter')).toHaveValue('__all__');
+  });
+
+  test('account Assets Manager explains Generate Lab handoff load failures without private data', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page, [], {
+      getAssetsHandler: async (route) => {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Temporary library outage.' }),
+        });
+      },
+    });
+
+    await page.goto('/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Could not reload your saved output' })).toBeVisible();
+    await expect(page.locator('#studioListStatus')).toContainText('Generate Lab handoff could not reload saved assets');
+    await expect(page.locator('#studioImageGrid')).not.toContainText('saved-image-one');
+    await expect(page.getByRole('link', { name: 'Create another output' })).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#assetsHandoffBanner')).toContainText('Looking for your latest creation?');
   });
 
   test('German account Assets Manager shows storage usage directly left of the private-by-default status', async ({
@@ -8759,6 +8874,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(14);
     await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();
     await expect(page.locator('.studio__mobile-grid-trigger')).toHaveText('All 14 saved assets are displayed.');
+    await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Publish' })).toBeVisible();
+    await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Delete' })).toBeVisible();
+    await expect
+      .poll(() => page.locator('#studioImageGrid .studio__image-overlay').first().evaluate((node) => getComputedStyle(node).opacity))
+      .toBe('1');
 
     const visibleDots = page.locator('.studio-deck-dots:visible .studio-deck-dot');
     await expect(visibleDots).toHaveCount(5);

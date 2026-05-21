@@ -155,6 +155,7 @@
                     </div>
                     <div class="assets-manager__handoff-actions" aria-label="Generate Lab handoff actions">
                         <button type="button" id="assetsHandoffRefresh" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Refresh assets</button>
+                        <button type="button" id="assetsHandoffShowAll" class="assets-manager__handoff-btn">Show all assets</button>
                         <a id="assetsHandoffReturn" class="assets-manager__handoff-btn" href="/generate-lab/">Back to Generate Lab</a>
                         <button type="button" id="assetsHandoffDismiss" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost">Hide this note</button>
                     </div>
@@ -235,6 +236,7 @@
                 </div>
 
                 <div id="studioGalleryMsg" class="studio__msg" role="status"></div>
+                <p id="studioListStatus" class="assets-manager__list-status" role="status" aria-live="polite" hidden></p>
 
                 <!-- Folder Cards View (initial view) -->
                 <div id="studioFolderGrid" class="studio__folder-grid"></div>

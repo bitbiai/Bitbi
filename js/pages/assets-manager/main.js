@@ -63,6 +63,7 @@ function createBrowser({ fromGenerateLab = false } = {}) {
             folderBackBtn: document.getElementById('studioFolderBackBtn'),
             assetGrid: document.getElementById('studioImageGrid'),
             galleryMsg: document.getElementById('studioGalleryMsg'),
+            listStatus: document.getElementById('studioListStatus'),
             newFolderBtn: document.getElementById('studioNewFolderBtn'),
             deleteFolderBtn: document.getElementById('studioDeleteFolderBtn'),
             newFolderForm: document.getElementById('studioNewFolderForm'),
@@ -99,6 +100,8 @@ function createBrowser({ fromGenerateLab = false } = {}) {
         loadFailedTitle: fromGenerateLab ? localeText('assets.handoffLoadFailedTitle') : localeText('assets.loadFailedTitle'),
         loadFailedCtaLabel: fromGenerateLab ? localeText('assets.handoffEmptyCta') : '',
         loadFailedCtaHref: fromGenerateLab ? localizedHref('/generate-lab/') : '',
+        emptyListStatus: fromGenerateLab ? localeText('assets.handoffEmptyStatus') : localeText('assets.listEmptyStatus'),
+        loadFailedListStatus: fromGenerateLab ? localeText('assets.handoffLoadFailedStatus') : localeText('assets.listLoadFailedStatus'),
         foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
     });
 
@@ -112,6 +115,7 @@ function initGenerateLabHandoff() {
     const title = document.getElementById('assetsHandoffTitle');
     const status = document.getElementById('assetsHandoffStatus');
     const refresh = document.getElementById('assetsHandoffRefresh');
+    const showAll = document.getElementById('assetsHandoffShowAll');
     const dismiss = document.getElementById('assetsHandoffDismiss');
     const returnLink = document.getElementById('assetsHandoffReturn');
 
@@ -135,6 +139,21 @@ function initGenerateLabHandoff() {
             if (status) status.textContent = localeText('assets.handoffRefreshFailed');
         } finally {
             refresh.disabled = false;
+        }
+    });
+
+    showAll?.addEventListener('click', async () => {
+        if (!savedAssetsBrowser) return;
+        showAll.disabled = true;
+        if (status) status.textContent = localeText('assets.handoffShowAllStarted');
+        try {
+            await savedAssetsBrowser.openAllAssets();
+            if (status) status.textContent = localeText('assets.handoffShowAllDone');
+        } catch (error) {
+            console.warn('Assets Manager Generate Lab show-all failed:', error);
+            if (status) status.textContent = localeText('assets.handoffShowAllFailed');
+        } finally {
+            showAll.disabled = false;
         }
     });
 
