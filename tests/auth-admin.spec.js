@@ -10684,6 +10684,13 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
+    await expect(page.locator('#memberControlCenter')).toBeVisible();
+    await expect(page.locator('#memberControlCenter')).toContainText('Your BITBI workspace');
+    await expect(page.locator('#memberControlCenter')).toContainText('Credits and Pro status live in Credits.');
+    await expect(page.locator('#profileGenerateLabLink')).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#profileAssetsManagerLink')).toHaveAttribute('href', '/account/assets-manager.html');
+    await expect(page.locator('#profileMemberCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
+    await expect(page.locator('#profileSettingsShortcut')).toHaveAttribute('href', '#profileForm');
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -10704,6 +10711,9 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
+    await expect(page.locator('#memberControlCenter')).toBeVisible();
+    await expect(page.locator('#profileGenerateLabLink')).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#profileMemberCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -10818,6 +10828,9 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
     await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
+    await expect(page.locator('#memberControlCenter')).toBeVisible();
+    await expect(page.locator('#memberControlActions a')).toHaveCount(4);
+    await expect(page.locator('#memberControlActions')).toContainText('Continue creating');
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });

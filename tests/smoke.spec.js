@@ -1955,7 +1955,21 @@ test.describe('Homepage', () => {
     const workspace = page.locator('.generate-lab__desktop');
     await expect(workspace).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Generate Lab' })).toBeVisible();
-    await expect(page.getByText('Member Workspace')).toHaveCount(0);
+    const memberNav = page.locator('.generate-lab__member-nav');
+    await expect(memberNav).toBeVisible();
+    await expect(memberNav).toContainText('Member workspace');
+    await expect(memberNav.getByRole('link', { name: 'Profile' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?returnContext=generate-lab',
+    );
+    await expect(memberNav.getByRole('link', { name: 'Credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member',
+    );
+    await expect(memberNav.getByRole('link', { name: 'Assets Manager' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
+    );
     await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
@@ -2662,6 +2676,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Desktop workspace' })).toBeVisible();
     await expect(page.getByText('Generate Lab is optimized for desktop creation workflows.')).toBeVisible();
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/account/profile.html?returnContext=generate-lab');
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Credits' })).toHaveAttribute('href', '/account/credits.html?scope=member');
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Assets Manager' })).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
     await expect(page.locator('.generate-lab__desktop')).toBeHidden();
   });
 

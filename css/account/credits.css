@@ -10,7 +10,8 @@
   }
 
   .credits-hero,
-  .credits-shell {
+  .credits-shell,
+  .credits-workspace-nav {
     width: min(var(--container-management), calc(100vw - clamp(1rem, 4vw, 4rem)));
     margin-inline: auto;
   }
@@ -78,6 +79,83 @@
     border-radius: 1rem;
     background: rgba(0, 240, 255, 0.08);
     color: rgba(255, 255, 255, 0.86);
+  }
+
+  .credits-workspace-nav {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1.2rem;
+    align-items: center;
+    margin-block: 0 1.25rem;
+    padding: clamp(1rem, 2vw, 1.35rem);
+    border: 1px solid rgba(0, 240, 255, 0.16);
+    border-radius: 1.25rem;
+    background:
+      linear-gradient(135deg, rgba(0, 240, 255, 0.09), rgba(255, 179, 0, 0.055)),
+      rgba(255, 255, 255, 0.04);
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.24);
+  }
+
+  .credits-workspace-nav__copy {
+    display: grid;
+    gap: 0.45rem;
+    min-inline-size: 0;
+  }
+
+  .credits-workspace-nav__copy h2,
+  .credits-workspace-nav__copy p {
+    margin: 0;
+  }
+
+  .credits-workspace-nav__copy h2 {
+    color: rgba(255, 255, 255, 0.94);
+    font-size: clamp(1.1rem, 2vw, 1.35rem);
+  }
+
+  .credits-workspace-nav__copy p {
+    color: rgba(255, 255, 255, 0.66);
+    line-height: 1.55;
+  }
+
+  .credits-workspace-nav__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.65rem;
+  }
+
+  .credits-workspace-nav__link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-block-size: 2.75rem;
+    padding: 0.72rem 0.95rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.055);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    line-height: 1.2;
+    text-align: center;
+    text-decoration: none;
+    text-transform: uppercase;
+  }
+
+  .credits-workspace-nav__link:hover,
+  .credits-workspace-nav__link:focus-visible {
+    border-color: rgba(0, 240, 255, 0.38);
+    background: rgba(0, 240, 255, 0.12);
+    color: rgba(255, 255, 255, 0.94);
+    outline: none;
+  }
+
+  .credits-workspace-nav__link--primary {
+    border-color: rgba(0, 240, 255, 0.28);
+    background: rgba(0, 240, 255, 0.13);
+    color: rgba(0, 240, 255, 0.92);
   }
 
   .credits-legal {
@@ -588,8 +666,18 @@
 
   @media (max-width: 760px) {
     .credits-hero,
-    .credits-shell {
+    .credits-shell,
+    .credits-workspace-nav {
       width: min(100% - 1rem, 100%);
+    }
+
+    .credits-workspace-nav {
+      grid-template-columns: 1fr;
+    }
+
+    .credits-workspace-nav__actions,
+    .credits-workspace-nav__link {
+      width: 100%;
     }
 
     .credits-toolbar {

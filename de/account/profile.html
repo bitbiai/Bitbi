@@ -146,6 +146,37 @@
                     <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favoriten</button>
                 </div>
 
+                <section id="memberControlCenter" class="profile__card profile__control-center reveal" aria-labelledby="memberControlTitle">
+                    <div class="profile__control-head">
+                        <p class="profile__control-eyebrow">Mitglieder-Kontrollzentrum</p>
+                        <h2 id="memberControlTitle" class="profile__title">Ihr BITBI-Arbeitsbereich</h2>
+                        <p class="profile__control-copy">Wechseln Sie zwischen Erstellung, gespeicherten Assets, Credits und Profileinstellungen, ohne den Konto-Kontext zu verlieren. Der Profilstatus wird unten geladen; Credits ist die Quelle für Guthaben und BITBI-Pro-Details.</p>
+                    </div>
+                    <div class="profile__control-status" role="list" aria-label="Statushinweise zum Arbeitsbereich">
+                        <span role="listitem">Der Kontostatus wird aus Ihrem angemeldeten Profil geladen.</span>
+                        <span role="listitem">Credits und Pro-Status stehen im Credits-Dashboard.</span>
+                        <span role="listitem">Gespeicherte Medien bleiben privat, bis Sie sie veröffentlichen.</span>
+                    </div>
+                    <div id="memberControlActions" class="profile__control-actions" aria-label="Schnellzugriffe im Mitglieder-Arbeitsbereich">
+                        <a href="/de/generate-lab/" class="profile__control-link profile__control-link--primary" id="profileGenerateLabLink">
+                            <span class="profile__control-link-label">Weiter erstellen</span>
+                            <span class="profile__control-link-copy">Generate Lab für Bilder, Video und Musik öffnen.</span>
+                        </a>
+                        <a href="/de/account/assets-manager.html" class="profile__control-link" id="profileAssetsManagerLink">
+                            <span class="profile__control-link-label">Gespeicherte Assets verwalten</span>
+                            <span class="profile__control-link-copy">Ordner, Vorschauen, Veröffentlichung und Speicher prüfen.</span>
+                        </a>
+                        <a href="/de/account/credits.html?scope=member" class="profile__control-link" id="profileMemberCreditsLink">
+                            <span class="profile__control-link-label">Credits prüfen</span>
+                            <span class="profile__control-link-copy">Guthaben, BITBI Pro, Pakete und Ledger-Aktivität ansehen.</span>
+                        </a>
+                        <a href="#profileForm" class="profile__control-link" id="profileSettingsShortcut">
+                            <span class="profile__control-link-label">Profil aktualisieren</span>
+                            <span class="profile__control-link-copy">Anzeigename, Bio, Website, Wallet und Avatar aktuell halten.</span>
+                        </a>
+                    </div>
+                </section>
+
                 <div class="profile-layout">
                     <div class="profile-layout__main">
 

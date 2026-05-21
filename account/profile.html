@@ -142,6 +142,37 @@
                     <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
                 </div>
 
+                <section id="memberControlCenter" class="profile__card profile__control-center reveal" aria-labelledby="memberControlTitle">
+                    <div class="profile__control-head">
+                        <p class="profile__control-eyebrow">Member Control Center</p>
+                        <h2 id="memberControlTitle" class="profile__title">Your BITBI workspace</h2>
+                        <p class="profile__control-copy">Jump between creation, saved assets, credits, and profile settings without losing the account context. Profile status loads below; Credits is the source for balances and BITBI Pro details.</p>
+                    </div>
+                    <div class="profile__control-status" role="list" aria-label="Workspace status notes">
+                        <span role="listitem">Account status loads from your signed-in profile.</span>
+                        <span role="listitem">Credits and Pro status live in Credits.</span>
+                        <span role="listitem">Saved media stays private until you publish.</span>
+                    </div>
+                    <div id="memberControlActions" class="profile__control-actions" aria-label="Member workspace actions">
+                        <a href="/generate-lab/" class="profile__control-link profile__control-link--primary" id="profileGenerateLabLink">
+                            <span class="profile__control-link-label">Continue creating</span>
+                            <span class="profile__control-link-copy">Open Generate Lab for images, video, and music.</span>
+                        </a>
+                        <a href="/account/assets-manager.html" class="profile__control-link" id="profileAssetsManagerLink">
+                            <span class="profile__control-link-label">Manage saved assets</span>
+                            <span class="profile__control-link-copy">Find folders, previews, publishing, and storage details.</span>
+                        </a>
+                        <a href="/account/credits.html?scope=member" class="profile__control-link" id="profileMemberCreditsLink">
+                            <span class="profile__control-link-label">Review credits</span>
+                            <span class="profile__control-link-copy">Check balances, BITBI Pro, packs, and ledger activity.</span>
+                        </a>
+                        <a href="#profileForm" class="profile__control-link" id="profileSettingsShortcut">
+                            <span class="profile__control-link-label">Update profile</span>
+                            <span class="profile__control-link-copy">Keep display name, bio, website, wallet, and avatar current.</span>
+                        </a>
+                    </div>
+                </section>
+
                 <div class="profile-layout">
                     <div class="profile-layout__main">
 

@@ -179,6 +179,69 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.');
   });
 
+  test('member workspace navigation keeps English and German routes equivalent', () => {
+    const enProfile = repoFile('account/profile.html');
+    const deProfile = repoFile('de/account/profile.html');
+    const enCredits = repoFile('account/credits.html');
+    const deCredits = repoFile('de/account/credits.html');
+    const enAssets = repoFile('account/assets-manager.html');
+    const deAssets = repoFile('de/account/assets-manager.html');
+    const enGenerate = repoFile('generate-lab/index.html');
+    const deGenerate = repoFile('de/generate-lab/index.html');
+
+    expect(enProfile).toContain('id="memberControlCenter"');
+    expect(enProfile).toContain('Member Control Center');
+    expect(enProfile).toContain('href="/generate-lab/"');
+    expect(enProfile).toContain('href="/account/assets-manager.html"');
+    expect(enProfile).toContain('href="/account/credits.html?scope=member"');
+    expect(enProfile).toContain('href="#profileForm"');
+
+    expect(deProfile).toContain('id="memberControlCenter"');
+    expect(deProfile).toContain('Mitglieder-Kontrollzentrum');
+    expect(deProfile).toContain('href="/de/generate-lab/"');
+    expect(deProfile).toContain('href="/de/account/assets-manager.html"');
+    expect(deProfile).toContain('href="/de/account/credits.html?scope=member"');
+    expect(deProfile).toContain('href="#profileForm"');
+
+    expect(enCredits).toContain('credits-workspace-nav');
+    expect(enCredits).toContain('Keep creating from your credits context');
+    expect(enCredits).toContain('href="/generate-lab/"');
+    expect(enCredits).toContain('href="/account/assets-manager.html"');
+    expect(enCredits).toContain('href="/account/profile.html"');
+
+    expect(deCredits).toContain('credits-workspace-nav');
+    expect(deCredits).toContain('Aus dem Credits-Kontext weiter erstellen');
+    expect(deCredits).toContain('href="/de/generate-lab/"');
+    expect(deCredits).toContain('href="/de/account/assets-manager.html"');
+    expect(deCredits).toContain('href="/de/account/profile.html"');
+
+    expect(enAssets).toContain('assets-manager__workspace-nav');
+    expect(enAssets).toContain('Move between creation, credits, and profile');
+    expect(enAssets).toContain('href="/generate-lab/"');
+    expect(enAssets).toContain('href="/account/credits.html?scope=member"');
+    expect(enAssets).toContain('href="/account/profile.html"');
+
+    expect(deAssets).toContain('assets-manager__workspace-nav');
+    expect(deAssets).toContain('Zwischen Erstellung, Credits und Profil wechseln');
+    expect(deAssets).toContain('href="/de/generate-lab/"');
+    expect(deAssets).toContain('href="/de/account/credits.html?scope=member"');
+    expect(deAssets).toContain('href="/de/account/profile.html"');
+
+    expect(enGenerate).toContain('generate-lab__member-nav');
+    expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab"');
+    expect(enGenerate).toContain('href="/account/credits.html?scope=member"');
+    expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
+
+    expect(deGenerate).toContain('generate-lab__member-nav');
+    expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab"');
+    expect(deGenerate).toContain('href="/de/account/credits.html?scope=member"');
+    expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
+
+    for (const html of [deProfile, deCredits, deAssets, deGenerate]) {
+      expect(html).not.toContain('/de/admin');
+    }
+  });
+
   test('language switcher maps equivalent pages, preserves query strings, and stores preference', async ({ page }) => {
     await page.goto('/generate-lab/?source=locale-test');
     const deLink = page.locator('.locale-switcher__link[hreflang="de"]').first();
@@ -405,6 +468,14 @@ test.describe('Bilingual locale pages', () => {
       'At least 8 characters',
       'Opening wallet workspace',
       'The BITBI wallet workspace',
+      'Member Control Center',
+      'Your BITBI workspace',
+      'Continue creating',
+      'Manage saved assets',
+      'Profile settings',
+      'Credits and Pro status live in Credits',
+      'Keep creating from your credits context',
+      'Move between creation, credits, and profile',
       'Organization context',
       'Organization dashboard is not available',
       'Selected organization',

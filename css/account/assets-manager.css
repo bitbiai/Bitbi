@@ -147,6 +147,72 @@
         box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
     }
 
+    .assets-manager__workspace-nav {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-4);
+        align-items: center;
+        margin-block: 0 var(--space-5);
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .assets-manager__workspace-title {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.93);
+        font-size: clamp(1rem, 2vw, 1.2rem);
+        line-height: 1.25;
+    }
+
+    .assets-manager__workspace-copy {
+        margin: var(--space-2) 0 0;
+        color: rgba(255, 255, 255, 0.64);
+        line-height: 1.55;
+    }
+
+    .assets-manager__workspace-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: var(--space-2);
+    }
+
+    .assets-manager__workspace-link {
+        min-block-size: 2.55rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        padding: 0.7rem 0.95rem;
+        background: rgba(255, 255, 255, 0.055);
+        color: rgba(255, 255, 255, 0.82);
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        line-height: 1.2;
+        text-align: center;
+        text-decoration: none;
+        text-transform: uppercase;
+    }
+
+    .assets-manager__workspace-link:hover,
+    .assets-manager__workspace-link:focus-visible {
+        border-color: rgba(0, 240, 255, 0.38);
+        background: rgba(0, 240, 255, 0.12);
+        color: rgba(255, 255, 255, 0.94);
+        outline: none;
+    }
+
+    .assets-manager__workspace-link--primary {
+        border-color: rgba(0, 240, 255, 0.28);
+        background: rgba(0, 240, 255, 0.13);
+        color: rgba(0, 240, 255, 0.92);
+    }
+
     .assets-manager__handoff[hidden] {
         display: none;
     }
@@ -347,6 +413,18 @@
         .assets-manager__handoff {
             grid-template-columns: 1fr;
             padding: var(--space-3);
+        }
+
+        .assets-manager__workspace-nav {
+            grid-template-columns: 1fr;
+        }
+
+        .assets-manager__workspace-actions {
+            justify-content: stretch;
+        }
+
+        .assets-manager__workspace-link {
+            width: 100%;
         }
 
         .assets-manager__handoff-actions {
