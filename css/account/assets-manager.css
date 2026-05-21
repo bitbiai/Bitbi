@@ -132,6 +132,49 @@
         display: none;
     }
 
+    .assets-manager__overview {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-4);
+        margin-block: 0 var(--space-5);
+        padding-block-end: var(--space-5);
+        border-block-end: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .assets-manager__overview-item {
+        display: grid;
+        align-content: start;
+        gap: var(--space-2);
+        min-block-size: 8.25rem;
+        padding: var(--space-4);
+        border-inline-start: 2px solid rgba(0, 240, 255, 0.22);
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+    .assets-manager__overview-label {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(255, 179, 0, 0.8);
+    }
+
+    .assets-manager__overview-title {
+        margin: 0;
+        font-size: 0.95rem;
+        line-height: 1.25;
+        color: rgba(255, 255, 255, 0.9);
+    }
+
+    .assets-manager__overview-copy {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.9rem;
+        line-height: 1.55;
+    }
+
     .assets-manager__toolbar {
         padding: var(--space-4);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -168,6 +211,16 @@
         .assets-manager__storage-usage {
             flex: 1 1 auto;
             min-inline-size: min(100%, 12rem);
+        }
+
+        .assets-manager__overview {
+            grid-template-columns: 1fr;
+            gap: var(--space-3);
+        }
+
+        .assets-manager__overview-item {
+            min-block-size: 0;
+            padding: var(--space-3);
         }
 
         .assets-manager__toolbar {
@@ -1185,12 +1238,44 @@
     }
 
     .studio__gallery-empty {
+        display: grid;
+        justify-items: center;
+        gap: var(--space-3);
         text-align: center;
         padding: var(--space-10) var(--space-4);
-        color: rgba(255, 255, 255, 0.2);
+        color: rgba(255, 255, 255, 0.64);
+    }
+
+    .studio__gallery-empty-title {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 1rem;
+        line-height: 1.25;
+    }
+
+    .studio__gallery-empty-copy {
+        max-inline-size: 34rem;
+        margin: 0;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+
+    .studio__gallery-empty-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-block-size: 2.75rem;
+        padding: 0.78rem 1.15rem;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 240, 255, 0.22);
+        background: rgba(0, 240, 255, 0.08);
+        color: rgba(255, 255, 255, 0.9);
         font-family: var(--font-mono);
         font-size: 12px;
-        font-style: italic;
+        font-weight: 700;
+        text-decoration: none;
+        text-transform: uppercase;
     }
 
     .studio__pagination {
@@ -1423,14 +1508,18 @@
     }
 
     .studio__mobile-actions-toggle {
+        min-block-size: 2.5rem;
         padding: var(--space-2) var(--space-3);
-        font-size: 16px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 700;
         line-height: 1;
         color: rgba(255, 255, 255, 0.5);
         background: rgba(255, 255, 255, 0.04);
         border: var(--border-subtle);
         border-radius: var(--radius-sm);
         cursor: pointer;
+        text-transform: uppercase;
         transition: all 0.2s var(--ease-default);
     }
 
@@ -1821,6 +1910,12 @@
     .studio__folder-card:hover {
         border-color: rgba(0, 240, 255, 0.2);
         background: rgba(0, 240, 255, 0.03);
+    }
+
+    .studio__folder-card:focus-visible {
+        outline: 2px solid rgba(0, 240, 255, 0.8);
+        outline-offset: 3px;
+        border-color: rgba(0, 240, 255, 0.28);
     }
 
     .studio__folder-grid.studio--selecting .studio__folder-card[data-folder-id] .studio__image-check {

@@ -7369,6 +7369,8 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await expect(page.locator('.legal-hero__title')).toHaveText('Assets Manager');
     await expect(page.locator('#studioSavedAssetsCard')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Storage status' })).toBeVisible();
+    await expect(page.locator('#studioStorageInsight')).toContainText('0 MB / 50 MB used. 50 MB remains available');
     await expect(page.locator('#studioFolderGrid')).toBeVisible();
     await expect(page.locator('#studioImageGrid')).toHaveCount(1);
     await expect(page.locator('#studioPrompt')).toHaveCount(0);
@@ -7376,6 +7378,9 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioGenerate')).toHaveCount(0);
     await expect(page.locator('#studioPreview')).toHaveCount(0);
     await expect(page.locator('#studioSaveBar')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Open All Assets, 0 assets' }).press('Enter');
+    await expect(page.getByRole('heading', { name: 'Your saved library is empty' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Start creating' })).toHaveAttribute('href', '/#gallery');
     expect(requests).toEqual([]);
   });
 
@@ -7401,9 +7406,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     const usage = page.locator('#studioStorageUsage');
+    const insight = page.locator('#studioStorageInsight');
     const status = page.locator('.assets-manager__status-pill');
     await expect(usage).toHaveText('14,5 MB / 50 MB');
     await expect(usage).toHaveAttribute('aria-label', /Verwendeter Speicher im Assets Manager: 14,5 MB \/ 50 MB/);
+    await expect(insight).toContainText('14,5 MB / 50 MB verwendet. 35,5 MB bleiben');
     await expect(status).toHaveText('Standardmäßig privat');
     const directlyBeforeStatus = await usage.evaluate((node) =>
       node.nextElementSibling?.classList.contains('assets-manager__status-pill')
@@ -7442,9 +7449,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     const usage = page.locator('#studioStorageUsage');
+    const insight = page.locator('#studioStorageInsight');
     const status = page.locator('.assets-manager__status-pill');
     await expect(usage).toHaveText('124,8 MB / ∞');
     await expect(usage).toHaveAttribute('aria-label', /Used storage in Assets Manager: 124,8 MB \/ ∞/);
+    await expect(insight).toContainText('This account currently has unlimited Assets Manager storage.');
     await expect(status).toHaveText('Private by default');
     const directlyBeforeStatus = await usage.evaluate((node) =>
       node.nextElementSibling?.classList.contains('assets-manager__status-pill')
@@ -8587,7 +8596,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Saved Assets' })).toBeVisible();
 
-    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await page.getByRole('button', { name: 'Open All Assets, 4 assets' }).press('Enter');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(4);
     await expect(page.locator('.studio__image-item--text')).toContainText('COMPARE');
     await expect(page.locator('.studio__image-item--text')).toContainText('AI Lab Compare Notes');

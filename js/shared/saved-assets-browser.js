@@ -25,7 +25,7 @@ import {
     syncMobileMediaTrigger,
 } from './mobile-media-grid-overlay.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
-import { formatAssetStorageUsage } from './storage-format.js?v=__ASSET_VERSION__';
+import { formatAssetStorageUsage, formatStorageBytes } from './storage-format.js?v=__ASSET_VERSION__';
 
 const UNFOLDERED = '__unfoldered__';
 const ALL_ASSETS = '__all__';
@@ -340,6 +340,7 @@ export function createSavedAssetsBrowser({
     const root = refs.root;
     const $galleryFilter = refs.galleryFilter;
     const $storageUsage = refs.storageUsage;
+    const $storageInsight = refs.storageInsight;
     const $folderGrid = refs.folderGrid;
     const $folderBack = refs.folderBack;
     const $folderBackBtn = refs.folderBackBtn;
@@ -434,9 +435,37 @@ export function createSavedAssetsBrowser({
         $galleryMsg.className = 'studio__msg';
     }
 
+    function getStorageInsightText(storageUsage, usageText) {
+        if (!usageText) return localeText('assets.storageInsightUnavailable');
+        if (storageUsage?.isUnlimited === true) {
+            return localeText('assets.storageInsightUnlimited', { usage: usageText });
+        }
+
+        const usedBytes = Number(storageUsage?.usedBytes);
+        const limitBytes = Number(storageUsage?.limitBytes);
+        const providedRemainingBytes = Number(storageUsage?.remainingBytes);
+        const remainingBytes = Number.isFinite(providedRemainingBytes)
+            ? providedRemainingBytes
+            : limitBytes - usedBytes;
+
+        if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0 || !Number.isFinite(remainingBytes)) {
+            return localeText('assets.storageInsightUnavailable');
+        }
+
+        const remaining = formatStorageBytes(Math.max(0, remainingBytes));
+        const key = usedBytes / limitBytes >= 0.85
+            ? 'assets.storageInsightNearLimit'
+            : 'assets.storageInsightRemaining';
+        return localeText(key, { usage: usageText, remaining });
+    }
+
     function updateStorageUsage(storageUsage) {
-        if (!$storageUsage) return;
         const text = formatAssetStorageUsage(storageUsage);
+        if ($storageInsight) {
+            $storageInsight.textContent = getStorageInsightText(storageUsage, text);
+        }
+
+        if (!$storageUsage) return;
         if (!text) {
             $storageUsage.hidden = true;
             $storageUsage.textContent = '';
@@ -542,7 +571,11 @@ export function createSavedAssetsBrowser({
         await refresh({ preserveView: true });
     }
 
-    function renderEmptyState(message = emptyStateMessage) {
+    function getCreateToolsHref() {
+        return getCurrentLocale() === 'de' ? '/de/#gallery' : '/#gallery';
+    }
+
+    function renderEmptyState(message = emptyStateMessage, options = {}) {
         currentAssets = [];
         assetNextCursor = null;
         assetHasMore = false;
@@ -551,7 +584,26 @@ export function createSavedAssetsBrowser({
         $assetGrid.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'studio__gallery-empty';
-        empty.textContent = message;
+        const title = document.createElement('h3');
+        title.className = 'studio__gallery-empty-title';
+        title.textContent = options.title || localeText('assets.emptyStateTitle');
+
+        const copy = document.createElement('p');
+        copy.className = 'studio__gallery-empty-copy';
+        copy.textContent = message;
+
+        empty.append(title, copy);
+
+        const ctaHref = options.ctaHref === undefined ? getCreateToolsHref() : options.ctaHref;
+        const ctaLabel = options.ctaLabel === undefined ? localeText('assets.emptyStateCta') : options.ctaLabel;
+        if (ctaHref && ctaLabel) {
+            const cta = document.createElement('a');
+            cta.className = 'studio__gallery-empty-link';
+            cta.href = ctaHref;
+            cta.textContent = ctaLabel;
+            empty.appendChild(cta);
+        }
+
         $assetGrid.appendChild(empty);
         updateAssetPaginationUi();
     }
@@ -859,9 +911,24 @@ export function createSavedAssetsBrowser({
         const total = unfolderedCount + folders.reduce((sum, folder) => sum + (folderCounts[folder.id] || 0), 0);
         $folderGrid.innerHTML = '';
 
+        const bindFolderCardActivation = (card, name, count, activate) => {
+            card.setAttribute('role', 'button');
+            card.tabIndex = 0;
+            card.setAttribute('aria-label', localeText('assets.openFolderCard', {
+                name,
+                count: formatAssetCount(count),
+            }));
+            card.addEventListener('click', activate);
+            card.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                activate();
+            });
+        };
+
         const allCard = document.createElement('div');
         allCard.className = 'studio__folder-card';
-        allCard.addEventListener('click', () => {
+        bindFolderCardActivation(allCard, localeText('assets.allAssets'), total, () => {
             if (selectMode) return;
             openAllAssets();
         });
@@ -879,7 +946,7 @@ export function createSavedAssetsBrowser({
 
         const assetsCard = document.createElement('div');
         assetsCard.className = 'studio__folder-card';
-        assetsCard.addEventListener('click', () => {
+        bindFolderCardActivation(assetsCard, localeText('assets.assets'), unfolderedCount, () => {
             if (selectMode) return;
             openFolder(UNFOLDERED);
         });
@@ -900,7 +967,8 @@ export function createSavedAssetsBrowser({
             card.className = 'studio__folder-card';
             card.dataset.folderId = folder.id;
             card.title = folder.name;
-            card.addEventListener('click', () => {
+            const totalCount = folderCounts[folder.id] || 0;
+            bindFolderCardActivation(card, folder.name, totalCount, () => {
                 if (selectMode) {
                     toggleSelection(card);
                     return;
@@ -918,7 +986,6 @@ export function createSavedAssetsBrowser({
 
             const count = document.createElement('span');
             count.className = 'studio__folder-card-count';
-            const totalCount = folderCounts[folder.id] || 0;
             count.textContent = formatAssetCount(totalCount);
 
             card.append(icon, name, count);
@@ -1234,7 +1301,11 @@ export function createSavedAssetsBrowser({
                 return;
             }
             currentAssets = [];
-            renderEmptyState();
+            renderEmptyState(localeText('assets.couldNotLoadAssetsHelp'), {
+                title: localeText('assets.loadFailedTitle'),
+                ctaHref: '',
+                ctaLabel: '',
+            });
             showMsg(localeText('assets.couldNotLoadAssets'), 'error');
             return;
         }

@@ -33,6 +33,7 @@ function createBrowser() {
             root: document.getElementById('studioSavedAssetsCard'),
             galleryFilter: document.getElementById('studioGalleryFilter'),
             storageUsage: document.getElementById('studioStorageUsage'),
+            storageInsight: document.getElementById('studioStorageInsight'),
             folderGrid: document.getElementById('studioFolderGrid'),
             folderBack: document.getElementById('studioFolderBack'),
             folderBackBtn: document.getElementById('studioFolderBackBtn'),
