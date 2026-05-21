@@ -4812,6 +4812,9 @@ async function mockAuthenticatedProfile(page, {
   imageRequests = [],
   avatarRequests = [],
   initialAvatar = hasAvatar,
+  linkedWallet = null,
+  profilePatchStatus = 200,
+  profilePatchBody = { ok: true },
 } = {}) {
   const assetStore = createSavedAssetsStore(folderPayload, assetsPayload);
   const avatarState = {
@@ -4840,9 +4843,9 @@ async function mockAuthenticatedProfile(page, {
   await page.route('**/api/profile', async (route) => {
     if (route.request().method() !== 'GET') {
       await route.fulfill({
-        status: 200,
+        status: profilePatchStatus,
         contentType: 'application/json',
-        body: JSON.stringify({ ok: true }),
+        body: JSON.stringify(profilePatchBody),
       });
       return;
     }
@@ -4867,6 +4870,18 @@ async function mockAuthenticatedProfile(page, {
           youtube_url: '',
         },
         account,
+      }),
+    });
+  });
+
+  await page.route('**/api/wallet/status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        authenticated: true,
+        linked_wallet: linkedWallet,
       }),
     });
   });
@@ -10701,10 +10716,74 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('.auth-nav__identity-label')).toHaveText('header-update@example.com');
 
     await page.locator('#displayName').fill('Updated Header Name');
+    await expect(page.locator('#profileEditState')).toContainText('Unsaved changes');
     await page.locator('#profileForm').getByRole('button', { name: 'Save Changes' }).click();
 
     await expect(page.locator('#formMsg')).toContainText('Profile updated.');
+    await expect(page.locator('#profileEditState')).toContainText('Saved.');
     await expect(page.locator('.auth-nav__identity-label')).toHaveText('Updated Header Name');
+  });
+
+  test('profile completion and wallet trust summarize account quality without custody claims', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'linked-wallet@example.com',
+      displayName: 'Linked Wallet Member',
+      linkedWallet: {
+        address: '0x1234567890abcdef1234567890abcdef12345678',
+        short_address: '0x1234...5678',
+        chain_id: 1,
+        linked_at: '2026-04-02T10:00:00.000Z',
+        last_login_at: '2026-04-03T10:00:00.000Z',
+        is_primary: true,
+      },
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('#profileCompletionCard')).toBeVisible();
+    await expect(page.locator('#profileCompletionCard')).toContainText('Profile quality');
+    await expect(page.locator('#profileCompletionStatus')).toContainText('5 of 5 account signals complete.');
+    await expect(page.locator('#completionSignedInStatus')).toContainText('Signed in');
+    await expect(page.locator('#completionProfileLoadedStatus')).toContainText('Profile loaded');
+    await expect(page.locator('#completionEmailStatus')).toContainText('Verified');
+    await expect(page.locator('#completionWalletStatus')).toContainText('Linked');
+    await expect(page.locator('#completionRecoveryStatus')).toContainText('Available');
+    await expect(page.locator('#walletTrustStatus')).toContainText('Linked wallet is account-bound');
+    await expect(page.locator('#walletSectionCard')).toContainText('not wallet custody');
+    await expect(page.locator('#walletSectionCard')).toContainText('never asks for seed phrases or private keys');
+    await expect(page.locator('#walletSectionCard')).not.toContainText('custodial wallet');
+  });
+
+  test('profile save failure keeps typed values and shows generic recovery guidance', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'save-failure@example.com',
+      displayName: 'Save Failure',
+      profilePatchStatus: 500,
+      profilePatchBody: { ok: false, error: 'raw internal profile update failure' },
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#displayName').fill('Retry Name');
+    await expect(page.locator('#profileEditState')).toContainText('Unsaved changes');
+    await page.locator('#profileForm').getByRole('button', { name: 'Save Changes' }).click();
+
+    await expect(page.locator('#formMsg')).toContainText('Could not save profile changes.');
+    await expect(page.locator('#profileEditState')).toContainText('Save failed.');
+    await expect(page.locator('#profileSaveRecovery')).toBeVisible();
+    await expect(page.locator('#profileSaveRecovery')).toContainText('typed values are still in the form');
+    await expect(page.locator('#displayName')).toHaveValue('Retry Name');
+    await expect(page.locator('#formMsg')).not.toContainText('raw internal');
   });
 
   test('non-admin profile shows Assets Manager, Wallet, and Credits cards in the profile action stack', async ({

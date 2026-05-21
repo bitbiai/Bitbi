@@ -70,6 +70,12 @@ const $summaryEmail   = document.getElementById('summaryEmail');
 const $summaryRole    = document.getElementById('summaryRole');
 const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
+const $profileCompletionStatus = document.getElementById('profileCompletionStatus');
+const $completionSignedInStatus = document.getElementById('completionSignedInStatus');
+const $completionProfileLoadedStatus = document.getElementById('completionProfileLoadedStatus');
+const $completionEmailStatus = document.getElementById('completionEmailStatus');
+const $completionWalletStatus = document.getElementById('completionWalletStatus');
+const $completionRecoveryStatus = document.getElementById('completionRecoveryStatus');
 const $securitySessionStatus = document.getElementById('securitySessionStatus');
 const $securityEmailStatus = document.getElementById('securityEmailStatus');
 const $securityEmailHint = document.getElementById('securityEmailHint');
@@ -78,6 +84,7 @@ const $walletSectionCopy = document.getElementById('walletSectionCopy');
 const $walletSectionMsg = document.getElementById('walletSectionMsg');
 const $walletSectionRows = document.getElementById('walletSectionRows');
 const $walletSectionActions = document.getElementById('walletSectionActions');
+const $walletTrustStatus = document.getElementById('walletTrustStatus');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
 const $walletCard     = document.getElementById('profileWalletCard');
 
@@ -87,6 +94,8 @@ const $bio            = document.getElementById('bio');
 const $website        = document.getElementById('website');
 const $submitBtn      = document.getElementById('submitBtn');
 const $formMsg        = document.getElementById('formMsg');
+const $profileEditState = document.getElementById('profileEditState');
+const $profileSaveRecovery = document.getElementById('profileSaveRecovery');
 const $logoutBtn      = document.getElementById('logoutBtn');
 
 const $avatarImg         = document.getElementById('avatarImg');
@@ -109,6 +118,8 @@ const $avatarAssetsStatus = document.getElementById('avatarAssetsStatus');
 const $avatarAssetsGrid = document.getElementById('avatarAssetsGrid');
 
 let walletViewState = null;
+let profileCompletionContext = null;
+let savedProfileFields = null;
 
 function setActiveTab(tab) {
     if (!$content) return;
@@ -132,12 +143,14 @@ if ($tabBar) {
     });
 }
 
-$profileWalletWorkspaceBtn?.addEventListener('click', () => {
+$walletCard?.addEventListener('click', () => {
     openWalletWorkspaceView();
 });
 
-$walletCard?.addEventListener('click', () => {
-    openWalletWorkspaceView();
+document.querySelectorAll('[data-open-wallet-workspace]').forEach((trigger) => {
+    trigger.addEventListener('click', () => {
+        openWalletWorkspaceView();
+    });
 });
 
 /* ── Date formatter ── */
@@ -159,6 +172,59 @@ function showMsg(text, type) {
 function hideMsg() {
     $formMsg.className = 'profile__msg';
     $formMsg.textContent = '';
+}
+
+function setEditState(text, type = 'neutral') {
+    if (!$profileEditState) return;
+    $profileEditState.textContent = text || '';
+    $profileEditState.className = `profile__edit-state profile__edit-state--${type}`;
+}
+
+function getCurrentProfileFields() {
+    return {
+        display_name: String($displayName?.value || '').trim(),
+        bio: String($bio?.value || ''),
+        website: String($website?.value || '').trim(),
+    };
+}
+
+function normalizeProfileFields(profile = {}) {
+    return {
+        display_name: String(profile.display_name || '').trim(),
+        bio: String(profile.bio || ''),
+        website: String(profile.website || '').trim(),
+    };
+}
+
+function fieldsEqual(left, right) {
+    return left?.display_name === right?.display_name
+        && left?.bio === right?.bio
+        && left?.website === right?.website;
+}
+
+function updateEditState(mode = 'idle') {
+    if (!savedProfileFields) return;
+
+    if (mode === 'saving') {
+        setEditState(localeText('profile.editSaving'), 'busy');
+        return;
+    }
+    if (mode === 'saved') {
+        setEditState(localeText('profile.editSaved'), 'success');
+        return;
+    }
+    if (mode === 'error') {
+        setEditState(localeText('profile.editSaveFailed'), 'error');
+        return;
+    }
+
+    const currentFields = getCurrentProfileFields();
+    if (fieldsEqual(currentFields, savedProfileFields)) {
+        setEditState(localeText('profile.editNoChanges'), 'neutral');
+    } else {
+        setEditState(localeText('profile.editUnsavedChanges'), 'warning');
+        if ($profileSaveRecovery) $profileSaveRecovery.hidden = true;
+    }
 }
 
 function showWalletSectionMsg(text, type = 'success') {
@@ -265,12 +331,104 @@ function renderSecurityPanel(account, { isLegacy = false, isVerified = false } =
     setSecurityReverifyButton({ hidden: true });
 }
 
+function setCompletionStatus(el, text, state = 'pending') {
+    if (!el) return;
+    el.textContent = text;
+    el.className = `profile__completion-state profile__completion-state--${state}`;
+}
+
+function getEmailCompletion(account = {}) {
+    const isLegacy = account.verification_method === 'legacy_auto';
+    if (account.email_verified && !isLegacy) {
+        return { done: true, text: localeText('profile.completionEmailVerified'), state: 'complete' };
+    }
+    if (isLegacy) {
+        return { done: false, text: localeText('profile.completionEmailReview'), state: 'attention' };
+    }
+    if (account.email_verified === false) {
+        return { done: false, text: localeText('profile.completionEmailUnverified'), state: 'attention' };
+    }
+    return { done: false, text: localeText('profile.completionUnknown'), state: 'pending' };
+}
+
+function getWalletCompletion(state = walletViewState) {
+    if (!state || !state.authReady || state.identityStatus === 'loading') {
+        return { done: false, text: localeText('profile.completionWalletLoading'), state: 'pending' };
+    }
+    if (state.identityStatus === 'error') {
+        return { done: false, text: localeText('profile.completionWalletUnavailable'), state: 'attention' };
+    }
+    if (state.linkedWallet) {
+        return { done: true, text: localeText('profile.completionWalletLinked'), state: 'complete' };
+    }
+    return { done: false, text: localeText('profile.completionWalletNotLinked'), state: 'pending' };
+}
+
+function renderProfileCompletion(profile = {}, account = {}, walletState = walletViewState) {
+    if (!$profileCompletionStatus) return;
+
+    const emailState = getEmailCompletion(account);
+    const walletStateResult = getWalletCompletion(walletState);
+    const checks = [
+        { done: true, el: $completionSignedInStatus, text: localeText('profile.completionSignedIn'), state: 'complete' },
+        { done: true, el: $completionProfileLoadedStatus, text: localeText('profile.completionProfileLoaded'), state: 'complete' },
+        { ...emailState, el: $completionEmailStatus },
+        { ...walletStateResult, el: $completionWalletStatus },
+        { done: true, el: $completionRecoveryStatus, text: localeText('profile.completionRecoveryAvailable'), state: 'complete' },
+    ];
+
+    checks.forEach((check) => setCompletionStatus(check.el, check.text, check.state));
+    const completed = checks.filter((check) => check.done).length;
+    $profileCompletionStatus.textContent = localeText('profile.completionSummary', {
+        completed,
+        total: checks.length,
+    });
+    $profileCompletionStatus.className = completed === checks.length
+        ? 'profile__completion-status profile__completion-status--complete'
+        : 'profile__completion-status';
+}
+
+function renderWalletTrustStatus(state = walletViewState) {
+    if (!$walletTrustStatus) return;
+
+    if (!state || !state.authReady || state.identityStatus === 'loading') {
+        $walletTrustStatus.textContent = localeText('profile.walletTrustLoading');
+        $walletTrustStatus.className = 'profile__wallet-trust-status';
+        return;
+    }
+
+    if (state.identityStatus === 'error') {
+        $walletTrustStatus.textContent = localeText('profile.walletTrustUnavailable');
+        $walletTrustStatus.className = 'profile__wallet-trust-status profile__wallet-trust-status--warning';
+        return;
+    }
+
+    if (state.linkedWallet) {
+        $walletTrustStatus.textContent = localeText('profile.walletTrustLinked');
+        $walletTrustStatus.className = 'profile__wallet-trust-status profile__wallet-trust-status--success';
+        return;
+    }
+
+    if (state.status === 'connected' && state.active?.address) {
+        $walletTrustStatus.textContent = localeText('profile.walletTrustConnectedNotLinked');
+        $walletTrustStatus.className = 'profile__wallet-trust-status profile__wallet-trust-status--warning';
+        return;
+    }
+
+    $walletTrustStatus.textContent = localeText('profile.walletTrustNotLinked');
+    $walletTrustStatus.className = 'profile__wallet-trust-status';
+}
+
 function addressesEqual(left, right) {
     if (!left || !right) return false;
     return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
 }
 
 function renderWalletSection(state = walletViewState) {
+    renderWalletTrustStatus(state);
+    if (profileCompletionContext) {
+        renderProfileCompletion(profileCompletionContext.profile, profileCompletionContext.account, state);
+    }
     if (!$walletSectionRows || !$walletSectionActions || !$walletSectionCopy || !state) return;
 
     const linkedWallet = state.linkedWallet || null;
@@ -800,6 +958,7 @@ function showState(el) {
 
 /* ── Render profile data ── */
 function renderProfile(profile, account) {
+    profileCompletionContext = { profile, account };
     if ($walletCard) {
         $walletCard.hidden = false;
     }
@@ -847,10 +1006,13 @@ function renderProfile(profile, account) {
     $summarySince.textContent = formatDate(account.created_at);
 
     // Form fields
-    $displayName.value = profile.display_name;
-    $bio.value = profile.bio;
-    $website.value = profile.website;
+    $displayName.value = profile.display_name || '';
+    $bio.value = profile.bio || '';
+    $website.value = profile.website || '';
+    savedProfileFields = normalizeProfileFields(profile);
+    updateEditState('loaded');
 
+    renderProfileCompletion(profile, account);
     renderWalletSection();
 }
 
@@ -1652,28 +1814,44 @@ async function init() {
     $form.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideMsg();
+        if ($profileSaveRecovery) $profileSaveRecovery.hidden = true;
 
         $submitBtn.disabled = true;
         $submitBtn.textContent = localeText('profile.saving');
+        updateEditState('saving');
 
-        const result = await apiUpdateProfile({
-            display_name: $displayName.value,
-            bio: $bio.value,
-            website: $website.value,
-        });
+        const currentFields = getCurrentProfileFields();
+        const result = await apiUpdateProfile(currentFields);
 
         $submitBtn.disabled = false;
         $submitBtn.textContent = localeText('profile.saveChanges');
 
         if (result.ok) {
             patchAuthUser({
-                display_name: $displayName.value.trim(),
+                display_name: currentFields.display_name,
             });
             showMsg(localeText('profile.profileUpdated'), 'success');
-            $summaryName.textContent = $displayName.value.trim() || '\u2014';
+            savedProfileFields = { ...currentFields };
+            updateEditState('saved');
+            $summaryName.textContent = currentFields.display_name || '\u2014';
+            if (profileCompletionContext) {
+                profileCompletionContext.profile = {
+                    ...profileCompletionContext.profile,
+                    display_name: currentFields.display_name,
+                    bio: currentFields.bio,
+                    website: currentFields.website,
+                };
+                renderProfileCompletion(profileCompletionContext.profile, profileCompletionContext.account);
+            }
         } else {
-            showMsg(result.error, 'error');
+            showMsg(localeText('profile.profileSaveFailed'), 'error');
+            updateEditState('error');
+            if ($profileSaveRecovery) $profileSaveRecovery.hidden = false;
         }
+    });
+
+    [$displayName, $bio, $website].forEach((field) => {
+        field?.addEventListener('input', () => updateEditState());
     });
 
     // Logout button

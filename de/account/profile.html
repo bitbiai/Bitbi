@@ -287,6 +287,56 @@
                     </div>
                 </div>
 
+                <section class="profile__card profile__completion-card reveal" id="profileCompletionCard" aria-labelledby="profileCompletionTitle">
+                    <div class="profile__completion-head">
+                        <p class="profile__control-eyebrow">Kontovervollständigung</p>
+                        <h2 id="profileCompletionTitle" class="profile__title">Profilqualität</h2>
+                        <p class="profile__completion-copy">Diese Checkliste nutzt nur Kontodaten, die bereits im Browser geladen sind. Unbekannte oder fehlende Punkte bleiben konservativ, bis das Backend sie bestätigt.</p>
+                    </div>
+                    <div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>
+                    <div class="profile__completion-list" role="list" aria-label="Checkliste zur Profilvervollständigung">
+                        <div class="profile__completion-item" role="listitem">
+                            <span class="profile__completion-label">Angemeldet</span>
+                            <strong id="completionSignedInStatus">Wird geprüft...</strong>
+                            <span>Ihr Profil ist erst verfügbar, wenn die Kontositzung akzeptiert wurde.</span>
+                        </div>
+                        <div class="profile__completion-item" role="listitem">
+                            <span class="profile__completion-label">Profil geladen</span>
+                            <strong id="completionProfileLoadedStatus">Wird geprüft...</strong>
+                            <span>Anzeigename, Bio, Website und Avatar werden hier bearbeitet.</span>
+                        </div>
+                        <div class="profile__completion-item" role="listitem">
+                            <span class="profile__completion-label">E-Mail-Status</span>
+                            <strong id="completionEmailStatus">Wird geprüft...</strong>
+                            <span>Die E-Mail-Bestätigung kommt aus dem Backend-Kontodatensatz.</span>
+                        </div>
+                        <div class="profile__completion-item" role="listitem">
+                            <span class="profile__completion-label">Wallet-Link</span>
+                            <strong id="completionWalletStatus">Wallet-Status wird geladen...</strong>
+                            <span>Wallet-Verknüpfung ist optional und erfordert niemals private Schlüssel.</span>
+                        </div>
+                        <div class="profile__completion-item" role="listitem">
+                            <span class="profile__completion-label">Wiederherstellungswege</span>
+                            <strong id="completionRecoveryStatus">Verfügbar</strong>
+                            <span>Passwort-Reset und E-Mail-Bestätigung bleiben über das Profil erreichbar.</span>
+                        </div>
+                    </div>
+                    <div class="profile__completion-actions" aria-label="Aktionen zur Profilvervollständigung">
+                        <a href="#profileForm" class="profile__control-link profile__control-link--primary">
+                            <span class="profile__control-link-label">Profilfelder bearbeiten</span>
+                            <span class="profile__control-link-copy">Anzeigename, öffentliche Bio, Website und Avatar aktualisieren.</span>
+                        </a>
+                        <button type="button" class="profile__control-link profile__control-link--button" data-open-wallet-workspace="completion">
+                            <span class="profile__control-link-label">Wallet-Link prüfen</span>
+                            <span class="profile__control-link-copy">Wallet-Arbeitsbereich öffnen, ohne Backend-Wallet-Regeln zu ändern.</span>
+                        </button>
+                        <a href="/de/account/forgot-password.html" class="profile__control-link">
+                            <span class="profile__control-link-label">Wiederherstellung</span>
+                            <span class="profile__control-link-copy">Passwort-Reset anfordern, wenn der Kontozugriff repariert werden muss.</span>
+                        </a>
+                    </div>
+                </section>
+
                 <section class="profile__card profile__security-card reveal" id="profileSecurityCard" aria-labelledby="profileSecurityTitle">
                     <div class="profile__security-head">
                         <p class="profile__control-eyebrow">Kontovertrauen</p>
@@ -340,28 +390,44 @@
                     <div id="walletSectionMsg" class="profile__msg" role="status"></div>
                     <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
                     <div id="walletSectionActions" class="profile__wallet-actions"></div>
+                    <div class="profile__wallet-trust" aria-labelledby="walletTrustTitle">
+                        <h3 id="walletTrustTitle">Hinweise zum Wallet-Vertrauen</h3>
+                        <ul>
+                            <li>Wallet-Verknüpfung ist ein Konto-Anmelde- und Identitätshinweis, keine Wallet-Verwahrung.</li>
+                            <li>BITBI fragt niemals nach Seed-Phrasen oder privaten Schlüsseln.</li>
+                            <li>Trennen entfernt die BITBI-Konto-Verknüpfung; Assets in Ihrer Wallet bleiben unberührt.</li>
+                        </ul>
+                        <p id="walletTrustStatus" class="profile__wallet-trust-status" role="status" aria-live="polite">Wallet-Vertrauensstatus lädt nach dem Wallet-Status.</p>
+                    </div>
                 </div>
 
                 <!-- Profil bearbeiten Card -->
-                <div class="profile__card reveal">
-                    <h2 class="profile__title">Profil bearbeiten</h2>
+                <div class="profile__card profile__edit-card reveal">
+                    <div class="profile__edit-head">
+                        <p class="profile__control-eyebrow">Profileinstellungen</p>
+                        <h2 class="profile__title">Profil bearbeiten</h2>
+                        <p id="profileEditIntro" class="profile__edit-copy">Anzeigename, Bio, Website und Avatar sind bearbeitbar. E-Mail, Bestätigung und Wallet-Status werden über Kontosicherheit und Wallet-Steuerung verwaltet.</p>
+                    </div>
 
+                    <div id="profileEditState" class="profile__edit-state" role="status" aria-live="polite">Profilfelder werden aus Ihrem Konto geladen.</div>
                     <div id="formMsg" class="profile__msg" role="status"></div>
+                    <p id="profileSaveRecovery" class="profile__save-recovery" hidden>Speichern fehlgeschlagen. Ihre eingegebenen Werte bleiben im Formular; prüfen Sie die Verbindung oder melden Sie sich erneut an und versuchen Sie es noch einmal.</p>
 
-                    <form id="profileForm" class="profile__form">
+                    <form id="profileForm" class="profile__form" aria-describedby="profileEditIntro profileEditState">
                         <div>
                             <label for="displayName" class="profile__form-label">Anzeigename</label>
-                            <input type="text" id="displayName" class="profile__input" placeholder="Ihr Anzeigename" maxlength="50" autocomplete="name">
-                            <p class="profile__hint">Max. 50 Zeichen</p>
+                            <input type="text" id="displayName" class="profile__input" placeholder="Ihr Anzeigename" maxlength="50" autocomplete="name" aria-describedby="displayNameHelp">
+                            <p id="displayNameHelp" class="profile__hint">Max. 50 Zeichen. Dieser Name erscheint in Ihrer Mitgliedernavigation.</p>
                         </div>
                         <div>
                             <label for="bio" class="profile__form-label">Bio</label>
-                            <textarea id="bio" class="profile__textarea" placeholder="Erzählen Sie etwas über sich..." maxlength="300"></textarea>
-                            <p class="profile__hint">Max. 300 Zeichen</p>
+                            <textarea id="bio" class="profile__textarea" placeholder="Erzählen Sie etwas über sich..." maxlength="300" aria-describedby="bioHelp"></textarea>
+                            <p id="bioHelp" class="profile__hint">Max. 300 Zeichen. Halten Sie den Text öffentlich geeignet.</p>
                         </div>
                         <div>
                             <label for="website" class="profile__form-label">Website</label>
-                            <input type="url" id="website" class="profile__input" placeholder="https://your-website.com" maxlength="300" autocomplete="url" spellcheck="false">
+                            <input type="url" id="website" class="profile__input" placeholder="https://your-website.com" maxlength="300" autocomplete="url" spellcheck="false" aria-describedby="websiteHelp">
+                            <p id="websiteHelp" class="profile__hint">Nutzen Sie eine öffentliche https-URL, die Sie mit diesem Profil verbinden möchten.</p>
                         </div>
                         <button type="submit" id="submitBtn" class="profile__submit">Änderungen speichern</button>
                     </form>

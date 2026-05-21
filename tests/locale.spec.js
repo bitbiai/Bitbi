@@ -207,6 +207,16 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="securityEmailStatus"');
     expect(enProfile).toContain('id="securityReverifyBtn"');
     expect(enProfile).toContain('href="/account/forgot-password.html"');
+    expect(enProfile).toContain('id="profileCompletionCard"');
+    expect(enProfile).toContain('Account completion');
+    expect(enProfile).toContain('Profile quality');
+    expect(enProfile).toContain('id="completionWalletStatus"');
+    expect(enProfile).toContain('Wallet linking is optional and never requires sharing private keys.');
+    expect(enProfile).toContain('id="walletTrustStatus"');
+    expect(enProfile).toContain('Wallet trust notes');
+    expect(enProfile).toContain('not wallet custody');
+    expect(enProfile).toContain('id="profileEditState"');
+    expect(enProfile).toContain('Display name, bio, website, and avatar are editable.');
     expect(enProfile).toContain('Sign in to open your profile');
     expect(enProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
     expect(enProfile).toContain('href="/account/forgot-password.html"');
@@ -226,6 +236,16 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="securityEmailStatus"');
     expect(deProfile).toContain('id="securityReverifyBtn"');
     expect(deProfile).toContain('href="/de/account/forgot-password.html"');
+    expect(deProfile).toContain('id="profileCompletionCard"');
+    expect(deProfile).toContain('Kontovervollständigung');
+    expect(deProfile).toContain('Profilqualität');
+    expect(deProfile).toContain('id="completionWalletStatus"');
+    expect(deProfile).toContain('Wallet-Verknüpfung ist optional und erfordert niemals private Schlüssel.');
+    expect(deProfile).toContain('id="walletTrustStatus"');
+    expect(deProfile).toContain('Hinweise zum Wallet-Vertrauen');
+    expect(deProfile).toContain('keine Wallet-Verwahrung');
+    expect(deProfile).toContain('id="profileEditState"');
+    expect(deProfile).toContain('Anzeigename, Bio, Website und Avatar sind bearbeitbar.');
     expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
     expect(deProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
     expect(deProfile).toContain('href="/de/account/forgot-password.html"');
@@ -596,6 +616,17 @@ test.describe('Bilingual locale pages', () => {
       'Email verification',
       'Password reset is available',
       'Send verification email',
+      'Account completion',
+      'Profile quality',
+      'Completion loads after your profile data',
+      'Wallet trust notes',
+      'not wallet custody',
+      'seed phrases',
+      'private keys',
+      'Edit profile fields',
+      'Display name, bio, website, and avatar are editable',
+      'Profile fields load from your account',
+      'Your typed values are still in the form',
       'Account recovery is private',
       'Before you change it',
       'Sign in again',
