@@ -92,6 +92,18 @@ Keep these files for context only. Reconcile with the current baseline before re
 | `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` | Superseded historical release-slice checklist; use current main-only release docs and `config/release-compat.json` for release truth. |
 | `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` | Superseded historical release-slice checklist; use current main-only release docs and `config/release-compat.json` for release truth. |
 
+## Cleanup Decision Matrix
+
+This matrix is the conservative cleanup baseline for future documentation work. It is not approval to delete evidence.
+
+| Classification | Current decision | Files |
+| --- | --- | --- |
+| Keep active | Keep concise and aligned to `config/release-compat.json`, `0060_add_app_settings.sql`, and `docs/audits/NEXT_AUDIT_BASELINE.md`. | Files listed in [Active Current Source Of Truth](#active-current-source-of-truth), [Active Domain Docs](#active-domain-docs), and [Active Runbooks And Policies](#active-runbooks-and-policies). |
+| Keep frozen historical | Preserve as evidence/background. Do not modernize old migration numbers or old phase labels. | `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and dated tenant evidence. |
+| Superseded/stale context | Keep unless a future operator-approved cleanup proves no unique evidence would be lost. Treat as context, not active backlog or release truth. | The eight files listed in [Superseded Or Stale Context](#superseded-or-stale-context). |
+| Archive candidate | None approved in this baseline. Existing superseded/stale files may become archive candidates only after link/reference review and evidence-preservation proof. | None. |
+| Deletion candidate | None. No current Markdown file is approved for deletion because stale docs and archives contain historical context, manual evidence, cleanup manifests, or release/process lineage. | None. |
+
 ## Documentation Rules
 
 - Current docs explain current state, blockers, migration/deploy prerequisites, and next actions.

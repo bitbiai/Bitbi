@@ -29,14 +29,67 @@ function writeFile(repo, relativePath, text) {
 
 {
   const repo = makeRepo();
-  writeFile(repo, "README.md", `Current release truth: latest auth D1 migration is ${latest}.\n`);
+  writeFile(repo, "README.md", `Current release truth: latest auth D1 migration is ${latest}.\nStart at docs/audits/NEXT_AUDIT_BASELINE.md.\n`);
   writeFile(repo, "docs/audits/NEXT_AUDIT_BASELINE.md", `Latest auth D1 migration: \`${latest}\`\n`);
-  writeFile(repo, "CURRENT_IMPLEMENTATION_HANDOFF.md", `Latest auth D1 migration: \`${latest}\`\n`);
+  writeFile(repo, "CURRENT_IMPLEMENTATION_HANDOFF.md", `Latest auth D1 migration: \`${latest}\`\nActive baseline: docs/audits/NEXT_AUDIT_BASELINE.md\n`);
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md", "docs/audits/NEXT_AUDIT_BASELINE.md", "CURRENT_IMPLEMENTATION_HANDOFF.md"],
   });
   assert.deepEqual(result.violations, []);
   assert.equal(result.categoryCounts.active_current, 3);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\nProduction readiness remains BLOCKED.\nStart at docs/audits/NEXT_AUDIT_BASELINE.md.\n`);
+  writeFile(repo, "docs/audits/NEXT_AUDIT_BASELINE.md", `Latest auth D1 migration: ${latest}\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "docs/audits/NEXT_AUDIT_BASELINE.md"],
+  });
+  assert.deepEqual(result.violations, []);
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/audits/NEXT_AUDIT_BASELINE.md", `Latest auth D1 migration: ${latest}\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "docs/audits/NEXT_AUDIT_BASELINE.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "missing-active-baseline-reference"
+    && violation.file === "README.md"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", [
+    `Current release truth: ${latest}`,
+    "Start at docs/audits/NEXT_AUDIT_BASELINE.md.",
+    "Production readiness: READY",
+    "",
+  ].join("\n"));
+  writeFile(repo, "docs/audits/NEXT_AUDIT_BASELINE.md", `Latest auth D1 migration: ${latest}\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "docs/audits/NEXT_AUDIT_BASELINE.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "blocked-claim-overclaim"
+    && violation.rule === "production-readiness-overclaim"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", [
+    `Current release truth: ${latest}`,
+    "Start at docs/audits/NEXT_AUDIT_BASELINE.md.",
+    "Tenant isolation verified.",
+    "",
+  ].join("\n"));
+  writeFile(repo, "docs/audits/NEXT_AUDIT_BASELINE.md", `Latest auth D1 migration: ${latest}\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md", "docs/audits/NEXT_AUDIT_BASELINE.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "blocked-claim-overclaim"
+    && violation.rule === "tenant-isolation-overclaim"));
 }
 
 {

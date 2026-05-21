@@ -93,8 +93,17 @@ function isCiEvent(eventName) {
   return eventName === "push" || eventName === "workflow_dispatch";
 }
 
+function isGitHubActionsRuntime() {
+  return process.env.GITHUB_ACTIONS === "true";
+}
+
 function hasExplicitFileList(options) {
   return Array.isArray(options.releaseOptions.files) && options.releaseOptions.files.length > 0;
+}
+
+function hasAnyRangeRef(options) {
+  return Boolean(String(options.releaseOptions.base || "").trim())
+    || Boolean(String(options.releaseOptions.head || "").trim());
 }
 
 function verifyCommitRef(ref) {
@@ -110,6 +119,7 @@ function verifyMergeBase(baseRef, headRef) {
 
 function getTrustedRangeIssue(options) {
   if (options.planJson || hasExplicitFileList(options) || !isCiEvent(options.eventName)) return null;
+  if (!isGitHubActionsRuntime() && !hasAnyRangeRef(options)) return null;
 
   const baseRef = String(options.releaseOptions.base || "").trim();
   const headRef = String(options.releaseOptions.head || "").trim();

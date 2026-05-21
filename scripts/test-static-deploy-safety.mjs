@@ -13,6 +13,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const GUARD_ENV_KEYS = Object.freeze([
+  "GITHUB_ACTIONS",
   "GITHUB_EVENT_NAME",
   "BITBI_STATIC_DEPLOY_GUARD_EVENT_NAME",
   "BITBI_STATIC_DEPLOY_GUARD_BASE_REF",
@@ -196,6 +197,25 @@ function writeJsonFixture(name, value) {
   assert.notEqual(result.status, 0);
   assert(result.stdout.includes("Missing or zero release-plan base ref"));
   assert(result.stdout.includes("Static Pages deploy blocked"));
+}
+
+{
+  const result = guard(["--event-name", "push"], {
+    env: {
+      GITHUB_ACTIONS: "true",
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert(result.stdout.includes("Missing or zero release-plan base ref"));
+  assert(result.stdout.includes("Static Pages deploy blocked"));
+}
+
+{
+  const result = guard(["--event-name", "push"]);
+  assert.equal(result.status, 0);
+  assert(result.stdout.includes("- Event: push"));
+  assert(result.stdout.includes("- Plan source: git-status"));
+  assert(result.stdout.includes("- Status: allowed"));
 }
 
 {

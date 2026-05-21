@@ -33,6 +33,54 @@ export const CURRENT_DOC_PHASE_MENTION_LIMITS = Object.freeze({
   "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md": 0,
 });
 
+const ACTIVE_BASELINE_REFERENCE_PATH = "docs/audits/NEXT_AUDIT_BASELINE.md";
+
+const ACTIVE_BASELINE_REFERENCE_DOCS = new Set([
+  "README.md",
+  "CURRENT_IMPLEMENTATION_HANDOFF.md",
+  "docs/audits/ALPHA_AUDIT_CURRENT_SUMMARY.md",
+  "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md",
+  "DATA_INVENTORY.md",
+  "docs/DATA_RETENTION_POLICY.md",
+  "docs/privacy-data-flow-audit.md",
+  "docs/audits/README.md",
+  "docs/production-readiness/README.md",
+]);
+
+const BLOCKED_CLAIM_SAFE_QUALIFIER_REGEX =
+  /\b(?:not|no|blocked|unclaimed|without|unless|pending|requires?|must not|do not|does not|cannot|never|incomplete)\b/i;
+
+const BLOCKED_CLAIM_OVERCLAIM_PATTERNS = Object.freeze([
+  {
+    id: "production-readiness-overclaim",
+    regex: /\bproduction readiness\b[^.\n]{0,100}\b(?:ready|approved|complete|completed|verified|confirmed|unblocked|green)\b/i,
+  },
+  {
+    id: "live-billing-readiness-overclaim",
+    regex: /\blive billing readiness\b[^.\n]{0,100}\b(?:ready|approved|complete|completed|verified|confirmed|unblocked|green)\b/i,
+  },
+  {
+    id: "tenant-isolation-overclaim",
+    regex: /\btenant isolation\b[^.\n]{0,100}\b(?:claimed|ready|approved|complete|completed|verified|confirmed|enforced|unblocked|green)\b/i,
+  },
+  {
+    id: "access-switch-readiness-overclaim",
+    regex: /\baccess-?switch(?:\s+enforced\s+mode|\s+readiness)?\b[^.\n]{0,100}\b(?:ready|approved|complete|completed|verified|confirmed|enabled|enforced|unblocked|green)\b/i,
+  },
+  {
+    id: "ownership-backfill-readiness-overclaim",
+    regex: /\bownership backfill(?:\s+readiness)?\b[^.\n]{0,100}\b(?:ready|approved|complete|completed|verified|confirmed|unblocked|green)\b/i,
+  },
+  {
+    id: "confirmed-reset-readiness-overclaim",
+    regex: /\b(?:confirmed\s+)?(?:legacy\s+media\s+)?reset(?:\s+readiness)?\b[^.\n]{0,100}\b(?:ready|approved|complete|completed|verified|confirmed|enabled|unblocked|green)\b/i,
+  },
+  {
+    id: "deployment-completion-overclaim",
+    regex: /\b(?:deploy(?:ment)?|remote migrations?)\b[^.\n]{0,100}\b(?:approved|complete|completed|verified|done|green)\b/i,
+  },
+]);
+
 const MARKDOWN_SCAN_IGNORES = Object.freeze([
   "playwright-report/",
   "test-results/",
@@ -295,6 +343,24 @@ function scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violati
   });
 }
 
+function scanBlockedClaimOverclaims(relativePath, text, violations) {
+  const lines = String(text || "").split(/\r?\n/);
+  lines.forEach((line, index) => {
+    if (BLOCKED_CLAIM_SAFE_QUALIFIER_REGEX.test(line)) return;
+    for (const pattern of BLOCKED_CLAIM_OVERCLAIM_PATTERNS) {
+      if (!pattern.regex.test(line)) continue;
+      violations.push({
+        type: "blocked-claim-overclaim",
+        file: relativePath,
+        line: index + 1,
+        rule: pattern.id,
+        message: "Active current-state docs must not claim readiness/deploy completion for blocked claims without live/operator evidence.",
+        excerpt: safeExcerpt(line),
+      });
+    }
+  });
+}
+
 function scanActiveGuidanceDocs(repoRoot, violations, scannedDocs) {
   for (const rule of ACTIVE_GUIDANCE_DOC_RULES) {
     const relativePath = normalizePathname(rule.file);
@@ -337,6 +403,8 @@ export function scanDocCurrentness(repoRoot, options = {}) {
   const requireLatest = options.requireLatest !== false;
   const enforceLineLimits = options.enforceLineLimits !== false;
   const checkMarkdownInventory = options.checkMarkdownInventory !== false;
+  const enforceBaselineReferences = options.enforceBaselineReferences !== false
+    && fs.existsSync(path.join(repoRoot, ACTIVE_BASELINE_REFERENCE_PATH));
   const violations = [];
   const scannedDocs = [];
   const staleMigrationClaimScanPaths = new Set();
@@ -392,7 +460,22 @@ export function scanDocCurrentness(repoRoot, options = {}) {
       });
     }
 
+    if (
+      enforceBaselineReferences
+      && ACTIVE_BASELINE_REFERENCE_DOCS.has(relativePath)
+      && !text.includes(ACTIVE_BASELINE_REFERENCE_PATH)
+    ) {
+      violations.push({
+        type: "missing-active-baseline-reference",
+        file: relativePath,
+        line: null,
+        rule: "current-doc-points-to-active-baseline",
+        message: `Active current-state doc must point future audit work to ${ACTIVE_BASELINE_REFERENCE_PATH}.`,
+      });
+    }
+
     scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violations);
+    scanBlockedClaimOverclaims(relativePath, text, violations);
     staleMigrationClaimScanPaths.add(relativePath);
   }
 
