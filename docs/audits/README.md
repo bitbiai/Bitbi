@@ -62,6 +62,7 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 | `docs/runbooks/*.md`, `docs/ops/*.md` | Incident/operator runbooks. |
 | `docs/BACKUP_RESTORE_DRILL.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/SLO_ALERT_BASELINE.md` | Operational readiness baselines. |
 | `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`, `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` | Current release/evidence checklist and runbook. |
+| `docs/production-readiness/evidence/operator-live-evidence-*/` | Operator-owned live evidence package templates; commit templates only, not raw live evidence. |
 | `docs/ai-image-derivatives-runbook.md` | AI derivative operational runbook. |
 
 ## Historical / Frozen Evidence

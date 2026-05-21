@@ -218,6 +218,24 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(
+    repo,
+    "docs/production-readiness/evidence/operator-live-evidence-2026-05-21/README.md",
+    `Operator evidence package template. Latest auth D1 migration is ${latest}. Production readiness remains BLOCKED.\n`
+  );
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(
+    result.markdownInventory.find((entry) => entry.path === "docs/production-readiness/evidence/operator-live-evidence-2026-05-21/README.md")?.category,
+    "active_runbook_policy"
+  );
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md", "Latest auth D1 migration at that historical phase: `0059_add_data_lifecycle_completion_state.sql`\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],

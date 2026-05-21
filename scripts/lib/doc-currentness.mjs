@@ -257,6 +257,11 @@ function isRootRetiredAuditDocPath(relativePath) {
     || /^ALPHA_AUDIT_.*\.md$/.test(normalized);
 }
 
+function isOperatorLiveEvidencePackagePath(relativePath) {
+  const normalized = normalizePathname(relativePath);
+  return /^docs\/production-readiness\/evidence\/operator-live-evidence-\d{4}-\d{2}-\d{2}\/.+\.md$/.test(normalized);
+}
+
 function walkMarkdownFiles(root, dir = root, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const absolutePath = path.join(dir, entry.name);
@@ -279,6 +284,7 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (isIgnoredMarkdownPath(normalized)) return "ignored";
   if (currentDocs.has(normalized)) return "active_current";
   if (ACTIVE_RUNBOOK_POLICY_DOCS.has(normalized)) return "active_runbook_policy";
+  if (isOperatorLiveEvidencePackagePath(normalized)) return "active_runbook_policy";
   if (normalized.startsWith(".agents/skills/") && normalized.endsWith("/SKILL.md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/runbooks/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/ops/") && normalized.endsWith(".md")) return "active_runbook_policy";

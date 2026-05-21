@@ -48,6 +48,7 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Production readiness dossier from `npm run readiness:dossier` or `npm run readiness:dossier:markdown`; this is a local evidence packet and keeps production readiness blocked by default.
 - Cloudflare resource prerequisite model from `npm run cloudflare:resource-model` or `npm run cloudflare:resource-model:markdown`; repo-declared resources are not live Cloudflare proof.
 - Rollback drill artifact from `npm run release:rollback-drill`; this records placeholders and smoke checks only and does not execute rollback.
+- Operator-owned live evidence package templates under `docs/production-readiness/evidence/operator-live-evidence-*/`; these are redaction-first templates only and must not contain raw live secrets, cookies, Stripe signatures, raw idempotency keys, private object keys, or private media URLs.
 - Release/preflight output.
 - Applied migration evidence.
 - Worker deploy evidence for affected workers.
