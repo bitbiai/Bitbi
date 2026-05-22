@@ -1779,6 +1779,9 @@ test.describe('Homepage', () => {
     await banner.click();
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
     await expect(page.locator('.auth-modal__tab.active')).toHaveText('Create Account');
+    await expect(page.locator('#authContextPanel')).toBeVisible();
+    await expect(page.locator('#authContextTitle')).toHaveText('Create with an account, browse publicly');
+    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=auth-modal-public');
     await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
   });
 
@@ -1817,6 +1820,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
     await expect(page.locator('.auth-modal__tab[data-tab="login"]')).toHaveClass(/active/);
     await expect(page.locator('#authLoginMsg')).toHaveText('Sign in or create a BITBI account before generating, saving, buying credits, or recovering workspace access.');
+    await expect(page.locator('#authContextTitle')).toHaveText('Create with an account, browse publicly');
+    await expect(page.locator('#authContextCopy')).toContainText('Generation, saving, credits, and workspace recovery');
   });
 
   test('hero section renders', async ({ page }) => {
@@ -1998,6 +2003,10 @@ test.describe('Homepage', () => {
     await expect(page.locator('#authLoginMsg')).toContainText(
       'Create or sign in to a BITBI account before generating, saving, or loading recent assets.',
     );
+    await expect(page.locator('#authContextPanel')).toBeVisible();
+    await expect(page.locator('#authContextTitle')).toHaveText('Generate and save with your account');
+    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=auth-modal');
+    await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/account/forgot-password.html?source=auth-modal');
   });
 
   test('Generate Lab renders the desktop member workspace with supported models', async ({ page }) => {

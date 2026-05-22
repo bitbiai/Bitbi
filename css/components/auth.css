@@ -418,6 +418,109 @@
         color: rgba(170, 245, 255, 0.9);
     }
 
+    .auth-modal__context {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        margin-block: calc(var(--space-2) * -1) var(--space-5);
+        padding: var(--space-4);
+        border: 1px solid rgba(0, 240, 255, 0.16);
+        border-radius: var(--radius-lg);
+        background: rgba(0, 240, 255, 0.05);
+    }
+
+    .auth-modal__context[hidden] {
+        display: none;
+    }
+
+    .auth-modal__context-eyebrow,
+    .auth-modal__context-title,
+    .auth-modal__context-copy {
+        margin: 0;
+    }
+
+    .auth-modal__context-eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        color: rgba(0, 240, 255, 0.72);
+    }
+
+    .auth-modal__context-title {
+        font-family: var(--font-display);
+        font-size: clamp(1rem, 3vw, 1.15rem);
+        font-weight: 700;
+        line-height: 1.25;
+        color: rgba(255, 255, 255, 0.94);
+    }
+
+    .auth-modal__context-copy {
+        font-family: var(--font-body);
+        font-size: 0.82rem;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.68);
+    }
+
+    .auth-modal__context-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+    }
+
+    .auth-modal__context-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-block-size: 2.35rem;
+        padding: 0.58rem 0.78rem;
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.82);
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 700;
+        line-height: 1.25;
+        text-align: center;
+        text-decoration: none;
+        transition:
+            border-color 0.22s var(--ease-default),
+            background-color 0.22s var(--ease-default),
+            color 0.22s var(--ease-default),
+            transform 0.22s var(--ease-default);
+    }
+
+    .auth-modal__context-link--primary {
+        border-color: rgba(0, 240, 255, 0.24);
+        background: rgba(0, 240, 255, 0.1);
+        color: rgba(210, 252, 255, 0.96);
+    }
+
+    .auth-modal__context-link:hover,
+    .auth-modal__context-link:focus-visible {
+        color: var(--color-white);
+        border-color: rgba(0, 240, 255, 0.36);
+        background: rgba(0, 240, 255, 0.12);
+        outline: none;
+        transform: translateY(-1px);
+    }
+
+    @media (max-width: 480px) {
+        .auth-modal__context {
+            padding: var(--space-3);
+        }
+
+        .auth-modal__context-actions {
+            flex-direction: column;
+        }
+
+        .auth-modal__context-link {
+            inline-size: 100%;
+        }
+    }
+
     .auth-modal__hint {
         font-size: 0.7rem;
         color: rgba(255, 255, 255, 0.25);

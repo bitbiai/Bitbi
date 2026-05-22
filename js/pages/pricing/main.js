@@ -501,6 +501,7 @@ function createPackCard(pack, auth) {
                 message: t('loggedOutMessage'),
                 messageType: 'info',
                 target: 'register',
+                contextKey: 'authRecovery.pricingMessage',
             });
             return;
         }
@@ -573,6 +574,7 @@ function createSubscriptionCard(auth) {
                 message: t('loggedOutMessage'),
                 messageType: 'info',
                 target: 'register',
+                contextKey: 'authRecovery.pricingMessage',
             });
             return;
         }
@@ -906,6 +908,7 @@ function createAccountEntrySection(auth) {
             message: t('accountEntryAuthMessage'),
             messageType: 'info',
             target: 'login',
+            contextKey: 'authRecovery.pricingMessage',
         }));
 
         const register = document.createElement('button');
@@ -917,6 +920,7 @@ function createAccountEntrySection(auth) {
             message: t('accountEntryAuthMessage'),
             messageType: 'info',
             target: 'register',
+            contextKey: 'authRecovery.pricingMessage',
         }));
 
         const reset = document.createElement('a');
@@ -1060,6 +1064,7 @@ async function handleCheckout(auth) {
             message: t('loginFirst'),
             messageType: 'info',
             target: 'register',
+            contextKey: 'authRecovery.pricingMessage',
         });
         return;
     }

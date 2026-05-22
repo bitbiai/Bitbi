@@ -227,7 +227,7 @@ function initMobileGuestBanner() {
         cta.append(eyebrow, title, hint);
         cta.addEventListener('click', () => {
             if (desktopQuery.matches) {
-                openAuthModal('register');
+                openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
                 return;
             }
             menuBtn.click();
@@ -426,7 +426,7 @@ try {
                     const { loggedIn } = getAuthState();
                     if (!loggedIn) {
                         pendingCreate = true;
-                        openAuthModal('register');
+                        openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
                         return;
                     }
                 }
@@ -501,7 +501,7 @@ try {
                     const { loggedIn } = getAuthState();
                     if (!loggedIn) {
                         pendingCreate = true;
-                        openAuthModal('register');
+                        openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
                         return;
                     }
                 }
@@ -565,7 +565,7 @@ try {
                     const { loggedIn } = getAuthState();
                     if (!loggedIn) {
                         pendingCreate = true;
-                        openAuthModal('register');
+                        openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
                         return;
                     }
                 }

@@ -79,7 +79,7 @@ export function createStarButton(type, id, meta) {
 
         const { loggedIn } = getAuthState();
         if (!loggedIn) {
-            openAuthModal('register');
+            openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
             return;
         }
 

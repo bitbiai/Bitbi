@@ -12,10 +12,56 @@ import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
 
 let overlay = null;
 let formsContainer = null;
+let contextPanel = null;
+let contextEyebrow = null;
+let contextTitle = null;
+let contextCopy = null;
+let contextPrimary = null;
+let contextReset = null;
+let contextVerify = null;
 let focusTrapCleanup = null;
 let formsInjected = false;
 
 const LOCK_SVG = `<svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:rgba(0,240,255,0.5);margin-bottom:8px"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
+
+const AUTH_CONTEXTS = Object.freeze({
+    'authRecovery.publicMessage': Object.freeze({
+        title: 'authRecovery.publicTitle',
+        copy: 'authRecovery.publicCopy',
+        primaryLabel: 'authRecovery.contextGenerate',
+        primaryHref: () => `${localizedHref('/generate-lab/')}?source=auth-modal-public`,
+    }),
+    'authRecovery.pricingMessage': Object.freeze({
+        title: 'authRecovery.pricingTitle',
+        copy: 'authRecovery.pricingCopy',
+        primaryLabel: 'authRecovery.contextPricing',
+        primaryHref: () => `${localizedHref('/pricing.html')}#pricingAccountEntry`,
+    }),
+    'authRecovery.generateMessage': Object.freeze({
+        title: 'authRecovery.generateTitle',
+        copy: 'authRecovery.generateCopy',
+        primaryLabel: 'authRecovery.contextGenerate',
+        primaryHref: () => `${localizedHref('/generate-lab/')}?source=auth-modal`,
+    }),
+    'authRecovery.creditsMessage': Object.freeze({
+        title: 'authRecovery.creditsTitle',
+        copy: 'authRecovery.creditsCopy',
+        primaryLabel: 'authRecovery.contextCredits',
+        primaryHref: () => `${localizedHref('/account/credits.html')}?scope=member&source=auth-modal`,
+    }),
+    'authRecovery.assetsMessage': Object.freeze({
+        title: 'authRecovery.assetsTitle',
+        copy: 'authRecovery.assetsCopy',
+        primaryLabel: 'authRecovery.contextAssets',
+        primaryHref: () => `${localizedHref('/account/assets-manager.html')}?source=auth-modal&recent=1#generate-lab-recent`,
+    }),
+    'authRecovery.profileMessage': Object.freeze({
+        title: 'authRecovery.profileTitle',
+        copy: 'authRecovery.profileCopy',
+        primaryLabel: 'authRecovery.contextProfile',
+        primaryHref: () => `${localizedHref('/account/profile.html')}?returnContext=auth-modal#profileSecurityCard`,
+    }),
+});
 
 export function initAuthModal() {
     const container = document.getElementById('authModal');
@@ -36,6 +82,16 @@ export function initAuthModal() {
                     <button type="button" class="auth-modal__tab active" data-tab="login">${localeText('auth.signIn')}</button>
                     <button type="button" class="auth-modal__tab" data-tab="register">${localeText('auth.createAccount')}</button>
                 </div>
+                <div id="authContextPanel" class="auth-modal__context" role="note" hidden>
+                    <p id="authContextEyebrow" class="auth-modal__context-eyebrow"></p>
+                    <h4 id="authContextTitle" class="auth-modal__context-title"></h4>
+                    <p id="authContextCopy" class="auth-modal__context-copy"></p>
+                    <div class="auth-modal__context-actions" aria-label="${localeText('authRecovery.contextActions')}">
+                        <a id="authContextPrimary" class="auth-modal__context-link auth-modal__context-link--primary" href="#"></a>
+                        <a id="authContextReset" class="auth-modal__context-link" href="${localizedHref('/account/forgot-password.html')}?source=auth-modal">${localeText('authRecovery.contextReset')}</a>
+                        <a id="authContextVerify" class="auth-modal__context-link" href="${localizedHref('/account/profile.html')}?returnContext=verification#profileSecurityCard">${localeText('authRecovery.contextVerify')}</a>
+                    </div>
+                </div>
                 <div id="authFormsContainer"></div>
             </div>
         </div>
@@ -43,6 +99,13 @@ export function initAuthModal() {
 
     overlay = container.querySelector('.auth-modal__overlay');
     formsContainer = document.getElementById('authFormsContainer');
+    contextPanel = document.getElementById('authContextPanel');
+    contextEyebrow = document.getElementById('authContextEyebrow');
+    contextTitle = document.getElementById('authContextTitle');
+    contextCopy = document.getElementById('authContextCopy');
+    contextPrimary = document.getElementById('authContextPrimary');
+    contextReset = document.getElementById('authContextReset');
+    contextVerify = document.getElementById('authContextVerify');
 
     /* Close button */
     container.querySelector('.auth-modal__close').addEventListener('click', closeAuthModal);
@@ -203,6 +266,43 @@ function clearMsg(el) {
     el.className = 'auth-modal__msg';
 }
 
+function clearContextPanel() {
+    if (!contextPanel) return;
+    contextPanel.hidden = true;
+    if (contextEyebrow) contextEyebrow.textContent = '';
+    if (contextTitle) contextTitle.textContent = '';
+    if (contextCopy) contextCopy.textContent = '';
+    if (contextPrimary) {
+        contextPrimary.textContent = '';
+        contextPrimary.href = '#';
+    }
+}
+
+function showContextPanel(contextKey) {
+    if (!contextPanel) return;
+    const context = AUTH_CONTEXTS[contextKey];
+    if (!context) {
+        clearContextPanel();
+        return;
+    }
+    if (contextEyebrow) contextEyebrow.textContent = localeText('authRecovery.contextEyebrow');
+    if (contextTitle) contextTitle.textContent = localeText(context.title);
+    if (contextCopy) contextCopy.textContent = localeText(context.copy);
+    if (contextPrimary) {
+        contextPrimary.textContent = localeText(context.primaryLabel);
+        contextPrimary.href = context.primaryHref();
+    }
+    if (contextReset) {
+        contextReset.href = `${localizedHref('/account/forgot-password.html')}?source=auth-modal`;
+        contextReset.textContent = localeText('authRecovery.contextReset');
+    }
+    if (contextVerify) {
+        contextVerify.href = `${localizedHref('/account/profile.html')}?returnContext=verification#profileSecurityCard`;
+        contextVerify.textContent = localeText('authRecovery.contextVerify');
+    }
+    contextPanel.hidden = false;
+}
+
 export function openAuthModal(tab, options = {}) {
     if (!overlay) return;
 
@@ -225,6 +325,8 @@ export function openAuthModal(tab, options = {}) {
     clearMsg(document.getElementById('authLoginMsg'));
     clearMsg(document.getElementById('authRegisterMsg'));
     const message = typeof options?.message === 'string' ? options.message.trim() : '';
+    const contextKey = typeof options?.contextKey === 'string' ? options.contextKey.trim() : '';
+    showContextPanel(contextKey);
     if (message) {
         const target = options?.target === 'login' ? 'authLoginMsg' : 'authRegisterMsg';
         const type = typeof options?.messageType === 'string' && options.messageType.trim()

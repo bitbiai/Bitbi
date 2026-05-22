@@ -20,6 +20,7 @@ export function initAuthEntryActions(root = document) {
         const target = trigger.dataset.authMessageTarget === 'login' ? 'login' : tab;
         const messageType = trigger.dataset.authMessageType || 'info';
         const message = resolveMessage(trigger.dataset.authMessageKey);
-        openAuthModal(tab, { message, target, messageType });
+        const contextKey = trigger.dataset.authContextKey || trigger.dataset.authMessageKey || '';
+        openAuthModal(tab, { message, target, messageType, contextKey });
     });
 }

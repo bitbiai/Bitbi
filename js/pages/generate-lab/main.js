@@ -413,6 +413,7 @@ function requireMember() {
             message: localeText('authRecovery.generateMessage'),
             target: 'register',
             messageType: 'info',
+            contextKey: 'authRecovery.generateMessage',
         });
     } catch {
         setMessage(localeText('generateLab.pleaseSignIn'), 'error');

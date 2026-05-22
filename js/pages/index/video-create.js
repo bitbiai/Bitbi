@@ -456,7 +456,7 @@ function renderResult(data) {
 async function handleGenerate() {
     const { loggedIn } = getAuthState();
     if (!loggedIn) {
-        openAuthModal('register');
+        openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
         return;
     }
 

@@ -534,6 +534,14 @@ test.describe('Bilingual locale pages', () => {
     expect(localeJs).toContain("costInsightLow: 'Geschätzt {cost}. Prüfen Sie Credits oder wählen Sie ein günstigeres Modell, bevor Sie es erneut versuchen; die Backend-Validierung bleibt final.'");
     expect(localeJs).toContain("returnErrorTitle: 'Checkout needs another try'");
     expect(localeJs).toContain("returnErrorTitle: 'Checkout braucht einen neuen Versuch'");
+    expect(localeJs).toContain("pricingTitle: 'Checkout starts from an account'");
+    expect(localeJs).toContain("pricingTitle: 'Checkout startet aus einem Konto'");
+    expect(localeJs).toContain("generateTitle: 'Generate and save with your account'");
+    expect(localeJs).toContain("generateTitle: 'Mit Ihrem Konto generieren und speichern'");
+    expect(localeJs).toContain("contextReset: 'Reset password'");
+    expect(localeJs).toContain("contextReset: 'Passwort zurücksetzen'");
+    expect(localeJs).toContain("contextVerify: 'Email verification'");
+    expect(localeJs).toContain("contextVerify: 'E-Mail-Bestätigung'");
   });
 
   test('account recovery and verification pages provide localized trust guidance', () => {
