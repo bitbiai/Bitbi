@@ -9850,6 +9850,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioBulkMoveSummary')).toContainText('backend saves the move');
     await page.locator('#studioBulkMoveConfirm').click();
     await expect(page.locator('#studioGalleryMsg')).toContainText('3 assets moved.');
+    await expect(page.locator('#studioActionResult')).toBeVisible();
+    await expect(page.locator('#studioActionResult')).toContainText('Move confirmed');
+    await expect(page.locator('#studioActionResult')).toContainText('Changed your mind? Move assets back from the target folder');
+    await expect(page.locator('#studioActionResult').getByRole('button', { name: 'Open Research' })).toBeVisible();
+    await expect(page.locator('#studioActionResult').getByRole('button', { name: 'Show all assets' })).toBeVisible();
     await expect(page.locator('#studioSelectionGuide')).toBeHidden();
 
     await page.locator('#studioFolderBackBtn').click();
@@ -9864,6 +9869,9 @@ test.describe('Assets Manager (authenticated)', () => {
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#studioBulkDelete').click();
     await expect(page.locator('#studioGalleryMsg')).toContainText('2 assets deleted.');
+    await expect(page.locator('#studioActionResult')).toContainText('Delete confirmed');
+    await expect(page.locator('#studioActionResult')).toContainText('Deleted items cannot be restored from this workspace');
+    await expect(page.locator('#studioActionResult')).not.toContainText('Undo');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
     await expect(page.locator('#studioImageGrid')).toContainText('Shared Poster');
   });
@@ -9918,6 +9926,10 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await expect(page.locator('#studioGalleryMsg')).toContainText('Move could not be saved');
     await expect(page.locator('#studioGalleryMsg')).not.toContainText('raw backend failure');
+    await expect(page.locator('#studioActionResult')).toContainText('Move not saved');
+    await expect(page.locator('#studioActionResult')).toContainText('The selection stayed active');
+    await expect(page.locator('#studioActionResult')).not.toContainText('raw backend failure');
+    await expect(page.locator('#studioActionResult').getByRole('button', { name: 'Continue selection' })).toBeVisible();
     await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
     await expect(page.locator('#studioBulkMoveForm')).toBeVisible();
     await expect(page.locator('#studioSelectionGuideStatus')).toContainText('1 selected');
@@ -10027,6 +10039,8 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioRenameInput').fill('Launch Vault');
     await page.locator('#studioRenameConfirm').click();
     await expect(page.locator('#studioGalleryMsg')).toContainText('Folder renamed.');
+    await expect(page.locator('#studioActionResult')).toContainText('Rename confirmed');
+    await expect(page.locator('#studioActionResult')).toContainText('Rename it again');
     await expect(page.locator('#studioFolderGrid [data-folder-id="folder-launches"] .studio__folder-card-name')).toHaveText('Launch Vault');
 
     await page.locator('#studioBulkCancel').click();
@@ -10043,6 +10057,8 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioRenameInput').fill('Release Notes');
     await page.locator('#studioRenameConfirm').click();
     await expect(page.locator('#studioGalleryMsg')).toContainText('Asset renamed.');
+    await expect(page.locator('#studioActionResult')).toContainText('Rename confirmed');
+    await expect(page.locator('#studioActionResult')).toContainText('no instant undo');
     await expect(page.locator('#studioImageGrid [data-asset-id="txt-rename-1"]')).toContainText('Release Notes');
     await expect(page.locator('#studioImageGrid [data-asset-id="txt-rename-1"] .studio__asset-meta')).toContainText('release-notes.txt');
 

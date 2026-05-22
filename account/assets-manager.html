@@ -367,6 +367,16 @@
                     <button type="button" id="studioBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
                 </div>
 
+                <section id="studioActionResult" class="studio__action-result" aria-live="polite" aria-labelledby="studioActionResultTitle" hidden>
+                    <div class="studio__action-result-copy">
+                        <p class="studio__action-result-eyebrow">Action result</p>
+                        <h4 id="studioActionResultTitle">Latest action</h4>
+                        <p id="studioActionResultCopy">Rename, move, delete, and folder results appear here after backend confirmation.</p>
+                        <p id="studioActionResultMeta" class="studio__action-result-meta"></p>
+                    </div>
+                    <div id="studioActionResultActions" class="studio__action-result-actions" aria-label="Action result recovery actions"></div>
+                </section>
+
                 <div id="studioGalleryMsg" class="studio__msg" role="status"></div>
                 <p id="studioListStatus" class="assets-manager__list-status" role="status" aria-live="polite" hidden></p>
 

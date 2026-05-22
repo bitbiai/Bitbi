@@ -239,6 +239,7 @@ test.describe('Bilingual locale pages', () => {
     const deAssets = repoFile('de/account/assets-manager.html');
     const enGenerate = repoFile('generate-lab/index.html');
     const deGenerate = repoFile('de/generate-lab/index.html');
+    const localeJs = repoFile('js/shared/locale.js');
 
     expect(enProfile).toContain('id="memberControlCenter"');
     expect(enProfile).toContain('Member Control Center');
@@ -360,6 +361,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Folder detail');
     expect(enAssets).toContain('Folder count appears after loading.');
     expect(enAssets).toContain('id="studioBulkMoveSummary"');
+    expect(enAssets).toContain('id="studioActionResult"');
+    expect(enAssets).toContain('Action result');
+    expect(enAssets).toContain('Rename, move, delete, and folder results appear here after backend confirmation.');
     expect(enAssets).toContain('Folder and selection tools stay here on phones.');
     expect(enAssets).toContain('Selection mode active');
     expect(enAssets).toContain('Move selected assets');
@@ -389,6 +393,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Ordnerdetail');
     expect(deAssets).toContain('Die Ordneranzahl erscheint nach dem Laden.');
     expect(deAssets).toContain('id="studioBulkMoveSummary"');
+    expect(deAssets).toContain('id="studioActionResult"');
+    expect(deAssets).toContain('Aktionsergebnis');
+    expect(deAssets).toContain('Ergebnisse von Umbenennen, Verschieben, Löschen und Ordneraktionen erscheinen hier nach Backend-Bestätigung.');
     expect(deAssets).toContain('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
     expect(deAssets).toContain('Auswahlmodus aktiv');
     expect(deAssets).toContain('Ausgewählte Assets verschieben');
@@ -401,6 +408,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Anmelden, um den Assets Manager zu öffnen');
     expect(deAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
     expect(deAssets).toContain('href="/de/account/forgot-password.html"');
+    expect(localeJs).toContain("actionMoveSuccessTitle: 'Move confirmed'");
+    expect(localeJs).toContain("actionMoveSuccessTitle: 'Verschieben bestätigt'");
+    expect(localeJs).toContain("actionDeleteSuccessMeta: 'Deleted items cannot be restored from this workspace.");
+    expect(localeJs).toContain("actionDeleteSuccessMeta: 'Gelöschte Elemente können in diesem Workspace nicht wiederhergestellt werden.");
 
     expect(enGenerate).toContain('generate-lab__member-nav');
     expect(enGenerate).toContain('id="generateWorkspacePriority"');

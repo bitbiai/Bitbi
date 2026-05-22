@@ -412,6 +412,11 @@ export function createSavedAssetsBrowser({
     const $bulkMoveSelect = refs.bulkMoveSelect;
     const $bulkMoveConfirm = refs.bulkMoveConfirm;
     const $bulkMoveCancel = refs.bulkMoveCancel;
+    const $actionResult = refs.actionResult;
+    const $actionResultTitle = refs.actionResultTitle;
+    const $actionResultCopy = refs.actionResultCopy;
+    const $actionResultMeta = refs.actionResultMeta;
+    const $actionResultActions = refs.actionResultActions;
 
     if (!$galleryFilter || !$folderGrid || !$assetGrid) {
         return {
@@ -474,6 +479,114 @@ export function createSavedAssetsBrowser({
         if (!$galleryMsg) return;
         $galleryMsg.textContent = '';
         $galleryMsg.className = 'studio__msg';
+    }
+
+    function buildActionResultButton(label, onClick) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'studio__action-result-action';
+        button.textContent = label;
+        button.addEventListener('click', onClick);
+        return button;
+    }
+
+    function setActionResult({
+        type = 'info',
+        title = '',
+        copy = '',
+        meta = '',
+        toast = '',
+        actions = [],
+    } = {}) {
+        if (!$actionResult || !$actionResultTitle || !$actionResultCopy) {
+            showMsg(toast || title || copy, type === 'error' ? 'error' : type === 'success' ? 'success' : 'info');
+            return;
+        }
+
+        $actionResult.hidden = false;
+        $actionResult.dataset.result = type;
+        $actionResultTitle.textContent = title;
+        $actionResultCopy.textContent = copy;
+        if ($actionResultMeta) {
+            $actionResultMeta.textContent = meta || '';
+            $actionResultMeta.hidden = !meta;
+        }
+        if ($actionResultActions) {
+            $actionResultActions.replaceChildren();
+            actions
+                .filter((action) => action && action.label && typeof action.onClick === 'function')
+                .forEach((action) => {
+                    $actionResultActions.appendChild(buildActionResultButton(action.label, action.onClick));
+                });
+            $actionResultActions.hidden = !$actionResultActions.children.length;
+        }
+
+        showMsg(toast || title || copy, type === 'error' ? 'error' : type === 'success' ? 'success' : 'info');
+        if (mobileMediaQuery?.matches) {
+            $actionResult.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+
+    function getRefreshResultAction() {
+        return {
+            label: localeText('assets.actionRefresh'),
+            onClick: () => {
+                refresh().catch(() => showMsg(localeText('assets.viewRefreshFailed'), 'error'));
+            },
+        };
+    }
+
+    function getShowAllResultAction() {
+        return {
+            label: localeText('assets.actionShowAll'),
+            onClick: () => {
+                openAllAssets().catch(() => showMsg(localeText('assets.viewShowAllFailed'), 'error'));
+            },
+        };
+    }
+
+    function getContinueSelectionAction() {
+        return {
+            label: localeText('assets.actionContinueSelection'),
+            onClick: () => {
+                $bulkMoveForm?.classList.remove('visible');
+                updateBulkCount();
+            },
+        };
+    }
+
+    function getCancelSelectionAction() {
+        return {
+            label: localeText('assets.actionCancelSelection'),
+            onClick: () => exitSelectMode(),
+        };
+    }
+
+    function getOpenTargetFolderAction(folderId, targetLabel) {
+        if (!folderId) {
+            return {
+                label: localeText('assets.actionOpenUnfoldered'),
+                onClick: () => {
+                    openAllAssets()
+                        .then(() => {
+                            $galleryFilter.value = UNFOLDERED;
+                            return loadGallery();
+                        })
+                        .catch(() => showMsg(localeText('assets.viewShowAllFailed'), 'error'));
+                },
+            };
+        }
+        return {
+            label: localeText('assets.actionOpenTargetFolder', { target: targetLabel || localeText('assets.folder') }),
+            onClick: () => openFolder(folderId),
+        };
+    }
+
+    function getFolderOverviewAction() {
+        return {
+            label: localeText('assets.actionFolderOverview'),
+            onClick: () => showFolderView(),
+        };
     }
 
     function setListStatus(text = '', view = '') {
@@ -1598,18 +1711,33 @@ export function createSavedAssetsBrowser({
             const nextVisibility = isPublishedImageAsset(asset) ? 'private' : 'public';
             publishButton.disabled = true;
             publishButton.textContent = '…';
+            setActionResult({
+                type: 'info',
+                title: localeText('assets.actionVisibilityPendingTitle'),
+                copy: localeText('assets.actionVisibilityPendingCopy'),
+                actions: [getRefreshResultAction()],
+            });
             const result = await updateAssetPublication(asset, nextVisibility);
             if (!result.ok) {
                 publishButton.disabled = false;
                 publishButton.textContent = isPublishedImageAsset(asset) ? localeText('assets.unpublish') : localeText('assets.publish');
-                showMsg(result.error || localeText('assets.visibilityUpdateFailed'), 'error');
+                setActionResult({
+                    type: 'error',
+                    title: localeText('assets.actionVisibilityFailedTitle'),
+                    copy: localeText('assets.actionVisibilityFailedCopy'),
+                    toast: localeText('assets.visibilityUpdateFailed'),
+                    actions: [getRefreshResultAction()],
+                });
                 return;
             }
             await refresh();
-            showMsg(
-                nextVisibility === 'public' ? localeText('assets.imagePublished') : localeText('assets.imageUnpublished'),
-                'success',
-            );
+            setActionResult({
+                type: 'success',
+                title: localeText('assets.actionVisibilitySuccessTitle'),
+                copy: localeText('assets.actionVisibilitySuccessCopy'),
+                toast: nextVisibility === 'public' ? localeText('assets.imagePublished') : localeText('assets.imageUnpublished'),
+                actions: [getRefreshResultAction()],
+            });
         });
 
         const deleteButton = document.createElement('button');
@@ -1621,15 +1749,33 @@ export function createSavedAssetsBrowser({
             if (!confirm(localeText('assets.deleteAssetConfirm'))) return;
             deleteButton.disabled = true;
             deleteButton.textContent = '\u2026';
+            setActionResult({
+                type: 'info',
+                title: localeText('assets.actionSingleDeletePendingTitle'),
+                copy: localeText('assets.actionSingleDeletePendingCopy'),
+            });
             const result = await deleteSingleAsset(asset);
             if (!result.ok) {
                 deleteButton.disabled = false;
                 deleteButton.textContent = localeText('assets.delete');
-                showMsg(localeText('assets.deleteFailedHelp'), 'error');
+                setActionResult({
+                    type: 'error',
+                    title: localeText('assets.actionSingleDeleteFailedTitle'),
+                    copy: localeText('assets.actionSingleDeleteFailedCopy'),
+                    toast: localeText('assets.deleteFailedHelp'),
+                    actions: [getRefreshResultAction()],
+                });
                 return;
             }
             await refresh();
-            showMsg(localeText('assets.imageDeleted'), 'success');
+            setActionResult({
+                type: 'success',
+                title: localeText('assets.actionSingleDeleteSuccessTitle'),
+                copy: localeText('assets.actionSingleDeleteSuccessCopy'),
+                meta: localeText('assets.actionDeleteSuccessMeta'),
+                toast: localeText('assets.imageDeleted'),
+                actions: [getShowAllResultAction(), getRefreshResultAction()],
+            });
         });
 
         overlay.appendChild(previewButton);
@@ -1774,16 +1920,34 @@ export function createSavedAssetsBrowser({
                 const nextVis = isPublishedAsset(asset) ? 'private' : 'public';
                 pubBtn.disabled = true;
                 pubBtn.textContent = '\u2026';
+                setActionResult({
+                    type: 'info',
+                    title: localeText('assets.actionVisibilityPendingTitle'),
+                    copy: localeText('assets.actionVisibilityPendingCopy'),
+                    actions: [getRefreshResultAction()],
+                });
                 const result = await updateAssetPublication(asset, nextVis);
                 if (!result.ok) {
                     pubBtn.disabled = false;
                     pubBtn.textContent = isPublishedAsset(asset) ? localeText('assets.unpublish') : localeText('assets.publish');
-                    showMsg(result.error || localeText('assets.visibilityUpdateFailed'), 'error');
+                    setActionResult({
+                        type: 'error',
+                        title: localeText('assets.actionVisibilityFailedTitle'),
+                        copy: localeText('assets.actionVisibilityFailedCopy'),
+                        toast: localeText('assets.visibilityUpdateFailed'),
+                        actions: [getRefreshResultAction()],
+                    });
                     return;
                 }
                 await refresh();
                 const labels = getPublicationLabels(asset);
-                showMsg(nextVis === 'public' ? labels.publish : labels.unpublish, 'success');
+                setActionResult({
+                    type: 'success',
+                    title: localeText('assets.actionVisibilitySuccessTitle'),
+                    copy: localeText('assets.actionVisibilitySuccessCopy'),
+                    toast: nextVis === 'public' ? labels.publish : labels.unpublish,
+                    actions: [getRefreshResultAction()],
+                });
             });
             actions.appendChild(pubBtn);
         }
@@ -1802,15 +1966,33 @@ export function createSavedAssetsBrowser({
             if (!confirm(confirmText)) return;
             deleteButton.disabled = true;
             deleteButton.textContent = '\u2026';
+            setActionResult({
+                type: 'info',
+                title: localeText('assets.actionSingleDeletePendingTitle'),
+                copy: localeText('assets.actionSingleDeletePendingCopy'),
+            });
             const result = await deleteSingleAsset(asset);
             if (!result.ok) {
                 deleteButton.disabled = false;
                 deleteButton.textContent = localeText('assets.delete');
-                showMsg(localeText('assets.deleteFailedHelp'), 'error');
+                setActionResult({
+                    type: 'error',
+                    title: localeText('assets.actionSingleDeleteFailedTitle'),
+                    copy: localeText('assets.actionSingleDeleteFailedCopy'),
+                    toast: localeText('assets.deleteFailedHelp'),
+                    actions: [getRefreshResultAction()],
+                });
                 return;
             }
             await refresh();
-            showMsg(isSound ? localeText('assets.soundDeleted') : isVideo ? localeText('assets.videoDeleted') : localeText('assets.assetDeleted'), 'success');
+            setActionResult({
+                type: 'success',
+                title: localeText('assets.actionSingleDeleteSuccessTitle'),
+                copy: localeText('assets.actionSingleDeleteSuccessCopy'),
+                meta: localeText('assets.actionDeleteSuccessMeta'),
+                toast: isSound ? localeText('assets.soundDeleted') : isVideo ? localeText('assets.videoDeleted') : localeText('assets.assetDeleted'),
+                actions: [getShowAllResultAction(), getRefreshResultAction()],
+            });
         });
         actions.appendChild(deleteButton);
 
@@ -2063,6 +2245,11 @@ export function createSavedAssetsBrowser({
             $renameConfirm.disabled = true;
             $renameConfirm.textContent = '\u2026';
         }
+        setActionResult({
+            type: 'info',
+            title: localeText('assets.actionRenamePendingTitle'),
+            copy: localeText('assets.actionRenamePendingCopy'),
+        });
 
         let result;
         if (target.kind === 'folder') {
@@ -2078,14 +2265,27 @@ export function createSavedAssetsBrowser({
             $renameConfirm.textContent = localeText('assets.rename');
         }
         if (!result.ok) {
-            showMsg(localeText('assets.renameFailedHelp'), 'error');
+            setActionResult({
+                type: 'error',
+                title: localeText('assets.actionRenameFailedTitle'),
+                copy: localeText('assets.actionRenameFailedCopy'),
+                toast: localeText('assets.renameFailedHelp'),
+                actions: [getRefreshResultAction(), getCancelSelectionAction()],
+            });
             return;
         }
 
         hideRenameForm();
         const config = getRenameTargetConfig(target);
+        const label = config?.successLabel || localeText('assets.asset');
         if (result.data?.unchanged) {
-            showMsg(localeText('assets.nameUnchanged', { label: config?.successLabel || localeText('assets.asset') }), 'success');
+            setActionResult({
+                type: 'success',
+                title: localeText('assets.actionRenameUnchangedTitle'),
+                copy: localeText('assets.actionRenameUnchangedCopy'),
+                toast: localeText('assets.nameUnchanged', { label }),
+                actions: [getCancelSelectionAction(), getRefreshResultAction()],
+            });
             return;
         }
 
@@ -2093,7 +2293,14 @@ export function createSavedAssetsBrowser({
         const selectedScope = selectionScope;
         await refresh({ preserveView: true });
         await restoreSingleSelection(selectedId, selectedScope);
-        showMsg(localeText('assets.renamed', { label: config?.successLabel || localeText('assets.asset') }), 'success');
+        setActionResult({
+            type: 'success',
+            title: localeText('assets.actionRenameSuccessTitle'),
+            copy: localeText('assets.actionRenameSuccessCopy', { label }),
+            meta: localeText('assets.actionRenameSuccessMeta'),
+            toast: localeText('assets.renamed', { label }),
+            actions: [getCancelSelectionAction(), getRefreshResultAction()],
+        });
     }
 
     function showBulkMoveForm() {
@@ -2115,23 +2322,49 @@ export function createSavedAssetsBrowser({
     async function handleBulkMoveConfirm() {
         if (selectedIds.size === 0) return;
         const folderId = $bulkMoveSelect?.value || null;
+        const target = getMoveTargetLabel();
+        const count = selectedIds.size;
         if ($bulkMoveConfirm) {
             $bulkMoveConfirm.disabled = true;
             $bulkMoveConfirm.textContent = '\u2026';
         }
+        setActionResult({
+            type: 'info',
+            title: localeText('assets.actionMovePendingTitle'),
+            copy: localeText('assets.actionMovePendingCopy'),
+            meta: localeText('assets.moveTargetSummary', {
+                countLabel: formatAssetCount(count),
+                target,
+            }),
+        });
         const result = await apiAiBulkMoveAssets(Array.from(selectedIds), folderId);
         if ($bulkMoveConfirm) {
             $bulkMoveConfirm.disabled = false;
             $bulkMoveConfirm.textContent = localeText('assets.move');
         }
         if (!result.ok) {
-            showMsg(localeText('assets.moveFailedHelp'), 'error');
+            setActionResult({
+                type: 'error',
+                title: localeText('assets.actionMoveFailedTitle'),
+                copy: localeText('assets.actionMoveFailedCopy'),
+                toast: localeText('assets.moveFailedHelp'),
+                actions: [getContinueSelectionAction(), getCancelSelectionAction(), getRefreshResultAction()],
+            });
             return;
         }
-        const movedCount = selectedIds.size;
         exitSelectMode();
         await refresh();
-        showMsg(localeText('assets.moved', { count: movedCount, plural: movedCount === 1 ? '' : 's' }), 'success');
+        setActionResult({
+            type: 'success',
+            title: localeText('assets.actionMoveSuccessTitle'),
+            copy: localeText('assets.actionMoveSuccessCopy', {
+                countLabel: formatAssetCount(count),
+                target,
+            }),
+            meta: localeText('assets.actionMoveSuccessMeta'),
+            toast: localeText('assets.moved', { count, plural: count === 1 ? '' : 's' }),
+            actions: [getOpenTargetFolderAction(folderId, target), getShowAllResultAction(), getRefreshResultAction()],
+        });
     }
 
     async function handleBulkDelete() {
@@ -2151,18 +2384,37 @@ export function createSavedAssetsBrowser({
             $bulkDelete.disabled = true;
             $bulkDelete.textContent = '\u2026';
         }
+        setActionResult({
+            type: 'info',
+            title: localeText('assets.actionDeletePendingTitle'),
+            copy: localeText('assets.actionDeletePendingCopy'),
+            meta: formatAssetCount(count),
+        });
         const result = await apiAiBulkDeleteAssets(Array.from(selectedIds));
         if ($bulkDelete) {
             $bulkDelete.disabled = false;
             $bulkDelete.textContent = localeText('assets.deleteSelected');
         }
         if (!result.ok) {
-            showMsg(localeText('assets.deleteAssetsFailedHelp'), 'error');
+            setActionResult({
+                type: 'error',
+                title: localeText('assets.actionDeleteFailedTitle'),
+                copy: localeText('assets.actionDeleteFailedCopy'),
+                toast: localeText('assets.deleteAssetsFailedHelp'),
+                actions: [getContinueSelectionAction(), getRefreshResultAction(), getCancelSelectionAction()],
+            });
             return;
         }
         exitSelectMode();
         await refresh();
-        showMsg(localeText('assets.deleted', { count, plural: count === 1 ? '' : 's' }), 'success');
+        setActionResult({
+            type: 'success',
+            title: localeText('assets.actionDeleteSuccessTitle'),
+            copy: localeText('assets.actionDeleteSuccessCopy', { countLabel: formatAssetCount(count) }),
+            meta: localeText('assets.actionDeleteSuccessMeta'),
+            toast: localeText('assets.deleted', { count, plural: count === 1 ? '' : 's' }),
+            actions: [getShowAllResultAction(), getRefreshResultAction()],
+        });
     }
 
     function hideNewFolderForm() {
@@ -2183,15 +2435,32 @@ export function createSavedAssetsBrowser({
         const name = $newFolderInput?.value.trim();
         if (!name) return;
         if ($newFolderSave) $newFolderSave.disabled = true;
+        setActionResult({
+            type: 'info',
+            title: localeText('assets.actionFolderCreatePendingTitle'),
+            copy: localeText('assets.actionFolderCreatePendingCopy'),
+        });
         const result = await apiAiCreateFolder(name);
         if ($newFolderSave) $newFolderSave.disabled = false;
         if (!result.ok) {
-            showMsg(result.error || localeText('assets.folderCreationFailed'), 'error');
+            setActionResult({
+                type: 'error',
+                title: localeText('assets.actionFolderCreateFailedTitle'),
+                copy: localeText('assets.actionFolderCreateFailedCopy'),
+                toast: localeText('assets.folderCreationFailed'),
+                actions: [getRefreshResultAction()],
+            });
             return;
         }
         hideNewFolderForm();
         await refresh({ preserveView: folderViewActive });
-        showMsg(localeText('assets.folderCreated', { name }), 'success');
+        setActionResult({
+            type: 'success',
+            title: localeText('assets.actionFolderCreateSuccessTitle'),
+            copy: localeText('assets.actionFolderCreateSuccessCopy', { name }),
+            toast: localeText('assets.folderCreated', { name }),
+            actions: [getFolderOverviewAction(), getShowAllResultAction()],
+        });
     }
 
     async function showDeleteFolderForm() {
@@ -2242,13 +2511,24 @@ export function createSavedAssetsBrowser({
             $deleteFolderConfirm.disabled = true;
             $deleteFolderConfirm.textContent = '\u2026';
         }
+        setActionResult({
+            type: 'info',
+            title: localeText('assets.actionFolderDeletePendingTitle'),
+            copy: localeText('assets.actionFolderDeletePendingCopy'),
+        });
         const result = await apiAiDeleteFolder(folderId);
         if ($deleteFolderConfirm) {
             $deleteFolderConfirm.disabled = false;
             $deleteFolderConfirm.textContent = localeText('assets.delete');
         }
         if (!result.ok) {
-            showMsg(localeText('assets.folderDeleteFailedHelp'), 'error');
+            setActionResult({
+                type: 'error',
+                title: localeText('assets.actionFolderDeleteFailedTitle'),
+                copy: localeText('assets.actionFolderDeleteFailedCopy'),
+                toast: localeText('assets.folderDeleteFailedHelp'),
+                actions: [getRefreshResultAction(), getFolderOverviewAction()],
+            });
             return;
         }
 
@@ -2258,7 +2538,14 @@ export function createSavedAssetsBrowser({
             folderViewActive = true;
         }
         await refresh({ preserveView: true });
-        showMsg(localeText('assets.folderDeleted', { name }), 'success');
+        setActionResult({
+            type: 'success',
+            title: localeText('assets.actionFolderDeleteSuccessTitle'),
+            copy: localeText('assets.actionFolderDeleteSuccessCopy', { name }),
+            meta: localeText('assets.actionFolderDeleteSuccessMeta'),
+            toast: localeText('assets.folderDeleted', { name }),
+            actions: [getShowAllResultAction(), getFolderOverviewAction(), getRefreshResultAction()],
+        });
     }
 
     async function refresh({ preserveView = true } = {}) {
