@@ -7,6 +7,12 @@ import { getAuthState, authLogout, patchAuthUser } from './auth-state.js';
 import { openAuthModal } from './auth-modal.js';
 import { withGenerateLabReturnContext } from './generate-lab-context.js?v=__ASSET_VERSION__';
 import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
+import {
+    authSourceFromCurrentPath,
+    buildPasswordResetHref,
+    buildWorkspaceHref,
+    contextKeyForAuthSource,
+} from './auth-return-context.js?v=__ASSET_VERSION__';
 
 export function initAuthNav() {
     renderDesktop();
@@ -68,6 +74,7 @@ function buildMobileWorkspaceLink(href, labelKey, className = '') {
 }
 
 function buildMobileWorkspaceStatus(user) {
+    const source = authSourceFromCurrentPath();
     const wrap = document.createElement('div');
     wrap.className = 'auth-nav__mobile-continuity';
     wrap.setAttribute('role', 'status');
@@ -86,14 +93,53 @@ function buildMobileWorkspaceStatus(user) {
     actions.setAttribute('aria-label', localeText('auth.workspaceActions'));
     actions.append(
         buildMobileWorkspaceLink(
-            withGenerateLabReturnContext(localizedHref('/account/profile.html')),
+            withGenerateLabReturnContext(buildWorkspaceHref('profile', source)),
             'auth.profile',
             'auth-nav__mobile-workspace-link--primary',
         ),
-        buildMobileWorkspaceLink(`${localizedHref('/account/credits.html')}?scope=member`, 'auth.openCredits'),
-        buildMobileWorkspaceLink(localizedHref('/generate-lab/'), 'auth.openGenerateLab'),
-        buildMobileWorkspaceLink(`${localizedHref('/account/assets-manager.html')}?source=header&recent=1#generate-lab-recent`, 'auth.openAssetsManager'),
+        buildMobileWorkspaceLink(buildWorkspaceHref('credits', source), 'auth.openCredits'),
+        buildMobileWorkspaceLink(buildWorkspaceHref('generate-lab', source), 'auth.openGenerateLab'),
+        buildMobileWorkspaceLink(buildWorkspaceHref('assets-manager', source), 'auth.openAssetsManager'),
     );
+
+    wrap.append(status, copy, actions);
+    return wrap;
+}
+
+function buildMobileSignedOutRecovery() {
+    const source = authSourceFromCurrentPath();
+    const contextKey = contextKeyForAuthSource(source);
+    const wrap = document.createElement('div');
+    wrap.className = 'auth-nav__mobile-continuity auth-nav__mobile-continuity--signed-out';
+    wrap.setAttribute('role', 'status');
+    wrap.setAttribute('aria-live', 'polite');
+
+    const status = document.createElement('p');
+    status.className = 'auth-nav__mobile-status';
+    status.textContent = localeText('authReturn.signedOutTitle');
+
+    const copy = document.createElement('p');
+    copy.className = 'auth-nav__mobile-copy';
+    copy.textContent = localeText('authReturn.signedOutCopy');
+
+    const actions = document.createElement('div');
+    actions.className = 'auth-nav__mobile-workspace';
+    actions.setAttribute('aria-label', localeText('authReturn.signedOutActions'));
+
+    const signIn = document.createElement('button');
+    signIn.type = 'button';
+    signIn.className = 'auth-nav__mobile-workspace-link auth-nav__mobile-workspace-link--primary';
+    signIn.textContent = localeText('auth.signIn');
+    signIn.addEventListener('click', () => openAuthModal('login', { contextKey, returnSource: source }));
+
+    const register = document.createElement('button');
+    register.type = 'button';
+    register.className = 'auth-nav__mobile-workspace-link';
+    register.textContent = localeText('auth.createAccount');
+    register.addEventListener('click', () => openAuthModal('register', { contextKey, returnSource: source }));
+
+    const reset = buildMobileWorkspaceLink(buildPasswordResetHref(source), 'authRecovery.contextReset');
+    actions.append(signIn, register, reset);
 
     wrap.append(status, copy, actions);
     return wrap;
@@ -195,7 +241,13 @@ function renderDesktop() {
         btn.type = 'button';
         btn.className = 'site-nav__cta pulse-glow';
         btn.textContent = localeText('auth.signIn');
-        btn.addEventListener('click', () => openAuthModal('login'));
+        btn.addEventListener('click', () => {
+            const source = authSourceFromCurrentPath();
+            openAuthModal('login', {
+                contextKey: contextKeyForAuthSource(source),
+                returnSource: source,
+            });
+        });
         wrap.appendChild(btn);
     }
 
@@ -277,7 +329,14 @@ function renderMobile() {
         btn.type = 'button';
         btn.className = 'mobile-nav__cta pulse-glow';
         btn.textContent = localeText('auth.signIn');
-        btn.addEventListener('click', () => openAuthModal('login'));
+        btn.addEventListener('click', () => {
+            const source = authSourceFromCurrentPath();
+            openAuthModal('login', {
+                contextKey: contextKeyForAuthSource(source),
+                returnSource: source,
+            });
+        });
         authContainer.appendChild(btn);
+        authContainer.appendChild(buildMobileSignedOutRecovery());
     }
 }

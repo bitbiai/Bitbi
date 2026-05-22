@@ -64,6 +64,7 @@ function criticalAttributes(html) {
     'data-action',
     'data-category-link',
     'data-auth-entry',
+    'data-auth-source',
     'data-auth-message-key',
     'data-auth-message-target',
     'data-field',
@@ -261,7 +262,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('Your signed-in profile is the source of truth for account status.');
     expect(enProfile).toContain('id="securityEmailStatus"');
     expect(enProfile).toContain('id="securityReverifyBtn"');
-    expect(enProfile).toContain('href="/account/forgot-password.html"');
+    expect(enProfile).toContain('After sign-in, continue here to review account security');
+    expect(enProfile).toContain('data-auth-source="profile"');
+    expect(enProfile).toContain('href="/account/forgot-password.html?source=profile"');
     expect(enProfile).toContain('href="/generate-lab/?source=profile-security"');
     expect(enProfile).toContain('id="profileCompletionCard"');
     expect(enProfile).toContain('Account completion');
@@ -304,7 +307,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('Ihr angemeldetes Profil ist die Quelle der Wahrheit für den Kontostatus.');
     expect(deProfile).toContain('id="securityEmailStatus"');
     expect(deProfile).toContain('id="securityReverifyBtn"');
-    expect(deProfile).toContain('href="/de/account/forgot-password.html"');
+    expect(deProfile).toContain('Nach der Anmeldung hier fortfahren, um Kontosicherheit');
+    expect(deProfile).toContain('data-auth-source="profile"');
+    expect(deProfile).toContain('href="/de/account/forgot-password.html?source=profile"');
     expect(deProfile).toContain('href="/de/generate-lab/?source=profile-security"');
     expect(deProfile).toContain('id="profileCompletionCard"');
     expect(deProfile).toContain('Kontovervollständigung');
@@ -354,7 +359,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('Profile verification guidance are available');
     expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileSecurityCard"');
     expect(enCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
-    expect(enCredits).toContain('href="/account/forgot-password.html"');
+    expect(enCredits).toContain('After sign-in, continue here to refresh verified credits');
+    expect(enCredits).toContain('data-auth-source="credits"');
+    expect(enCredits).toContain('href="/account/forgot-password.html?source=credits"');
 
     expect(deCredits).toContain('credits-workspace-nav');
     expect(deCredits).toContain('id="creditsWorkspacePriority"');
@@ -383,7 +390,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('Profilhinweise zur Bestätigung sind verfügbar');
     expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileSecurityCard"');
     expect(deCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
-    expect(deCredits).toContain('href="/de/account/forgot-password.html"');
+    expect(deCredits).toContain('Nach der Anmeldung hier fortfahren, um verifizierte Credits');
+    expect(deCredits).toContain('data-auth-source="credits"');
+    expect(deCredits).toContain('href="/de/account/forgot-password.html?source=credits"');
 
     expect(enAssets).toContain('assets-manager__workspace-nav');
     expect(enAssets).toContain('id="assetsWorkspacePriority"');
@@ -420,7 +429,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('href="/account/profile.html"');
     expect(enAssets).toContain('Sign in to open Assets Manager');
     expect(enAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
-    expect(enAssets).toContain('href="/account/forgot-password.html"');
+    expect(enAssets).toContain('After sign-in, continue here to refresh your saved library');
+    expect(enAssets).toContain('data-auth-source="assets-manager"');
+    expect(enAssets).toContain('href="/account/forgot-password.html?source=assets-manager"');
 
     expect(deAssets).toContain('assets-manager__workspace-nav');
     expect(deAssets).toContain('id="assetsWorkspacePriority"');
@@ -457,7 +468,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('href="/de/account/profile.html"');
     expect(deAssets).toContain('Anmelden, um den Assets Manager zu öffnen');
     expect(deAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
-    expect(deAssets).toContain('href="/de/account/forgot-password.html"');
+    expect(deAssets).toContain('Nach der Anmeldung hier fortfahren, um Ihre gespeicherte Bibliothek');
+    expect(deAssets).toContain('data-auth-source="assets-manager"');
+    expect(deAssets).toContain('href="/de/account/forgot-password.html?source=assets-manager"');
     expect(localeJs).toContain("actionMoveSuccessTitle: 'Move confirmed'");
     expect(localeJs).toContain("actionMoveSuccessTitle: 'Verschieben bestätigt'");
     expect(localeJs).toContain("actionDeleteSuccessMeta: 'Deleted items cannot be restored from this workspace.");
@@ -496,7 +509,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab"');
     expect(enGenerate).toContain('href="/account/credits.html?scope=member"');
     expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
-    expect(enGenerate).toContain('href="/account/forgot-password.html"');
+    expect(enGenerate).toContain('After sign-in, continue here with the current prompt');
+    expect(enGenerate).toContain('data-auth-source="generate-lab"');
+    expect(enGenerate).toContain('href="/account/forgot-password.html?source=generate-lab"');
 
     expect(deGenerate).toContain('generate-lab__member-nav');
     expect(deGenerate).toContain('id="generateWorkspacePriority"');
@@ -531,11 +546,15 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab"');
     expect(deGenerate).toContain('href="/de/account/credits.html?scope=member"');
     expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
-    expect(deGenerate).toContain('href="/de/account/forgot-password.html"');
+    expect(deGenerate).toContain('Nach der Anmeldung hier mit dem aktuellen Prompt');
+    expect(deGenerate).toContain('data-auth-source="generate-lab"');
+    expect(deGenerate).toContain('href="/de/account/forgot-password.html?source=generate-lab"');
     expect(localeJs).toContain("sessionExpiredTitle: 'Session expired. Sign in again.'");
     expect(localeJs).toContain("sessionExpiredTitle: 'Sitzung abgelaufen. Melden Sie sich erneut an.'");
     expect(localeJs).toContain("workspaceStatus: 'Profile, Credits, Generate Lab, and Assets Manager use this account session.'");
     expect(localeJs).toContain("workspaceStatus: 'Profil, Credits, Generate Lab und Assets Manager verwenden diese Kontositzung.'");
+    expect(localeJs).toContain("safeContext: 'Only a safe page source is used for this guidance; private URLs, tokens, and asset IDs are not stored.'");
+    expect(localeJs).toContain("safeContext: 'Für diese Hilfe wird nur eine sichere Seitenquelle verwendet; private URLs, Tokens und Asset-IDs werden nicht gespeichert.'");
 
     for (const html of [deProfile, deCredits, deAssets, deGenerate]) {
       expect(html).not.toContain('/de/admin');

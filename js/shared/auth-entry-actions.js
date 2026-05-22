@@ -1,5 +1,6 @@
 import { openAuthModal } from './auth-modal.js';
 import { localeText } from './locale.js?v=__ASSET_VERSION__';
+import { resolveAuthSource } from './auth-return-context.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 
@@ -21,6 +22,10 @@ export function initAuthEntryActions(root = document) {
         const messageType = trigger.dataset.authMessageType || 'info';
         const message = resolveMessage(trigger.dataset.authMessageKey);
         const contextKey = trigger.dataset.authContextKey || trigger.dataset.authMessageKey || '';
-        openAuthModal(tab, { message, target, messageType, contextKey });
+        const returnSource = resolveAuthSource({
+            source: trigger.dataset.authSource,
+            contextKey,
+        });
+        openAuthModal(tab, { message, target, messageType, contextKey, returnSource });
     });
 }

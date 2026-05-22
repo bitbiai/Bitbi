@@ -176,10 +176,11 @@
                 <li>Erstellen Sie ein Konto, bevor Sie Ergebnisse im Assets Manager speichern.</li>
                 <li>Credits bleibt die Quelle für Guthaben und BITBI-Pro-Kontext.</li>
             </ul>
+            <p class="auth-recovery__return">Nach der Anmeldung hier mit dem aktuellen Prompt fortfahren und bestätigten Output im Assets Manager speichern.</p>
             <div class="auth-recovery__actions" aria-label="Generate-Lab-Kontoaktionen">
-                <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="login">Anmelden</button>
-                <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="register">Konto erstellen</button>
-                <a href="/de/account/forgot-password.html" class="auth-recovery__link">Passwort zurücksetzen</a>
+                <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-source="generate-lab" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="login">Anmelden</button>
+                <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-source="generate-lab" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="register">Konto erstellen</button>
+                <a href="/de/account/forgot-password.html?source=generate-lab" class="auth-recovery__link">Passwort zurücksetzen</a>
                 <a href="/de/account/credits.html?scope=member" class="auth-recovery__link">Credits prüfen</a>
             </div>
         </section>

@@ -369,7 +369,7 @@
     .auth-modal__overlay {
         position: fixed;
         inset: 0;
-        z-index: 9999;
+        z-index: 100100;
         background: rgba(0, 0, 0, 0.88);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
@@ -503,6 +503,15 @@
         color: rgba(170, 245, 255, 0.9);
     }
 
+    button.auth-nav__mobile-workspace-link {
+        cursor: pointer;
+    }
+
+    .auth-nav__mobile-continuity--signed-out {
+        border-color: rgba(255, 179, 0, 0.18);
+        background: rgba(255, 179, 0, 0.06);
+    }
+
     .auth-modal__context {
         display: flex;
         flex-direction: column;
@@ -541,11 +550,28 @@
         color: rgba(255, 255, 255, 0.94);
     }
 
-    .auth-modal__context-copy {
+    .auth-modal__context-copy,
+    .auth-modal__context-continuation,
+    .auth-modal__context-safety {
         font-family: var(--font-body);
         font-size: 0.82rem;
         line-height: 1.55;
         color: rgba(255, 255, 255, 0.68);
+    }
+
+    .auth-modal__context-continuation {
+        margin: 0;
+        padding: var(--space-3);
+        border: 1px solid rgba(255, 179, 0, 0.16);
+        border-radius: var(--radius-md);
+        background: rgba(255, 179, 0, 0.06);
+        color: rgba(255, 247, 218, 0.82);
+    }
+
+    .auth-modal__context-safety {
+        margin: 0;
+        font-size: 0.74rem;
+        color: rgba(255, 255, 255, 0.5);
     }
 
     .auth-modal__context-actions {
@@ -661,6 +687,17 @@
         color: rgba(255, 255, 255, 0.68);
         font-size: 0.9rem;
         line-height: 1.65;
+    }
+
+    .auth-recovery__return {
+        margin: 0;
+        padding: var(--space-3);
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        border-radius: var(--radius-md);
+        background: rgba(0, 240, 255, 0.055);
+        color: rgba(220, 253, 255, 0.82);
+        font-size: 0.9rem;
+        line-height: 1.55;
     }
 
     .auth-recovery__actions {

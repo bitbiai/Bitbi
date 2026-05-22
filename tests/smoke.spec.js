@@ -1781,7 +1781,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('.auth-modal__tab.active')).toHaveText('Create Account');
     await expect(page.locator('#authContextPanel')).toBeVisible();
     await expect(page.locator('#authContextTitle')).toHaveText('Create with an account, browse publicly');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=auth-modal-public');
+    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'landing');
+    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue from the public site');
+    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=landing');
     await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
   });
 
@@ -1993,7 +1995,7 @@ test.describe('Homepage', () => {
     await expect(recovery).toContainText('generation, saving, recent assets, and final credit checks require your BITBI account');
     await expect(recovery.getByRole('link', { name: 'Reset password' })).toHaveAttribute(
       'href',
-      '/account/forgot-password.html',
+      '/account/forgot-password.html?source=generate-lab',
     );
     await expect(page.locator('#authModal .auth-modal__overlay')).toHaveCount(1);
 
@@ -2005,8 +2007,11 @@ test.describe('Homepage', () => {
     );
     await expect(page.locator('#authContextPanel')).toBeVisible();
     await expect(page.locator('#authContextTitle')).toHaveText('Generate and save with your account');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=auth-modal');
-    await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/account/forgot-password.html?source=auth-modal');
+    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'generate-lab');
+    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue in Generate Lab');
+    await expect(page.locator('#authContextSafety')).toContainText('private URLs, tokens, and asset IDs are not stored');
+    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=generate-lab');
+    await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/account/forgot-password.html?source=generate-lab');
   });
 
   test('Generate Lab shows session-expired recovery after account API failure', async ({ page }) => {
