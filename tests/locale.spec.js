@@ -54,6 +54,27 @@ function listHtmlFiles(dir) {
   return out;
 }
 
+function expectCanonicalHreflang(html, { canonical, en, de, xDefault }) {
+  expect(html).toContain(`<link rel="canonical" href="${canonical}">`);
+  expect(html).toContain(`<link rel="alternate" hreflang="en" href="${en}">`);
+  expect(html).toContain(`<link rel="alternate" hreflang="de" href="${de}">`);
+  expect(html).toContain(`<link rel="alternate" hreflang="x-default" href="${xDefault}">`);
+}
+
+function expectSocialMetadata(html, { title, description, url }) {
+  expect(html).toContain(`<meta property="og:title" content="${title}">`);
+  expect(html).toContain(`<meta property="og:description" content="${description}">`);
+  expect(html).toContain(`<meta property="og:type" content="website">`);
+  expect(html).toContain(`<meta property="og:url" content="${url}">`);
+  expect(html).toContain('<meta property="og:image" content="https://bitbi.ai/assets/images/og-default.png">');
+  expect(html).toContain('<meta property="og:image:width" content="1200">');
+  expect(html).toContain('<meta property="og:image:height" content="630">');
+  expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
+  expect(html).toContain(`<meta name="twitter:title" content="${title}">`);
+  expect(html).toContain(`<meta name="twitter:description" content="${description}">`);
+  expect(html).toContain('<meta name="twitter:image" content="https://bitbi.ai/assets/images/og-default.png">');
+}
+
 function criticalAttributes(html) {
   const attributes = [
     'id',
@@ -212,21 +233,69 @@ test.describe('Bilingual locale pages', () => {
     expect(creditsScript).toContain('https://pay.bitbi.ai');
   });
 
-  test('account credits pages expose canonical and hreflang metadata parity', () => {
+  test('public Pricing and Generate Lab pages expose share metadata parity', () => {
+    const enPricing = repoFile('pricing.html');
+    const dePricing = repoFile('de/pricing.html');
+    const enGenerate = repoFile('generate-lab/index.html');
+    const deGenerate = repoFile('de/generate-lab/index.html');
+
+    expectSocialMetadata(enPricing, {
+      title: 'BITBI Credits & Pro | Pricing',
+      description: 'Choose BITBI Pro or one-time credit packs, then continue to Generate Lab, save outputs to Assets Manager, and review account-bound credits in your workspace.',
+      url: 'https://bitbi.ai/pricing.html',
+    });
+    expectSocialMetadata(dePricing, {
+      title: 'BITBI Credits & Pro | Preise',
+      description: 'Wählen Sie BITBI Pro oder einmalige Credit-Pakete, wechseln Sie ins Generate Lab, speichern Sie Ergebnisse im Assets Manager und prüfen Sie kontogebundene Credits im Arbeitsbereich.',
+      url: 'https://bitbi.ai/de/pricing.html',
+    });
+    expectSocialMetadata(enGenerate, {
+      title: 'Generate Lab | BITBI',
+      description: "Generate Lab is BITBI's member creation workspace for image, video, and music generation across desktop and mobile.",
+      url: 'https://bitbi.ai/generate-lab/',
+    });
+    expectSocialMetadata(deGenerate, {
+      title: 'Generate Lab | BITBI',
+      description: 'Generate Lab ist BITBIs Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung auf Desktop und Mobilgeräten.',
+      url: 'https://bitbi.ai/de/generate-lab/',
+    });
+  });
+
+  test('account member and recovery pages expose canonical and hreflang metadata parity', () => {
+    const pagePairs = [
+      ['account/profile.html', 'de/account/profile.html'],
+      ['account/credits.html', 'de/account/credits.html'],
+      ['account/assets-manager.html', 'de/account/assets-manager.html'],
+      ['account/forgot-password.html', 'de/account/forgot-password.html'],
+      ['account/reset-password.html', 'de/account/reset-password.html'],
+      ['account/verify-email.html', 'de/account/verify-email.html'],
+    ];
+
+    for (const [enPath, dePath] of pagePairs) {
+      const enHtml = repoFile(enPath);
+      const deHtml = repoFile(dePath);
+      const enUrl = `https://bitbi.ai/${enPath}`;
+      const deUrl = `https://bitbi.ai/${dePath}`;
+      expect(enHtml, enPath).toContain('<meta name="robots" content="noindex, nofollow">');
+      expect(deHtml, dePath).toContain('<meta name="robots" content="noindex, nofollow">');
+      expectCanonicalHreflang(enHtml, {
+        canonical: enUrl,
+        en: enUrl,
+        de: deUrl,
+        xDefault: enUrl,
+      });
+      expectCanonicalHreflang(deHtml, {
+        canonical: deUrl,
+        en: enUrl,
+        de: deUrl,
+        xDefault: enUrl,
+      });
+    }
+
     const enCredits = repoFile('account/credits.html');
     const deCredits = repoFile('de/account/credits.html');
-    expect(enCredits).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(deCredits).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(enCredits).toContain('<link rel="canonical" href="https://bitbi.ai/account/credits.html">');
-    expect(enCredits).toContain('<link rel="alternate" hreflang="en" href="https://bitbi.ai/account/credits.html">');
-    expect(enCredits).toContain('<link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/credits.html">');
-    expect(enCredits).toContain('<link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/credits.html">');
     expect(enCredits).toContain('Credits dashboard');
     expect(enCredits).toContain('Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.');
-    expect(deCredits).toContain('<link rel="canonical" href="https://bitbi.ai/de/account/credits.html">');
-    expect(deCredits).toContain('<link rel="alternate" hreflang="en" href="https://bitbi.ai/account/credits.html">');
-    expect(deCredits).toContain('<link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/credits.html">');
-    expect(deCredits).toContain('<link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/credits.html">');
     expect(deCredits).toContain('Credits-Dashboard');
     expect(deCredits).toContain('Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.');
   });
