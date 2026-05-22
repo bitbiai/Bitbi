@@ -1925,7 +1925,7 @@ test.describe('Homepage', () => {
     await page.goto('/generate-lab/');
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Creation Workspace');
     await expect(page.locator('header .site-nav__mood')).toBeVisible();
     await expect(page.locator('header .locale-switcher__link[hreflang="de"]')).toHaveAttribute('href', '/de/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
@@ -1953,7 +1953,7 @@ test.describe('Homepage', () => {
     await page.goto('/de/generate-lab/');
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop-Arbeitsbereich');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Erstellungsbereich');
     await expect(page.locator('header .site-nav__mood')).toBeVisible();
     await expect(page.locator('header .locale-switcher__link[hreflang="en"]')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
@@ -2073,8 +2073,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .site-nav__logo')).not.toHaveAttribute('target', /./);
     await expect(page.locator('header .site-nav__logo')).not.toHaveAttribute('rel', /./);
     await expect(page.locator('header .site-nav__logo')).toHaveAttribute('aria-current', 'page');
-    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
-    await expect(page.locator('header')).not.toContainText(['Generate Lab', 'is', 'Desktop Workspace'].join(' '));
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Creation Workspace');
+    await expect(page.locator('header')).not.toContainText(['Generate Lab', 'is', 'Creation Workspace'].join(' '));
     await expect(page.locator('#globalAudioShell')).toHaveCount(0);
     await expect(page.locator('#generateLabHeaderStatus')).toBeVisible();
     await expect(page.locator('#labAccountStatus')).toContainText('Signed in as lab@bitbi.ai');
@@ -2745,10 +2745,10 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/generate-lab/');
-    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Creation Workspace');
     await page.goto('/legal/imprint.html');
 
-    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Creation Workspace');
     await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
@@ -2766,7 +2766,7 @@ test.describe('Homepage', () => {
       });
     });
     await page.goto('/account/profile.html?returnContext=generate-lab');
-    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Creation Workspace');
     await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#deniedState .profile__link')).toHaveAttribute('href', '/generate-lab/');
 
@@ -2777,18 +2777,24 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/');
   });
 
-  test('Generate Lab shows the desktop-optimized message on mobile', async ({ page }) => {
+  test('Generate Lab keeps the creation workflow usable on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/generate-lab/');
 
     await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Desktop workspace' })).toBeVisible();
-    await expect(page.getByText('Generate Lab is optimized for desktop creation workflows.')).toBeVisible();
-    await expect(page.getByText('On mobile, use these shortcuts to review credits')).toBeVisible();
-    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/account/profile.html?returnContext=generate-lab');
+    await expect(page.getByRole('heading', { name: 'Mobile creation flow' })).toBeVisible();
+    await expect(page.getByText('The full Generate Lab workspace is available below.')).toBeVisible();
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Start prompt' })).toHaveAttribute('href', '#labPrompt');
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Review cost' })).toHaveAttribute('href', '#labCost');
     await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Credits' })).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Assets Manager' })).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
-    await expect(page.locator('.generate-lab__desktop')).toBeHidden();
+    await expect(page.locator('.generate-lab__desktop')).toBeVisible();
+    await expect(page.locator('#labPrompt')).toBeVisible();
+    await expect(page.locator('.generate-lab__composer-flow')).toBeVisible();
+    await expect(page.locator('.generate-lab__composer-flow')).toContainText('Backend validation confirms final credits.');
+    await expect(page.locator('#labGenerate')).toBeVisible();
+    const hasDocumentOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(hasDocumentOverflow).toBe(false);
   });
 
   test('repo footers use the shortened footer sentence and end cleanly', async ({ page }) => {

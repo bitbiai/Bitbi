@@ -387,6 +387,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).toContain('generate-lab__first-run');
     expect(enGenerate).toContain('generate-lab__account-needed');
     expect(enGenerate).toContain('Create, preview, save, then manage');
+    expect(enGenerate).toContain('Mobile creation flow');
+    expect(enGenerate).toContain('The full Generate Lab workspace is available below');
+    expect(enGenerate).toContain('generate-lab__composer-flow');
+    expect(enGenerate).toContain('Backend validation confirms final credits');
+    expect(enGenerate).toContain('The result stays visible after save errors');
     expect(enGenerate).toContain('Sign in before generation or saving');
     expect(enGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab"');
@@ -403,6 +408,11 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('generate-lab__first-run');
     expect(deGenerate).toContain('generate-lab__account-needed');
     expect(deGenerate).toContain('Erstellen, prüfen, speichern, verwalten');
+    expect(deGenerate).toContain('Mobiler Erstellungsfluss');
+    expect(deGenerate).toContain('Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar');
+    expect(deGenerate).toContain('generate-lab__composer-flow');
+    expect(deGenerate).toContain('Backend-Validierung bestätigt finale Credits');
+    expect(deGenerate).toContain('Das Ergebnis bleibt nach Speicherfehlern sichtbar');
     expect(deGenerate).toContain('Vor Generierung oder Speichern anmelden');
     expect(deGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab"');
@@ -778,7 +788,9 @@ test.describe('Bilingual locale pages', () => {
       'Generate Lab can show models',
       'Mobile account actions',
       'Create, preview, save, then manage',
-      'On mobile, use these shortcuts',
+      'Mobile creation flow',
+      'Start prompt',
+      'Backend validation confirms final credits',
       'Organization context',
       'Organization dashboard is not available',
       'Selected organization',
@@ -805,7 +817,7 @@ test.describe('Bilingual locale pages', () => {
       'New name',
       'Name & Address',
       'Impressum content',
-      'Desktop Workspace',
+      'Creation Workspace',
       'Add reference image',
       'One line per item',
       'Chat transcript',

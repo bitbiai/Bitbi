@@ -1696,7 +1696,7 @@ async function init() {
             enableGlobalAudio: false,
             homeTarget: 'bitbi-main',
             homeRel: 'noopener',
-            contextLabel: document.documentElement.lang === 'de' ? 'Desktop-Arbeitsbereich' : 'Desktop Workspace',
+            contextLabel: document.documentElement.lang === 'de' ? 'Erstellungsbereich' : 'Creation Workspace',
             isGenerateLabPage: true,
         });
     } catch (error) { console.warn(error); }

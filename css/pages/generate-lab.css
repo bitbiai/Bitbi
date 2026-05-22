@@ -1,6 +1,6 @@
 /* ============================================================
    BITBI — Generate Lab
-   Desktop-first standalone member creator workspace.
+   Standalone member creator workspace.
    ============================================================ */
 
 @layer pages {
@@ -561,6 +561,69 @@
         display: grid;
         gap: 0.55rem;
         margin-block-end: 1rem;
+    }
+
+    .generate-lab__composer-flow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.55rem;
+        margin-block: 0 1rem;
+    }
+
+    .generate-lab__composer-flow a {
+        min-inline-size: 0;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.25rem 0.5rem;
+        align-items: start;
+        min-block-size: 4.35rem;
+        padding: 0.72rem;
+        border: 1px solid rgba(var(--lab-accent-rgb), 0.14);
+        border-radius: 0.9rem;
+        background: rgba(var(--lab-accent-rgb), 0.055);
+        color: rgba(255, 255, 255, 0.82);
+        text-decoration: none;
+    }
+
+    .generate-lab__composer-flow a:hover,
+    .generate-lab__composer-flow a:focus-visible {
+        border-color: rgba(var(--lab-accent-rgb), 0.34);
+        background: rgba(var(--lab-accent-rgb), 0.1);
+        outline: 2px solid rgba(var(--lab-accent-rgb), 0.16);
+        outline-offset: 2px;
+    }
+
+    .generate-lab__composer-flow span {
+        grid-row: span 2;
+        inline-size: 1.55rem;
+        block-size: 1.55rem;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid rgba(var(--lab-accent-alt-rgb), 0.24);
+        border-radius: 999px;
+        background: rgba(var(--lab-accent-alt-rgb), 0.09);
+        color: rgba(255, 224, 150, 0.95);
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 900;
+    }
+
+    .generate-lab__composer-flow strong,
+    .generate-lab__composer-flow small {
+        min-inline-size: 0;
+        display: block;
+    }
+
+    .generate-lab__composer-flow strong {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.82rem;
+        line-height: 1.2;
+    }
+
+    .generate-lab__composer-flow small {
+        color: rgba(255, 255, 255, 0.56);
+        font-size: 0.72rem;
+        line-height: 1.35;
     }
 
     .generate-lab__workflow-status {
@@ -1629,18 +1692,20 @@
     @media (max-width: 899px) {
         .generate-lab {
             min-block-size: 100vh;
-            display: grid;
-            place-items: center;
-            padding: calc(5rem + env(safe-area-inset-top, 0px)) 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
+            display: block;
+            padding: calc(4.7rem + env(safe-area-inset-top, 0px)) 0.85rem calc(2rem + env(safe-area-inset-bottom, 0px));
         }
 
         .generate-lab__desktop {
-            display: none;
+            display: block;
+            inline-size: min(100%, 42rem);
         }
 
         .generate-lab__mobile-fallback {
             display: grid;
             inline-size: min(100%, 36rem);
+            margin-inline: auto;
+            margin-block-end: 0.95rem;
         }
 
         .generate-lab__mobile-card {
@@ -1660,8 +1725,9 @@
         .generate-lab__mobile-card h1 {
             margin: 0;
             font-family: var(--font-display);
-            font-size: clamp(2rem, 10vw, 3rem);
+            font-size: clamp(1.8rem, 9vw, 2.55rem);
             color: rgba(255, 255, 255, 0.94);
+            line-height: 1;
         }
 
         .generate-lab__mobile-card p {
@@ -1671,7 +1737,8 @@
         }
 
         .generate-lab__mobile-actions {
-            display: grid;
+            display: flex;
+            flex-wrap: wrap;
             gap: 0.6rem;
         }
 
@@ -1694,8 +1761,196 @@
             text-transform: uppercase;
         }
 
+        .generate-lab__mobile-link:hover,
+        .generate-lab__mobile-link:focus-visible {
+            border-color: rgba(0, 240, 255, 0.38);
+            background: rgba(0, 240, 255, 0.14);
+            outline: 2px solid rgba(0, 240, 255, 0.18);
+            outline-offset: 2px;
+        }
+
         .generate-lab__mobile-link--button {
             cursor: pointer;
+        }
+
+        .generate-lab__topbar {
+            display: grid;
+            gap: 0.4rem;
+            margin-block-end: 0.75rem;
+        }
+
+        .generate-lab__subtitle {
+            max-inline-size: none;
+            text-align: start;
+            font-size: 0.86rem;
+        }
+
+        .generate-lab__member-nav {
+            justify-content: start;
+            border-radius: 1rem;
+            margin-block-end: 0.75rem;
+        }
+
+        .generate-lab__member-nav a,
+        .generate-lab__assets-link,
+        .generate-lab__secondary-link,
+        .generate-lab__generate-btn,
+        .generate-lab__secondary-btn {
+            min-block-size: 2.8rem;
+        }
+
+        .generate-lab__desktop .member-workflow,
+        .generate-lab__desktop .generate-lab__account-needed,
+        .generate-lab__desktop .generate-lab__first-run {
+            display: none;
+        }
+
+        .generate-lab__workspace {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.85rem;
+        }
+
+        .generate-lab__panel {
+            min-block-size: auto;
+            padding: 0.9rem;
+            border-radius: 1.05rem;
+        }
+
+        .generate-lab__panel--stage {
+            order: 1;
+        }
+
+        .generate-lab__panel--settings {
+            order: 2;
+        }
+
+        .generate-lab__panel--left {
+            order: 3;
+        }
+
+        .generate-lab__panel-head {
+            align-items: start;
+        }
+
+        .generate-lab__panel-head--stage {
+            display: grid;
+        }
+
+        .generate-lab__badge {
+            justify-self: start;
+            white-space: normal;
+            text-align: start;
+        }
+
+        .generate-lab__textarea {
+            min-block-size: 6.4rem;
+        }
+
+        .generate-lab__textarea--prompt {
+            min-block-size: 8.5rem;
+        }
+
+        .generate-lab__composer-flow {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .generate-lab__composer-flow a {
+            min-block-size: 4rem;
+            padding: 0.68rem;
+        }
+
+        .generate-lab__workflow-status {
+            padding: 0.75rem;
+        }
+
+        .generate-lab__result-stage,
+        .generate-lab__empty-state,
+        .generate-lab__loading-state,
+        .generate-lab__result-card {
+            min-block-size: 15rem;
+        }
+
+        .generate-lab__empty-state,
+        .generate-lab__loading-state {
+            padding: 1.25rem;
+        }
+
+        .generate-lab__image-output,
+        .generate-lab__video-output {
+            max-block-size: min(54vh, 26rem);
+        }
+
+        .generate-lab__result-actions {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .generate-lab__result-actions .generate-lab__secondary-btn,
+        .generate-lab__result-actions .generate-lab__secondary-link,
+        .generate-lab__generate-btn {
+            inline-size: 100%;
+        }
+
+        .generate-lab__result-note {
+            font-size: 0.8rem;
+        }
+
+        .generate-lab__settings-stack,
+        .generate-lab__field-grid,
+        .generate-lab__toggle-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .generate-lab__action-card {
+            position: relative;
+            gap: 0.75rem;
+            padding: 0.9rem;
+        }
+
+        .generate-lab__action-card-footer {
+            display: grid;
+            gap: 0.45rem;
+            justify-items: start;
+        }
+
+        .generate-lab-ref-images__grid,
+        .generate-lab-ref-images__grid--primary {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .generate-lab__recent-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .generate-lab-assets-overlay {
+            padding-inline: 0.75rem;
+        }
+
+        .generate-lab-assets-overlay__shell {
+            block-size: min(88vh, 920px);
+            border-radius: 1rem;
+        }
+
+        .generate-lab-assets-overlay__head {
+            display: grid;
+        }
+
+        .generate-lab-assets-overlay__actions {
+            justify-content: start;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .generate-lab__composer-flow,
+        .generate-lab__recent-grid,
+        .generate-lab-ref-images__grid,
+        .generate-lab-ref-images__grid--primary {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .generate-lab__mobile-link {
+            inline-size: 100%;
+            justify-self: stretch;
         }
     }
 

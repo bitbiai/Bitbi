@@ -116,7 +116,7 @@ export function initSiteHeader(options = {}) {
     const homeRel = typeof options.homeRel === 'string' ? options.homeRel.trim() : '';
     const contextLabel = typeof options.contextLabel === 'string'
         ? options.contextLabel.trim()
-        : (generateLabContext ? 'Desktop Workspace' : '');
+        : (generateLabContext ? (document.documentElement.lang === 'de' ? 'Erstellungsbereich' : 'Creation Workspace') : '');
     const header = document.querySelector('header');
     if (!header) return;
     const desktopStageQuery = window.matchMedia?.(HOME_DESKTOP_STAGE_MEDIA);

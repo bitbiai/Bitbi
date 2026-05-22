@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Generate Lab | BITBI</title>
-    <meta name="description" content="Generate Lab ist BITBIs Desktop-Arbeitsbereich für Bild-, Video- und Musikgenerierung für Mitglieder.">
+    <meta name="description" content="Generate Lab ist BITBIs Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung auf Desktop und Mobilgeräten.">
     <meta name="robots" content="noindex, nofollow">
     <meta name="theme-color" content="#0A0A0A">
     <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -42,7 +42,7 @@
         <div class="site-nav__bar">
             <span class="site-nav__logo site-nav__logo--context site-nav__logo--current" aria-current="page" aria-disabled="true">
                 <span class="site-nav__logo-text gt-hero">BITBI</span>
-                <span class="site-nav__context-label">Desktop-Arbeitsbereich</span>
+                <span class="site-nav__context-label">Erstellungsbereich</span>
                 <span class="site-nav__logo-glow" aria-hidden="true"></span>
             </span>
             <div class="site-nav__links site-nav__links--empty"></div>
@@ -83,11 +83,12 @@
     <section class="generate-lab__mobile-fallback" aria-labelledby="generateLabMobileTitle">
         <div class="generate-lab__mobile-card">
             <p class="generate-lab__eyebrow">Generate Lab</p>
-            <h1 id="generateLabMobileTitle">Desktop-Arbeitsbereich</h1>
-            <p>Generate Lab ist für Desktop-Workflows optimiert. Bitte öffnen Sie es auf einem Desktop oder größeren Bildschirm, um den vollständigen Bild-, Video- und Musik-Arbeitsbereich zu nutzen.</p>
-            <p>Auf Mobilgeräten können Sie mit diesen Schnellzugriffen Credits prüfen, Profildaten aktualisieren oder gespeicherte Assets ansehen, bevor Sie am Desktop weiter erstellen.</p>
+            <h1 id="generateLabMobileTitle">Mobiler Erstellungsfluss</h1>
+            <p>Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar. Starten Sie mit einem Prompt, prüfen Sie Credits, generieren Sie eine Vorschau und speichern Sie bestätigte Ergebnisse im Assets Manager.</p>
+            <p>Mit diesen Schnellzugriffen springen Sie zum Composer, prüfen Kontokontext oder finden gespeicherte Ergebnisse, ohne die Seite zu verlieren.</p>
             <div class="generate-lab__mobile-actions" aria-label="Schnellzugriffe im Mitglieder-Arbeitsbereich">
-                <a href="/de/account/profile.html?returnContext=generate-lab" class="generate-lab__mobile-link">Profil</a>
+                <a href="#labPrompt" class="generate-lab__mobile-link">Prompt starten</a>
+                <a href="#labCost" class="generate-lab__mobile-link">Kosten prüfen</a>
                 <a href="/de/account/credits.html?scope=member" class="generate-lab__mobile-link">Credits</a>
                 <a href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent" class="generate-lab__mobile-link">Assets Manager</a>
             </div>
@@ -211,6 +212,29 @@
                     <textarea id="labPrompt" class="generate-lab__textarea generate-lab__textarea--prompt" maxlength="2048" rows="7" placeholder="Eine leuchtende Glasskulptur in einer regennassen Cyberpunk-Galerie..."></textarea>
                     <p id="labPromptHelp" class="generate-lab__help">Beschreiben Sie Motiv, Umgebung, Stil, Stimmung und Licht.</p>
                 </div>
+
+                <nav class="generate-lab__composer-flow" aria-label="Generate-Lab-Erstellungsfluss">
+                    <a href="#labPrompt">
+                        <span>1</span>
+                        <strong>Prompt</strong>
+                        <small>Idee hier schreiben oder verfeinern.</small>
+                    </a>
+                    <a href="#labCost">
+                        <span>2</span>
+                        <strong>Kosten</strong>
+                        <small>Backend-Validierung bestätigt finale Credits.</small>
+                    </a>
+                    <a href="#labResultStage">
+                        <span>3</span>
+                        <strong>Vorschau</strong>
+                        <small>Das Ergebnis bleibt nach Speicherfehlern sichtbar.</small>
+                    </a>
+                    <a href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">
+                        <span>4</span>
+                        <strong>Speichern</strong>
+                        <small>Gespeicherte Ergebnisse öffnen aus dem Assets Manager.</small>
+                    </a>
+                </nav>
 
                 <div id="labWorkflowStatus" class="generate-lab__workflow-status" role="status" aria-live="polite">
                     <span class="generate-lab__workflow-dot" aria-hidden="true"></span>
