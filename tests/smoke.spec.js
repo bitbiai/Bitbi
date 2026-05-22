@@ -2161,6 +2161,14 @@ test.describe('Homepage', () => {
     await page.setViewportSize({ width: 1440, height: 980 });
     let saveAttempts = 0;
     let assetListRequests = 0;
+    let releaseGenerateResponse;
+    let markGenerateRequestStarted;
+    const generateResponseGate = new Promise((resolve) => {
+      releaseGenerateResponse = resolve;
+    });
+    const generateRequestStarted = new Promise((resolve) => {
+      markGenerateRequestStarted = resolve;
+    });
 
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -2195,7 +2203,8 @@ test.describe('Homepage', () => {
       });
     });
     await page.route('**/api/ai/generate-image', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      markGenerateRequestStarted();
+      await generateResponseGate;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2232,8 +2241,10 @@ test.describe('Homepage', () => {
     await page.locator('#labPrompt').fill('Neon library archive');
 
     await page.locator('#labGenerate').click();
+    await generateRequestStarted;
     await expect(page.locator('#labWorkflowStatus')).toContainText('Generation in progress');
     await expect(page.locator('#labGenerate')).toBeDisabled();
+    releaseGenerateResponse();
 
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Preview ready');
