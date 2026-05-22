@@ -98,7 +98,7 @@ $form.addEventListener('submit', async (e) => {
     } else {
         $submit.disabled = false;
         $submit.textContent = localeText('account.changePassword');
-        showMsg(res.error, 'error');
+        showMsg(localeText('account.resetFailedGeneric'), 'error');
     }
 });
 

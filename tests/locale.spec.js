@@ -262,6 +262,7 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="securityEmailStatus"');
     expect(enProfile).toContain('id="securityReverifyBtn"');
     expect(enProfile).toContain('href="/account/forgot-password.html"');
+    expect(enProfile).toContain('href="/generate-lab/?source=profile-security"');
     expect(enProfile).toContain('id="profileCompletionCard"');
     expect(enProfile).toContain('Account completion');
     expect(enProfile).toContain('Profile quality');
@@ -279,6 +280,7 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="profileEditState"');
     expect(enProfile).toContain('Display name, bio, website, and avatar are editable.');
     expect(enProfile).toContain('Sign in to open your profile');
+    expect(enProfile).toContain('Reset your password or complete email verification after sign-in');
     expect(enProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
     expect(enProfile).toContain('href="/account/forgot-password.html"');
 
@@ -303,6 +305,7 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="securityEmailStatus"');
     expect(deProfile).toContain('id="securityReverifyBtn"');
     expect(deProfile).toContain('href="/de/account/forgot-password.html"');
+    expect(deProfile).toContain('href="/de/generate-lab/?source=profile-security"');
     expect(deProfile).toContain('id="profileCompletionCard"');
     expect(deProfile).toContain('Kontovervollständigung');
     expect(deProfile).toContain('Profilqualität');
@@ -320,6 +323,7 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="profileEditState"');
     expect(deProfile).toContain('Anzeigename, Bio, Website und Avatar sind bearbeitbar.');
     expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
+    expect(deProfile).toContain('schließen Sie die E-Mail-Bestätigung nach der Anmeldung ab');
     expect(deProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
     expect(deProfile).toContain('href="/de/account/forgot-password.html"');
 
@@ -347,6 +351,8 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('href="/account/assets-manager.html?source=credits"');
     expect(enCredits).toContain('href="/account/profile.html"');
     expect(enCredits).toContain('Sign in to review credits');
+    expect(enCredits).toContain('Profile verification guidance are available');
+    expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileSecurityCard"');
     expect(enCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
     expect(enCredits).toContain('href="/account/forgot-password.html"');
 
@@ -374,6 +380,8 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('href="/de/account/assets-manager.html?source=credits"');
     expect(deCredits).toContain('href="/de/account/profile.html"');
     expect(deCredits).toContain('Anmelden, um Credits zu prüfen');
+    expect(deCredits).toContain('Profilhinweise zur Bestätigung sind verfügbar');
+    expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileSecurityCard"');
     expect(deCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
     expect(deCredits).toContain('href="/de/account/forgot-password.html"');
 
@@ -539,23 +547,43 @@ test.describe('Bilingual locale pages', () => {
     expect(enForgot).toContain('id="accountRecoveryTrust"');
     expect(enForgot).toContain('Account recovery is private');
     expect(enForgot).toContain('same success message whether or not an email exists');
+    expect(enForgot).toContain('id="accountRecoveryNext"');
+    expect(enForgot).toContain('Return to the signed-in workspace');
+    expect(enForgot).toContain('href="/account/profile.html?returnContext=recovery#profileSecurityCard"');
+    expect(enForgot).toContain('href="/account/credits.html?scope=member&amp;source=recovery"');
     expect(deForgot).toContain('id="accountRecoveryTrust"');
     expect(deForgot).toContain('Kontowiederherstellung bleibt privat');
     expect(deForgot).toContain('dieselbe Erfolgsmeldung, unabhängig davon, ob eine E-Mail existiert');
+    expect(deForgot).toContain('id="accountRecoveryNext"');
+    expect(deForgot).toContain('Zur angemeldeten Arbeitsumgebung zurückkehren');
+    expect(deForgot).toContain('href="/de/account/profile.html?returnContext=recovery#profileSecurityCard"');
+    expect(deForgot).toContain('href="/de/account/credits.html?scope=member&amp;source=recovery"');
 
     expect(enReset).toContain('id="resetSecurityTrust"');
     expect(enReset).toContain('Before you change it');
+    expect(enReset).toContain('id="resetRecoveryContinuity"');
+    expect(enReset).toContain('Use the newest reset email');
+    expect(enReset).toContain('href="/account/assets-manager.html?source=reset-password&amp;recent=1#generate-lab-recent"');
     expect(enReset).toContain('data-auth-entry="login"');
     expect(enReset).toContain('href="/account/profile.html"');
     expect(deReset).toContain('id="resetSecurityTrust"');
     expect(deReset).toContain('Bevor Sie es ändern');
+    expect(deReset).toContain('id="resetRecoveryContinuity"');
+    expect(deReset).toContain('Die neueste Reset-E-Mail verwenden');
+    expect(deReset).toContain('href="/de/account/assets-manager.html?source=reset-password&amp;recent=1#generate-lab-recent"');
     expect(deReset).toContain('data-auth-entry="login"');
     expect(deReset).toContain('href="/de/account/profile.html"');
 
     expect(enVerify).toContain('Email confirmation is checked by the backend account record');
+    expect(enVerify).toContain('id="verifyRecoveryContinuity"');
+    expect(enVerify).toContain('Email status protects account-bound work');
+    expect(enVerify).toContain('href="/account/profile.html?returnContext=verification#profileSecurityCard"');
     expect(enVerify).toContain('href="/account/forgot-password.html"');
     expect(enVerify).toContain('href="/account/profile.html"');
     expect(deVerify).toContain('Die E-Mail-Bestätigung wird im Backend-Kontodatensatz geprüft');
+    expect(deVerify).toContain('id="verifyRecoveryContinuity"');
+    expect(deVerify).toContain('E-Mail-Status schützt kontogebundene Arbeit');
+    expect(deVerify).toContain('href="/de/account/profile.html?returnContext=verification#profileSecurityCard"');
     expect(deVerify).toContain('href="/de/account/forgot-password.html"');
     expect(deVerify).toContain('href="/de/account/profile.html"');
 

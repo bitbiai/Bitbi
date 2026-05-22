@@ -228,6 +228,7 @@ const STRINGS = Object.freeze({
             changing: 'Changing...',
             changePassword: 'Change Password',
             passwordMismatch: 'Passwords do not match.',
+            resetFailedGeneric: 'Could not change the password. Request the newest reset link, check the fields, and try again.',
         }),
         contact: Object.freeze({
             sending: 'Sending...',
@@ -1090,6 +1091,7 @@ const STRINGS = Object.freeze({
             changing: 'Wird geändert...',
             changePassword: 'Passwort ändern',
             passwordMismatch: 'Die Passwörter stimmen nicht überein.',
+            resetFailedGeneric: 'Das Passwort konnte nicht geändert werden. Fordern Sie den neuesten Reset-Link an, prüfen Sie die Felder und versuchen Sie es erneut.',
         }),
         contact: Object.freeze({
             sending: 'Wird gesendet...',

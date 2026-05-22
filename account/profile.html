@@ -129,7 +129,7 @@
                 <ul class="auth-recovery__list" aria-label="Profile sign-in guidance">
                     <li>Use Sign in if you already have an account.</li>
                     <li>Create an account to save creations, manage credits, and keep profile basics in one workspace.</li>
-                    <li>Reset your password if you cannot access the account.</li>
+                    <li>Reset your password or complete email verification after sign-in if access needs repair.</li>
                 </ul>
                 <div class="auth-recovery__actions" aria-label="Profile account actions">
                     <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="login">Sign in</button>
@@ -450,6 +450,10 @@
                         <a href="/account/assets-manager.html" class="profile__control-link">
                             <span class="profile__control-link-label">Check saved assets</span>
                             <span class="profile__control-link-copy">Saved creations stay tied to this signed-in account.</span>
+                        </a>
+                        <a href="/generate-lab/?source=profile-security" class="profile__control-link">
+                            <span class="profile__control-link-label">Return to Generate Lab</span>
+                            <span class="profile__control-link-copy">Create only after account status and credits are clear.</span>
                         </a>
                     </div>
                 </section>

@@ -5709,6 +5709,10 @@ test.describe('Auth flow pages', () => {
     await expect(form.locator('input[type="email"]')).toBeAttached();
     await expect(form.locator('button[type="submit"]')).toBeAttached();
     await expect(page.locator('#accountRecoveryTrust')).toContainText('Account recovery is private');
+    await expect(page.locator('#accountRecoveryNext')).toContainText('Return to the signed-in workspace');
+    await expect(page.locator('#accountRecoveryNext [data-auth-entry="login"]')).toHaveText('Sign in');
+    await expect(page.locator('#accountRecoveryNext a[href="/account/profile.html?returnContext=recovery#profileSecurityCard"]')).toHaveText('Open Profile');
+    await expect(page.locator('#accountRecoveryNext a[href="/account/credits.html?scope=member&source=recovery"]')).toHaveText('Review Credits');
   });
 
   test('reset password page loads with state containers', async ({ page }) => {
@@ -5718,7 +5722,32 @@ test.describe('Auth flow pages', () => {
     await expect(page.locator('#loadingState')).toBeAttached();
     await expect(page.locator('#invalidState')).toBeAttached();
     await expect(page.locator('#resetSecurityTrust')).toBeAttached();
+    await expect(page.locator('#resetRecoveryContinuity')).toContainText('Use the newest reset email');
+    await expect(page.locator('#resetRecoveryContinuity a[href="/account/assets-manager.html?source=reset-password&recent=1#generate-lab-recent"]')).toHaveText('Open Assets Manager');
     await expect(page.locator('#successState [data-auth-entry="login"]')).toHaveText('Sign in again');
+  });
+
+  test('reset password failure uses safe recovery copy instead of raw backend errors', async ({ page }) => {
+    await page.route('**/api/reset-password/validate**', async (route) => {
+      await route.fulfill({ status: 200, json: { valid: true } });
+    });
+    await page.route(/\/api\/reset-password$/, async (route) => {
+      await route.fulfill({
+        status: 500,
+        json: { ok: false, error: 'raw reset backend token failure' },
+      });
+    });
+
+    const response = await page.goto('/account/reset-password?token=valid-reset-token');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#formState')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#passwordInput').fill('new-password-123');
+    await page.locator('#confirmInput').fill('new-password-123');
+    await page.locator('#resetForm').getByRole('button', { name: 'Change Password' }).click();
+
+    await expect(page.locator('#formMsg')).toContainText('Could not change the password.');
+    await expect(page.locator('#formMsg')).not.toContainText('raw reset backend');
+    await expect(page.locator('#resetRecoveryContinuity')).toContainText('Request new link');
   });
 
   test('verify email page loads with state containers', async ({ page }) => {
@@ -5727,6 +5756,8 @@ test.describe('Auth flow pages', () => {
     await expect(page.locator('#loadingState')).toBeAttached();
     await expect(page.locator('#invalidState')).toBeAttached();
     await expect(page.locator('#invalidState')).toContainText('Email confirmation is checked by the backend account record');
+    await expect(page.locator('#verifyRecoveryContinuity')).toContainText('Email status protects account-bound work');
+    await expect(page.locator('#verifyRecoveryContinuity a[href="/account/profile.html?returnContext=verification#profileSecurityCard"]')).toHaveText('Open Profile');
     await expect(page.locator('#successState [data-auth-entry="login"]')).toHaveText('Sign in');
   });
 });
@@ -5747,6 +5778,7 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in');
     await expect(page.locator('#deniedState [data-auth-message-key="authRecovery.profileMessage"]')).toHaveCount(2);
     await expect(page.locator('#deniedState a[href="/account/forgot-password.html"]')).toHaveText('Reset password');
+    await expect(page.locator('#deniedState')).toContainText('complete email verification after sign-in');
     await expect(page.locator('#profileSecurityCard')).toBeAttached();
     await expect(page.locator('#profileContent')).not.toBeVisible();
   });
@@ -6693,6 +6725,8 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsDenied [data-auth-entry="login"]')).toHaveText('Sign in');
     await expect(page.locator('#creditsDenied [data-auth-message-key="authRecovery.creditsMessage"]')).toHaveCount(2);
     await expect(page.locator('#creditsDenied a[href="/account/forgot-password.html"]')).toHaveText('Reset password');
+    await expect(page.locator('#creditsDenied')).toContainText('Profile verification guidance');
+    await expect(page.locator('#creditsDenied a[href="/account/profile.html?returnContext=credits#profileSecurityCard"]')).toHaveText('Profile recovery');
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
 
     await page.unroute('**/api/me');
@@ -11345,6 +11379,10 @@ test.describe('Profile page (authenticated)', () => {
     await expect(usageTrust.getByRole('link', { name: 'View saved assets' })).toHaveAttribute(
       'href',
       '/account/assets-manager.html?source=profile-usage&recent=1#generate-lab-recent',
+    );
+    await expect(page.locator('#profileSecurityCard').getByRole('link', { name: 'Return to Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=profile-security',
     );
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
