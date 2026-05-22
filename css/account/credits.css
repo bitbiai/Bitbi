@@ -12,7 +12,8 @@
   .credits-hero,
   .credits-shell,
   .credits-workspace-nav,
-  .credits-onboarding {
+  .credits-onboarding,
+  .credits-continuity {
     width: min(var(--container-management), calc(100vw - clamp(1rem, 4vw, 4rem)));
     margin-inline: auto;
   }
@@ -219,6 +220,74 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.65rem;
+  }
+
+  .credits-continuity {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.55fr);
+    gap: 1rem;
+    align-items: stretch;
+    margin-block: 0 1.25rem;
+    padding: clamp(1rem, 2vw, 1.35rem);
+    border: 1px solid rgba(0, 240, 255, 0.16);
+    border-radius: 1.25rem;
+    background:
+      linear-gradient(135deg, rgba(0, 240, 255, 0.075), rgba(255, 179, 0, 0.05)),
+      rgba(255, 255, 255, 0.035);
+  }
+
+  .credits-continuity__copy {
+    display: grid;
+    align-content: start;
+    gap: 0.55rem;
+  }
+
+  .credits-continuity__copy h2,
+  .credits-continuity__copy p,
+  .credits-continuity__item h3,
+  .credits-continuity__item p {
+    margin: 0;
+  }
+
+  .credits-continuity__copy h2 {
+    color: rgba(255, 255, 255, 0.94);
+    font-size: clamp(1.08rem, 1.8vw, 1.32rem);
+    line-height: 1.25;
+  }
+
+  .credits-continuity__copy p,
+  .credits-continuity__item p {
+    color: rgba(255, 255, 255, 0.64);
+    line-height: 1.55;
+  }
+
+  .credits-continuity__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+
+  .credits-continuity__item {
+    display: grid;
+    align-content: start;
+    gap: 0.7rem;
+    min-width: 0;
+    padding: 0.95rem;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 1rem;
+    background: rgba(0, 0, 0, 0.14);
+  }
+
+  .credits-continuity__item h3 {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.98rem;
+    line-height: 1.25;
+  }
+
+  .credits-continuity__item .credits-workspace-nav__link {
+    width: fit-content;
+    min-block-size: 2.5rem;
+    align-self: end;
   }
 
   .credits-legal {
@@ -731,20 +800,28 @@
     .credits-hero,
     .credits-shell,
     .credits-workspace-nav,
-    .credits-onboarding {
+    .credits-onboarding,
+    .credits-continuity {
       width: min(100% - 1rem, 100%);
     }
 
     .credits-workspace-nav,
     .credits-onboarding,
-    .credits-onboarding__steps {
+    .credits-onboarding__steps,
+    .credits-continuity,
+    .credits-continuity__grid {
       grid-template-columns: 1fr;
     }
 
     .credits-workspace-nav__actions,
     .credits-onboarding__actions,
+    .credits-continuity__item .credits-workspace-nav__link,
     .credits-workspace-nav__link {
       width: 100%;
+    }
+
+    .credits-continuity__item .credits-workspace-nav__link {
+      min-block-size: 2.75rem;
     }
 
     .credits-toolbar {

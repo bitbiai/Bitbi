@@ -1169,6 +1169,62 @@
         line-height: 1.4;
     }
 
+    .generate-lab__credit-recovery {
+        display: grid;
+        gap: 0.55rem;
+        padding: 0.85rem;
+        border: 1px solid rgba(var(--lab-accent-rgb), 0.16);
+        border-radius: 0.95rem;
+        background: rgba(var(--lab-accent-rgb), 0.07);
+    }
+
+    .generate-lab__credit-recovery strong {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 0.9rem;
+        line-height: 1.25;
+    }
+
+    .generate-lab__credit-recovery p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+
+    .generate-lab__credit-recovery-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .generate-lab__credit-recovery-actions a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-block-size: 2.35rem;
+        padding: 0.55rem 0.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        border-radius: 999px;
+        color: rgba(255, 224, 150, 0.95);
+        background: rgba(0, 0, 0, 0.16);
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        line-height: 1.2;
+        text-align: center;
+        text-decoration: none;
+        text-transform: uppercase;
+    }
+
+    .generate-lab__credit-recovery-actions a:hover,
+    .generate-lab__credit-recovery-actions a:focus-visible {
+        border-color: rgba(var(--lab-accent-rgb), 0.4);
+        background: rgba(var(--lab-accent-rgb), 0.12);
+        outline: none;
+    }
+
     .generate-lab__text-link {
         color: rgba(255, 224, 150, 0.95);
         font-family: var(--font-mono);
@@ -2028,6 +2084,11 @@
             display: grid;
             gap: 0.45rem;
             justify-items: start;
+        }
+
+        .generate-lab__credit-recovery-actions a {
+            flex: 1 1 100%;
+            min-block-size: 2.75rem;
         }
 
         .generate-lab-ref-images__grid,

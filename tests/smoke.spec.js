@@ -2803,6 +2803,23 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labPrompt')).toBeVisible();
     await expect(page.locator('.generate-lab__composer-flow')).toBeVisible();
     await expect(page.locator('.generate-lab__composer-flow')).toContainText('Backend validation confirms final credits.');
+    await expect(page.locator('#labCreditRecovery')).toContainText('Low or unknown credits?');
+    await expect(page.locator('#labCreditRecovery')).toContainText('Backend validation remains final.');
+    await expect(page.locator('#labCreditRecovery').getByRole('link', { name: 'Review Credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member&source=generate-lab',
+    );
+    await expect(page.locator('#labCreditRecovery').getByRole('link', { name: 'Check saved assets' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
+    );
+    const creditRecoveryLinks = await page.locator('#labCreditRecovery a').evaluateAll((links) =>
+      links.map((link) => {
+        const rect = link.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      })
+    );
+    expect(creditRecoveryLinks.every((rect) => rect.width >= 120 && rect.height >= 42)).toBe(true);
     await expect(page.locator('#labCurrentResult')).toBeVisible();
     await expect(page.locator('#labCurrentResult')).toContainText('No preview yet');
     await expect(page.locator('#labJumpToPreview')).toBeVisible();

@@ -6850,6 +6850,19 @@ test.describe('Credits dashboard live credit packs', () => {
       'href',
       '/account/assets-manager.html?source=credits',
     );
+    const continuity = page.locator('#creditsContinuityPanel');
+    await expect(continuity).toContainText('Credits help you create; Assets stores what you save');
+    await expect(continuity).toContainText('Low or unknown credits should send you here first.');
+    await expect(continuity).toContainText('Deleting or moving assets affects your library view, not the credit ledger.');
+    await expect(continuity.getByRole('link', { name: 'Review pricing' })).toHaveAttribute('href', '/pricing.html#pricingOffers');
+    await expect(continuity.getByRole('link', { name: 'Open saved assets' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=credits&recent=1#generate-lab-recent',
+    );
+    await expect(continuity.getByRole('link', { name: 'Check profile' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?returnContext=credits#profileCompletionCard',
+    );
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
@@ -6928,6 +6941,32 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
+  test('member Credits continuity actions remain visible on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockCreditsAccount(page, { organizations: [] });
+    const response = await page.goto('/account/credits.html?scope=member');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+
+    const continuity = page.locator('#creditsContinuityPanel');
+    await expect(continuity).toBeVisible();
+    await expect(continuity).toContainText('Low or unknown credits');
+    await expect(continuity.getByRole('link', { name: 'Review pricing' })).toBeVisible();
+    await expect(continuity.getByRole('link', { name: 'Open saved assets' })).toBeVisible();
+    await expect(continuity.getByRole('link', { name: 'Check profile' })).toBeVisible();
+
+    const linkMetrics = await continuity.locator('.credits-workspace-nav__link').evaluateAll((links) =>
+      links.map((link) => {
+        const rect = link.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      })
+    );
+    expect(linkMetrics).toHaveLength(3);
+    expect(linkMetrics.every((rect) => rect.width >= 240 && rect.width <= 390 && rect.height >= 42)).toBe(true);
+    const hasDocumentOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(hasDocumentOverflow).toBe(false);
+  });
+
   test('renders German member Credits summary and ledger expansion labels', async ({ page }) => {
     const currentRows = makeCreditLedgerRows({
       prefix: 'de_current_member_activity',
@@ -6994,6 +7033,15 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Gekaufte Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('4.000 Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Legacy-/Bonus-Credits');
+    const continuity = page.locator('#creditsContinuityPanel');
+    await expect(continuity).toContainText('Credits helfen beim Erstellen; Assets speichert, was Sie behalten');
+    await expect(continuity).toContainText('Niedrige oder unbekannte Credits führen zuerst hierher.');
+    await expect(continuity).toContainText('Löschen oder Verschieben ändert die Bibliotheksansicht, nicht das Credit-Ledger.');
+    await expect(continuity.getByRole('link', { name: 'Preise prüfen' })).toHaveAttribute('href', '/de/pricing.html#pricingOffers');
+    await expect(continuity.getByRole('link', { name: 'Gespeicherte Assets öffnen' })).toHaveAttribute(
+      'href',
+      '/de/account/assets-manager.html?source=credits&recent=1#generate-lab-recent',
+    );
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('BITBI Pro');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Nächste Verlängerung');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Aktiv');
@@ -7484,6 +7532,16 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.assets-manager__first-run').getByRole('link', { name: 'Check credits' })).toHaveAttribute(
       'href',
       '/account/credits.html?scope=member',
+    );
+    await expect(page.getByRole('heading', { name: 'Storage is separate from credits' })).toBeVisible();
+    await expect(page.locator('.assets-manager__overview')).toContainText('Credits are reviewed in Credits and consumed by generation, not folder organization.');
+    await expect(page.locator('.assets-manager__overview').getByRole('link', { name: 'Review credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member&source=assets-manager',
+    );
+    await expect(page.locator('.assets-manager__overview').getByRole('link', { name: 'Create more' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=assets-manager&step=create',
     );
     await expect(page.locator('#studioStorageInsight')).toContainText('0 MB / 50 MB used. 50 MB remains available');
     await expect(page.locator('#studioViewContext')).toContainText('Folder overview');

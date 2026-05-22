@@ -319,6 +319,12 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('Keep creating from your credits context');
     expect(enCredits).toContain('credits-onboarding');
     expect(enCredits).toContain('How credits fit into creation');
+    expect(enCredits).toContain('id="creditsContinuityPanel"');
+    expect(enCredits).toContain('Credits help you create; Assets stores what you save');
+    expect(enCredits).toContain('Low or unknown credits should send you here first.');
+    expect(enCredits).toContain('href="/pricing.html#pricingOffers"');
+    expect(enCredits).toContain('href="/account/assets-manager.html?source=credits&amp;recent=1#generate-lab-recent"');
+    expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileCompletionCard"');
     expect(enCredits).toContain('href="/generate-lab/"');
     expect(enCredits).toContain('href="/generate-lab/?source=credits"');
     expect(enCredits).toContain('href="/account/assets-manager.html"');
@@ -336,6 +342,12 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('Aus dem Credits-Kontext weiter erstellen');
     expect(deCredits).toContain('credits-onboarding');
     expect(deCredits).toContain('So passen Credits zur Erstellung');
+    expect(deCredits).toContain('id="creditsContinuityPanel"');
+    expect(deCredits).toContain('Credits helfen beim Erstellen; Assets speichert, was Sie behalten');
+    expect(deCredits).toContain('Niedrige oder unbekannte Credits führen zuerst hierher.');
+    expect(deCredits).toContain('href="/de/pricing.html#pricingOffers"');
+    expect(deCredits).toContain('href="/de/account/assets-manager.html?source=credits&amp;recent=1#generate-lab-recent"');
+    expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileCompletionCard"');
     expect(deCredits).toContain('href="/de/generate-lab/"');
     expect(deCredits).toContain('href="/de/generate-lab/?source=credits"');
     expect(deCredits).toContain('href="/de/account/assets-manager.html"');
@@ -365,6 +377,10 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Action result');
     expect(enAssets).toContain('Rename, move, delete, and folder results appear here after backend confirmation.');
     expect(enAssets).toContain('Folder and selection tools stay here on phones.');
+    expect(enAssets).toContain('Storage is separate from credits');
+    expect(enAssets).toContain('Credits are reviewed in Credits and consumed by generation, not folder organization.');
+    expect(enAssets).toContain('href="/account/credits.html?scope=member&amp;source=assets-manager"');
+    expect(enAssets).toContain('href="/generate-lab/?source=assets-manager&amp;step=create"');
     expect(enAssets).toContain('Selection mode active');
     expect(enAssets).toContain('On phones, selected count and bulk actions stay directly below this guide.');
     expect(enAssets).toContain('Move selected assets');
@@ -398,6 +414,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Aktionsergebnis');
     expect(deAssets).toContain('Ergebnisse von Umbenennen, Verschieben, Löschen und Ordneraktionen erscheinen hier nach Backend-Bestätigung.');
     expect(deAssets).toContain('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
+    expect(deAssets).toContain('Speicher ist getrennt von Credits');
+    expect(deAssets).toContain('Credits werden in Credits geprüft und durch Generierung verbraucht, nicht durch Ordnerorganisation.');
+    expect(deAssets).toContain('href="/de/account/credits.html?scope=member&amp;source=assets-manager"');
+    expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager&amp;step=create"');
     expect(deAssets).toContain('Auswahlmodus aktiv');
     expect(deAssets).toContain('Auf Smartphones bleiben ausgewählte Anzahl und Bulk-Aktionen direkt unter dieser Hilfe sichtbar.');
     expect(deAssets).toContain('Ausgewählte Assets verschieben');
@@ -428,6 +448,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).toContain('The full Generate Lab workspace is available below');
     expect(enGenerate).toContain('generate-lab__composer-flow');
     expect(enGenerate).toContain('Backend validation confirms final credits');
+    expect(enGenerate).toContain('id="labCreditRecovery"');
+    expect(enGenerate).toContain('Low or unknown credits?');
+    expect(enGenerate).toContain('Open Credits to refresh balance');
+    expect(enGenerate).toContain('href="/account/credits.html?scope=member&amp;source=generate-lab"');
+    expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent"');
     expect(enGenerate).toContain('The result stays visible after save errors');
     expect(enGenerate).toContain('id="labCurrentResult"');
     expect(enGenerate).toContain('No preview yet');
@@ -454,6 +479,11 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar');
     expect(deGenerate).toContain('generate-lab__composer-flow');
     expect(deGenerate).toContain('Backend-Validierung bestätigt finale Credits');
+    expect(deGenerate).toContain('id="labCreditRecovery"');
+    expect(deGenerate).toContain('Niedrige oder unbekannte Credits?');
+    expect(deGenerate).toContain('Öffnen Sie Credits, um das Guthaben zu aktualisieren');
+    expect(deGenerate).toContain('href="/de/account/credits.html?scope=member&amp;source=generate-lab"');
+    expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent"');
     expect(deGenerate).toContain('Das Ergebnis bleibt nach Speicherfehlern sichtbar');
     expect(deGenerate).toContain('id="labCurrentResult"');
     expect(deGenerate).toContain('Noch keine Vorschau');
@@ -470,6 +500,10 @@ test.describe('Bilingual locale pages', () => {
     for (const html of [deProfile, deCredits, deAssets, deGenerate]) {
       expect(html).not.toContain('/de/admin');
     }
+    expect(localeJs).toContain("creditBalanceUnavailable: 'Credit balance unavailable. Review Credits, then retry generation.'");
+    expect(localeJs).toContain("creditBalanceUnavailable: 'Credit-Guthaben nicht verfügbar. Prüfen Sie Credits und versuchen Sie die Generierung erneut.'");
+    expect(localeJs).toContain("costInsightLow: 'Estimated {cost}. Review Credits or choose a lower-cost model before retrying; backend validation remains final.'");
+    expect(localeJs).toContain("costInsightLow: 'Geschätzt {cost}. Prüfen Sie Credits oder wählen Sie ein günstigeres Modell, bevor Sie es erneut versuchen; die Backend-Validierung bleibt final.'");
   });
 
   test('account recovery and verification pages provide localized trust guidance', () => {

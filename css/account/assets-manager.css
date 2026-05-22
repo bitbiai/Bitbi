@@ -507,7 +507,7 @@
 
     .assets-manager__overview {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.5rem), 1fr));
         gap: var(--space-4);
         margin-block: 0 var(--space-5);
         padding-block-end: var(--space-5);
@@ -546,6 +546,40 @@
         color: rgba(255, 255, 255, 0.62);
         font-size: 0.9rem;
         line-height: 1.55;
+    }
+
+    .assets-manager__overview-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin-block-start: var(--space-1);
+    }
+
+    .assets-manager__overview-actions a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-block-size: 2.35rem;
+        padding: 0.52rem 0.72rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        color: rgba(0, 240, 255, 0.9);
+        background: rgba(0, 240, 255, 0.07);
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        line-height: 1.2;
+        text-align: center;
+        text-decoration: none;
+        text-transform: uppercase;
+    }
+
+    .assets-manager__overview-actions a:hover,
+    .assets-manager__overview-actions a:focus-visible {
+        border-color: rgba(0, 240, 255, 0.38);
+        background: rgba(0, 240, 255, 0.12);
+        outline: none;
     }
 
     .assets-manager__toolbar {
@@ -647,6 +681,11 @@
         .assets-manager__overview-item {
             min-block-size: 0;
             padding: var(--space-3);
+        }
+
+        .assets-manager__overview-actions a {
+            flex: 1 1 100%;
+            min-block-size: 2.75rem;
         }
 
         .assets-manager__toolbar {
