@@ -357,6 +357,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Library view');
     expect(enAssets).toContain('Refresh latest');
     expect(enAssets).toContain('Folder and selection tools stay here on phones.');
+    expect(enAssets).toContain('Selection mode active');
+    expect(enAssets).toContain('Move selected assets');
+    expect(enAssets).toContain('Your selection stays available if saving fails.');
     expect(enAssets).toContain('href="/generate-lab/?source=assets-manager&amp;step=create"');
     expect(enAssets).toContain('href="/generate-lab/"');
     expect(enAssets).toContain('href="/generate-lab/?source=assets-manager"');
@@ -379,6 +382,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Bibliotheksansicht');
     expect(deAssets).toContain('Neueste aktualisieren');
     expect(deAssets).toContain('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
+    expect(deAssets).toContain('Auswahlmodus aktiv');
+    expect(deAssets).toContain('Ausgewählte Assets verschieben');
+    expect(deAssets).toContain('Ihre Auswahl bleibt verfügbar, wenn Speichern fehlschlägt.');
     expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager&amp;step=create"');
     expect(deAssets).toContain('href="/de/generate-lab/"');
     expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager"');

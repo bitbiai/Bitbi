@@ -313,21 +313,40 @@
 
                 <!-- Bulk Actions Bar (visible in selection mode) -->
                 <div id="studioBulkBar" class="studio__bulk-bar">
-                    <span id="studioBulkCount" class="studio__bulk-count">0 selected</span>
+                    <span id="studioBulkCount" class="studio__bulk-count" aria-live="polite">0 selected</span>
                     <button type="button" id="studioBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Rename</button>
                     <button type="button" id="studioBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
                     <button type="button" id="studioBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
                     <button type="button" id="studioBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
                 </div>
 
-                <div id="studioRenameForm" class="studio__bulk-move-form">
+                <section id="studioSelectionGuide" class="studio__selection-guide" aria-live="polite" aria-labelledby="studioSelectionGuideTitle" hidden>
+                    <div>
+                        <p class="studio__selection-eyebrow">Selection mode</p>
+                        <h4 id="studioSelectionGuideTitle" class="studio__selection-title">Selection mode active</h4>
+                        <p id="studioSelectionGuideCopy" class="studio__selection-copy">Select saved assets in the current view. Rename works with one item; Move and Delete apply to selected assets after confirmation.</p>
+                    </div>
+                    <p id="studioSelectionGuideStatus" class="studio__selection-status">0 selected</p>
+                </section>
+
+                <div id="studioRenameForm" class="studio__bulk-move-form" aria-labelledby="studioRenameTitle">
+                    <div class="studio__bulk-form-copy">
+                        <h4 id="studioRenameTitle">Rename selected item</h4>
+                        <p id="studioRenameHelp">Your selection stays available if saving fails. Retry, refresh, or cancel without changing the library.</p>
+                    </div>
+                    <label class="sr-only" for="studioRenameInput">New name</label>
                     <input type="text" id="studioRenameInput" class="studio__new-folder-input" placeholder="New name" maxlength="1000">
                     <button type="button" id="studioRenameConfirm" class="studio__new-folder-save">Rename</button>
                     <button type="button" id="studioRenameCancel" class="studio__new-folder-cancel">Cancel</button>
                 </div>
 
                 <!-- Bulk Move Folder Picker (hidden by default) -->
-                <div id="studioBulkMoveForm" class="studio__bulk-move-form">
+                <div id="studioBulkMoveForm" class="studio__bulk-move-form" aria-labelledby="studioBulkMoveTitle">
+                    <div class="studio__bulk-form-copy">
+                        <h4 id="studioBulkMoveTitle">Move selected assets</h4>
+                        <p id="studioBulkMoveHelp">Choose a target folder. If the move fails, selected assets stay selected for retry or cancel.</p>
+                    </div>
+                    <label class="sr-only" for="studioBulkMoveSelect">Target folder</label>
                     <select id="studioBulkMoveSelect" class="studio__bulk-move-select"></select>
                     <button type="button" id="studioBulkMoveConfirm" class="studio__new-folder-save">Move</button>
                     <button type="button" id="studioBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>

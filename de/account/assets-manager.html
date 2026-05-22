@@ -317,21 +317,40 @@
 
                 <!-- Bulk Actions Bar (visible in selection mode) -->
                 <div id="studioBulkBar" class="studio__bulk-bar">
-                    <span id="studioBulkCount" class="studio__bulk-count">0 ausgewählt</span>
+                    <span id="studioBulkCount" class="studio__bulk-count" aria-live="polite">0 ausgewählt</span>
                     <button type="button" id="studioBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Umbenennen</button>
                     <button type="button" id="studioBulkMove" class="studio__bulk-btn studio__bulk-btn--move">In Ordner verschieben</button>
                     <button type="button" id="studioBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Auswahl löschen</button>
                     <button type="button" id="studioBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Abbrechen</button>
                 </div>
 
-                <div id="studioRenameForm" class="studio__bulk-move-form">
+                <section id="studioSelectionGuide" class="studio__selection-guide" aria-live="polite" aria-labelledby="studioSelectionGuideTitle" hidden>
+                    <div>
+                        <p class="studio__selection-eyebrow">Auswahlmodus</p>
+                        <h4 id="studioSelectionGuideTitle" class="studio__selection-title">Auswahlmodus aktiv</h4>
+                        <p id="studioSelectionGuideCopy" class="studio__selection-copy">Wählen Sie gespeicherte Assets in der aktuellen Ansicht. Umbenennen funktioniert mit einem Element; Verschieben und Löschen betreffen ausgewählte Assets erst nach Bestätigung.</p>
+                    </div>
+                    <p id="studioSelectionGuideStatus" class="studio__selection-status">0 ausgewählt</p>
+                </section>
+
+                <div id="studioRenameForm" class="studio__bulk-move-form" aria-labelledby="studioRenameTitle">
+                    <div class="studio__bulk-form-copy">
+                        <h4 id="studioRenameTitle">Ausgewähltes Element umbenennen</h4>
+                        <p id="studioRenameHelp">Ihre Auswahl bleibt verfügbar, wenn Speichern fehlschlägt. Versuchen Sie es erneut, aktualisieren Sie oder brechen Sie ab, ohne die Bibliothek zu ändern.</p>
+                    </div>
+                    <label class="sr-only" for="studioRenameInput">Neuer Name</label>
                     <input type="text" id="studioRenameInput" class="studio__new-folder-input" placeholder="Neuer Name" maxlength="1000">
                     <button type="button" id="studioRenameConfirm" class="studio__new-folder-save">Umbenennen</button>
                     <button type="button" id="studioRenameCancel" class="studio__new-folder-cancel">Abbrechen</button>
                 </div>
 
                 <!-- Bulk Move Folder Picker (hidden by default) -->
-                <div id="studioBulkMoveForm" class="studio__bulk-move-form">
+                <div id="studioBulkMoveForm" class="studio__bulk-move-form" aria-labelledby="studioBulkMoveTitle">
+                    <div class="studio__bulk-form-copy">
+                        <h4 id="studioBulkMoveTitle">Ausgewählte Assets verschieben</h4>
+                        <p id="studioBulkMoveHelp">Wählen Sie einen Zielordner. Wenn das Verschieben fehlschlägt, bleiben die ausgewählten Assets für Wiederholen oder Abbrechen markiert.</p>
+                    </div>
+                    <label class="sr-only" for="studioBulkMoveSelect">Zielordner</label>
                     <select id="studioBulkMoveSelect" class="studio__bulk-move-select"></select>
                     <button type="button" id="studioBulkMoveConfirm" class="studio__new-folder-save">Verschieben</button>
                     <button type="button" id="studioBulkMoveCancel" class="studio__new-folder-cancel">Abbrechen</button>

@@ -17,6 +17,7 @@ import {
 import {
     initStudioDeck,
     initStudioFolderDeck,
+    openStudioImageModal,
     openStudioVideoModal,
 } from './studio-deck.js?v=__ASSET_VERSION__';
 import {
@@ -385,6 +386,9 @@ export function createSavedAssetsBrowser({
     const $bulkMove = refs.bulkMove;
     const $bulkDelete = refs.bulkDelete;
     const $bulkCancel = refs.bulkCancel;
+    const $selectionGuide = refs.selectionGuide;
+    const $selectionGuideCopy = refs.selectionGuideCopy;
+    const $selectionGuideStatus = refs.selectionGuideStatus;
     const $renameForm = refs.renameForm;
     const $renameInput = refs.renameInput;
     const $renameConfirm = refs.renameConfirm;
@@ -690,6 +694,17 @@ export function createSavedAssetsBrowser({
 
     function openTextAsset(asset) {
         openExternalAsset(asset?.file_url || '');
+    }
+
+    function openImageAsset(asset) {
+        const previewUrl = asset?.medium_url || asset?.original_url || asset?.file_url || asset?.thumb_url || '';
+        const originalUrl = asset?.original_url || asset?.file_url || previewUrl;
+        if (!previewUrl) return;
+        openStudioImageModal(
+            previewUrl,
+            asset?.title || asset?.preview_text || localeText('assets.savedImage'),
+            originalUrl,
+        );
     }
 
     function openVideoAsset(asset) {
@@ -1028,12 +1043,39 @@ export function createSavedAssetsBrowser({
         return selectionScope === 'folder' ? localeText('assets.folder').toLowerCase() : localeText('assets.asset').toLowerCase();
     }
 
+    function getSelectionCountLabel(count = selectedIds.size) {
+        return count >= MAX_BULK_SELECT
+            ? localeText('assets.selectedMax', { count })
+            : localeText('assets.selected', { count });
+    }
+
+    function updateSelectionGuide() {
+        if (!$selectionGuide) return;
+        if (!selectMode) {
+            $selectionGuide.hidden = true;
+            if ($selectionGuideStatus) $selectionGuideStatus.textContent = '';
+            return;
+        }
+
+        const folderSelection = selectionScope === 'folder';
+        const countLabel = getSelectionCountLabel();
+        $selectionGuide.hidden = false;
+        if ($selectionGuideCopy) {
+            $selectionGuideCopy.textContent = folderSelection
+                ? localeText('assets.selectionFolderCopy')
+                : localeText('assets.selectionAssetCopy');
+        }
+        if ($selectionGuideStatus) {
+            $selectionGuideStatus.textContent = folderSelection
+                ? localeText('assets.selectionFolderStatus', { countLabel })
+                : localeText('assets.selectionAssetStatus', { countLabel });
+        }
+    }
+
     function updateBulkCount() {
         const count = selectedIds.size;
         if ($bulkCount) {
-            $bulkCount.textContent = count >= MAX_BULK_SELECT
-                ? localeText('assets.selectedMax', { count })
-                : localeText('assets.selected', { count });
+            $bulkCount.textContent = getSelectionCountLabel(count);
         }
 
         if ($bulkRename) {
@@ -1056,6 +1098,7 @@ export function createSavedAssetsBrowser({
         if (folderSelection) {
             $bulkMoveForm?.classList.remove('visible');
         }
+        updateSelectionGuide();
         updateAssetPaginationUi();
     }
 
@@ -1258,6 +1301,19 @@ export function createSavedAssetsBrowser({
         const overlay = document.createElement('div');
         overlay.className = 'studio__image-overlay';
 
+        const previewButton = document.createElement('button');
+        previewButton.type = 'button';
+        previewButton.className = 'studio__image-preview-action';
+        previewButton.textContent = localeText('assets.previewAsset');
+        previewButton.setAttribute('aria-label', localeText('assets.previewAssetWithTitle', {
+            title: asset.title || asset.preview_text || localeText('assets.savedImage'),
+        }));
+        previewButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (selectMode) return;
+            openImageAsset(asset);
+        });
+
         const publishButton = document.createElement('button');
         publishButton.type = 'button';
         publishButton.className = `studio__image-publish ${isPublishedImageAsset(asset) ? 'studio__image-publish--public' : ''}`;
@@ -1294,13 +1350,14 @@ export function createSavedAssetsBrowser({
             if (!result.ok) {
                 deleteButton.disabled = false;
                 deleteButton.textContent = localeText('assets.delete');
-                showMsg(result.error || localeText('assets.deleteFailed'), 'error');
+                showMsg(localeText('assets.deleteFailedHelp'), 'error');
                 return;
             }
             await refresh();
             showMsg(localeText('assets.imageDeleted'), 'success');
         });
 
+        overlay.appendChild(previewButton);
         overlay.appendChild(publishButton);
         overlay.appendChild(deleteButton);
         item.appendChild(overlay);
@@ -1418,6 +1475,19 @@ export function createSavedAssetsBrowser({
         const actions = document.createElement('div');
         actions.className = 'studio__asset-actions';
 
+        if (!isSound && !isVideo && asset.file_url) {
+            const openButton = document.createElement('button');
+            openButton.type = 'button';
+            openButton.className = 'studio__asset-preview-action';
+            openButton.textContent = localeText('assets.openFile');
+            openButton.setAttribute('aria-label', localeText('assets.openFileWithTitle', { title: getFileTitle(asset) }));
+            openButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                openTextAsset(asset);
+            });
+            actions.appendChild(openButton);
+        }
+
         if (isVideo || isSound) {
             const isPublished = isPublishedAsset(asset);
             const pubBtn = document.createElement('button');
@@ -1461,7 +1531,7 @@ export function createSavedAssetsBrowser({
             if (!result.ok) {
                 deleteButton.disabled = false;
                 deleteButton.textContent = localeText('assets.delete');
-                showMsg(result.error || localeText('assets.deleteFailed'), 'error');
+                showMsg(localeText('assets.deleteFailedHelp'), 'error');
                 return;
             }
             await refresh();
@@ -1727,7 +1797,7 @@ export function createSavedAssetsBrowser({
             $renameConfirm.textContent = localeText('assets.rename');
         }
         if (!result.ok) {
-            showMsg(result.error || localeText('assets.renameFailed'), 'error');
+            showMsg(localeText('assets.renameFailedHelp'), 'error');
             return;
         }
 
@@ -1773,7 +1843,7 @@ export function createSavedAssetsBrowser({
             $bulkMoveConfirm.textContent = localeText('assets.move');
         }
         if (!result.ok) {
-            showMsg(result.error || localeText('assets.moveFailed'), 'error');
+            showMsg(localeText('assets.moveFailedHelp'), 'error');
             return;
         }
         const movedCount = selectedIds.size;
@@ -1805,7 +1875,7 @@ export function createSavedAssetsBrowser({
             $bulkDelete.textContent = localeText('assets.deleteSelected');
         }
         if (!result.ok) {
-            showMsg(result.error || localeText('assets.deleteAssetsFailed'), 'error');
+            showMsg(localeText('assets.deleteAssetsFailedHelp'), 'error');
             return;
         }
         exitSelectMode();
@@ -1896,7 +1966,7 @@ export function createSavedAssetsBrowser({
             $deleteFolderConfirm.textContent = localeText('assets.delete');
         }
         if (!result.ok) {
-            showMsg(result.error || localeText('assets.folderDeleteFailed'), 'error');
+            showMsg(localeText('assets.folderDeleteFailedHelp'), 'error');
             return;
         }
 

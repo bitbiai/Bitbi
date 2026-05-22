@@ -9016,6 +9016,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Delete folder' })).toBeVisible();
     await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Select assets' })).toBeVisible();
     await page.locator('#studioMobileActionsToggle').click();
+    await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: /Preview Mobile Asset 1/ })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Publish' })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Delete' })).toBeVisible();
     await expect
@@ -9411,6 +9412,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(4);
     await expect(page.locator('#studioImageGrid .studio__asset-open')).toHaveCount(0);
+    await expect(page.locator('#studioImageGrid [data-asset-id="txt-mobile-1"]').getByRole('button', { name: 'Open file Launch Notes' })).toBeVisible();
 
     const textCardColor = await page.locator('#studioImageGrid [data-asset-id="txt-mobile-1"]').evaluate(
       (node) => getComputedStyle(node).backgroundColor,
@@ -9696,15 +9698,22 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(3);
 
     await page.locator('#studioSelectBtn').click();
+    await expect(page.locator('#studioSelectionGuide')).toBeVisible();
+    await expect(page.locator('#studioSelectionGuide')).toContainText('Selection mode active');
+    await expect(page.locator('#studioSelectionGuideStatus')).toContainText('0 selected');
     await page.locator('#studioImageGrid .studio__image-item').nth(0).click();
     await page.locator('#studioImageGrid .studio__image-item').nth(1).click();
     await page.locator('#studioImageGrid .studio__image-item').nth(2).click();
     await expect(page.locator('#studioBulkCount')).toHaveText('3 selected');
+    await expect(page.locator('#studioSelectionGuideStatus')).toContainText('3 selected');
 
     await page.locator('#studioBulkMove').click();
+    await expect(page.locator('#studioBulkMoveForm')).toContainText('Move selected assets');
+    await expect(page.locator('#studioBulkMoveForm')).toContainText('selected assets stay selected');
     await page.selectOption('#studioBulkMoveSelect', 'folder-research');
     await page.locator('#studioBulkMoveConfirm').click();
     await expect(page.locator('#studioGalleryMsg')).toContainText('3 assets moved.');
+    await expect(page.locator('#studioSelectionGuide')).toBeHidden();
 
     await page.locator('#studioFolderBackBtn').click();
     await page.locator('#studioFolderGrid .studio__folder-card').nth(3).click();
@@ -9714,11 +9723,67 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('.studio__image-item--text').click();
     await page.locator('.studio__image-item--sound').click();
     await expect(page.locator('#studioBulkCount')).toHaveText('2 selected');
+    await expect(page.locator('#studioSelectionGuideStatus')).toContainText('2 selected');
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#studioBulkDelete').click();
     await expect(page.locator('#studioGalleryMsg')).toContainText('2 assets deleted.');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
     await expect(page.locator('#studioImageGrid')).toContainText('Shared Poster');
+  });
+
+  test('account Assets Manager keeps selection and recovery guidance when bulk move fails', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-source', name: 'Source', slug: 'source', created_at: '2026-04-10T09:00:00.000Z' },
+          { id: 'folder-target', name: 'Target', slug: 'target', created_at: '2026-04-09T09:00:00.000Z' },
+        ],
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'img-recover-1',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Recoverable Poster',
+            preview_text: 'Recoverable Poster',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 17,
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/ai/images/img-recover-1/file',
+            original_url: '/api/ai/images/img-recover-1/file',
+          },
+        ],
+      },
+    });
+    await page.route('**/api/ai/assets/bulk-move', async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'raw backend failure should stay hidden' }),
+      });
+    });
+
+    await page.goto('/account/assets-manager.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await page.locator('#studioSelectBtn').click();
+    await page.locator('#studioImageGrid [data-asset-id="img-recover-1"]').click();
+    await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
+
+    await page.locator('#studioBulkMove').click();
+    await page.selectOption('#studioBulkMoveSelect', 'folder-target');
+    await page.locator('#studioBulkMoveConfirm').click();
+
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Move could not be saved');
+    await expect(page.locator('#studioGalleryMsg')).not.toContainText('raw backend failure');
+    await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
+    await expect(page.locator('#studioBulkMoveForm')).toBeVisible();
+    await expect(page.locator('#studioSelectionGuideStatus')).toContainText('1 selected');
   });
 
   test('account Assets Manager gates rename to exactly one selection and renames folders plus saved assets safely', async ({
