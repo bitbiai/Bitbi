@@ -6357,6 +6357,8 @@ test.describe('Pricing credit-pack rollout', () => {
     });
     await page.goto('/pricing.html');
     await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits & Pro');
+    await expect(page.locator('.pricing-hero__link[href="/generate-lab/?source=pricing-hero&step=create"]')).toContainText('Start creating');
+    await expect(page.locator('.pricing-hero__link[href="#pricingOffers"]')).toContainText('Choose credits');
     await expect(page.locator('.pricing-card')).toHaveCount(3);
     await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('Create account to buy');
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Create account to buy');
@@ -6449,6 +6451,9 @@ test.describe('Pricing credit-pack rollout', () => {
 
     await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits & Pro');
     await expect(page.locator('.pricing-hero__subtitle')).toHaveText('Flexible credits for image, video, music, and asset generation.');
+    await expect(page.locator('.pricing-hero__link[href="/generate-lab/?source=pricing-hero&step=create"]')).toContainText('Start creating');
+    await expect(page.locator('.pricing-hero__link[href="#pricingOffers"]')).toContainText('Choose credits');
+    await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Compare options');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
     await expect(page.locator('.pricing-card')).toHaveCount(3);
     await expect(page.locator('.pricing-card__title')).toHaveText(['BITBI Pro', 'Starter Credits', 'Creator Credits']);
@@ -6484,6 +6489,20 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('#pricingJourney').getByRole('link', { name: 'View Assets Manager' })).toHaveAttribute(
       'href',
       '/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent',
+    );
+    await expect(page.locator('#pricingContinuity')).toContainText('From plan choice to the next prompt');
+    await expect(page.locator('#pricingContinuity')).toContainText('When preview is ready');
+    await expect(page.locator('#pricingContinuity').getByRole('link', { name: 'Create in Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=pricing-continuity&step=create',
+    );
+    await expect(page.locator('#pricingContinuity').getByRole('link', { name: 'Review credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?source=pricing-continuity',
+    );
+    await expect(page.locator('#pricingContinuity').getByRole('link', { name: 'Find saved output' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=pricing-continuity&recent=1#generate-lab-recent',
     );
     await expect(page.locator('#pricingAccountEntry')).toContainText('Your member path is ready');
     await expect(page.locator('#pricingAccountEntry')).toContainText('Generate Lab keeps estimated costs visible');

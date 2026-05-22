@@ -29,9 +29,10 @@ const COPY = Object.freeze({
         loading: 'Loading credit packs.',
         pricing: 'Pricing',
         subtitle: 'Flexible credits for image, video, music, and asset generation.',
-        heroCopy: 'Choose BITBI Pro for a monthly creative allowance, or buy one-time credits when you need extra room. Credits stay account-bound and checkout stays Stripe-hosted.',
-        heroPrimary: 'Choose an option',
-        heroSecondary: 'Compare options',
+        heroCopy: 'Choose BITBI Pro for a monthly creative allowance, or buy one-time credits when you need extra room. Credits stay account-bound, Generate Lab shows estimated costs, and checkout stays Stripe-hosted.',
+        heroPrimary: 'Start creating',
+        heroSecondary: 'Choose credits',
+        heroTertiary: 'Compare options',
         trust: ['Secure Stripe checkout', 'Credits for AI generation', 'Manage in account'],
         heroStats: Object.freeze([
             ['6000', 'monthly Pro credits'],
@@ -131,6 +132,17 @@ const COPY = Object.freeze({
         ]),
         journeyPrimary: 'Open Generate Lab',
         journeySecondary: 'View Assets Manager',
+        continuityKicker: 'Creation path',
+        continuityTitle: 'From plan choice to the next prompt',
+        continuityCopy: 'Use Pricing to understand credits, then move into Generate Lab with a clear next step. Saved previews return to Assets Manager, while Credits remains the place to review account-bound usage.',
+        continuityCards: Object.freeze([
+            Object.freeze(['Before you generate', 'Check the plan or credit pack that fits the session. Final balances still come from backend responses.']),
+            Object.freeze(['When preview is ready', 'Save account-bound output from Generate Lab before leaving the page. If saving fails, retry from the visible recovery state.']),
+            Object.freeze(['After saving', 'Open Assets Manager to refresh recent creations, clear filters, preview, organize, or publish when available.']),
+        ]),
+        continuityPrimary: 'Create in Generate Lab',
+        continuitySecondary: 'Review credits',
+        continuityTertiary: 'Find saved output',
         accountEntryKicker: 'Account entry',
         accountEntryTitleLoggedOut: 'Set up the account path before checkout',
         accountEntryTitleMember: 'Your member path is ready',
@@ -168,9 +180,10 @@ const COPY = Object.freeze({
         loading: 'Credit-Pakete werden geladen.',
         pricing: 'Preise',
         subtitle: 'Flexible Credits für Bild-, Video-, Musik- und Asset-Generierung.',
-        heroCopy: 'Wählen Sie BITBI Pro für ein monatliches Kreativkontingent oder kaufen Sie einmalige Credits, wenn Sie zusätzlichen Spielraum brauchen. Credits bleiben kontogebunden und der Checkout läuft über Stripe.',
-        heroPrimary: 'Option auswählen',
-        heroSecondary: 'Optionen vergleichen',
+        heroCopy: 'Wählen Sie BITBI Pro für ein monatliches Kreativkontingent oder kaufen Sie einmalige Credits, wenn Sie zusätzlichen Spielraum brauchen. Credits bleiben kontogebunden, Generate Lab zeigt geschätzte Kosten und der Checkout läuft über Stripe.',
+        heroPrimary: 'Jetzt erstellen',
+        heroSecondary: 'Credits wählen',
+        heroTertiary: 'Optionen vergleichen',
         trust: ['Sicherer Stripe-Checkout', 'Credits für KI-Generierung', 'Im Konto verwalten'],
         heroStats: Object.freeze([
             ['6000', 'monatliche Pro-Credits'],
@@ -270,6 +283,17 @@ const COPY = Object.freeze({
         ]),
         journeyPrimary: 'Generate Lab öffnen',
         journeySecondary: 'Assets Manager anzeigen',
+        continuityKicker: 'Erstellungspfad',
+        continuityTitle: 'Von der Auswahl zum nächsten Prompt',
+        continuityCopy: 'Nutzen Sie Preise, um Credits zu verstehen, und wechseln Sie dann mit klarem nächsten Schritt ins Generate Lab. Gespeicherte Vorschauen führen in den Assets Manager, während Credits der Ort für kontogebundene Nutzung bleibt.',
+        continuityCards: Object.freeze([
+            Object.freeze(['Vor der Generierung', 'Prüfen Sie, welches Paket oder welcher Plan zur Session passt. Finale Guthaben kommen weiterhin aus Backend-Antworten.']),
+            Object.freeze(['Wenn die Vorschau bereit ist', 'Speichern Sie kontogebundene Ergebnisse im Generate Lab, bevor Sie die Seite verlassen. Wenn Speichern fehlschlägt, nutzen Sie den sichtbaren Wiederholungszustand.']),
+            Object.freeze(['Nach dem Speichern', 'Öffnen Sie den Assets Manager, um neue Kreationen zu aktualisieren, Filter zu leeren, zu prüfen, zu ordnen oder bei Verfügbarkeit zu veröffentlichen.']),
+        ]),
+        continuityPrimary: 'Im Generate Lab erstellen',
+        continuitySecondary: 'Credits prüfen',
+        continuityTertiary: 'Gespeicherte Ergebnisse finden',
         accountEntryKicker: 'Konto-Einstieg',
         accountEntryTitleLoggedOut: 'Kontopfad vor dem Checkout klären',
         accountEntryTitleMember: 'Ihr Mitgliederpfad ist bereit',
@@ -574,13 +598,17 @@ function createHero() {
     actions.className = 'pricing-hero__actions';
     const primary = document.createElement('a');
     primary.className = 'pricing-hero__link pricing-hero__link--primary';
-    primary.href = '#pricingOffers';
+    primary.href = `${localizedHref('/generate-lab/')}?source=pricing-hero&step=create`;
     primary.textContent = t('heroPrimary');
     const secondary = document.createElement('a');
     secondary.className = 'pricing-hero__link';
-    secondary.href = '#pricingDecision';
+    secondary.href = '#pricingOffers';
     secondary.textContent = t('heroSecondary');
-    actions.append(primary, secondary);
+    const tertiary = document.createElement('a');
+    tertiary.className = 'pricing-hero__link';
+    tertiary.href = '#pricingDecision';
+    tertiary.textContent = t('heroTertiary');
+    actions.append(primary, secondary, tertiary);
     copy.appendChild(actions);
 
     const trust = document.createElement('div');
@@ -766,6 +794,54 @@ function createJourneySection() {
     actions.append(primary, secondary);
 
     section.append(head, list, actions);
+    return section;
+}
+
+function createContinuitySection() {
+    const section = document.createElement('section');
+    section.id = 'pricingContinuity';
+    section.className = 'pricing-continuity glass glass-card reveal visible';
+    section.setAttribute('aria-labelledby', 'pricingContinuityTitle');
+
+    const head = document.createElement('div');
+    head.className = 'pricing-continuity__head';
+    const title = createTextElement('h2', 'pricing-section-title', t('continuityTitle'));
+    title.id = 'pricingContinuityTitle';
+    head.append(
+        createTextElement('p', 'pricing-kicker', t('continuityKicker')),
+        title,
+        createTextElement('p', 'pricing-section-copy', t('continuityCopy')),
+    );
+
+    const grid = document.createElement('div');
+    grid.className = 'pricing-continuity__grid';
+    for (const [titleText, copyText] of (COPY[LOCALE] || COPY.en).continuityCards) {
+        const card = document.createElement('article');
+        card.className = 'pricing-continuity__card';
+        card.append(
+            createTextElement('h3', 'pricing-continuity__card-title', titleText),
+            createTextElement('p', 'pricing-continuity__card-copy', copyText),
+        );
+        grid.appendChild(card);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'pricing-continuity__actions pricing-journey__actions';
+    const generate = document.createElement('a');
+    generate.className = 'pricing-journey__link pricing-journey__link--primary';
+    generate.href = `${localizedHref('/generate-lab/')}?source=pricing-continuity&step=create`;
+    generate.textContent = t('continuityPrimary');
+    const credits = document.createElement('a');
+    credits.className = 'pricing-journey__link';
+    credits.href = `${localizedHref('/account/credits.html')}?source=pricing-continuity`;
+    credits.textContent = t('continuitySecondary');
+    const assets = document.createElement('a');
+    assets.className = 'pricing-journey__link';
+    assets.href = `${localizedHref('/account/assets-manager.html')}?source=pricing-continuity&recent=1#generate-lab-recent`;
+    assets.textContent = t('continuityTertiary');
+    actions.append(generate, credits, assets);
+
+    section.append(head, grid, actions);
     return section;
 }
 
@@ -1043,6 +1119,7 @@ function renderPricingExperience() {
     shell.appendChild(createLegalCheckout(auth));
     shell.appendChild(createGuideSection());
     shell.appendChild(createJourneySection());
+    shell.appendChild(createContinuitySection());
     shell.appendChild(createAccountEntrySection(auth));
     shell.appendChild(createFaqSection());
 

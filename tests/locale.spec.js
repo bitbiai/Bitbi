@@ -102,6 +102,10 @@ test.describe('Bilingual locale pages', () => {
   test('English and German root pages expose the expected lang attributes', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('#hero')).toContainText('Start creating from the public site');
+    await expect(page.locator('#hero')).toContainText('Backend credit checks');
+    await expect(page.locator('#hero a[href="/pricing.html#pricingJourney"]')).toContainText('Compare credits');
+    await expect(page.locator('#hero a[href="/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Open workspace');
     await expect(page.locator('#publicMemberJourney')).toContainText('From first idea to saved workspace');
     await expect(page.locator('#publicMemberJourney')).toContainText('Start in Generate Lab');
     await expect(page.locator('#publicMemberJourney a[href="/pricing.html#pricingJourney"]')).toContainText('View credits and Pro');
@@ -111,6 +115,10 @@ test.describe('Bilingual locale pages', () => {
 
     await page.goto('/de/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+    await expect(page.locator('#hero')).toContainText('Direkt von der öffentlichen Seite starten');
+    await expect(page.locator('#hero')).toContainText('Backend prüft Credits');
+    await expect(page.locator('#hero a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits vergleichen');
+    await expect(page.locator('#hero a[href="/de/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Arbeitsbereich öffnen');
     await expect(page.locator('#publicMemberJourney')).toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');
     await expect(page.locator('#publicMemberJourney')).toContainText('Im Generate Lab starten');
     await expect(page.locator('#publicMemberJourney a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits und Pro ansehen');
@@ -148,6 +156,8 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.getByRole('heading', { name: 'BITBI Credits & Pro' })).toBeVisible();
     await expect(page.locator('main')).toContainText('Flexible credits for image, video, music, and asset generation.');
     await expect(page.locator('main')).toContainText('Secure payment continues on pay.bitbi.ai.');
+    await expect(page.locator('.pricing-hero__link[href="/generate-lab/?source=pricing-hero&step=create"]')).toContainText('Start creating');
+    await expect(page.locator('.pricing-hero__link[href="#pricingOffers"]')).toContainText('Choose credits');
     await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Compare options');
     await expect(page.getByRole('heading', { name: 'Pick the option that fits today' })).toBeVisible();
     await expect(page.locator('#pricingDecision')).toContainText('Create every week');
@@ -155,6 +165,11 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#pricingJourney')).toContainText('Sign in, review credits, create in Generate Lab');
     await expect(page.locator('#pricingJourney a[href="/generate-lab/?source=pricing&step=create"]')).toContainText('Open Generate Lab');
     await expect(page.locator('#pricingJourney a[href="/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent"]')).toContainText('View Assets Manager');
+    await expect(page.getByRole('heading', { name: 'From plan choice to the next prompt' })).toBeVisible();
+    await expect(page.locator('#pricingContinuity')).toContainText('Before you generate');
+    await expect(page.locator('#pricingContinuity a[href="/generate-lab/?source=pricing-continuity&step=create"]')).toContainText('Create in Generate Lab');
+    await expect(page.locator('#pricingContinuity a[href="/account/credits.html?source=pricing-continuity"]')).toContainText('Review credits');
+    await expect(page.locator('#pricingContinuity a[href="/account/assets-manager.html?source=pricing-continuity&recent=1#generate-lab-recent"]')).toContainText('Find saved output');
     await expect(page.getByRole('heading', { name: 'Set up the account path before checkout' })).toBeVisible();
     await expect(page.locator('#pricingAccountEntry')).toContainText('Buying credits, saving generated output, and recovering workspace access require a BITBI account');
     await expect(page.locator('#pricingAccountEntry a[href="/account/forgot-password.html?source=pricing-account"]')).toContainText('Reset password');
@@ -166,6 +181,8 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.getByRole('heading', { name: 'BITBI Credits & Pro' })).toBeVisible();
     await expect(page.locator('main')).toContainText('Flexible Credits für Bild-, Video-, Musik- und Asset-Generierung.');
     await expect(page.locator('main')).toContainText('Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.');
+    await expect(page.locator('.pricing-hero__link[href="/de/generate-lab/?source=pricing-hero&step=create"]')).toContainText('Jetzt erstellen');
+    await expect(page.locator('.pricing-hero__link[href="#pricingOffers"]')).toContainText('Credits wählen');
     await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Optionen vergleichen');
     await expect(page.getByRole('heading', { name: 'Wählen Sie die passende Option für heute' })).toBeVisible();
     await expect(page.locator('#pricingDecision')).toContainText('Jede Woche erstellen');
@@ -173,6 +190,11 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#pricingJourney')).toContainText('Melden Sie sich an, prüfen Sie Credits');
     await expect(page.locator('#pricingJourney a[href="/de/generate-lab/?source=pricing&step=create"]')).toContainText('Generate Lab öffnen');
     await expect(page.locator('#pricingJourney a[href="/de/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent"]')).toContainText('Assets Manager anzeigen');
+    await expect(page.getByRole('heading', { name: 'Von der Auswahl zum nächsten Prompt' })).toBeVisible();
+    await expect(page.locator('#pricingContinuity')).toContainText('Vor der Generierung');
+    await expect(page.locator('#pricingContinuity a[href="/de/generate-lab/?source=pricing-continuity&step=create"]')).toContainText('Im Generate Lab erstellen');
+    await expect(page.locator('#pricingContinuity a[href="/de/account/credits.html?source=pricing-continuity"]')).toContainText('Credits prüfen');
+    await expect(page.locator('#pricingContinuity a[href="/de/account/assets-manager.html?source=pricing-continuity&recent=1#generate-lab-recent"]')).toContainText('Gespeicherte Ergebnisse finden');
     await expect(page.getByRole('heading', { name: 'Kontopfad vor dem Checkout klären' })).toBeVisible();
     await expect(page.locator('#pricingAccountEntry')).toContainText('Credits kaufen, generierte Ergebnisse speichern und den Arbeitsbereich wiederherstellen erfordern ein BITBI-Konto');
     await expect(page.locator('#pricingAccountEntry a[href="/de/account/forgot-password.html?source=pricing-account"]')).toContainText('Passwort zurücksetzen');
@@ -636,6 +658,13 @@ test.describe('Bilingual locale pages', () => {
       'Recover access without losing the path',
       'Workspace priority',
       'How BITBI works',
+      'Create, save, manage',
+      'Start creating from the public site',
+      'Backend credit checks',
+      'Saved assets in your workspace',
+      'Pricing before checkout',
+      'Compare credits',
+      'Open workspace',
       'From first idea to saved workspace',
       'Browse public work',
       'Start in Generate Lab',

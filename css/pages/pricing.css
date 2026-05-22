@@ -28,6 +28,7 @@
     .pricing-legal,
     .pricing-info,
     .pricing-journey,
+    .pricing-continuity,
     .pricing-account-entry,
     .pricing-return {
         border-color: rgba(0, 240, 255, 0.14);
@@ -43,6 +44,7 @@
     .pricing-legal,
     .pricing-info,
     .pricing-journey,
+    .pricing-continuity,
     .pricing-account-entry,
     .pricing-return {
         padding: clamp(1.15rem, 2.4vw, 2rem);
@@ -675,12 +677,14 @@
         gap: clamp(1rem, 2vw, 1.4rem);
     }
 
-    .pricing-journey {
+    .pricing-journey,
+    .pricing-continuity {
         display: grid;
         gap: 1.1rem;
     }
 
     .pricing-journey__head,
+    .pricing-continuity__head,
     .pricing-account-entry__head {
         max-inline-size: 58rem;
     }
@@ -703,6 +707,12 @@
 
     .pricing-account-entry__grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .pricing-continuity__grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
     }
 
     .pricing-journey__step {
@@ -730,7 +740,8 @@
         letter-spacing: 0;
     }
 
-    .pricing-account-entry__card {
+    .pricing-account-entry__card,
+    .pricing-continuity__card {
         display: grid;
         gap: 0.55rem;
         min-inline-size: 0;
@@ -743,6 +754,7 @@
     }
 
     .pricing-journey__step-title,
+    .pricing-continuity__card-title,
     .pricing-account-entry__card-title {
         margin: 0;
         color: rgba(255, 255, 255, 0.92);
@@ -752,6 +764,7 @@
     }
 
     .pricing-journey__step-copy,
+    .pricing-continuity__card-copy,
     .pricing-account-entry__card-copy {
         margin: 0;
         color: rgba(255, 255, 255, 0.64);
@@ -871,6 +884,7 @@
         .pricing-decision__grid,
         .pricing-info-grid,
         .pricing-journey__steps,
+        .pricing-continuity__grid,
         .pricing-account-entry__grid,
         .pricing-faq__list,
         .pricing-org__row {
@@ -913,6 +927,7 @@
         .pricing-legal,
         .pricing-info,
         .pricing-journey,
+        .pricing-continuity,
         .pricing-account-entry,
         .pricing-return {
             padding: 1rem;

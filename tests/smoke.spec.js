@@ -1833,6 +1833,18 @@ test.describe('Homepage', () => {
       .poll(() => heroVideo.evaluate((el) => el.classList.contains('is-active')))
       .toBe(true);
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
+    await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toBeVisible();
+    await expect(hero).toContainText('Open Generate Lab, review credit context before submit');
+    await expect(hero).toContainText('Backend credit checks');
+    await expect(hero).toContainText('Saved assets in your workspace');
+    await expect(hero.getByRole('link', { name: 'Compare credits' })).toHaveAttribute(
+      'href',
+      '/pricing.html#pricingJourney',
+    );
+    await expect(hero.getByRole('link', { name: 'Open workspace' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?source=hero#memberControlCenter',
+    );
     await expect(teaser).toBeVisible();
     await expect(teaser).toContainText('Generate Lab');
     await expect(teaser).toContainText('Open Lab');
@@ -1892,6 +1904,7 @@ test.describe('Homepage', () => {
 
     await expect(hero).toBeVisible();
     await expect(heroVideo).toBeHidden();
+    await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toBeVisible();
     await expect(teaser).toBeVisible();
     await expect(teaser).toContainText('Generate Lab');
     await expect(teaser).toContainText('Open Lab');
