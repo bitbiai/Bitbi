@@ -17,6 +17,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { initNewsPulse } from '../../shared/news-pulse.js?v=__ASSET_VERSION__';
 import { initAuth, getAuthState } from '../../shared/auth-state.js';
 import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
+import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initSoundLabCreate } from './soundlab-create.js?v=__ASSET_VERSION__';
 import { initVideoCreate } from './video-create.js?v=__ASSET_VERSION__';
@@ -377,6 +378,7 @@ try { initLocaleSwitcher(); } catch (e) { console.warn('localeSwitcher:', e); }
 /* Auth UI (non-blocking — awaited after all visual content renders) */
 await authReady;
 try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
+try { initAuthEntryActions(); } catch (e) { console.warn('authEntryActions:', e); }
 try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
 document.dispatchEvent(new CustomEvent('bitbi:homepage-auth-ui-ready'));
 

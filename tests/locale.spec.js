@@ -105,12 +105,18 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#publicMemberJourney')).toContainText('From first idea to saved workspace');
     await expect(page.locator('#publicMemberJourney')).toContainText('Start in Generate Lab');
     await expect(page.locator('#publicMemberJourney a[href="/pricing.html#pricingJourney"]')).toContainText('View credits and Pro');
+    await expect(page.locator('#publicMemberJourney')).toContainText('Create with an account, browse without one');
+    await expect(page.locator('#publicMemberJourney [data-auth-entry="login"]')).toContainText('Sign in');
+    await expect(page.locator('#publicMemberJourney a[href="/account/forgot-password.html?source=landing-account"]')).toContainText('Reset password');
 
     await page.goto('/de/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
     await expect(page.locator('#publicMemberJourney')).toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');
     await expect(page.locator('#publicMemberJourney')).toContainText('Im Generate Lab starten');
     await expect(page.locator('#publicMemberJourney a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits und Pro ansehen');
+    await expect(page.locator('#publicMemberJourney')).toContainText('Mit Konto erstellen, ohne Konto stöbern');
+    await expect(page.locator('#publicMemberJourney [data-auth-entry="login"]')).toContainText('Anmelden');
+    await expect(page.locator('#publicMemberJourney a[href="/de/account/forgot-password.html?source=landing-account"]')).toContainText('Passwort zurücksetzen');
   });
 
   test('English and German homepages include the localized Live Pulse mount and reduced-motion CSS', () => {
@@ -149,6 +155,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#pricingJourney')).toContainText('Sign in, review credits, create in Generate Lab');
     await expect(page.locator('#pricingJourney a[href="/generate-lab/?source=pricing&step=create"]')).toContainText('Open Generate Lab');
     await expect(page.locator('#pricingJourney a[href="/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent"]')).toContainText('View Assets Manager');
+    await expect(page.getByRole('heading', { name: 'Set up the account path before checkout' })).toBeVisible();
+    await expect(page.locator('#pricingAccountEntry')).toContainText('Buying credits, saving generated output, and recovering workspace access require a BITBI account');
+    await expect(page.locator('#pricingAccountEntry a[href="/account/forgot-password.html?source=pricing-account"]')).toContainText('Reset password');
     await expect(page.locator('main')).toContainText('Choose how you want to create');
     await expect(page.locator('.site-footer__links')).toContainText('Privacy');
 
@@ -164,6 +173,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#pricingJourney')).toContainText('Melden Sie sich an, prüfen Sie Credits');
     await expect(page.locator('#pricingJourney a[href="/de/generate-lab/?source=pricing&step=create"]')).toContainText('Generate Lab öffnen');
     await expect(page.locator('#pricingJourney a[href="/de/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent"]')).toContainText('Assets Manager anzeigen');
+    await expect(page.getByRole('heading', { name: 'Kontopfad vor dem Checkout klären' })).toBeVisible();
+    await expect(page.locator('#pricingAccountEntry')).toContainText('Credits kaufen, generierte Ergebnisse speichern und den Arbeitsbereich wiederherstellen erfordern ein BITBI-Konto');
+    await expect(page.locator('#pricingAccountEntry a[href="/de/account/forgot-password.html?source=pricing-account"]')).toContainText('Passwort zurücksetzen');
     await expect(page.locator('main')).toContainText('Wählen Sie, wie Sie erstellen möchten');
     await expect(page.locator('.site-footer__links')).toContainText('Datenschutz');
   });
@@ -617,6 +629,11 @@ test.describe('Bilingual locale pages', () => {
       'Your profile, wallet, favorites',
       'Create account',
       'Reset password',
+      'Account entry',
+      'Create with an account, browse without one',
+      'Sign in before generating or saving',
+      'Create an account before checkout',
+      'Recover access without losing the path',
       'Workspace priority',
       'How BITBI works',
       'From first idea to saved workspace',
@@ -660,6 +677,7 @@ test.describe('Bilingual locale pages', () => {
       'Use credits before the next generation',
       'Member journey',
       'From pricing to the workspace',
+      'Set up the account path before checkout',
       'Plan credits',
       'Create with context',
       'Find saved output',

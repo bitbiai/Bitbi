@@ -152,9 +152,82 @@
         background: linear-gradient(135deg, var(--color-cyan), var(--color-ember));
     }
 
+    .public-journey__account {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: clamp(1rem, 2vw, 1.35rem);
+        align-items: start;
+        margin-block-start: clamp(1rem, 2vw, 1.45rem);
+        padding: clamp(1rem, 2.3vw, 1.45rem);
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        border-radius: var(--radius-sm);
+        background:
+            linear-gradient(145deg, rgba(0, 240, 255, 0.07), rgba(255, 179, 0, 0.04)),
+            rgba(255, 255, 255, 0.035);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+    }
+
+    .public-journey__account-copy {
+        display: grid;
+        gap: 0.65rem;
+    }
+
+    .public-journey__account-copy h3,
+    .public-journey__account-copy p,
+    .public-journey__account-list {
+        margin: 0;
+    }
+
+    .public-journey__account-copy h3 {
+        color: rgba(255, 255, 255, 0.94);
+        font-family: var(--font-display);
+        font-size: clamp(1.45rem, 2.4vw, 2rem);
+        line-height: 1.12;
+        text-wrap: balance;
+    }
+
+    .public-journey__account-copy p,
+    .public-journey__account-list span {
+        color: rgba(255, 255, 255, 0.67);
+        line-height: 1.58;
+    }
+
+    .public-journey__account-list {
+        display: grid;
+        gap: 0.75rem;
+        padding: 0;
+        list-style: none;
+    }
+
+    .public-journey__account-list li {
+        display: grid;
+        gap: 0.24rem;
+        padding: 0.82rem 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-sm);
+        background: rgba(0, 0, 0, 0.16);
+    }
+
+    .public-journey__account-list strong {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.96rem;
+        line-height: 1.32;
+    }
+
+    .public-journey__account-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.7rem;
+        grid-column: 1 / -1;
+    }
+
     @media (max-width: 980px) {
         .public-journey__steps {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .public-journey__account {
+            grid-template-columns: 1fr;
         }
     }
 
@@ -176,6 +249,7 @@
         }
 
         .public-journey__actions,
+        .public-journey__account-actions,
         .public-journey__link {
             inline-size: 100%;
         }

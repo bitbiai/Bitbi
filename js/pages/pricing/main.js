@@ -131,6 +131,28 @@ const COPY = Object.freeze({
         ]),
         journeyPrimary: 'Open Generate Lab',
         journeySecondary: 'View Assets Manager',
+        accountEntryKicker: 'Account entry',
+        accountEntryTitleLoggedOut: 'Set up the account path before checkout',
+        accountEntryTitleMember: 'Your member path is ready',
+        accountEntryCopyLoggedOut: 'You can compare plans publicly. Buying credits, saving generated output, and recovering workspace access require a BITBI account.',
+        accountEntryCopyMember: 'You are signed in. Review credits, create in Generate Lab, or open saved assets without changing checkout behavior.',
+        accountEntryCardsLoggedOut: Object.freeze([
+            Object.freeze(['Sign in before checkout', 'Checkout stays Stripe-hosted, but credits are added only to a verified member account after payment confirmation.']),
+            Object.freeze(['Create before saving', 'Generate Lab and Assets Manager use account context for final credit checks and saved output discovery.']),
+            Object.freeze(['Recovery stays available', 'Password reset and email verification routes keep the account path visible if a session expires.']),
+        ]),
+        accountEntryCardsMember: Object.freeze([
+            Object.freeze(['Review credits first', 'Credits and BITBI Pro status remain visible from the Credits dashboard.']),
+            Object.freeze(['Create with context', 'Generate Lab keeps estimated costs visible before backend responses make final credit decisions.']),
+            Object.freeze(['Manage saved output', 'Assets Manager is where account-bound images, videos, and tracks are refreshed, previewed, organized, or published.']),
+        ]),
+        accountEntryLogin: 'Sign in',
+        accountEntryRegister: 'Create account',
+        accountEntryReset: 'Reset password',
+        accountEntryCredits: 'Review credits',
+        accountEntryGenerate: 'Open Generate Lab',
+        accountEntryAssets: 'Open Assets Manager',
+        accountEntryAuthMessage: 'Create or sign in to a BITBI account before checkout, generation, saving, or workspace recovery.',
         faqTitle: 'Pricing clarity',
         faqs: Object.freeze([
             ['Can I cancel BITBI Pro?', 'Yes. Manage your subscription from the Credits page. A cancellation is scheduled for the end of the paid period.'],
@@ -248,6 +270,28 @@ const COPY = Object.freeze({
         ]),
         journeyPrimary: 'Generate Lab öffnen',
         journeySecondary: 'Assets Manager anzeigen',
+        accountEntryKicker: 'Konto-Einstieg',
+        accountEntryTitleLoggedOut: 'Kontopfad vor dem Checkout klären',
+        accountEntryTitleMember: 'Ihr Mitgliederpfad ist bereit',
+        accountEntryCopyLoggedOut: 'Sie können Optionen öffentlich vergleichen. Credits kaufen, generierte Ergebnisse speichern und den Arbeitsbereich wiederherstellen erfordern ein BITBI-Konto.',
+        accountEntryCopyMember: 'Sie sind angemeldet. Prüfen Sie Credits, erstellen Sie im Generate Lab oder öffnen Sie gespeicherte Assets, ohne das Checkout-Verhalten zu ändern.',
+        accountEntryCardsLoggedOut: Object.freeze([
+            Object.freeze(['Vor Checkout anmelden', 'Der Checkout bleibt von Stripe gehostet, aber Credits werden erst nach Zahlungsbestätigung einem geprüften Mitgliedskonto gutgeschrieben.']),
+            Object.freeze(['Vor dem Speichern Konto erstellen', 'Generate Lab und Assets Manager nutzen den Kontokontext für finale Credit-Prüfungen und das Wiederfinden gespeicherter Ergebnisse.']),
+            Object.freeze(['Wiederherstellung bleibt erreichbar', 'Passwort-Reset und E-Mail-Bestätigung halten den Kontopfad sichtbar, falls eine Sitzung abläuft.']),
+        ]),
+        accountEntryCardsMember: Object.freeze([
+            Object.freeze(['Credits zuerst prüfen', 'Credits und BITBI-Pro-Status bleiben im Credits-Dashboard sichtbar.']),
+            Object.freeze(['Mit Kontext erstellen', 'Generate Lab zeigt geschätzte Kosten, bevor Backend-Antworten die endgültige Credit-Entscheidung treffen.']),
+            Object.freeze(['Gespeicherte Ergebnisse verwalten', 'Im Assets Manager werden kontogebundene Bilder, Videos und Tracks aktualisiert, geprüft, geordnet oder veröffentlicht.']),
+        ]),
+        accountEntryLogin: 'Anmelden',
+        accountEntryRegister: 'Konto erstellen',
+        accountEntryReset: 'Passwort zurücksetzen',
+        accountEntryCredits: 'Credits prüfen',
+        accountEntryGenerate: 'Generate Lab öffnen',
+        accountEntryAssets: 'Assets Manager öffnen',
+        accountEntryAuthMessage: 'Erstellen Sie ein BITBI-Konto oder melden Sie sich an, bevor Checkout, Generierung, Speichern oder Wiederherstellung fortgesetzt werden.',
         faqTitle: 'Klarheit zu Preisen',
         faqs: Object.freeze([
             ['Kann ich BITBI Pro kündigen?', 'Ja. Sie verwalten Ihr Abo auf der Credits-Seite. Eine Kündigung wird zum Ende der bezahlten Periode vorgemerkt.'],
@@ -725,6 +769,91 @@ function createJourneySection() {
     return section;
 }
 
+function createAccountEntrySection(auth) {
+    const section = document.createElement('section');
+    section.id = 'pricingAccountEntry';
+    section.className = 'pricing-account-entry glass glass-card reveal visible';
+    section.setAttribute('aria-labelledby', 'pricingAccountEntryTitle');
+
+    const copy = COPY[LOCALE] || COPY.en;
+    const cards = auth.loggedIn ? copy.accountEntryCardsMember : copy.accountEntryCardsLoggedOut;
+
+    const head = document.createElement('div');
+    head.className = 'pricing-account-entry__head';
+    const title = createTextElement('h2', 'pricing-section-title', auth.loggedIn
+        ? t('accountEntryTitleMember')
+        : t('accountEntryTitleLoggedOut'));
+    title.id = 'pricingAccountEntryTitle';
+    head.append(
+        createTextElement('p', 'pricing-kicker', t('accountEntryKicker')),
+        title,
+        createTextElement('p', 'pricing-section-copy', auth.loggedIn
+            ? t('accountEntryCopyMember')
+            : t('accountEntryCopyLoggedOut')),
+    );
+
+    const grid = document.createElement('div');
+    grid.className = 'pricing-account-entry__grid';
+    for (const [titleText, copyText] of cards) {
+        const card = document.createElement('article');
+        card.className = 'pricing-account-entry__card';
+        card.append(
+            createTextElement('h3', 'pricing-account-entry__card-title', titleText),
+            createTextElement('p', 'pricing-account-entry__card-copy', copyText),
+        );
+        grid.appendChild(card);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'pricing-account-entry__actions';
+    if (auth.loggedIn) {
+        const credits = document.createElement('a');
+        credits.href = localizedHref('/account/credits.html');
+        credits.className = 'pricing-journey__link pricing-journey__link--primary';
+        credits.textContent = t('accountEntryCredits');
+        const generate = document.createElement('a');
+        generate.href = `${localizedHref('/generate-lab/')}?source=pricing-account&step=create`;
+        generate.className = 'pricing-journey__link';
+        generate.textContent = t('accountEntryGenerate');
+        const assets = document.createElement('a');
+        assets.href = `${localizedHref('/account/assets-manager.html')}?source=pricing-account&recent=1#generate-lab-recent`;
+        assets.className = 'pricing-journey__link';
+        assets.textContent = t('accountEntryAssets');
+        actions.append(credits, generate, assets);
+    } else {
+        const login = document.createElement('button');
+        login.type = 'button';
+        login.className = 'pricing-journey__link pricing-journey__link--primary';
+        login.dataset.pricingAuthEntry = 'login';
+        login.textContent = t('accountEntryLogin');
+        login.addEventListener('click', () => openAuthModal('login', {
+            message: t('accountEntryAuthMessage'),
+            messageType: 'info',
+            target: 'login',
+        }));
+
+        const register = document.createElement('button');
+        register.type = 'button';
+        register.className = 'pricing-journey__link';
+        register.dataset.pricingAuthEntry = 'register';
+        register.textContent = t('accountEntryRegister');
+        register.addEventListener('click', () => openAuthModal('register', {
+            message: t('accountEntryAuthMessage'),
+            messageType: 'info',
+            target: 'register',
+        }));
+
+        const reset = document.createElement('a');
+        reset.href = `${localizedHref('/account/forgot-password.html')}?source=pricing-account`;
+        reset.className = 'pricing-journey__link';
+        reset.textContent = t('accountEntryReset');
+        actions.append(login, register, reset);
+    }
+
+    section.append(head, grid, actions);
+    return section;
+}
+
 function createFaqSection() {
     const section = document.createElement('section');
     section.className = 'pricing-faq reveal visible';
@@ -914,6 +1043,7 @@ function renderPricingExperience() {
     shell.appendChild(createLegalCheckout(auth));
     shell.appendChild(createGuideSection());
     shell.appendChild(createJourneySection());
+    shell.appendChild(createAccountEntrySection(auth));
     shell.appendChild(createFaqSection());
 
     root.appendChild(shell);

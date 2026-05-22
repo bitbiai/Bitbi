@@ -6360,6 +6360,11 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-card')).toHaveCount(3);
     await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('Create account to buy');
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Create account to buy');
+    await expect(page.locator('#pricingAccountEntry')).toContainText('Set up the account path before checkout');
+    await expect(page.locator('#pricingAccountEntry')).toContainText('Buying credits, saving generated output, and recovering workspace access require a BITBI account');
+    await expect(page.locator('[data-pricing-auth-entry="login"]')).toHaveText('Sign in');
+    await expect(page.locator('[data-pricing-auth-entry="register"]')).toHaveText('Create account');
+    await expect(page.locator('#pricingAccountEntry a[href="/account/forgot-password.html?source=pricing-account"]')).toContainText('Reset password');
 
     await page.unroute('**/api/me');
     await mockPricingAccount(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
@@ -6370,6 +6375,16 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('#pricingOrgSelect')).toHaveCount(0);
     await expect(page.locator('.pricing-org__state')).toContainText('member account');
     await expect(page.locator('.pricing-org__state')).toContainText('No organization setup');
+    await expect(page.locator('#pricingAccountEntry')).toContainText('Your member path is ready');
+    await expect(page.locator('#pricingAccountEntry').getByRole('link', { name: 'Review credits' })).toHaveAttribute('href', '/account/credits.html');
+    await expect(page.locator('#pricingAccountEntry').getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=pricing-account&step=create',
+    );
+    await expect(page.locator('#pricingAccountEntry').getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=pricing-account&recent=1#generate-lab-recent',
+    );
   });
 
   test('logged-out Pricing CTA opens registration instead of Stripe checkout', async ({ page }) => {
@@ -6382,6 +6397,12 @@ test.describe('Pricing credit-pack rollout', () => {
       await fulfillJson(route, { ok: false, error: 'unexpected checkout request' }, 500);
     });
     await page.goto('/pricing.html');
+    await page.locator('[data-pricing-auth-entry="login"]').click();
+    await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
+    await expect(page.locator('.auth-modal__tab[data-tab="login"]')).toHaveClass(/active/);
+    await expect(page.locator('#authLoginMsg')).toHaveText('Create or sign in to a BITBI account before checkout, generation, saving, or workspace recovery.');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.auth-modal__overlay')).not.toHaveClass(/active/);
     await page.locator('[data-pricing-pack="live_credits_5000"]').click();
     await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
@@ -6402,6 +6423,12 @@ test.describe('Pricing credit-pack rollout', () => {
       await fulfillJson(route, { ok: false, error: 'unexpected checkout request' }, 500);
     });
     await page.goto('/de/pricing.html');
+    await page.locator('[data-pricing-auth-entry="register"]').click();
+    await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
+    await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
+    await expect(page.locator('#authRegisterMsg')).toHaveText('Erstellen Sie ein BITBI-Konto oder melden Sie sich an, bevor Checkout, Generierung, Speichern oder Wiederherstellung fortgesetzt werden.');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.auth-modal__overlay')).not.toHaveClass(/active/);
     await page.locator('[data-pricing-pack="live_credits_5000"]').click();
     await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
@@ -6458,6 +6485,8 @@ test.describe('Pricing credit-pack rollout', () => {
       'href',
       '/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent',
     );
+    await expect(page.locator('#pricingAccountEntry')).toContainText('Your member path is ready');
+    await expect(page.locator('#pricingAccountEntry')).toContainText('Generate Lab keeps estimated costs visible');
     await expect(page.locator('.pricing-faq')).toContainText('Can I cancel BITBI Pro?');
     await expect(page.locator('.pricing-faq')).toContainText('Are credits transferable?');
     await expect(page.locator('.pricing-faq')).toContainText('Is checkout secure?');

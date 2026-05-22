@@ -638,6 +638,32 @@
             <a href="/pricing.html#pricingJourney" class="public-journey__link">View credits and Pro</a>
             <a href="/account/profile.html?source=landing#memberControlCenter" class="public-journey__link">Open member workspace</a>
         </div>
+        <div class="public-journey__account reveal" aria-labelledby="publicMemberAccountTitle">
+            <div class="public-journey__account-copy">
+                <p class="public-journey__eyebrow">Account entry</p>
+                <h3 id="publicMemberAccountTitle">Create with an account, browse without one</h3>
+                <p>Public galleries stay open. Generation, saving, credits, and profile recovery use your member account so the workspace can find your outputs later.</p>
+            </div>
+            <ul class="public-journey__account-list" aria-label="Account-needed actions">
+                <li>
+                    <strong>Sign in before generating or saving</strong>
+                    <span>Generate Lab and Assets Manager use account context for credit checks and saved output.</span>
+                </li>
+                <li>
+                    <strong>Create an account before checkout</strong>
+                    <span>Pricing opens Stripe checkout only after account context and required confirmations are clear.</span>
+                </li>
+                <li>
+                    <strong>Recover access without losing the path</strong>
+                    <span>Password reset and verification routes bring you back to the member workspace when you are ready.</span>
+                </li>
+            </ul>
+            <div class="public-journey__account-actions" aria-label="Account entry actions">
+                <a href="/account/profile.html?source=landing-account" class="public-journey__link public-journey__link--primary" data-auth-entry="login" data-auth-message-key="authRecovery.publicMessage" data-auth-message-target="login">Sign in</a>
+                <a href="/account/profile.html?source=landing-account&amp;mode=register" class="public-journey__link" data-auth-entry="register" data-auth-message-key="authRecovery.publicMessage" data-auth-message-target="register">Create account</a>
+                <a href="/account/forgot-password.html?source=landing-account" class="public-journey__link">Reset password</a>
+            </div>
+        </div>
     </div>
 </section>
 

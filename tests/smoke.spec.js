@@ -1802,6 +1802,23 @@ test.describe('Homepage', () => {
     await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
   });
 
+  test('public member journey auth entries open localized account recovery guidance', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.goto('/');
+    const journey = page.locator('#publicMemberJourney');
+    await journey.getByRole('link', { name: 'Sign in' }).click();
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    await expect(page.locator('.auth-modal__tab[data-tab="login"]')).toHaveClass(/active/);
+    await expect(page.locator('#authLoginMsg')).toHaveText('Sign in or create a BITBI account before generating, saving, buying credits, or recovering workspace access.');
+  });
+
   test('hero section renders', async ({ page }) => {
     await page.goto('/');
     const hero = page.locator('#hero');
@@ -1833,6 +1850,19 @@ test.describe('Homepage', () => {
     await expect(journey.getByRole('link', { name: 'View credits and Pro' })).toHaveAttribute(
       'href',
       '/pricing.html#pricingJourney',
+    );
+    await expect(journey).toContainText('Create with an account, browse without one');
+    await expect(journey.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?source=landing-account',
+    );
+    await expect(journey.getByRole('link', { name: 'Create account' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?source=landing-account&mode=register',
+    );
+    await expect(journey.getByRole('link', { name: 'Reset password' })).toHaveAttribute(
+      'href',
+      '/account/forgot-password.html?source=landing-account',
     );
 
     const teaserMetrics = await page.evaluate(() => {
