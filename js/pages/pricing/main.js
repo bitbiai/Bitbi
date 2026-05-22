@@ -120,6 +120,17 @@ const COPY = Object.freeze({
             ['One-time packs stay separate', 'Purchased credits are added to your member account and do not renew automatically. Buy them when you need extra capacity.'],
             ['BITBI Pro stays predictable', 'Subscription credits are topped up to 6000 each billing period and do not accumulate beyond that allowance. Purchased credits remain additional.'],
         ]),
+        journeyKicker: 'Member journey',
+        journeyTitle: 'From pricing to the workspace',
+        journeyCopy: 'Pricing is one step in the creation loop. Sign in, review credits, create in Generate Lab, then confirm saved output in Assets Manager. Backend checks remain the source of truth for credits and checkout.',
+        journeyCards: Object.freeze([
+            Object.freeze(['Plan credits', 'Choose Pro or a one-time pack, then review the required confirmations before Stripe-hosted checkout.']),
+            Object.freeze(['Create with context', 'Generate Lab shows estimated credit cost before you submit. Final credit handling comes from backend responses.']),
+            Object.freeze(['Find saved output', 'Successful saves point back to Assets Manager so recent creations are easier to refresh, preview, organize, or publish.']),
+            Object.freeze(['Keep account ready', 'Profile, recovery, wallet trust, credits, and saved assets stay connected in the member workspace.']),
+        ]),
+        journeyPrimary: 'Open Generate Lab',
+        journeySecondary: 'View Assets Manager',
         faqTitle: 'Pricing clarity',
         faqs: Object.freeze([
             ['Can I cancel BITBI Pro?', 'Yes. Manage your subscription from the Credits page. A cancellation is scheduled for the end of the paid period.'],
@@ -226,6 +237,17 @@ const COPY = Object.freeze({
             ['Einmalige Pakete bleiben getrennt', 'Gekaufte Credits werden Ihrem Mitgliedskonto gutgeschrieben und verlängern sich nicht automatisch. Sie kaufen sie nur bei Bedarf.'],
             ['BITBI Pro bleibt planbar', 'Abo-Credits werden je Abrechnungsperiode auf 6000 aufgefüllt und sammeln sich nicht darüber hinaus an. Gekaufte Credits bleiben zusätzlich erhalten.'],
         ]),
+        journeyKicker: 'Mitgliederreise',
+        journeyTitle: 'Von Preisen in den Arbeitsbereich',
+        journeyCopy: 'Preise sind ein Schritt im Erstellungsablauf. Melden Sie sich an, prüfen Sie Credits, erstellen Sie im Generate Lab und bestätigen Sie gespeicherte Ergebnisse im Assets Manager. Backend-Prüfungen bleiben die Quelle der Wahrheit für Credits und Checkout.',
+        journeyCards: Object.freeze([
+            Object.freeze(['Credits planen', 'Pro oder ein einmaliges Paket wählen und vor dem von Stripe gehosteten Checkout die erforderlichen Bestätigungen prüfen.']),
+            Object.freeze(['Mit Kontext erstellen', 'Generate Lab zeigt geschätzte Credit-Kosten vor dem Absenden. Die endgültige Credit-Behandlung kommt vom Backend.']),
+            Object.freeze(['Gespeicherte Ergebnisse finden', 'Erfolgreiche Speicherungen führen zurück zum Assets Manager, damit neue Kreationen leichter aktualisiert, geprüft, geordnet oder veröffentlicht werden.']),
+            Object.freeze(['Konto bereit halten', 'Profil, Wiederherstellung, Wallet-Vertrauen, Credits und gespeicherte Assets bleiben im Mitgliederbereich verbunden.']),
+        ]),
+        journeyPrimary: 'Generate Lab öffnen',
+        journeySecondary: 'Assets Manager anzeigen',
         faqTitle: 'Klarheit zu Preisen',
         faqs: Object.freeze([
             ['Kann ich BITBI Pro kündigen?', 'Ja. Sie verwalten Ihr Abo auf der Credits-Seite. Eine Kündigung wird zum Ende der bezahlten Periode vorgemerkt.'],
@@ -658,6 +680,51 @@ function createGuideSection() {
     return section;
 }
 
+function createJourneySection() {
+    const section = document.createElement('section');
+    section.id = 'pricingJourney';
+    section.className = 'pricing-journey glass glass-card reveal visible';
+    section.setAttribute('aria-labelledby', 'pricingJourneyTitle');
+
+    const head = document.createElement('div');
+    head.className = 'pricing-journey__head';
+    const title = createTextElement('h2', 'pricing-section-title', t('journeyTitle'));
+    title.id = 'pricingJourneyTitle';
+    head.append(
+        createTextElement('p', 'pricing-kicker', t('journeyKicker')),
+        title,
+        createTextElement('p', 'pricing-section-copy', t('journeyCopy')),
+    );
+
+    const list = document.createElement('ol');
+    list.className = 'pricing-journey__steps';
+    list.setAttribute('aria-label', t('journeyTitle'));
+    for (const [titleText, copyText] of (COPY[LOCALE] || COPY.en).journeyCards) {
+        const item = document.createElement('li');
+        item.className = 'pricing-journey__step';
+        item.append(
+            createTextElement('h3', 'pricing-journey__step-title', titleText),
+            createTextElement('p', 'pricing-journey__step-copy', copyText),
+        );
+        list.appendChild(item);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'pricing-journey__actions';
+    const primary = document.createElement('a');
+    primary.className = 'pricing-journey__link pricing-journey__link--primary';
+    primary.href = `${localizedHref('/generate-lab/')}?source=pricing&step=create`;
+    primary.textContent = t('journeyPrimary');
+    const secondary = document.createElement('a');
+    secondary.className = 'pricing-journey__link';
+    secondary.href = `${localizedHref('/account/assets-manager.html')}?source=pricing&recent=1#generate-lab-recent`;
+    secondary.textContent = t('journeySecondary');
+    actions.append(primary, secondary);
+
+    section.append(head, list, actions);
+    return section;
+}
+
 function createFaqSection() {
     const section = document.createElement('section');
     section.className = 'pricing-faq reveal visible';
@@ -846,6 +913,7 @@ function renderPricingExperience() {
     shell.appendChild(createCreditDestination(auth));
     shell.appendChild(createLegalCheckout(auth));
     shell.appendChild(createGuideSection());
+    shell.appendChild(createJourneySection());
     shell.appendChild(createFaqSection());
 
     root.appendChild(shell);

@@ -6448,6 +6448,16 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-info-grid')).toContainText('Use credits across BITBI');
     await expect(page.locator('.pricing-info-grid')).toContainText('One-time packs stay separate');
     await expect(page.locator('.pricing-info-grid')).toContainText('BITBI Pro stays predictable');
+    await expect(page.locator('#pricingJourney')).toContainText('From pricing to the workspace');
+    await expect(page.locator('#pricingJourney')).toContainText('Backend checks remain the source of truth');
+    await expect(page.locator('#pricingJourney').getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=pricing&step=create',
+    );
+    await expect(page.locator('#pricingJourney').getByRole('link', { name: 'View Assets Manager' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent',
+    );
     await expect(page.locator('.pricing-faq')).toContainText('Can I cancel BITBI Pro?');
     await expect(page.locator('.pricing-faq')).toContainText('Are credits transferable?');
     await expect(page.locator('.pricing-faq')).toContainText('Is checkout secure?');

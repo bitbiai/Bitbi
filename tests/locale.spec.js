@@ -102,9 +102,15 @@ test.describe('Bilingual locale pages', () => {
   test('English and German root pages expose the expected lang attributes', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('#publicMemberJourney')).toContainText('From first idea to saved workspace');
+    await expect(page.locator('#publicMemberJourney')).toContainText('Start in Generate Lab');
+    await expect(page.locator('#publicMemberJourney a[href="/pricing.html#pricingJourney"]')).toContainText('View credits and Pro');
 
     await page.goto('/de/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+    await expect(page.locator('#publicMemberJourney')).toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');
+    await expect(page.locator('#publicMemberJourney')).toContainText('Im Generate Lab starten');
+    await expect(page.locator('#publicMemberJourney a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits und Pro ansehen');
   });
 
   test('English and German homepages include the localized Live Pulse mount and reduced-motion CSS', () => {
@@ -139,6 +145,10 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Compare options');
     await expect(page.getByRole('heading', { name: 'Pick the option that fits today' })).toBeVisible();
     await expect(page.locator('#pricingDecision')).toContainText('Create every week');
+    await expect(page.getByRole('heading', { name: 'From pricing to the workspace' })).toBeVisible();
+    await expect(page.locator('#pricingJourney')).toContainText('Sign in, review credits, create in Generate Lab');
+    await expect(page.locator('#pricingJourney a[href="/generate-lab/?source=pricing&step=create"]')).toContainText('Open Generate Lab');
+    await expect(page.locator('#pricingJourney a[href="/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent"]')).toContainText('View Assets Manager');
     await expect(page.locator('main')).toContainText('Choose how you want to create');
     await expect(page.locator('.site-footer__links')).toContainText('Privacy');
 
@@ -150,6 +160,10 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Optionen vergleichen');
     await expect(page.getByRole('heading', { name: 'Wählen Sie die passende Option für heute' })).toBeVisible();
     await expect(page.locator('#pricingDecision')).toContainText('Jede Woche erstellen');
+    await expect(page.getByRole('heading', { name: 'Von Preisen in den Arbeitsbereich' })).toBeVisible();
+    await expect(page.locator('#pricingJourney')).toContainText('Melden Sie sich an, prüfen Sie Credits');
+    await expect(page.locator('#pricingJourney a[href="/de/generate-lab/?source=pricing&step=create"]')).toContainText('Generate Lab öffnen');
+    await expect(page.locator('#pricingJourney a[href="/de/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent"]')).toContainText('Assets Manager anzeigen');
     await expect(page.locator('main')).toContainText('Wählen Sie, wie Sie erstellen möchten');
     await expect(page.locator('.site-footer__links')).toContainText('Datenschutz');
   });
@@ -604,6 +618,12 @@ test.describe('Bilingual locale pages', () => {
       'Create account',
       'Reset password',
       'Workspace priority',
+      'How BITBI works',
+      'From first idea to saved workspace',
+      'Browse public work',
+      'Start in Generate Lab',
+      'View credits and Pro',
+      'Open member workspace',
       'Start with the next useful action',
       'Account Info',
       'Display Name',
@@ -638,6 +658,14 @@ test.describe('Bilingual locale pages', () => {
       'Credits, BITBI Pro status',
       'Checkout availability is shown',
       'Use credits before the next generation',
+      'Member journey',
+      'From pricing to the workspace',
+      'Plan credits',
+      'Create with context',
+      'Find saved output',
+      'Keep account ready',
+      'Open Generate Lab',
+      'View Assets Manager',
       'Review balance',
       'Create with context',
       'Check saved assets',

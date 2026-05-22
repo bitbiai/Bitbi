@@ -1824,6 +1824,16 @@ test.describe('Homepage', () => {
     await expect(teaser).toHaveAttribute('target', 'bitbi-generate-lab');
     await expect(teaser).toHaveAttribute('rel', /noopener/);
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
+    const journey = page.locator('#publicMemberJourney');
+    await expect(journey).toContainText('From first idea to saved workspace');
+    await expect(journey.getByRole('link', { name: 'Start in Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=landing&step=create',
+    );
+    await expect(journey.getByRole('link', { name: 'View credits and Pro' })).toHaveAttribute(
+      'href',
+      '/pricing.html#pricingJourney',
+    );
 
     const teaserMetrics = await page.evaluate(() => {
       const teaserEl = document.querySelector('.hero__lab-teaser');
