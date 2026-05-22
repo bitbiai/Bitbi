@@ -5798,6 +5798,23 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#profileContent')).not.toBeVisible();
   });
 
+  test('profile page shows session-expired recovery when account API returns 401', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'raw session backend detail' }, 401);
+    });
+    await page.route('**/api/profile', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'raw profile backend detail' }, 401);
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#deniedState')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#deniedState')).toContainText('Session expired. Sign in again.');
+    await expect(page.locator('#deniedState')).toContainText('Your profile stayed private because this request was not authorized.');
+    await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in again');
+    await expect(page.locator('#deniedState')).not.toContainText('raw profile backend');
+  });
+
   test('assets manager page shows denied state without auth', async ({ page }) => {
     const response = await page.goto('/account/assets-manager.html');
     expect(response.status()).toBe(200);
@@ -5819,6 +5836,20 @@ test.describe('Account pages (unauthenticated)', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('#deniedState a[href="/account/forgot-password.html"]')).toHaveText('Reset password');
     await expect(page.locator('#studioContent')).not.toBeVisible();
+  });
+
+  test('assets manager page shows session-expired recovery when account API returns 403', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'raw forbidden asset detail' }, 403);
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#deniedState')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#deniedState')).toContainText('Session expired. Sign in again.');
+    await expect(page.locator('#deniedState')).toContainText('Assets Manager could not load private library data');
+    await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in again');
+    await expect(page.locator('#deniedState')).not.toContainText('raw forbidden');
   });
 
   test('admin page shows access-denied state without auth', async ({ page }) => {
@@ -6791,6 +6822,20 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(2);
+  });
+
+  test('Credits page shows session-expired recovery without exposing backend errors', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'raw credits session detail' }, 401);
+    });
+
+    await page.goto('/account/credits.html');
+    await expect(page.locator('#creditsDenied')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsDenied')).toContainText('Session expired. Sign in again.');
+    await expect(page.locator('#creditsDenied')).toContainText('No credit balance or checkout state is assumed until the backend reloads it.');
+    await expect(page.locator('#creditsDenied [data-auth-entry="login"]')).toHaveText('Sign in again');
+    await expect(page.locator('#creditsDenied')).not.toContainText('raw credits');
+    await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
   });
 
   test('renders owner credits dashboard, live packs, and safe checkout initiation', async ({ page }) => {
@@ -11503,6 +11548,25 @@ test.describe('Profile page (authenticated mobile)', () => {
       'auth-nav__mobile-admin',
       'auth-nav__mobile-logout',
     ]);
+    await expect(page.locator('.auth-nav__mobile-continuity')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Signed in as mobile-header@example.com');
+    await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Profile, Credits, Generate Lab, and Assets Manager use this account session.');
+    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Profile' })).toHaveAttribute(
+      'href',
+      '/account/profile.html',
+    );
+    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member',
+    );
+    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/',
+    );
+    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=header&recent=1#generate-lab-recent',
+    );
   });
 
   test('mobile header keeps the legacy menu/profile layout when no avatar exists', async ({
@@ -11525,6 +11589,8 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
     await expect(page.locator('.auth-nav__mobile-email')).toHaveText('mobile-fallback@example.com');
     await expect(page.locator('.auth-nav__mobile-profile')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Signed in as mobile-fallback@example.com');
+    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Assets Manager' })).toBeVisible();
   });
 
   test('admin mobile profile shows the same simplified tab bar as non-admin users', async ({

@@ -151,6 +151,20 @@
             </ol>
         </section>
 
+        <section class="generate-lab__session-panel reveal" aria-labelledby="labSessionTitle">
+            <div>
+                <p class="generate-lab__eyebrow">Account session</p>
+                <h2 id="labSessionTitle">Signed-in workspace status</h2>
+                <p id="labSessionAccountStatus" class="generate-lab__session-status" role="status" aria-live="polite">Checking account session...</p>
+                <p id="labSessionCreditStatus" class="generate-lab__session-copy">Credits and saved assets load after the backend confirms your account session.</p>
+            </div>
+            <nav class="generate-lab__session-actions" aria-label="Signed-in workspace actions">
+                <a href="/account/profile.html?returnContext=generate-lab#profileSecurityCard">Profile</a>
+                <a href="/account/credits.html?scope=member">Credits</a>
+                <a href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Assets Manager</a>
+            </nav>
+        </section>
+
         <section class="generate-lab__account-needed auth-recovery reveal" aria-labelledby="generateAccountNeededTitle">
             <div>
                 <p class="auth-recovery__eyebrow">Account needed</p>

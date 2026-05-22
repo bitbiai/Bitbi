@@ -469,6 +469,10 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).toContain('href="#labCost"');
     expect(enGenerate).toContain('href="#labGenerate"');
     expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab#profileSecurityCard"');
+    expect(enGenerate).toContain('generate-lab__session-panel');
+    expect(enGenerate).toContain('Signed-in workspace status');
+    expect(enGenerate).toContain('id="labSessionAccountStatus"');
+    expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent"');
     expect(enGenerate).toContain('generate-lab__first-run');
     expect(enGenerate).toContain('generate-lab__account-needed');
     expect(enGenerate).toContain('Create, preview, save, then manage');
@@ -500,6 +504,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('href="#labCost"');
     expect(deGenerate).toContain('href="#labGenerate"');
     expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab#profileSecurityCard"');
+    expect(deGenerate).toContain('generate-lab__session-panel');
+    expect(deGenerate).toContain('Status des angemeldeten Workspace');
+    expect(deGenerate).toContain('id="labSessionAccountStatus"');
+    expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent"');
     expect(deGenerate).toContain('generate-lab__first-run');
     expect(deGenerate).toContain('generate-lab__account-needed');
     expect(deGenerate).toContain('Erstellen, prüfen, speichern, verwalten');
@@ -524,6 +532,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('href="/de/account/credits.html?scope=member"');
     expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
     expect(deGenerate).toContain('href="/de/account/forgot-password.html"');
+    expect(localeJs).toContain("sessionExpiredTitle: 'Session expired. Sign in again.'");
+    expect(localeJs).toContain("sessionExpiredTitle: 'Sitzung abgelaufen. Melden Sie sich erneut an.'");
+    expect(localeJs).toContain("workspaceStatus: 'Profile, Credits, Generate Lab, and Assets Manager use this account session.'");
+    expect(localeJs).toContain("workspaceStatus: 'Profil, Credits, Generate Lab und Assets Manager verwenden diese Kontositzung.'");
 
     for (const html of [deProfile, deCredits, deAssets, deGenerate]) {
       expect(html).not.toContain('/de/admin');

@@ -93,10 +93,24 @@ function setError(message) {
     }
 }
 
-function setDenied() {
+function isAuthFailure(result) {
+    return result?.status === 401 || result?.status === 403;
+}
+
+function setDenied({ sessionExpired = false } = {}) {
     hide($loading);
     hide($dashboard);
     hide($error);
+    if (sessionExpired && $denied) {
+        const title = document.getElementById('creditsDeniedTitle');
+        const copy = $denied.querySelector('.auth-recovery > p:not(.auth-recovery__eyebrow)');
+        const primary = $denied.querySelector('[data-auth-entry="login"]');
+        $denied.setAttribute('role', 'status');
+        $denied.setAttribute('aria-live', 'polite');
+        if (title) title.textContent = localeText('authRecovery.sessionExpiredTitle');
+        if (copy) copy.textContent = localeText('authRecovery.sessionExpiredCreditsCopy');
+        if (primary) primary.textContent = localeText('authRecovery.sessionSignInAgain');
+    }
     show($denied);
 }
 
@@ -232,11 +246,19 @@ function normalizeOrganizations(data, { platformAdmin = false } = {}) {
 async function loadEligibleOrganizations() {
     if (currentUser?.role === 'admin') {
         const res = await apiAdminOrganizations({ limit: 100 });
-        if (!res.ok) throw new Error(res.error || localeText('credits.adminOrgsFailed'));
+        if (!res.ok) {
+            const error = new Error(res.error || localeText('credits.adminOrgsFailed'));
+            error.status = res.status;
+            throw error;
+        }
         return normalizeOrganizations(res.data, { platformAdmin: true });
     }
     const res = await apiListOrganizations({ limit: 100 });
-    if (!res.ok) throw new Error(res.error || localeText('credits.orgsFailed'));
+    if (!res.ok) {
+        const error = new Error(res.error || localeText('credits.orgsFailed'));
+        error.status = res.status;
+        throw error;
+    }
     return normalizeOrganizations(res.data, { platformAdmin: false });
 }
 
@@ -883,7 +905,7 @@ async function loadMemberDashboard() {
     show($loading);
     const res = await apiAccountCreditsDashboard({ limit: 50 });
     if (!res.ok) {
-        if (res.status === 401 || res.status === 403) return setDenied();
+        if (isAuthFailure(res)) return setDenied({ sessionExpired: true });
         return setError(res.error || localeText('credits.unavailable'));
     }
     renderMemberDashboard(res.data?.dashboard || {});
@@ -896,7 +918,8 @@ async function loadDashboard() {
     show($loading);
     const res = await apiOrganizationCreditsDashboard(selectedOrganizationId, { limit: 25 });
     if (!res.ok) {
-        if (res.status === 401 || res.status === 403 || res.status === 404) return setDenied();
+        if (isAuthFailure(res)) return setDenied({ sessionExpired: true });
+        if (res.status === 404) return setDenied();
         return setError(res.error || localeText('credits.unavailable'));
     }
     renderDashboard(res.data?.dashboard || {});
@@ -1017,7 +1040,7 @@ async function init() {
     renderReturnState();
 
     const me = await apiGetMe();
-    if (!me.ok || !me.data?.loggedIn) return setDenied();
+    if (!me.ok || !me.data?.loggedIn) return setDenied({ sessionExpired: isAuthFailure(me) });
     currentUser = me.data.user || {};
     const params = new URLSearchParams(window.location.search);
     const requestedScope = params.get('scope');
@@ -1026,6 +1049,7 @@ async function init() {
     try {
         eligibleOrganizations = await loadEligibleOrganizations();
     } catch (error) {
+        if (isAuthFailure(error)) return setDenied({ sessionExpired: true });
         return setError(error?.message || localeText('credits.orgLoadFailed'));
     }
     if (!eligibleOrganizations.length) return loadMemberDashboard();

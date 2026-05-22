@@ -51,6 +51,25 @@ function showState(el) {
     el.style.display = '';
 }
 
+function isAuthFailure(res) {
+    return res?.status === 401 || res?.status === 403;
+}
+
+function showDeniedState({ sessionExpired = false } = {}) {
+    if (sessionExpired && $denied) {
+        const title = document.getElementById('assetsDeniedTitle');
+        const copy = $denied.querySelector('.studio-denied__text');
+        const primary = $denied.querySelector('[data-auth-entry="login"]');
+        $denied.setAttribute('role', 'status');
+        $denied.setAttribute('aria-live', 'polite');
+        if (title) title.textContent = localeText('authRecovery.sessionExpiredTitle');
+        if (copy) copy.textContent = localeText('authRecovery.sessionExpiredAssetsCopy');
+        if (primary) primary.textContent = localeText('authRecovery.sessionSignInAgain');
+    }
+    showState($denied);
+    $denied.classList.add('visible');
+}
+
 function createBrowser({ fromGenerateLab = false } = {}) {
     savedAssetsBrowser = createSavedAssetsBrowser({
         refs: {
@@ -201,8 +220,7 @@ async function init() {
     const res = await apiGetMe();
 
     if (!res.ok || !res.data?.loggedIn) {
-        showState($denied);
-        $denied.classList.add('visible');
+        showDeniedState({ sessionExpired: isAuthFailure(res) });
         return;
     }
 

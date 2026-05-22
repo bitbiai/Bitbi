@@ -956,6 +956,25 @@ function showState(el) {
     el.style.display = '';
 }
 
+function isAuthFailure(res) {
+    return res?.status === 401 || res?.status === 403;
+}
+
+function showDeniedState({ sessionExpired = false } = {}) {
+    if (sessionExpired && $denied) {
+        const title = document.getElementById('profileDeniedTitle');
+        const copy = $denied.querySelector('.profile-denied__text');
+        const primary = $denied.querySelector('[data-auth-entry="login"]');
+        $denied.setAttribute('role', 'status');
+        $denied.setAttribute('aria-live', 'polite');
+        if (title) title.textContent = localeText('authRecovery.sessionExpiredTitle');
+        if (copy) copy.textContent = localeText('authRecovery.sessionExpiredProfileCopy');
+        if (primary) primary.textContent = localeText('authRecovery.sessionSignInAgain');
+    }
+    showState($denied);
+    $denied.classList.add('visible');
+}
+
 /* ── Render profile data ── */
 function renderProfile(profile, account) {
     profileCompletionContext = { profile, account };
@@ -1653,8 +1672,7 @@ async function init() {
     const res = await apiGetProfile();
 
     if (!res.ok) {
-        showState($denied);
-        $denied.classList.add('visible');
+        showDeniedState({ sessionExpired: isAuthFailure(res) });
         return;
     }
 

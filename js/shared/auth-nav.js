@@ -59,6 +59,46 @@ function buildDesktopIdentity(user) {
     return identity;
 }
 
+function buildMobileWorkspaceLink(href, labelKey, className = '') {
+    const link = document.createElement('a');
+    link.href = href;
+    link.className = `auth-nav__mobile-workspace-link${className ? ` ${className}` : ''}`;
+    link.textContent = localeText(labelKey);
+    return link;
+}
+
+function buildMobileWorkspaceStatus(user) {
+    const wrap = document.createElement('div');
+    wrap.className = 'auth-nav__mobile-continuity';
+    wrap.setAttribute('role', 'status');
+    wrap.setAttribute('aria-live', 'polite');
+
+    const status = document.createElement('p');
+    status.className = 'auth-nav__mobile-status';
+    status.textContent = localeText('auth.signedInAs', { name: getIdentityLabel(user) });
+
+    const copy = document.createElement('p');
+    copy.className = 'auth-nav__mobile-copy';
+    copy.textContent = localeText('auth.workspaceStatus');
+
+    const actions = document.createElement('nav');
+    actions.className = 'auth-nav__mobile-workspace';
+    actions.setAttribute('aria-label', localeText('auth.workspaceActions'));
+    actions.append(
+        buildMobileWorkspaceLink(
+            withGenerateLabReturnContext(localizedHref('/account/profile.html')),
+            'auth.profile',
+            'auth-nav__mobile-workspace-link--primary',
+        ),
+        buildMobileWorkspaceLink(`${localizedHref('/account/credits.html')}?scope=member`, 'auth.openCredits'),
+        buildMobileWorkspaceLink(localizedHref('/generate-lab/'), 'auth.openGenerateLab'),
+        buildMobileWorkspaceLink(`${localizedHref('/account/assets-manager.html')}?source=header&recent=1#generate-lab-recent`, 'auth.openAssetsManager'),
+    );
+
+    wrap.append(status, copy, actions);
+    return wrap;
+}
+
 function usesReorganizedPublicHeader() {
     return !document.body.classList.contains('generate-lab-page') && !document.getElementById('adminHeroTitle');
 }
@@ -118,6 +158,7 @@ function renderDesktop() {
             email.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
             email.className = 'auth-nav__email auth-nav__email-link';
             email.textContent = user?.email || localeText('auth.member');
+            email.setAttribute('aria-label', localeText('auth.openProfileFor', { name: getIdentityLabel(user) }));
             wrap.appendChild(email);
             if (mood) mood.hidden = useActionLinks;
         }
@@ -211,6 +252,7 @@ function renderMobile() {
             if (adminLink) accountWrap.appendChild(adminLink);
             accountWrap.appendChild(logout);
             authContainer.appendChild(accountWrap);
+            authContainer.appendChild(buildMobileWorkspaceStatus(user));
         } else {
             const email = document.createElement('span');
             email.className = 'auth-nav__mobile-email';
@@ -228,6 +270,7 @@ function renderMobile() {
             if (adminLink) actionsWrap.appendChild(adminLink);
             actionsWrap.appendChild(logout);
             authContainer.appendChild(actionsWrap);
+            authContainer.appendChild(buildMobileWorkspaceStatus(user));
         }
     } else {
         const btn = document.createElement('button');

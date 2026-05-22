@@ -58,6 +58,7 @@ let releaseAssetsOverlayFocus = null;
 const state = {
     loggedIn: false,
     user: null,
+    sessionExpired: false,
     creditBalance: null,
     folders: [],
     mediaType: 'image',
@@ -277,6 +278,10 @@ function setMessage(text = '', type = 'info') {
     refs.message.className = text ? `generate-lab__message generate-lab__message--${type}` : 'generate-lab__message';
 }
 
+function isAuthFailure(result) {
+    return result?.status === 401 || result?.status === 403;
+}
+
 const workflowStatusConfig = Object.freeze({
     ready: {
         title: 'generateLab.workflowReadyTitle',
@@ -377,6 +382,10 @@ function setCurrentResultSummary(status = 'empty') {
 function updateCostInsight(price, insufficient) {
     if (!refs.costInsight) return;
     refs.costInsight.classList.toggle('is-low', insufficient);
+    if (state.sessionExpired) {
+        refs.costInsight.textContent = localeText('authRecovery.sessionExpiredGenerateCopy');
+        return;
+    }
     if (!state.loggedIn) {
         refs.costInsight.textContent = localeText('generateLab.costInsightSignedOut');
         return;
@@ -409,9 +418,10 @@ function requireMember() {
     const authState = getAuthState();
     if (state.loggedIn || authState.loggedIn) return true;
     try {
-        openAuthModal('register', {
-            message: localeText('authRecovery.generateMessage'),
-            target: 'register',
+        const expired = state.sessionExpired;
+        openAuthModal(expired ? 'login' : 'register', {
+            message: localeText(expired ? 'authRecovery.sessionExpiredGenerateCopy' : 'authRecovery.generateMessage'),
+            target: expired ? 'login' : 'register',
             messageType: 'info',
             contextKey: 'authRecovery.generateMessage',
         });
@@ -473,21 +483,23 @@ async function openAssetsOverlay() {
 }
 
 function updateAccountPanel() {
-    if (refs.accountStatus) {
-        if (state.loggedIn) {
-            const email = state.user?.email || localeText('generateLab.member');
-            refs.accountStatus.textContent = localeText('generateLab.signedInAs', { email });
-        } else {
-            refs.accountStatus.textContent = localeText('generateLab.signInRequired');
-        }
-    }
-    if (refs.creditStatus) {
-        if (state.creditBalance === null) {
-            refs.creditStatus.textContent = state.loggedIn ? localeText('generateLab.creditsUnavailable') : localeText('generateLab.creditsAfterSignIn');
-        } else {
-            refs.creditStatus.textContent = localeText('credits.credits', { count: state.creditBalance });
-        }
-    }
+    const accountStatusText = state.sessionExpired
+        ? localeText('authRecovery.sessionExpiredTitle')
+        : state.loggedIn
+            ? localeText('generateLab.signedInAs', { email: state.user?.email || localeText('generateLab.member') })
+            : localeText('generateLab.signInRequired');
+    const creditStatusText = state.sessionExpired
+        ? localeText('authRecovery.sessionExpiredGenerateCopy')
+        : state.creditBalance === null
+            ? (state.loggedIn ? localeText('generateLab.creditsUnavailable') : localeText('generateLab.creditsAfterSignIn'))
+            : localeText('credits.credits', { count: state.creditBalance });
+
+    [refs.accountStatus, refs.sessionAccountStatus].forEach((node) => {
+        if (node) node.textContent = accountStatusText;
+    });
+    [refs.creditStatus, refs.sessionCreditStatus].forEach((node) => {
+        if (node) node.textContent = creditStatusText;
+    });
 }
 
 function updateActionState() {
@@ -1629,13 +1641,19 @@ async function loadSession() {
         const res = await apiGetMe();
         state.loggedIn = res.ok && res.data?.loggedIn === true;
         state.user = state.loggedIn ? (res.data?.user || null) : null;
+        state.sessionExpired = !state.loggedIn && isAuthFailure(res);
     } catch (error) {
         console.warn('Generate Lab session load failed:', error);
         state.loggedIn = false;
         state.user = null;
+        state.sessionExpired = false;
     }
     updateAccountPanel();
     updateActionState();
+    if (state.sessionExpired) {
+        setWorkflowStatus('attention');
+        setMessage(localeText('authRecovery.sessionExpiredGenerateCopy'), 'error');
+    }
 }
 
 function bindEvents() {
@@ -1697,6 +1715,8 @@ function cacheRefs() {
     Object.assign(refs, {
         accountStatus: byId('labAccountStatus'),
         creditStatus: byId('labCreditStatus'),
+        sessionAccountStatus: byId('labSessionAccountStatus'),
+        sessionCreditStatus: byId('labSessionCreditStatus'),
         mediaTabs: Array.from(document.querySelectorAll('.generate-lab__media-tab')),
         modelList: byId('labModelList'),
         modelDetails: byId('labModelDetails'),
