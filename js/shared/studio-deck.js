@@ -9,6 +9,7 @@ import { setupFocusTrap } from './focus-trap.js';
 /* ── Modal (injected once per page) ── */
 let modal = null;
 let focusTrapCleanup = null;
+let lastFocusedBeforeModal = null;
 
 function ensureModal() {
     if (modal) return modal;
@@ -29,14 +30,23 @@ function ensureModal() {
                 '</button>' +
                 '<div class="studio-modal__image modal-image"></div>' +
                 '<div class="modal-body">' +
-                    '<h3 class="studio-modal__title modal-title"></h3>' +
+                    '<p class="studio-modal__eyebrow" hidden></p>' +
+                    '<h3 id="studioImageModalTitle" class="studio-modal__title modal-title"></h3>' +
+                    '<dl class="studio-modal__metadata" hidden></dl>' +
+                    '<p class="studio-modal__status" role="status" aria-live="polite" hidden></p>' +
+                    '<div class="studio-modal__footer-actions">' +
+                        '<a class="studio-modal__text-open" href="#" target="_blank" rel="noopener noreferrer"></a>' +
+                        '<button type="button" class="studio-modal__text-close"></button>' +
+                    '</div>' +
                 '</div>' +
             '</div>' +
         '</div>';
+    modal.setAttribute('aria-labelledby', 'studioImageModalTitle');
     document.body.appendChild(modal);
 
     /* Close handlers — same pattern as gallery modal */
     modal.querySelector('.modal-close').addEventListener('click', closeStudioModal);
+    modal.querySelector('.studio-modal__text-close').addEventListener('click', closeStudioModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeStudioModal(); });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && modal.classList.contains('active')) closeStudioModal();
@@ -45,6 +55,9 @@ function ensureModal() {
 }
 
 function applyModalOpenState() {
+    lastFocusedBeforeModal = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
     focusTrapCleanup = setupFocusTrap(modal);
@@ -54,6 +67,10 @@ function resetStudioModalContent() {
     const m = ensureModal();
     const mediaContainer = m.querySelector('.studio-modal__image');
     const openLink = m.querySelector('.studio-modal__open');
+    const textOpenLink = m.querySelector('.studio-modal__text-open');
+    const metadata = m.querySelector('.studio-modal__metadata');
+    const eyebrow = m.querySelector('.studio-modal__eyebrow');
+    const status = m.querySelector('.studio-modal__status');
     const playingVideo = mediaContainer.querySelector('video');
     if (playingVideo) {
         playingVideo.pause();
@@ -66,27 +83,96 @@ function resetStudioModalContent() {
     openLink.hidden = false;
     openLink.removeAttribute('hidden');
     openLink.onclick = null;
+    textOpenLink.hidden = false;
+    textOpenLink.removeAttribute('hidden');
+    textOpenLink.onclick = null;
+    textOpenLink.href = '#';
+    metadata.replaceChildren();
+    metadata.hidden = true;
+    eyebrow.textContent = '';
+    eyebrow.hidden = true;
+    status.textContent = '';
+    status.hidden = true;
     return m;
 }
 
-export function openStudioImageModal(imgSrc, title, originalUrl = imgSrc) {
+function setActionLabels(m, {
+    openLabel = 'Open original',
+    openTitle = openLabel,
+    closeLabel = 'Close preview',
+    closeTitle = closeLabel,
+} = {}) {
+    const openLink = m.querySelector('.studio-modal__open');
+    const textOpenLink = m.querySelector('.studio-modal__text-open');
+    const closeButton = m.querySelector('.modal-close');
+    const textCloseButton = m.querySelector('.studio-modal__text-close');
+    openLink.setAttribute('aria-label', openLabel);
+    openLink.title = openTitle;
+    textOpenLink.textContent = openLabel;
+    textOpenLink.setAttribute('aria-label', openLabel);
+    closeButton.setAttribute('aria-label', closeLabel);
+    closeButton.title = closeTitle;
+    textCloseButton.textContent = closeLabel;
+}
+
+function applyModalDetails(m, {
+    ariaLabel = '',
+    eyebrow = '',
+    details = [],
+    statusText = '',
+} = {}) {
+    if (ariaLabel) {
+        m.setAttribute('aria-label', ariaLabel);
+    }
+
+    const eyebrowEl = m.querySelector('.studio-modal__eyebrow');
+    eyebrowEl.textContent = eyebrow || '';
+    eyebrowEl.hidden = !eyebrow;
+
+    const metadata = m.querySelector('.studio-modal__metadata');
+    metadata.replaceChildren();
+    (Array.isArray(details) ? details : [])
+        .filter((entry) => entry?.label && entry?.value)
+        .forEach((entry) => {
+            const term = document.createElement('dt');
+            term.textContent = entry.label;
+            const description = document.createElement('dd');
+            description.textContent = entry.value;
+            metadata.append(term, description);
+        });
+    metadata.hidden = metadata.children.length === 0;
+
+    const status = m.querySelector('.studio-modal__status');
+    status.textContent = statusText || '';
+    status.hidden = !statusText;
+}
+
+export function openStudioImageModal(imgSrc, title, originalUrl = imgSrc, options = {}) {
     const m = ensureModal();
     const imgContainer = resetStudioModalContent().querySelector('.studio-modal__image');
-    m.setAttribute('aria-label', 'Image preview');
+    m.setAttribute('aria-label', options.ariaLabel || 'Image preview');
 
     const img = new Image();
     img.src = imgSrc;
-    img.alt = title || 'Saved image';
+    img.alt = options.imageAlt || title || 'Saved image';
     img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
-    img.onerror = function () { this.onerror = null; this.alt = 'Image could not be loaded'; };
+    img.onerror = function () {
+        this.onerror = null;
+        this.alt = options.imageErrorAlt || 'Image could not be loaded';
+    };
     imgContainer.appendChild(img);
 
     m.querySelector('.studio-modal__title').textContent = title || '';
+    setActionLabels(m, options);
+    applyModalDetails(m, options);
 
     /* Open-full link */
     const openLink = m.querySelector('.studio-modal__open');
+    const textOpenLink = m.querySelector('.studio-modal__text-open');
     openLink.href = originalUrl || imgSrc;
+    textOpenLink.href = originalUrl || imgSrc;
     openLink.hidden = false;
+    textOpenLink.hidden = false;
     openLink.onclick = (e) => {
         e.stopPropagation();
         window.open(originalUrl || imgSrc, '_blank', 'noopener,noreferrer');
@@ -100,13 +186,20 @@ export function openStudioVideoModal({
     videoUrl,
     title,
     posterUrl = '',
+    ariaLabel = '',
+    details = [],
+    eyebrow = '',
+    statusText = '',
+    closeLabel = 'Close preview',
+    closeTitle = closeLabel,
 } = {}) {
     if (!videoUrl) return;
     const m = ensureModal();
     const mediaContainer = resetStudioModalContent().querySelector('.studio-modal__image');
     const openLink = m.querySelector('.studio-modal__open');
+    const textOpenLink = m.querySelector('.studio-modal__text-open');
     m.classList.add('studio-modal--video');
-    m.setAttribute('aria-label', 'Video preview');
+    m.setAttribute('aria-label', ariaLabel || 'Video preview');
     mediaContainer.style.background = '#000';
 
     const video = document.createElement('video');
@@ -123,8 +216,12 @@ export function openStudioVideoModal({
     mediaContainer.appendChild(video);
 
     m.querySelector('.studio-modal__title').textContent = title || 'Saved video';
+    setActionLabels(m, { closeLabel, closeTitle });
+    applyModalDetails(m, { ariaLabel, eyebrow, details, statusText });
     openLink.hidden = true;
     openLink.setAttribute('hidden', '');
+    textOpenLink.hidden = true;
+    textOpenLink.setAttribute('hidden', '');
 
     applyModalOpenState();
 }
@@ -135,6 +232,10 @@ function closeStudioModal() {
     modal.classList.remove('active');
     document.body.style.overflow = '';
     if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
+    if (lastFocusedBeforeModal?.isConnected && typeof lastFocusedBeforeModal.focus === 'function') {
+        lastFocusedBeforeModal.focus({ preventScroll: true });
+    }
+    lastFocusedBeforeModal = null;
 }
 
 
@@ -435,6 +536,10 @@ export function initStudioDeck(grid, options = {}) {
             if (e.target.closest('.studio__image-delete')) return;
             if (e.target.closest('.studio__image-check')) return;
             if (grid.dataset.selectMode) return;
+            if (typeof options.onOpenImage === 'function') {
+                options.onOpenImage(item, e);
+                return;
+            }
             const previewUrl = item.dataset.previewUrl || item.dataset.originalUrl;
             const originalUrl = item.dataset.originalUrl || previewUrl;
             const img = item.querySelector('img');

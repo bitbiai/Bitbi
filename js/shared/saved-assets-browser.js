@@ -121,6 +121,13 @@ function getFilePreview(asset) {
     return localeText('assets.savedAiLabAsset');
 }
 
+function getAssetTypeLabel(asset) {
+    if (isImageAsset(asset)) return localeText('assets.image');
+    if (isAudioAsset(asset)) return localeText('assets.soundAsset');
+    if (isVideoAsset(asset)) return localeText('assets.videoAsset');
+    return localeText('assets.asset');
+}
+
 function splitFileName(fileName) {
     const normalized = String(fileName || '').trim();
     const slashIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
@@ -483,6 +490,67 @@ export function createSavedAssetsBrowser({
         return folder?.name || localeText('assets.folder');
     }
 
+    function getAssetFolderLabel(asset) {
+        if (!asset?.folder_id) return localeText('assets.folderNone');
+        const folder = folders.find((entry) => entry.id === asset.folder_id);
+        return folder?.name || localeText('assets.folderUnknown');
+    }
+
+    function getCurrentAssetViewLabel() {
+        if (folderViewActive) return localeText('assets.viewScopeOverview');
+        const filterValue = $galleryFilter.value;
+        if (filterValue === UNFOLDERED) return localeText('assets.viewScopeUnfoldered');
+        if (filterValue && filterValue !== ALL_ASSETS) {
+            return localeText('assets.viewScopeFolder', { folder: getCurrentFolderName(filterValue) });
+        }
+        return localeText('assets.viewScopeAll');
+    }
+
+    function getAssetVisibilityLabel(asset) {
+        return isPublishedAsset(asset) ? localeText('assets.public') : localeText('assets.private');
+    }
+
+    function getAssetDetailRows(asset) {
+        const rows = [
+            { label: localeText('assets.detailType'), value: getAssetTypeLabel(asset) },
+            { label: localeText('assets.detailFolder'), value: getAssetFolderLabel(asset) },
+            { label: localeText('assets.detailCurrentView'), value: getCurrentAssetViewLabel() },
+            { label: localeText('assets.detailVisibility'), value: getAssetVisibilityLabel(asset) },
+        ];
+        const created = formatAssetDate(asset?.created_at);
+        if (created) rows.push({ label: localeText('assets.detailCreated'), value: created });
+        const updated = formatAssetDate(asset?.updated_at);
+        if (updated) rows.push({ label: localeText('assets.detailUpdated'), value: updated });
+        if (!isImageAsset(asset) && asset?.file_name) {
+            rows.push({ label: localeText('assets.detailFile'), value: String(asset.file_name) });
+        }
+        const size = formatAssetSize(asset?.size_bytes);
+        if (size) rows.push({ label: localeText('assets.detailSize'), value: size });
+        const source = String(asset?.source_module || '').trim();
+        if (source) {
+            rows.push({
+                label: localeText('assets.detailSource'),
+                value: source.replace(/_/g, ' '),
+            });
+        }
+        return rows;
+    }
+
+    function getAssetDetailModalOptions(asset, title) {
+        return {
+            ariaLabel: localeText('assets.detailDialogLabel', { title }),
+            eyebrow: localeText('assets.detailEyebrow'),
+            openLabel: localeText('assets.openOriginalAsset'),
+            openTitle: localeText('assets.openOriginalAsset'),
+            closeLabel: localeText('assets.closePreview'),
+            closeTitle: localeText('assets.closePreview'),
+            imageAlt: title,
+            imageErrorAlt: localeText('assets.previewLoadFailedAlt'),
+            details: getAssetDetailRows(asset),
+            statusText: localeText('assets.detailSafeStatus'),
+        };
+    }
+
     function getViewContextValues() {
         const count = currentAssets.length;
         const filterValue = $galleryFilter.value;
@@ -700,10 +768,12 @@ export function createSavedAssetsBrowser({
         const previewUrl = asset?.medium_url || asset?.original_url || asset?.file_url || asset?.thumb_url || '';
         const originalUrl = asset?.original_url || asset?.file_url || previewUrl;
         if (!previewUrl) return;
+        const title = asset?.title || asset?.preview_text || localeText('assets.savedImage');
         openStudioImageModal(
             previewUrl,
-            asset?.title || asset?.preview_text || localeText('assets.savedImage'),
+            title,
             originalUrl,
+            getAssetDetailModalOptions(asset, title),
         );
     }
 
@@ -713,6 +783,12 @@ export function createSavedAssetsBrowser({
             videoUrl: asset.file_url,
             title: getFileTitle(asset),
             posterUrl: asset.poster_url || '',
+            ariaLabel: localeText('assets.detailDialogLabel', { title: getFileTitle(asset) }),
+            eyebrow: localeText('assets.detailEyebrow'),
+            closeLabel: localeText('assets.closePreview'),
+            closeTitle: localeText('assets.closePreview'),
+            details: getAssetDetailRows(asset),
+            statusText: localeText('assets.detailSafeStatus'),
         });
     }
 
@@ -1272,17 +1348,31 @@ export function createSavedAssetsBrowser({
 
     function buildImageCard(asset) {
         const item = document.createElement('div');
+        const title = asset.title || asset.preview_text || localeText('assets.savedImage');
         item.className = 'studio__image-item';
         item.dataset.assetId = asset.id;
         item.dataset.assetType = 'image';
         item.dataset.previewUrl = asset.medium_url || asset.original_url || asset.file_url || '';
         item.dataset.originalUrl = asset.original_url || asset.file_url || '';
-        item.title = asset.title || asset.preview_text || '';
+        item.title = title;
+        item.setAttribute('role', 'button');
+        item.tabIndex = 0;
+        item.setAttribute('aria-label', localeText('assets.previewAssetWithTitle', { title }));
+        item.addEventListener('keydown', (event) => {
+            if (event.target !== item && event.target.closest('button, a, audio, summary, details')) return;
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            if (selectMode) {
+                toggleSelection(item);
+                return;
+            }
+            openImageAsset(asset);
+        });
 
         if (asset.thumb_url) {
             const imgEl = document.createElement('img');
             imgEl.src = asset.thumb_url;
-            imgEl.alt = asset.title || asset.preview_text || localeText('assets.savedImage');
+            imgEl.alt = title;
             imgEl.loading = 'lazy';
             imgEl.decoding = 'async';
             if (asset.thumb_width) imgEl.width = asset.thumb_width;
@@ -1306,7 +1396,7 @@ export function createSavedAssetsBrowser({
         previewButton.className = 'studio__image-preview-action';
         previewButton.textContent = localeText('assets.previewAsset');
         previewButton.setAttribute('aria-label', localeText('assets.previewAssetWithTitle', {
-            title: asset.title || asset.preview_text || localeText('assets.savedImage'),
+            title,
         }));
         previewButton.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -2017,7 +2107,13 @@ export function createSavedAssetsBrowser({
         if (initialized) return;
         initialized = true;
 
-        assetDeck = initStudioDeck($assetGrid, { maxDots: SAVED_ASSET_MOBILE_DOT_LIMIT });
+        assetDeck = initStudioDeck($assetGrid, {
+            maxDots: SAVED_ASSET_MOBILE_DOT_LIMIT,
+            onOpenImage(item) {
+                const asset = currentAssets.find((entry) => String(entry.id) === String(item.dataset.assetId));
+                if (asset) openImageAsset(asset);
+            },
+        });
         folderDeck = initStudioFolderDeck($folderGrid);
         localizeWorkspaceLinks();
 

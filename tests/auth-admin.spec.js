@@ -8933,6 +8933,9 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-video-trigger').click();
     await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
     await expect(page.locator('#studioImageModal .studio-modal__video')).toHaveAttribute('src', /\/api\/ai\/text-assets\/vid-1\/file$/);
+    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Video asset');
+    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Launches');
+    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('launch-walkthrough.mp4');
     await page.locator('#studioImageModal .modal-close').click();
   });
 
@@ -9077,6 +9080,17 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('.studio__mobile-grid-trigger').click();
     await expect(page.locator('.mobile-media-grid-overlay--assets')).toBeVisible();
     await expect(page.locator('.mobile-media-grid-overlay__close')).toHaveText('Schließen');
+    await page.locator('.mobile-media-grid-overlay__item').first().click();
+    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
+    await expect(page.locator('#studioImageModal .studio-modal__title')).toContainText('Mobiles Asset 3');
+    await expect(page.locator('#studioImageModal .studio-modal__eyebrow')).toHaveText('Asset-Details');
+    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Typ');
+    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Bild');
+    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Kein Ordner');
+    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Alle gespeicherten Assets');
+    await expect(page.locator('#studioImageModal .studio-modal__status')).toContainText('Private URLs, interne IDs und Provider-Payloads bleiben ausgeblendet');
+    await expect(page.locator('#studioImageModal .studio-modal__text-open')).toHaveText('Original öffnen');
+    await expect(page.locator('#studioImageModal .studio-modal__text-close')).toHaveText('Vorschau schließen');
   });
 
   test('account Assets Manager keeps saved-assets type badges compact on desktop and mobile', async ({
@@ -10007,11 +10021,34 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.studio__image-preview-badge')).toContainText('Preview pending');
     await expect(page.locator('#studioImageGrid .studio__image-item img').first()).toHaveAttribute('src', /\/api\/ai\/images\/img-ready\/thumb$/);
 
-    await page.locator('#studioImageGrid .studio__image-item').first().click();
+    const readyCard = page.locator('#studioImageGrid .studio__image-item').first();
+    await expect(readyCard).toHaveAttribute('role', 'button');
+    await expect(readyCard).toHaveAttribute('aria-label', 'Preview Ready Preview');
+    await readyCard.focus();
+    await expect(readyCard).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
     await expect(page.locator('#studioImageModal .studio-modal__image img')).toHaveAttribute('src', /\/api\/ai\/images\/img-ready\/medium$/);
     await expect(page.locator('#studioImageModal .studio-modal__open')).toHaveAttribute('href', '/api/ai/images/img-ready/file');
+    await expect(page.locator('#studioImageModal .studio-modal__eyebrow')).toHaveText('Asset details');
+    const modalMetadata = page.locator('#studioImageModal .studio-modal__metadata');
+    await expect(modalMetadata).toContainText('Type');
+    await expect(modalMetadata).toContainText('Image');
+    await expect(modalMetadata).toContainText('Folder');
+    await expect(modalMetadata).toContainText('No folder');
+    await expect(modalMetadata).toContainText('Current view');
+    await expect(modalMetadata).toContainText('Assets without folder');
+    await expect(modalMetadata).toContainText('Visibility');
+    await expect(modalMetadata).toContainText('Private');
+    await expect(modalMetadata).toContainText('Created');
+    await expect(modalMetadata).toContainText('10.04.2026');
+    await expect(page.locator('#studioImageModal .studio-modal__status')).toContainText('Private URLs, internal IDs, and provider payloads are hidden');
+    await expect(page.locator('#studioImageModal .studio-modal__text-open')).toHaveText('Open original');
+    await expect(page.locator('#studioImageModal .studio-modal__text-close')).toHaveText('Close preview');
+    await expect(page.locator('#studioImageModal .modal-body')).not.toContainText('img-ready');
+    await expect(page.locator('#studioImageModal .modal-body')).not.toContainText('/api/ai');
     await page.locator('#studioImageModal .modal-close').click();
+    await expect(readyCard).toBeFocused();
 
     expect(imageRequests).toContain('/api/ai/images/img-ready/thumb');
     expect(imageRequests).toContain('/api/ai/images/img-ready/medium');
