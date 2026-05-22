@@ -226,7 +226,7 @@ function renderDesktop() {
             profileLinkTarget.appendChild(profileLink);
         }
 
-        // Admin link — Pricing is a public shared-header link for every visitor.
+        // Admin link stays separate from public/member workspace links.
         const adminLinkTarget = useActionLinks ? actions : navLinks;
         if (user?.role === 'admin' && adminLinkTarget) {
             const adminLink = document.createElement('a');

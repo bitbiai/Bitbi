@@ -5,8 +5,8 @@
 
 @layer pages {
     body.generate-lab-page {
-        --generate-lab-shell-max: 1520px;
-        --generate-lab-shell-padding-x: clamp(1rem, 2vw, 2rem);
+        --generate-lab-shell-max: var(--bitbi-content-max-width, 1520px);
+        --generate-lab-shell-padding-x: var(--bitbi-content-gutter, clamp(1rem, 2vw, 2rem));
         --lab-accent-rgb: 192, 38, 211;
         --lab-accent-alt-rgb: 0, 240, 255;
         --lab-accent-ink: rgba(248, 217, 255, 0.94);

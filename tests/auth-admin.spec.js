@@ -6380,35 +6380,28 @@ test.describe('Pricing credit-pack rollout', () => {
     await seedCookieConsent(page);
   });
 
-  test('shows the Pricing header link for anonymous visitors, members, and admins', async ({ page }) => {
+  test('removes Pricing from shared headers while keeping member/admin nav intact', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { loggedIn: false, user: null });
     });
     await page.goto('/');
-    let pricingLink = page.locator('.site-nav__links [data-pricing-link]');
-    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
-    await expect(pricingLink).toHaveText('Pricing');
-    await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
+    await expect(page.locator('.site-nav__links').getByRole('link', { name: 'Pricing' })).toHaveCount(0);
     await expect
       .poll(() => page.locator('.site-nav__links > a').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab']);
 
     await page.unroute('**/api/me');
     await mockAuthenticatedHeader(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
     await page.goto('/');
-    pricingLink = page.locator('.site-nav__links [data-pricing-link]');
-    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
-    await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
+    await expect(page.locator('.site-nav__links').getByRole('link', { name: 'Pricing' })).toHaveCount(0);
 
     await page.unroute('**/api/me');
     await mockAuthenticatedHeader(page, { role: 'admin', email: 'admin-pricing@bitbi.ai' });
     await page.goto('/');
-    pricingLink = page.locator('.site-nav__links [data-pricing-link]');
-    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
-    await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
+    await expect(page.locator('.site-nav__links').getByRole('link', { name: 'Pricing' })).toHaveCount(0);
     await expect
       .poll(() => page.locator('.site-nav__links > a').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab']);
     await expect(page.locator('.site-nav__actions .auth-nav__profile-link')).toBeVisible();
     await expect(page.locator('.site-nav__actions .auth-nav__admin-link')).toBeVisible();
 
@@ -6417,13 +6410,13 @@ test.describe('Pricing credit-pack rollout', () => {
       await fulfillJson(route, { loggedIn: false, user: null });
     });
     await page.goto('/de/');
-    pricingLink = page.locator('.site-nav__links [data-pricing-link]');
-    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
-    await expect(pricingLink).toHaveText('Preise');
-    await expect(pricingLink).toHaveAttribute('href', '/de/pricing.html');
+    await expect(page.locator('.site-nav__links').getByRole('link', { name: 'Preise' })).toHaveCount(0);
+    await expect
+      .poll(() => page.locator('.site-nav__links > a').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Galerie', 'Video', 'Sound Lab']);
   });
 
-  test('shows the public Pricing link in English and German mobile menus', async ({ page }) => {
+  test('removes the public Pricing link from English and German mobile menus', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { loggedIn: false, user: null });
@@ -6432,16 +6425,14 @@ test.describe('Pricing credit-pack rollout', () => {
     await page.goto('/');
     await page.locator('#mobileMenuBtn').click();
     const mobileExplore = page.locator('#mobileNav .mobile-nav__section[aria-label="Explore"]');
-    const mobilePricing = mobileExplore.getByRole('link', { name: 'Pricing' });
-    await expect(mobilePricing).toBeVisible();
-    await expect(mobilePricing).toHaveAttribute('href', '/pricing.html');
+    await expect(mobileExplore.getByRole('link', { name: 'Pricing' })).toHaveCount(0);
+    await expect(mobileExplore).toContainText('Gallery');
 
     await page.goto('/de/');
     await page.locator('#mobileMenuBtn').click();
     const mobileExploreDe = page.locator('#mobileNav .mobile-nav__section[aria-label="Entdecken"]');
-    const mobilePricingDe = mobileExploreDe.getByRole('link', { name: 'Preise' });
-    await expect(mobilePricingDe).toBeVisible();
-    await expect(mobilePricingDe).toHaveAttribute('href', '/de/pricing.html');
+    await expect(mobileExploreDe.getByRole('link', { name: 'Preise' })).toHaveCount(0);
+    await expect(mobileExploreDe).toContainText('Galerie');
   });
 
   test('keeps direct Pricing access public for logged-out and member visitors', async ({ page }) => {
@@ -13786,7 +13777,6 @@ test.describe('Admin nav accordion behavior', () => {
       { text: 'Gallery', href: '/#gallery' },
       { text: 'Video', href: '/#video-creations' },
       { text: 'Sound Lab', href: '/#soundlab' },
-      { text: 'Pricing', href: '/pricing.html' },
       { text: 'Profile', href: '/account/profile.html' },
       { text: 'Admin', href: '/admin/' },
     ]);

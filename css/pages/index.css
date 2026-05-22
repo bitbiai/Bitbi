@@ -2867,48 +2867,56 @@
 
     .mobile-guest-banner {
         position: absolute;
-        inset-block-start: calc(4.65rem + env(safe-area-inset-top, 0px));
-        inset-inline-end: clamp(0.875rem, 4vw, 1.25rem);
+        inset-block-start: 50%;
+        inset-inline-start: 50%;
         z-index: 12;
-        max-inline-size: min(15rem, calc(100vw - 5rem));
+        inline-size: min(13.75rem, calc(100vw - 9.25rem));
+        max-inline-size: 100%;
+        transform: translate(-50%, -50%);
     }
 
     .mobile-guest-banner::after {
-        content: '↗';
+        content: '';
         position: absolute;
-        inset-block-start: -1.15rem;
-        inset-inline-end: 0.35rem;
-        font-family: var(--font-mono);
-        font-size: 0.78rem;
-        color: rgba(0, 240, 255, 0.88);
-        text-shadow:
-            0 0 8px rgba(0, 240, 255, 0.28),
-            0 0 18px rgba(0, 240, 255, 0.12);
-        animation: mobileGuestBannerCue 1.9s ease-in-out infinite;
+        inset: -0.32rem -0.42rem;
+        z-index: -1;
+        border-radius: var(--radius-full);
+        background:
+            linear-gradient(90deg, rgba(0, 240, 255, 0.18), rgba(192, 38, 211, 0.14), rgba(255, 170, 0, 0.16)),
+            rgba(4, 10, 18, 0.68);
+        filter: blur(12px);
+        opacity: 0.62;
+        animation: freeAccountGlow 2.7s ease-in-out infinite;
+        pointer-events: none;
     }
 
     .mobile-guest-banner__cta {
         position: relative;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.28rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         width: 100%;
-        padding: 0.8rem 0.95rem 0.85rem;
-        border: 1px solid rgba(0, 240, 255, 0.18);
-        border-radius: 1rem;
+        min-block-size: 2.25rem;
+        padding: 0.42rem 0.86rem;
+        border: 1px solid rgba(0, 240, 255, 0.2);
+        border-radius: var(--radius-full);
         background:
-            linear-gradient(135deg, rgba(9, 18, 30, 0.94), rgba(13, 27, 42, 0.76)),
-            radial-gradient(circle at top left, rgba(0, 240, 255, 0.14), transparent 55%);
+            linear-gradient(135deg, rgba(9, 18, 30, 0.86), rgba(13, 27, 42, 0.66)),
+            radial-gradient(circle at 12% 50%, rgba(0, 240, 255, 0.13), transparent 55%),
+            radial-gradient(circle at 88% 50%, rgba(255, 170, 0, 0.12), transparent 58%);
         box-shadow:
             0 0 0 1px rgba(255, 255, 255, 0.03),
-            0 16px 34px rgba(0, 0, 0, 0.34),
-            0 0 18px rgba(0, 240, 255, 0.08);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        text-align: left;
+            0 10px 26px rgba(0, 0, 0, 0.3),
+            0 0 18px rgba(0, 240, 255, 0.09);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        color: rgba(255, 255, 255, 0.94);
+        text-align: center;
         cursor: pointer;
-        animation: mobileGuestBannerFloat 4.4s ease-in-out infinite;
+        transition:
+            border-color 0.22s var(--ease-default),
+            box-shadow 0.22s var(--ease-default),
+            transform 0.22s var(--ease-default);
     }
 
     .mobile-guest-banner__cta::before {
@@ -2921,80 +2929,88 @@
     }
 
     .mobile-guest-banner__eyebrow {
-        font-family: var(--font-mono);
-        font-size: 0.62rem;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: rgba(0, 240, 255, 0.7);
+        display: none;
     }
 
     .mobile-guest-banner__title {
-        font-family: var(--font-display);
-        font-size: 0.98rem;
-        font-weight: 700;
-        line-height: 1.2;
-        color: rgba(255, 255, 255, 0.95);
+        position: relative;
+        z-index: 1;
+        font-family: var(--font-mono);
+        font-size: clamp(0.66rem, 1.2vw, 0.76rem);
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        line-height: 1.1;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.96);
+        text-shadow:
+            0 0 8px rgba(0, 240, 255, 0.2),
+            0 0 14px rgba(255, 170, 0, 0.12);
     }
 
     .mobile-guest-banner__hint {
-        font-size: 0.68rem;
-        line-height: 1.4;
-        color: rgba(255, 255, 255, 0.62);
+        display: none;
     }
 
-    @keyframes mobileGuestBannerFloat {
+    @supports ((background-clip: text) or (-webkit-background-clip: text)) {
+        .mobile-guest-banner__title {
+            background: linear-gradient(90deg, #ffffff 0%, #00F0FF 18%, #8B5CF6 38%, #C026D3 55%, #FF6200 72%, #FFAA00 86%, #ffffff 100%);
+            background-size: 240% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            -webkit-text-fill-color: transparent;
+            animation: freeAccountTextWave 2.9s ease-in-out infinite;
+        }
+    }
+
+    .mobile-guest-banner__cta:hover,
+    .mobile-guest-banner__cta:focus-visible {
+        border-color: rgba(0, 240, 255, 0.38);
+        box-shadow:
+            0 0 0 1px rgba(0, 240, 255, 0.12),
+            0 14px 28px rgba(0, 0, 0, 0.34),
+            0 0 24px rgba(0, 240, 255, 0.14);
+        outline: none;
+        transform: translateY(-1px);
+    }
+
+    .mobile-guest-banner__cta:focus-visible {
+        box-shadow:
+            0 0 0 2px rgba(0, 240, 255, 0.42),
+            0 14px 28px rgba(0, 0, 0, 0.34),
+            0 0 24px rgba(0, 240, 255, 0.14);
+    }
+
+    @keyframes freeAccountGlow {
         0%, 100% {
-            transform: translateY(0);
-            box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.03),
-                0 16px 34px rgba(0, 0, 0, 0.34),
-                0 0 18px rgba(0, 240, 255, 0.08);
+            opacity: 0.48;
+            transform: translateX(-3%);
         }
 
         50% {
-            transform: translateY(-3px);
-            box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.05),
-                0 20px 38px rgba(0, 0, 0, 0.38),
-                0 0 24px rgba(0, 240, 255, 0.12);
+            opacity: 0.82;
+            transform: translateX(3%);
         }
     }
 
-    @keyframes mobileGuestBannerCue {
-        0%, 100% { transform: translate(0, 0); opacity: 0.72; }
-        50% { transform: translate(3px, -3px); opacity: 1; }
+    @keyframes freeAccountTextWave {
+        0% { background-position: 180% 50%; }
+        48%, 52% { background-position: 50% 50%; }
+        100% { background-position: -80% 50%; }
     }
 
     @media (min-width: 1024px) {
         .mobile-guest-banner {
-            inset-block-start: calc(6.35rem + env(safe-area-inset-top, 0px));
-            inset-inline-end: calc(var(--homepage-hero-side-inset) + clamp(10.75rem, 13vw, 13.25rem) + 1rem);
-            max-inline-size: min(22rem, calc(100vw - 8rem));
-        }
-
-        .mobile-guest-banner::after {
-            display: none;
+            inline-size: min(15.25rem, 22vw);
         }
 
         .mobile-guest-banner__cta {
-            gap: 0.4rem;
-            padding: 1rem 1.15rem 1.05rem;
-            border-radius: 1.25rem;
-        }
-
-        .mobile-guest-banner__eyebrow {
-            font-size: 0.68rem;
-            letter-spacing: 0.16em;
+            min-block-size: 2.38rem;
+            padding-inline: 1rem;
         }
 
         .mobile-guest-banner__title {
-            font-size: 1.15rem;
-            line-height: 1.15;
-        }
-
-        .mobile-guest-banner__hint {
-            font-size: 0.74rem;
-            max-inline-size: 18rem;
+            font-size: clamp(0.72rem, 0.82vw, 0.82rem);
         }
     }
 
@@ -3773,7 +3789,7 @@
     }
 
     .hero--homepage {
-        --homepage-hero-side-inset: var(--bitbi-public-header-inset, clamp(0.7rem, 2vw, 1.4rem));
+        --homepage-hero-side-inset: var(--bitbi-content-gutter, var(--bitbi-public-header-inset, clamp(0.7rem, 2vw, 1.4rem)));
         --homepage-news-pulse-width: clamp(24rem, 42vw, 44rem);
     }
 
@@ -3829,71 +3845,6 @@
         .hero--homepage .hero__title {
             filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.16)) drop-shadow(0 0 34px rgba(255, 255, 255, 0.1));
         }
-    }
-
-    .hero__conversion {
-        display: grid;
-        gap: 0.66rem;
-        max-inline-size: min(100%, 48rem);
-        margin: 0 auto var(--space-4);
-        text-align: center;
-    }
-
-    .hero__conversion-eyebrow,
-    .hero__conversion-points {
-        margin: 0;
-        font-family: var(--font-mono);
-        font-weight: 800;
-        letter-spacing: 0;
-        text-transform: uppercase;
-    }
-
-    .hero__conversion-eyebrow {
-        color: rgba(0, 240, 255, 0.82);
-        font-size: 0.74rem;
-    }
-
-    .hero__conversion-title {
-        margin: 0;
-        color: rgba(255, 255, 255, 0.94);
-        font-family: var(--font-display);
-        font-size: clamp(1.65rem, 3.2vw, 2.9rem);
-        line-height: 1.04;
-        text-wrap: balance;
-        text-shadow: 0 14px 36px rgba(0, 0, 0, 0.46);
-    }
-
-    .hero__conversion-copy {
-        max-inline-size: 42rem;
-        margin: 0 auto;
-        color: rgba(255, 255, 255, 0.74);
-        font-size: clamp(0.95rem, 1.5vw, 1.06rem);
-        line-height: 1.62;
-        text-wrap: pretty;
-        text-shadow: 0 10px 26px rgba(0, 0, 0, 0.44);
-    }
-
-    .hero__conversion-points {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 0.45rem;
-        padding: 0;
-        list-style: none;
-        color: rgba(255, 255, 255, 0.76);
-        font-size: 0.68rem;
-    }
-
-    .hero__conversion-points li {
-        display: inline-flex;
-        align-items: center;
-        min-block-size: 1.9rem;
-        padding-inline: 0.72rem;
-        border: 1px solid rgba(0, 240, 255, 0.16);
-        border-radius: var(--radius-full);
-        background: rgba(5, 9, 15, 0.52);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
     }
 
     .hero__lab-teaser {
@@ -4101,20 +4052,6 @@
 
         .hero--homepage .hero__content {
             padding-inline: 1rem;
-        }
-
-        .hero__conversion {
-            gap: 0.58rem;
-            margin-block-end: var(--space-3);
-            text-align: start;
-        }
-
-        .hero__conversion-copy {
-            margin-inline: 0;
-        }
-
-        .hero__conversion-points {
-            justify-content: flex-start;
         }
 
         .hero__lab-teaser {
@@ -4615,6 +4552,10 @@
 
         .mobile-guest-banner__cta,
         .mobile-guest-banner::after {
+            animation: none;
+        }
+
+        .mobile-guest-banner__title {
             animation: none;
         }
 

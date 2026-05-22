@@ -15,7 +15,7 @@
   .credits-onboarding,
   .credits-continuity,
   .credits-post-action {
-    width: min(var(--container-management), calc(100vw - clamp(1rem, 4vw, 4rem)));
+    width: var(--bitbi-content-max-width, min(var(--container-management), calc(100vw - clamp(1rem, 4vw, 4rem))));
     margin-inline: auto;
   }
 

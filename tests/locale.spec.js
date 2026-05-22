@@ -124,8 +124,8 @@ test.describe('Bilingual locale pages', () => {
   test('English and German root pages expose the expected lang attributes', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-    await expect(page.locator('#hero')).toContainText('Start creating from the public site');
-    await expect(page.locator('#hero')).toContainText('Backend credit checks');
+    await expect(page.locator('#hero')).not.toContainText('Start creating from the public site');
+    await expect(page.locator('#hero')).not.toContainText('Backend credit checks');
     await expect(page.locator('#hero a[href="/pricing.html#pricingJourney"]')).toContainText('Compare credits');
     await expect(page.locator('#hero a[href="/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Open workspace');
     await expect(page.locator('#publicMemberJourney')).toContainText('From first idea to saved workspace');
@@ -137,8 +137,8 @@ test.describe('Bilingual locale pages', () => {
 
     await page.goto('/de/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-    await expect(page.locator('#hero')).toContainText('Direkt von der öffentlichen Seite starten');
-    await expect(page.locator('#hero')).toContainText('Backend prüft Credits');
+    await expect(page.locator('#hero')).not.toContainText('Direkt von der öffentlichen Seite starten');
+    await expect(page.locator('#hero')).not.toContainText('Backend prüft Credits');
     await expect(page.locator('#hero a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits vergleichen');
     await expect(page.locator('#hero a[href="/de/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Arbeitsbereich öffnen');
     await expect(page.locator('#publicMemberJourney')).toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');

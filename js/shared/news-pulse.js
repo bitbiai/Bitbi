@@ -4,13 +4,12 @@ const NEWS_PULSE_ENDPOINT = '/api/public/news-pulse';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const MAX_SOURCE_ITEMS = 6;
-const MIN_VISUAL_ITEMS = 7;
 const MAX_VISUAL_ITEMS = 8;
-const MIN_WHEEL_DURATION_SECONDS = 36.1;
-const MAX_WHEEL_DURATION_SECONDS = 54.15;
-const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 8.93;
-const MOBILE_INTERVAL_MS = 5000;
-const MOBILE_ANIMATION_MS = 1560;
+const MIN_WHEEL_DURATION_SECONDS = 32.49;
+const MAX_WHEEL_DURATION_SECONDS = 48.735;
+const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 8.037;
+const MOBILE_INTERVAL_MS = 4500;
+const MOBILE_ANIMATION_MS = 1404;
 const MOBILE_TOP_RATIO = 0.05;
 const MOBILE_BOTTOM_RATIO = 0.95;
 
@@ -69,6 +68,24 @@ function normalizeItem(item) {
     return normalized;
 }
 
+function uniqueNewsKey(item) {
+    return [
+        String(item?.title || '').trim().toLowerCase(),
+        String(item?.source || '').trim().toLowerCase(),
+        String(item?.url || '').trim().toLowerCase(),
+    ].join('|');
+}
+
+function uniqueNewsItems(items) {
+    const seen = new Set();
+    return items.filter((item) => {
+        const key = uniqueNewsKey(item);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 async function fetchNewsPulse(locale) {
     const response = await fetch(`${NEWS_PULSE_ENDPOINT}?locale=${encodeURIComponent(locale)}`, {
         headers: { Accept: 'application/json' },
@@ -76,9 +93,9 @@ async function fetchNewsPulse(locale) {
     });
     if (!response.ok) return [];
     const data = await response.json();
-    return (Array.isArray(data?.items) ? data.items : [])
+    return uniqueNewsItems((Array.isArray(data?.items) ? data.items : [])
         .map(normalizeItem)
-        .filter(Boolean)
+        .filter(Boolean))
         .slice(0, MAX_SOURCE_ITEMS);
 }
 
@@ -174,12 +191,7 @@ function createMobileCubeTransition(currentItem, nextItem, locale) {
 }
 
 function buildVisualItems(items) {
-    if (!items.length) return [];
-    const visualItems = [];
-    while (visualItems.length < MIN_VISUAL_ITEMS) {
-        visualItems.push(...items);
-    }
-    return visualItems.slice(0, Math.max(MIN_VISUAL_ITEMS, Math.min(MAX_VISUAL_ITEMS, visualItems.length)));
+    return uniqueNewsItems(items).slice(0, MAX_VISUAL_ITEMS);
 }
 
 function renderTrack(items, locale) {

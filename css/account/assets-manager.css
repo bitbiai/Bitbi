@@ -13,7 +13,7 @@
     }
 
     .assets-manager-shell {
-        max-inline-size: min(1180px, calc(100vw - 2rem));
+        max-inline-size: var(--bitbi-content-max-width, min(1180px, calc(100vw - 2rem)));
     }
 
     .assets-manager {

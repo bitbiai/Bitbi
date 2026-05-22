@@ -688,7 +688,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
-    await expect(pulse.locator('.news-pulse__item')).toHaveCount(8);
+    await expect(pulse.locator('.news-pulse__item')).toHaveCount(6);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('Bitbi Live Pulse');
     await expect(pulse.getByRole('link', { name: /Creative AI workflow update/ }).first()).toHaveAttribute(
       'href',
@@ -696,8 +696,8 @@ test.describe('Homepage', () => {
     );
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
-    await expect(pulse.locator('.news-pulse__thumb')).toHaveCount(2);
-    await expect(pulse.locator('.news-pulse__link--thumb')).toHaveCount(2);
+    await expect(pulse.locator('.news-pulse__thumb')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__link--thumb')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__thumb').first()).toHaveAttribute(
       'src',
       /\/api\/public\/news-pulse\/thumbs\/pulse-test-en-1$/,
@@ -752,7 +752,7 @@ test.describe('Homepage', () => {
     expect(pulseLayout.parentId).toBe('hero');
     expect(pulseLayout.trackDisplay).not.toBe('flex');
     expect(pulseLayout.itemAnimationName).toContain('news-pulse-wheel');
-    expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeCloseTo(53.58, 1);
+    expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeCloseTo(48.22, 1);
     expect(pulseLayout.maskImage).toContain('linear-gradient');
     expect(pulseLayout.flowPaddingInlineStart).toBeGreaterThan(pulseLayout.markWidth);
     expect(pulseLayout.thumbWidth).toBeGreaterThan(50);
@@ -771,7 +771,52 @@ test.describe('Homepage', () => {
       nodes.map((node) => node.getAttribute('data-news-pulse-item-id'))
     );
     expect(new Set(renderedIds).size).toBe(6);
-    await expect(pulse.locator('.news-pulse__item[aria-hidden="true"]')).toHaveCount(2);
+    await expect(pulse.locator('.news-pulse__item[aria-hidden="true"]')).toHaveCount(0);
+  });
+
+  test('homepage Live Pulse does not render duplicate visible news items', async ({ page }) => {
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              id: 'pulse-duplicate-a',
+              title: 'Duplicate AI headline',
+              summary: 'First duplicate summary.',
+              source: 'Bitbi Test Source',
+              url: 'https://example.com/duplicate-ai-headline',
+              category: 'AI',
+            },
+            {
+              id: 'pulse-duplicate-b',
+              title: 'Duplicate AI headline',
+              summary: 'Second duplicate summary.',
+              source: 'Bitbi Test Source',
+              url: 'https://example.com/duplicate-ai-headline',
+              category: 'AI',
+            },
+            {
+              id: 'pulse-unique',
+              title: 'Unique AI headline',
+              summary: 'Unique source-attributed summary.',
+              source: 'Bitbi Test Source',
+              url: 'https://example.com/unique-ai-headline',
+              category: 'AI',
+            },
+          ],
+          updated_at: '2026-05-09T08:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const titles = await page.locator('#newsPulse .news-pulse__item .news-pulse__title').evaluateAll((nodes) =>
+      nodes.map((node) => node.textContent.trim()).filter(Boolean)
+    );
+    expect(titles).toEqual(['Duplicate AI headline', 'Unique AI headline']);
+    expect(new Set(titles).size).toBe(titles.length);
   });
 
   test('German homepage Live Pulse requests the German endpoint and localizes the layer label', async ({ page }) => {
@@ -804,7 +849,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
-    await expect(pulse.locator('.news-pulse__item')).toHaveCount(7);
+    await expect(pulse.locator('.news-pulse__item')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('KI-Puls');
     await expect(pulse.getByRole('link', { name: /Kreativ-KI Workflow-Update/ }).first()).toHaveAttribute(
       'href',
@@ -1010,8 +1055,8 @@ test.describe('Homepage', () => {
     expect(transition.sceneOverflow).toBe('hidden');
     expect(transition.cubeAnimation).toContain('news-pulse-mobile-cube-turn');
     const durationSeconds = Number.parseFloat(transition.cubeAnimationDuration);
-    expect(durationSeconds).toBeGreaterThanOrEqual(1.5);
-    expect(durationSeconds).toBeLessThanOrEqual(1.7);
+    expect(durationSeconds).toBeGreaterThanOrEqual(1.35);
+    expect(durationSeconds).toBeLessThanOrEqual(1.5);
     expect(transition.cubeTransformStyle).toBe('preserve-3d');
     expect(transition.frontBackface).toBe('hidden');
     expect(transition.rightBackface).toBe('hidden');
@@ -1175,9 +1220,9 @@ test.describe('Homepage', () => {
 
   test('desktop homepage header aligns the public nav group and removes the mood pill', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
-    for (const { path, labels, pricingHref } of [
-      { path: '/', labels: ['Gallery', 'Video', 'Sound Lab', 'Pricing'], pricingHref: '/pricing.html' },
-      { path: '/de/', labels: ['Galerie', 'Video', 'Sound Lab', 'Preise'], pricingHref: '/de/pricing.html' },
+    for (const { path, labels, removedPricingLabel } of [
+      { path: '/', labels: ['Gallery', 'Video', 'Sound Lab'], removedPricingLabel: 'Pricing' },
+      { path: '/de/', labels: ['Galerie', 'Video', 'Sound Lab'], removedPricingLabel: 'Preise' },
     ]) {
       await page.goto(path);
       const nav = page.locator('#navbar .site-nav__links');
@@ -1185,7 +1230,7 @@ test.describe('Homepage', () => {
       await expect(nav.getByRole('link', { name: labels[0] })).toBeVisible();
       await expect(nav.getByRole('link', { name: labels[1] })).toBeVisible();
       await expect(nav.getByRole('link', { name: labels[2] })).toBeVisible();
-      await expect(nav.getByRole('link', { name: labels[3] })).toHaveAttribute('href', pricingHref);
+      await expect(nav.getByRole('link', { name: removedPricingLabel })).toHaveCount(0);
       await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
       await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
@@ -1221,14 +1266,9 @@ test.describe('Homepage', () => {
 
       expect(metrics.logo).toBeTruthy();
       expect(metrics.pulse).toBeTruthy();
+      expect(metrics.gallery.left).toBeGreaterThan(metrics.logo.right + 8);
       expect(metrics.gallery.right).toBeLessThan(metrics.video.left);
       expect(metrics.sound.left).toBeGreaterThan(metrics.video.right);
-      expectWithinPx(
-        metrics.video.left + (metrics.video.width / 2),
-        metrics.viewportWidth / 2,
-        `${path} video nav center`,
-        2,
-      );
       expectWithinPx(metrics.logo.left, metrics.pulse.left, `${path} logo/news left inset`, 4);
       expectWithinPx(
         metrics.viewportWidth - metrics.actions.right,
@@ -1238,6 +1278,43 @@ test.describe('Homepage', () => {
       );
       expect(metrics.moodDisplay).toBe('none');
       expect(metrics.moodWidth).toBe(0);
+    }
+  });
+
+  test('global content shells align to the homepage header inset without horizontal overflow', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    for (const { path, selector } of [
+      { path: '/pricing.html', selector: '.pricing-root' },
+      { path: '/generate-lab/', selector: '.generate-lab__desktop' },
+      { path: '/account/profile.html', selector: '.profile-shell' },
+      { path: '/account/credits.html', selector: '.credits-onboarding' },
+      { path: '/account/assets-manager.html', selector: '.assets-manager-shell' },
+    ]) {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator(selector)).toBeVisible({ timeout: 10_000 });
+      const layout = await page.evaluate((shellSelector) => {
+        const shell = document.querySelector(shellSelector)?.getBoundingClientRect();
+        const logo = document.querySelector('#navbar .site-nav__logo')?.getBoundingClientRect();
+        return {
+          shellLeft: shell?.left ?? 0,
+          shellRight: shell?.right ?? 0,
+          logoLeft: logo?.left ?? 0,
+          viewportWidth: window.innerWidth,
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+        };
+      }, selector);
+      expectWithinPx(layout.shellLeft, layout.logoLeft, `${path} content shell left`, 4);
+      expectWithinPx(layout.viewportWidth - layout.shellRight, layout.logoLeft, `${path} content shell right`, 4);
+      expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
     }
   });
 
@@ -1705,7 +1782,7 @@ test.describe('Homepage', () => {
     await expect(mobileConnect.getByRole('link', { name: 'Contact' })).toBeVisible();
     await expect
       .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Models']);
 
     const modelsButton = page.locator('#mobileNav').getByRole('button', { name: 'Models' });
     await modelsButton.click();
@@ -1728,7 +1805,7 @@ test.describe('Homepage', () => {
 
     const banner = page.locator('#mobileGuestBanner');
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText('Create your BITBI account for free');
+    await expect(banner).toHaveText('CREATE *FREE* ACCOUNT');
     await expect(page.locator('#mobileMenuBtn')).toBeVisible();
 
     await banner.click();
@@ -1772,8 +1849,20 @@ test.describe('Homepage', () => {
     await page.goto('/');
     const banner = page.locator('#mobileGuestBanner');
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText('Create your BITBI account for free');
-    await expect(banner).toContainText('Sign in or register to start creating');
+    await expect(banner).toHaveText('CREATE *FREE* ACCOUNT');
+    const bannerMetrics = await page.evaluate(() => {
+      const banner = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
+      const header = document.querySelector('#navbar .site-nav__bar')?.getBoundingClientRect();
+      const title = document.querySelector('#mobileGuestBanner .mobile-guest-banner__title');
+      const style = title ? window.getComputedStyle(title) : null;
+      return {
+        bannerCenter: banner ? banner.left + banner.width / 2 : 0,
+        headerCenter: header ? header.left + header.width / 2 : 0,
+        animationName: style?.animationName || '',
+      };
+    });
+    expectWithinPx(bannerMetrics.bannerCenter, bannerMetrics.headerCenter, 'free account header center', 3);
+    expect(bannerMetrics.animationName).toContain('freeAccountTextWave');
     await expect(page.locator('#authModal .auth-modal__overlay')).toHaveCount(1);
 
     await banner.click();
@@ -1840,10 +1929,10 @@ test.describe('Homepage', () => {
       .poll(() => heroVideo.evaluate((el) => el.classList.contains('is-active')))
       .toBe(true);
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
-    await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toBeVisible();
-    await expect(hero).toContainText('Open Generate Lab, review credit context before submit');
-    await expect(hero).toContainText('Backend credit checks');
-    await expect(hero).toContainText('Saved assets in your workspace');
+    await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toHaveCount(0);
+    await expect(hero).not.toContainText('Open Generate Lab, review credit context before submit');
+    await expect(hero).not.toContainText('Backend credit checks');
+    await expect(hero).not.toContainText('Saved assets in your workspace');
     await expect(hero.getByRole('link', { name: 'Compare credits' })).toHaveAttribute(
       'href',
       '/pricing.html#pricingJourney',
@@ -1911,7 +2000,7 @@ test.describe('Homepage', () => {
 
     await expect(hero).toBeVisible();
     await expect(heroVideo).toBeHidden();
-    await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toBeVisible();
+    await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toHaveCount(0);
     await expect(teaser).toBeVisible();
     await expect(teaser).toContainText('Generate Lab');
     await expect(teaser).toContainText('Open Lab');
@@ -4827,7 +4916,7 @@ test.describe('Legal pages', () => {
 });
 
 test.describe('Shared MODELS overlay', () => {
-  test('shared subpage desktop header keeps the centered public navigation links without the mood pill', async ({ page }) => {
+  test('shared subpage desktop header keeps public navigation links beside the brand without the mood pill', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/legal/imprint.html');
 
@@ -4835,10 +4924,10 @@ test.describe('Shared MODELS overlay', () => {
     const videoLink = nav.getByRole('link', { name: 'Video' });
     await expect(videoLink).toBeVisible();
     await expect(videoLink).toHaveAttribute('href', /\/#video-creations$/);
-    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '/pricing.html');
+    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveCount(0);
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab']);
     await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
 
@@ -4857,6 +4946,7 @@ test.describe('Shared MODELS overlay', () => {
       return {
         viewportWidth: window.innerWidth,
         logo: rect('#navbar .site-nav__logo'),
+        gallery: rect('#navbar [data-category-link="gallery"]'),
         video: rect('#navbar [data-category-link="video"]'),
         actions: rect('#navbar .site-nav__actions'),
         moodDisplay: mood ? window.getComputedStyle(mood).display : null,
@@ -4865,12 +4955,8 @@ test.describe('Shared MODELS overlay', () => {
     });
 
     expect(metrics.video).toBeTruthy();
-    expectWithinPx(
-      metrics.video.left + (metrics.video.width / 2),
-      metrics.viewportWidth / 2,
-      'shared subpage video nav center',
-      2,
-    );
+    expect(metrics.gallery.left).toBeGreaterThan(metrics.logo.right + 8);
+    expect(metrics.video.left).toBeGreaterThan(metrics.gallery.right);
     expectWithinPx(metrics.viewportWidth - metrics.actions.right, metrics.logo.left, 'shared subpage right actions inset', 4);
     expect(metrics.moodDisplay).toBe('none');
     expect(metrics.moodWidth).toBe(0);
@@ -4882,10 +4968,10 @@ test.describe('Shared MODELS overlay', () => {
 
     const nav = page.locator('.site-nav__links');
     await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '/pricing.html');
+    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveCount(0);
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab']);
     await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
     await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
@@ -4905,7 +4991,7 @@ test.describe('Shared MODELS overlay', () => {
         await expect(page.locator('#mobileNav')).toHaveCount(1);
         await expect
           .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-          .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
+          .toEqual(['Gallery', 'Video', 'Sound Lab']);
         await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
         await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
         await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
@@ -4924,7 +5010,7 @@ test.describe('Shared MODELS overlay', () => {
     const mobileConnect = page.locator('#mobileNav .mobile-nav__section[aria-label="Connect"]');
     await expect
       .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Models']);
     await expect(mobileConnect.getByRole('link', { name: 'Contact' })).toBeVisible();
   });
 

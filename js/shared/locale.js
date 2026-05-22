@@ -34,7 +34,7 @@ const STRINGS = Object.freeze({
         }),
         index: Object.freeze({
             freeAccount: 'Free Account',
-            createAccountFree: 'Create your BITBI account for free',
+            createAccountFree: 'CREATE *FREE* ACCOUNT',
             createFreeAccountAria: 'Create a free BITBI account',
             signInOrRegister: 'Sign in or register to start creating',
             openMenuCreateAccountAria: 'Open the menu to create a free BITBI account',
@@ -972,7 +972,7 @@ const STRINGS = Object.freeze({
         }),
         index: Object.freeze({
             freeAccount: 'Kostenloses Konto',
-            createAccountFree: 'Erstellen Sie Ihr BITBI-Konto kostenlos',
+            createAccountFree: 'CREATE *FREE* ACCOUNT',
             createFreeAccountAria: 'Kostenloses BITBI-Konto erstellen',
             signInOrRegister: 'Melden Sie sich an oder registrieren Sie sich, um zu starten',
             openMenuCreateAccountAria: 'Menü öffnen, um ein kostenloses BITBI-Konto zu erstellen',

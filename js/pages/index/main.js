@@ -184,16 +184,14 @@ function initHeroBackgroundVideo() {
 }
 
 function initMobileGuestBanner() {
-    const hero = document.getElementById('hero');
+    const headerBar = document.querySelector('#navbar .site-nav__bar');
     const menuBtn = document.getElementById('mobileMenuBtn');
-    if (!hero || !menuBtn) return;
+    if (!headerBar || !menuBtn) return;
 
     const desktopQuery = window.matchMedia('(min-width: 1024px)');
     let banner = null;
     let cta = null;
-    let eyebrow = null;
     let title = null;
-    let hint = null;
 
     function bindMediaQueryChange(query, listener) {
         if (typeof query.addEventListener === 'function') {
@@ -215,16 +213,10 @@ function initMobileGuestBanner() {
         cta = document.createElement('button');
         cta.type = 'button';
         cta.className = 'mobile-guest-banner__cta';
-        eyebrow = document.createElement('span');
-        eyebrow.className = 'mobile-guest-banner__eyebrow';
-
         title = document.createElement('span');
         title.className = 'mobile-guest-banner__title';
 
-        hint = document.createElement('span');
-        hint.className = 'mobile-guest-banner__hint';
-
-        cta.append(eyebrow, title, hint);
+        cta.append(title);
         cta.addEventListener('click', () => {
             if (desktopQuery.matches) {
                 openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
@@ -234,24 +226,21 @@ function initMobileGuestBanner() {
         });
 
         banner.appendChild(cta);
-        hero.appendChild(banner);
+        headerBar.appendChild(banner);
         return banner;
     }
 
     function syncBannerCopy() {
-        if (!cta || !eyebrow || !title || !hint) return;
+        if (!cta || !title) return;
 
-        eyebrow.textContent = localeText('index.freeAccount');
         title.textContent = localeText('index.createAccountFree');
 
         if (desktopQuery.matches) {
             cta.setAttribute('aria-label', localeText('index.createFreeAccountAria'));
-            hint.textContent = localeText('index.signInOrRegister');
             return;
         }
 
         cta.setAttribute('aria-label', localeText('index.openMenuCreateAccountAria'));
-        hint.textContent = localeText('index.openMenuSignIn');
     }
 
     function renderBanner() {

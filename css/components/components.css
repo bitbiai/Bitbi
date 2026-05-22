@@ -6,8 +6,9 @@
 @layer components {
     :root {
         --bitbi-public-header-inset: clamp(0.7rem, 2vw, 1.4rem);
-        --bitbi-public-header-nav-gap: clamp(4.6rem, 7.1vw, 6.4rem);
-        --bitbi-public-header-pricing-offset: clamp(11rem, 15vw, 15.75rem);
+        --bitbi-public-header-nav-gap: clamp(1.15rem, 2.4vw, 2.35rem);
+        --bitbi-content-gutter: var(--bitbi-public-header-inset);
+        --bitbi-content-max-width: calc(100vw - (var(--bitbi-content-gutter) * 2));
     }
 
     /* ── Container ── */
@@ -225,8 +226,8 @@
 
         body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__bar {
             position: relative;
-            grid-template-columns: minmax(0, 1fr) 0 minmax(0, 1fr);
-            column-gap: 0;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            column-gap: var(--bitbi-public-header-nav-gap);
         }
 
         body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__logo {
@@ -234,38 +235,22 @@
         }
 
         body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links {
-            position: fixed;
             grid-column: 2;
-            inset-block-start: calc(env(safe-area-inset-top, 0px) + 2.5rem);
-            inset-inline-start: 50vw;
-            display: block;
-            inline-size: 1px;
-            block-size: 1px;
-            transform: translateY(-50%);
+            position: static;
+            display: flex;
+            justify-self: start;
+            justify-content: flex-start;
+            inline-size: auto;
+            block-size: auto;
+            gap: clamp(0.15rem, 0.7vw, 0.55rem);
+            transform: none;
         }
 
         body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > .site-nav__link {
-            position: absolute;
-            inset-block-start: 50%;
+            position: relative;
+            inset: auto;
             white-space: nowrap;
-            transform: translateY(-50%);
-        }
-
-        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-category-link="gallery"] {
-            inset-inline-end: var(--bitbi-public-header-nav-gap);
-        }
-
-        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-category-link="video"] {
-            inset-inline-start: 0;
-            transform: translate(-50%, -50%);
-        }
-
-        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-category-link="sound"] {
-            inset-inline-start: var(--bitbi-public-header-nav-gap);
-        }
-
-        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-pricing-link] {
-            inset-inline-start: var(--bitbi-public-header-pricing-offset);
+            transform: none;
         }
 
         body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__mood {
@@ -1628,7 +1613,7 @@
     /* ── Section ── */
     .section {
         padding-block: var(--space-24);
-        padding-inline: var(--space-5);
+        padding-inline: var(--bitbi-content-gutter, var(--space-5));
         position: relative;
         z-index: 1;
     }
@@ -1638,7 +1623,7 @@
     }
 
     .section__inner {
-        max-inline-size: var(--container-max);
+        max-inline-size: var(--bitbi-content-max-width, var(--container-max));
         margin-inline: auto;
     }
 

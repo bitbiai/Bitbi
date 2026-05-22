@@ -42,7 +42,6 @@ const NAV_HTML = `
                 <a href="/#gallery" class="site-nav__link nav-link" data-category-link="gallery">Gallery</a>
                 <a href="/#video-creations" class="site-nav__link nav-link" data-category-link="video">Video</a>
                 <a href="/#soundlab" class="site-nav__link nav-link" data-category-link="sound">Sound Lab</a>
-                <a href="/pricing.html" class="site-nav__link nav-link" data-pricing-link>Pricing</a>
             </div>
             <div class="site-nav__actions">
                 <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
@@ -70,7 +69,6 @@ const MOBILE_NAV_HTML = `
             <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary" data-category-link="gallery">Gallery</a>
             <a href="/#video-creations" class="mobile-nav__link mobile-nav__link--primary" data-category-link="video">Video</a>
             <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary" data-category-link="sound">Sound Lab</a>
-            <a href="/pricing.html" class="mobile-nav__link mobile-nav__link--primary" data-pricing-link>Pricing</a>
             <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</button>
         </nav>
 
@@ -144,10 +142,6 @@ export function initSiteHeader(options = {}) {
                 : '#soundlab';
         link.href = `${localizedHref('/')}${hash}`;
     });
-    header.querySelectorAll('[data-pricing-link]').forEach((link) => {
-        link.textContent = localeText('nav.pricing');
-        link.href = localizedHref('/pricing.html');
-    });
     const logoLink = header.querySelector('.site-nav__logo');
     if (logoLink) {
         if (disableGenerateLabSelfLink) {
@@ -203,10 +197,6 @@ export function initSiteHeader(options = {}) {
                 ? '#video-creations'
                 : '#soundlab';
         link.href = `${localizedHref('/')}${hash}`;
-    });
-    mobileNav?.querySelectorAll('[data-pricing-link]').forEach((link) => {
-        link.textContent = localeText('nav.pricing');
-        link.href = localizedHref('/pricing.html');
     });
     mobileNav?.querySelectorAll('[data-models-link]').forEach((button) => {
         button.textContent = localeText('nav.models');

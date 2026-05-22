@@ -1791,7 +1791,7 @@
     /* ── Profile Two-Column Layout ── */
     @media (min-width: 1024px) {
         .profile-shell {
-            max-inline-size: var(--container-xl); /* 1152px */
+            max-inline-size: var(--bitbi-content-max-width, var(--container-xl));
         }
 
         .profile-shell > #loadingState,
