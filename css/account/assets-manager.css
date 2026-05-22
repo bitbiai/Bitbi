@@ -1739,7 +1739,7 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-block-size: 2.5rem;
+        min-block-size: 2.75rem;
         padding: 0.72rem 1rem;
         border-radius: 999px;
         font-family: var(--font-mono);
@@ -2103,6 +2103,7 @@
     }
 
     .studio__bulk-count {
+        flex: 0 0 auto;
         font-family: var(--font-mono);
         font-size: 12px;
         color: rgba(0, 240, 255, 0.7);
@@ -2215,6 +2216,14 @@
         line-height: 1.55;
     }
 
+    .studio__selection-mobile-hint {
+        display: none;
+        margin: 0.6rem 0 0;
+        color: rgba(220, 248, 255, 0.72);
+        font-size: 0.78rem;
+        line-height: 1.45;
+    }
+
     .studio__selection-status {
         justify-self: end;
         min-inline-size: 8rem;
@@ -2286,6 +2295,7 @@
     .studio__mobile-actions {
         display: none;
         position: relative;
+        z-index: 35;
     }
 
     .studio__mobile-actions-toggle {
@@ -2322,7 +2332,7 @@
         -webkit-backdrop-filter: blur(20px);
         border: var(--border-subtle);
         border-radius: var(--radius-sm);
-        z-index: 10;
+        z-index: 40;
     }
 
     .studio__mobile-actions-menu.visible {
@@ -2361,6 +2371,8 @@
         .studio__action-result {
             grid-template-columns: 1fr;
             align-items: stretch;
+            scroll-margin-block-start: 1rem;
+            margin-block-start: var(--space-3);
         }
 
         .studio__action-result-actions {
@@ -2369,7 +2381,41 @@
 
         .studio__action-result-action {
             flex: 1 1 100%;
+            min-block-size: 2.75rem;
             text-align: center;
+        }
+
+        .studio__bulk-bar.visible {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            align-items: stretch;
+            gap: 0.55rem;
+            margin-block: var(--space-3) var(--space-4);
+            padding: var(--space-3);
+            border: 1px solid rgba(0, 240, 255, 0.14);
+            border-radius: var(--radius-md);
+            background: rgba(5, 12, 21, 0.86);
+        }
+
+        .studio__bulk-count {
+            grid-column: 1 / -1;
+            margin: 0;
+            padding: 0.55rem 0.7rem;
+            border-radius: var(--radius-sm);
+            background: rgba(0, 240, 255, 0.08);
+            color: rgba(220, 248, 255, 0.9);
+            text-align: center;
+        }
+
+        .studio__bulk-btn {
+            min-block-size: 2.75rem;
+            inline-size: 100%;
+            padding: 0.72rem 0.7rem;
+            white-space: normal;
+        }
+
+        .studio__bulk-btn--cancel {
+            grid-column: 1 / -1;
         }
 
         .studio__folder-action {
@@ -2377,11 +2423,19 @@
         }
         .studio__mobile-actions {
             display: block;
+            inline-size: 100%;
+        }
+
+        .studio__mobile-actions-toggle {
+            inline-size: 100%;
+            min-block-size: 2.75rem;
         }
 
         .studio__mobile-actions-menu {
-            inset-inline: auto 0;
-            max-inline-size: min(18rem, calc(100vw - 2rem));
+            position: static;
+            inline-size: 100%;
+            max-inline-size: none;
+            margin-block-start: 0.55rem;
         }
     }
 
@@ -2522,11 +2576,30 @@
 
         .studio__selection-guide {
             grid-template-columns: 1fr;
+            padding: var(--space-4);
         }
 
         .studio__selection-status {
             justify-self: stretch;
             inline-size: 100%;
+        }
+
+        .studio__selection-mobile-hint {
+            display: block;
+        }
+
+        .studio__image-grid.studio--selecting .studio__image-check,
+        .studio__folder-grid.studio--selecting .studio__folder-card[data-folder-id] .studio__image-check {
+            width: 30px;
+            height: 30px;
+            inset-block-start: 10px;
+            inset-inline-start: 10px;
+        }
+
+        .studio__image-item.selected,
+        .studio__folder-card.selected {
+            border-color: rgba(0, 240, 255, 0.62);
+            box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.14), 0 0 16px rgba(0, 240, 255, 0.18);
         }
 
         .studio__bulk-move-form.visible {

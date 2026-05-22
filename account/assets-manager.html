@@ -326,19 +326,20 @@
                 </div>
 
                 <!-- Bulk Actions Bar (visible in selection mode) -->
-                <div id="studioBulkBar" class="studio__bulk-bar">
-                    <span id="studioBulkCount" class="studio__bulk-count" aria-live="polite">0 selected</span>
+                <div id="studioBulkBar" class="studio__bulk-bar" aria-label="Bulk asset actions">
+                    <span id="studioBulkCount" class="studio__bulk-count" role="status" aria-live="polite">0 selected</span>
                     <button type="button" id="studioBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Rename</button>
                     <button type="button" id="studioBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
                     <button type="button" id="studioBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
                     <button type="button" id="studioBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
                 </div>
 
-                <section id="studioSelectionGuide" class="studio__selection-guide" aria-live="polite" aria-labelledby="studioSelectionGuideTitle" hidden>
+                <section id="studioSelectionGuide" class="studio__selection-guide" aria-live="polite" aria-labelledby="studioSelectionGuideTitle" aria-describedby="studioSelectionGuideCopy studioSelectionMobileHint" hidden>
                     <div>
                         <p class="studio__selection-eyebrow">Selection mode</p>
                         <h4 id="studioSelectionGuideTitle" class="studio__selection-title">Selection mode active</h4>
                         <p id="studioSelectionGuideCopy" class="studio__selection-copy">Select saved assets in the current view. Rename works with one item; Move and Delete apply to selected assets after confirmation.</p>
+                        <p id="studioSelectionMobileHint" class="studio__selection-mobile-hint">On phones, selected count and bulk actions stay directly below this guide.</p>
                     </div>
                     <p id="studioSelectionGuideStatus" class="studio__selection-status">0 selected</p>
                 </section>

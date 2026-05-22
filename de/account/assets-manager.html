@@ -330,19 +330,20 @@
                 </div>
 
                 <!-- Bulk Actions Bar (visible in selection mode) -->
-                <div id="studioBulkBar" class="studio__bulk-bar">
-                    <span id="studioBulkCount" class="studio__bulk-count" aria-live="polite">0 ausgewählt</span>
+                <div id="studioBulkBar" class="studio__bulk-bar" aria-label="Bulk-Aktionen für Assets">
+                    <span id="studioBulkCount" class="studio__bulk-count" role="status" aria-live="polite">0 ausgewählt</span>
                     <button type="button" id="studioBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Umbenennen</button>
                     <button type="button" id="studioBulkMove" class="studio__bulk-btn studio__bulk-btn--move">In Ordner verschieben</button>
                     <button type="button" id="studioBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Auswahl löschen</button>
                     <button type="button" id="studioBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Abbrechen</button>
                 </div>
 
-                <section id="studioSelectionGuide" class="studio__selection-guide" aria-live="polite" aria-labelledby="studioSelectionGuideTitle" hidden>
+                <section id="studioSelectionGuide" class="studio__selection-guide" aria-live="polite" aria-labelledby="studioSelectionGuideTitle" aria-describedby="studioSelectionGuideCopy studioSelectionMobileHint" hidden>
                     <div>
                         <p class="studio__selection-eyebrow">Auswahlmodus</p>
                         <h4 id="studioSelectionGuideTitle" class="studio__selection-title">Auswahlmodus aktiv</h4>
                         <p id="studioSelectionGuideCopy" class="studio__selection-copy">Wählen Sie gespeicherte Assets in der aktuellen Ansicht. Umbenennen funktioniert mit einem Element; Verschieben und Löschen betreffen ausgewählte Assets erst nach Bestätigung.</p>
+                        <p id="studioSelectionMobileHint" class="studio__selection-mobile-hint">Auf Smartphones bleiben ausgewählte Anzahl und Bulk-Aktionen direkt unter dieser Hilfe sichtbar.</p>
                     </div>
                     <p id="studioSelectionGuideStatus" class="studio__selection-status">0 ausgewählt</p>
                 </section>

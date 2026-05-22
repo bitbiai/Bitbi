@@ -366,6 +366,7 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Rename, move, delete, and folder results appear here after backend confirmation.');
     expect(enAssets).toContain('Folder and selection tools stay here on phones.');
     expect(enAssets).toContain('Selection mode active');
+    expect(enAssets).toContain('On phones, selected count and bulk actions stay directly below this guide.');
     expect(enAssets).toContain('Move selected assets');
     expect(enAssets).toContain('Your selection stays available if saving fails.');
     expect(enAssets).toContain('href="/generate-lab/?source=assets-manager&amp;step=create"');
@@ -398,6 +399,7 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Ergebnisse von Umbenennen, Verschieben, Löschen und Ordneraktionen erscheinen hier nach Backend-Bestätigung.');
     expect(deAssets).toContain('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
     expect(deAssets).toContain('Auswahlmodus aktiv');
+    expect(deAssets).toContain('Auf Smartphones bleiben ausgewählte Anzahl und Bulk-Aktionen direkt unter dieser Hilfe sichtbar.');
     expect(deAssets).toContain('Ausgewählte Assets verschieben');
     expect(deAssets).toContain('Ihre Auswahl bleibt verfügbar, wenn Speichern fehlschlägt.');
     expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager&amp;step=create"');
@@ -749,6 +751,7 @@ test.describe('Bilingual locale pages', () => {
       'Folder overview',
       'Refresh latest',
       'Folder and selection tools stay here on phones.',
+      'On phones, selected count and bulk actions stay directly below this guide.',
       'Your saved library is empty',
       'Start creating',
       'Private by default',

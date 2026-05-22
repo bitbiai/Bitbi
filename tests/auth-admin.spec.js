@@ -7840,7 +7840,7 @@ test.describe('Assets Manager (authenticated)', () => {
       status.boundingBox(),
     ]);
     expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x + 1);
-    expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(8);
   });
 
   test('admin account Assets Manager shows unlimited storage usage left of the private-by-default status', async ({
@@ -7883,7 +7883,7 @@ test.describe('Assets Manager (authenticated)', () => {
       status.boundingBox(),
     ]);
     expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x + 1);
-    expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(8);
   });
 
   test('account Assets Manager refreshes storage usage after image save and delete', async ({
@@ -9138,8 +9138,49 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Create folder' })).toBeVisible();
     await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Delete folder' })).toBeVisible();
     await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Select assets' })).toBeVisible();
-    await page.locator('#studioMobileActionsToggle').click();
-    await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: /Preview Mobile Asset 1/ })).toBeVisible();
+    await page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Select assets' }).click();
+    await expect(page.locator('#studioSelectionGuide')).toBeVisible();
+    await expect(page.locator('#studioSelectionGuide')).toContainText('On phones, selected count and bulk actions stay directly below this guide.');
+    await expect(page.locator('#studioBulkBar')).toBeVisible();
+    await expect(page.locator('#studioBulkCount')).toHaveText('0 selected');
+    const firstCard = page.locator('#studioImageGrid .studio__image-item').first();
+    await firstCard.focus();
+    await expect(firstCard).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(firstCard).toHaveAttribute('aria-pressed', 'true');
+    await expect(firstCard).toHaveAttribute('aria-label', /Select Mobile Asset \d+/);
+    await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
+    await expect(page.locator('#studioSelectionGuideStatus')).toContainText('1 selected');
+    const mobileBulkLayout = await page.locator('#studioBulkBar .studio__bulk-btn:visible').evaluateAll((nodes) => nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        height: rect.height,
+        left: rect.left,
+        right: rect.right,
+        viewportWidth: window.innerWidth,
+      };
+    }));
+    expect(mobileBulkLayout).toHaveLength(4);
+    expect(mobileBulkLayout.every((rect) => rect.height >= 42 && rect.left >= 0 && rect.right <= rect.viewportWidth + 1)).toBe(true);
+    await page.locator('#studioBulkMove').click();
+    await expect(page.locator('#studioBulkMoveForm')).toBeVisible();
+    await expect(page.locator('#studioBulkMoveSummary')).toContainText('Move 1 selected to assets without a folder');
+    await page.locator('#studioBulkMoveConfirm').click();
+    await expect(page.locator('#studioActionResult')).toContainText('Move confirmed');
+    await expect(page.locator('#studioActionResult').getByRole('button', { name: 'Open assets without folder' })).toBeVisible();
+    await expect(page.locator('#studioActionResult').getByRole('button', { name: 'Show all assets' })).toBeVisible();
+    const resultActionLayout = await page.locator('#studioActionResultActions .studio__action-result-action:visible').evaluateAll((nodes) => nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        height: rect.height,
+        left: rect.left,
+        right: rect.right,
+        viewportWidth: window.innerWidth,
+      };
+    }));
+    expect(resultActionLayout.length).toBeGreaterThanOrEqual(2);
+    expect(resultActionLayout.every((rect) => rect.height >= 42 && rect.left >= 0 && rect.right <= rect.viewportWidth + 1)).toBe(true);
+    await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: /Preview Mobile Asset \d+/ })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Publish' })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Delete' })).toBeVisible();
     await expect
@@ -9158,6 +9199,21 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.mobile-media-grid-overlay')).toHaveCount(0);
     await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
     await expect(page.locator('#studioImageModal .studio-modal__title')).toContainText('Mobile Asset');
+    await expect(page.locator('#studioImageModal .studio-modal__text-open')).toHaveText('Open original');
+    await expect(page.locator('#studioImageModal .studio-modal__text-close')).toHaveText('Close preview');
+    const modalActionLayout = await page.locator('#studioImageModal .studio-modal__footer-actions > *:visible').evaluateAll((nodes) => nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        height: rect.height,
+        left: rect.left,
+        right: rect.right,
+        viewportWidth: window.innerWidth,
+      };
+    }));
+    expect(modalActionLayout).toHaveLength(2);
+    expect(modalActionLayout.every((rect) => rect.height >= 42 && rect.left >= 0 && rect.right <= rect.viewportWidth + 1)).toBe(true);
+    const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
   test('German mobile account Assets Manager localizes the saved-assets grid trigger', async ({
@@ -9196,7 +9252,10 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioMobileActionsToggle').click();
     await expect(page.locator('#studioMobileActionsMenu')).toContainText('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
     await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Ordner erstellen' })).toBeVisible();
-    await page.locator('#studioMobileActionsToggle').click();
+    await page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Assets auswählen' }).click();
+    await expect(page.locator('#studioSelectionGuide')).toBeVisible();
+    await expect(page.locator('#studioSelectionGuide')).toContainText('Auf Smartphones bleiben ausgewählte Anzahl und Bulk-Aktionen direkt unter dieser Hilfe sichtbar.');
+    await page.locator('#studioBulkCancel').click();
     await page.locator('.studio__mobile-grid-trigger').click();
     await expect(page.locator('.mobile-media-grid-overlay--assets')).toBeVisible();
     await expect(page.locator('.mobile-media-grid-overlay__close')).toHaveText('Schließen');

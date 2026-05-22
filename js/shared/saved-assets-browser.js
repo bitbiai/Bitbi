@@ -1415,6 +1415,78 @@ export function createSavedAssetsBrowser({
         $bulkMoveSummary.textContent = localeText(key, { countLabel, target });
     }
 
+    function getSelectionItemTitle(item) {
+        return String(
+            item.title
+            || item.querySelector('.studio__asset-title, .studio__folder-card-name')?.textContent
+            || item.dataset.assetType
+            || localeText('assets.asset'),
+        ).trim();
+    }
+
+    function handleSelectionOnlyKeydown(event) {
+        if (!selectMode || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        toggleSelection(event.currentTarget);
+    }
+
+    function prepareSelectionItemA11y(item, active, selected) {
+        if (!active) {
+            item.classList.remove('selected');
+            item.removeAttribute('aria-pressed');
+            item.removeAttribute('aria-describedby');
+            if (Object.prototype.hasOwnProperty.call(item.dataset, 'selectionOriginalLabel')) {
+                const previousLabel = item.dataset.selectionOriginalLabel;
+                if (previousLabel) item.setAttribute('aria-label', previousLabel);
+                else item.removeAttribute('aria-label');
+                delete item.dataset.selectionOriginalLabel;
+            }
+            if (item.dataset.selectionAddedRole === 'true') {
+                item.removeAttribute('role');
+                delete item.dataset.selectionAddedRole;
+            }
+            if (item.dataset.selectionAddedTabindex === 'true') {
+                item.removeAttribute('tabindex');
+                delete item.dataset.selectionAddedTabindex;
+            }
+            return;
+        }
+
+        if (!item.hasAttribute('role')) {
+            item.dataset.selectionAddedRole = 'true';
+            item.setAttribute('role', 'button');
+        }
+        if (item.dataset.selectionAddedRole === 'true' && item.dataset.selectionKeyBound !== 'true') {
+            item.addEventListener('keydown', handleSelectionOnlyKeydown);
+            item.dataset.selectionKeyBound = 'true';
+        }
+        if (!item.hasAttribute('tabindex')) {
+            item.dataset.selectionAddedTabindex = 'true';
+            item.tabIndex = 0;
+        }
+        if (!Object.prototype.hasOwnProperty.call(item.dataset, 'selectionOriginalLabel')) {
+            item.dataset.selectionOriginalLabel = item.getAttribute('aria-label') || '';
+        }
+
+        const title = getSelectionItemTitle(item);
+        const labelKey = selectionScope === 'folder' ? 'assets.selectFolderCard' : 'assets.selectAssetCard';
+        item.setAttribute('aria-label', localeText(labelKey, { title }));
+        item.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        item.setAttribute('aria-describedby', 'studioSelectionGuideStatus');
+        item.classList.toggle('selected', selected);
+    }
+
+    function syncSelectionItemStates() {
+        const activeGrid = selectionScope === 'folder' ? $folderGrid : $assetGrid;
+        [$assetGrid, $folderGrid].forEach((grid) => {
+            grid?.querySelectorAll('.studio__image-item[data-asset-id], .studio__folder-card[data-folder-id]').forEach((item) => {
+                const id = item.dataset.assetId || item.dataset.folderId;
+                const active = selectMode && grid === activeGrid;
+                prepareSelectionItemA11y(item, active, Boolean(active && id && selectedIds.has(id)));
+            });
+        });
+    }
+
     function updateSelectionGuide() {
         if (!$selectionGuide) return;
         if (!selectMode) {
@@ -1464,6 +1536,7 @@ export function createSavedAssetsBrowser({
         if (folderSelection) {
             $bulkMoveForm?.classList.remove('visible');
         }
+        syncSelectionItemStates();
         updateSelectionGuide();
         updateBulkMoveSummary();
         updateAssetPaginationUi();
@@ -2007,9 +2080,12 @@ export function createSavedAssetsBrowser({
                 openTextAsset(asset);
             });
             item.addEventListener('keydown', (event) => {
-                if (selectMode) return;
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
+                if (selectMode) {
+                    toggleSelection(item);
+                    return;
+                }
                 openTextAsset(asset);
             });
         }
@@ -2198,14 +2274,12 @@ export function createSavedAssetsBrowser({
         if (!id) return;
         if (selectedIds.has(id)) {
             selectedIds.delete(id);
-            item.classList.remove('selected');
         } else {
             if (selectedIds.size >= MAX_BULK_SELECT) {
                 showMsg(localeText('assets.maxSelected', { max: MAX_BULK_SELECT }), 'error');
                 return;
             }
             selectedIds.add(id);
-            item.classList.add('selected');
         }
         updateBulkCount();
     }
