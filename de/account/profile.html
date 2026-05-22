@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="../../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/account/profile.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/base/utilities.css?v=__ASSET_VERSION__">
@@ -154,6 +155,44 @@
                     <a href="/de/account/assets-manager.html" class="profile-tab-link">Assets Manager</a>
                     <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favoriten</button>
                 </div>
+
+                <section id="profileWorkspacePriority" class="member-workflow reveal" aria-labelledby="profileWorkspacePriorityTitle">
+                    <div class="member-workflow__head">
+                        <p class="member-workflow__eyebrow">Arbeitsbereich-Priorität</p>
+                        <h2 id="profileWorkspacePriorityTitle" class="member-workflow__title">Mit der sinnvollsten nächsten Aktion starten</h2>
+                        <p class="member-workflow__copy">Profil hält Konto-Vertrauen sichtbar. Von hier wechseln Sie zu Erstellung, Credits, gespeicherten Assets oder Wiederherstellung, ohne Backend-Zustände zu ändern.</p>
+                    </div>
+                    <ol class="member-workflow__list" aria-label="Nächste Profilaktionen im Arbeitsbereich">
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link member-workflow__link--primary" href="/de/generate-lab/?source=profile&amp;step=next">
+                                <span class="member-workflow__step">Jetzt</span>
+                                <strong>Weiter erstellen</strong>
+                                <span>Generate Lab öffnen, wenn Profil- und Credit-Kontext bereit sind.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/de/account/credits.html?scope=member&amp;source=profile">
+                                <span class="member-workflow__step">Danach</span>
+                                <strong>Credits prüfen</strong>
+                                <span>Guthaben, BITBI Pro, Pakete und Ledger-Aktivität vor einer größeren Sitzung ansehen.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/de/account/assets-manager.html?source=profile&amp;recent=1#generate-lab-recent">
+                                <span class="member-workflow__step">Dann</span>
+                                <strong>Gespeichertes finden</strong>
+                                <span>Assets Manager enthält private gespeicherte Medien, Ordner, Veröffentlichung und Speicher.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="#profileSecurityCard">
+                                <span class="member-workflow__step">Sicher bleiben</span>
+                                <strong>Konto-Vertrauen prüfen</strong>
+                                <span>E-Mail, Wallet-Hinweise, Passwort-Wiederherstellung und Profilqualität prüfen.</span>
+                            </a>
+                        </li>
+                    </ol>
+                </section>
 
                 <section id="memberControlCenter" class="profile__card profile__control-center reveal" aria-labelledby="memberControlTitle">
                     <div class="profile__control-head">

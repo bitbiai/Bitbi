@@ -2000,6 +2000,14 @@ test.describe('Homepage', () => {
       'href',
       '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
     );
+    const priority = page.locator('#generateWorkspacePriority');
+    await expect(priority).toBeVisible();
+    await expect(priority).toContainText('Prepare, generate, save, manage');
+    await expect(priority.getByRole('link', { name: /Review cost/ })).toHaveAttribute('href', '#labCost');
+    await expect(priority.getByRole('link', { name: /Open Assets Manager/ })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
+    );
     const firstRunGuide = page.locator('.generate-lab__first-run');
     await expect(firstRunGuide).toBeVisible();
     await expect(firstRunGuide).toContainText('Create, preview, save, then manage');
@@ -2234,6 +2242,7 @@ test.describe('Homepage', () => {
     const handoffLink = page.getByRole('link', { name: 'View in Assets Manager' });
     await expect(handoffLink).toBeVisible();
     await expect(handoffLink).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    await expect(page.locator('#labResultStage')).toContainText('Next: open Assets Manager to confirm it loaded');
     const handoffHref = await handoffLink.getAttribute('href');
     expect(handoffHref).not.toContain('saved-image-one');
     const sessionSnapshot = await page.evaluate(() => Object.values(sessionStorage).join('\n'));

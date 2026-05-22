@@ -194,6 +194,12 @@ test.describe('Bilingual locale pages', () => {
 
     expect(enProfile).toContain('id="memberControlCenter"');
     expect(enProfile).toContain('Member Control Center');
+    expect(enProfile).toContain('href="../css/components/member-workflow.css?v=__ASSET_VERSION__"');
+    expect(enProfile).toContain('id="profileWorkspacePriority"');
+    expect(enProfile).toContain('Workspace priority');
+    expect(enProfile).toContain('Start with the next useful action');
+    expect(enProfile).toContain('href="/generate-lab/?source=profile&amp;step=next"');
+    expect(enProfile).toContain('href="/account/assets-manager.html?source=profile&amp;recent=1#generate-lab-recent"');
     expect(enProfile).toContain('href="/generate-lab/"');
     expect(enProfile).toContain('Suggested first-run steps');
     expect(enProfile).toContain('href="/generate-lab/?source=profile"');
@@ -223,6 +229,12 @@ test.describe('Bilingual locale pages', () => {
 
     expect(deProfile).toContain('id="memberControlCenter"');
     expect(deProfile).toContain('Mitglieder-Kontrollzentrum');
+    expect(deProfile).toContain('href="../../css/components/member-workflow.css?v=__ASSET_VERSION__"');
+    expect(deProfile).toContain('id="profileWorkspacePriority"');
+    expect(deProfile).toContain('Arbeitsbereich-Priorität');
+    expect(deProfile).toContain('Mit der sinnvollsten nächsten Aktion starten');
+    expect(deProfile).toContain('href="/de/generate-lab/?source=profile&amp;step=next"');
+    expect(deProfile).toContain('href="/de/account/assets-manager.html?source=profile&amp;recent=1#generate-lab-recent"');
     expect(deProfile).toContain('href="/de/generate-lab/"');
     expect(deProfile).toContain('Empfohlene erste Schritte');
     expect(deProfile).toContain('href="/de/generate-lab/?source=profile"');
@@ -251,6 +263,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('href="/de/account/forgot-password.html"');
 
     expect(enCredits).toContain('credits-workspace-nav');
+    expect(enCredits).toContain('id="creditsWorkspacePriority"');
+    expect(enCredits).toContain('Use credits before the next generation');
+    expect(enCredits).toContain('href="/generate-lab/?source=credits&amp;step=create"');
+    expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileSecurityCard"');
     expect(enCredits).toContain('Keep creating from your credits context');
     expect(enCredits).toContain('credits-onboarding');
     expect(enCredits).toContain('How credits fit into creation');
@@ -264,6 +280,10 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('href="/account/forgot-password.html"');
 
     expect(deCredits).toContain('credits-workspace-nav');
+    expect(deCredits).toContain('id="creditsWorkspacePriority"');
+    expect(deCredits).toContain('Credits vor der nächsten Generierung nutzen');
+    expect(deCredits).toContain('href="/de/generate-lab/?source=credits&amp;step=create"');
+    expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileSecurityCard"');
     expect(deCredits).toContain('Aus dem Credits-Kontext weiter erstellen');
     expect(deCredits).toContain('credits-onboarding');
     expect(deCredits).toContain('So passen Credits zur Erstellung');
@@ -277,6 +297,11 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('href="/de/account/forgot-password.html"');
 
     expect(enAssets).toContain('assets-manager__workspace-nav');
+    expect(enAssets).toContain('id="assetsWorkspacePriority"');
+    expect(enAssets).toContain('Keep the library moving');
+    expect(enAssets).toContain('href="#studioGalleryFilter"');
+    expect(enAssets).toContain('href="/generate-lab/?source=assets-manager&amp;step=create"');
+    expect(enAssets).toContain('href="/account/profile.html?returnContext=assets-manager#profileCompletionCard"');
     expect(enAssets).toContain('Move between creation, credits, and profile');
     expect(enAssets).toContain('assets-manager__first-run');
     expect(enAssets).toContain('Your library starts after you save from Generate Lab');
@@ -289,6 +314,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('href="/account/forgot-password.html"');
 
     expect(deAssets).toContain('assets-manager__workspace-nav');
+    expect(deAssets).toContain('id="assetsWorkspacePriority"');
+    expect(deAssets).toContain('Die Bibliothek in Bewegung halten');
+    expect(deAssets).toContain('href="#studioGalleryFilter"');
+    expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager&amp;step=create"');
+    expect(deAssets).toContain('href="/de/account/profile.html?returnContext=assets-manager#profileCompletionCard"');
     expect(deAssets).toContain('Zwischen Erstellung, Credits und Profil wechseln');
     expect(deAssets).toContain('assets-manager__first-run');
     expect(deAssets).toContain('Ihre Bibliothek beginnt nach dem Speichern aus Generate Lab');
@@ -301,6 +331,11 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('href="/de/account/forgot-password.html"');
 
     expect(enGenerate).toContain('generate-lab__member-nav');
+    expect(enGenerate).toContain('id="generateWorkspacePriority"');
+    expect(enGenerate).toContain('Prepare, generate, save, manage');
+    expect(enGenerate).toContain('href="#labCost"');
+    expect(enGenerate).toContain('href="#labGenerate"');
+    expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab#profileSecurityCard"');
     expect(enGenerate).toContain('generate-lab__first-run');
     expect(enGenerate).toContain('generate-lab__account-needed');
     expect(enGenerate).toContain('Create, preview, save, then manage');
@@ -312,6 +347,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).toContain('href="/account/forgot-password.html"');
 
     expect(deGenerate).toContain('generate-lab__member-nav');
+    expect(deGenerate).toContain('id="generateWorkspacePriority"');
+    expect(deGenerate).toContain('Vorbereiten, generieren, speichern, verwalten');
+    expect(deGenerate).toContain('href="#labCost"');
+    expect(deGenerate).toContain('href="#labGenerate"');
+    expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab#profileSecurityCard"');
     expect(deGenerate).toContain('generate-lab__first-run');
     expect(deGenerate).toContain('generate-lab__account-needed');
     expect(deGenerate).toContain('Erstellen, prüfen, speichern, verwalten');
@@ -563,6 +603,8 @@ test.describe('Bilingual locale pages', () => {
       'Your profile, wallet, favorites',
       'Create account',
       'Reset password',
+      'Workspace priority',
+      'Start with the next useful action',
       'Account Info',
       'Display Name',
       'Member Since',
@@ -574,6 +616,10 @@ test.describe('Bilingual locale pages', () => {
       'Sign in to open Assets Manager',
       'Saved assets, folders, storage usage',
       'Saved Assets',
+      'Keep the library moving',
+      'Show all assets',
+      'Create more',
+      'Complete account',
       'Storage details appear after your library loads',
       'Storage status',
       'Private first',
@@ -591,6 +637,10 @@ test.describe('Bilingual locale pages', () => {
       'Sign in to review credits',
       'Credits, BITBI Pro status',
       'Checkout availability is shown',
+      'Use credits before the next generation',
+      'Review balance',
+      'Create with context',
+      'Check saved assets',
       'Credit packs',
       'Recent purchases',
       'Recent credit activity',
@@ -598,6 +648,10 @@ test.describe('Bilingual locale pages', () => {
       'Email verification',
       'Set New Password',
       'At least 8 characters',
+      'Prepare, generate, save, manage',
+      'Review cost',
+      'Generate preview',
+      'Open Assets Manager',
       'Opening wallet workspace',
       'The BITBI wallet workspace',
       'Member Control Center',

@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/credits.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');</script>
@@ -83,6 +84,44 @@
         <h1 id="creditsTitle" class="credits-title gt-gold-cyan">Credits</h1>
         <p id="creditsSubtitle" class="credits-subtitle">Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.</p>
         <div id="creditsReturnState" class="credits-return" hidden></div>
+    </section>
+
+    <section id="creditsWorkspacePriority" class="member-workflow" aria-labelledby="creditsWorkspacePriorityTitle">
+        <div class="member-workflow__head">
+            <p class="member-workflow__eyebrow">Workspace priority</p>
+            <h2 id="creditsWorkspacePriorityTitle" class="member-workflow__title">Use credits before the next generation</h2>
+            <p class="member-workflow__copy">Credits is the source for account balance and Pro context. Use these actions to decide whether to create, manage saved output, or repair account access.</p>
+        </div>
+        <ol class="member-workflow__list" aria-label="Credits workspace next actions">
+            <li class="member-workflow__item">
+                <a class="member-workflow__link member-workflow__link--primary" href="#creditsSummaryGrid">
+                    <span class="member-workflow__step">Now</span>
+                    <strong>Review balance</strong>
+                    <span>Use the loaded summary and ledger as the account-bound credit source.</span>
+                </a>
+            </li>
+            <li class="member-workflow__item">
+                <a class="member-workflow__link" href="/generate-lab/?source=credits&amp;step=create">
+                    <span class="member-workflow__step">Next</span>
+                    <strong>Create with context</strong>
+                    <span>Generate Lab shows estimates before the backend validates final usage.</span>
+                </a>
+            </li>
+            <li class="member-workflow__item">
+                <a class="member-workflow__link" href="/account/assets-manager.html?source=credits&amp;recent=1#generate-lab-recent">
+                    <span class="member-workflow__step">Then</span>
+                    <strong>Check saved assets</strong>
+                    <span>Open your private library after saving or when storage needs review.</span>
+                </a>
+            </li>
+            <li class="member-workflow__item">
+                <a class="member-workflow__link" href="/account/profile.html?returnContext=credits#profileSecurityCard">
+                    <span class="member-workflow__step">Keep safe</span>
+                    <strong>Account recovery</strong>
+                    <span>Use Profile for sign-in, verification, password, and wallet guidance.</span>
+                </a>
+            </li>
+        </ol>
     </section>
 
     <nav class="credits-workspace-nav" aria-labelledby="creditsWorkspaceTitle">

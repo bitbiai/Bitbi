@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="../../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
@@ -172,6 +173,44 @@
                         <a href="/de/account/profile.html" class="assets-manager__workspace-link">Profileinstellungen</a>
                     </div>
                 </nav>
+
+                <section id="assetsWorkspacePriority" class="member-workflow" aria-labelledby="assetsWorkspacePriorityTitle">
+                    <div class="member-workflow__head">
+                        <p class="member-workflow__eyebrow">Arbeitsbereich-Priorität</p>
+                        <h3 id="assetsWorkspacePriorityTitle" class="member-workflow__title">Die Bibliothek in Bewegung halten</h3>
+                        <p class="member-workflow__copy">Assets Manager ist die private Bibliothek. Beginnen Sie mit versteckten Ansichten, erstellen Sie weiter, prüfen Sie Credits oder kehren Sie zum Konto-Vertrauen zurück.</p>
+                    </div>
+                    <ol class="member-workflow__list" aria-label="Nächste Assets-Manager-Aktionen im Arbeitsbereich">
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link member-workflow__link--primary" href="#studioGalleryFilter">
+                                <span class="member-workflow__step">Jetzt</span>
+                                <strong>Alle Assets anzeigen</strong>
+                                <span>Nutzen Sie den Ordnerfilter, wenn eine aktuelle Speicherung fehlt oder verborgen wirkt.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/de/generate-lab/?source=assets-manager&amp;step=create">
+                                <span class="member-workflow__step">Danach</span>
+                                <strong>Weiter erstellen</strong>
+                                <span>Zurück zu Generate Lab für das nächste Bild, Video oder Musik-Ergebnis.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/de/account/credits.html?scope=member&amp;source=assets-manager">
+                                <span class="member-workflow__step">Dann</span>
+                                <strong>Credits prüfen</strong>
+                                <span>Guthaben und Pro-Kontext vor einer weiteren Erstellungssitzung prüfen.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/de/account/profile.html?returnContext=assets-manager#profileCompletionCard">
+                                <span class="member-workflow__step">Sicher bleiben</span>
+                                <strong>Konto vervollständigen</strong>
+                                <span>Profil hält Wiederherstellung, Wallet-Hinweise und Identitätsdaten sichtbar.</span>
+                            </a>
+                        </li>
+                    </ol>
+                </section>
 
                 <section class="assets-manager__first-run" aria-labelledby="assetsFirstRunTitle">
                     <div class="assets-manager__first-run-head">

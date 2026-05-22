@@ -10803,6 +10803,16 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#memberControlCenter')).toBeVisible();
     await expect(page.locator('#memberControlCenter')).toContainText('Your BITBI workspace');
+    await expect(page.locator('#profileWorkspacePriority')).toBeVisible();
+    await expect(page.locator('#profileWorkspacePriority')).toContainText('Start with the next useful action');
+    await expect(page.locator('#profileWorkspacePriority').getByRole('link', { name: /Continue creating/ })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=profile&step=next',
+    );
+    await expect(page.locator('#profileWorkspacePriority').getByRole('link', { name: /Find saved output/ })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=profile&recent=1#generate-lab-recent',
+    );
     await expect(page.locator('#memberControlCenter')).toContainText('Credits and Pro status live in Credits.');
     await expect(page.locator('.profile__onboarding-steps')).toHaveAttribute('aria-label', 'Suggested first-run steps');
     await expect(page.locator('#memberControlCenter')).toContainText('Review credits');

@@ -21,6 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
@@ -168,6 +169,44 @@
                         <a href="/account/profile.html" class="assets-manager__workspace-link">Profile settings</a>
                     </div>
                 </nav>
+
+                <section id="assetsWorkspacePriority" class="member-workflow" aria-labelledby="assetsWorkspacePriorityTitle">
+                    <div class="member-workflow__head">
+                        <p class="member-workflow__eyebrow">Workspace priority</p>
+                        <h3 id="assetsWorkspacePriorityTitle" class="member-workflow__title">Keep the library moving</h3>
+                        <p class="member-workflow__copy">Assets Manager is the private library. Start by clearing hidden views, then create more, review credits, or return to account trust.</p>
+                    </div>
+                    <ol class="member-workflow__list" aria-label="Assets Manager workspace next actions">
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link member-workflow__link--primary" href="#studioGalleryFilter">
+                                <span class="member-workflow__step">Now</span>
+                                <strong>Show all assets</strong>
+                                <span>Use the folder filter when a recent save looks missing or hidden.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/generate-lab/?source=assets-manager&amp;step=create">
+                                <span class="member-workflow__step">Next</span>
+                                <strong>Create more</strong>
+                                <span>Return to Generate Lab for the next image, video, or music output.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/account/credits.html?scope=member&amp;source=assets-manager">
+                                <span class="member-workflow__step">Then</span>
+                                <strong>Review credits</strong>
+                                <span>Check balances and Pro context before another creation session.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/account/profile.html?returnContext=assets-manager#profileCompletionCard">
+                                <span class="member-workflow__step">Keep safe</span>
+                                <strong>Complete account</strong>
+                                <span>Profile keeps recovery, wallet guidance, and identity details visible.</span>
+                            </a>
+                        </li>
+                    </ol>
+                </section>
 
                 <section class="assets-manager__first-run" aria-labelledby="assetsFirstRunTitle">
                     <div class="assets-manager__first-run-head">

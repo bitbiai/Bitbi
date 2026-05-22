@@ -26,6 +26,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/pages/generate-lab.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
@@ -110,6 +111,44 @@
             <a href="/account/credits.html?scope=member">Credits</a>
             <a href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent">Assets Manager</a>
         </nav>
+
+        <section id="generateWorkspacePriority" class="member-workflow reveal" aria-labelledby="generateWorkspacePriorityTitle">
+            <div class="member-workflow__head">
+                <p class="member-workflow__eyebrow">Workspace priority</p>
+                <h2 id="generateWorkspacePriorityTitle" class="member-workflow__title">Prepare, generate, save, manage</h2>
+                <p class="member-workflow__copy">Generate Lab is the creation stage. Keep credit checks, account trust, and saved-asset handoff close before you submit or leave.</p>
+            </div>
+            <ol class="member-workflow__list" aria-label="Generate Lab workspace next actions">
+                <li class="member-workflow__item">
+                    <a class="member-workflow__link member-workflow__link--primary" href="#labCost">
+                        <span class="member-workflow__step">Now</span>
+                        <strong>Review cost</strong>
+                        <span>Credit estimates appear before submit; backend validation stays final.</span>
+                    </a>
+                </li>
+                <li class="member-workflow__item">
+                    <a class="member-workflow__link" href="#labGenerate">
+                        <span class="member-workflow__step">Next</span>
+                        <strong>Generate preview</strong>
+                        <span>Use the prompt stage, then save only outputs you want to keep.</span>
+                    </a>
+                </li>
+                <li class="member-workflow__item">
+                    <a class="member-workflow__link" href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">
+                        <span class="member-workflow__step">After save</span>
+                        <strong>Open Assets Manager</strong>
+                        <span>Find private saved output, refresh if processing is still catching up.</span>
+                    </a>
+                </li>
+                <li class="member-workflow__item">
+                    <a class="member-workflow__link" href="/account/profile.html?returnContext=generate-lab#profileSecurityCard">
+                        <span class="member-workflow__step">Keep safe</span>
+                        <strong>Account trust</strong>
+                        <span>Profile keeps sign-in, verification, recovery, and wallet guidance together.</span>
+                    </a>
+                </li>
+            </ol>
+        </section>
 
         <section class="generate-lab__account-needed auth-recovery reveal" aria-labelledby="generateAccountNeededTitle">
             <div>

@@ -21,6 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/profile.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
@@ -150,6 +151,44 @@
                     <a href="/account/assets-manager.html" class="profile-tab-link">Assets Manager</a>
                     <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
                 </div>
+
+                <section id="profileWorkspacePriority" class="member-workflow reveal" aria-labelledby="profileWorkspacePriorityTitle">
+                    <div class="member-workflow__head">
+                        <p class="member-workflow__eyebrow">Workspace priority</p>
+                        <h2 id="profileWorkspacePriorityTitle" class="member-workflow__title">Start with the next useful action</h2>
+                        <p class="member-workflow__copy">Profile keeps account trust visible. From here, move to creation, credits, saved assets, or recovery without changing backend state.</p>
+                    </div>
+                    <ol class="member-workflow__list" aria-label="Profile workspace next actions">
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link member-workflow__link--primary" href="/generate-lab/?source=profile&amp;step=next">
+                                <span class="member-workflow__step">Now</span>
+                                <strong>Continue creating</strong>
+                                <span>Open Generate Lab when profile and credit context are ready.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/account/credits.html?scope=member&amp;source=profile">
+                                <span class="member-workflow__step">Next</span>
+                                <strong>Check credits</strong>
+                                <span>Review balance, BITBI Pro, packs, and ledger activity before a larger session.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="/account/assets-manager.html?source=profile&amp;recent=1#generate-lab-recent">
+                                <span class="member-workflow__step">Then</span>
+                                <strong>Find saved output</strong>
+                                <span>Assets Manager holds private saved media, folders, publishing, and storage.</span>
+                            </a>
+                        </li>
+                        <li class="member-workflow__item">
+                            <a class="member-workflow__link" href="#profileSecurityCard">
+                                <span class="member-workflow__step">Keep safe</span>
+                                <strong>Review account trust</strong>
+                                <span>Check email, wallet guidance, password recovery, and profile completion.</span>
+                            </a>
+                        </li>
+                    </ol>
+                </section>
 
                 <section id="memberControlCenter" class="profile__card profile__control-center reveal" aria-labelledby="memberControlTitle">
                     <div class="profile__control-head">

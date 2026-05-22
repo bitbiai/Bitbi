@@ -1,0 +1,159 @@
+/* ============================================================
+   BITBI — Member Workspace Continuity
+   @layer components — shared next-action rail for member pages
+   ============================================================ */
+
+@layer components {
+    .member-workflow {
+        display: grid;
+        grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.5fr);
+        gap: clamp(0.85rem, 2vw, 1.2rem);
+        align-items: stretch;
+        margin-block-end: clamp(1rem, 2.5vw, 1.5rem);
+        padding: clamp(1rem, 2.2vw, 1.35rem);
+        border: 1px solid rgba(0, 240, 255, 0.16);
+        border-radius: 1.25rem;
+        background:
+            linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(255, 179, 0, 0.045)),
+            rgba(255, 255, 255, 0.035);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.22);
+    }
+
+    .member-workflow__head {
+        display: grid;
+        align-content: start;
+        gap: 0.55rem;
+        min-inline-size: 0;
+    }
+
+    .member-workflow__eyebrow {
+        margin: 0;
+        color: rgba(0, 240, 255, 0.78);
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+    }
+
+    .member-workflow__title {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.94);
+        font-size: 1.25rem;
+        line-height: 1.2;
+    }
+
+    .member-workflow__copy {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.66);
+        font-size: 0.94rem;
+        line-height: 1.58;
+    }
+
+    .member-workflow__list {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.7rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .member-workflow__item {
+        min-inline-size: 0;
+    }
+
+    .member-workflow__link {
+        display: grid;
+        align-content: start;
+        gap: 0.45rem;
+        min-block-size: 100%;
+        padding: 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.84);
+        text-decoration: none;
+        transition:
+            background 0.18s var(--ease-default),
+            border-color 0.18s var(--ease-default),
+            transform 0.18s var(--ease-default);
+    }
+
+    .member-workflow__link:hover,
+    .member-workflow__link:focus-visible {
+        transform: translateY(-1px);
+        border-color: rgba(0, 240, 255, 0.34);
+        background: rgba(0, 240, 255, 0.1);
+        outline: none;
+    }
+
+    .member-workflow__link--primary {
+        border-color: rgba(0, 240, 255, 0.3);
+        background: rgba(0, 240, 255, 0.11);
+        color: rgba(0, 240, 255, 0.92);
+    }
+
+    .member-workflow__step {
+        width: fit-content;
+        padding: 0.2rem 0.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        color: rgba(255, 224, 150, 0.9);
+        background: rgba(255, 179, 0, 0.08);
+        font-family: var(--font-mono);
+        font-size: 0.64rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+    }
+
+    .member-workflow__link strong {
+        color: currentColor;
+        font-size: 0.94rem;
+        line-height: 1.25;
+    }
+
+    .member-workflow__link span:last-child {
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.82rem;
+        line-height: 1.48;
+    }
+
+    .profile-shell .member-workflow {
+        grid-template-columns: 1fr;
+    }
+
+    .profile-shell .member-workflow__list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    @media (max-width: 980px) {
+        .member-workflow {
+            grid-template-columns: 1fr;
+        }
+
+        .member-workflow__list {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .member-workflow {
+            padding: 1rem;
+            border-radius: 1rem;
+        }
+
+        .member-workflow__list {
+            grid-template-columns: 1fr;
+        }
+
+        .member-workflow__link {
+            min-block-size: 3.4rem;
+        }
+
+        .member-workflow__title {
+            font-size: 1.12rem;
+        }
+    }
+}
