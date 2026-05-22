@@ -344,6 +344,7 @@ export function createSavedAssetsBrowser({
     emptyListStatus = localeText('assets.listEmptyStatus'),
     loadFailedListStatus = localeText('assets.listLoadFailedStatus'),
     foldersUnavailableMessage = localeText('assets.foldersUnavailable'),
+    handoffActive = false,
     onFoldersChange = null,
 } = {}) {
     const root = refs.root;
@@ -356,6 +357,15 @@ export function createSavedAssetsBrowser({
     const $assetGrid = refs.assetGrid;
     const $galleryMsg = refs.galleryMsg;
     const $listStatus = refs.listStatus;
+    const $viewContext = refs.viewContext;
+    const $viewContextTitle = refs.viewContextTitle;
+    const $viewContextCopy = refs.viewContextCopy;
+    const $viewScope = refs.viewScope;
+    const $viewOrder = refs.viewOrder;
+    const $viewRefresh = refs.viewRefresh;
+    const $viewShowAll = refs.viewShowAll;
+    const $viewGenerateLab = refs.viewGenerateLab;
+    const $viewCredits = refs.viewCredits;
     const $newFolderBtn = refs.newFolderBtn;
     const $deleteFolderBtn = refs.deleteFolderBtn;
     const $newFolderForm = refs.newFolderForm;
@@ -469,6 +479,104 @@ export function createSavedAssetsBrowser({
         return folder?.name || localeText('assets.folder');
     }
 
+    function getViewContextValues() {
+        const count = currentAssets.length;
+        const filterValue = $galleryFilter.value;
+        return {
+            count,
+            countLabel: formatAssetCount(count),
+            verb: getAssetVerb(count),
+            folder: getCurrentFolderName(filterValue),
+        };
+    }
+
+    function setViewContext({ titleKey, copyKey, scopeKey, orderKey = 'assets.viewOrderRecent', values = {} } = {}) {
+        if (!$viewContext) return;
+        const merged = {
+            ...getViewContextValues(),
+            ...values,
+        };
+        if ($viewContextTitle && titleKey) $viewContextTitle.textContent = localeText(titleKey, merged);
+        if ($viewContextCopy && copyKey) $viewContextCopy.textContent = localeText(copyKey, merged);
+        if ($viewScope && scopeKey) $viewScope.textContent = localeText(scopeKey, merged);
+        if ($viewOrder && orderKey) $viewOrder.textContent = localeText(orderKey, merged);
+    }
+
+    function updateViewContext(mode = 'current') {
+        if (!$viewContext) return;
+        const filterValue = $galleryFilter.value;
+        const values = getViewContextValues();
+
+        if (mode === 'loading') {
+            setViewContext({
+                titleKey: 'assets.viewLoadingTitle',
+                copyKey: handoffActive ? 'assets.viewHandoffLoadingCopy' : 'assets.viewLoadingCopy',
+                scopeKey: folderViewActive ? 'assets.viewScopeOverview' : 'assets.viewScopeAll',
+                values,
+            });
+            return;
+        }
+
+        if (mode === 'error') {
+            setViewContext({
+                titleKey: handoffActive ? 'assets.viewHandoffErrorTitle' : 'assets.viewLoadFailedTitle',
+                copyKey: handoffActive ? 'assets.viewHandoffErrorCopy' : 'assets.viewLoadFailedCopy',
+                scopeKey: folderViewActive ? 'assets.viewScopeOverview' : 'assets.viewScopeAll',
+                values,
+            });
+            return;
+        }
+
+        if (mode === 'empty' && handoffActive) {
+            setViewContext({
+                titleKey: 'assets.viewHandoffEmptyTitle',
+                copyKey: 'assets.viewHandoffEmptyCopy',
+                scopeKey: filterValue === UNFOLDERED
+                    ? 'assets.viewScopeUnfoldered'
+                    : (filterValue && filterValue !== ALL_ASSETS ? 'assets.viewScopeFolder' : 'assets.viewScopeAll'),
+                values,
+            });
+            return;
+        }
+
+        if (folderViewActive) {
+            setViewContext({
+                titleKey: 'assets.viewOverviewTitle',
+                copyKey: handoffActive ? 'assets.viewHandoffOverviewCopy' : 'assets.viewOverviewCopy',
+                scopeKey: 'assets.viewScopeOverview',
+                values,
+            });
+            return;
+        }
+
+        if (filterValue === UNFOLDERED) {
+            setViewContext({
+                titleKey: 'assets.viewUnfolderedTitle',
+                copyKey: 'assets.viewUnfolderedCopy',
+                scopeKey: 'assets.viewScopeUnfoldered',
+                values,
+            });
+            return;
+        }
+
+        if (filterValue && filterValue !== ALL_ASSETS) {
+            setViewContext({
+                titleKey: 'assets.viewFolderTitle',
+                copyKey: 'assets.viewFolderCopy',
+                scopeKey: 'assets.viewScopeFolder',
+                values,
+            });
+            return;
+        }
+
+        setViewContext({
+            titleKey: handoffActive ? 'assets.viewHandoffAllTitle' : 'assets.viewAllTitle',
+            copyKey: handoffActive ? 'assets.viewHandoffAllCopy' : 'assets.viewAllCopy',
+            scopeKey: 'assets.viewScopeAll',
+            values,
+        });
+    }
+
     function setCurrentAssetViewStatus() {
         const count = currentAssets.length;
         const filterValue = $galleryFilter.value;
@@ -480,13 +588,16 @@ export function createSavedAssetsBrowser({
         };
         if (filterValue === UNFOLDERED) {
             setListStatus(localeText('assets.unfolderedViewStatus', values), 'unfoldered');
+            updateViewContext();
             return;
         }
         if (filterValue && filterValue !== ALL_ASSETS) {
             setListStatus(localeText('assets.folderFilteredStatus', values), 'folder');
+            updateViewContext();
             return;
         }
         setListStatus(localeText('assets.listNewestFirstStatus', values), 'all');
+        updateViewContext();
     }
 
     function getStorageInsightText(storageUsage, usageText) {
@@ -625,6 +736,65 @@ export function createSavedAssetsBrowser({
         await refresh({ preserveView: true });
     }
 
+    function localizeWorkspaceLinks() {
+        const isGerman = getCurrentLocale() === 'de';
+        if ($viewGenerateLab) {
+            $viewGenerateLab.href = isGerman
+                ? '/de/generate-lab/?source=assets-manager&step=create'
+                : '/generate-lab/?source=assets-manager&step=create';
+        }
+        if ($viewCredits) {
+            $viewCredits.href = isGerman
+                ? '/de/account/credits.html?scope=member&source=assets-manager'
+                : '/account/credits.html?scope=member&source=assets-manager';
+        }
+    }
+
+    async function handleViewRefresh() {
+        if (!$viewRefresh) return;
+        const readyLabel = $viewRefresh.textContent;
+        $viewRefresh.disabled = true;
+        $viewRefresh.textContent = localeText('assets.viewRefreshStarted');
+        setListStatus(localeText('assets.viewRefreshStarted'), 'loading');
+        updateViewContext('loading');
+        try {
+            await refresh({ preserveView: false });
+            await openAllAssets();
+            setListStatus(localeText('assets.viewRefreshDone'), 'all');
+            showMsg(localeText('assets.viewRefreshDone'), 'success');
+        } catch (error) {
+            console.warn('Saved assets refresh failed:', error);
+            setListStatus(localeText('assets.viewRefreshFailed'), 'error');
+            showMsg(localeText('assets.viewRefreshFailed'), 'error');
+        } finally {
+            $viewRefresh.disabled = false;
+            $viewRefresh.textContent = readyLabel;
+            updateViewContext();
+        }
+    }
+
+    async function handleViewShowAll() {
+        if (!$viewShowAll) return;
+        const readyLabel = $viewShowAll.textContent;
+        $viewShowAll.disabled = true;
+        $viewShowAll.textContent = localeText('assets.viewShowAllStarted');
+        setListStatus(localeText('assets.viewShowAllStarted'), 'loading');
+        updateViewContext('loading');
+        try {
+            await openAllAssets();
+            setListStatus(localeText('assets.viewShowAllDone'), 'all');
+            showMsg(localeText('assets.viewShowAllDone'), 'success');
+        } catch (error) {
+            console.warn('Saved assets show-all failed:', error);
+            setListStatus(localeText('assets.viewShowAllFailed'), 'error');
+            showMsg(localeText('assets.viewShowAllFailed'), 'error');
+        } finally {
+            $viewShowAll.disabled = false;
+            $viewShowAll.textContent = readyLabel;
+            updateViewContext();
+        }
+    }
+
     function getCreateToolsHref() {
         return getCurrentLocale() === 'de' ? '/de/#gallery' : '/#gallery';
     }
@@ -666,6 +836,7 @@ export function createSavedAssetsBrowser({
             options.listStatus === undefined ? emptyListStatus : options.listStatus,
             options.statusView || 'empty',
         );
+        updateViewContext(options.statusView === 'error' ? 'error' : 'empty');
     }
 
     function updateAssetPaginationUi() {
@@ -968,6 +1139,7 @@ export function createSavedAssetsBrowser({
         $folderBack?.classList.remove('visible');
         updateAssetPaginationUi();
         setListStatus(localeText('assets.folderOverviewStatus'), 'folders');
+        updateViewContext();
 
         const total = unfolderedCount + folders.reduce((sum, folder) => sum + (folderCounts[folder.id] || 0), 0);
         $folderGrid.innerHTML = '';
@@ -1341,6 +1513,7 @@ export function createSavedAssetsBrowser({
             $assetGrid.appendChild(loading);
             updateAssetPaginationUi();
             setListStatus(localeText('assets.listLoadingStatus'), 'loading');
+            updateViewContext('loading');
         } else {
             assetLoadingMore = true;
             updateAssetPaginationUi();
@@ -1371,6 +1544,7 @@ export function createSavedAssetsBrowser({
                 statusView: 'error',
             });
             showMsg(localeText('assets.couldNotLoadAssets'), 'error');
+            updateViewContext('error');
             return;
         }
 
@@ -1775,6 +1949,7 @@ export function createSavedAssetsBrowser({
 
         assetDeck = initStudioDeck($assetGrid, { maxDots: SAVED_ASSET_MOBILE_DOT_LIMIT });
         folderDeck = initStudioFolderDeck($folderGrid);
+        localizeWorkspaceLinks();
 
         $galleryFilter.addEventListener('change', () => {
             const value = $galleryFilter.value;
@@ -1790,6 +1965,8 @@ export function createSavedAssetsBrowser({
         });
 
         $folderBackBtn?.addEventListener('click', showFolderView);
+        $viewRefresh?.addEventListener('click', handleViewRefresh);
+        $viewShowAll?.addEventListener('click', handleViewShowAll);
         $newFolderBtn?.addEventListener('click', showNewFolderForm);
         $deleteFolderBtn?.addEventListener('click', showDeleteFolderForm);
         $deleteFolderConfirm?.addEventListener('click', handleDeleteFolder);

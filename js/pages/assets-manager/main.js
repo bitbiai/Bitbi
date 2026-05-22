@@ -64,6 +64,15 @@ function createBrowser({ fromGenerateLab = false } = {}) {
             assetGrid: document.getElementById('studioImageGrid'),
             galleryMsg: document.getElementById('studioGalleryMsg'),
             listStatus: document.getElementById('studioListStatus'),
+            viewContext: document.getElementById('studioViewContext'),
+            viewContextTitle: document.getElementById('studioViewContextTitle'),
+            viewContextCopy: document.getElementById('studioViewContextCopy'),
+            viewScope: document.getElementById('studioViewScope'),
+            viewOrder: document.getElementById('studioViewOrder'),
+            viewRefresh: document.getElementById('studioViewRefresh'),
+            viewShowAll: document.getElementById('studioViewShowAll'),
+            viewGenerateLab: document.getElementById('studioViewGenerateLab'),
+            viewCredits: document.getElementById('studioViewCredits'),
             newFolderBtn: document.getElementById('studioNewFolderBtn'),
             deleteFolderBtn: document.getElementById('studioDeleteFolderBtn'),
             newFolderForm: document.getElementById('studioNewFolderForm'),
@@ -103,6 +112,7 @@ function createBrowser({ fromGenerateLab = false } = {}) {
         emptyListStatus: fromGenerateLab ? localeText('assets.handoffEmptyStatus') : localeText('assets.listEmptyStatus'),
         loadFailedListStatus: fromGenerateLab ? localeText('assets.handoffLoadFailedStatus') : localeText('assets.listLoadFailedStatus'),
         foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
+        handoffActive: fromGenerateLab,
     });
 
     return savedAssetsBrowser;

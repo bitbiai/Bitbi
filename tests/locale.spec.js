@@ -353,6 +353,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Move between creation, credits, and profile');
     expect(enAssets).toContain('assets-manager__first-run');
     expect(enAssets).toContain('Your library starts after you save from Generate Lab');
+    expect(enAssets).toContain('id="studioViewContext"');
+    expect(enAssets).toContain('Library view');
+    expect(enAssets).toContain('Refresh latest');
+    expect(enAssets).toContain('Folder and selection tools stay here on phones.');
+    expect(enAssets).toContain('href="/generate-lab/?source=assets-manager&amp;step=create"');
     expect(enAssets).toContain('href="/generate-lab/"');
     expect(enAssets).toContain('href="/generate-lab/?source=assets-manager"');
     expect(enAssets).toContain('href="/account/credits.html?scope=member"');
@@ -370,6 +375,11 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Zwischen Erstellung, Credits und Profil wechseln');
     expect(deAssets).toContain('assets-manager__first-run');
     expect(deAssets).toContain('Ihre Bibliothek beginnt nach dem Speichern aus Generate Lab');
+    expect(deAssets).toContain('id="studioViewContext"');
+    expect(deAssets).toContain('Bibliotheksansicht');
+    expect(deAssets).toContain('Neueste aktualisieren');
+    expect(deAssets).toContain('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
+    expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager&amp;step=create"');
     expect(deAssets).toContain('href="/de/generate-lab/"');
     expect(deAssets).toContain('href="/de/generate-lab/?source=assets-manager"');
     expect(deAssets).toContain('href="/de/account/credits.html?scope=member"');
@@ -710,6 +720,10 @@ test.describe('Bilingual locale pages', () => {
       'Storage status',
       'Private first',
       'Actions stay grouped',
+      'Library view',
+      'Folder overview',
+      'Refresh latest',
+      'Folder and selection tools stay here on phones.',
       'Your saved library is empty',
       'Start creating',
       'Private by default',

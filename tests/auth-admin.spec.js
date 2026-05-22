@@ -7486,6 +7486,10 @@ test.describe('Assets Manager (authenticated)', () => {
       '/account/credits.html?scope=member',
     );
     await expect(page.locator('#studioStorageInsight')).toContainText('0 MB / 50 MB used. 50 MB remains available');
+    await expect(page.locator('#studioViewContext')).toContainText('Folder overview');
+    await expect(page.locator('#studioViewContext')).toContainText('Recent backend order');
+    await expect(page.locator('#studioViewRefresh')).toHaveText('Refresh latest');
+    await expect(page.locator('#studioViewShowAll')).toHaveText('Show all assets');
     await expect(page.locator('#studioFolderGrid')).toBeVisible();
     await expect(page.locator('#studioImageGrid')).toHaveCount(1);
     await expect(page.locator('#studioPrompt')).toHaveCount(0);
@@ -7495,6 +7499,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioSaveBar')).toHaveCount(0);
     await page.getByRole('button', { name: 'Open All Assets, 0 assets' }).press('Enter');
     await expect(page.getByRole('heading', { name: 'Your saved library is empty' })).toBeVisible();
+    await expect(page.locator('#studioViewContext')).toContainText('Viewing all saved assets');
     await expect(page.getByRole('link', { name: 'Start creating' })).toHaveAttribute('href', '/#gallery');
     expect(requests).toEqual([]);
   });
@@ -7516,6 +7521,16 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(banner.getByRole('button', { name: 'Show all assets' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Your recent creation is not visible yet' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Create another output' })).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#studioViewContext')).toContainText('Recent output not visible in this view');
+    await expect(page.locator('#studioViewContext')).toContainText('backend-loaded account data');
+    await expect(page.locator('#studioViewGenerateLab')).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=assets-manager&step=create',
+    );
+    await expect(page.locator('#studioViewCredits')).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member&source=assets-manager',
+    );
     await expect(page.locator('#studioListStatus')).toContainText('No recent output is visible yet');
     await expect(page.locator('#studioImageGrid')).toBeVisible();
     await expect(page.locator('#studioFolderGrid')).toBeHidden();
@@ -7550,6 +7565,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(banner.getByRole('button', { name: 'Alle Assets anzeigen' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Ihre neueste Erstellung ist noch nicht sichtbar' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Weiteres Ergebnis erstellen' })).toHaveAttribute('href', '/de/generate-lab/');
+    await expect(page.locator('#studioViewContext')).toContainText('Aktuelles Ergebnis ist in dieser Ansicht nicht sichtbar');
+    await expect(page.locator('#studioViewGenerateLab')).toHaveAttribute(
+      'href',
+      '/de/generate-lab/?source=assets-manager&step=create',
+    );
     await expect(page.locator('#studioListStatus')).toContainText('noch kein aktuelles Ergebnis sichtbar');
   });
 
@@ -7628,10 +7648,14 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioGalleryFilter').selectOption('folder-launches');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
     await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset in "Launches"');
+    await expect(page.locator('#studioViewContext')).toContainText('Viewing folder: Launches');
+    await expect(page.locator('#studioViewScope')).toHaveText('Folder: Launches');
 
     await page.locator('#assetsHandoffShowAll').click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
     await expect(page.locator('#studioListStatus')).toContainText('Showing 2 assets, newest first');
+    await expect(page.locator('#studioViewContext')).toContainText('Checking recent Generate Lab output');
+    await expect(page.locator('#studioViewScope')).toHaveText('All saved assets');
     await expect(page.locator('#studioGalleryFilter')).toHaveValue('__all__');
   });
 
@@ -7652,6 +7676,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Could not reload your saved output' })).toBeVisible();
     await expect(page.locator('#studioListStatus')).toContainText('Generate Lab handoff could not reload saved assets');
+    await expect(page.locator('#studioViewContext')).toContainText('Could not verify the recent output');
     await expect(page.locator('#studioImageGrid')).not.toContainText('saved-image-one');
     await expect(page.getByRole('link', { name: 'Create another output' })).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#assetsHandoffBanner')).toContainText('Looking for your latest creation?');
@@ -8985,6 +9010,12 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(14);
     await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();
     await expect(page.locator('.studio__mobile-grid-trigger')).toHaveText('All 14 saved assets are displayed.');
+    await page.locator('#studioMobileActionsToggle').click();
+    await expect(page.locator('#studioMobileActionsMenu')).toContainText('Folder and selection tools stay here on phones.');
+    await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Create folder' })).toBeVisible();
+    await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Delete folder' })).toBeVisible();
+    await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Select assets' })).toBeVisible();
+    await page.locator('#studioMobileActionsToggle').click();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Publish' })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Delete' })).toBeVisible();
     await expect
@@ -9038,6 +9069,10 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();
     await expect(page.locator('.studio__mobile-grid-trigger')).toHaveText('Alle 3 gespeicherten Assets werden angezeigt.');
+    await page.locator('#studioMobileActionsToggle').click();
+    await expect(page.locator('#studioMobileActionsMenu')).toContainText('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
+    await expect(page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Ordner erstellen' })).toBeVisible();
+    await page.locator('#studioMobileActionsToggle').click();
     await page.locator('.studio__mobile-grid-trigger').click();
     await expect(page.locator('.mobile-media-grid-overlay--assets')).toBeVisible();
     await expect(page.locator('.mobile-media-grid-overlay__close')).toHaveText('Schließen');

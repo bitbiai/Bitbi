@@ -273,14 +273,33 @@
                         <button type="button" id="studioSelectBtn" class="studio__new-folder-btn studio__folder-action">Auswählen</button>
                         <div class="studio__mobile-actions" id="studioMobileActions">
                             <button type="button" class="studio__mobile-actions-toggle" id="studioMobileActionsToggle" aria-label="Asset-Aktionen" aria-expanded="false">Aktionen</button>
-                            <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu">
-                                <button type="button" data-action="new-folder">+ Ordner</button>
-                                <button type="button" data-action="delete-folder">&minus; Ordner</button>
-                                <button type="button" data-action="select">Auswählen</button>
+                            <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu" aria-label="Mobile Asset-Aktionen">
+                                <p class="studio__mobile-actions-hint">Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.</p>
+                                <button type="button" data-action="new-folder">Ordner erstellen</button>
+                                <button type="button" data-action="delete-folder">Ordner löschen</button>
+                                <button type="button" data-action="select">Assets auswählen</button>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <section id="studioViewContext" class="assets-manager__view-context" aria-live="polite" aria-labelledby="studioViewContextTitle">
+                    <div class="assets-manager__view-context-copy">
+                        <p class="assets-manager__handoff-eyebrow">Bibliotheksansicht</p>
+                        <h3 id="studioViewContextTitle" class="assets-manager__view-context-title">Ordnerübersicht</h3>
+                        <p id="studioViewContextCopy" class="assets-manager__view-context-text">Wählen Sie einen Ordner oder zeigen Sie alle Assets, um aktuelle Kontospeicherungen zu prüfen. Ordneransichten können das neueste Generate-Lab-Ergebnis ausblenden.</p>
+                        <div class="assets-manager__view-context-pills" aria-label="Details zur aktuellen Bibliotheksansicht">
+                            <span id="studioViewScope" class="assets-manager__view-context-pill">Ordnerübersicht</span>
+                            <span id="studioViewOrder" class="assets-manager__view-context-pill">Aktuelle Backend-Reihenfolge</span>
+                        </div>
+                    </div>
+                    <div class="assets-manager__view-context-actions" aria-label="Wiederherstellungsaktionen für die Bibliotheksansicht">
+                        <button type="button" id="studioViewRefresh" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Neueste aktualisieren</button>
+                        <button type="button" id="studioViewShowAll" class="assets-manager__handoff-btn">Alle Assets anzeigen</button>
+                        <a id="studioViewGenerateLab" class="assets-manager__handoff-btn" href="/de/generate-lab/?source=assets-manager&amp;step=create">Zurück zu Generate Lab</a>
+                        <a id="studioViewCredits" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost" href="/de/account/credits.html?scope=member&amp;source=assets-manager">Credits prüfen</a>
+                    </div>
+                </section>
 
                 <!-- New Folder Form (hidden by default) -->
                 <div id="studioNewFolderForm" class="studio__new-folder-form">

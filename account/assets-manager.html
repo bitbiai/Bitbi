@@ -269,14 +269,33 @@
                         <button type="button" id="studioSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
                         <div class="studio__mobile-actions" id="studioMobileActions">
                             <button type="button" class="studio__mobile-actions-toggle" id="studioMobileActionsToggle" aria-label="Asset actions" aria-expanded="false">Actions</button>
-                            <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu">
-                                <button type="button" data-action="new-folder">+ Folder</button>
-                                <button type="button" data-action="delete-folder">&minus; Folder</button>
-                                <button type="button" data-action="select">Select</button>
+                            <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu" aria-label="Mobile asset actions">
+                                <p class="studio__mobile-actions-hint">Folder and selection tools stay here on phones.</p>
+                                <button type="button" data-action="new-folder">Create folder</button>
+                                <button type="button" data-action="delete-folder">Delete folder</button>
+                                <button type="button" data-action="select">Select assets</button>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <section id="studioViewContext" class="assets-manager__view-context" aria-live="polite" aria-labelledby="studioViewContextTitle">
+                    <div class="assets-manager__view-context-copy">
+                        <p class="assets-manager__handoff-eyebrow">Library view</p>
+                        <h3 id="studioViewContextTitle" class="assets-manager__view-context-title">Folder overview</h3>
+                        <p id="studioViewContextCopy" class="assets-manager__view-context-text">Choose a folder or show all assets to review recent account saves. Folder views can hide the latest Generate Lab output.</p>
+                        <div class="assets-manager__view-context-pills" aria-label="Current library view details">
+                            <span id="studioViewScope" class="assets-manager__view-context-pill">Folder overview</span>
+                            <span id="studioViewOrder" class="assets-manager__view-context-pill">Recent backend order</span>
+                        </div>
+                    </div>
+                    <div class="assets-manager__view-context-actions" aria-label="Library view recovery actions">
+                        <button type="button" id="studioViewRefresh" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Refresh latest</button>
+                        <button type="button" id="studioViewShowAll" class="assets-manager__handoff-btn">Show all assets</button>
+                        <a id="studioViewGenerateLab" class="assets-manager__handoff-btn" href="/generate-lab/?source=assets-manager&amp;step=create">Back to Generate Lab</a>
+                        <a id="studioViewCredits" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost" href="/account/credits.html?scope=member&amp;source=assets-manager">Review credits</a>
+                    </div>
+                </section>
 
                 <!-- New Folder Form (hidden by default) -->
                 <div id="studioNewFolderForm" class="studio__new-folder-form">
