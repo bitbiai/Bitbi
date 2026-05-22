@@ -374,6 +374,13 @@ export function createSavedAssetsBrowser({
     const $viewShowAll = refs.viewShowAll;
     const $viewGenerateLab = refs.viewGenerateLab;
     const $viewCredits = refs.viewCredits;
+    const $folderDetail = refs.folderDetail;
+    const $folderDetailTitle = refs.folderDetailTitle;
+    const $folderDetailCopy = refs.folderDetailCopy;
+    const $folderDetailCount = refs.folderDetailCount;
+    const $folderDetailShowAll = refs.folderDetailShowAll;
+    const $folderDetailBack = refs.folderDetailBack;
+    const $folderDetailGenerateLab = refs.folderDetailGenerateLab;
     const $newFolderBtn = refs.newFolderBtn;
     const $deleteFolderBtn = refs.deleteFolderBtn;
     const $newFolderForm = refs.newFolderForm;
@@ -401,6 +408,7 @@ export function createSavedAssetsBrowser({
     const $renameConfirm = refs.renameConfirm;
     const $renameCancel = refs.renameCancel;
     const $bulkMoveForm = refs.bulkMoveForm;
+    const $bulkMoveSummary = refs.bulkMoveSummary;
     const $bulkMoveSelect = refs.bulkMoveSelect;
     const $bulkMoveConfirm = refs.bulkMoveConfirm;
     const $bulkMoveCancel = refs.bulkMoveCancel;
@@ -488,6 +496,30 @@ export function createSavedAssetsBrowser({
         if (filterValue === UNFOLDERED) return localeText('assets.assets');
         const folder = folders.find((entry) => entry.id === filterValue);
         return folder?.name || localeText('assets.folder');
+    }
+
+    function getFolderById(folderId) {
+        return folders.find((entry) => entry.id === folderId) || null;
+    }
+
+    function getFolderCount(filterValue) {
+        if (filterValue === UNFOLDERED) return Number(unfolderedCount || 0);
+        if (filterValue && filterValue !== ALL_ASSETS) {
+            if (!Object.prototype.hasOwnProperty.call(folderCounts, filterValue)) {
+                return !folderViewActive && $galleryFilter.value === filterValue && currentAssets.length === 0
+                    ? 0
+                    : null;
+            }
+            const count = Number(folderCounts[filterValue]);
+            return Number.isFinite(count) ? count : null;
+        }
+        return null;
+    }
+
+    function getGenerateLabHref() {
+        return getCurrentLocale() === 'de'
+            ? '/de/generate-lab/?source=assets-manager'
+            : '/generate-lab/?source=assets-manager';
     }
 
     function getAssetFolderLabel(asset) {
@@ -649,6 +681,50 @@ export function createSavedAssetsBrowser({
         });
     }
 
+    function updateFolderDetail(mode = 'current') {
+        if (!$folderDetail) return;
+
+        const filterValue = $galleryFilter.value;
+        const showFolderContext = !folderViewActive
+            && filterValue
+            && filterValue !== ALL_ASSETS;
+        if (!showFolderContext) {
+            $folderDetail.hidden = true;
+            return;
+        }
+
+        const isUnfoldered = filterValue === UNFOLDERED;
+        const folder = isUnfoldered ? null : getFolderById(filterValue);
+        const folderName = isUnfoldered
+            ? localeText('assets.assets')
+            : (folder?.name || localeText('assets.folderUnknown'));
+        const count = getFolderCount(filterValue);
+        const values = {
+            folder: folderName,
+            countLabel: Number.isFinite(count) ? formatAssetCount(count) : localeText('assets.folderDetailCountUnknown'),
+        };
+
+        $folderDetail.hidden = false;
+        if ($folderDetailTitle) {
+            $folderDetailTitle.textContent = localeText(
+                isUnfoldered ? 'assets.folderDetailUnfolderedTitle' : 'assets.folderDetailTitle',
+                values,
+            );
+        }
+        if ($folderDetailCopy) {
+            const copyKey = isUnfoldered
+                ? (handoffActive ? 'assets.folderDetailUnfolderedHandoffCopy' : 'assets.folderDetailUnfolderedCopy')
+                : (handoffActive ? 'assets.folderDetailHandoffCopy' : 'assets.folderDetailCopy');
+            $folderDetailCopy.textContent = localeText(copyKey, values);
+        }
+        if ($folderDetailCount) {
+            const countKey = mode === 'loading'
+                ? 'assets.folderDetailLoadingCount'
+                : 'assets.folderDetailCount';
+            $folderDetailCount.textContent = localeText(countKey, values);
+        }
+    }
+
     function setCurrentAssetViewStatus() {
         const count = currentAssets.length;
         const filterValue = $galleryFilter.value;
@@ -661,15 +737,18 @@ export function createSavedAssetsBrowser({
         if (filterValue === UNFOLDERED) {
             setListStatus(localeText('assets.unfolderedViewStatus', values), 'unfoldered');
             updateViewContext();
+            updateFolderDetail();
             return;
         }
         if (filterValue && filterValue !== ALL_ASSETS) {
             setListStatus(localeText('assets.folderFilteredStatus', values), 'folder');
             updateViewContext();
+            updateFolderDetail();
             return;
         }
         setListStatus(localeText('assets.listNewestFirstStatus', values), 'all');
         updateViewContext();
+        updateFolderDetail();
     }
 
     function getStorageInsightText(storageUsage, usageText) {
@@ -839,6 +918,9 @@ export function createSavedAssetsBrowser({
                 ? '/de/account/credits.html?scope=member&source=assets-manager'
                 : '/account/credits.html?scope=member&source=assets-manager';
         }
+        if ($folderDetailGenerateLab) {
+            $folderDetailGenerateLab.href = getGenerateLabHref();
+        }
     }
 
     async function handleViewRefresh() {
@@ -890,6 +972,59 @@ export function createSavedAssetsBrowser({
         return getCurrentLocale() === 'de' ? '/de/#gallery' : '/#gallery';
     }
 
+    function getFolderEmptyActions() {
+        return [
+            {
+                label: localeText('assets.emptyFolderShowAll'),
+                onClick: () => openAllAssets(),
+            },
+            {
+                label: localeText('assets.emptyFolderBack'),
+                onClick: () => showFolderView(),
+                variant: 'secondary',
+            },
+            {
+                label: localeText('assets.emptyFolderCreate'),
+                href: getGenerateLabHref(),
+                variant: 'secondary',
+            },
+        ];
+    }
+
+    function getCurrentEmptyStateOptions(filterValue) {
+        if (filterValue === UNFOLDERED) {
+            return {
+                title: localeText('assets.emptyUnfolderedTitle'),
+                message: handoffActive
+                    ? localeText('assets.emptyUnfolderedHandoffCopy')
+                    : localeText('assets.emptyUnfolderedCopy'),
+                listStatus: localeText('assets.emptyUnfolderedStatus'),
+                statusView: 'empty',
+                actions: getFolderEmptyActions(),
+                ctaHref: '',
+                ctaLabel: '',
+            };
+        }
+
+        if (filterValue && filterValue !== ALL_ASSETS) {
+            const folder = getCurrentFolderName(filterValue);
+            return {
+                title: localeText('assets.emptyFolderTitle', { folder }),
+                message: localeText(
+                    handoffActive ? 'assets.emptyFolderHandoffCopy' : 'assets.emptyFolderCopy',
+                    { folder },
+                ),
+                listStatus: localeText('assets.emptyFolderStatus', { folder }),
+                statusView: 'empty',
+                actions: getFolderEmptyActions(),
+                ctaHref: '',
+                ctaLabel: '',
+            };
+        }
+
+        return null;
+    }
+
     function renderEmptyState(message = emptyStateMessage, options = {}) {
         currentAssets = [];
         assetNextCursor = null;
@@ -921,6 +1056,26 @@ export function createSavedAssetsBrowser({
             empty.appendChild(cta);
         }
 
+        if (Array.isArray(options.actions) && options.actions.length > 0) {
+            const actions = document.createElement('div');
+            actions.className = 'studio__gallery-empty-actions';
+            options.actions.forEach((action) => {
+                const control = action.href ? document.createElement('a') : document.createElement('button');
+                control.className = `studio__gallery-empty-link${action.variant ? ` studio__gallery-empty-link--${action.variant}` : ''}`;
+                if (action.href) {
+                    control.href = action.href;
+                } else {
+                    control.type = 'button';
+                    if (typeof action.onClick === 'function') {
+                        control.addEventListener('click', action.onClick);
+                    }
+                }
+                control.textContent = action.label;
+                actions.appendChild(control);
+            });
+            empty.appendChild(actions);
+        }
+
         $assetGrid.appendChild(empty);
         updateAssetPaginationUi();
         setListStatus(
@@ -928,6 +1083,7 @@ export function createSavedAssetsBrowser({
             options.statusView || 'empty',
         );
         updateViewContext(options.statusView === 'error' ? 'error' : 'empty');
+        updateFolderDetail(options.statusView === 'error' ? 'error' : 'empty');
     }
 
     function updateAssetPaginationUi() {
@@ -1125,6 +1281,27 @@ export function createSavedAssetsBrowser({
             : localeText('assets.selected', { count });
     }
 
+    function getMoveTargetLabel() {
+        const folderId = $bulkMoveSelect?.value || '';
+        if (!folderId) return localeText('assets.moveTargetUnfoldered');
+        const folder = getFolderById(folderId);
+        return folder?.name || localeText('assets.folderUnknown');
+    }
+
+    function updateBulkMoveSummary() {
+        if (!$bulkMoveSummary) return;
+        if (!selectMode || selectionScope === 'folder') {
+            $bulkMoveSummary.textContent = '';
+            return;
+        }
+        const countLabel = getSelectionCountLabel();
+        const target = getMoveTargetLabel();
+        const key = folders.length === 0 && !($bulkMoveSelect?.value || '')
+            ? 'assets.moveTargetNoFoldersSummary'
+            : 'assets.moveTargetSummary';
+        $bulkMoveSummary.textContent = localeText(key, { countLabel, target });
+    }
+
     function updateSelectionGuide() {
         if (!$selectionGuide) return;
         if (!selectMode) {
@@ -1175,6 +1352,7 @@ export function createSavedAssetsBrowser({
             $bulkMoveForm?.classList.remove('visible');
         }
         updateSelectionGuide();
+        updateBulkMoveSummary();
         updateAssetPaginationUi();
     }
 
@@ -1228,14 +1406,14 @@ export function createSavedAssetsBrowser({
             folderCounts = {};
             unfolderedCount = 0;
             notifyFoldersChange();
-            populateFolderOptions($bulkMoveSelect, folders);
+            populateFolderOptions($bulkMoveSelect, folders, localeText('assets.moveTargetUnfoldered'));
             populateGalleryFilter($galleryFilter, folders);
             if (!preserveFilter) $galleryFilter.value = '';
             return false;
         }
 
         notifyFoldersChange();
-        populateFolderOptions($bulkMoveSelect, folders);
+        populateFolderOptions($bulkMoveSelect, folders, localeText('assets.moveTargetUnfoldered'));
         populateGalleryFilter($galleryFilter, folders);
         if (!preserveFilter) {
             $galleryFilter.value = '';
@@ -1259,6 +1437,7 @@ export function createSavedAssetsBrowser({
         updateAssetPaginationUi();
         setListStatus(localeText('assets.folderOverviewStatus'), 'folders');
         updateViewContext();
+        updateFolderDetail();
 
         const total = unfolderedCount + folders.reduce((sum, folder) => sum + (folderCounts[folder.id] || 0), 0);
         $folderGrid.innerHTML = '';
@@ -1288,6 +1467,7 @@ export function createSavedAssetsBrowser({
             { className: 'studio__folder-card-icon', text: '\u{1F5BC}' },
             { className: 'studio__folder-card-name', text: localeText('assets.allAssets') },
             { className: 'studio__folder-card-count', text: formatAssetCount(total) },
+            { className: 'studio__folder-card-action-label', text: localeText('assets.folderCardOpenAll') },
         ].forEach((entry) => {
             const el = document.createElement('span');
             el.className = entry.className;
@@ -1306,6 +1486,7 @@ export function createSavedAssetsBrowser({
             { className: 'studio__folder-card-icon', text: '\u{1F4E6}' },
             { className: 'studio__folder-card-name', text: localeText('assets.assets') },
             { className: 'studio__folder-card-count', text: formatAssetCount(unfolderedCount) },
+            { className: 'studio__folder-card-action-label', text: localeText('assets.folderCardOpenUnfoldered') },
         ].forEach((entry) => {
             const el = document.createElement('span');
             el.className = entry.className;
@@ -1340,7 +1521,11 @@ export function createSavedAssetsBrowser({
             count.className = 'studio__folder-card-count';
             count.textContent = formatAssetCount(totalCount);
 
-            card.append(icon, name, count);
+            const action = document.createElement('span');
+            action.className = 'studio__folder-card-action-label';
+            action.textContent = localeText('assets.folderCardOpenFolder');
+
+            card.append(icon, name, count, action);
             appendSelectionCheck(card);
             $folderGrid.appendChild(card);
         });
@@ -1674,6 +1859,7 @@ export function createSavedAssetsBrowser({
             updateAssetPaginationUi();
             setListStatus(localeText('assets.listLoadingStatus'), 'loading');
             updateViewContext('loading');
+            updateFolderDetail('loading');
         } else {
             assetLoadingMore = true;
             updateAssetPaginationUi();
@@ -1721,7 +1907,12 @@ export function createSavedAssetsBrowser({
             ? currentAssets.concat(assets)
             : assets.slice();
         if (currentAssets.length === 0) {
-            renderEmptyState(emptyStateMessage);
+            const emptyState = getCurrentEmptyStateOptions(filterValue);
+            if (emptyState) {
+                renderEmptyState(emptyState.message, emptyState);
+            } else {
+                renderEmptyState(emptyStateMessage);
+            }
             return;
         }
 
@@ -1915,7 +2106,8 @@ export function createSavedAssetsBrowser({
             return;
         }
         hideRenameForm();
-        populateFolderOptions($bulkMoveSelect, folders);
+        populateFolderOptions($bulkMoveSelect, folders, localeText('assets.moveTargetUnfoldered'));
+        updateBulkMoveSummary();
         $bulkMoveForm?.classList.add('visible');
         $bulkMoveSelect?.focus();
     }
@@ -2133,6 +2325,10 @@ export function createSavedAssetsBrowser({
         $folderBackBtn?.addEventListener('click', showFolderView);
         $viewRefresh?.addEventListener('click', handleViewRefresh);
         $viewShowAll?.addEventListener('click', handleViewShowAll);
+        $folderDetailShowAll?.addEventListener('click', () => {
+            openAllAssets();
+        });
+        $folderDetailBack?.addEventListener('click', showFolderView);
         $newFolderBtn?.addEventListener('click', showNewFolderForm);
         $deleteFolderBtn?.addEventListener('click', showDeleteFolderForm);
         $deleteFolderConfirm?.addEventListener('click', handleDeleteFolder);
@@ -2165,8 +2361,10 @@ export function createSavedAssetsBrowser({
             }
         });
         $bulkMoveConfirm?.addEventListener('click', handleBulkMoveConfirm);
+        $bulkMoveSelect?.addEventListener('change', updateBulkMoveSummary);
         $bulkMoveCancel?.addEventListener('click', () => {
             $bulkMoveForm?.classList.remove('visible');
+            updateBulkMoveSummary();
         });
         $assetLoadMore.addEventListener('click', () => {
             if (!assetHasMore || assetLoadingMore) return;

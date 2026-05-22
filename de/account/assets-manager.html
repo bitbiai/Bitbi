@@ -301,6 +301,20 @@
                     </div>
                 </section>
 
+                <section id="studioFolderDetail" class="assets-manager__folder-detail" aria-live="polite" aria-labelledby="studioFolderDetailTitle" hidden>
+                    <div class="assets-manager__folder-detail-copy">
+                        <p class="assets-manager__handoff-eyebrow">Ordnerdetail</p>
+                        <h3 id="studioFolderDetailTitle" class="assets-manager__folder-detail-title">Ordneransicht</h3>
+                        <p id="studioFolderDetailCopy" class="assets-manager__folder-detail-text">Öffnen Sie einen Ordner, um Anzahl, Leeren-Zustand und mögliche ausgeblendete aktuelle Speicherungen zu sehen.</p>
+                    </div>
+                    <p id="studioFolderDetailCount" class="assets-manager__folder-detail-count">Die Ordneranzahl erscheint nach dem Laden.</p>
+                    <div class="assets-manager__folder-detail-actions" aria-label="Aktionen für die Ordneransicht">
+                        <button type="button" id="studioFolderDetailShowAll" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Alle Assets anzeigen</button>
+                        <button type="button" id="studioFolderDetailBack" class="assets-manager__handoff-btn">Ordnerübersicht</button>
+                        <a id="studioFolderDetailGenerateLab" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost" href="/de/generate-lab/?source=assets-manager">Weiter generieren</a>
+                    </div>
+                </section>
+
                 <!-- New Folder Form (hidden by default) -->
                 <div id="studioNewFolderForm" class="studio__new-folder-form">
                     <input type="text" id="studioNewFolderInput" class="studio__new-folder-input" placeholder="Ordnername" maxlength="100">
@@ -349,6 +363,7 @@
                     <div class="studio__bulk-form-copy">
                         <h4 id="studioBulkMoveTitle">Ausgewählte Assets verschieben</h4>
                         <p id="studioBulkMoveHelp">Wählen Sie einen Zielordner. Wenn das Verschieben fehlschlägt, bleiben die ausgewählten Assets für Wiederholen oder Abbrechen markiert.</p>
+                        <p id="studioBulkMoveSummary" class="studio__bulk-move-summary" aria-live="polite">Das Ziel erscheint nach der Auswahl von Assets.</p>
                     </div>
                     <label class="sr-only" for="studioBulkMoveSelect">Zielordner</label>
                     <select id="studioBulkMoveSelect" class="studio__bulk-move-select"></select>

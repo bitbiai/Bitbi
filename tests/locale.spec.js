@@ -356,6 +356,10 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('id="studioViewContext"');
     expect(enAssets).toContain('Library view');
     expect(enAssets).toContain('Refresh latest');
+    expect(enAssets).toContain('id="studioFolderDetail"');
+    expect(enAssets).toContain('Folder detail');
+    expect(enAssets).toContain('Folder count appears after loading.');
+    expect(enAssets).toContain('id="studioBulkMoveSummary"');
     expect(enAssets).toContain('Folder and selection tools stay here on phones.');
     expect(enAssets).toContain('Selection mode active');
     expect(enAssets).toContain('Move selected assets');
@@ -381,6 +385,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('id="studioViewContext"');
     expect(deAssets).toContain('Bibliotheksansicht');
     expect(deAssets).toContain('Neueste aktualisieren');
+    expect(deAssets).toContain('id="studioFolderDetail"');
+    expect(deAssets).toContain('Ordnerdetail');
+    expect(deAssets).toContain('Die Ordneranzahl erscheint nach dem Laden.');
+    expect(deAssets).toContain('id="studioBulkMoveSummary"');
     expect(deAssets).toContain('Ordner- und Auswahlwerkzeuge bleiben auf Smartphones hier.');
     expect(deAssets).toContain('Auswahlmodus aktiv');
     expect(deAssets).toContain('Ausgewählte Assets verschieben');

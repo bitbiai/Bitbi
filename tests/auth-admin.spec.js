@@ -7491,6 +7491,8 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioViewRefresh')).toHaveText('Refresh latest');
     await expect(page.locator('#studioViewShowAll')).toHaveText('Show all assets');
     await expect(page.locator('#studioFolderGrid')).toBeVisible();
+    await expect(page.locator('#studioFolderGrid .studio__folder-card').first()).toContainText('Open all assets');
+    await expect(page.locator('#studioFolderGrid .studio__folder-card').nth(1)).toContainText('Open assets without folder');
     await expect(page.locator('#studioImageGrid')).toHaveCount(1);
     await expect(page.locator('#studioPrompt')).toHaveCount(0);
     await expect(page.locator('#studioModel')).toHaveCount(0);
@@ -7657,6 +7659,124 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioViewContext')).toContainText('Checking recent Generate Lab output');
     await expect(page.locator('#studioViewScope')).toHaveText('All saved assets');
     await expect(page.locator('#studioGalleryFilter')).toHaveValue('__all__');
+  });
+
+  test('account Assets Manager explains empty folder recovery from Generate Lab handoff', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-empty', name: 'Empty Project', slug: 'empty-project', created_at: '2026-04-10T09:00:00.000Z' },
+        ],
+        counts: {
+          'folder-empty': 0,
+        },
+        unfolderedCount: 1,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'loose-handoff-note',
+            asset_type: 'text',
+            folder_id: null,
+            title: 'Loose handoff note',
+            file_name: 'loose-handoff-note.txt',
+            source_module: 'compare',
+            mime_type: 'text/plain; charset=utf-8',
+            preview_text: 'A recent save outside folders.',
+            created_at: '2026-04-10T12:04:00.000Z',
+            file_url: '/api/ai/text-assets/loose-handoff-note/file',
+          },
+        ],
+        unfoldered: [
+          {
+            id: 'loose-handoff-note',
+            asset_type: 'text',
+            folder_id: null,
+            title: 'Loose handoff note',
+            file_name: 'loose-handoff-note.txt',
+            source_module: 'compare',
+            mime_type: 'text/plain; charset=utf-8',
+            preview_text: 'A recent save outside folders.',
+            created_at: '2026-04-10T12:04:00.000Z',
+            file_url: '/api/ai/text-assets/loose-handoff-note/file',
+          },
+        ],
+        folders: {
+          'folder-empty': [],
+        },
+      },
+    });
+
+    await page.goto('/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.selectOption('#studioGalleryFilter', 'folder-empty');
+
+    const folderDetail = page.locator('#studioFolderDetail');
+    await expect(folderDetail).toBeVisible();
+    await expect(folderDetail).toContainText('Folder: Empty Project');
+    await expect(folderDetail).toContainText('0 assets in this view.');
+    await expect(folderDetail).toContainText('Recent saves may be in all assets or another folder');
+    await expect(folderDetail.getByRole('button', { name: 'Show all assets' })).toBeVisible();
+    await expect(folderDetail.getByRole('button', { name: 'Folder overview' })).toBeVisible();
+    await expect(folderDetail.getByRole('link', { name: 'Generate more' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=assets-manager',
+    );
+
+    await expect(page.getByRole('heading', { name: 'No assets in "Empty Project" yet' })).toBeVisible();
+    await expect(page.locator('#studioImageGrid')).toContainText('If you just saved from Generate Lab, show all assets');
+    await expect(page.locator('#studioListStatus')).toContainText('Folder "Empty Project" is empty');
+    await expect(page.locator('#studioImageGrid').getByRole('button', { name: 'Show all assets' })).toBeVisible();
+    await expect(page.locator('#studioImageGrid').getByRole('button', { name: 'Folder overview' })).toBeVisible();
+    await expect(page.locator('#studioImageGrid').getByRole('link', { name: 'Create in Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=assets-manager',
+    );
+
+    await page.locator('#studioFolderDetailBack').click();
+    await expect(page.locator('#studioFolderGrid')).toBeVisible();
+    await expect(page.locator('#studioFolderDetail')).toBeHidden();
+  });
+
+  test('German account Assets Manager localizes folder detail and empty folder recovery', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-leer', name: 'Leerer Ordner', slug: 'leerer-ordner', created_at: '2026-04-10T09:00:00.000Z' },
+        ],
+        counts: {
+          'folder-leer': 0,
+        },
+        unfolderedCount: 0,
+      },
+      assetsPayload: {
+        all: [],
+        unfoldered: [],
+        folders: {
+          'folder-leer': [],
+        },
+      },
+    });
+
+    await page.goto('/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.selectOption('#studioGalleryFilter', 'folder-leer');
+
+    await expect(page.locator('#studioFolderDetail')).toContainText('Ordner: Leerer Ordner');
+    await expect(page.locator('#studioFolderDetail')).toContainText('0 Assets in dieser Ansicht.');
+    await expect(page.locator('#studioFolderDetail')).toContainText('Alle Assets oder einem anderen Ordner');
+    await expect(page.getByRole('heading', { name: 'Noch keine Assets in „Leerer Ordner“' })).toBeVisible();
+    await expect(page.locator('#studioImageGrid')).toContainText('Wenn Sie gerade aus Generate Lab gespeichert haben');
+    await expect(page.locator('#studioImageGrid').getByRole('button', { name: 'Alle Assets anzeigen' })).toBeVisible();
+    await expect(page.locator('#studioImageGrid').getByRole('button', { name: 'Ordnerübersicht' })).toBeVisible();
+    await expect(page.locator('#studioImageGrid').getByRole('link', { name: 'In Generate Lab erstellen' })).toHaveAttribute(
+      'href',
+      '/de/generate-lab/?source=assets-manager',
+    );
   });
 
   test('account Assets Manager explains Generate Lab handoff load failures without private data', async ({
@@ -9724,7 +9844,10 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioBulkMove').click();
     await expect(page.locator('#studioBulkMoveForm')).toContainText('Move selected assets');
     await expect(page.locator('#studioBulkMoveForm')).toContainText('selected assets stay selected');
+    await expect(page.locator('#studioBulkMoveSummary')).toContainText('Move 3 selected to "Assets without folder"');
     await page.selectOption('#studioBulkMoveSelect', 'folder-research');
+    await expect(page.locator('#studioBulkMoveSummary')).toContainText('Move 3 selected to "Research"');
+    await expect(page.locator('#studioBulkMoveSummary')).toContainText('backend saves the move');
     await page.locator('#studioBulkMoveConfirm').click();
     await expect(page.locator('#studioGalleryMsg')).toContainText('3 assets moved.');
     await expect(page.locator('#studioSelectionGuide')).toBeHidden();

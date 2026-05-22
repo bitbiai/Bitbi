@@ -297,6 +297,20 @@
                     </div>
                 </section>
 
+                <section id="studioFolderDetail" class="assets-manager__folder-detail" aria-live="polite" aria-labelledby="studioFolderDetailTitle" hidden>
+                    <div class="assets-manager__folder-detail-copy">
+                        <p class="assets-manager__handoff-eyebrow">Folder detail</p>
+                        <h3 id="studioFolderDetailTitle" class="assets-manager__folder-detail-title">Folder view</h3>
+                        <p id="studioFolderDetailCopy" class="assets-manager__folder-detail-text">Open a folder to see count, empty-state recovery, and where recent saves may be hidden.</p>
+                    </div>
+                    <p id="studioFolderDetailCount" class="assets-manager__folder-detail-count">Folder count appears after loading.</p>
+                    <div class="assets-manager__folder-detail-actions" aria-label="Folder view actions">
+                        <button type="button" id="studioFolderDetailShowAll" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Show all assets</button>
+                        <button type="button" id="studioFolderDetailBack" class="assets-manager__handoff-btn">Folder overview</button>
+                        <a id="studioFolderDetailGenerateLab" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost" href="/generate-lab/?source=assets-manager">Generate more</a>
+                    </div>
+                </section>
+
                 <!-- New Folder Form (hidden by default) -->
                 <div id="studioNewFolderForm" class="studio__new-folder-form">
                     <input type="text" id="studioNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
@@ -345,6 +359,7 @@
                     <div class="studio__bulk-form-copy">
                         <h4 id="studioBulkMoveTitle">Move selected assets</h4>
                         <p id="studioBulkMoveHelp">Choose a target folder. If the move fails, selected assets stay selected for retry or cancel.</p>
+                        <p id="studioBulkMoveSummary" class="studio__bulk-move-summary" aria-live="polite">Target appears after you select assets.</p>
                     </div>
                     <label class="sr-only" for="studioBulkMoveSelect">Target folder</label>
                     <select id="studioBulkMoveSelect" class="studio__bulk-move-select"></select>
