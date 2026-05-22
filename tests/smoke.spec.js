@@ -2281,28 +2281,36 @@ test.describe('Homepage', () => {
 
     await page.goto('/generate-lab/');
     await expect(page.locator('#labWorkflowStatus')).toContainText('Ready to configure');
+    await expect(page.locator('#labCurrentResult')).toContainText('No preview yet');
     await page.locator('#labPrompt').fill('Neon library archive');
 
     await page.locator('#labGenerate').click();
     await generateRequestStarted;
     await expect(page.locator('#labWorkflowStatus')).toContainText('Generation in progress');
+    await expect(page.locator('#labCurrentResult')).toContainText('Generating latest preview');
     await expect(page.locator('#labGenerate')).toBeDisabled();
     releaseGenerateResponse();
 
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Preview ready');
+    await expect(page.locator('#labCurrentResult')).toContainText('Unsaved preview ready');
+    await expect(page.locator('#labCurrentResult')).toContainText('Save before leaving');
     await expect(page.locator('#labMessage')).toContainText('Image generated. Save it when you are ready.');
     await expect(page.locator('#labCostInsight')).toContainText('You have 399 credits');
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Needs attention');
+    await expect(page.locator('#labCurrentResult')).toContainText('Preview still available');
     await expect(page.locator('#labMessage')).toContainText('preview is still available');
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Saved to Assets Manager');
+    await expect(page.locator('#labCurrentResult')).toContainText('Saved result ready');
     await expect(page.locator('#labMessage')).toContainText('Image saved');
+    await expect(page.locator('#labJumpToPreview')).toHaveAttribute('href', '#labResultStage');
+    await expect(page.locator('#labResultCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     const handoffLink = page.getByRole('link', { name: 'View in Assets Manager' });
     await expect(handoffLink).toBeVisible();
     await expect(handoffLink).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
@@ -2691,10 +2699,13 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/generate-lab/');
+    await expect(page.locator('.generate-lab__recent-copy')).toContainText('Backend-loaded saved assets');
+    await expect(page.getByRole('link', { name: 'Show all saved' })).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
 
     await page.getByRole('button', { name: 'Open Neon image in Generate Lab preview' }).click();
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toHaveAttribute('src', /recent-img\/medium/);
+    await expect(page.locator('#labCurrentResult')).toContainText('Backend saved asset opened');
     await expect(page.locator('#globalAudioShell')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Open Neon video in Generate Lab preview' }).click();
@@ -2792,6 +2803,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labPrompt')).toBeVisible();
     await expect(page.locator('.generate-lab__composer-flow')).toBeVisible();
     await expect(page.locator('.generate-lab__composer-flow')).toContainText('Backend validation confirms final credits.');
+    await expect(page.locator('#labCurrentResult')).toBeVisible();
+    await expect(page.locator('#labCurrentResult')).toContainText('No preview yet');
+    await expect(page.locator('#labJumpToPreview')).toBeVisible();
     await expect(page.locator('#labGenerate')).toBeVisible();
     const hasDocumentOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     expect(hasDocumentOverflow).toBe(false);

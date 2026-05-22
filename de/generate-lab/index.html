@@ -244,12 +244,31 @@
                     </div>
                 </div>
 
+                <section id="labCurrentResult" class="generate-lab__current-result is-empty" aria-labelledby="labCurrentResultTitle" aria-live="polite">
+                    <div>
+                        <p class="generate-lab__current-kicker">Aktuelles Ergebnis</p>
+                        <h3 id="labCurrentResultTitle">Noch keine Vorschau</h3>
+                        <p id="labCurrentResultCopy">Ihre letzte Generierung oder ein ausgewähltes aktuelles Asset erscheint unten. Backend-bestätigte Speicherungen bleiben die Quelle der Wahrheit.</p>
+                    </div>
+                    <div class="generate-lab__current-actions" aria-label="Aktionen zum aktuellen Ergebnis">
+                        <a id="labJumpToPreview" class="generate-lab__inline-action" href="#labResultStage">Zur Vorschau</a>
+                        <a id="labResultCreditsLink" class="generate-lab__inline-action" href="/de/account/credits.html?scope=member">Credits prüfen</a>
+                        <a id="labResultAssetsLink" class="generate-lab__inline-action" href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Assets Manager öffnen</a>
+                    </div>
+                </section>
+
                 <div id="labResultStage" class="generate-lab__result-stage" aria-live="polite"></div>
 
                 <div class="generate-lab__recent">
                     <div class="generate-lab__recent-head">
-                        <h3>Aktuelle Assets</h3>
-                        <button type="button" id="labRecentAssetsOpen" class="generate-lab__inline-action">Alle verwalten</button>
+                        <div>
+                            <h3>Aktuelle Assets</h3>
+                            <p class="generate-lab__recent-copy">Vom Backend geladene gespeicherte Assets. Filter und Ordner werden im Assets Manager verwaltet.</p>
+                        </div>
+                        <div class="generate-lab__recent-actions" aria-label="Aktionen für aktuelle Assets">
+                            <button type="button" id="labRecentAssetsOpen" class="generate-lab__inline-action">Alle verwalten</button>
+                            <a class="generate-lab__inline-action" href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Alle gespeicherten anzeigen</a>
+                        </div>
                     </div>
                     <div id="labRecentAssets" class="generate-lab__recent-grid">
                         <div class="generate-lab__recent-empty">Melden Sie sich an, um aktuelle Assets zu laden.</div>

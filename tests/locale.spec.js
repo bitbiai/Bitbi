@@ -392,6 +392,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).toContain('generate-lab__composer-flow');
     expect(enGenerate).toContain('Backend validation confirms final credits');
     expect(enGenerate).toContain('The result stays visible after save errors');
+    expect(enGenerate).toContain('id="labCurrentResult"');
+    expect(enGenerate).toContain('No preview yet');
+    expect(enGenerate).toContain('Jump to preview');
+    expect(enGenerate).toContain('Backend-loaded saved assets');
+    expect(enGenerate).toContain('Show all saved');
     expect(enGenerate).toContain('Sign in before generation or saving');
     expect(enGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(enGenerate).toContain('href="/account/profile.html?returnContext=generate-lab"');
@@ -413,6 +418,11 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('generate-lab__composer-flow');
     expect(deGenerate).toContain('Backend-Validierung bestätigt finale Credits');
     expect(deGenerate).toContain('Das Ergebnis bleibt nach Speicherfehlern sichtbar');
+    expect(deGenerate).toContain('id="labCurrentResult"');
+    expect(deGenerate).toContain('Noch keine Vorschau');
+    expect(deGenerate).toContain('Zur Vorschau');
+    expect(deGenerate).toContain('Vom Backend geladene gespeicherte Assets');
+    expect(deGenerate).toContain('Alle gespeicherten anzeigen');
     expect(deGenerate).toContain('Vor Generierung oder Speichern anmelden');
     expect(deGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(deGenerate).toContain('href="/de/account/profile.html?returnContext=generate-lab"');
@@ -791,6 +801,11 @@ test.describe('Bilingual locale pages', () => {
       'Mobile creation flow',
       'Start prompt',
       'Backend validation confirms final credits',
+      'Current result',
+      'No preview yet',
+      'Jump to preview',
+      'Backend-loaded saved assets',
+      'Show all saved',
       'Organization context',
       'Organization dashboard is not available',
       'Selected organization',

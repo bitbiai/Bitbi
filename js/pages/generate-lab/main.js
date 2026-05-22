@@ -323,6 +323,57 @@ function setWorkflowStatus(status = 'ready') {
     );
 }
 
+const currentResultStatusConfig = Object.freeze({
+    empty: {
+        title: 'generateLab.currentResultEmptyTitle',
+        copy: 'generateLab.currentResultEmptyCopy',
+        tone: 'empty',
+    },
+    generating: {
+        title: 'generateLab.currentResultGeneratingTitle',
+        copy: 'generateLab.currentResultGeneratingCopy',
+        tone: 'saving',
+    },
+    unsaved: {
+        title: 'generateLab.currentResultUnsavedTitle',
+        copy: 'generateLab.currentResultUnsavedCopy',
+        tone: 'unsaved',
+    },
+    saving: {
+        title: 'generateLab.currentResultSavingTitle',
+        copy: 'generateLab.currentResultSavingCopy',
+        tone: 'saving',
+    },
+    saveFailed: {
+        title: 'generateLab.currentResultSaveFailedTitle',
+        copy: 'generateLab.currentResultSaveFailedCopy',
+        tone: 'attention',
+    },
+    saved: {
+        title: 'generateLab.currentResultSavedTitle',
+        copy: 'generateLab.currentResultSavedCopy',
+        tone: 'saved',
+    },
+    recent: {
+        title: 'generateLab.currentResultRecentTitle',
+        copy: 'generateLab.currentResultRecentCopy',
+        tone: 'recent',
+    },
+    attention: {
+        title: 'generateLab.currentResultAttentionTitle',
+        copy: 'generateLab.currentResultAttentionCopy',
+        tone: 'attention',
+    },
+});
+
+function setCurrentResultSummary(status = 'empty') {
+    if (!refs.currentResult || !refs.currentResultTitle || !refs.currentResultCopy) return;
+    const config = currentResultStatusConfig[status] || currentResultStatusConfig.empty;
+    refs.currentResult.className = `generate-lab__current-result is-${config.tone}`;
+    refs.currentResultTitle.textContent = localeText(config.title);
+    refs.currentResultCopy.textContent = localeText(config.copy);
+}
+
 function updateCostInsight(price, insufficient) {
     if (!refs.costInsight) return;
     refs.costInsight.classList.toggle('is-low', insufficient);
@@ -714,6 +765,7 @@ function renderAllForSelection({ keepResult = false } = {}) {
         state.currentImageMeta = null;
         renderEmptyResult();
         setWorkflowStatus('ready');
+        setCurrentResultSummary('empty');
         setMessage('');
     }
 }
@@ -1146,7 +1198,7 @@ function renderRecentImageAsset(asset) {
     if (!imageUrl) {
         renderEmptyResult();
         setMessage(localeText('generateLab.imageNoPreview'), 'error');
-        return;
+        return false;
     }
     const img = el('img', {
         className: 'generate-lab__image-output',
@@ -1159,6 +1211,7 @@ function renderRecentImageAsset(asset) {
     );
     refs.resultStage?.replaceChildren(el('figure', { className: 'generate-lab__result-card generate-lab__result-card--image generate-lab__result-card--recent' }, img, meta));
     setMessage(localeText('generateLab.recentImageSuccess'), 'success');
+    return true;
 }
 
 function renderRecentVideoAsset(asset) {
@@ -1167,7 +1220,7 @@ function renderRecentVideoAsset(asset) {
     if (!videoUrl) {
         renderEmptyResult();
         setMessage(localeText('generateLab.videoNoUrl'), 'error');
-        return;
+        return false;
     }
     const video = el('video', {
         className: 'generate-lab__video-output',
@@ -1188,6 +1241,7 @@ function renderRecentVideoAsset(asset) {
     refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__result-card generate-lab__result-card--video generate-lab__result-card--recent' }, video, meta));
     setMessage(localeText('generateLab.recentVideoSuccess'), 'success');
     tryPlaySelectedMedia(video);
+    return true;
 }
 
 function renderRecentAudioAsset(asset) {
@@ -1196,7 +1250,7 @@ function renderRecentAudioAsset(asset) {
     if (!audioUrl) {
         renderEmptyResult();
         setMessage(localeText('generateLab.audioNoUrl'), 'error');
-        return;
+        return false;
     }
     const cover = el('div', { className: 'generate-lab__audio-cover' });
     applyAudioCover(cover, asset?.poster_url || asset?.thumb_url || '');
@@ -1213,6 +1267,7 @@ function renderRecentAudioAsset(asset) {
     refs.resultStage?.replaceChildren(result);
     setMessage(localeText('generateLab.recentAudioSuccess'), 'success');
     tryPlaySelectedMedia(audio);
+    return true;
 }
 
 function openRecentAsset(asset) {
@@ -1221,16 +1276,18 @@ function openRecentAsset(asset) {
     state.currentImageData = null;
     state.currentImageMeta = null;
 
+    let opened = false;
     if (isVideoAsset(asset)) {
-        renderRecentVideoAsset(asset);
+        opened = renderRecentVideoAsset(asset);
     } else if (isAudioAsset(asset)) {
-        renderRecentAudioAsset(asset);
+        opened = renderRecentAudioAsset(asset);
     } else if (isImageAsset(asset)) {
-        renderRecentImageAsset(asset);
+        opened = renderRecentImageAsset(asset);
     } else {
         renderEmptyResult();
         setMessage(localeText('generateLab.unsupportedAsset'), 'error');
     }
+    setCurrentResultSummary(opened ? 'recent' : 'attention');
 
     document.querySelectorAll('.generate-lab__recent-card').forEach((card) => {
         const selected = String(card.dataset.assetId || '') === String(asset.id || '');
@@ -1244,6 +1301,7 @@ async function handleSaveImage() {
     const folderId = refs.folderSelect?.value || null;
     setMessage(localeText('generateLab.savingImage'), 'info');
     setWorkflowStatus('saving');
+    setCurrentResultSummary('saving');
 
     let res;
     try {
@@ -1271,12 +1329,14 @@ async function handleSaveImage() {
         console.warn('Generate Lab image save failed:', error);
         setMessage(localeText('generateLab.imageSaveFailedRetry', { error: localeText('studio.saveFailed') }), 'error');
         setWorkflowStatus('attention');
+        setCurrentResultSummary('saveFailed');
         return;
     }
 
     if (!res.ok) {
         setMessage(localeText('generateLab.imageSaveFailedRetry', { error: res.error || localeText('studio.saveFailed') }), 'error');
         setWorkflowStatus('attention');
+        setCurrentResultSummary('saveFailed');
         return;
     }
 
@@ -1284,6 +1344,7 @@ async function handleSaveImage() {
     state.currentImageMeta = null;
     renderImageSavedActions();
     setWorkflowStatus('saved');
+    setCurrentResultSummary('saved');
     setMessage(localeText('generateLab.imageSaved'), 'success');
     await loadRecentAssets();
 }
@@ -1405,6 +1466,7 @@ async function handleGenerate() {
     if (!prompt) {
         setMessage(localeText('studio.promptRequired'), 'error');
         setWorkflowStatus('attention');
+        setCurrentResultSummary('attention');
         refs.prompt?.focus();
         return;
     }
@@ -1413,11 +1475,13 @@ async function handleGenerate() {
     if (state.creditBalance !== null && state.creditBalance < price) {
         setMessage(localeText('generateLab.needCredits', { cost: formatCredits(price) }), 'error');
         setWorkflowStatus('attention');
+        setCurrentResultSummary('attention');
         return;
     }
 
     setMessage('');
     setWorkflowStatus('generating');
+    setCurrentResultSummary('generating');
     setBusy(true, state.mediaType === 'music' ? localeText('generateLab.generatingMusic') : state.mediaType === 'video' ? localeText('generateLab.generatingVideo') : localeText('generateLab.generatingImage'));
     renderLoadingResult(state.mediaType === 'music'
         ? localeText('generateLab.creatingTrack')
@@ -1441,6 +1505,7 @@ async function handleGenerate() {
         renderEmptyResult();
         setMessage(localeText('generateLab.generationFailedRetry', { error: res?.error || localeText('studio.generationFailed') }), 'error');
         setWorkflowStatus('attention');
+        setCurrentResultSummary('attention');
         return;
     }
 
@@ -1457,6 +1522,7 @@ async function handleGenerate() {
             : localeText('generateLab.musicGeneratedSaved');
     setMessage(success, 'success');
     setWorkflowStatus(state.mediaType === 'image' ? 'readyToSave' : 'saved');
+    setCurrentResultSummary(state.mediaType === 'image' ? 'unsaved' : 'saved');
     await loadRecentAssets();
 }
 
@@ -1640,6 +1706,9 @@ function cacheRefs() {
         promptLabel: byId('labPromptLabel'),
         promptHelp: byId('labPromptHelp'),
         workflowStatus: byId('labWorkflowStatus'),
+        currentResult: byId('labCurrentResult'),
+        currentResultTitle: byId('labCurrentResultTitle'),
+        currentResultCopy: byId('labCurrentResultCopy'),
         resultStage: byId('labResultStage'),
         recentAssets: byId('labRecentAssets'),
         recentAssetsOpen: byId('labRecentAssetsOpen'),

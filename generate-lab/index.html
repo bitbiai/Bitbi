@@ -244,12 +244,31 @@
                     </div>
                 </div>
 
+                <section id="labCurrentResult" class="generate-lab__current-result is-empty" aria-labelledby="labCurrentResultTitle" aria-live="polite">
+                    <div>
+                        <p class="generate-lab__current-kicker">Current result</p>
+                        <h3 id="labCurrentResultTitle">No preview yet</h3>
+                        <p id="labCurrentResultCopy">Your latest generation or selected recent asset will appear below. Backend-confirmed saves remain the source of truth.</p>
+                    </div>
+                    <div class="generate-lab__current-actions" aria-label="Current result actions">
+                        <a id="labJumpToPreview" class="generate-lab__inline-action" href="#labResultStage">Jump to preview</a>
+                        <a id="labResultCreditsLink" class="generate-lab__inline-action" href="/account/credits.html?scope=member">Review credits</a>
+                        <a id="labResultAssetsLink" class="generate-lab__inline-action" href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Open Assets Manager</a>
+                    </div>
+                </section>
+
                 <div id="labResultStage" class="generate-lab__result-stage" aria-live="polite"></div>
 
                 <div class="generate-lab__recent">
                     <div class="generate-lab__recent-head">
-                        <h3>Recent assets</h3>
-                        <button type="button" id="labRecentAssetsOpen" class="generate-lab__inline-action">Manage all</button>
+                        <div>
+                            <h3>Recent assets</h3>
+                            <p class="generate-lab__recent-copy">Backend-loaded saved assets. Filters and folders are managed in Assets Manager.</p>
+                        </div>
+                        <div class="generate-lab__recent-actions" aria-label="Recent asset actions">
+                            <button type="button" id="labRecentAssetsOpen" class="generate-lab__inline-action">Manage all</button>
+                            <a class="generate-lab__inline-action" href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Show all saved</a>
+                        </div>
                     </div>
                     <div id="labRecentAssets" class="generate-lab__recent-grid">
                         <div class="generate-lab__recent-empty">Sign in to load recent assets.</div>
