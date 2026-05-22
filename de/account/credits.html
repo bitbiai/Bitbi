@@ -83,7 +83,7 @@
         <p id="creditsEyebrow" class="credits-eyebrow">Credits-Dashboard</p>
         <h1 id="creditsTitle" class="credits-title gt-gold-cyan">Credits</h1>
         <p id="creditsSubtitle" class="credits-subtitle">Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.</p>
-        <div id="creditsReturnState" class="credits-return" hidden></div>
+        <div id="creditsReturnState" class="credits-return" role="status" aria-live="polite" hidden></div>
     </section>
 
     <section id="creditsWorkspacePriority" class="member-workflow" aria-labelledby="creditsWorkspacePriorityTitle">
@@ -175,6 +175,31 @@
                 <h3>Kontovertrauen</h3>
                 <p>Profil hält Anmelden, Bestätigung, Wallet und Wiederherstellung nahe, wenn Credit- oder Speicherstatus unklar ist.</p>
                 <a href="/de/account/profile.html?returnContext=credits#profileCompletionCard" class="credits-workspace-nav__link">Profil prüfen</a>
+            </article>
+        </div>
+    </section>
+
+    <section id="creditsPostActionGuide" class="credits-post-action" aria-labelledby="creditsPostActionTitle">
+        <div class="credits-post-action__copy">
+            <p class="credits-eyebrow">Nach Pricing</p>
+            <h2 id="creditsPostActionTitle">Credits als verifizierten Rückkehrpunkt nutzen</h2>
+            <p>Checkout-Rückkehrseiten erklären nur, was im Browser passiert ist. Das geladene Guthaben, BITBI-Pro-Status und Ledger unten bleiben nach Backend-Verifizierung maßgeblich.</p>
+        </div>
+        <div class="credits-post-action__grid">
+            <article class="credits-post-action__item">
+                <h3>Vom Checkout zurückgekehrt</h3>
+                <p>Erfolg fordert Sie auf, das verifizierte Guthaben zu prüfen. Abbruch oder Fehler setzen keine Credit-Gutschrift voraus.</p>
+                <a href="#creditsSummaryGrid" class="credits-workspace-nav__link">Verifiziertes Guthaben prüfen</a>
+            </article>
+            <article class="credits-post-action__item">
+                <h3>Niedriges oder unbekanntes Guthaben</h3>
+                <p>Aktualisieren Sie dieses Dashboard, prüfen Sie bei Bedarf Preise und generieren Sie mit aktuellem Kontokontext.</p>
+                <a href="/de/pricing.html#pricingOffers" class="credits-workspace-nav__link">Preise prüfen</a>
+            </article>
+            <article class="credits-post-action__item">
+                <h3>Konto-gebundene Nutzung</h3>
+                <p>Credits werden im Generate Lab verbraucht, gespeicherte Ergebnisse liegen im Assets Manager und Wiederherstellung bleibt im Profil.</p>
+                <a href="/de/account/profile.html?returnContext=credits#profileUsageTrustCard" class="credits-workspace-nav__link">Kontovertrauen prüfen</a>
             </article>
         </div>
     </section>

@@ -265,6 +265,12 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="profileCompletionCard"');
     expect(enProfile).toContain('Account completion');
     expect(enProfile).toContain('Profile quality');
+    expect(enProfile).toContain('id="profileUsageTrustCard"');
+    expect(enProfile).toContain('Credits and Pro stay account-bound');
+    expect(enProfile).toContain('Profile keeps recovery and account identity close, but it does not grant credits.');
+    expect(enProfile).toContain('href="/account/credits.html?scope=member&amp;source=profile-usage"');
+    expect(enProfile).toContain('href="/generate-lab/?source=profile-usage"');
+    expect(enProfile).toContain('href="/account/assets-manager.html?source=profile-usage&amp;recent=1#generate-lab-recent"');
     expect(enProfile).toContain('id="completionWalletStatus"');
     expect(enProfile).toContain('Wallet linking is optional and never requires sharing private keys.');
     expect(enProfile).toContain('id="walletTrustStatus"');
@@ -300,6 +306,12 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="profileCompletionCard"');
     expect(deProfile).toContain('Kontovervollständigung');
     expect(deProfile).toContain('Profilqualität');
+    expect(deProfile).toContain('id="profileUsageTrustCard"');
+    expect(deProfile).toContain('Credits und Pro bleiben konto-gebunden');
+    expect(deProfile).toContain('Profil hält Wiederherstellung und Kontoidentität nahe, vergibt aber keine Credits.');
+    expect(deProfile).toContain('href="/de/account/credits.html?scope=member&amp;source=profile-usage"');
+    expect(deProfile).toContain('href="/de/generate-lab/?source=profile-usage"');
+    expect(deProfile).toContain('href="/de/account/assets-manager.html?source=profile-usage&amp;recent=1#generate-lab-recent"');
     expect(deProfile).toContain('id="completionWalletStatus"');
     expect(deProfile).toContain('Wallet-Verknüpfung ist optional und erfordert niemals private Schlüssel.');
     expect(deProfile).toContain('id="walletTrustStatus"');
@@ -322,6 +334,10 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('id="creditsContinuityPanel"');
     expect(enCredits).toContain('Credits help you create; Assets stores what you save');
     expect(enCredits).toContain('Low or unknown credits should send you here first.');
+    expect(enCredits).toContain('id="creditsPostActionGuide"');
+    expect(enCredits).toContain('Use Credits as the verified return point');
+    expect(enCredits).toContain('Cancel or error states do not assume a credit grant.');
+    expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileUsageTrustCard"');
     expect(enCredits).toContain('href="/pricing.html#pricingOffers"');
     expect(enCredits).toContain('href="/account/assets-manager.html?source=credits&amp;recent=1#generate-lab-recent"');
     expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileCompletionCard"');
@@ -345,6 +361,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('id="creditsContinuityPanel"');
     expect(deCredits).toContain('Credits helfen beim Erstellen; Assets speichert, was Sie behalten');
     expect(deCredits).toContain('Niedrige oder unbekannte Credits führen zuerst hierher.');
+    expect(deCredits).toContain('id="creditsPostActionGuide"');
+    expect(deCredits).toContain('Credits als verifizierten Rückkehrpunkt nutzen');
+    expect(deCredits).toContain('Abbruch oder Fehler setzen keine Credit-Gutschrift voraus.');
+    expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileUsageTrustCard"');
     expect(deCredits).toContain('href="/de/pricing.html#pricingOffers"');
     expect(deCredits).toContain('href="/de/account/assets-manager.html?source=credits&amp;recent=1#generate-lab-recent"');
     expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileCompletionCard"');
@@ -504,6 +524,8 @@ test.describe('Bilingual locale pages', () => {
     expect(localeJs).toContain("creditBalanceUnavailable: 'Credit-Guthaben nicht verfügbar. Prüfen Sie Credits und versuchen Sie die Generierung erneut.'");
     expect(localeJs).toContain("costInsightLow: 'Estimated {cost}. Review Credits or choose a lower-cost model before retrying; backend validation remains final.'");
     expect(localeJs).toContain("costInsightLow: 'Geschätzt {cost}. Prüfen Sie Credits oder wählen Sie ein günstigeres Modell, bevor Sie es erneut versuchen; die Backend-Validierung bleibt final.'");
+    expect(localeJs).toContain("returnErrorTitle: 'Checkout needs another try'");
+    expect(localeJs).toContain("returnErrorTitle: 'Checkout braucht einen neuen Versuch'");
   });
 
   test('account recovery and verification pages provide localized trust guidance', () => {

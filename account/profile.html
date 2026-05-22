@@ -243,6 +243,45 @@
                     </div>
                 </section>
 
+                <section id="profileUsageTrustCard" class="profile__card profile__usage-trust reveal" aria-labelledby="profileUsageTrustTitle">
+                    <div class="profile__usage-trust-head">
+                        <p class="profile__control-eyebrow">Usage trust</p>
+                        <h2 id="profileUsageTrustTitle" class="profile__title">Credits and Pro stay account-bound</h2>
+                        <p class="profile__usage-trust-copy">Profile keeps recovery and account identity close, but it does not grant credits. Use Credits to confirm balance, BITBI Pro context, and ledger activity after pricing or before generation.</p>
+                    </div>
+                    <div class="profile__usage-trust-grid" role="list" aria-label="Account usage trust notes">
+                        <div class="profile__usage-trust-item" role="listitem">
+                            <span class="profile__security-label">Verified balance</span>
+                            <strong>Credits is the source of truth.</strong>
+                            <span>Checkout return states are guidance only until the backend-confirmed balance and ledger load.</span>
+                        </div>
+                        <div class="profile__usage-trust-item" role="listitem">
+                            <span class="profile__security-label">Creation flow</span>
+                            <strong>Generate with current context.</strong>
+                            <span>Generate Lab estimates cost before backend validation and saved results move to Assets Manager.</span>
+                        </div>
+                        <div class="profile__usage-trust-item" role="listitem">
+                            <span class="profile__security-label">Recovery</span>
+                            <strong>Repair access here.</strong>
+                            <span>If balance or save state is unclear, keep profile, email, wallet, and password recovery current.</span>
+                        </div>
+                    </div>
+                    <div class="profile__usage-trust-actions" aria-label="Usage and credit actions">
+                        <a href="/account/credits.html?scope=member&amp;source=profile-usage" class="profile__control-link profile__control-link--primary">
+                            <span class="profile__control-link-label">Open Credits</span>
+                            <span class="profile__control-link-copy">Check verified balance, Pro, packs, and ledger.</span>
+                        </a>
+                        <a href="/generate-lab/?source=profile-usage" class="profile__control-link">
+                            <span class="profile__control-link-label">Create in Generate Lab</span>
+                            <span class="profile__control-link-copy">Start with the latest credit context.</span>
+                        </a>
+                        <a href="/account/assets-manager.html?source=profile-usage&amp;recent=1#generate-lab-recent" class="profile__control-link">
+                            <span class="profile__control-link-label">View saved assets</span>
+                            <span class="profile__control-link-copy">Review saved output and storage separately from credits.</span>
+                        </a>
+                    </div>
+                </section>
+
                 <div class="profile-layout">
                     <div class="profile-layout__main">
 

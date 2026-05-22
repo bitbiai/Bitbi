@@ -83,7 +83,7 @@
         <p id="creditsEyebrow" class="credits-eyebrow">Credits dashboard</p>
         <h1 id="creditsTitle" class="credits-title gt-gold-cyan">Credits</h1>
         <p id="creditsSubtitle" class="credits-subtitle">Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.</p>
-        <div id="creditsReturnState" class="credits-return" hidden></div>
+        <div id="creditsReturnState" class="credits-return" role="status" aria-live="polite" hidden></div>
     </section>
 
     <section id="creditsWorkspacePriority" class="member-workflow" aria-labelledby="creditsWorkspacePriorityTitle">
@@ -175,6 +175,31 @@
                 <h3>Account confidence</h3>
                 <p>Profile keeps sign-in, verification, wallet, and recovery guidance close when credit or storage state is unclear.</p>
                 <a href="/account/profile.html?returnContext=credits#profileCompletionCard" class="credits-workspace-nav__link">Check profile</a>
+            </article>
+        </div>
+    </section>
+
+    <section id="creditsPostActionGuide" class="credits-post-action" aria-labelledby="creditsPostActionTitle">
+        <div class="credits-post-action__copy">
+            <p class="credits-eyebrow">After pricing</p>
+            <h2 id="creditsPostActionTitle">Use Credits as the verified return point</h2>
+            <p>Checkout return pages only explain what happened in the browser. The loaded balance, BITBI Pro status, and ledger below remain authoritative after backend verification.</p>
+        </div>
+        <div class="credits-post-action__grid">
+            <article class="credits-post-action__item">
+                <h3>Returned from checkout</h3>
+                <p>Success asks you to check the verified balance. Cancel or error states do not assume a credit grant.</p>
+                <a href="#creditsSummaryGrid" class="credits-workspace-nav__link">Check verified balance</a>
+            </article>
+            <article class="credits-post-action__item">
+                <h3>Low or unknown balance</h3>
+                <p>Refresh this dashboard, review pricing if needed, then generate with the latest account context.</p>
+                <a href="/pricing.html#pricingOffers" class="credits-workspace-nav__link">Review pricing</a>
+            </article>
+            <article class="credits-post-action__item">
+                <h3>Account-bound usage</h3>
+                <p>Credits are consumed in Generate Lab, saved output lives in Assets Manager, and recovery stays in Profile.</p>
+                <a href="/account/profile.html?returnContext=credits#profileUsageTrustCard" class="credits-workspace-nav__link">Review account trust</a>
             </article>
         </div>
     </section>

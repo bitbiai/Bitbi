@@ -6863,6 +6863,14 @@ test.describe('Credits dashboard live credit packs', () => {
       'href',
       '/account/profile.html?returnContext=credits#profileCompletionCard',
     );
+    const postAction = page.locator('#creditsPostActionGuide');
+    await expect(postAction).toContainText('Use Credits as the verified return point');
+    await expect(postAction).toContainText('Cancel or error states do not assume a credit grant.');
+    await expect(postAction.getByRole('link', { name: 'Check verified balance' })).toHaveAttribute('href', '#creditsSummaryGrid');
+    await expect(postAction.getByRole('link', { name: 'Review account trust' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?returnContext=credits#profileUsageTrustCard',
+    );
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
@@ -6954,6 +6962,8 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(continuity.getByRole('link', { name: 'Review pricing' })).toBeVisible();
     await expect(continuity.getByRole('link', { name: 'Open saved assets' })).toBeVisible();
     await expect(continuity.getByRole('link', { name: 'Check profile' })).toBeVisible();
+    await expect(page.locator('#creditsPostActionGuide')).toBeVisible();
+    await expect(page.locator('#creditsPostActionGuide').getByRole('link', { name: 'Check verified balance' })).toBeVisible();
 
     const linkMetrics = await continuity.locator('.credits-workspace-nav__link').evaluateAll((links) =>
       links.map((link) => {
@@ -7042,6 +7052,10 @@ test.describe('Credits dashboard live credit packs', () => {
       'href',
       '/de/account/assets-manager.html?source=credits&recent=1#generate-lab-recent',
     );
+    const postAction = page.locator('#creditsPostActionGuide');
+    await expect(postAction).toContainText('Credits als verifizierten Rückkehrpunkt nutzen');
+    await expect(postAction).toContainText('Abbruch oder Fehler setzen keine Credit-Gutschrift voraus.');
+    await expect(postAction.getByRole('link', { name: 'Verifiziertes Guthaben prüfen' })).toHaveAttribute('href', '#creditsSummaryGrid');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('BITBI Pro');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Nächste Verlängerung');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Aktiv');
@@ -7228,9 +7242,44 @@ test.describe('Credits dashboard live credit packs', () => {
     await mockCreditsAccount(page);
     await page.goto('/account/credits?checkout=cancel');
     await expect(page.locator('#creditsReturnState')).toContainText('Checkout was cancelled');
+    await expect(page.locator('#creditsReturnState')).toContainText('No balance change was made here');
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(mobileOverflow).toBeLessThanOrEqual(1);
+  });
+
+  test('renders pricing and checkout return recovery states without overclaiming grants', async ({ page }) => {
+    await mockCreditsAccount(page, { organizations: [] });
+
+    await page.goto('/account/credits?scope=member&source=pricing&checkout=success');
+    await expect(page).toHaveURL(/checkout=success/);
+    const state = page.locator('#creditsReturnState');
+    await expect(state).toContainText('Check your verified balance below');
+    await expect(state).toContainText('Credits appear here after backend-confirmed payment');
+    await expect(state).not.toContainText('Credits granted');
+    await expect(state.getByRole('link', { name: 'Check verified balance' })).toHaveAttribute('href', '#creditsSummaryGrid');
+    await expect(state.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=credits-return&step=create',
+    );
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+
+    await page.goto('/account/credits?scope=member&checkout=error');
+    await expect(state).toContainText('Checkout needs another try');
+    await expect(state).toContainText('No credit grant is shown until the backend confirms payment.');
+    await expect(state.getByRole('link', { name: 'Review pricing' })).toHaveAttribute('href', '/pricing.html#pricingOffers');
+    await expect(state.getByRole('link', { name: 'Review account trust' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?returnContext=credits#profileUsageTrustCard',
+    );
+
+    await page.goto('/account/credits?scope=member&source=pricing');
+    await expect(state).toContainText('Confirm credits before the next action');
+    await expect(state).toContainText('BITBI Pro context');
+    await expect(state.getByRole('link', { name: 'View saved assets' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=credits-return&recent=1#generate-lab-recent',
+    );
   });
 
   test('renders Organization dashboard for eligible owner and auto-selects the only owned org', async ({ page }) => {
@@ -11280,6 +11329,23 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileAssetsManagerLink')).toHaveAttribute('href', '/account/assets-manager.html');
     await expect(page.locator('#profileMemberCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileSettingsShortcut')).toHaveAttribute('href', '#profileForm');
+    const usageTrust = page.locator('#profileUsageTrustCard');
+    await expect(usageTrust).toBeVisible();
+    await expect(usageTrust).toContainText('Credits and Pro stay account-bound');
+    await expect(usageTrust).toContainText('Profile keeps recovery and account identity close, but it does not grant credits.');
+    await expect(usageTrust).toContainText('Checkout return states are guidance only until the backend-confirmed balance and ledger load.');
+    await expect(usageTrust.getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member&source=profile-usage',
+    );
+    await expect(usageTrust.getByRole('link', { name: 'Create in Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=profile-usage',
+    );
+    await expect(usageTrust.getByRole('link', { name: 'View saved assets' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=profile-usage&recent=1#generate-lab-recent',
+    );
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
