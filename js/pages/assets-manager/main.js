@@ -13,6 +13,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { apiGetMe } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('loadingState');
 const $denied  = document.getElementById('deniedState');
@@ -227,6 +228,11 @@ async function init() {
     const fromGenerateLab = hasGenerateLabHandoff();
 
     showState($content);
+    renderPostAuthHint({
+        mount: $content,
+        pageSource: 'assets-manager',
+        signedIn: true,
+    });
     createBrowser({ fromGenerateLab });
     await savedAssetsBrowser.init();
     if (fromGenerateLab) {

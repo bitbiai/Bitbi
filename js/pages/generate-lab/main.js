@@ -25,6 +25,7 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
+import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
@@ -1650,6 +1651,11 @@ async function loadSession() {
     }
     updateAccountPanel();
     updateActionState();
+    renderPostAuthHint({
+        mount: document.querySelector('[data-generate-lab-workspace]'),
+        pageSource: 'generate-lab',
+        signedIn: state.loggedIn,
+    });
     if (state.sessionExpired) {
         setWorkflowStatus('attention');
         setMessage(localeText('authRecovery.sessionExpiredGenerateCopy'), 'error');

@@ -2014,6 +2014,36 @@ test.describe('Homepage', () => {
     await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/account/forgot-password.html?source=generate-lab');
   });
 
+  test('Generate Lab post-auth hint keeps signed-in continuation safe', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockGenerateLabMemberSession(page, {
+      email: 'post-auth-lab@bitbi.ai',
+      userId: 'post-auth-lab-member',
+      credits: 77,
+    });
+
+    await page.goto('/generate-lab/?source=profile&returnTo=https%3A%2F%2Fevil.example%2Flab%3Ftoken%3Draw-lab&token=raw-lab');
+
+    const hint = page.locator('[data-auth-post-hint]');
+    await expect(hint).toBeVisible({ timeout: 10_000 });
+    await expect(hint).toHaveAttribute('data-auth-post-source', 'profile');
+    await expect(hint).toContainText('You are signed in to Generate Lab');
+    await expect(hint).toContainText('Opened from Profile.');
+    await expect(hint.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=profile',
+    );
+    await expect(hint).not.toContainText('evil.example');
+    await expect(hint).not.toContainText('raw-lab');
+    expect(page.url()).not.toContain('returnTo=');
+    expect(page.url()).not.toContain('raw-lab');
+
+    const hasOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    );
+    expect(hasOverflow).toBe(false);
+  });
+
   test('Generate Lab shows session-expired recovery after account API failure', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {

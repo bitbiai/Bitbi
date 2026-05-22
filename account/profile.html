@@ -477,6 +477,13 @@
                             <li>Unlinking removes the BITBI account association; it does not affect assets inside your wallet.</li>
                         </ul>
                         <p id="walletTrustStatus" class="profile__wallet-trust-status" role="status" aria-live="polite">Wallet trust state loads after wallet status.</p>
+                        <div class="profile__wallet-recovery" aria-label="Wallet recovery actions">
+                            <p>If wallet status is unavailable, refresh the existing account status or sign in again before changing wallet links.</p>
+                            <div class="profile__wallet-recovery-actions">
+                                <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Refresh wallet status</button>
+                                <a href="/account/forgot-password.html?source=profile" class="profile__wallet-btn profile__wallet-btn--ghost">Reset password</a>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

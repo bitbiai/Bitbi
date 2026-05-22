@@ -280,6 +280,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="walletTrustStatus"');
     expect(enProfile).toContain('Wallet trust notes');
     expect(enProfile).toContain('not wallet custody');
+    expect(enProfile).toContain('id="walletStatusRefreshBtn"');
+    expect(enProfile).toContain('Refresh wallet status');
+    expect(enProfile).toContain('href="/account/forgot-password.html?source=profile"');
     expect(enProfile).toContain('id="profileEditState"');
     expect(enProfile).toContain('Display name, bio, website, and avatar are editable.');
     expect(enProfile).toContain('Sign in to open your profile');
@@ -325,6 +328,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="walletTrustStatus"');
     expect(deProfile).toContain('Hinweise zum Wallet-Vertrauen');
     expect(deProfile).toContain('keine Wallet-Verwahrung');
+    expect(deProfile).toContain('id="walletStatusRefreshBtn"');
+    expect(deProfile).toContain('Wallet-Status aktualisieren');
+    expect(deProfile).toContain('href="/de/account/forgot-password.html?source=profile"');
     expect(deProfile).toContain('id="profileEditState"');
     expect(deProfile).toContain('Anzeigename, Bio, Website und Avatar sind bearbeitbar.');
     expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
@@ -555,6 +561,16 @@ test.describe('Bilingual locale pages', () => {
     expect(localeJs).toContain("workspaceStatus: 'Profil, Credits, Generate Lab und Assets Manager verwenden diese Kontositzung.'");
     expect(localeJs).toContain("safeContext: 'Only a safe page source is used for this guidance; private URLs, tokens, and asset IDs are not stored.'");
     expect(localeJs).toContain("safeContext: 'Für diese Hilfe wird nur eine sichere Seitenquelle verwendet; private URLs, Tokens und Asset-IDs werden nicht gespeichert.'");
+    expect(localeJs).toContain("eyebrow: 'Signed-in workspace'");
+    expect(localeJs).toContain("eyebrow: 'Angemeldeter Arbeitsbereich'");
+    expect(localeJs).toContain("profileTitle: 'You are signed in to Profile'");
+    expect(localeJs).toContain("profileTitle: 'Sie sind im Profil angemeldet'");
+    expect(localeJs).toContain("generateLabTitle: 'You are signed in to Generate Lab'");
+    expect(localeJs).toContain("generateLabTitle: 'Sie sind im Generate Lab angemeldet'");
+    expect(localeJs).toContain("raw return URLs, tokens, and asset IDs are not stored");
+    expect(localeJs).toContain("rohe Rückkehr-URLs, Tokens und Asset-IDs werden nicht gespeichert");
+    expect(localeJs).toContain("walletStatusRefreshed: 'Wallet status refreshed from the existing account endpoint.'");
+    expect(localeJs).toContain("walletStatusRefreshed: 'Wallet-Status aus dem bestehenden Konto-Endpunkt aktualisiert.'");
 
     for (const html of [deProfile, deCredits, deAssets, deGenerate]) {
       expect(html).not.toContain('/de/admin');

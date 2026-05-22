@@ -20,6 +20,7 @@ import {
 } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { subscribeWalletState } from '../../shared/wallet/wallet-state.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
 
 import {
     apiAiGetFolders,
@@ -85,6 +86,7 @@ const $walletSectionMsg = document.getElementById('walletSectionMsg');
 const $walletSectionRows = document.getElementById('walletSectionRows');
 const $walletSectionActions = document.getElementById('walletSectionActions');
 const $walletTrustStatus = document.getElementById('walletTrustStatus');
+const $walletStatusRefreshBtn = document.getElementById('walletStatusRefreshBtn');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
 const $walletCard     = document.getElementById('profileWalletCard');
 
@@ -536,6 +538,19 @@ function renderWalletSection(state = walletViewState) {
     });
     $walletSectionActions.appendChild(unlinkBtn);
 }
+
+$walletStatusRefreshBtn?.addEventListener('click', async () => {
+    $walletStatusRefreshBtn.disabled = true;
+    showWalletSectionMsg(localeText('profile.walletStatusRefreshing'), 'success');
+    try {
+        await refreshWalletStatus();
+        showWalletSectionMsg(localeText('profile.walletStatusRefreshed'), 'success');
+    } catch {
+        showWalletSectionMsg(localeText('profile.walletStatusRefreshFailed'), 'error');
+    } finally {
+        $walletStatusRefreshBtn.disabled = false;
+    }
+});
 
 /* ── Avatar helpers ── */
 const AVATAR_URL = '/api/profile/avatar';
@@ -1679,6 +1694,11 @@ async function init() {
     // Show profile content
     showState($content);
     renderProfile(res.data.profile, res.data.account);
+    renderPostAuthHint({
+        mount: document.getElementById('profileHomeView'),
+        pageSource: 'profile',
+        signedIn: true,
+    });
     loadAvatar(false);
     refreshWalletStatus().catch(e => console.warn('walletStatus:', e));
 

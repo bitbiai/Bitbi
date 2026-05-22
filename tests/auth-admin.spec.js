@@ -6836,6 +6836,31 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(2);
   });
 
+  test('Credits post-auth hint preserves safe source context without showing raw return URLs', async ({ page }) => {
+    await mockCreditsAccount(page, {
+      role: 'user',
+      email: 'post-auth-credits@example.com',
+      organizations: [],
+    });
+
+    await page.goto('/account/credits?scope=member&source=pricing&returnTo=https%3A%2F%2Fevil.example%2Fcredits%3Ftoken%3Draw-credit&token=raw-credit');
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+
+    const hint = page.locator('[data-auth-post-hint]');
+    await expect(hint).toBeVisible();
+    await expect(hint).toHaveAttribute('data-auth-post-source', 'pricing');
+    await expect(hint).toContainText('You are signed in to Credits');
+    await expect(hint).toContainText('Opened from Pricing.');
+    await expect(hint.getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?scope=member&source=pricing',
+    );
+    await expect(hint).not.toContainText('evil.example');
+    await expect(hint).not.toContainText('raw-credit');
+    expect(page.url()).not.toContain('returnTo=');
+    expect(page.url()).not.toContain('raw-credit');
+  });
+
   test('Credits page shows session-expired recovery without exposing backend errors', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { ok: false, error: 'raw credits session detail' }, 401);
@@ -11392,7 +11417,48 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#walletTrustStatus')).toContainText('Linked wallet is account-bound');
     await expect(page.locator('#walletSectionCard')).toContainText('not wallet custody');
     await expect(page.locator('#walletSectionCard')).toContainText('never asks for seed phrases or private keys');
+    await expect(page.locator('#walletSectionCard')).toContainText('Refresh wallet status');
+    await expect(page.locator('#walletSectionCard').getByRole('link', { name: 'Reset password' })).toHaveAttribute(
+      'href',
+      '/account/forgot-password.html?source=profile',
+    );
     await expect(page.locator('#walletSectionCard')).not.toContainText('custodial wallet');
+
+    await page.locator('#walletStatusRefreshBtn').click();
+    await expect(page.locator('#walletSectionMsg')).toContainText('Wallet status refreshed from the existing account endpoint.');
+  });
+
+  test('profile post-auth hint uses only safe source markers and strips unsafe return params', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'post-auth-profile@example.com',
+      displayName: 'Post Auth Profile',
+    });
+
+    const response = await page.goto('/account/profile?source=credits&returnTo=https%3A%2F%2Fevil.example%2Fprivate%3Ftoken%3Draw-asset&token=raw-token');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    const hint = page.locator('[data-auth-post-hint]');
+    await expect(hint).toBeVisible();
+    await expect(hint).toHaveAttribute('data-auth-post-source', 'credits');
+    await expect(hint).toContainText('You are signed in to Profile');
+    await expect(hint).toContainText('Opened from Credits.');
+    await expect(hint).toContainText('raw return URLs, tokens, and asset IDs are not stored');
+    await expect(hint.getByRole('link', { name: 'Profile' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?source=credits#memberControlCenter',
+    );
+    await expect(hint).not.toContainText('evil.example');
+    await expect(hint).not.toContainText('raw-token');
+    expect(page.url()).not.toContain('returnTo=');
+    expect(page.url()).not.toContain('raw-token');
+
+    const storageSnapshot = await page.evaluate(() => `${Object.values(sessionStorage).join('\n')}\n${Object.values(localStorage).join('\n')}`);
+    expect(storageSnapshot).not.toContain('evil.example');
+    expect(storageSnapshot).not.toContain('raw-token');
   });
 
   test('profile save failure keeps typed values and shows generic recovery guidance', async ({
@@ -11489,6 +11555,27 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
+  });
+
+  test('Assets Manager post-auth hint keeps Generate Lab continuation safe', async ({ page }) => {
+    await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
+
+    await page.goto('/account/assets-manager?source=generate-lab&recent=1&returnTo=https%3A%2F%2Fevil.example%2Fasset%3Fasset_id%3Draw-asset&token=raw-asset#generate-lab-recent');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    const hint = page.locator('[data-auth-post-hint]');
+    await expect(hint).toBeVisible();
+    await expect(hint).toHaveAttribute('data-auth-post-source', 'generate-lab');
+    await expect(hint).toContainText('You are signed in to Assets Manager');
+    await expect(hint).toContainText('Opened from Generate Lab.');
+    await expect(hint.getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
+    );
+    await expect(hint).not.toContainText('evil.example');
+    await expect(hint).not.toContainText('raw-asset');
+    expect(page.url()).not.toContain('returnTo=');
+    expect(page.url()).not.toContain('raw-asset');
   });
 
   test('admin profile shows the same compact Assets Manager + Wallet + Credits stack as non-admin users', async ({

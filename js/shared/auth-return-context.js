@@ -27,6 +27,15 @@ const SOURCE_CONTEXT_MAP = Object.freeze({
     landing: 'authRecovery.publicMessage',
 });
 
+const UNSAFE_RETURN_PARAMS = Object.freeze([
+    'returnTo',
+    'return_to',
+    'redirect',
+    'redirect_uri',
+    'next',
+    'token',
+]);
+
 function localHrefWithParams(path, params = {}, hash = '') {
     const base = localizedHref(path);
     const [pathname, existingHash = ''] = String(base).split('#');
@@ -44,6 +53,11 @@ function localHrefWithParams(path, params = {}, hash = '') {
 export function normalizeAuthSource(value) {
     const source = String(value || '').trim().toLowerCase();
     return SAFE_AUTH_SOURCES.has(source) ? source : '';
+}
+
+export function authSourceFromSearch(search = '') {
+    const params = new URLSearchParams(String(search || '').replace(/^\?/, ''));
+    return normalizeAuthSource(params.get('source'));
 }
 
 export function sourceForAuthContextKey(contextKey) {
@@ -67,6 +81,11 @@ export function authSourceFromPath(pathname = '') {
 export function authSourceFromCurrentPath() {
     if (typeof window === 'undefined') return 'landing';
     return authSourceFromPath(window.location?.pathname || '');
+}
+
+export function authSourceFromCurrentSearch() {
+    if (typeof window === 'undefined') return '';
+    return authSourceFromSearch(window.location?.search || '');
 }
 
 export function resolveAuthSource({ source, contextKey } = {}) {
@@ -128,4 +147,19 @@ export function buildVerificationHref(source) {
         { source: normalizeAuthSource(source) || 'landing', returnContext: 'verification' },
         '#profileSecurityCard',
     );
+}
+
+export function scrubUnsafeAuthReturnParamsFromCurrentUrl() {
+    if (typeof window === 'undefined' || !window.location || !window.history) return false;
+    const url = new URL(window.location.href);
+    let changed = false;
+    for (const name of UNSAFE_RETURN_PARAMS) {
+        if (url.searchParams.has(name)) {
+            url.searchParams.delete(name);
+            changed = true;
+        }
+    }
+    if (!changed) return false;
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    return true;
 }

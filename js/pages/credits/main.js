@@ -18,6 +18,7 @@ import {
 } from '../../shared/active-organization.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import { setupFocusTrap } from '../../shared/focus-trap.js';
+import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('creditsLoading');
 const $denied = document.getElementById('creditsDenied');
@@ -855,6 +856,11 @@ function renderMemberDashboard(dashboard) {
     hide($error);
     hide($denied);
     show($dashboard);
+    renderPostAuthHint({
+        mount: document.querySelector('.credits-page'),
+        pageSource: 'credits',
+        signedIn: true,
+    });
     if ($orgName) $orgName.textContent = localeText('credits.personalCredits');
     if ($accessScope) {
         const topUp = dashboard.dailyTopUp;
@@ -881,6 +887,11 @@ function renderDashboard(dashboard) {
     hide($error);
     hide($denied);
     show($dashboard);
+    renderPostAuthHint({
+        mount: document.querySelector('.credits-page'),
+        pageSource: 'credits',
+        signedIn: true,
+    });
     if ($packsSection) $packsSection.hidden = false;
     if ($purchasesSection) $purchasesSection.hidden = false;
     if ($subscriptionSection) $subscriptionSection.hidden = true;

@@ -1368,6 +1368,28 @@
         background: rgba(255, 179, 0, 0.08);
     }
 
+    .profile__wallet-recovery {
+        display: grid;
+        gap: var(--space-3);
+        padding: var(--space-3);
+        border: 1px solid rgba(0, 240, 255, 0.13);
+        border-radius: var(--radius-md);
+        background: rgba(0, 240, 255, 0.045);
+    }
+
+    .profile__wallet-recovery p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.82rem;
+        line-height: 1.55;
+    }
+
+    .profile__wallet-recovery-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+    }
+
     .profile__wallet-btn {
         appearance: none;
         border: 1px solid rgba(0, 240, 255, 0.18);
@@ -1380,6 +1402,7 @@
         font-weight: 600;
         letter-spacing: 0.04em;
         text-transform: uppercase;
+        text-decoration: none;
         cursor: pointer;
         transition: transform 0.25s var(--ease-default), border-color 0.25s var(--ease-default), background 0.25s var(--ease-default), color 0.25s var(--ease-default);
     }
