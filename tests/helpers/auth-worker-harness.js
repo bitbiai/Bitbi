@@ -1932,6 +1932,79 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query.startsWith('SELECT u.id, u.email, u.role AS account_role, u.status AS account_status, u.created_at, om.role AS membership_role, om.status AS membership_status')) {
+      const organizationId = bindings[0];
+      const hasSearch = query.includes('WHERE u.email LIKE ? OR u.id = ?');
+      const search = hasSearch ? String(bindings[1] || '').replace(/^%|%$/g, '').toLowerCase() : '';
+      const exactUserId = hasSearch ? bindings[2] : '';
+      const limit = Number(bindings[hasSearch ? 3 : 1]) || 100;
+      const rows = this.state.users
+        .filter((user) => {
+          if (!search && !exactUserId) return true;
+          return String(user.email || '').toLowerCase().includes(search) || user.id === exactUserId;
+        })
+        .map((user) => {
+          const membership = this.state.organizationMemberships.find((row) =>
+            row.organization_id === organizationId && row.user_id === user.id
+          );
+          return {
+            id: user.id,
+            email: user.email,
+            account_role: user.role,
+            account_status: user.status,
+            created_at: user.created_at,
+            membership_role: membership?.role || null,
+            membership_status: membership?.status || null,
+            membership_created_at: membership?.created_at || null,
+            membership_updated_at: membership?.updated_at || null,
+          };
+        })
+        .sort((a, b) => {
+          const aAssigned = a.membership_status === 'active' ? 0 : 1;
+          const bAssigned = b.membership_status === 'active' ? 0 : 1;
+          return aAssigned - bAssigned
+            || String(a.email || '').localeCompare(String(b.email || ''))
+            || String(a.id || '').localeCompare(String(b.id || ''));
+        })
+        .slice(0, limit);
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS privileged_count FROM organization_memberships WHERE organization_id = ?')) {
+      const [organizationId, userId] = bindings;
+      return {
+        privileged_count: this.state.organizationMemberships.filter((row) =>
+          row.organization_id === organizationId &&
+          row.status === 'active' &&
+          (row.role === 'owner' || row.role === 'admin') &&
+          row.user_id !== userId
+        ).length,
+      };
+    }
+
+    if (query.startsWith("UPDATE organization_memberships SET status = 'active', role = ?, updated_at = ? WHERE organization_id = ? AND user_id = ?")) {
+      const [role, updatedAt, organizationId, userId] = bindings;
+      const row = this.state.organizationMemberships.find((entry) =>
+        entry.organization_id === organizationId && entry.user_id === userId
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'active';
+      row.role = role;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE organization_memberships SET status = 'removed', updated_at = ? WHERE organization_id = ? AND user_id = ?")) {
+      const [updatedAt, organizationId, userId] = bindings;
+      const row = this.state.organizationMemberships.find((entry) =>
+        entry.organization_id === organizationId && entry.user_id === userId
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'removed';
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === "SELECT id, code, name, status, billing_interval, monthly_credit_grant, created_at, updated_at FROM plans WHERE code = ? AND status = 'active' LIMIT 1") {
       const [code] = bindings;
       return deepClone(this.state.plans.find((row) => row.code === code && row.status === 'active') || null);

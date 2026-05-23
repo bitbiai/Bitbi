@@ -18,6 +18,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/index.js",
   "workers/auth/src/routes/admin.js",
   "workers/auth/src/routes/admin-billing.js",
+  "workers/auth/src/routes/admin-orgs.js",
   "workers/auth/src/routes/admin-storage.js",
   "workers/auth/src/routes/admin-tenant-assets.js",
   "workers/auth/src/routes/admin-data-lifecycle.js",
@@ -77,6 +78,9 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/organization-dashboard", "orgs.organization-dashboard.read"],
   ["GET", "/api/admin/orgs", "admin.orgs.list"],
   ["GET", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef", "admin.orgs.read"],
+  ["GET", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef/user-access", "admin.orgs.user-access.list"],
+  ["PUT", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef/users/user_0123456789abcdef", "admin.orgs.users.assign"],
+  ["DELETE", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef/users/user_0123456789abcdef", "admin.orgs.users.remove"],
   ["GET", "/api/admin/billing/plans", "admin.billing.plans.list"],
   ["GET", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef/billing", "admin.orgs.billing.read"],
   ["POST", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef/credits/grant", "admin.orgs.credits.grant"],
@@ -159,6 +163,14 @@ const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [
   {
     id: "admin.orgs.credits.grant",
     requiredNoteFragments: ["Idempotency-Key", "admin-only manual grant"],
+  },
+  {
+    id: "admin.orgs.users.assign",
+    requiredNoteFragments: ["Idempotency-Key", "organization_memberships", "Admin AI organization-context guards"],
+  },
+  {
+    id: "admin.orgs.users.remove",
+    requiredNoteFragments: ["Idempotency-Key", "final owner/admin protection", "Admin AI organization-context guards"],
   },
   {
     id: "admin.users.credits.grant",

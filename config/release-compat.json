@@ -841,7 +841,10 @@
     "patternRoutes": [
       "GET /api/admin/data-lifecycle/requests/:id",
       "GET /api/admin/orgs/:id",
+      "GET /api/admin/orgs/:id/user-access",
       "GET /api/admin/orgs/:id/billing",
+      "PUT /api/admin/orgs/:id/users/:id",
+      "DELETE /api/admin/orgs/:id/users/:id",
       "POST /api/admin/orgs/:id/credits/grant",
       "GET /api/admin/users/:id/billing",
       "POST /api/admin/users/:id/credits/grant",

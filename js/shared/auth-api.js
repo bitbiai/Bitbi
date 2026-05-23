@@ -294,6 +294,30 @@ export function apiAdminOrganization(orgId) {
     return request('GET', `/admin/orgs/${encodeURIComponent(orgId)}`);
 }
 
+export function apiAdminOrganizationUserAccess(orgId, { search, limit } = {}) {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/orgs/${encodeURIComponent(orgId)}/user-access${qs}`);
+}
+
+export function apiAdminAssignOrganizationUser(orgId, userId, { role = 'member', idempotencyKey } = {}) {
+    return request('PUT', `/admin/orgs/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}`, {
+        role,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminRemoveOrganizationUser(orgId, userId, { idempotencyKey } = {}) {
+    return request('DELETE', `/admin/orgs/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}`, {
+        assigned: false,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminBillingPlans() {
     return request('GET', '/admin/billing/plans');
 }

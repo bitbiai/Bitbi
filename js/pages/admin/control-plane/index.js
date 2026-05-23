@@ -100,7 +100,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Organizations / RBAC',
                 badge: { label: probes[0].status, variant: probes[0].variant },
-                copy: 'Inspect organizations, active memberships, roles, and tenant-readiness boundaries when the admin API responds. This is not live tenant isolation proof.',
+                copy: 'Inspect organizations, active memberships, roles, and guarded user-assignment switches when the admin API responds. This is not live tenant isolation proof.',
                 href: '#orgs',
             },
             {

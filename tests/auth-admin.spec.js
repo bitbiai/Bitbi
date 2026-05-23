@@ -1907,6 +1907,41 @@ async function mockAdminControlPlane(page, captures = {}) {
       },
     ],
   };
+  captures.orgAccessRequests = captures.orgAccessRequests || [];
+  captures.orgAccessUsers = captures.orgAccessUsers || [
+    {
+      userId: 'user_owner',
+      email: 'owner@example.com',
+      accountRole: 'user',
+      accountStatus: 'active',
+      assigned: true,
+      membership: { role: 'owner', status: 'active' },
+    },
+    {
+      userId: 'user_member',
+      email: 'member@example.com',
+      accountRole: 'user',
+      accountStatus: 'active',
+      assigned: true,
+      membership: { role: 'member', status: 'active' },
+    },
+    {
+      userId: 'user_empty',
+      email: 'empty@example.com',
+      accountRole: 'user',
+      accountStatus: 'active',
+      assigned: false,
+      membership: null,
+    },
+    {
+      userId: 'user_error',
+      email: 'error@example.com',
+      accountRole: 'user',
+      accountStatus: 'active',
+      assigned: false,
+      membership: null,
+    },
+  ];
 
   await page.route('**/api/admin/orgs?*', async (route) => {
     await fulfillJson(route, orgList);
@@ -2597,6 +2632,54 @@ async function mockAdminControlPlane(page, captures = {}) {
         },
       ],
     });
+  });
+  await page.route('**/api/admin/orgs/org_control_1234567890/user-access**', async (route) => {
+    const url = new URL(route.request().url());
+    const search = (url.searchParams.get('search') || '').toLowerCase();
+    const users = search
+      ? captures.orgAccessUsers.filter((user) => user.email.toLowerCase().includes(search))
+      : captures.orgAccessUsers;
+    await fulfillJson(route, {
+      ok: true,
+      users,
+    });
+  });
+  await page.route('**/api/admin/orgs/org_control_1234567890/users/*', async (route) => {
+    const request = route.request();
+    const userId = decodeURIComponent(new URL(request.url()).pathname.split('/').pop());
+    const idempotencyKey = request.headers()['idempotency-key'] || null;
+    captures.orgAccessRequests.push({
+      method: request.method(),
+      userId,
+      idempotencyKey,
+      body: request.postData() ? request.postDataJSON() : null,
+    });
+    if (!idempotencyKey) {
+      await fulfillJson(route, { ok: false, error: 'A valid Idempotency-Key header is required.' }, 428);
+      return;
+    }
+    if (userId === 'user_error') {
+      await fulfillJson(route, { ok: false, error: 'Organization access update failed.' }, 503);
+      return;
+    }
+    const target = captures.orgAccessUsers.find((user) => user.userId === userId);
+    if (!target) {
+      await fulfillJson(route, { ok: false, error: 'User not found.' }, 404);
+      return;
+    }
+    if (request.method() === 'PUT') {
+      target.assigned = true;
+      target.membership = { role: 'member', status: 'active' };
+      await fulfillJson(route, { ok: true, reused: false, access: target }, 201);
+      return;
+    }
+    if (request.method() === 'DELETE') {
+      target.assigned = false;
+      target.membership = { role: target.membership?.role || 'member', status: 'removed' };
+      await fulfillJson(route, { ok: true, reused: false, access: target });
+      return;
+    }
+    await route.fallback();
   });
 
   await page.route('**/api/admin/billing/plans', async (route) => {
@@ -11900,6 +11983,33 @@ test.describe('Admin Control Plane', () => {
     await page.getByRole('button', { name: 'Inspect' }).first().click();
     await expect(page.locator('#orgDetail')).toContainText('owner@example.com');
     await expect(page.locator('#orgDetail')).toContainText('member@example.com');
+    await expect(page.locator('#orgDetail')).toContainText('Organization user access');
+    await expect(page.locator('#orgDetail')).toContainText('does not override tenant isolation, billing, AI budget safety, or Admin AI organization-context guards');
+    const emptyAccessSwitch = page.getByRole('switch', { name: 'empty@example.com organization access for Control Plane Org' });
+    await expect(emptyAccessSwitch).not.toBeChecked();
+    await emptyAccessSwitch.focus();
+    await page.keyboard.press('Space');
+    await expect(page.locator('#orgDetail')).toContainText('empty@example.com assigned to Control Plane Org.');
+    expect(captures.orgAccessRequests.at(-1)).toEqual(expect.objectContaining({
+      method: 'PUT',
+      userId: 'user_empty',
+    }));
+    expect(captures.orgAccessRequests.at(-1).idempotencyKey).toMatch(/^admin-org-assign-/);
+    await expect(emptyAccessSwitch).toBeChecked();
+    await emptyAccessSwitch.focus();
+    await page.keyboard.press('Space');
+    await expect(page.locator('#orgDetail')).toContainText('empty@example.com removed from Control Plane Org.');
+    expect(captures.orgAccessRequests.at(-1)).toEqual(expect.objectContaining({
+      method: 'DELETE',
+      userId: 'user_empty',
+    }));
+    expect(captures.orgAccessRequests.at(-1).idempotencyKey).toMatch(/^admin-org-remove-/);
+    await expect(emptyAccessSwitch).not.toBeChecked();
+    const failingAccessSwitch = page.getByRole('switch', { name: 'error@example.com organization access for Control Plane Org' });
+    await failingAccessSwitch.focus();
+    await page.keyboard.press('Space');
+    await expect(page.locator('#orgDetail')).toContainText('Backend dependency is unavailable or fail-closed.');
+    await expect(failingAccessSwitch).not.toBeChecked();
 
     await clickAdminNavSection(page, 'billing');
     await expect(page.locator('#sectionBilling')).toContainText('Billing operator flow');

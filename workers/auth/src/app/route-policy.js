@@ -437,6 +437,21 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-org-read-ip", failClosed: true },
   }),
+  adminRead("admin.orgs.user-access.list", "/api/admin/orgs/:id/user-access", "organizations", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-org-read-ip", failClosed: true },
+    notes: "Admin-only organization user access read model. Returns bounded user membership state only; no tenant isolation claim and no Admin AI organization-context bypass.",
+  }),
+  adminJsonWrite("admin.orgs.users.assign", "PUT", "/api/admin/orgs/:id/users/:userId", "organizations", "smallJson", "admin-org-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "organization_member_assigned" },
+    notes: "Admin-only organization membership target-state assignment. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; writes organization_memberships only and does not override tenant isolation, billing, AI budget safety, or Admin AI organization-context guards.",
+  }),
+  adminJsonWrite("admin.orgs.users.remove", "DELETE", "/api/admin/orgs/:id/users/:userId", "organizations", "smallJson", "admin-org-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "organization_member_removed" },
+    notes: "Admin-only organization membership target-state removal. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, audit logging, and final owner/admin protection; writes organization_memberships status only and does not override tenant isolation, billing, AI budget safety, or Admin AI organization-context guards.",
+  }),
   adminRead("admin.billing.plans.list", "/api/admin/billing/plans", "billing", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },

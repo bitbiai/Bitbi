@@ -11,11 +11,14 @@ import {
     apiAdminBillingReconciliation,
     apiAdminBillingReview,
     apiAdminBillingReviews,
+    apiAdminAssignOrganizationUser,
     apiAdminGrantOrganizationCredits,
     apiAdminGrantUserCredits,
     apiAdminOrganization,
     apiAdminOrganizationBilling,
+    apiAdminOrganizationUserAccess,
     apiAdminOrganizations,
+    apiAdminRemoveOrganizationUser,
     apiAdminResolveBillingReview,
     apiAdminUserBilling,
     apiAdminUsers,
@@ -63,6 +66,11 @@ export function createBillingDomain({ notify, formatDate }) {
 
     function userDisplayEmail(user) {
         return user?.email || user?.userEmail || user?.user_email || '';
+    }
+
+    function organizationAccessLabel(user, orgName) {
+        const email = user?.email || 'User without email';
+        return `${email} organization access for ${orgName}`;
     }
 
     function clearLookupMatches(id) {
@@ -286,6 +294,144 @@ export function createBillingDomain({ notify, formatDate }) {
             tbody.appendChild(tr);
         }
         detail.appendChild(wrap);
+        const accessRefs = renderOrgUserAccessShell(detail, org);
+        await loadOrgUserAccess(org.id, accessRefs);
+    }
+
+    function renderOrgUserAccessShell(detail, org) {
+        const orgName = org.name || 'this organization';
+        const section = el('section', 'admin-org-access');
+        const header = el('div', 'admin-org-access__header');
+        const copy = el('div');
+        copy.appendChild(el('h3', 'admin-section-title', 'Organization user access'));
+        copy.appendChild(el('p', 'admin-shell__desc', 'Membership controls organization context. It does not override tenant isolation, billing, AI budget safety, or Admin AI organization-context guards.'));
+        header.appendChild(copy);
+        section.appendChild(header);
+
+        const form = el('form', 'admin-org-access__search');
+        const label = el('label', 'sr-only', 'Search users for organization access');
+        const searchId = `orgAccessSearch-${org.id}`;
+        label.setAttribute('for', searchId);
+        const input = document.createElement('input');
+        input.id = searchId;
+        input.className = 'admin-ai__input';
+        input.type = 'search';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.placeholder = 'Search users by email...';
+        const button = el('button', 'btn-action', 'Search users');
+        button.type = 'submit';
+        form.append(label, input, button);
+        section.appendChild(form);
+
+        const state = el('div', 'admin-state', 'Loading user access...');
+        state.setAttribute('aria-live', 'polite');
+        const list = el('div', 'admin-org-access__list');
+        section.append(state, list);
+        detail.appendChild(section);
+
+        const refs = { org, orgName, input, state, list };
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            loadOrgUserAccess(org.id, refs);
+        });
+        return refs;
+    }
+
+    async function loadOrgUserAccess(orgId, refs, { successMessage = '' } = {}) {
+        if (!refs?.list || !refs?.state) return;
+        refs.state.textContent = successMessage || 'Loading user access...';
+        refs.state.dataset.state = 'neutral';
+        clear(refs.list);
+        const res = await apiAdminOrganizationUserAccess(orgId, {
+            search: refs.input?.value.trim(),
+            limit: 100,
+        });
+        if (!res.ok) {
+            renderUnavailable(refs.list, res, 'Organization user access unavailable.');
+            refs.state.textContent = '';
+            return;
+        }
+        const users = Array.isArray(res.data?.users) ? res.data.users : [];
+        renderOrgUserAccessList(users, refs);
+        refs.state.textContent = successMessage || (users.length
+            ? `Showing ${users.length} users for assignment.`
+            : 'No users matched that search.');
+        refs.state.dataset.state = successMessage ? 'success' : 'neutral';
+    }
+
+    function renderOrgUserAccessList(users, refs) {
+        clear(refs.list);
+        if (!users.length) {
+            refs.list.appendChild(el('div', 'admin-shell__empty', 'No users found for this organization access search.'));
+            return;
+        }
+        const stack = el('div', 'admin-org-access__rows');
+        for (const user of users) {
+            const email = user.email || 'User without email';
+            const rowNode = el('article', 'admin-org-access__row');
+            const text = el('div', 'admin-org-access__user');
+            text.appendChild(el('strong', null, email));
+            const meta = [
+                user.accountRole ? `Account role: ${user.accountRole}` : '',
+                user.accountStatus ? `Status: ${user.accountStatus}` : '',
+                user.membership?.role ? `Org role: ${user.membership.role}` : 'Org role: none',
+            ].filter(Boolean).join(' | ');
+            text.appendChild(el('span', 'admin-inventory__meta', meta || 'No account metadata reported'));
+
+            const switchLabel = el('label', 'admin-org-access__switch');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.setAttribute('role', 'switch');
+            checkbox.checked = user.assigned === true;
+            checkbox.setAttribute('aria-checked', String(checkbox.checked));
+            checkbox.setAttribute('aria-label', organizationAccessLabel(user, refs.orgName));
+            checkbox.disabled = user.accountStatus && user.accountStatus !== 'active';
+            checkbox.addEventListener('change', () => toggleOrgUserAccess({
+                checkbox,
+                user,
+                org: refs.org,
+                refs,
+            }));
+            const visual = el('span', 'admin-org-access__switch-track');
+            visual.setAttribute('aria-hidden', 'true');
+            const labelText = el('span', 'admin-org-access__switch-text', checkbox.checked ? 'Assigned' : 'Not assigned');
+            switchLabel.append(checkbox, visual, labelText);
+            rowNode.append(text, switchLabel);
+            stack.appendChild(rowNode);
+        }
+        refs.list.appendChild(stack);
+    }
+
+    async function toggleOrgUserAccess({ checkbox, user, org, refs }) {
+        const targetAssigned = checkbox.checked === true;
+        const previousAssigned = !targetAssigned;
+        checkbox.disabled = true;
+        checkbox.setAttribute('aria-checked', String(targetAssigned));
+        refs.state.dataset.state = 'neutral';
+        refs.state.textContent = targetAssigned
+            ? `Assigning ${user.email || 'user'} to ${refs.orgName}...`
+            : `Removing ${user.email || 'user'} from ${refs.orgName}...`;
+        const idempotencyKey = createIdempotencyKey(targetAssigned ? 'admin-org-assign' : 'admin-org-remove');
+        const res = targetAssigned
+            ? await apiAdminAssignOrganizationUser(org.id, user.userId, { idempotencyKey })
+            : await apiAdminRemoveOrganizationUser(org.id, user.userId, { idempotencyKey });
+        if (!res.ok) {
+            checkbox.checked = previousAssigned;
+            checkbox.setAttribute('aria-checked', String(previousAssigned));
+            checkbox.disabled = false;
+            refs.state.dataset.state = 'error';
+            refs.state.textContent = apiUnavailableMessage(res, targetAssigned
+                ? 'Assignment failed. Try again.'
+                : 'Removal failed. Try again.');
+            if (typeof notify === 'function') notify(refs.state.textContent, 'error');
+            return;
+        }
+        const success = targetAssigned
+            ? `${user.email || 'User'} assigned to ${refs.orgName}.`
+            : `${user.email || 'User'} removed from ${refs.orgName}.`;
+        if (typeof notify === 'function') notify(success, 'success');
+        await loadOrgUserAccess(org.id, refs, { successMessage: success });
     }
 
     async function loadBillingPlans() {

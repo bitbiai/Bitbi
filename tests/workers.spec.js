@@ -5387,6 +5387,26 @@ test.describe('Phase 1-E auth route policy registry', () => {
       mfa: 'admin-production-required',
       rateLimit: expect.objectContaining({ failClosed: true }),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/orgs/org_0123456789abcdef0123456789abcdef/user-access')).toEqual(expect.objectContaining({
+      id: 'admin.orgs.user-access.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('PUT', '/api/admin/orgs/org_0123456789abcdef0123456789abcdef/users/user_0123456789abcdef')).toEqual(expect.objectContaining({
+      id: 'admin.orgs.users.assign',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('DELETE', '/api/admin/orgs/org_0123456789abcdef0123456789abcdef/users/user_0123456789abcdef')).toEqual(expect.objectContaining({
+      id: 'admin.orgs.users.remove',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
     expect(getRoutePolicy('GET', '/api/orgs/org_0123456789abcdef0123456789abcdef/entitlements')).toEqual(expect.objectContaining({
       id: 'orgs.entitlements.read',
       auth: 'user',
@@ -5831,6 +5851,188 @@ test.describe('Phase 2-A organization and basic RBAC foundation', () => {
       createExecutionContext().execCtx
     );
     expect(failClosed.status).toBe(503);
+  });
+
+  test('admin organization user assignment switch routes are guarded and reversible', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('org-access-admin');
+    const owner = createContractUser({ id: 'org-access-owner', email: 'owner-access@example.com', role: 'user' });
+    const helper = createContractUser({ id: 'org-access-helper', email: 'helper-access@example.com', role: 'user' });
+    const member = createContractUser({ id: 'org-access-member', email: 'member-access@example.com', role: 'user' });
+    const inactive = createContractUser({ id: 'org-access-inactive', email: 'inactive-access@example.com', role: 'user' });
+    inactive.status = 'disabled';
+    const orgId = 'org_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const env = createAuthTestEnv({
+      users: [admin, owner, helper, member, inactive],
+      organizations: [{
+        id: orgId,
+        name: 'Access Org',
+        slug: 'access-org',
+        status: 'active',
+        created_by_user_id: owner.id,
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+      organizationMemberships: [
+        {
+          id: 'om_access_owner',
+          organization_id: orgId,
+          user_id: owner.id,
+          role: 'owner',
+          status: 'active',
+          created_by_user_id: owner.id,
+          created_at: '2026-04-26T10:00:00.000Z',
+          updated_at: '2026-04-26T10:00:00.000Z',
+        },
+        {
+          id: 'om_access_helper',
+          organization_id: orgId,
+          user_id: helper.id,
+          role: 'admin',
+          status: 'active',
+          created_by_user_id: owner.id,
+          created_at: '2026-04-26T10:01:00.000Z',
+          updated_at: '2026-04-26T10:01:00.000Z',
+        },
+      ],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const memberToken = await seedSession(env, member.id);
+
+    const nonAdmin = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/user-access`, 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdmin.status).toBe(403);
+
+    const list = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/user-access?search=access`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const listBody = await list.json();
+    expect(list.status).toBe(200);
+    expect(listBody.users.find((user) => user.userId === owner.id)).toEqual(expect.objectContaining({
+      email: owner.email,
+      assigned: true,
+    }));
+    expect(listBody.users.find((user) => user.userId === member.id)).toEqual(expect.objectContaining({
+      email: member.email,
+      assigned: false,
+    }));
+    expect(JSON.stringify(listBody)).not.toContain('create_idempotency_key');
+
+    const missingKey = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/users/${member.id}`, 'PUT', { role: 'member' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+
+    const foreign = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/users/${member.id}`, 'PUT', { role: 'member' }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'org-access-assign-foreign',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foreign.status).toBe(403);
+
+    const inactiveAssign = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/users/${inactive.id}`, 'PUT', { role: 'member' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'org-access-assign-inactive',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(inactiveAssign.status).toBe(400);
+
+    const assign = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/users/${member.id}`, 'PUT', { role: 'member' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'org-access-assign-member',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const assignBody = await assign.json();
+    expect(assign.status).toBe(201);
+    expect(assignBody.access).toEqual(expect.objectContaining({
+      userId: member.id,
+      assigned: true,
+      membership: expect.objectContaining({ role: 'member', status: 'active' }),
+    }));
+    expect(env.DB.state.organizationMemberships.find((row) =>
+      row.organization_id === orgId && row.user_id === member.id
+    ).status).toBe('active');
+    expect(JSON.stringify(assignBody)).not.toContain('org-access-assign-member');
+
+    const remove = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/users/${member.id}`, 'DELETE', { assigned: false }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'org-access-remove-member',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const removeBody = await remove.json();
+    expect(remove.status).toBe(200);
+    expect(removeBody.access).toEqual(expect.objectContaining({
+      userId: member.id,
+      assigned: false,
+      membership: expect.objectContaining({ role: 'member', status: 'removed' }),
+    }));
+
+    const finalPrivilegedEnv = createAuthTestEnv({
+      users: [admin, owner],
+      organizations: [{
+        id: orgId,
+        name: 'Access Org',
+        slug: 'access-org',
+        status: 'active',
+        created_by_user_id: owner.id,
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+      organizationMemberships: [{
+        id: 'om_access_only_owner',
+        organization_id: orgId,
+        user_id: owner.id,
+        role: 'owner',
+        status: 'active',
+        created_by_user_id: owner.id,
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+    });
+    const finalAdminToken = await seedSession(finalPrivilegedEnv, admin.id);
+    const finalOwnerRemoval = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/users/${owner.id}`, 'DELETE', { assigned: false }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${finalAdminToken}`,
+        'Idempotency-Key': 'org-access-remove-final-owner',
+      }),
+      finalPrivilegedEnv,
+      createExecutionContext().execCtx
+    );
+    const finalOwnerRemovalBody = await finalOwnerRemoval.json();
+    expect(finalOwnerRemoval.status).toBe(409);
+    expect(finalOwnerRemovalBody.code).toBe('organization_final_privileged_member');
+    expect(finalPrivilegedEnv.DB.state.organizationMemberships[0].status).toBe('active');
   });
 });
 

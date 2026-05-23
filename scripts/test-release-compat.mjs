@@ -632,7 +632,10 @@ const baseManifest = {
     patternRoutes: [
       "GET /api/admin/data-lifecycle/requests/:id",
       "GET /api/admin/orgs/:id",
+      "GET /api/admin/orgs/:id/user-access",
       "GET /api/admin/orgs/:id/billing",
+      "PUT /api/admin/orgs/:id/users/:id",
+      "DELETE /api/admin/orgs/:id/users/:id",
       "POST /api/admin/orgs/:id/credits/grant",
       "GET /api/admin/users/:id/billing",
       "POST /api/admin/users/:id/credits/grant",
@@ -976,8 +979,13 @@ function createValidContext() {
       if (dataLifecycleArchiveMatch && method === "GET") return handleDataLifecycleArchive();
       const adminOrgMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)$/);
       if (adminOrgMatch && method === "GET") return handleAdminOrg();
+      const adminOrgUserAccessMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/user-access$/);
+      if (adminOrgUserAccessMatch && method === "GET") return handleAdminOrgUserAccess();
       const adminOrgBillingMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/billing$/);
       if (adminOrgBillingMatch && method === "GET") return handleAdminOrgBilling();
+      const adminOrgUserMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/users\\/([^/]+)$/);
+      if (adminOrgUserMatch && method === "PUT") return handleAdminOrgUserAssign();
+      if (adminOrgUserMatch && method === "DELETE") return handleAdminOrgUserRemove();
       const adminOrgCreditGrantMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/credits\\/grant$/);
       if (adminOrgCreditGrantMatch && method === "POST") return handleAdminOrgCreditGrant();
       const adminUserBillingMatch = pathname.match(/^\\/api\\/admin\\/users\\/([^/]+)\\/billing$/);

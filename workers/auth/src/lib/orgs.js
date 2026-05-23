@@ -150,6 +150,27 @@ function serializeMembership(row) {
   };
 }
 
+function serializeAdminUserAccess(row) {
+  if (!row) return null;
+  const membershipStatus = row.membership_status || row.status || null;
+  const membershipRole = row.membership_role || row.role || null;
+  return {
+    userId: row.user_id || row.id,
+    email: row.email || null,
+    accountRole: row.account_role || row.user_role || null,
+    accountStatus: row.account_status || row.user_status || null,
+    assigned: membershipStatus === "active",
+    membership: membershipStatus
+      ? {
+          role: membershipRole,
+          status: membershipStatus,
+          createdAt: row.membership_created_at || row.created_at || null,
+          updatedAt: row.membership_updated_at || row.updated_at || null,
+        }
+      : null,
+  };
+}
+
 async function hashRequest(value) {
   return sha256Hex(JSON.stringify(value));
 }
@@ -442,6 +463,32 @@ async function fetchExistingMembership(env, { organizationId, userId }) {
   ).bind(organizationId, userId).first();
 }
 
+async function requireActiveOrganizationForAdmin(env, organizationId) {
+  const orgId = normalizeOrgId(organizationId);
+  const row = await env.DB.prepare(
+    "SELECT id FROM organizations WHERE id = ? AND status = 'active' LIMIT 1"
+  ).bind(orgId).first();
+  if (!row) {
+    throw new OrgRbacError("Organization not found.", {
+      status: 404,
+      code: "organization_not_found",
+    });
+  }
+  return orgId;
+}
+
+async function countOtherPrivilegedMembers(env, { organizationId, userId }) {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS privileged_count
+     FROM organization_memberships
+     WHERE organization_id = ?
+       AND status = 'active'
+       AND role IN ('owner', 'admin')
+       AND user_id != ?`
+  ).bind(organizationId, userId).first();
+  return Number(row?.privileged_count || row?.count || 0);
+}
+
 export async function addOrganizationMember({ env, actorUser, organizationId, body, idempotencyKey }) {
   const orgId = normalizeOrgId(organizationId);
   const actorUserId = normalizeUserId(actorUser?.id);
@@ -547,6 +594,221 @@ export async function addOrganizationMember({ env, actorUser, organizationId, bo
 
   return {
     membership: serializeMembership(membership),
+    reused: false,
+  };
+}
+
+export async function listAdminOrganizationUserAccess(env, {
+  organizationId,
+  search = null,
+  limit = 100,
+} = {}) {
+  const orgId = await requireActiveOrganizationForAdmin(env, organizationId);
+  const appliedLimit = Math.min(Math.max(Number(limit) || 100, 1), 100);
+  const searchTerm = String(search || "").trim();
+  const whereClause = searchTerm
+    ? "WHERE u.email LIKE ? OR u.id = ?"
+    : "";
+  const bindings = searchTerm ? [`%${searchTerm}%`, searchTerm] : [];
+  const rows = await env.DB.prepare(
+    `SELECT u.id, u.email, u.role AS account_role, u.status AS account_status, u.created_at,
+            om.role AS membership_role, om.status AS membership_status,
+            om.created_at AS membership_created_at, om.updated_at AS membership_updated_at
+     FROM users u
+     LEFT JOIN organization_memberships om
+       ON om.organization_id = ? AND om.user_id = u.id
+     ${whereClause}
+     ORDER BY
+       CASE WHEN om.status = 'active' THEN 0 ELSE 1 END,
+       LOWER(u.email) ASC,
+       u.id ASC
+     LIMIT ?`
+  ).bind(orgId, ...bindings, appliedLimit).all();
+  return (rows.results || []).map(serializeAdminUserAccess);
+}
+
+export async function assignAdminOrganizationMember({
+  env,
+  actorUser,
+  organizationId,
+  userId,
+  role = "member",
+  idempotencyKey,
+}) {
+  const orgId = await requireActiveOrganizationForAdmin(env, organizationId);
+  const actorUserId = normalizeUserId(actorUser?.id);
+  normalizeOrgIdempotencyKey(idempotencyKey);
+  const targetUserId = normalizeUserId(userId);
+  const targetRole = normalizeOrgRole(role || "member");
+  const targetUser = await fetchUser(env, targetUserId);
+  if (targetUser.status !== "active") {
+    throw new OrgRbacError("Target user must be active.", {
+      status: 400,
+      code: "target_user_not_active",
+    });
+  }
+
+  const existing = await fetchExistingMembership(env, {
+    organizationId: orgId,
+    userId: targetUserId,
+  });
+  if (existing?.status === "active") {
+    return {
+      access: serializeAdminUserAccess({
+        user_id: targetUserId,
+        email: targetUser.email,
+        account_role: targetUser.role,
+        account_status: targetUser.status,
+        membership_role: existing.role,
+        membership_status: existing.status,
+        membership_created_at: existing.created_at,
+        membership_updated_at: existing.updated_at,
+      }),
+      reused: true,
+    };
+  }
+
+  const now = nowIso();
+  if (existing) {
+    await env.DB.prepare(
+      `UPDATE organization_memberships
+       SET status = 'active', role = ?, updated_at = ?
+       WHERE organization_id = ? AND user_id = ?`
+    ).bind(targetRole, now, orgId, targetUserId).run();
+    return {
+      access: serializeAdminUserAccess({
+        user_id: targetUserId,
+        email: targetUser.email,
+        account_role: targetUser.role,
+        account_status: targetUser.status,
+        membership_role: targetRole,
+        membership_status: "active",
+        membership_created_at: existing.created_at,
+        membership_updated_at: now,
+      }),
+      reused: false,
+    };
+  }
+
+  const requestHash = await hashRequest({
+    organizationId: orgId,
+    targetUserId,
+    role: targetRole,
+    adminAssignment: true,
+  });
+  const membership = {
+    id: membershipId(),
+    organization_id: orgId,
+    user_id: targetUserId,
+    role: targetRole,
+    status: "active",
+    created_by_user_id: actorUserId,
+    create_idempotency_key: idempotencyKey,
+    create_request_hash: requestHash,
+    created_at: now,
+    updated_at: now,
+  };
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO organization_memberships (
+         id, organization_id, user_id, role, status, created_by_user_id,
+         create_idempotency_key, create_request_hash, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      membership.id,
+      membership.organization_id,
+      membership.user_id,
+      membership.role,
+      membership.status,
+      membership.created_by_user_id,
+      membership.create_idempotency_key,
+      membership.create_request_hash,
+      membership.created_at,
+      membership.updated_at
+    ).run();
+  } catch (error) {
+    if (String(error).includes("UNIQUE")) {
+      throw new OrgRbacError("Organization membership conflict.", {
+        status: 409,
+        code: "organization_membership_conflict",
+      });
+    }
+    throw error;
+  }
+
+  return {
+    access: serializeAdminUserAccess({
+      user_id: targetUserId,
+      email: targetUser.email,
+      account_role: targetUser.role,
+      account_status: targetUser.status,
+      membership_role: targetRole,
+      membership_status: "active",
+      membership_created_at: now,
+      membership_updated_at: now,
+    }),
+    reused: false,
+  };
+}
+
+export async function removeAdminOrganizationMember({
+  env,
+  organizationId,
+  userId,
+  idempotencyKey,
+}) {
+  const orgId = await requireActiveOrganizationForAdmin(env, organizationId);
+  normalizeOrgIdempotencyKey(idempotencyKey);
+  const targetUserId = normalizeUserId(userId);
+  const targetUser = await fetchUser(env, targetUserId);
+  const existing = await fetchExistingMembership(env, {
+    organizationId: orgId,
+    userId: targetUserId,
+  });
+  if (!existing || existing.status !== "active") {
+    return {
+      access: serializeAdminUserAccess({
+        user_id: targetUserId,
+        email: targetUser.email,
+        account_role: targetUser.role,
+        account_status: targetUser.status,
+      }),
+      reused: true,
+    };
+  }
+
+  if (existing.role === "owner" || existing.role === "admin") {
+    const remainingPrivileged = await countOtherPrivilegedMembers(env, {
+      organizationId: orgId,
+      userId: targetUserId,
+    });
+    if (remainingPrivileged < 1) {
+      throw new OrgRbacError("Cannot remove the final owner/admin from an organization.", {
+        status: 409,
+        code: "organization_final_privileged_member",
+      });
+    }
+  }
+
+  const now = nowIso();
+  await env.DB.prepare(
+    `UPDATE organization_memberships
+     SET status = 'removed', updated_at = ?
+     WHERE organization_id = ? AND user_id = ?`
+  ).bind(now, orgId, targetUserId).run();
+
+  return {
+    access: serializeAdminUserAccess({
+      user_id: targetUserId,
+      email: targetUser.email,
+      account_role: targetUser.role,
+      account_status: targetUser.status,
+      membership_role: existing.role,
+      membership_status: "removed",
+      membership_created_at: existing.created_at,
+      membership_updated_at: now,
+    }),
     reused: false,
   };
 }
