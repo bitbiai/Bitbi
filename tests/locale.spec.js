@@ -126,8 +126,14 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('#hero')).not.toContainText('Start creating from the public site');
     await expect(page.locator('#hero')).not.toContainText('Backend credit checks');
-    await expect(page.locator('#hero a[href="/pricing.html#pricingJourney"]')).toContainText('Compare credits');
-    await expect(page.locator('#hero a[href="/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Open workspace');
+    await expect(page.locator('#hero')).not.toContainText('Compare credits');
+    await expect(page.locator('#hero')).not.toContainText('Open workspace');
+    await expect(page.locator('#hero a[href="/pricing.html#pricingJourney"]')).toHaveCount(0);
+    await expect(page.locator('#hero a[href="/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
+    await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
+    await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Open Generate Lab');
+    await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
+    await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('From first idea to saved workspace');
     await expect(page.locator('main')).not.toContainText('Create with an account, browse without one');
@@ -136,8 +142,14 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
     await expect(page.locator('#hero')).not.toContainText('Direkt von der öffentlichen Seite starten');
     await expect(page.locator('#hero')).not.toContainText('Backend prüft Credits');
-    await expect(page.locator('#hero a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits vergleichen');
-    await expect(page.locator('#hero a[href="/de/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Arbeitsbereich öffnen');
+    await expect(page.locator('#hero')).not.toContainText('Credits vergleichen');
+    await expect(page.locator('#hero')).not.toContainText('Arbeitsbereich öffnen');
+    await expect(page.locator('#hero a[href="/de/pricing.html#pricingJourney"]')).toHaveCount(0);
+    await expect(page.locator('#hero a[href="/de/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
+    await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
+    await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Open Generate Lab');
+    await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
+    await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/de/generate-lab/');
     await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');
     await expect(page.locator('main')).not.toContainText('Mit Konto erstellen, ohne Konto stöbern');
@@ -164,6 +176,16 @@ test.describe('Bilingual locale pages', () => {
     expect(css).toContain('visibility: hidden');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('animation: none');
+
+    const indexCss = repoFile('css/pages/index.css');
+    expect(indexCss).toContain('@keyframes heroLabCtaGlow');
+    expect(indexCss).toContain('@keyframes heroLabCtaSheen');
+    expect(indexCss).toContain('.hero__lab-teaser:hover');
+    expect(indexCss).toContain('.hero__lab-teaser:focus-visible');
+    expect(indexCss).toContain('.hero__actions--single-cta');
+    expect(indexCss).toContain('prefers-reduced-motion: reduce');
+    expect(indexCss).toContain('.hero__lab-teaser::before');
+    expect(indexCss).toContain('animation: none');
   });
 
   test('global Help Menu exposes localized content, motion safety, and no German Admin route', () => {
@@ -1108,6 +1130,10 @@ test.describe('Bilingual locale pages', () => {
     for (const file of listHtmlFiles('de')) {
       const visibleText = uiHtmlText(repoFile(file));
       for (const phrase of denylist) {
+        if (file === 'de/index.html' && phrase === 'Open Generate Lab') {
+          expect(visibleText, `${file} keeps the operator-requested homepage CTA label`).toContain(phrase);
+          continue;
+        }
         expect(visibleText, `${file} should not expose "${phrase}"`).not.toContain(phrase);
       }
     }

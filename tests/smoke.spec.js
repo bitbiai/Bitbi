@@ -1167,7 +1167,7 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await waitForHomepageScrollMeasurementReady(page);
     await page.evaluate((key) => sessionStorage.removeItem(key), HOME_SCROLL_RESTORE_KEY);
-    await waitForHomepageScrollableRange(page, 900);
+    await waitForHomepageScrollableRange(page, 760);
 
     await page.evaluate(() => window.scrollTo(0, 760));
     await expect
@@ -2037,17 +2037,15 @@ test.describe('Homepage', () => {
     await expect(hero).not.toContainText('Open Generate Lab, review credit context before submit');
     await expect(hero).not.toContainText('Backend credit checks');
     await expect(hero).not.toContainText('Saved assets in your workspace');
-    await expect(hero.getByRole('link', { name: 'Compare credits' })).toHaveAttribute(
-      'href',
-      '/pricing.html#pricingJourney',
-    );
-    await expect(hero.getByRole('link', { name: 'Open workspace' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?source=hero#memberControlCenter',
-    );
+    await expect(hero).not.toContainText('Compare credits');
+    await expect(hero).not.toContainText('Open workspace');
+    await expect(hero.locator('a[href="/pricing.html#pricingJourney"]')).toHaveCount(0);
+    await expect(hero.locator('a[href="/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
+    await expect(hero.locator('.hero__conversion-link')).toHaveCount(0);
+    await expect(hero.locator('.hero__actions')).toHaveClass(/hero__actions--single-cta/);
     await expect(teaser).toBeVisible();
-    await expect(teaser).toContainText('Generate Lab');
-    await expect(teaser).toContainText('Open Lab');
+    await expect(teaser.locator('.hero__lab-teaser-text')).toHaveText('Open Generate Lab');
+    await expect(teaser.locator('.hero__lab-teaser-badge')).toHaveCount(0);
     await expect(hero.locator('.hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(teaser).toHaveAttribute('href', '/generate-lab/');
     await expect(teaser).toHaveAttribute('target', 'bitbi-generate-lab');
@@ -2059,18 +2057,43 @@ test.describe('Homepage', () => {
 
     const teaserMetrics = await page.evaluate(() => {
       const teaserEl = document.querySelector('.hero__lab-teaser');
-      const submitEl = document.querySelector('#contactForm button[type="submit"]');
+      const textEl = teaserEl?.querySelector('.hero__lab-teaser-text');
+      const actionsEl = document.querySelector('.hero__actions');
+      const heroEl = document.querySelector('#hero');
       const teaserStyle = teaserEl ? window.getComputedStyle(teaserEl) : null;
-      const submitStyle = submitEl ? window.getComputedStyle(submitEl) : null;
+      const teaserBefore = teaserEl ? window.getComputedStyle(teaserEl, '::before') : null;
+      const teaserAfter = teaserEl ? window.getComputedStyle(teaserEl, '::after') : null;
+      const teaserRect = teaserEl?.getBoundingClientRect();
+      const heroRect = heroEl?.getBoundingClientRect();
       return {
+        actionClass: actionsEl?.className || '',
+        actionJustifyContent: actionsEl ? window.getComputedStyle(actionsEl).justifyContent : '',
+        visibleLabel: textEl?.textContent?.trim() || '',
+        centerOffset: teaserRect && heroRect
+          ? Math.abs((teaserRect.left + teaserRect.width / 2) - (heroRect.left + heroRect.width / 2))
+          : Number.POSITIVE_INFINITY,
+        minBlockSize: teaserStyle ? parseFloat(teaserStyle.minHeight || teaserStyle.minBlockSize || '0') : 0,
         teaserFontSize: teaserStyle ? parseFloat(teaserStyle.fontSize) : 0,
-        baselineFontSize: submitStyle ? parseFloat(submitStyle.fontSize) : 0,
+        textTransform: teaserStyle?.textTransform || '',
+        boxShadow: teaserStyle?.boxShadow || '',
+        borderColor: teaserStyle?.borderColor || '',
+        beforeAnimation: teaserBefore?.animationName || '',
+        afterAnimation: teaserAfter?.animationName || '',
         pointerEvents: teaserStyle?.pointerEvents || '',
       };
     });
 
-    expect(teaserMetrics.baselineFontSize).toBeGreaterThan(0);
-    expect(Math.round((teaserMetrics.teaserFontSize / teaserMetrics.baselineFontSize) * 100)).toBe(110);
+    expect(teaserMetrics.actionClass).toContain('hero__actions--single-cta');
+    expect(teaserMetrics.actionJustifyContent).toBe('center');
+    expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
+    expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
+    expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(52);
+    expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
+    expect(teaserMetrics.textTransform).toBe('none');
+    expect(teaserMetrics.boxShadow).not.toBe('none');
+    expect(teaserMetrics.borderColor).not.toBe('rgba(255, 255, 255, 0.08)');
+    expect(teaserMetrics.beforeAnimation).toContain('heroLabCtaGlow');
+    expect(teaserMetrics.afterAnimation).toContain('heroLabCtaSheen');
     expect(teaserMetrics.pointerEvents).not.toBe('none');
   });
 
@@ -2086,12 +2109,28 @@ test.describe('Homepage', () => {
     await expect(heroVideo).toBeHidden();
     await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toHaveCount(0);
     await expect(teaser).toBeVisible();
-    await expect(teaser).toContainText('Generate Lab');
-    await expect(teaser).toContainText('Open Lab');
+    await expect(teaser.locator('.hero__lab-teaser-text')).toHaveText('Open Generate Lab');
+    await expect(teaser.locator('.hero__lab-teaser-badge')).toHaveCount(0);
     await expect(teaser).toHaveAttribute('href', '/generate-lab/');
     await expect(teaser).toHaveAttribute('target', 'bitbi-generate-lab');
     await expect(teaser).toHaveAttribute('rel', /noopener/);
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
+
+    const reducedMotionCta = await teaser.evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      const before = window.getComputedStyle(node, '::before');
+      const after = window.getComputedStyle(node, '::after');
+      return {
+        transitionDuration: style.transitionDuration,
+        transform: style.transform,
+        beforeAnimation: before.animationName,
+        afterAnimation: after.animationName,
+      };
+    });
+    expect(Number.parseFloat(reducedMotionCta.transitionDuration)).toBeLessThanOrEqual(0.00001);
+    expect(['none', 'matrix(1, 0, 0, 1, 0, 0)']).toContain(reducedMotionCta.transform);
+    expect(reducedMotionCta.beforeAnimation).toBe('none');
+    expect(reducedMotionCta.afterAnimation).toBe('none');
   });
 
   test('English Generate Lab header uses public outer insets and disables the current-page brand link', async ({ page }) => {
@@ -3109,7 +3148,55 @@ test.describe('Homepage', () => {
 
       expect(footerStructure.footerCopyIsLastChild).toBe(true);
       expect(footerStructure.emptyParagraphCount).toBe(0);
+
+      if (pathname === '/') {
+        await expect(page.locator('body')).toHaveClass(/home-categories-desktop-stage/);
+        const desktopFooterSpacing = await page.evaluate(() => {
+          window.scrollTo(0, document.documentElement.scrollHeight);
+          const footer = document.querySelector('.site-footer');
+          const copy = document.querySelector('.site-footer__copy');
+          const help = document.querySelector('.help-menu__trigger');
+          const footerRect = footer?.getBoundingClientRect();
+          const copyRect = copy?.getBoundingClientRect();
+          const helpRect = help?.getBoundingClientRect();
+          return {
+            bottomGap: footerRect && copyRect ? Math.round((footerRect.bottom - copyRect.bottom) * 100) / 100 : 0,
+            helpVisible: Boolean(helpRect && helpRect.width >= 44 && helpRect.height >= 44),
+            helpBottomGap: helpRect ? Math.round((window.innerHeight - helpRect.bottom) * 100) / 100 : 0,
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+          };
+        });
+        expect(desktopFooterSpacing.bottomGap).toBeGreaterThanOrEqual(48);
+        expect(desktopFooterSpacing.bottomGap).toBeLessThanOrEqual(100);
+        expect(desktopFooterSpacing.helpVisible).toBe(true);
+        expect(desktopFooterSpacing.helpBottomGap).toBeGreaterThanOrEqual(8);
+        expect(desktopFooterSpacing.scrollWidth).toBeLessThanOrEqual(desktopFooterSpacing.clientWidth + 1);
+      }
     }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const mobileFooterSpacing = await page.evaluate(() => {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      const footer = document.querySelector('.site-footer');
+      const copy = document.querySelector('.site-footer__copy');
+      const help = document.querySelector('.help-menu__trigger');
+      const footerRect = footer?.getBoundingClientRect();
+      const copyRect = copy?.getBoundingClientRect();
+      const helpRect = help?.getBoundingClientRect();
+      return {
+        bottomGap: footerRect && copyRect ? Math.round((footerRect.bottom - copyRect.bottom) * 100) / 100 : 0,
+        helpVisible: Boolean(helpRect && helpRect.width >= 44 && helpRect.height >= 44),
+        helpRightGap: helpRect ? Math.round((window.innerWidth - helpRect.right) * 100) / 100 : 0,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      };
+    });
+    expect(mobileFooterSpacing.bottomGap).toBeLessThanOrEqual(40);
+    expect(mobileFooterSpacing.helpVisible).toBe(true);
+    expect(mobileFooterSpacing.helpRightGap).toBeGreaterThanOrEqual(8);
+    expect(mobileFooterSpacing.scrollWidth).toBeLessThanOrEqual(mobileFooterSpacing.clientWidth + 1);
   });
 
   test('hero uses the mobile background video asset on narrow viewports', async ({ page }) => {
