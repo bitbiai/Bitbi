@@ -154,7 +154,7 @@
 
     .public-journey__account {
         display: grid;
-        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        grid-template-columns: minmax(0, 1fr);
         gap: clamp(1rem, 2vw, 1.35rem);
         align-items: start;
         margin-block-start: clamp(1rem, 2vw, 1.45rem);

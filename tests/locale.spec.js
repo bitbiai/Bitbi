@@ -172,6 +172,22 @@ test.describe('Bilingual locale pages', () => {
     expect(css).toContain('animation: none');
   });
 
+  test('global Help Menu exposes localized content, motion safety, and no German Admin route', () => {
+    const helpJs = repoFile('js/shared/help-menu.js');
+    const componentCss = repoFile('css/components/components.css');
+
+    expect(helpJs).toContain('HELP_MENU_SECTIONS');
+    expect(helpJs).toContain("open: 'Open help menu'");
+    expect(helpJs).toContain("open: 'Hilfemenü öffnen'");
+    expect(helpJs).toContain("id: 'admin'");
+    expect(helpJs).toContain('Admin remains English-only');
+    expect(helpJs).not.toContain('/de/admin');
+    expect(componentCss).toContain('@keyframes helpMenuWobble');
+    expect(componentCss).toContain('.help-menu__trigger:hover');
+    expect(componentCss).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(componentCss).not.toMatch(/\.help-menu[\s\S]{0,9000}backdrop-filter/);
+  });
+
   test('pricing pages render English and German copy', async ({ page }) => {
     await page.goto('/pricing.html');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');

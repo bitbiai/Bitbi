@@ -1,0 +1,441 @@
+import { getCurrentLocale, localizedHref } from './locale.js?v=__ASSET_VERSION__';
+
+const HELP_ROOT_ID = 'bitbiHelpMenu';
+const HELP_TRIGGER_ID = 'bitbiHelpTrigger';
+const HELP_PANEL_ID = 'bitbiHelpPanel';
+const HELP_TITLE_ID = 'bitbiHelpTitle';
+
+const LABELS = Object.freeze({
+    en: Object.freeze({
+        open: 'Open help menu',
+        close: 'Close help menu',
+        eyebrow: 'Help',
+        title: 'BITBI help',
+        intro: 'Quick answers for the current page and the wider workspace.',
+    }),
+    de: Object.freeze({
+        open: 'Hilfemenü öffnen',
+        close: 'Hilfemenü schließen',
+        eyebrow: 'Hilfe',
+        title: 'BITBI-Hilfe',
+        intro: 'Kurze Antworten zur aktuellen Seite und zum Arbeitsbereich.',
+    }),
+});
+
+const ROUTE_SECTION_ORDER = Object.freeze({
+    home: Object.freeze(['start', 'generate', 'credits', 'assets', 'profile', 'recovery']),
+    pricing: Object.freeze(['credits', 'start', 'generate', 'assets', 'profile', 'recovery']),
+    'generate-lab': Object.freeze(['generate', 'credits', 'assets', 'start', 'profile', 'recovery']),
+    assets: Object.freeze(['assets', 'generate', 'credits', 'profile', 'recovery', 'start']),
+    credits: Object.freeze(['credits', 'generate', 'assets', 'profile', 'start', 'recovery']),
+    profile: Object.freeze(['profile', 'credits', 'assets', 'generate', 'recovery', 'start']),
+    recovery: Object.freeze(['recovery', 'profile', 'start', 'credits', 'generate', 'assets']),
+    admin: Object.freeze(['admin', 'profile', 'credits', 'assets', 'generate', 'recovery', 'start']),
+});
+
+export const HELP_MENU_SECTIONS = Object.freeze([
+    Object.freeze({
+        id: 'start',
+        routes: Object.freeze(['home', 'pricing']),
+        title: Object.freeze({ en: 'First steps', de: 'Erste Schritte' }),
+        summary: Object.freeze({
+            en: 'Move from public browsing into an account-bound workspace.',
+            de: 'Vom öffentlichen Stöbern in den kontogebundenen Arbeitsbereich wechseln.',
+        }),
+        items: Object.freeze([
+            Object.freeze({
+                id: 'public-to-workspace',
+                title: Object.freeze({ en: 'Browse, create, save', de: 'Stöbern, erstellen, speichern' }),
+                summary: Object.freeze({
+                    en: 'Gallery, Video, and Sound Lab stay public. Generation, saving, credits, and recovery use your BITBI account.',
+                    de: 'Galerie, Video und Sound Lab bleiben öffentlich. Generierung, Speichern, Credits und Wiederherstellung nutzen Ihr BITBI-Konto.',
+                }),
+                detail: Object.freeze({
+                    en: 'Start in Generate Lab, review credit context before submit, save account-bound output to Assets Manager, and return through Profile when you need account recovery.',
+                    de: 'Starten Sie im Generate Lab, prüfen Sie Credit-Hinweise vor dem Senden, speichern Sie kontogebundene Ergebnisse im Assets Manager und nutzen Sie das Profil für Wiederherstellung.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help&step=create' }),
+                    Object.freeze({ label: Object.freeze({ en: 'View Credits', de: 'Credits ansehen' }), path: '/account/credits.html', suffix: '?source=help' }),
+                ]),
+            }),
+            Object.freeze({
+                id: 'account-needed',
+                title: Object.freeze({ en: 'When an account is needed', de: 'Wann ein Konto nötig ist' }),
+                summary: Object.freeze({
+                    en: 'Sign in before generating or saving so backend checks and saved output stay tied to your workspace.',
+                    de: 'Melden Sie sich vor Generierung oder Speichern an, damit Backend-Prüfungen und Ergebnisse Ihrem Arbeitsbereich zugeordnet bleiben.',
+                }),
+                detail: Object.freeze({
+                    en: 'Public browsing stays open without an account. Checkout, credits, saves, and profile recovery need account context.',
+                    de: 'Öffentliches Stöbern bleibt ohne Konto möglich. Checkout, Credits, gespeicherte Inhalte und Profilwiederherstellung brauchen Kontokontext.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Sign in', de: 'Anmelden' }), path: '/account/profile.html', suffix: '?source=help' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Reset password', de: 'Passwort zurücksetzen' }), path: '/account/forgot-password.html', suffix: '?source=help' }),
+                ]),
+            }),
+        ]),
+    }),
+    Object.freeze({
+        id: 'generate',
+        routes: Object.freeze(['generate-lab', 'home', 'pricing']),
+        title: Object.freeze({ en: 'Generate Lab', de: 'Generate Lab' }),
+        summary: Object.freeze({
+            en: 'Create images, video, or music with backend-confirmed credit checks.',
+            de: 'Bilder, Video oder Musik mit backendbestätigten Credit-Prüfungen erstellen.',
+        }),
+        items: Object.freeze([
+            Object.freeze({
+                id: 'generate-costs',
+                title: Object.freeze({ en: 'Credits before submit', de: 'Credits vor dem Senden' }),
+                summary: Object.freeze({
+                    en: 'The UI can estimate cost, but the backend makes the final credit decision.',
+                    de: 'Die Oberfläche kann Kosten schätzen, die endgültige Credit-Entscheidung trifft aber das Backend.',
+                }),
+                detail: Object.freeze({
+                    en: 'If the balance looks stale or unknown, open Credits, refresh, then retry generation.',
+                    de: 'Wenn der Kontostand veraltet oder unbekannt wirkt, öffnen Sie Credits, aktualisieren Sie und starten Sie danach erneut.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?source=help-generate' }),
+                ]),
+            }),
+            Object.freeze({
+                id: 'generate-save',
+                title: Object.freeze({ en: 'Where saved outputs go', de: 'Wo gespeicherte Ergebnisse landen' }),
+                summary: Object.freeze({
+                    en: 'Saved images, videos, and tracks live in Assets Manager for preview, folders, publishing, and cleanup.',
+                    de: 'Gespeicherte Bilder, Videos und Tracks liegen im Assets Manager für Vorschau, Ordner, Veröffentlichung und Aufräumen.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Assets Manager', de: 'Assets Manager öffnen' }), path: '/account/assets-manager.html', suffix: '?source=help-generate' }),
+                ]),
+            }),
+        ]),
+    }),
+    Object.freeze({
+        id: 'credits',
+        routes: Object.freeze(['credits', 'pricing', 'generate-lab']),
+        title: Object.freeze({ en: 'Credits & Pro', de: 'Credits & Pro' }),
+        summary: Object.freeze({
+            en: 'Check account-bound balance, BITBI Pro context, and safe pricing recovery.',
+            de: 'Kontogebundenen Stand, BITBI-Pro-Kontext und sichere Pricing-Rückkehr prüfen.',
+        }),
+        items: Object.freeze([
+            Object.freeze({
+                id: 'verified-balance',
+                title: Object.freeze({ en: 'Verified balance', de: 'Verifizierter Stand' }),
+                summary: Object.freeze({
+                    en: 'Credits shown in the account area are the place to review balance; generation still validates server-side.',
+                    de: 'Credits im Kontobereich sind der Prüfpunkt für den Stand; Generierung validiert weiterhin serverseitig.',
+                }),
+                detail: Object.freeze({
+                    en: 'Checkout return messages should be treated as guidance until the backend balance updates.',
+                    de: 'Checkout-Rückmeldungen sind Hinweise, bis der Backend-Kontostand aktualisiert ist.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Pricing', de: 'Pricing öffnen' }), path: '/pricing.html', suffix: '#pricingJourney' }),
+                ]),
+            }),
+        ]),
+    }),
+    Object.freeze({
+        id: 'assets',
+        routes: Object.freeze(['assets', 'generate-lab']),
+        title: Object.freeze({ en: 'Assets Manager', de: 'Assets Manager' }),
+        summary: Object.freeze({
+            en: 'Manage saved creations, folders, selection actions, and publishing from one workspace.',
+            de: 'Gespeicherte Kreationen, Ordner, Auswahlaktionen und Veröffentlichung an einem Ort verwalten.',
+        }),
+        items: Object.freeze([
+            Object.freeze({
+                id: 'storage-vs-credits',
+                title: Object.freeze({ en: 'Storage is separate from credits', de: 'Speicher ist getrennt von Credits' }),
+                summary: Object.freeze({
+                    en: 'Moving or deleting files changes your library organization, not your credit balance.',
+                    de: 'Verschieben oder Löschen ändert Ihre Bibliothek, nicht Ihren Credit-Stand.',
+                }),
+                detail: Object.freeze({
+                    en: 'Use Generate Lab for creation, Credits for balance context, and Assets Manager for saved output.',
+                    de: 'Nutzen Sie Generate Lab zum Erstellen, Credits für den Kontostand und Assets Manager für gespeicherte Ergebnisse.',
+                }),
+            }),
+        ]),
+    }),
+    Object.freeze({
+        id: 'profile',
+        routes: Object.freeze(['profile']),
+        title: Object.freeze({ en: 'Profile & security', de: 'Profil & Sicherheit' }),
+        summary: Object.freeze({
+            en: 'Review account identity, recovery, wallet hints, credits, and workspace routes.',
+            de: 'Kontoidentität, Wiederherstellung, Wallet-Hinweise, Credits und Arbeitsbereich-Routen prüfen.',
+        }),
+        items: Object.freeze([
+            Object.freeze({
+                id: 'profile-recovery',
+                title: Object.freeze({ en: 'Recovery paths', de: 'Wiederherstellung' }),
+                summary: Object.freeze({
+                    en: 'Use Profile for account context and reset/verification links when access needs attention.',
+                    de: 'Nutzen Sie das Profil für Kontokontext und Reset-/Bestätigungslinks, wenn Zugriff Aufmerksamkeit braucht.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?source=help#memberControlCenter' }),
+                ]),
+            }),
+        ]),
+    }),
+    Object.freeze({
+        id: 'recovery',
+        routes: Object.freeze(['recovery', 'profile']),
+        title: Object.freeze({ en: 'Recovery', de: 'Wiederherstellung' }),
+        summary: Object.freeze({
+            en: 'Password reset and email verification are account recovery flows, not instant success claims.',
+            de: 'Passwort-Reset und E-Mail-Bestätigung sind Wiederherstellungswege, keine sofortigen Erfolgsaussagen.',
+        }),
+        items: Object.freeze([
+            Object.freeze({
+                id: 'reset-verify',
+                title: Object.freeze({ en: 'Use the newest link', de: 'Neuesten Link nutzen' }),
+                summary: Object.freeze({
+                    en: 'Reset or verification links can expire. If a link fails, start from the recovery page again.',
+                    de: 'Reset- oder Bestätigungslinks können ablaufen. Wenn ein Link fehlschlägt, starten Sie erneut über die Wiederherstellungsseite.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Reset password', de: 'Passwort zurücksetzen' }), path: '/account/forgot-password.html', suffix: '?source=help-recovery' }),
+                ]),
+            }),
+        ]),
+    }),
+    Object.freeze({
+        id: 'admin',
+        adminOnly: true,
+        routes: Object.freeze(['admin']),
+        title: Object.freeze({ en: 'Admin & organizations', de: 'Admin & organizations' }),
+        summary: Object.freeze({
+            en: 'Admin remains English-only. Organization membership controls context without bypassing safety guards.',
+            de: 'Admin remains English-only. Organization membership controls context without bypassing safety guards.',
+        }),
+        items: Object.freeze([
+            Object.freeze({
+                id: 'org-context',
+                title: Object.freeze({ en: 'Organization context', de: 'Organization context' }),
+                summary: Object.freeze({
+                    en: 'Assigning users to organizations helps select valid context; it does not override tenant isolation, billing, or AI budget safety.',
+                    de: 'Assigning users to organizations helps select valid context; it does not override tenant isolation, billing, or AI budget safety.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Admin', de: 'Open Admin' }), path: '/admin/' }),
+                ]),
+            }),
+        ]),
+    }),
+]);
+
+function textFor(value, locale) {
+    if (typeof value === 'string') return value;
+    return value?.[locale] || value?.en || '';
+}
+
+function getRouteKey(pathname = window.location.pathname) {
+    const path = String(pathname || '/').replace(/\/{2,}/g, '/');
+    if (path === '/admin' || path.startsWith('/admin/')) return 'admin';
+    if (path.includes('/generate-lab')) return 'generate-lab';
+    if (path.includes('/account/assets-manager')) return 'assets';
+    if (path.includes('/account/credits')) return 'credits';
+    if (path.includes('/account/profile')) return 'profile';
+    if (path.includes('/account/forgot-password') || path.includes('/account/reset-password') || path.includes('/account/verify-email')) return 'recovery';
+    if (path.includes('/pricing')) return 'pricing';
+    return 'home';
+}
+
+function sectionScore(section, routeKey) {
+    if (section.routes?.includes(routeKey)) return 0;
+    if (routeKey === 'home' && section.id === 'start') return 0;
+    return 1;
+}
+
+function sectionRouteRank(section, routeKey) {
+    const order = ROUTE_SECTION_ORDER[routeKey] || ROUTE_SECTION_ORDER.home;
+    const index = order.indexOf(section.id);
+    return index === -1 ? 99 : index;
+}
+
+function getSections(routeKey, locale) {
+    const isAdmin = routeKey === 'admin';
+    return HELP_MENU_SECTIONS
+        .filter((section) => !section.adminOnly || isAdmin)
+        .slice()
+        .sort((a, b) => {
+            const scoreDelta = sectionScore(a, routeKey) - sectionScore(b, routeKey);
+            if (scoreDelta !== 0) return scoreDelta;
+            const rankDelta = sectionRouteRank(a, routeKey) - sectionRouteRank(b, routeKey);
+            if (rankDelta !== 0) return rankDelta;
+            return textFor(a.title, locale).localeCompare(textFor(b.title, locale));
+        });
+}
+
+function buildLocalizedHref(link, locale) {
+    if (link.path === '/admin/') return link.path;
+    return `${localizedHref(link.path, locale)}${link.suffix || ''}`;
+}
+
+function createElement(tagName, className, text = '') {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    if (text) element.textContent = text;
+    return element;
+}
+
+function renderLinks(container, links = [], locale) {
+    if (!links.length) return;
+    const list = createElement('div', 'help-menu__links');
+    links.forEach((link) => {
+        const anchor = createElement('a', 'help-menu__link', textFor(link.label, locale));
+        anchor.href = buildLocalizedHref(link, locale);
+        list.append(anchor);
+    });
+    container.append(list);
+}
+
+function renderSections(body, routeKey, locale) {
+    body.replaceChildren();
+    const sections = getSections(routeKey, locale);
+
+    sections.forEach((section) => {
+        const sectionElement = createElement('section', `help-menu__section${section.routes?.includes(routeKey) ? ' is-current' : ''}`);
+        sectionElement.dataset.helpSection = section.id;
+        sectionElement.setAttribute('aria-labelledby', `bitbiHelpSection-${section.id}`);
+
+        const heading = createElement('h3', 'help-menu__section-title', textFor(section.title, locale));
+        heading.id = `bitbiHelpSection-${section.id}`;
+        sectionElement.append(heading);
+
+        const summary = createElement('p', 'help-menu__section-summary', textFor(section.summary, locale));
+        sectionElement.append(summary);
+
+        const stack = createElement('div', 'help-menu__items');
+        section.items.forEach((item, itemIndex) => {
+            const details = createElement('details', 'help-menu__item');
+            if (section.routes?.includes(routeKey) && itemIndex === 0) {
+                details.open = true;
+            }
+
+            const itemSummary = createElement('summary', 'help-menu__item-summary');
+            itemSummary.append(createElement('span', 'help-menu__item-title', textFor(item.title, locale)));
+            itemSummary.append(createElement('span', 'help-menu__item-copy', textFor(item.summary, locale)));
+            details.append(itemSummary);
+
+            const itemBody = createElement('div', 'help-menu__item-body');
+            if (item.detail) {
+                itemBody.append(createElement('p', 'help-menu__item-detail', textFor(item.detail, locale)));
+            }
+            renderLinks(itemBody, item.links || [], locale);
+            if (itemBody.childNodes.length) details.append(itemBody);
+            stack.append(details);
+        });
+
+        sectionElement.append(stack);
+        body.append(sectionElement);
+    });
+}
+
+export function initHelpMenu() {
+    if (typeof document === 'undefined') return null;
+    const existing = document.getElementById(HELP_ROOT_ID);
+    if (existing) return existing;
+
+    const locale = getCurrentLocale();
+    const labels = LABELS[locale] || LABELS.en;
+    const routeKey = getRouteKey();
+    const root = createElement('div', 'help-menu');
+    root.id = HELP_ROOT_ID;
+    root.dataset.helpMenu = '';
+
+    const trigger = createElement('button', 'help-menu__trigger', '?');
+    trigger.id = HELP_TRIGGER_ID;
+    trigger.type = 'button';
+    trigger.setAttribute('aria-label', labels.open);
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', HELP_PANEL_ID);
+
+    const panel = createElement('aside', 'help-menu__panel');
+    panel.id = HELP_PANEL_ID;
+    panel.hidden = true;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'false');
+    panel.setAttribute('aria-labelledby', HELP_TITLE_ID);
+
+    const header = createElement('div', 'help-menu__header');
+    const headingWrap = createElement('div', 'help-menu__heading');
+    headingWrap.append(createElement('p', 'help-menu__eyebrow', labels.eyebrow));
+    const title = createElement('h2', 'help-menu__title', labels.title);
+    title.id = HELP_TITLE_ID;
+    title.tabIndex = -1;
+    headingWrap.append(title);
+    headingWrap.append(createElement('p', 'help-menu__intro', labels.intro));
+
+    const closeButton = createElement('button', 'help-menu__close', '×');
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', labels.close);
+
+    header.append(headingWrap, closeButton);
+
+    const body = createElement('div', 'help-menu__body');
+    renderSections(body, routeKey, locale);
+    panel.append(header, body);
+    root.append(trigger, panel);
+    document.body.append(root);
+
+    let lastFocused = null;
+
+    function isOpen() {
+        return root.classList.contains('is-open') && !panel.hidden;
+    }
+
+    function open() {
+        if (isOpen()) return;
+        lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        panel.hidden = false;
+        root.classList.add('is-open');
+        trigger.setAttribute('aria-expanded', 'true');
+        requestAnimationFrame(() => title.focus({ preventScroll: true }));
+    }
+
+    function close({ restoreFocus = true } = {}) {
+        if (!isOpen()) return;
+        root.classList.remove('is-open');
+        panel.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) {
+            const focusTarget = lastFocused?.isConnected ? lastFocused : trigger;
+            focusTarget.focus({ preventScroll: true });
+        }
+    }
+
+    trigger.addEventListener('click', () => {
+        if (isOpen()) {
+            close();
+            return;
+        }
+        open();
+    });
+    closeButton.addEventListener('click', () => close());
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && isOpen()) {
+            event.preventDefault();
+            close();
+        }
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+        if (!isOpen()) return;
+        const target = event.target;
+        if (!(target instanceof Node)) return;
+        if (panel.contains(target) || trigger.contains(target)) return;
+        close({ restoreFocus: false });
+    });
+
+    return root;
+}

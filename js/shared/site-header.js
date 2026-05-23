@@ -11,6 +11,7 @@ import { initAuthNav } from './auth-nav.js';
 import { initWalletController } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from './audio/audio-ui.js?v=__ASSET_VERSION__';
 import { initModelsOverlay } from './models-overlay.js?v=__ASSET_VERSION__';
+import { initHelpMenu } from './help-menu.js?v=__ASSET_VERSION__';
 import {
     GENERATE_LAB_HOME_PATH,
     applyGenerateLabReturnLinks,
@@ -244,6 +245,7 @@ export function initSiteHeader(options = {}) {
     try { initMobileNav(); } catch (e) { console.warn('mobileNav:', e); }
     try { initModelsOverlay(); } catch (e) { console.warn('modelsOverlay:', e); }
     try { initWalletController(); } catch (e) { console.warn('wallet:', e); }
+    try { initHelpMenu(); } catch (e) { console.warn('helpMenu:', e); }
     if (enableGlobalAudio) {
         try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio:', e); }
     }

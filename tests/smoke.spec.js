@@ -1915,6 +1915,77 @@ test.describe('Homepage', () => {
     await expect(page.locator('#authContextCopy')).toContainText('Generation, saving, credits, and workspace recovery');
   });
 
+  test('global Help Menu opens from the homepage and carries moved workflow guidance', async ({ page }) => {
+    await page.goto('/');
+
+    const journey = page.locator('#publicMemberJourney');
+    await expect(journey).toContainText('Browse publicly, create with an account');
+    await expect(journey).not.toContainText('Choose a prompt, review estimated credits');
+    await expect(journey).not.toContainText('Pricing opens Stripe checkout');
+
+    const trigger = page.getByRole('button', { name: 'Open help menu' });
+    await expect(trigger).toBeVisible();
+    const triggerMetrics = await trigger.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      const styles = window.getComputedStyle(button);
+      return {
+        position: styles.position,
+        bottomGap: window.innerHeight - rect.bottom,
+        rightGap: window.innerWidth - rect.right,
+        minSide: Math.min(rect.width, rect.height),
+      };
+    });
+    expect(triggerMetrics.position).toBe('fixed');
+    expect(triggerMetrics.bottomGap).toBeGreaterThanOrEqual(8);
+    expect(triggerMetrics.rightGap).toBeGreaterThanOrEqual(8);
+    expect(triggerMetrics.minSide).toBeGreaterThanOrEqual(44);
+
+    await trigger.click();
+    const panel = page.locator('#bitbiHelpPanel');
+    await expect(panel).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(panel).toContainText('First steps');
+    await expect(panel).toContainText('Start in Generate Lab, review credit context before submit');
+    await expect(panel.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
+      'href',
+      '/generate-lab/?source=help&step=create',
+    );
+
+    const visualState = await panel.evaluate((element) => {
+      const styles = window.getComputedStyle(element);
+      const bodyStyles = window.getComputedStyle(document.body);
+      return {
+        backdropFilter: styles.backdropFilter || styles.webkitBackdropFilter || '',
+        bodyFilter: bodyStyles.filter || '',
+      };
+    });
+    expect(['', 'none']).toContain(visualState.backdropFilter);
+    expect(['', 'none']).toContain(visualState.bodyFilter);
+
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toBeFocused();
+  });
+
+  test('global Help Menu localizes route-prioritized content on German member routes', async ({ page }) => {
+    await page.goto('/de/generate-lab/');
+
+    const trigger = page.getByRole('button', { name: 'Hilfemenü öffnen' });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+
+    const panel = page.locator('#bitbiHelpPanel');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.help-menu__section-title').first()).toHaveText('Generate Lab');
+    await expect(panel).toContainText('Credits vor dem Senden');
+    await expect(panel.getByRole('link', { name: 'Credits prüfen' })).toHaveAttribute(
+      'href',
+      '/de/account/credits.html?source=help-generate',
+    );
+    await expect(panel.locator('a[href^="/de/admin"]')).toHaveCount(0);
+  });
+
   test('hero section renders', async ({ page }) => {
     await page.goto('/');
     const hero = page.locator('#hero');
@@ -4802,6 +4873,36 @@ test.describe('Homepage', () => {
       .toBe('memtrack:feedc0de');
   });
 
+});
+
+test.describe('Global Help Menu', () => {
+  test('appears on Admin with English-only organization guidance', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+    await page.route('**/api/admin/me', async (route) => {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Admin required', code: 'ADMIN_REQUIRED' }),
+      });
+    });
+
+    await page.goto('/admin/');
+    const trigger = page.getByRole('button', { name: 'Open help menu' });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+
+    const panel = page.locator('#bitbiHelpPanel');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.help-menu__section-title').first()).toHaveText('Admin & organizations');
+    await expect(panel).toContainText('Organization membership controls context without bypassing safety guards');
+    await expect(panel.locator('a[href^="/de/admin"]')).toHaveCount(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

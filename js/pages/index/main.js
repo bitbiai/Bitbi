@@ -32,6 +32,7 @@ import { initWalletController } from '../../shared/wallet/wallet-controller.js?v
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
 import { clearGenerateLabContext } from '../../shared/generate-lab-context.js?v=__ASSET_VERSION__';
 import { initLocaleSwitcher, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { initHelpMenu } from '../../shared/help-menu.js?v=__ASSET_VERSION__';
 
 try {
     if (!window.name || window.name === 'bitbi-generate-lab') {
@@ -331,6 +332,7 @@ try { initBinaryRain('binaryRain', {
 /* Navbar */
 try { initMobileNav(); } catch (e) { console.warn('mobileNav FAILED:', e); }
 try { initWalletController(); } catch (e) { console.warn('wallet FAILED:', e); }
+try { initHelpMenu(); } catch (e) { console.warn('helpMenu FAILED:', e); }
 try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio FAILED:', e); }
 
 /* Models overlay */
