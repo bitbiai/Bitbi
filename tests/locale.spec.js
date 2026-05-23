@@ -128,12 +128,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero')).not.toContainText('Backend credit checks');
     await expect(page.locator('#hero a[href="/pricing.html#pricingJourney"]')).toContainText('Compare credits');
     await expect(page.locator('#hero a[href="/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Open workspace');
-    await expect(page.locator('#publicMemberJourney')).toContainText('From first idea to saved workspace');
-    await expect(page.locator('#publicMemberJourney')).toContainText('Start in Generate Lab');
-    await expect(page.locator('#publicMemberJourney a[href="/pricing.html#pricingJourney"]')).toContainText('View credits and Pro');
-    await expect(page.locator('#publicMemberJourney')).toContainText('Create with an account, browse without one');
-    await expect(page.locator('#publicMemberJourney [data-auth-entry="login"]')).toContainText('Sign in');
-    await expect(page.locator('#publicMemberJourney a[href="/account/forgot-password.html?source=landing-account"]')).toContainText('Reset password');
+    await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('From first idea to saved workspace');
+    await expect(page.locator('main')).not.toContainText('Create with an account, browse without one');
 
     await page.goto('/de/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
@@ -141,12 +138,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero')).not.toContainText('Backend prüft Credits');
     await expect(page.locator('#hero a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits vergleichen');
     await expect(page.locator('#hero a[href="/de/account/profile.html?source=hero#memberControlCenter"]')).toContainText('Arbeitsbereich öffnen');
-    await expect(page.locator('#publicMemberJourney')).toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');
-    await expect(page.locator('#publicMemberJourney')).toContainText('Im Generate Lab starten');
-    await expect(page.locator('#publicMemberJourney a[href="/de/pricing.html#pricingJourney"]')).toContainText('Credits und Pro ansehen');
-    await expect(page.locator('#publicMemberJourney')).toContainText('Mit Konto erstellen, ohne Konto stöbern');
-    await expect(page.locator('#publicMemberJourney [data-auth-entry="login"]')).toContainText('Anmelden');
-    await expect(page.locator('#publicMemberJourney a[href="/de/account/forgot-password.html?source=landing-account"]')).toContainText('Passwort zurücksetzen');
+    await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');
+    await expect(page.locator('main')).not.toContainText('Mit Konto erstellen, ohne Konto stöbern');
   });
 
   test('English and German homepages include the localized Live Pulse mount and reduced-motion CSS', () => {
@@ -179,6 +173,10 @@ test.describe('Bilingual locale pages', () => {
     expect(helpJs).toContain('HELP_MENU_SECTIONS');
     expect(helpJs).toContain("open: 'Open help menu'");
     expect(helpJs).toContain("open: 'Hilfemenü öffnen'");
+    expect(helpJs).toContain('How BITBI works');
+    expect(helpJs).toContain('So funktioniert BITBI');
+    expect(helpJs).toContain('Sign in, create account, reset password');
+    expect(helpJs).toContain('Anmelden, Konto erstellen, Passwort zurücksetzen');
     expect(helpJs).toContain("id: 'admin'");
     expect(helpJs).toContain('Admin remains English-only');
     expect(helpJs).not.toContain('/de/admin');

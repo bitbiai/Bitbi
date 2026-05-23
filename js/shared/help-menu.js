@@ -37,41 +37,58 @@ export const HELP_MENU_SECTIONS = Object.freeze([
     Object.freeze({
         id: 'start',
         routes: Object.freeze(['home', 'pricing']),
-        title: Object.freeze({ en: 'First steps', de: 'Erste Schritte' }),
+        title: Object.freeze({ en: 'How BITBI works', de: 'So funktioniert BITBI' }),
         summary: Object.freeze({
-            en: 'Move from public browsing into an account-bound workspace.',
-            de: 'Vom öffentlichen Stöbern in den kontogebundenen Arbeitsbereich wechseln.',
+            en: 'Browse publicly, then move useful work into an account-bound workspace.',
+            de: 'Öffentlich stöbern und nützliche Arbeiten danach in den kontogebundenen Arbeitsbereich bringen.',
         }),
         items: Object.freeze([
             Object.freeze({
-                id: 'public-to-workspace',
-                title: Object.freeze({ en: 'Browse, create, save', de: 'Stöbern, erstellen, speichern' }),
+                id: 'browse-public-work',
+                title: Object.freeze({ en: 'Browse public work', de: 'Öffentliche Arbeiten ansehen' }),
                 summary: Object.freeze({
-                    en: 'Gallery, Video, and Sound Lab stay public. Generation, saving, credits, and recovery use your BITBI account.',
-                    de: 'Galerie, Video und Sound Lab bleiben öffentlich. Generierung, Speichern, Credits und Wiederherstellung nutzen Ihr BITBI-Konto.',
+                    en: 'Gallery, Video, and Sound Lab stay open for public browsing before you sign in.',
+                    de: 'Galerie, Video und Sound Lab bleiben zum öffentlichen Stöbern offen, bevor Sie sich anmelden.',
                 }),
                 detail: Object.freeze({
-                    en: 'Start in Generate Lab, review credit context before submit, save account-bound output to Assets Manager, and return through Profile when you need account recovery.',
-                    de: 'Starten Sie im Generate Lab, prüfen Sie Credit-Hinweise vor dem Senden, speichern Sie kontogebundene Ergebnisse im Assets Manager und nutzen Sie das Profil für Wiederherstellung.',
+                    en: 'Use the public pages for orientation, then switch into the workspace when you want to create, save, or review account context.',
+                    de: 'Nutzen Sie die öffentlichen Seiten zur Orientierung und wechseln Sie in den Arbeitsbereich, wenn Sie erstellen, speichern oder Kontokontext prüfen möchten.',
+                }),
+            }),
+            Object.freeze({
+                id: 'create-save-review',
+                title: Object.freeze({ en: 'Create, save, review', de: 'Erstellen, speichern, prüfen' }),
+                summary: Object.freeze({
+                    en: 'Create in Generate Lab, save in Assets Manager, then review Credits and Profile.',
+                    de: 'Im Generate Lab erstellen, im Assets Manager speichern und danach Credits und Profil prüfen.',
+                }),
+                detail: Object.freeze({
+                    en: 'Generate Lab is where you create. Assets Manager keeps saved output. Credits and Profile help you check balance, Pro context, recovery, and account settings.',
+                    de: 'Im Generate Lab erstellen Sie. Der Assets Manager hält gespeicherte Ergebnisse. Credits und Profil helfen bei Kontostand, Pro-Kontext, Wiederherstellung und Kontoeinstellungen.',
                 }),
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help&step=create' }),
-                    Object.freeze({ label: Object.freeze({ en: 'View Credits', de: 'Credits ansehen' }), path: '/account/credits.html', suffix: '?source=help' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Assets Manager', de: 'Assets Manager öffnen' }), path: '/account/assets-manager.html', suffix: '?source=help' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?source=help' }),
                 ]),
             }),
             Object.freeze({
-                id: 'account-needed',
-                title: Object.freeze({ en: 'When an account is needed', de: 'Wann ein Konto nötig ist' }),
+                id: 'account-actions',
+                title: Object.freeze({
+                    en: 'Sign in, create account, reset password',
+                    de: 'Anmelden, Konto erstellen, Passwort zurücksetzen',
+                }),
                 summary: Object.freeze({
-                    en: 'Sign in before generating or saving so backend checks and saved output stay tied to your workspace.',
-                    de: 'Melden Sie sich vor Generierung oder Speichern an, damit Backend-Prüfungen und Ergebnisse Ihrem Arbeitsbereich zugeordnet bleiben.',
+                    en: 'Account is needed for saving and credits; public browsing stays available without one.',
+                    de: 'Konto wird zum Speichern und für Credits benötigt; öffentliches Stöbern bleibt ohne Konto möglich.',
                 }),
                 detail: Object.freeze({
-                    en: 'Public browsing stays open without an account. Checkout, credits, saves, and profile recovery need account context.',
-                    de: 'Öffentliches Stöbern bleibt ohne Konto möglich. Checkout, Credits, gespeicherte Inhalte und Profilwiederherstellung brauchen Kontokontext.',
+                    en: 'Sign in or create an account before generation, saving, checkout context, or workspace recovery. If access is blocked, start with password reset.',
+                    de: 'Melden Sie sich an oder erstellen Sie ein Konto vor Generierung, Speichern, Checkout-Kontext oder Wiederherstellung. Wenn der Zugriff blockiert ist, starten Sie mit Passwort-Reset.',
                 }),
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Sign in', de: 'Anmelden' }), path: '/account/profile.html', suffix: '?source=help' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Create account', de: 'Konto erstellen' }), path: '/account/profile.html', suffix: '?source=help&mode=register' }),
                     Object.freeze({ label: Object.freeze({ en: 'Reset password', de: 'Passwort zurücksetzen' }), path: '/account/forgot-password.html', suffix: '?source=help' }),
                 ]),
             }),
@@ -303,23 +320,24 @@ function renderSections(body, routeKey, locale) {
     const sections = getSections(routeKey, locale);
 
     sections.forEach((section) => {
-        const sectionElement = createElement('section', `help-menu__section${section.routes?.includes(routeKey) ? ' is-current' : ''}`);
+        const sectionElement = createElement('details', `help-menu__section${section.routes?.includes(routeKey) ? ' is-current' : ''}`);
         sectionElement.dataset.helpSection = section.id;
         sectionElement.setAttribute('aria-labelledby', `bitbiHelpSection-${section.id}`);
 
-        const heading = createElement('h3', 'help-menu__section-title', textFor(section.title, locale));
+        const sectionSummary = createElement('summary', 'help-menu__section-toggle');
+        const heading = createElement('span', 'help-menu__section-title', textFor(section.title, locale));
         heading.id = `bitbiHelpSection-${section.id}`;
-        sectionElement.append(heading);
+        heading.setAttribute('role', 'heading');
+        heading.setAttribute('aria-level', '3');
+        sectionSummary.append(heading);
 
-        const summary = createElement('p', 'help-menu__section-summary', textFor(section.summary, locale));
-        sectionElement.append(summary);
+        const summary = createElement('span', 'help-menu__section-summary', textFor(section.summary, locale));
+        sectionSummary.append(summary);
+        sectionElement.append(sectionSummary);
 
         const stack = createElement('div', 'help-menu__items');
-        section.items.forEach((item, itemIndex) => {
+        section.items.forEach((item) => {
             const details = createElement('details', 'help-menu__item');
-            if (section.routes?.includes(routeKey) && itemIndex === 0) {
-                details.open = true;
-            }
 
             const itemSummary = createElement('summary', 'help-menu__item-summary');
             itemSummary.append(createElement('span', 'help-menu__item-title', textFor(item.title, locale)));
@@ -336,6 +354,14 @@ function renderSections(body, routeKey, locale) {
         });
 
         sectionElement.append(stack);
+        sectionElement.addEventListener('toggle', () => {
+            if (!sectionElement.open) return;
+            body.querySelectorAll('.help-menu__section[open]').forEach((openSection) => {
+                if (openSection !== sectionElement) {
+                    openSection.open = false;
+                }
+            });
+        });
         body.append(sectionElement);
     });
 }

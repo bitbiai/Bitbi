@@ -1896,7 +1896,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
   });
 
-  test('public member journey auth entries open localized account recovery guidance', async ({ page }) => {
+  test('homepage Help Menu keeps account recovery guidance after journey removal', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
         status: 200,
@@ -1906,22 +1906,43 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/');
-    const journey = page.locator('#publicMemberJourney');
-    await journey.getByRole('link', { name: 'Sign in' }).click();
-    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
-    await expect(page.locator('.auth-modal__tab[data-tab="login"]')).toHaveClass(/active/);
-    await expect(page.locator('#authLoginMsg')).toHaveText('Sign in or create a BITBI account before generating, saving, buying credits, or recovering workspace access.');
-    await expect(page.locator('#authContextTitle')).toHaveText('Create with an account, browse publicly');
-    await expect(page.locator('#authContextCopy')).toContainText('Generation, saving, credits, and workspace recovery');
+    await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
+
+    const trigger = page.getByRole('button', { name: 'Open help menu' });
+    await trigger.click();
+
+    const startSection = page.locator('#bitbiHelpPanel [data-help-section="start"]');
+    await expect(startSection.locator('.help-menu__section-title')).toHaveText('How BITBI works');
+    await expect(startSection.locator('.help-menu__items')).toBeHidden();
+    await startSection.locator('.help-menu__section-toggle').click();
+    await expect(startSection).toHaveAttribute('open', '');
+
+    const accountItem = startSection.locator('.help-menu__item').filter({
+      hasText: 'Sign in, create account, reset password',
+    });
+    await accountItem.locator('.help-menu__item-summary').click();
+    await expect(accountItem).toHaveAttribute('open', '');
+    await expect(accountItem).toContainText('Account is needed for saving and credits');
+    await expect(accountItem.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?source=help',
+    );
+    await expect(accountItem.getByRole('link', { name: 'Create account' })).toHaveAttribute(
+      'href',
+      '/account/profile.html?source=help&mode=register',
+    );
+    await expect(accountItem.getByRole('link', { name: 'Reset password' })).toHaveAttribute(
+      'href',
+      '/account/forgot-password.html?source=help',
+    );
   });
 
   test('global Help Menu opens from the homepage and carries moved workflow guidance', async ({ page }) => {
     await page.goto('/');
 
-    const journey = page.locator('#publicMemberJourney');
-    await expect(journey).toContainText('Browse publicly, create with an account');
-    await expect(journey).not.toContainText('Choose a prompt, review estimated credits');
-    await expect(journey).not.toContainText('Pricing opens Stripe checkout');
+    await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('From first idea to saved workspace');
+    await expect(page.locator('main')).not.toContainText('Create with an account, browse without one');
 
     const trigger = page.getByRole('button', { name: 'Open help menu' });
     await expect(trigger).toBeVisible();
@@ -1944,9 +1965,16 @@ test.describe('Homepage', () => {
     const panel = page.locator('#bitbiHelpPanel');
     await expect(panel).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(panel).toContainText('First steps');
-    await expect(panel).toContainText('Start in Generate Lab, review credit context before submit');
-    await expect(panel.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
+    const startSection = panel.locator('[data-help-section="start"]');
+    await expect(startSection.locator('.help-menu__section-title')).toHaveText('How BITBI works');
+    await expect(startSection.locator('.help-menu__items')).toBeHidden();
+    await startSection.locator('.help-menu__section-toggle').click();
+    await expect(startSection).toHaveAttribute('open', '');
+    await expect(startSection).toContainText('Browse public work');
+    await expect(startSection).toContainText('Create in Generate Lab');
+    const workflowItem = startSection.locator('.help-menu__item').filter({ hasText: 'Create, save, review' });
+    await workflowItem.locator('.help-menu__item-summary').click();
+    await expect(workflowItem.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
       'href',
       '/generate-lab/?source=help&step=create',
     );
@@ -1978,8 +2006,13 @@ test.describe('Homepage', () => {
     const panel = page.locator('#bitbiHelpPanel');
     await expect(panel).toBeVisible();
     await expect(panel.locator('.help-menu__section-title').first()).toHaveText('Generate Lab');
-    await expect(panel).toContainText('Credits vor dem Senden');
-    await expect(panel.getByRole('link', { name: 'Credits prüfen' })).toHaveAttribute(
+    const generateSection = panel.locator('[data-help-section="generate"]');
+    await expect(generateSection.locator('.help-menu__items')).toBeHidden();
+    await generateSection.locator('.help-menu__section-toggle').click();
+    await expect(generateSection).toHaveAttribute('open', '');
+    const creditsItem = generateSection.locator('.help-menu__item').filter({ hasText: 'Credits vor dem Senden' });
+    await creditsItem.locator('.help-menu__item-summary').click();
+    await expect(creditsItem.getByRole('link', { name: 'Credits prüfen' })).toHaveAttribute(
       'href',
       '/de/account/credits.html?source=help-generate',
     );
@@ -2020,29 +2053,9 @@ test.describe('Homepage', () => {
     await expect(teaser).toHaveAttribute('target', 'bitbi-generate-lab');
     await expect(teaser).toHaveAttribute('rel', /noopener/);
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
-    const journey = page.locator('#publicMemberJourney');
-    await expect(journey).toContainText('From first idea to saved workspace');
-    await expect(journey.getByRole('link', { name: 'Start in Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=landing&step=create',
-    );
-    await expect(journey.getByRole('link', { name: 'View credits and Pro' })).toHaveAttribute(
-      'href',
-      '/pricing.html#pricingJourney',
-    );
-    await expect(journey).toContainText('Create with an account, browse without one');
-    await expect(journey.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?source=landing-account',
-    );
-    await expect(journey.getByRole('link', { name: 'Create account' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?source=landing-account&mode=register',
-    );
-    await expect(journey.getByRole('link', { name: 'Reset password' })).toHaveAttribute(
-      'href',
-      '/account/forgot-password.html?source=landing-account',
-    );
+    await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('From first idea to saved workspace');
+    await expect(page.locator('main')).not.toContainText('Create with an account, browse without one');
 
     const teaserMetrics = await page.evaluate(() => {
       const teaserEl = document.querySelector('.hero__lab-teaser');
@@ -4900,7 +4913,11 @@ test.describe('Global Help Menu', () => {
     const panel = page.locator('#bitbiHelpPanel');
     await expect(panel).toBeVisible();
     await expect(panel.locator('.help-menu__section-title').first()).toHaveText('Admin & organizations');
-    await expect(panel).toContainText('Organization membership controls context without bypassing safety guards');
+    const adminSection = panel.locator('[data-help-section="admin"]');
+    await expect(adminSection.locator('.help-menu__items')).toBeHidden();
+    await adminSection.locator('.help-menu__section-toggle').click();
+    await expect(adminSection).toHaveAttribute('open', '');
+    await expect(adminSection).toContainText('Organization membership controls context without bypassing safety guards');
     await expect(panel.locator('a[href^="/de/admin"]')).toHaveCount(0);
   });
 });
