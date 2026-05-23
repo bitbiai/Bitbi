@@ -9,68 +9,13 @@ import { apiResendVerification } from './auth-api.js';
 import { setupFocusTrap } from './focus-trap.js';
 import { requestWalletLogin } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
-import {
-    authContinuationKey,
-    buildAuthContinuationHref,
-    buildPasswordResetHref,
-    buildVerificationHref,
-    resolveAuthSource,
-} from './auth-return-context.js?v=__ASSET_VERSION__';
 
 let overlay = null;
 let formsContainer = null;
-let contextPanel = null;
-let contextEyebrow = null;
-let contextTitle = null;
-let contextCopy = null;
-let contextContinuation = null;
-let contextSafety = null;
-let contextPrimary = null;
-let contextReset = null;
-let contextVerify = null;
 let focusTrapCleanup = null;
 let formsInjected = false;
 
 const LOCK_SVG = `<svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:rgba(0,240,255,0.5);margin-bottom:8px"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
-
-const AUTH_CONTEXTS = Object.freeze({
-    'authRecovery.publicMessage': Object.freeze({
-        title: 'authRecovery.publicTitle',
-        copy: 'authRecovery.publicCopy',
-        primaryLabel: 'authRecovery.contextGenerate',
-        primaryHref: buildAuthContinuationHref,
-    }),
-    'authRecovery.pricingMessage': Object.freeze({
-        title: 'authRecovery.pricingTitle',
-        copy: 'authRecovery.pricingCopy',
-        primaryLabel: 'authRecovery.contextPricing',
-        primaryHref: buildAuthContinuationHref,
-    }),
-    'authRecovery.generateMessage': Object.freeze({
-        title: 'authRecovery.generateTitle',
-        copy: 'authRecovery.generateCopy',
-        primaryLabel: 'authRecovery.contextGenerate',
-        primaryHref: buildAuthContinuationHref,
-    }),
-    'authRecovery.creditsMessage': Object.freeze({
-        title: 'authRecovery.creditsTitle',
-        copy: 'authRecovery.creditsCopy',
-        primaryLabel: 'authRecovery.contextCredits',
-        primaryHref: buildAuthContinuationHref,
-    }),
-    'authRecovery.assetsMessage': Object.freeze({
-        title: 'authRecovery.assetsTitle',
-        copy: 'authRecovery.assetsCopy',
-        primaryLabel: 'authRecovery.contextAssets',
-        primaryHref: buildAuthContinuationHref,
-    }),
-    'authRecovery.profileMessage': Object.freeze({
-        title: 'authRecovery.profileTitle',
-        copy: 'authRecovery.profileCopy',
-        primaryLabel: 'authRecovery.contextProfile',
-        primaryHref: buildAuthContinuationHref,
-    }),
-});
 
 export function initAuthModal() {
     const container = document.getElementById('authModal');
@@ -91,24 +36,6 @@ export function initAuthModal() {
                     <button type="button" class="auth-modal__tab active" data-tab="login">${localeText('auth.signIn')}</button>
                     <button type="button" class="auth-modal__tab" data-tab="register">${localeText('auth.createAccount')}</button>
                 </div>
-                <details id="authContextPanel" class="auth-modal__context" hidden>
-                    <summary class="auth-modal__context-summary">
-                        <span id="authContextEyebrow" class="auth-modal__context-eyebrow"></span>
-                        <span class="auth-modal__context-summary-state auth-modal__context-summary-state--closed">${localeText('authRecovery.contextShow')}</span>
-                        <span class="auth-modal__context-summary-state auth-modal__context-summary-state--open">${localeText('authRecovery.contextHide')}</span>
-                    </summary>
-                    <div id="authContextBody" class="auth-modal__context-body" role="note">
-                        <h4 id="authContextTitle" class="auth-modal__context-title"></h4>
-                        <p id="authContextCopy" class="auth-modal__context-copy"></p>
-                        <p id="authContextContinuation" class="auth-modal__context-continuation"></p>
-                        <p id="authContextSafety" class="auth-modal__context-safety"></p>
-                        <div class="auth-modal__context-actions" aria-label="${localeText('authRecovery.contextActions')}">
-                            <a id="authContextPrimary" class="auth-modal__context-link auth-modal__context-link--primary" href="#"></a>
-                            <a id="authContextReset" class="auth-modal__context-link" href="${localizedHref('/account/forgot-password.html')}?source=landing">${localeText('authRecovery.contextReset')}</a>
-                            <a id="authContextVerify" class="auth-modal__context-link" href="${localizedHref('/account/profile.html')}?returnContext=verification#profileSecurityCard">${localeText('authRecovery.contextVerify')}</a>
-                        </div>
-                    </div>
-                </details>
                 <div id="authFormsContainer"></div>
             </div>
         </div>
@@ -116,15 +43,6 @@ export function initAuthModal() {
 
     overlay = container.querySelector('.auth-modal__overlay');
     formsContainer = document.getElementById('authFormsContainer');
-    contextPanel = document.getElementById('authContextPanel');
-    contextEyebrow = document.getElementById('authContextEyebrow');
-    contextTitle = document.getElementById('authContextTitle');
-    contextCopy = document.getElementById('authContextCopy');
-    contextContinuation = document.getElementById('authContextContinuation');
-    contextSafety = document.getElementById('authContextSafety');
-    contextPrimary = document.getElementById('authContextPrimary');
-    contextReset = document.getElementById('authContextReset');
-    contextVerify = document.getElementById('authContextVerify');
 
     /* Close button */
     container.querySelector('.auth-modal__close').addEventListener('click', closeAuthModal);
@@ -149,7 +67,6 @@ export function initAuthModal() {
         const registerForm = document.getElementById('authRegisterForm');
         if (loginForm) loginForm.classList.toggle('active', target === 'login');
         if (registerForm) registerForm.classList.toggle('active', target === 'register');
-        syncContextPanelDisclosure();
     });
 }
 
@@ -286,57 +203,6 @@ function clearMsg(el) {
     el.className = 'auth-modal__msg';
 }
 
-function clearContextPanel() {
-    if (!contextPanel) return;
-    contextPanel.hidden = true;
-    contextPanel.open = false;
-    if (contextEyebrow) contextEyebrow.textContent = '';
-    if (contextTitle) contextTitle.textContent = '';
-    if (contextCopy) contextCopy.textContent = '';
-    if (contextContinuation) contextContinuation.textContent = '';
-    if (contextSafety) contextSafety.textContent = '';
-    delete contextPanel.dataset.authReturnSource;
-    if (contextPrimary) {
-        contextPrimary.textContent = '';
-        contextPrimary.href = '#';
-    }
-}
-
-function syncContextPanelDisclosure() {
-    if (!contextPanel || contextPanel.hidden) return;
-    contextPanel.open = false;
-}
-
-function showContextPanel(contextKey, returnSource) {
-    if (!contextPanel) return;
-    const context = AUTH_CONTEXTS[contextKey];
-    if (!context) {
-        clearContextPanel();
-        return;
-    }
-    const source = resolveAuthSource({ source: returnSource, contextKey });
-    contextPanel.dataset.authReturnSource = source;
-    if (contextEyebrow) contextEyebrow.textContent = localeText('authRecovery.contextEyebrow');
-    if (contextTitle) contextTitle.textContent = localeText(context.title);
-    if (contextCopy) contextCopy.textContent = localeText(context.copy);
-    if (contextContinuation) contextContinuation.textContent = localeText(authContinuationKey(source));
-    if (contextSafety) contextSafety.textContent = localeText('authReturn.safeContext');
-    if (contextPrimary) {
-        contextPrimary.textContent = localeText(context.primaryLabel);
-        contextPrimary.href = context.primaryHref(source);
-    }
-    if (contextReset) {
-        contextReset.href = buildPasswordResetHref(source);
-        contextReset.textContent = localeText('authRecovery.contextReset');
-    }
-    if (contextVerify) {
-        contextVerify.href = buildVerificationHref(source);
-        contextVerify.textContent = localeText('authRecovery.contextVerify');
-    }
-    contextPanel.hidden = false;
-    syncContextPanelDisclosure();
-}
-
 export function openAuthModal(tab, options = {}) {
     if (!overlay) return;
 
@@ -359,9 +225,6 @@ export function openAuthModal(tab, options = {}) {
     clearMsg(document.getElementById('authLoginMsg'));
     clearMsg(document.getElementById('authRegisterMsg'));
     const message = typeof options?.message === 'string' ? options.message.trim() : '';
-    const contextKey = typeof options?.contextKey === 'string' ? options.contextKey.trim() : '';
-    const returnSource = typeof options?.returnSource === 'string' ? options.returnSource.trim() : '';
-    showContextPanel(contextKey, returnSource);
     if (message) {
         const target = options?.target === 'login' ? 'authLoginMsg' : 'authRegisterMsg';
         const type = typeof options?.messageType === 'string' && options.messageType.trim()

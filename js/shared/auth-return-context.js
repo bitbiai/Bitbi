@@ -125,7 +125,7 @@ export function buildWorkspaceHref(target, source) {
     const safeSource = normalizeAuthSource(source) || authSourceFromCurrentPath();
     switch (target) {
         case 'profile':
-            return localHrefWithParams('/account/profile.html', { source: safeSource }, '#memberControlCenter');
+            return localHrefWithParams('/account/profile.html', { source: safeSource }, '#profileSecurityCard');
         case 'credits':
             return localHrefWithParams('/account/credits.html', { scope: 'member', source: safeSource });
         case 'generate-lab':

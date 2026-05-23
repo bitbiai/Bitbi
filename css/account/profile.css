@@ -12,6 +12,7 @@
 
     /* ── Cards ── */
     .profile__card {
+        inline-size: 100%;
         max-inline-size: 480px;
         margin-inline: auto;
         padding: var(--space-8);
@@ -20,11 +21,28 @@
         -webkit-backdrop-filter: blur(30px);
         border: var(--border-subtle);
         border-radius: var(--radius-xl);
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.2);
     }
 
     .profile__card + .profile__card,
     .profile__top-pair + .profile__card {
         margin-block-start: var(--space-6);
+    }
+
+    .profile-view {
+        display: grid;
+        gap: var(--space-6);
+    }
+
+    .profile-layout__main {
+        display: grid;
+        gap: var(--space-6);
+    }
+
+    .profile-layout__main .profile__card,
+    .profile-layout__main .profile__top-pair,
+    .profile-layout__main .profile__actions {
+        margin-block-start: 0;
     }
 
     /* ── Avatar ── */
@@ -756,26 +774,6 @@
         text-wrap: balance;
     }
 
-    .profile__control-center {
-        max-inline-size: none;
-        margin-block: 0 var(--space-6);
-        display: grid;
-        gap: var(--space-5);
-        border-color: rgba(0, 240, 255, 0.16);
-        background:
-            linear-gradient(135deg, rgba(0, 240, 255, 0.1), rgba(255, 179, 0, 0.06)),
-            rgba(13, 27, 42, 0.95);
-    }
-
-    .profile__control-head {
-        display: grid;
-        gap: var(--space-2);
-    }
-
-    .profile__control-head .profile__title {
-        margin-block-end: 0;
-    }
-
     .profile__control-eyebrow {
         margin: 0;
         font-family: var(--font-mono);
@@ -786,89 +784,10 @@
         color: rgba(0, 240, 255, 0.76);
     }
 
-    .profile__control-copy,
     .profile__control-link-copy {
         margin: 0;
         color: rgba(255, 255, 255, 0.62);
         line-height: 1.6;
-    }
-
-    .profile__control-status {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: var(--space-3);
-    }
-
-    .profile__control-status span {
-        display: flex;
-        align-items: center;
-        min-block-size: 3.25rem;
-        padding: var(--space-3);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: var(--radius-md);
-        background: rgba(255, 255, 255, 0.04);
-        color: rgba(255, 255, 255, 0.72);
-        font-size: 0.86rem;
-        line-height: 1.45;
-    }
-
-    .profile__onboarding-steps {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: var(--space-3);
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        counter-reset: none;
-    }
-
-    .profile__onboarding-steps li {
-        display: grid;
-        align-content: start;
-        gap: var(--space-2);
-        min-block-size: 10rem;
-        padding: var(--space-4);
-        border: 1px solid rgba(255, 255, 255, 0.09);
-        border-radius: var(--radius-lg);
-        background: rgba(255, 255, 255, 0.035);
-    }
-
-    .profile__onboarding-steps strong {
-        color: rgba(255, 255, 255, 0.94);
-        font-family: var(--font-display);
-        font-size: 1rem;
-        line-height: 1.25;
-    }
-
-    .profile__onboarding-steps span {
-        color: rgba(255, 255, 255, 0.62);
-        font-size: 0.84rem;
-        line-height: 1.55;
-    }
-
-    .profile__onboarding-steps a {
-        align-self: end;
-        color: rgba(0, 240, 255, 0.9);
-        font-family: var(--font-mono);
-        font-size: 0.74rem;
-        font-weight: 800;
-        letter-spacing: 0;
-        text-decoration: none;
-        text-transform: uppercase;
-    }
-
-    .profile__onboarding-steps a:hover,
-    .profile__onboarding-steps a:focus-visible {
-        color: rgba(255, 255, 255, 0.95);
-        outline: none;
-        text-decoration: underline;
-        text-underline-offset: 0.25em;
-    }
-
-    .profile__control-actions {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: var(--space-3);
     }
 
     .profile__control-link {
@@ -934,67 +853,6 @@
         background:
             linear-gradient(135deg, rgba(255, 179, 0, 0.08), rgba(0, 240, 255, 0.05)),
             rgba(13, 27, 42, 0.95);
-    }
-
-    .profile__usage-trust {
-        max-inline-size: none;
-        display: grid;
-        gap: var(--space-5);
-        margin-block: 0 var(--space-6);
-        border-color: rgba(0, 240, 255, 0.16);
-        background:
-            linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(255, 179, 0, 0.055)),
-            rgba(13, 27, 42, 0.95);
-    }
-
-    .profile__usage-trust-head {
-        display: grid;
-        gap: var(--space-2);
-    }
-
-    .profile__usage-trust-head .profile__title {
-        margin-block-end: 0;
-    }
-
-    .profile__usage-trust-copy {
-        margin: 0;
-        color: rgba(255, 255, 255, 0.62);
-        line-height: 1.6;
-    }
-
-    .profile__usage-trust-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: var(--space-3);
-    }
-
-    .profile__usage-trust-item {
-        display: grid;
-        align-content: start;
-        gap: var(--space-2);
-        min-block-size: 8.5rem;
-        padding: var(--space-4);
-        border: 1px solid rgba(255, 255, 255, 0.09);
-        border-radius: var(--radius-lg);
-        background: rgba(255, 255, 255, 0.035);
-    }
-
-    .profile__usage-trust-item strong {
-        color: rgba(255, 255, 255, 0.94);
-        font-size: 0.95rem;
-        line-height: 1.3;
-    }
-
-    .profile__usage-trust-item span:last-child {
-        color: rgba(255, 255, 255, 0.62);
-        font-size: 0.82rem;
-        line-height: 1.55;
-    }
-
-    .profile__usage-trust-actions {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: var(--space-3);
     }
 
     .profile__completion-card {
@@ -1093,7 +951,7 @@
 
     .profile__completion-actions {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
         gap: var(--space-3);
     }
 
@@ -1137,16 +995,11 @@
 
     .profile__security-actions {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
         gap: var(--space-3);
     }
 
     @media (max-width: 1023px) {
-        .profile__control-status,
-        .profile__onboarding-steps,
-        .profile__control-actions,
-        .profile__usage-trust-grid,
-        .profile__usage-trust-actions,
         .profile__completion-list,
         .profile__completion-actions,
         .profile__security-grid,
@@ -1156,15 +1009,10 @@
     }
 
     @media (max-width: 639px) {
-        .profile__control-center {
+        .profile__card {
             padding: var(--space-5);
         }
 
-        .profile__control-status,
-        .profile__onboarding-steps,
-        .profile__control-actions,
-        .profile__usage-trust-grid,
-        .profile__usage-trust-actions,
         .profile__completion-list,
         .profile__completion-actions,
         .profile__security-grid,
@@ -1172,14 +1020,12 @@
             grid-template-columns: 1fr;
         }
 
-        .profile__onboarding-steps li,
         .profile__completion-item {
             min-block-size: 0;
         }
 
         .profile__control-link,
         .profile__control-link--button,
-        .profile__usage-trust-item,
         .profile__security-item {
             min-block-size: 0;
         }
@@ -1261,8 +1107,10 @@
 
     /* ── Summary Rows ── */
     .profile__row {
-        display: flex;
-        justify-content: space-between;
+        display: grid;
+        grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
+        gap: var(--space-3);
+        justify-content: stretch;
         align-items: center;
         padding: var(--space-3) 0;
         border-block-end: 1px solid rgba(255, 255, 255, 0.04);
@@ -1286,6 +1134,7 @@
         font-size: 13px;
         color: rgba(255, 255, 255, 0.75);
         text-align: end;
+        overflow-wrap: anywhere;
     }
 
     .profile__wallet-head {
@@ -1802,8 +1651,8 @@
 
         #profileHomeView .profile-layout {
             display: grid;
-            grid-template-columns: minmax(0, 34rem) minmax(17rem, 21rem);
-            gap: var(--space-8);
+            grid-template-columns: minmax(0, 46rem) minmax(18rem, 24rem);
+            gap: var(--space-6);
             justify-content: center;
         }
 

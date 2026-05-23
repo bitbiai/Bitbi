@@ -197,7 +197,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Nutzen Sie das Profil für Kontokontext und Reset-/Bestätigungslinks, wenn Zugriff Aufmerksamkeit braucht.',
                 }),
                 links: Object.freeze([
-                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?source=help#memberControlCenter' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?source=help#profileSecurityCard' }),
                 ]),
             }),
         ]),

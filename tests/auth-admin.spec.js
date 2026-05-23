@@ -1672,12 +1672,9 @@ async function fulfillJson(route, body, status = 200) {
   });
 }
 
-async function expectAuthContextDisclosureCollapsed(page, summaryText) {
-  const context = page.locator('#authContextPanel');
-  await expect(context).toBeVisible();
-  await expect(context.locator('summary')).toContainText(summaryText);
-  await expect(page.locator('#authContextBody')).not.toBeVisible();
-  await expect.poll(() => context.evaluate((element) => element.hasAttribute('open'))).toBe(false);
+async function expectAuthContextRemoved(page) {
+  await expect(page.locator('#authContextPanel')).toHaveCount(0);
+  await expect(page.locator('#authContextBody')).toHaveCount(0);
 }
 
 async function mockAdminControlPlane(page, captures = {}) {
@@ -5678,14 +5675,10 @@ test.describe('Auth modal', () => {
 
     const form = page.locator('#authLoginForm');
     await expect(form).toBeVisible();
-    await expectAuthContextDisclosureCollapsed(page, 'Account access');
-    await page.locator('#authContextPanel summary').click();
-    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
-    await expect(page.locator('#authContextBody')).toBeVisible();
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'landing');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue from the public site');
+    await expectAuthContextRemoved(page);
     await expect(form.locator('input[name="email"]')).toBeVisible();
     await expect(form.locator('input[name="password"]')).toBeVisible();
+    await expect(form.locator('a[href="/account/forgot-password.html"]')).toHaveText('Forgot password?');
     await expect(
       form.getByRole('button', { name: 'Sign In', exact: true }),
     ).toBeVisible();
@@ -5869,8 +5862,9 @@ test.describe('Auth flow pages', () => {
     await expect(page.locator('#loadingState')).toBeAttached();
     await expect(page.locator('#invalidState')).toBeAttached();
     await expect(page.locator('#invalidState')).toContainText('Email confirmation is checked by the backend account record');
-    await expect(page.locator('#verifyRecoveryContinuity')).toContainText('Email status protects account-bound work');
-    await expect(page.locator('#verifyRecoveryContinuity a[href="/account/profile.html?returnContext=verification#profileSecurityCard"]')).toHaveText('Open Profile');
+    await expect(page.locator('#verifyRecoveryContinuity')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('Verification continuity');
+    await expect(page.locator('body')).not.toContainText('Email status protects account-bound work');
     await expect(page.locator('#successState [data-auth-entry="login"]')).toHaveText('Sign in');
   });
 });
@@ -5891,20 +5885,11 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in');
     await expect(page.locator('#deniedState [data-auth-message-key="authRecovery.profileMessage"]')).toHaveCount(2);
     await page.locator('#deniedState [data-auth-entry="login"]').first().click();
-    await expect(page.locator('#authContextPanel')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Profile is your recovery anchor');
-    await expect(page.locator('#authContextCopy')).toContainText('password recovery, email verification');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute(
-      'href',
-      '/account/profile.html?source=profile#profileSecurityCard',
-    );
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'profile');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue in Profile');
-    await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/account/forgot-password.html?source=profile');
-    await expect(page.locator('#authContextVerify')).toHaveAttribute(
-      'href',
-      '/account/profile.html?source=profile&returnContext=verification#profileSecurityCard',
-    );
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    await expect(page.locator('#authLoginMsg')).toContainText('Sign in to continue to your profile. Create an account if you are new to BITBI.');
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authLoginForm input[name="email"]')).toBeVisible();
+    await expect(page.locator('#authLoginForm a[href="/account/forgot-password.html"]')).toHaveText('Forgot password?');
     await page.keyboard.press('Escape');
     await expect(page.locator('#deniedState a[href="/account/forgot-password.html?source=profile"]')).toHaveText('Reset password');
     await expect(page.locator('#deniedState')).toContainText('complete email verification after sign-in');
@@ -5940,15 +5925,10 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#deniedState [data-auth-entry="login"]')).toHaveText('Sign in');
     await expect(page.locator('#deniedState [data-auth-message-key="authRecovery.assetsMessage"]')).toHaveCount(2);
     await page.locator('#deniedState [data-auth-entry="login"]').first().click();
-    await expect(page.locator('#authContextPanel')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Saved assets are private');
-    await expect(page.locator('#authContextCopy')).toContainText('recent Generate Lab handoffs');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=assets-manager&recent=1#generate-lab-recent',
-    );
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'assets-manager');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue in Assets Manager');
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    await expect(page.locator('#authLoginMsg')).toContainText('Sign in to open your private Assets Manager. Create an account before saving outputs.');
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authLoginForm input[name="email"]')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('#deniedState a[href="/account/forgot-password.html?source=assets-manager"]')).toHaveText('Reset password');
     await expect(page.locator('#studioContent')).not.toBeVisible();
@@ -6597,13 +6577,8 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
     await expect(page.locator('.auth-modal__tab[data-tab="login"]')).toHaveClass(/active/);
     await expect(page.locator('#authLoginMsg')).toHaveText('Create or sign in to a BITBI account before checkout, generation, saving, or workspace recovery.');
-    await expect(page.locator('#authContextPanel')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Checkout starts from an account');
-    await expect(page.locator('#authContextCopy')).toContainText('Verified backend balance remains the source of truth.');
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'pricing');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, return to Pricing or Credits');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/pricing.html?source=pricing#pricingAccountEntry');
-    await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/account/forgot-password.html?source=pricing');
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authLoginForm a[href="/account/forgot-password.html"]')).toHaveText('Forgot password?');
     await page.keyboard.press('Escape');
     await expect(page.locator('.auth-modal__overlay')).not.toHaveClass(/active/);
     await page.locator('[data-pricing-pack="live_credits_5000"]').click();
@@ -6611,11 +6586,8 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterForm')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterMsg')).toHaveText('Create an account or sign in to buy credits.');
-    await expectAuthContextDisclosureCollapsed(page, 'Account access');
-    await page.locator('#authContextPanel summary').click();
-    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
-    await expect(page.locator('#authContextBody')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Checkout starts from an account');
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authRegisterForm input[name="email"]')).toBeVisible();
     const pendingPack = await page.evaluate(() => sessionStorage.getItem('bitbi_pending_credit_pack'));
     expect(pendingPack).toBe('live_credits_5000');
     expect(checkoutRequests).toBe(0);
@@ -6635,13 +6607,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterMsg')).toHaveText('Erstellen Sie ein BITBI-Konto oder melden Sie sich an, bevor Checkout, Generierung, Speichern oder Wiederherstellung fortgesetzt werden.');
-    await expect(page.locator('#authContextPanel')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Checkout startet aus einem Konto');
-    await expect(page.locator('#authContextCopy')).toContainText('Das verifizierte Backend-Guthaben bleibt maßgeblich.');
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'pricing');
-    await expect(page.locator('#authContextContinuation')).toContainText('Nach der Anmeldung zu Preisen oder Credits zurückkehren');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/de/pricing.html?source=pricing#pricingAccountEntry');
-    await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/de/account/forgot-password.html?source=pricing');
+    await expectAuthContextRemoved(page);
     await page.keyboard.press('Escape');
     await expect(page.locator('.auth-modal__overlay')).not.toHaveClass(/active/);
     await page.locator('[data-pricing-pack="live_credits_5000"]').click();
@@ -6649,11 +6615,8 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterForm')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterMsg')).toHaveText('Erstelle ein Konto oder melde dich an, um Credits zu kaufen.');
-    await expectAuthContextDisclosureCollapsed(page, 'Kontozugriff');
-    await page.locator('#authContextPanel summary').click();
-    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
-    await expect(page.locator('#authContextBody')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Checkout startet aus einem Konto');
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authRegisterForm input[name="email"]')).toBeVisible();
     const pendingPack = await page.evaluate(() => sessionStorage.getItem('bitbi_pending_credit_pack'));
     expect(pendingPack).toBe('live_credits_5000');
     expect(checkoutRequests).toBe(0);
@@ -6911,15 +6874,9 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsDenied [data-auth-entry="login"]')).toHaveText('Sign in');
     await expect(page.locator('#creditsDenied [data-auth-message-key="authRecovery.creditsMessage"]')).toHaveCount(2);
     await page.locator('#creditsDenied [data-auth-entry="login"]').first().click();
-    await expect(page.locator('#authContextPanel')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Verified credits need sign-in');
-    await expect(page.locator('#authContextCopy')).toContainText('backend account state');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member&source=credits',
-    );
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'credits');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue in Credits');
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    await expect(page.locator('#authLoginMsg')).toContainText('Sign in to review credits and BITBI Pro context. Create an account before generating or saving.');
+    await expectAuthContextRemoved(page);
     await page.keyboard.press('Escape');
     await expect(page.locator('#creditsDenied a[href="/account/forgot-password.html?source=credits"]')).toHaveText('Reset password');
     await expect(page.locator('#creditsDenied')).toContainText('Profile verification guidance');
@@ -7139,7 +7096,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(postAction.getByRole('link', { name: 'Check verified balance' })).toHaveAttribute('href', '#creditsSummaryGrid');
     await expect(postAction.getByRole('link', { name: 'Review account trust' })).toHaveAttribute(
       'href',
-      '/account/profile.html?returnContext=credits#profileUsageTrustCard',
+      '/account/profile.html?returnContext=credits#profileSecurityCard',
     );
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
@@ -7540,7 +7497,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(state.getByRole('link', { name: 'Review pricing' })).toHaveAttribute('href', '/pricing.html#pricingOffers');
     await expect(state.getByRole('link', { name: 'Review account trust' })).toHaveAttribute(
       'href',
-      '/account/profile.html?returnContext=credits#profileUsageTrustCard',
+      '/account/profile.html?returnContext=credits#profileSecurityCard',
     );
 
     await page.goto('/account/credits?scope=member&source=pricing');
@@ -11558,7 +11515,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(hint).toContainText('raw return URLs, tokens, and asset IDs are not stored');
     await expect(hint.getByRole('link', { name: 'Profile' })).toHaveAttribute(
       'href',
-      '/account/profile.html?source=credits#memberControlCenter',
+      '/account/profile.html?source=credits#profileSecurityCard',
     );
     await expect(hint).not.toContainText('evil.example');
     await expect(hint).not.toContainText('raw-token');
@@ -11612,55 +11569,27 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
-    await expect(page.locator('#memberControlCenter')).toBeVisible();
-    await expect(page.locator('#memberControlCenter')).toContainText('Your BITBI workspace');
-    await expect(page.locator('#profileWorkspacePriority')).toBeVisible();
-    await expect(page.locator('#profileWorkspacePriority')).toContainText('Start with the next useful action');
-    await expect(page.locator('#profileWorkspacePriority').getByRole('link', { name: /Continue creating/ })).toHaveAttribute(
+    await expect(page.locator('#memberControlCenter')).toHaveCount(0);
+    await expect(page.locator('#profileWorkspacePriority')).toHaveCount(0);
+    await expect(page.locator('#profileUsageTrustCard')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('Member Control Center');
+    await expect(page.locator('body')).not.toContainText('Workspace priority');
+    await expect(page.locator('body')).not.toContainText('Usage trust');
+    await expect(page.locator('#profileCompletionCard')).toBeVisible();
+    await expect(page.locator('#profileCompletionCard')).toContainText('Profile quality');
+    await expect(page.locator('#profileCompletionCard').getByRole('link', { name: 'Edit profile fields' })).toHaveAttribute(
       'href',
-      '/generate-lab/?source=profile&step=next',
+      '#profileForm',
     );
-    await expect(page.locator('#profileWorkspacePriority').getByRole('link', { name: /Find saved output/ })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=profile&recent=1#generate-lab-recent',
-    );
-    await expect(page.locator('#memberControlCenter')).toContainText('Credits and Pro status live in Credits.');
-    await expect(page.locator('.profile__onboarding-steps')).toHaveAttribute('aria-label', 'Suggested first-run steps');
-    await expect(page.locator('#memberControlCenter')).toContainText('Review credits');
-    await expect(page.locator('#memberControlCenter')).toContainText('Create in Generate Lab');
-    await expect(page.locator('#memberControlCenter').getByRole('link', { name: 'Start creating' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=profile',
-    );
-    await expect(page.locator('#memberControlCenter').getByRole('link', { name: 'View assets' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=profile',
-    );
-    await expect(page.locator('#profileGenerateLabLink')).toHaveAttribute('href', '/generate-lab/');
-    await expect(page.locator('#profileAssetsManagerLink')).toHaveAttribute('href', '/account/assets-manager.html');
-    await expect(page.locator('#profileMemberCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
-    await expect(page.locator('#profileSettingsShortcut')).toHaveAttribute('href', '#profileForm');
-    const usageTrust = page.locator('#profileUsageTrustCard');
-    await expect(usageTrust).toBeVisible();
-    await expect(usageTrust).toContainText('Credits and Pro stay account-bound');
-    await expect(usageTrust).toContainText('Profile keeps recovery and account identity close, but it does not grant credits.');
-    await expect(usageTrust).toContainText('Checkout return states are guidance only until the backend-confirmed balance and ledger load.');
-    await expect(usageTrust.getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member&source=profile-usage',
-    );
-    await expect(usageTrust.getByRole('link', { name: 'Create in Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=profile-usage',
-    );
-    await expect(usageTrust.getByRole('link', { name: 'View saved assets' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=profile-usage&recent=1#generate-lab-recent',
-    );
+    await expect(page.locator('#profileSecurityCard')).toBeVisible();
+    await expect(page.locator('#profileSecurityCard')).toContainText('Account security');
     await expect(page.locator('#profileSecurityCard').getByRole('link', { name: 'Return to Generate Lab' })).toHaveAttribute(
       'href',
       '/generate-lab/?source=profile-security',
     );
+    await expect(page.locator('#profileForm')).toBeVisible();
+    const layoutOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(layoutOverflow).toBe(false);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -11702,9 +11631,9 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
-    await expect(page.locator('#memberControlCenter')).toBeVisible();
-    await expect(page.locator('#profileGenerateLabLink')).toHaveAttribute('href', '/generate-lab/');
-    await expect(page.locator('#profileMemberCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
+    await expect(page.locator('#memberControlCenter')).toHaveCount(0);
+    await expect(page.locator('#profileCompletionCard')).toBeVisible();
+    await expect(page.locator('#profileSecurityCard')).toBeVisible();
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -11743,8 +11672,9 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await recovery.getByRole('button', { name: 'Create Account' }).click();
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'profile');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue in Profile');
+    await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authRegisterForm input[name="email"]')).toBeVisible();
 
     const sessionSnapshot = await page.evaluate(() => Object.values(sessionStorage).join('\n'));
     const localSnapshot = await page.evaluate(() => Object.values(localStorage).join('\n'));
@@ -11792,7 +11722,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Profile, Credits, Generate Lab, and Assets Manager use this account session.');
     await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Profile' })).toHaveAttribute(
       'href',
-      '/account/profile.html?source=profile#memberControlCenter',
+      '/account/profile.html?source=profile#profileSecurityCard',
     );
     await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
       'href',
@@ -11871,9 +11801,9 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
     await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
-    await expect(page.locator('#memberControlCenter')).toBeVisible();
-    await expect(page.locator('#memberControlActions a')).toHaveCount(4);
-    await expect(page.locator('#memberControlActions')).toContainText('Continue creating');
+    await expect(page.locator('#memberControlCenter')).toHaveCount(0);
+    await expect(page.locator('#profileCompletionCard')).toBeVisible();
+    await expect(page.locator('#profileSecurityCard')).toBeVisible();
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });

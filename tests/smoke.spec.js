@@ -196,15 +196,9 @@ async function expectGlobalHeaderActionOrder(page) {
   expect(order.indexOf('panel'), `header order ${order.join(' > ')}`).toBeLessThan(order.indexOf('auth'));
 }
 
-async function expectAuthContextCollapsed(page, summaryNamePattern) {
-  const context = page.locator('#authContextPanel');
-  const body = page.locator('#authContextBody');
-  const summary = context.locator('summary');
-
-  await expect(context).toBeVisible();
-  await expect(summary).toContainText(summaryNamePattern);
-  await expect(body).not.toBeVisible();
-  await expect.poll(() => context.evaluate((element) => element.hasAttribute('open'))).toBe(false);
+async function expectAuthContextRemoved(page) {
+  await expect(page.locator('#authContextPanel')).toHaveCount(0);
+  await expect(page.locator('#authContextBody')).toHaveCount(0);
 }
 
 async function mockGenerateLabMemberSession(page, {
@@ -1955,17 +1949,10 @@ test.describe('Homepage', () => {
     await banner.click();
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
     await expect(page.locator('.auth-modal__tab.active')).toHaveText('Create Account');
-    await expectAuthContextCollapsed(page, 'Account access');
-    await page.locator('#authContextPanel summary').focus();
-    await page.keyboard.press('Enter');
-    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
-    await expect(page.locator('#authContextBody')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Create with an account, browse publicly');
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'landing');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue from the public site');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=landing');
-    await page.keyboard.press('Enter');
-    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(false);
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authRegisterForm')).toBeVisible();
+    await expect(page.locator('#authRegisterForm input[name="email"]')).toBeVisible();
+    await expect(page.locator('#authRegisterForm input[name="password"]')).toBeVisible();
     await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
   });
 
@@ -2320,16 +2307,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('#authLoginMsg')).toContainText(
       'Create or sign in to a BITBI account before generating, saving, or loading recent assets.',
     );
-    await expectAuthContextCollapsed(page, 'Account access');
-    await page.locator('#authContextPanel summary').click();
-    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
-    await expect(page.locator('#authContextBody')).toBeVisible();
-    await expect(page.locator('#authContextTitle')).toHaveText('Generate and save with your account');
-    await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'generate-lab');
-    await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue in Generate Lab');
-    await expect(page.locator('#authContextSafety')).toContainText('private URLs, tokens, and asset IDs are not stored');
-    await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=generate-lab');
-    await expect(page.locator('#authContextReset')).toHaveAttribute('href', '/account/forgot-password.html?source=generate-lab');
+    await expectAuthContextRemoved(page);
+    await expect(page.locator('#authLoginForm input[name="email"]')).toBeVisible();
+    await expect(page.locator('#authLoginForm a[href="/account/forgot-password.html"]')).toHaveText('Forgot password?');
   });
 
   test('Generate Lab post-auth hint keeps signed-in continuation safe', async ({ page }) => {
