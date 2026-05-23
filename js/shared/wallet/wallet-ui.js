@@ -115,11 +115,48 @@ function handleEscape(event) {
     actionsRef?.closePanel?.();
 }
 
-function ensureDesktopTrigger() {
-    if (desktopTrigger?.isConnected) return desktopTrigger;
+function isGenerateLabHeader() {
+    return document.body.classList.contains('generate-lab-page');
+}
 
+function placeDesktopTrigger(actions, trigger) {
+    if (!actions || !trigger) return;
+
+    const localeHost = actions.querySelector('[data-locale-switcher]');
+    if (!isGenerateLabHeader() && localeHost) {
+        localeHost.after(trigger);
+        return;
+    }
+
+    const mood = actions.querySelector('.site-nav__mood');
+    if (mood?.nextSibling) {
+        actions.insertBefore(trigger, mood.nextSibling);
+    } else if (mood) {
+        actions.appendChild(trigger);
+    } else {
+        actions.prepend(trigger);
+    }
+}
+
+function scheduleDesktopTriggerPlacement(actions, trigger) {
+    const sync = () => {
+        if (actions?.isConnected && trigger?.isConnected) {
+            placeDesktopTrigger(actions, trigger);
+        }
+    };
+    queueMicrotask(sync);
+    window.setTimeout(sync, 0);
+}
+
+function ensureDesktopTrigger() {
     const actions = document.querySelector('.site-nav__actions');
     if (!actions) return null;
+
+    if (desktopTrigger?.isConnected) {
+        placeDesktopTrigger(actions, desktopTrigger);
+        scheduleDesktopTriggerPlacement(actions, desktopTrigger);
+        return desktopTrigger;
+    }
 
     desktopTrigger = createElement('button', 'wallet-nav__trigger');
     desktopTrigger.type = 'button';
@@ -130,14 +167,8 @@ function ensureDesktopTrigger() {
     desktopTrigger.innerHTML = `<span class="wallet-nav__status-dot" aria-hidden="true"></span>Panel`;
     desktopTrigger.addEventListener('click', () => actionsRef?.openPanel?.());
 
-    const mood = actions.querySelector('.site-nav__mood');
-    if (mood?.nextSibling) {
-        actions.insertBefore(desktopTrigger, mood.nextSibling);
-    } else if (mood) {
-        actions.appendChild(desktopTrigger);
-    } else {
-        actions.prepend(desktopTrigger);
-    }
+    placeDesktopTrigger(actions, desktopTrigger);
+    scheduleDesktopTriggerPlacement(actions, desktopTrigger);
 
     return desktopTrigger;
 }

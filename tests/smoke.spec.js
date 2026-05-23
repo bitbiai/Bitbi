@@ -169,6 +169,44 @@ function expectWithinPx(actual, expected, label, tolerance = 2) {
     .toBeLessThanOrEqual(tolerance);
 }
 
+async function readHeaderActionOrder(page) {
+  return page.locator('#navbar .site-nav__actions').evaluate((actions) => (
+    Array.from(actions.children)
+      .map((node) => {
+        if (node.matches('[data-locale-switcher]')) return 'locale';
+        if (node.matches('.wallet-nav__trigger')) return 'panel';
+        if (node.matches('.auth-nav__wrap')) return 'auth';
+        if (node.matches('.site-nav__mood')) return 'mood';
+        if (node.matches('.auth-nav__profile-link')) return 'profile';
+        if (node.matches('.auth-nav__admin-link')) return 'admin';
+        return node.className || node.tagName.toLowerCase();
+      })
+      .filter((name) => name !== 'mood')
+  ));
+}
+
+async function expectGlobalHeaderActionOrder(page) {
+  await expect(page.locator('#navbar .locale-switcher')).toBeVisible();
+  await expect(page.locator('#navbar .wallet-nav__trigger')).toBeVisible();
+  await expect(page.locator('#navbar .auth-nav__wrap')).toBeVisible();
+
+  await expect.poll(() => readHeaderActionOrder(page)).toEqual(expect.arrayContaining(['locale', 'panel', 'auth']));
+  const order = await readHeaderActionOrder(page);
+  expect(order.indexOf('locale'), `header order ${order.join(' > ')}`).toBeLessThan(order.indexOf('panel'));
+  expect(order.indexOf('panel'), `header order ${order.join(' > ')}`).toBeLessThan(order.indexOf('auth'));
+}
+
+async function expectAuthContextCollapsed(page, summaryNamePattern) {
+  const context = page.locator('#authContextPanel');
+  const body = page.locator('#authContextBody');
+  const summary = context.locator('summary');
+
+  await expect(context).toBeVisible();
+  await expect(summary).toContainText(summaryNamePattern);
+  await expect(body).not.toBeVisible();
+  await expect.poll(() => context.evaluate((element) => element.hasAttribute('open'))).toBe(false);
+}
+
 async function mockGenerateLabMemberSession(page, {
   email = 'lab@bitbi.ai',
   userId = 'generate-lab-member',
@@ -1234,6 +1272,8 @@ test.describe('Homepage', () => {
       await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
       await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
+      await expectGlobalHeaderActionOrder(page);
+      await expect(page.locator('#navbar .wallet-nav__trigger')).toHaveAttribute('aria-controls', 'walletModal');
 
       await expect
         .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
@@ -1279,6 +1319,53 @@ test.describe('Homepage', () => {
       expect(metrics.moodDisplay).toBe('none');
       expect(metrics.moodWidth).toBe(0);
     }
+  });
+
+  test('shared public and member headers place the language selector before Panel and Sign In', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    for (const { path, signInLabel, localeHref } of [
+      { path: '/', signInLabel: 'Sign In', localeHref: '/de/' },
+      { path: '/pricing.html', signInLabel: 'Sign In', localeHref: '/de/pricing.html' },
+      { path: '/account/profile.html', signInLabel: 'Sign In', localeHref: '/de/account/profile' },
+      { path: '/de/', signInLabel: 'Anmelden', localeHref: '/' },
+      { path: '/de/pricing.html', signInLabel: 'Anmelden', localeHref: '/pricing.html' },
+      { path: '/de/account/profile.html', signInLabel: 'Anmelden', localeHref: '/account/profile' },
+    ]) {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expectGlobalHeaderActionOrder(page);
+      await expect(page.locator('#navbar .site-nav__cta')).toHaveText(signInLabel);
+      await expect(page.locator(`#navbar .locale-switcher__link[href="${localeHref}"]`)).toBeVisible();
+      await expect(page.locator('#navbar .wallet-nav__trigger')).toHaveAttribute('aria-label', 'Open wallet panel');
+    }
+  });
+
+  test('mobile homepage menu still exposes account and Panel controls', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('#navbar .locale-switcher')).toBeAttached();
+    await expect(page.locator('#navbar .wallet-nav__trigger')).toBeHidden();
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('#mobileNav .mobile-nav__section--wallet [data-wallet-open="mobile"]')).toBeVisible();
+    await expect(page.locator('#mobileNav .auth-nav__mobile-workspace').getByRole('button', { name: 'Sign In' })).toBeVisible();
+    await expect(page.locator('#mobileNav .auth-nav__mobile-workspace').getByRole('button', { name: 'Create Account' })).toBeVisible();
   });
 
   test('global content shells align to the homepage header inset without horizontal overflow', async ({ page }) => {
@@ -1868,11 +1955,17 @@ test.describe('Homepage', () => {
     await banner.click();
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
     await expect(page.locator('.auth-modal__tab.active')).toHaveText('Create Account');
-    await expect(page.locator('#authContextPanel')).toBeVisible();
+    await expectAuthContextCollapsed(page, 'Account access');
+    await page.locator('#authContextPanel summary').focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
+    await expect(page.locator('#authContextBody')).toBeVisible();
     await expect(page.locator('#authContextTitle')).toHaveText('Create with an account, browse publicly');
     await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'landing');
     await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue from the public site');
     await expect(page.locator('#authContextPrimary')).toHaveAttribute('href', '/generate-lab/?source=landing');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(false);
     await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
   });
 
@@ -2149,6 +2242,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .locale-switcher__link[hreflang="de"]')).toHaveAttribute('href', '/de/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.locator('header .auth-nav__logout')).toHaveText('Sign Out');
+    await expect.poll(() => readHeaderActionOrder(page)).toEqual(expect.arrayContaining(['panel', 'locale', 'auth']));
+    {
+      const order = await readHeaderActionOrder(page);
+      expect(order.indexOf('panel'), `Generate Lab header order ${order.join(' > ')}`).toBeLessThan(order.indexOf('locale'));
+    }
     await expectGenerateLabHeaderAligned(page, { locale: 'English' });
 
     await page.evaluate(() => { window.__generateLabBrandMarker = 'still-here'; });
@@ -2177,6 +2275,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .locale-switcher__link[hreflang="en"]')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.locator('header .auth-nav__logout')).toHaveText('Abmelden');
+    await expect.poll(() => readHeaderActionOrder(page)).toEqual(expect.arrayContaining(['panel', 'locale', 'auth']));
+    {
+      const order = await readHeaderActionOrder(page);
+      expect(order.indexOf('panel'), `Generate Lab header order ${order.join(' > ')}`).toBeLessThan(order.indexOf('locale'));
+    }
     await expectGenerateLabHeaderAligned(page, { locale: 'German' });
 
     await page.evaluate(() => { window.__generateLabBrandMarker = 'still-here'; });
@@ -2217,7 +2320,10 @@ test.describe('Homepage', () => {
     await expect(page.locator('#authLoginMsg')).toContainText(
       'Create or sign in to a BITBI account before generating, saving, or loading recent assets.',
     );
-    await expect(page.locator('#authContextPanel')).toBeVisible();
+    await expectAuthContextCollapsed(page, 'Account access');
+    await page.locator('#authContextPanel summary').click();
+    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
+    await expect(page.locator('#authContextBody')).toBeVisible();
     await expect(page.locator('#authContextTitle')).toHaveText('Generate and save with your account');
     await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'generate-lab');
     await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue in Generate Lab');

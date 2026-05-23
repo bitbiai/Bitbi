@@ -199,6 +199,11 @@ test.describe('Bilingual locale pages', () => {
     expect(helpJs).toContain('So funktioniert BITBI');
     expect(helpJs).toContain('Sign in, create account, reset password');
     expect(helpJs).toContain('Anmelden, Konto erstellen, Passwort zurücksetzen');
+    expect(helpJs).toContain("id: 'after-recovery'");
+    expect(helpJs).toContain('After recovery');
+    expect(helpJs).toContain('Nach der Wiederherstellung');
+    expect(helpJs).toContain('Password reset only repairs access');
+    expect(helpJs).toContain('Das Zurücksetzen des Passworts repariert nur den Zugriff');
     expect(helpJs).toContain("id: 'admin'");
     expect(helpJs).toContain('Admin remains English-only');
     expect(helpJs).not.toContain('/de/admin');
@@ -705,19 +710,23 @@ test.describe('Bilingual locale pages', () => {
     const deVerify = repoFile('de/account/verify-email.html');
 
     expect(enForgot).toContain('id="accountRecoveryTrust"');
+    expect(enForgot).toContain('auth-page__disclosure');
     expect(enForgot).toContain('Account recovery is private');
+    expect(enForgot).toContain('Show details');
     expect(enForgot).toContain('same success message whether or not an email exists');
-    expect(enForgot).toContain('id="accountRecoveryNext"');
-    expect(enForgot).toContain('Return to the signed-in workspace');
-    expect(enForgot).toContain('href="/account/profile.html?returnContext=recovery#profileSecurityCard"');
-    expect(enForgot).toContain('href="/account/credits.html?scope=member&amp;source=recovery"');
+    expect(enForgot).not.toContain('id="accountRecoveryNext"');
+    expect(enForgot).not.toContain('Return to the signed-in workspace');
+    expect(enForgot).not.toContain('href="/account/profile.html?returnContext=recovery#profileSecurityCard"');
+    expect(enForgot).not.toContain('href="/account/credits.html?scope=member&amp;source=recovery"');
     expect(deForgot).toContain('id="accountRecoveryTrust"');
+    expect(deForgot).toContain('auth-page__disclosure');
     expect(deForgot).toContain('Kontowiederherstellung bleibt privat');
+    expect(deForgot).toContain('Details anzeigen');
     expect(deForgot).toContain('dieselbe Erfolgsmeldung, unabhängig davon, ob eine E-Mail existiert');
-    expect(deForgot).toContain('id="accountRecoveryNext"');
-    expect(deForgot).toContain('Zur angemeldeten Arbeitsumgebung zurückkehren');
-    expect(deForgot).toContain('href="/de/account/profile.html?returnContext=recovery#profileSecurityCard"');
-    expect(deForgot).toContain('href="/de/account/credits.html?scope=member&amp;source=recovery"');
+    expect(deForgot).not.toContain('id="accountRecoveryNext"');
+    expect(deForgot).not.toContain('Zur angemeldeten Arbeitsumgebung zurückkehren');
+    expect(deForgot).not.toContain('href="/de/account/profile.html?returnContext=recovery#profileSecurityCard"');
+    expect(deForgot).not.toContain('href="/de/account/credits.html?scope=member&amp;source=recovery"');
 
     expect(enReset).toContain('id="resetSecurityTrust"');
     expect(enReset).toContain('Before you change it');

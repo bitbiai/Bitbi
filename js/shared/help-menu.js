@@ -222,6 +222,23 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Reset password', de: 'Passwort zurücksetzen' }), path: '/account/forgot-password.html', suffix: '?source=help-recovery' }),
                 ]),
             }),
+            Object.freeze({
+                id: 'after-recovery',
+                title: Object.freeze({ en: 'After recovery', de: 'Nach der Wiederherstellung' }),
+                summary: Object.freeze({
+                    en: 'Return to the signed-in workspace only after backend-confirmed access repair.',
+                    de: 'Erst nach backendbestätigter Wiederherstellung zurück in den angemeldeten Arbeitsbereich wechseln.',
+                }),
+                detail: Object.freeze({
+                    en: 'Password reset only repairs access. Profile, Credits, Generate Lab, and Assets Manager still load from your signed-in account after backend confirmation.',
+                    de: 'Das Zurücksetzen des Passworts repariert nur den Zugriff. Profil, Credits, Generate Lab und Assets Manager laden weiter aus Ihrem angemeldeten Konto nach Backend-Bestätigung.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?returnContext=recovery&source=help-recovery#profileSecurityCard' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?scope=member&source=help-recovery' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-recovery' }),
+                ]),
+            }),
         ]),
     }),
     Object.freeze({

@@ -91,18 +91,24 @@ export function initAuthModal() {
                     <button type="button" class="auth-modal__tab active" data-tab="login">${localeText('auth.signIn')}</button>
                     <button type="button" class="auth-modal__tab" data-tab="register">${localeText('auth.createAccount')}</button>
                 </div>
-                <div id="authContextPanel" class="auth-modal__context" role="note" hidden>
-                    <p id="authContextEyebrow" class="auth-modal__context-eyebrow"></p>
-                    <h4 id="authContextTitle" class="auth-modal__context-title"></h4>
-                    <p id="authContextCopy" class="auth-modal__context-copy"></p>
-                    <p id="authContextContinuation" class="auth-modal__context-continuation"></p>
-                    <p id="authContextSafety" class="auth-modal__context-safety"></p>
-                    <div class="auth-modal__context-actions" aria-label="${localeText('authRecovery.contextActions')}">
-                        <a id="authContextPrimary" class="auth-modal__context-link auth-modal__context-link--primary" href="#"></a>
-                        <a id="authContextReset" class="auth-modal__context-link" href="${localizedHref('/account/forgot-password.html')}?source=landing">${localeText('authRecovery.contextReset')}</a>
-                        <a id="authContextVerify" class="auth-modal__context-link" href="${localizedHref('/account/profile.html')}?returnContext=verification#profileSecurityCard">${localeText('authRecovery.contextVerify')}</a>
+                <details id="authContextPanel" class="auth-modal__context" hidden>
+                    <summary class="auth-modal__context-summary">
+                        <span id="authContextEyebrow" class="auth-modal__context-eyebrow"></span>
+                        <span class="auth-modal__context-summary-state auth-modal__context-summary-state--closed">${localeText('authRecovery.contextShow')}</span>
+                        <span class="auth-modal__context-summary-state auth-modal__context-summary-state--open">${localeText('authRecovery.contextHide')}</span>
+                    </summary>
+                    <div id="authContextBody" class="auth-modal__context-body" role="note">
+                        <h4 id="authContextTitle" class="auth-modal__context-title"></h4>
+                        <p id="authContextCopy" class="auth-modal__context-copy"></p>
+                        <p id="authContextContinuation" class="auth-modal__context-continuation"></p>
+                        <p id="authContextSafety" class="auth-modal__context-safety"></p>
+                        <div class="auth-modal__context-actions" aria-label="${localeText('authRecovery.contextActions')}">
+                            <a id="authContextPrimary" class="auth-modal__context-link auth-modal__context-link--primary" href="#"></a>
+                            <a id="authContextReset" class="auth-modal__context-link" href="${localizedHref('/account/forgot-password.html')}?source=landing">${localeText('authRecovery.contextReset')}</a>
+                            <a id="authContextVerify" class="auth-modal__context-link" href="${localizedHref('/account/profile.html')}?returnContext=verification#profileSecurityCard">${localeText('authRecovery.contextVerify')}</a>
+                        </div>
                     </div>
-                </div>
+                </details>
                 <div id="authFormsContainer"></div>
             </div>
         </div>
@@ -143,6 +149,7 @@ export function initAuthModal() {
         const registerForm = document.getElementById('authRegisterForm');
         if (loginForm) loginForm.classList.toggle('active', target === 'login');
         if (registerForm) registerForm.classList.toggle('active', target === 'register');
+        syncContextPanelDisclosure();
     });
 }
 
@@ -282,6 +289,7 @@ function clearMsg(el) {
 function clearContextPanel() {
     if (!contextPanel) return;
     contextPanel.hidden = true;
+    contextPanel.open = false;
     if (contextEyebrow) contextEyebrow.textContent = '';
     if (contextTitle) contextTitle.textContent = '';
     if (contextCopy) contextCopy.textContent = '';
@@ -292,6 +300,11 @@ function clearContextPanel() {
         contextPrimary.textContent = '';
         contextPrimary.href = '#';
     }
+}
+
+function syncContextPanelDisclosure() {
+    if (!contextPanel || contextPanel.hidden) return;
+    contextPanel.open = false;
 }
 
 function showContextPanel(contextKey, returnSource) {
@@ -321,6 +334,7 @@ function showContextPanel(contextKey, returnSource) {
         contextVerify.textContent = localeText('authRecovery.contextVerify');
     }
     contextPanel.hidden = false;
+    syncContextPanelDisclosure();
 }
 
 export function openAuthModal(tab, options = {}) {

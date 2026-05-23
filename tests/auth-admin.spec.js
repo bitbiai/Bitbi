@@ -1672,6 +1672,14 @@ async function fulfillJson(route, body, status = 200) {
   });
 }
 
+async function expectAuthContextDisclosureCollapsed(page, summaryText) {
+  const context = page.locator('#authContextPanel');
+  await expect(context).toBeVisible();
+  await expect(context.locator('summary')).toContainText(summaryText);
+  await expect(page.locator('#authContextBody')).not.toBeVisible();
+  await expect.poll(() => context.evaluate((element) => element.hasAttribute('open'))).toBe(false);
+}
+
 async function mockAdminControlPlane(page, captures = {}) {
   captures.creditGrantRequests = captures.creditGrantRequests || [];
   captures.userCreditGrantRequests = captures.userCreditGrantRequests || [];
@@ -5670,7 +5678,10 @@ test.describe('Auth modal', () => {
 
     const form = page.locator('#authLoginForm');
     await expect(form).toBeVisible();
-    await expect(page.locator('#authContextPanel')).toBeVisible();
+    await expectAuthContextDisclosureCollapsed(page, 'Account access');
+    await page.locator('#authContextPanel summary').click();
+    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
+    await expect(page.locator('#authContextBody')).toBeVisible();
     await expect(page.locator('#authContextPanel')).toHaveAttribute('data-auth-return-source', 'landing');
     await expect(page.locator('#authContextContinuation')).toContainText('After sign-in, continue from the public site');
     await expect(form.locator('input[name="email"]')).toBeVisible();
@@ -5794,11 +5805,27 @@ test.describe('Auth flow pages', () => {
     await expect(form).toBeAttached();
     await expect(form.locator('input[type="email"]')).toBeAttached();
     await expect(form.locator('button[type="submit"]')).toBeAttached();
-    await expect(page.locator('#accountRecoveryTrust')).toContainText('Account recovery is private');
-    await expect(page.locator('#accountRecoveryNext')).toContainText('Return to the signed-in workspace');
-    await expect(page.locator('#accountRecoveryNext [data-auth-entry="login"]')).toHaveText('Sign in');
-    await expect(page.locator('#accountRecoveryNext a[href="/account/profile.html?returnContext=recovery#profileSecurityCard"]')).toHaveText('Open Profile');
-    await expect(page.locator('#accountRecoveryNext a[href="/account/credits.html?scope=member&source=recovery"]')).toHaveText('Review Credits');
+    const trust = page.locator('#accountRecoveryTrust');
+    await expect(trust.locator('summary')).toContainText('Account recovery is private');
+    await expect(trust.locator('.auth-page__disclosure-body')).not.toBeVisible();
+    await expect.poll(() => trust.evaluate((element) => element.hasAttribute('open'))).toBe(false);
+    await trust.locator('summary').click();
+    await expect.poll(() => trust.evaluate((element) => element.hasAttribute('open'))).toBe(true);
+    await expect(trust.locator('.auth-page__disclosure-body')).toContainText('same success message whether or not an email exists');
+    await expect(page.locator('#accountRecoveryNext')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Return to the signed-in workspace');
+
+    await page.locator('#bitbiHelpTrigger').click();
+    const recoveryHelp = page.locator('[data-help-section="recovery"]');
+    await recoveryHelp.locator('summary.help-menu__section-toggle').click();
+    const afterRecovery = recoveryHelp.locator('.help-menu__item').filter({ hasText: 'After recovery' });
+    await expect(afterRecovery.locator('summary')).toContainText('After recovery');
+    await expect(afterRecovery.locator('.help-menu__item-body')).not.toBeVisible();
+    await afterRecovery.locator('summary').click();
+    await expect(afterRecovery.locator('.help-menu__item-body')).toBeVisible();
+    await expect(afterRecovery.locator('.help-menu__item-body')).toContainText('Password reset only repairs access');
+    await expect(afterRecovery.locator('a[href="/account/profile.html?returnContext=recovery&source=help-recovery#profileSecurityCard"]')).toHaveText('Open Profile');
+    await expect(afterRecovery.locator('a[href="/account/credits.html?scope=member&source=help-recovery"]')).toHaveText('Review Credits');
   });
 
   test('reset password page loads with state containers', async ({ page }) => {
@@ -6584,6 +6611,10 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterForm')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterMsg')).toHaveText('Create an account or sign in to buy credits.');
+    await expectAuthContextDisclosureCollapsed(page, 'Account access');
+    await page.locator('#authContextPanel summary').click();
+    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
+    await expect(page.locator('#authContextBody')).toBeVisible();
     await expect(page.locator('#authContextTitle')).toHaveText('Checkout starts from an account');
     const pendingPack = await page.evaluate(() => sessionStorage.getItem('bitbi_pending_credit_pack'));
     expect(pendingPack).toBe('live_credits_5000');
@@ -6618,6 +6649,10 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterForm')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterMsg')).toHaveText('Erstelle ein Konto oder melde dich an, um Credits zu kaufen.');
+    await expectAuthContextDisclosureCollapsed(page, 'Kontozugriff');
+    await page.locator('#authContextPanel summary').click();
+    await expect.poll(() => page.locator('#authContextPanel').evaluate((element) => element.hasAttribute('open'))).toBe(true);
+    await expect(page.locator('#authContextBody')).toBeVisible();
     await expect(page.locator('#authContextTitle')).toHaveText('Checkout startet aus einem Konto');
     const pendingPack = await page.evaluate(() => sessionStorage.getItem('bitbi_pending_credit_pack'));
     expect(pendingPack).toBe('live_credits_5000');
