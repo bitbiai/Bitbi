@@ -5817,7 +5817,7 @@ test.describe('Auth flow pages', () => {
     await afterRecovery.locator('summary').click();
     await expect(afterRecovery.locator('.help-menu__item-body')).toBeVisible();
     await expect(afterRecovery.locator('.help-menu__item-body')).toContainText('Password reset only repairs access');
-    await expect(afterRecovery.locator('a[href="/account/profile.html?returnContext=recovery&source=help-recovery#profileSecurityCard"]')).toHaveText('Open Profile');
+    await expect(afterRecovery.locator('a[href="/account/profile.html?returnContext=recovery&source=help-recovery#profileCompletionCard"]')).toHaveText('Open Profile');
     await expect(afterRecovery.locator('a[href="/account/credits.html?scope=member&source=help-recovery"]')).toHaveText('Review Credits');
   });
 
@@ -5893,7 +5893,8 @@ test.describe('Account pages (unauthenticated)', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('#deniedState a[href="/account/forgot-password.html?source=profile"]')).toHaveText('Reset password');
     await expect(page.locator('#deniedState')).toContainText('complete email verification after sign-in');
-    await expect(page.locator('#profileSecurityCard')).toBeAttached();
+    await expect(page.locator('#profileCompletionCard')).toBeAttached();
+    await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#profileContent')).not.toBeVisible();
   });
 
@@ -6880,7 +6881,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('#creditsDenied a[href="/account/forgot-password.html?source=credits"]')).toHaveText('Reset password');
     await expect(page.locator('#creditsDenied')).toContainText('Profile verification guidance');
-    await expect(page.locator('#creditsDenied a[href="/account/profile.html?returnContext=credits#profileSecurityCard"]')).toHaveText('Profile recovery');
+    await expect(page.locator('#creditsDenied a[href="/account/profile.html?returnContext=credits#profileCompletionCard"]')).toHaveText('Profile recovery');
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
 
     await page.unroute('**/api/me');
@@ -7094,9 +7095,9 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(postAction).toContainText('Use Credits as the verified return point');
     await expect(postAction).toContainText('Cancel or error states do not assume a credit grant.');
     await expect(postAction.getByRole('link', { name: 'Check verified balance' })).toHaveAttribute('href', '#creditsSummaryGrid');
-    await expect(postAction.getByRole('link', { name: 'Review account trust' })).toHaveAttribute(
+    await expect(postAction.getByRole('link', { name: 'Review profile checklist' })).toHaveAttribute(
       'href',
-      '/account/profile.html?returnContext=credits#profileSecurityCard',
+      '/account/profile.html?returnContext=credits#profileCompletionCard',
     );
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
@@ -7495,9 +7496,9 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(state).toContainText('Checkout needs another try');
     await expect(state).toContainText('No credit grant is shown until the backend confirms payment.');
     await expect(state.getByRole('link', { name: 'Review pricing' })).toHaveAttribute('href', '/pricing.html#pricingOffers');
-    await expect(state.getByRole('link', { name: 'Review account trust' })).toHaveAttribute(
+    await expect(state.getByRole('link', { name: 'Review profile checklist' })).toHaveAttribute(
       'href',
-      '/account/profile.html?returnContext=credits#profileSecurityCard',
+      '/account/profile.html?returnContext=credits#profileCompletionCard',
     );
 
     await page.goto('/account/credits?scope=member&source=pricing');
@@ -11451,7 +11452,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('.auth-nav__identity-label')).toHaveText('Updated Header Name');
   });
 
-  test('profile completion and wallet trust summarize account quality without custody claims', async ({
+  test('profile completion stays compact and wallet trust guidance moves to Help', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -11473,22 +11474,31 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
-    await expect(page.locator('#profileCompletionCard')).toContainText('Profile quality');
+    await expect(page.locator('#profileCompletionCard')).toContainText('Checklist');
     await expect(page.locator('#profileCompletionStatus')).toContainText('5 of 5 account signals complete.');
     await expect(page.locator('#completionSignedInStatus')).toContainText('Signed in');
     await expect(page.locator('#completionProfileLoadedStatus')).toContainText('Profile loaded');
     await expect(page.locator('#completionEmailStatus')).toContainText('Verified');
     await expect(page.locator('#completionWalletStatus')).toContainText('Linked');
     await expect(page.locator('#completionRecoveryStatus')).toContainText('Available');
-    await expect(page.locator('#walletTrustStatus')).toContainText('Linked wallet is account-bound');
-    await expect(page.locator('#walletSectionCard')).toContainText('not wallet custody');
-    await expect(page.locator('#walletSectionCard')).toContainText('never asks for seed phrases or private keys');
+    await expect(page.locator('#profileCompletionCard .profile__completion-item')).toHaveCount(5);
+    await expect(page.locator('#profileCompletionCard [data-state="complete"]')).toHaveCount(5);
+    await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
+    await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
+    await expect(page.locator('#walletSectionCard')).not.toContainText('not wallet custody');
+    await expect(page.locator('#walletSectionCard')).not.toContainText('seed phrases');
     await expect(page.locator('#walletSectionCard')).toContainText('Refresh wallet status');
-    await expect(page.locator('#walletSectionCard').getByRole('link', { name: 'Reset password' })).toHaveAttribute(
-      'href',
-      '/account/forgot-password.html?source=profile',
-    );
     await expect(page.locator('#walletSectionCard')).not.toContainText('custodial wallet');
+
+    await page.locator('#bitbiHelpTrigger').click();
+    const profileHelp = page.locator('[data-help-section="profile"]');
+    await profileHelp.locator('summary.help-menu__section-toggle').click();
+    const walletHelp = profileHelp.locator('.help-menu__item').filter({ hasText: 'Wallet safety' });
+    await expect(walletHelp.locator('summary')).toContainText('Wallet safety');
+    await walletHelp.locator('summary').click();
+    await expect(walletHelp).toContainText('identity hint, not custody');
+    await expect(walletHelp).toContainText('seed phrases or private keys');
+    await expect(walletHelp.locator('.help-menu__item-body')).toContainText('Profile, Credits, Generate Lab, and Assets Manager work without a wallet link');
 
     await page.locator('#walletStatusRefreshBtn').click();
     await expect(page.locator('#walletSectionMsg')).toContainText('Wallet status refreshed from the existing account endpoint.');
@@ -11515,7 +11525,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(hint).toContainText('raw return URLs, tokens, and asset IDs are not stored');
     await expect(hint.getByRole('link', { name: 'Profile' })).toHaveAttribute(
       'href',
-      '/account/profile.html?source=credits#profileSecurityCard',
+      '/account/profile.html?source=credits#profileCompletionCard',
     );
     await expect(hint).not.toContainText('evil.example');
     await expect(hint).not.toContainText('raw-token');
@@ -11576,17 +11586,10 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('body')).not.toContainText('Workspace priority');
     await expect(page.locator('body')).not.toContainText('Usage trust');
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
-    await expect(page.locator('#profileCompletionCard')).toContainText('Profile quality');
-    await expect(page.locator('#profileCompletionCard').getByRole('link', { name: 'Edit profile fields' })).toHaveAttribute(
-      'href',
-      '#profileForm',
-    );
-    await expect(page.locator('#profileSecurityCard')).toBeVisible();
-    await expect(page.locator('#profileSecurityCard')).toContainText('Account security');
-    await expect(page.locator('#profileSecurityCard').getByRole('link', { name: 'Return to Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=profile-security',
-    );
+    await expect(page.locator('#profileCompletionCard')).toContainText('Checklist');
+    await expect(page.locator('#profileCompletionCard .profile__completion-item')).toHaveCount(5);
+    await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
+    await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await expect(page.locator('#profileForm')).toBeVisible();
     const layoutOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(layoutOverflow).toBe(false);
@@ -11633,7 +11636,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
-    await expect(page.locator('#profileSecurityCard')).toBeVisible();
+    await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -11722,7 +11725,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Profile, Credits, Generate Lab, and Assets Manager use this account session.');
     await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Profile' })).toHaveAttribute(
       'href',
-      '/account/profile.html?source=profile#profileSecurityCard',
+      '/account/profile.html?source=profile#profileCompletionCard',
     );
     await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
       'href',
@@ -11803,7 +11806,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
-    await expect(page.locator('#profileSecurityCard')).toBeVisible();
+    await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });

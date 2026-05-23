@@ -300,7 +300,7 @@ function renderReturnState() {
             actions: [
                 [`${localizedHref('/pricing.html')}#pricingOffers`, localeText('credits.returnActionPricing'), true],
                 ['#creditsSummaryGrid', localeText('credits.returnActionBalance')],
-                [`${localizedHref('/account/profile.html')}?returnContext=credits#profileSecurityCard`, localeText('credits.returnActionProfile')],
+                [`${localizedHref('/account/profile.html')}?returnContext=credits#profileCompletionCard`, localeText('credits.returnActionProfile')],
             ],
         },
         pricing: {
@@ -312,7 +312,7 @@ function renderReturnState() {
                 ['#creditsSummaryGrid', localeText('credits.returnActionBalance'), true],
                 [`${localizedHref('/generate-lab/')}?source=credits-return&step=create`, localeText('credits.returnActionGenerate')],
                 [`${localizedHref('/account/assets-manager.html')}?source=credits-return&recent=1#generate-lab-recent`, localeText('credits.returnActionAssets')],
-                [`${localizedHref('/account/profile.html')}?returnContext=credits#profileSecurityCard`, localeText('credits.returnActionProfile')],
+                [`${localizedHref('/account/profile.html')}?returnContext=credits#profileCompletionCard`, localeText('credits.returnActionProfile')],
             ],
         },
     };

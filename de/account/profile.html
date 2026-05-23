@@ -115,7 +115,7 @@
 <!-- CONTENT -->
 <div class="section-divider" aria-hidden="true"></div>
 <section class="section" aria-label="Profilinhalt">
-    <div class="section__inner--narrow profile-shell" style="margin-inline:auto">
+    <div class="section__inner profile-shell">
 
         <!-- Loading State -->
         <div id="loadingState" class="profile-loading reveal">Profil wird geladen...</div>
@@ -132,7 +132,7 @@
                     <li>Erstellen Sie ein Konto, um Kreationen zu speichern, Credits zu verwalten und Profildaten in einem Arbeitsbereich zu behalten.</li>
                     <li>Setzen Sie Ihr Passwort zurück oder schließen Sie die E-Mail-Bestätigung nach der Anmeldung ab, wenn der Zugriff repariert werden muss.</li>
                 </ul>
-                <p class="auth-recovery__return">Nach der Anmeldung hier fortfahren, um Kontosicherheit, Credits, Generate Lab und gespeicherte Assets zu prüfen.</p>
+                <p class="auth-recovery__return">Nach der Anmeldung hier fortfahren, um Profil-Checkliste, Credits, Generate Lab und gespeicherte Assets zu prüfen.</p>
                 <div class="auth-recovery__actions" aria-label="Profil-Kontoaktionen">
                     <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-source="profile" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="login">Anmelden</button>
                     <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-source="profile" data-auth-message-key="authRecovery.profileMessage" data-auth-message-target="register">Konto erstellen</button>
@@ -157,10 +157,43 @@
                 <div class="profile-layout">
                     <div class="profile-layout__main">
 
-                <!-- Avatar + Assets Manager pair -->
-                <div class="profile__top-pair reveal">
+                <div class="profile__overview-grid reveal" aria-label="Profilübersicht">
 
-                <!-- Avatar Card -->
+                <section class="profile__card profile__completion-card" id="profileCompletionCard" aria-labelledby="profileCompletionTitle">
+                    <div class="profile__completion-head">
+                        <p class="profile__control-eyebrow">Kontovervollständigung</p>
+                        <h2 id="profileCompletionTitle" class="profile__title">Checkliste</h2>
+                    </div>
+                    <div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>
+                    <div class="profile__completion-list" role="list" aria-label="Checkliste zur Profilvervollständigung">
+                        <div class="profile__completion-item" role="listitem" data-completion-item="signed-in" data-state="pending">
+                            <span class="profile__completion-check" aria-hidden="true"></span>
+                            <span class="profile__completion-label">Angemeldet</span>
+                            <strong id="completionSignedInStatus">Wird geprüft...</strong>
+                        </div>
+                        <div class="profile__completion-item" role="listitem" data-completion-item="profile-loaded" data-state="pending">
+                            <span class="profile__completion-check" aria-hidden="true"></span>
+                            <span class="profile__completion-label">Profil geladen</span>
+                            <strong id="completionProfileLoadedStatus">Wird geprüft...</strong>
+                        </div>
+                        <div class="profile__completion-item" role="listitem" data-completion-item="email" data-state="pending">
+                            <span class="profile__completion-check" aria-hidden="true"></span>
+                            <span class="profile__completion-label">E-Mail-Status</span>
+                            <strong id="completionEmailStatus">Wird geprüft...</strong>
+                        </div>
+                        <div class="profile__completion-item" role="listitem" data-completion-item="wallet" data-state="pending">
+                            <span class="profile__completion-check" aria-hidden="true"></span>
+                            <span class="profile__completion-label">Wallet-Link</span>
+                            <strong id="completionWalletStatus">Wallet-Status wird geladen...</strong>
+                        </div>
+                        <div class="profile__completion-item" role="listitem" data-completion-item="recovery" data-state="pending">
+                            <span class="profile__completion-check" aria-hidden="true"></span>
+                            <span class="profile__completion-label">Wiederherstellung</span>
+                            <strong id="completionRecoveryStatus">Verfügbar</strong>
+                        </div>
+                    </div>
+                </section>
+
                 <div class="profile__card profile__avatar-card">
                     <div class="profile__avatar-wrap">
                         <div class="profile__avatar-frame" id="avatarFrame">
@@ -206,7 +239,7 @@
                     </a>
                 </div>
 
-                </div><!-- /.profile__top-pair -->
+                </div><!-- /.profile__overview-grid -->
 
                 <!-- Kontoinformationen Card -->
                 <div class="profile__card reveal">
@@ -233,103 +266,6 @@
                     </div>
                 </div>
 
-                <section class="profile__card profile__completion-card reveal" id="profileCompletionCard" aria-labelledby="profileCompletionTitle">
-                    <div class="profile__completion-head">
-                        <p class="profile__control-eyebrow">Kontovervollständigung</p>
-                        <h2 id="profileCompletionTitle" class="profile__title">Profilqualität</h2>
-                        <p class="profile__completion-copy">Diese Checkliste nutzt nur Kontodaten, die bereits im Browser geladen sind. Unbekannte oder fehlende Punkte bleiben konservativ, bis das Backend sie bestätigt.</p>
-                    </div>
-                    <div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>
-                    <div class="profile__completion-list" role="list" aria-label="Checkliste zur Profilvervollständigung">
-                        <div class="profile__completion-item" role="listitem">
-                            <span class="profile__completion-label">Angemeldet</span>
-                            <strong id="completionSignedInStatus">Wird geprüft...</strong>
-                            <span>Ihr Profil ist erst verfügbar, wenn die Kontositzung akzeptiert wurde.</span>
-                        </div>
-                        <div class="profile__completion-item" role="listitem">
-                            <span class="profile__completion-label">Profil geladen</span>
-                            <strong id="completionProfileLoadedStatus">Wird geprüft...</strong>
-                            <span>Anzeigename, Bio, Website und Avatar werden hier bearbeitet.</span>
-                        </div>
-                        <div class="profile__completion-item" role="listitem">
-                            <span class="profile__completion-label">E-Mail-Status</span>
-                            <strong id="completionEmailStatus">Wird geprüft...</strong>
-                            <span>Die E-Mail-Bestätigung kommt aus dem Backend-Kontodatensatz.</span>
-                        </div>
-                        <div class="profile__completion-item" role="listitem">
-                            <span class="profile__completion-label">Wallet-Link</span>
-                            <strong id="completionWalletStatus">Wallet-Status wird geladen...</strong>
-                            <span>Wallet-Verknüpfung ist optional und erfordert niemals private Schlüssel.</span>
-                        </div>
-                        <div class="profile__completion-item" role="listitem">
-                            <span class="profile__completion-label">Wiederherstellungswege</span>
-                            <strong id="completionRecoveryStatus">Verfügbar</strong>
-                            <span>Passwort-Reset und E-Mail-Bestätigung bleiben über das Profil erreichbar.</span>
-                        </div>
-                    </div>
-                    <div class="profile__completion-actions" aria-label="Aktionen zur Profilvervollständigung">
-                        <a href="#profileForm" class="profile__control-link profile__control-link--primary">
-                            <span class="profile__control-link-label">Profilfelder bearbeiten</span>
-                            <span class="profile__control-link-copy">Anzeigename, öffentliche Bio, Website und Avatar aktualisieren.</span>
-                        </a>
-                        <button type="button" class="profile__control-link profile__control-link--button" data-open-wallet-workspace="completion">
-                            <span class="profile__control-link-label">Wallet-Link prüfen</span>
-                            <span class="profile__control-link-copy">Wallet-Arbeitsbereich öffnen, ohne Backend-Wallet-Regeln zu ändern.</span>
-                        </button>
-                        <a href="/de/account/forgot-password.html" class="profile__control-link">
-                            <span class="profile__control-link-label">Wiederherstellung</span>
-                            <span class="profile__control-link-copy">Passwort-Reset anfordern, wenn der Kontozugriff repariert werden muss.</span>
-                        </a>
-                    </div>
-                </section>
-
-                <section class="profile__card profile__security-card reveal" id="profileSecurityCard" aria-labelledby="profileSecurityTitle">
-                    <div class="profile__security-head">
-                        <p class="profile__control-eyebrow">Kontovertrauen</p>
-                        <h2 id="profileSecurityTitle" class="profile__title">Kontosicherheit</h2>
-                        <p class="profile__security-copy">Ihr angemeldetes Profil ist die Quelle der Wahrheit für den Kontostatus. Nutzen Sie diese Wiederherstellungswege, wenn Profil-Laden, E-Mail-Bestätigung oder Passwortzugriff Aufmerksamkeit brauchen.</p>
-                    </div>
-                    <div class="profile__security-grid" role="list" aria-label="Status der Kontosicherheit">
-                        <div class="profile__security-item" role="listitem">
-                            <span class="profile__security-label">Angemeldete Sitzung</span>
-                            <strong id="securitySessionStatus">Profil aus dieser Sitzung geladen.</strong>
-                            <span>Abmelden beendet diese Browser-Sitzung; setzen Sie das Passwort zurück, wenn Sie Kontoaktivität nicht erkennen.</span>
-                        </div>
-                        <div class="profile__security-item" role="listitem">
-                            <span class="profile__security-label">E-Mail-Bestätigung</span>
-                            <strong id="securityEmailStatus">Bestätigungsstatus wird geprüft...</strong>
-                            <span id="securityEmailHint">Der Bestätigungsstatus kommt aus dem Backend-Kontodatensatz.</span>
-                        </div>
-                        <div class="profile__security-item" role="listitem">
-                            <span class="profile__security-label">Wiederherstellung</span>
-                            <strong>Passwort-Zurücksetzung ist verfügbar.</strong>
-                            <span>Reset-Links werden per E-Mail gesendet und verraten nicht, ob eine Adresse existiert.</span>
-                        </div>
-                    </div>
-                    <div class="profile__security-actions" aria-label="Aktionen zur Kontosicherheit">
-                        <a href="/de/account/forgot-password.html" class="profile__control-link">
-                            <span class="profile__control-link-label">Passwort zurücksetzen</span>
-                            <span class="profile__control-link-copy">Nutzen Sie einen einmaligen E-Mail-Link, wenn Sie keinen Zugriff auf das Konto haben.</span>
-                        </a>
-                        <button type="button" id="securityReverifyBtn" class="profile__control-link profile__control-link--button" hidden>
-                            <span class="profile__control-link-label">Bestätigungs-E-Mail senden</span>
-                            <span class="profile__control-link-copy">Frische Bestätigungs-E-Mail bei Legacy- oder ausstehendem Status anfordern.</span>
-                        </button>
-                        <a href="/de/account/credits.html?scope=member" class="profile__control-link">
-                            <span class="profile__control-link-label">Credits prüfen</span>
-                            <span class="profile__control-link-copy">Credit- und Pro-Status bleiben kontogebunden.</span>
-                        </a>
-                        <a href="/de/account/assets-manager.html" class="profile__control-link">
-                            <span class="profile__control-link-label">Gespeicherte Assets prüfen</span>
-                            <span class="profile__control-link-copy">Gespeicherte Kreationen bleiben an dieses angemeldete Konto gebunden.</span>
-                        </a>
-                        <a href="/de/generate-lab/?source=profile-security" class="profile__control-link">
-                            <span class="profile__control-link-label">Zurück zu Generate Lab</span>
-                            <span class="profile__control-link-copy">Erst erstellen, wenn Kontostatus und Credits klar sind.</span>
-                        </a>
-                    </div>
-                </section>
-
                 <div class="profile__card reveal" id="walletSectionCard">
                     <div class="profile__wallet-head">
                         <div>
@@ -340,21 +276,8 @@
                     <div id="walletSectionMsg" class="profile__msg" role="status"></div>
                     <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
                     <div id="walletSectionActions" class="profile__wallet-actions"></div>
-                    <div class="profile__wallet-trust" aria-labelledby="walletTrustTitle">
-                        <h3 id="walletTrustTitle">Hinweise zum Wallet-Vertrauen</h3>
-                        <ul>
-                            <li>Wallet-Verknüpfung ist ein Konto-Anmelde- und Identitätshinweis, keine Wallet-Verwahrung.</li>
-                            <li>BITBI fragt niemals nach Seed-Phrasen oder privaten Schlüsseln.</li>
-                            <li>Trennen entfernt die BITBI-Konto-Verknüpfung; Assets in Ihrer Wallet bleiben unberührt.</li>
-                        </ul>
-                        <p id="walletTrustStatus" class="profile__wallet-trust-status" role="status" aria-live="polite">Wallet-Vertrauensstatus lädt nach dem Wallet-Status.</p>
-                        <div class="profile__wallet-recovery" aria-label="Wallet-Wiederherstellungsaktionen">
-                            <p>Wenn der Wallet-Status nicht verfügbar ist, aktualisieren Sie den bestehenden Kontostatus oder melden Sie sich erneut an, bevor Sie Wallet-Links ändern.</p>
-                            <div class="profile__wallet-recovery-actions">
-                                <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Wallet-Status aktualisieren</button>
-                                <a href="/de/account/forgot-password.html?source=profile" class="profile__wallet-btn profile__wallet-btn--ghost">Passwort zurücksetzen</a>
-                            </div>
-                        </div>
+                    <div class="profile__wallet-utility" aria-label="Wallet-Status-Werkzeuge">
+                        <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Wallet-Status aktualisieren</button>
                     </div>
                 </div>
 
@@ -363,7 +286,7 @@
                     <div class="profile__edit-head">
                         <p class="profile__control-eyebrow">Profileinstellungen</p>
                         <h2 class="profile__title">Profil bearbeiten</h2>
-                        <p id="profileEditIntro" class="profile__edit-copy">Anzeigename, Bio, Website und Avatar sind bearbeitbar. E-Mail, Bestätigung und Wallet-Status werden über Kontosicherheit und Wallet-Steuerung verwaltet.</p>
+                        <p id="profileEditIntro" class="profile__edit-copy">Anzeigename, Bio, Website und Avatar sind bearbeitbar. E-Mail, Bestätigung und Wallet-Status bleiben bei Kontoübersicht und Wallet-Steuerung.</p>
                     </div>
 
                     <div id="profileEditState" class="profile__edit-state" role="status" aria-live="polite">Profilfelder werden aus Ihrem Konto geladen.</div>

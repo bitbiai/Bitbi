@@ -2450,7 +2450,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labSessionCreditStatus')).toHaveText('900 credits');
     await expect(page.locator('.generate-lab__session-actions').getByRole('link', { name: 'Profile' })).toHaveAttribute(
       'href',
-      '/account/profile.html?returnContext=generate-lab#profileSecurityCard',
+      '/account/profile.html?returnContext=generate-lab#profileCompletionCard',
     );
     await expect(page.locator('.generate-lab__session-actions').getByRole('link', { name: 'Credits' })).toHaveAttribute(
       'href',
@@ -2739,7 +2739,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labSessionCreditStatus')).toHaveText('900 Credits');
     await expect(page.locator('.generate-lab__session-actions').getByRole('link', { name: 'Profil' })).toHaveAttribute(
       'href',
-      '/de/account/profile.html?returnContext=generate-lab#profileSecurityCard',
+      '/de/account/profile.html?returnContext=generate-lab#profileCompletionCard',
     );
     await expect(page.locator('#labWorkflowStatus')).toContainText('Bereit zum Konfigurieren');
     await expect(page.locator('#labWorkflowStatus')).toContainText('Wählen Sie ein Modell, prüfen Sie die geschätzten Credits');

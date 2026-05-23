@@ -197,7 +197,22 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Nutzen Sie das Profil für Kontokontext und Reset-/Bestätigungslinks, wenn Zugriff Aufmerksamkeit braucht.',
                 }),
                 links: Object.freeze([
-                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?source=help#profileSecurityCard' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?source=help#profileCompletionCard' }),
+                ]),
+            }),
+            Object.freeze({
+                id: 'wallet-safety',
+                title: Object.freeze({ en: 'Wallet safety', de: 'Wallet-Sicherheit' }),
+                summary: Object.freeze({
+                    en: 'Wallet linking is an identity hint, not custody; BITBI never asks for seed phrases or private keys.',
+                    de: 'Wallet-Verknüpfung ist ein Identitätshinweis, keine Verwahrung; BITBI fragt nie nach Seed-Phrasen oder privaten Schlüsseln.',
+                }),
+                detail: Object.freeze({
+                    en: 'Unlinking removes only the BITBI account connection. Profile, Credits, Generate Lab, and Assets Manager work without a wallet link; if status is unavailable, refresh account status or sign in again before changing wallet links.',
+                    de: 'Trennen entfernt nur die BITBI-Konto-Verknüpfung. Profil, Credits, Generate Lab und Assets Manager funktionieren ohne Wallet-Link; wenn der Status fehlt, aktualisieren Sie den Kontostatus oder melden Sie sich erneut an, bevor Sie Wallet-Links ändern.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?source=help-wallet#walletSectionCard' }),
                 ]),
             }),
         ]),
@@ -234,7 +249,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Das Zurücksetzen des Passworts repariert nur den Zugriff. Profil, Credits, Generate Lab und Assets Manager laden weiter aus Ihrem angemeldeten Konto nach Backend-Bestätigung.',
                 }),
                 links: Object.freeze([
-                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?returnContext=recovery&source=help-recovery#profileSecurityCard' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?returnContext=recovery&source=help-recovery#profileCompletionCard' }),
                     Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?scope=member&source=help-recovery' }),
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-recovery' }),
                 ]),
