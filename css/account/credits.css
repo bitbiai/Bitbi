@@ -307,10 +307,36 @@
     background: rgba(255, 92, 92, 0.08);
   }
 
+  .credits-overview-grid,
+  .credits-work-grid,
+  .credits-history-grid {
+    display: grid;
+    gap: var(--space-5);
+    min-width: 0;
+    max-width: 100%;
+    align-items: stretch;
+  }
+
+  .credits-overview-grid {
+    grid-template-columns: minmax(17rem, 0.78fr) minmax(0, 2fr);
+  }
+
+  .credits-work-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .credits-work-grid--member {
+    grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+  }
+
+  .credits-history-grid {
+    grid-template-columns: minmax(18rem, 0.82fr) minmax(0, 1.18fr);
+  }
+
   .credits-toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
+    align-content: space-between;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
     padding: var(--space-6) var(--space-8);
     margin-block-end: 0;
@@ -351,7 +377,8 @@
   }
 
   .credits-summary-grid--member {
-    grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(13rem, 1fr));
+    grid-template-columns: minmax(17rem, 1.18fr) minmax(13rem, 0.82fr);
+    grid-template-rows: repeat(3, minmax(0, 1fr));
     align-items: stretch;
   }
 
@@ -370,11 +397,18 @@
   }
 
   .credits-card--hero {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
     border-color: rgba(0, 240, 255, 0.24);
     background:
       linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(34, 197, 94, 0.05)),
       rgba(13, 27, 42, 0.95);
     box-shadow: 0 20px 54px rgba(0, 240, 255, 0.07);
+  }
+
+  .credits-summary-grid--member .credits-card--hero {
+    grid-row: 1 / span 3;
   }
 
   .credits-card__label {
@@ -400,6 +434,12 @@
     margin-block-start: 0;
     padding: var(--space-8);
     border-color: rgba(255, 255, 255, 0.09);
+  }
+
+  .credits-overview-grid > *,
+  .credits-work-grid > *,
+  .credits-history-grid > * {
+    min-width: 0;
   }
 
   .credits-section__header {
@@ -566,6 +606,11 @@
   .credits-pack {
     display: grid;
     gap: var(--space-4);
+    align-content: start;
+  }
+
+  .credits-work-grid--member #creditsPackGrid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
   }
 
   .credits-pack__price {
@@ -794,6 +839,13 @@
       grid-template-columns: 1fr;
     }
 
+    .credits-overview-grid,
+    .credits-work-grid,
+    .credits-work-grid--member,
+    .credits-history-grid {
+      grid-template-columns: 1fr;
+    }
+
     .credits-summary-grid,
     .credits-pack-grid {
       grid-template-columns: 1fr;
@@ -802,6 +854,11 @@
     .credits-summary-grid--member {
       width: 100%;
       grid-template-columns: 1fr;
+      grid-template-rows: auto;
+    }
+
+    .credits-summary-grid--member .credits-card--hero {
+      grid-row: auto;
     }
 
     .credits-subscription-panel__header,

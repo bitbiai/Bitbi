@@ -347,6 +347,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).not.toContain('Member credits');
     expect(enCredits).toContain('Credits dashboard');
     expect(enCredits).toContain('Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.');
+    expect(enCredits).toContain('class="credits-overview-grid"');
+    expect(enCredits).toContain('id="creditsWorkGrid" class="credits-work-grid"');
+    expect(enCredits).toContain('class="credits-history-grid"');
     expect(enCredits).not.toContain('credits-hero__glow');
     expect(deCredits).toContain('class="hero hero--compact credits-hero"');
     expect(deCredits).toContain('class="legal-hero__title credits-title gt-gold-cyan"');
@@ -354,6 +357,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).not.toContain('Mitglieder-Credits');
     expect(deCredits).toContain('Credits-Dashboard');
     expect(deCredits).toContain('Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.');
+    expect(deCredits).toContain('class="credits-overview-grid"');
+    expect(deCredits).toContain('id="creditsWorkGrid" class="credits-work-grid"');
+    expect(deCredits).toContain('class="credits-history-grid"');
     expect(deCredits).not.toContain('credits-hero__glow');
   });
 
@@ -569,6 +575,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).not.toContain('id="creditsPostActionGuide"');
     expect(enCredits).not.toContain('Use Credits as the verified return point');
     expect(enCredits).not.toContain('After pricing');
+    expect(enCredits).toContain('credits-overview-grid');
+    expect(enCredits).toContain('credits-work-grid');
+    expect(enCredits).toContain('credits-history-grid');
     expect(enCredits).toContain('Sign in to review credits');
     expect(enCredits).toContain('Profile verification guidance are available');
     expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileCompletionCard"');
@@ -590,6 +599,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).not.toContain('id="creditsPostActionGuide"');
     expect(deCredits).not.toContain('Credits als verifizierten Rückkehrpunkt nutzen');
     expect(deCredits).not.toContain('Nach Pricing');
+    expect(deCredits).toContain('credits-overview-grid');
+    expect(deCredits).toContain('credits-work-grid');
+    expect(deCredits).toContain('credits-history-grid');
     expect(deCredits).toContain('Anmelden, um Credits zu prüfen');
     expect(deCredits).toContain('Profilhinweise zur Bestätigung sind verfügbar');
     expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileCompletionCard"');

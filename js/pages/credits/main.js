@@ -34,6 +34,7 @@ const $accessScope = document.getElementById('creditsAccessScope');
 const $orgPickerWrap = document.getElementById('creditsOrgPickerWrap');
 const $orgPicker = document.getElementById('creditsOrgPicker');
 const $summaryGrid = document.getElementById('creditsSummaryGrid');
+const $workGrid = document.getElementById('creditsWorkGrid');
 const $subscriptionSection = document.getElementById('creditsSubscriptionSection');
 const $subscriptionBody = document.getElementById('creditsSubscriptionBody');
 const $subscriptionFeedback = document.getElementById('creditsSubscriptionFeedback');
@@ -118,6 +119,7 @@ function setDenied({ sessionExpired = false } = {}) {
 
 function setMode(mode) {
     activeMode = mode === 'member' ? 'member' : 'organization';
+    $workGrid?.classList.toggle('credits-work-grid--member', activeMode === 'member');
     if ($scopeLabel) $scopeLabel.textContent = activeMode === 'member' ? localeText('credits.memberAccount') : localeText('credits.organization');
     if ($subtitle) {
         $subtitle.textContent = activeMode === 'member'

@@ -990,7 +990,6 @@ export function createSavedAssetsBrowser({
             await refresh({ preserveView: false });
             await openAllAssets();
             setListStatus(localeText('assets.viewRefreshDone'), 'all');
-            showMsg(localeText('assets.viewRefreshDone'), 'success');
         } catch (error) {
             console.warn('Saved assets refresh failed:', error);
             setListStatus(localeText('assets.viewRefreshFailed'), 'error');

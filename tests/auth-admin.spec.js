@@ -7101,6 +7101,9 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
     await expect(page.locator('#creditsAccessScope')).toContainText('Daily top-up: 7 credits granted today.');
+    await expect(page.locator('.credits-overview-grid')).toBeVisible();
+    await expect(page.locator('#creditsWorkGrid')).toHaveClass(/credits-work-grid--member/);
+    await expect(page.locator('.credits-history-grid')).toBeVisible();
     const summaryCards = page.locator('#creditsSummaryGrid .credits-card');
     await expect(summaryCards).toHaveCount(4);
     const firstSummaryCard = summaryCards.first();
@@ -7132,13 +7135,47 @@ test.describe('Credits dashboard live credit packs', () => {
         top: Math.round(rect.top),
         left: Math.round(rect.left),
         right: Math.round(rect.right),
+        bottom: Math.round(rect.bottom),
+        height: Math.round(rect.height),
         width: Math.round(rect.width),
       };
     }));
     expect(summaryLayout).toHaveLength(4);
     expect(Math.abs(summaryLayout[0].top - summaryLayout[1].top)).toBeLessThanOrEqual(2);
     expect(summaryLayout[1].left).toBeGreaterThan(summaryLayout[0].left);
+    expect(summaryLayout[2].top).toBeGreaterThan(summaryLayout[1].top);
+    expect(summaryLayout[3].top).toBeGreaterThan(summaryLayout[2].top);
+    expect(summaryLayout[0].height).toBeGreaterThan(summaryLayout[1].height * 1.7);
+    expect(Math.abs(summaryLayout[0].bottom - summaryLayout[3].bottom)).toBeLessThanOrEqual(4);
     expect(summaryLayout.every((card) => card.width >= 170)).toBe(true);
+
+    const workLayout = await page.evaluate(() => {
+      const subscription = document.getElementById('creditsSubscriptionSection')?.getBoundingClientRect();
+      const packs = document.getElementById('creditsPacksSection')?.getBoundingClientRect();
+      return subscription && packs ? {
+        subscriptionTop: Math.round(subscription.top),
+        subscriptionLeft: Math.round(subscription.left),
+        packsTop: Math.round(packs.top),
+        packsLeft: Math.round(packs.left),
+      } : null;
+    });
+    expect(workLayout).not.toBeNull();
+    expect(Math.abs(workLayout.subscriptionTop - workLayout.packsTop)).toBeLessThanOrEqual(3);
+    expect(workLayout.packsLeft).toBeGreaterThan(workLayout.subscriptionLeft);
+
+    const historyLayout = await page.evaluate(() => {
+      const purchases = document.getElementById('creditsPurchasesSection')?.getBoundingClientRect();
+      const ledger = document.querySelector('[aria-labelledby="creditsLedgerTitle"]')?.getBoundingClientRect();
+      return purchases && ledger ? {
+        purchasesTop: Math.round(purchases.top),
+        purchasesLeft: Math.round(purchases.left),
+        ledgerTop: Math.round(ledger.top),
+        ledgerLeft: Math.round(ledger.left),
+      } : null;
+    });
+    expect(historyLayout).not.toBeNull();
+    expect(Math.abs(historyLayout.purchasesTop - historyLayout.ledgerTop)).toBeLessThanOrEqual(3);
+    expect(historyLayout.ledgerLeft).toBeGreaterThan(historyLayout.purchasesLeft);
 
     const currentCard = page.locator('#creditsLedgerBody .credits-ledger-card--current');
     await expect(currentCard.locator('.credits-ledger-card__title')).toHaveText(creditLedgerMonthLabel(0));
@@ -7171,11 +7208,25 @@ test.describe('Credits dashboard live credit packs', () => {
       const rect = card.getBoundingClientRect();
       return {
         top: Math.round(rect.top),
+        left: Math.round(rect.left),
         width: Math.round(rect.width),
       };
     }));
     expect(mobileSummaryLayout[1].top).toBeGreaterThan(mobileSummaryLayout[0].top);
+    expect(mobileSummaryLayout.every((card) => Math.abs(card.left - mobileSummaryLayout[0].left) <= 2)).toBe(true);
     expect(mobileSummaryLayout.every((card) => card.width >= 320)).toBe(true);
+    const mobileWorkLayout = await page.evaluate(() => {
+      const subscription = document.getElementById('creditsSubscriptionSection')?.getBoundingClientRect();
+      const packs = document.getElementById('creditsPacksSection')?.getBoundingClientRect();
+      return subscription && packs ? {
+        subscriptionTop: Math.round(subscription.top),
+        packsTop: Math.round(packs.top),
+        leftDelta: Math.abs(Math.round(subscription.left) - Math.round(packs.left)),
+      } : null;
+    });
+    expect(mobileWorkLayout).not.toBeNull();
+    expect(mobileWorkLayout.packsTop).toBeGreaterThan(mobileWorkLayout.subscriptionTop);
+    expect(mobileWorkLayout.leftDelta).toBeLessThanOrEqual(2);
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
@@ -7830,6 +7881,8 @@ test.describe('Assets Manager (authenticated)', () => {
     );
     await expect(assetsHelp.locator('.help-menu__item').filter({ hasText: 'Private until published' })).toContainText('Saved media stays private');
     await expect(assetsHelp.locator('.help-menu__item').filter({ hasText: 'Mobile asset actions' })).toContainText('folder and selection tools stay grouped');
+    await page.getByRole('button', { name: 'Close help menu' }).click();
+    await expect(page.locator('#bitbiHelpMenu')).not.toHaveClass(/is-open/);
 
     await expect(page.locator('#studioFolderGrid')).toBeVisible();
     await expect(page.locator('#studioFolderGrid .studio__folder-card').first()).toContainText('Open all assets');
@@ -7844,6 +7897,13 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.getByRole('heading', { name: 'Your saved library is empty' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Start creating' })).toHaveAttribute('href', '/#gallery');
     expect(requests).toEqual([]);
+    await page.locator('#studioViewRefresh').click();
+    await expect(page.locator('#studioListStatus')).toContainText('Latest assets refreshed');
+    await expect(page.locator('#studioGalleryMsg')).not.toContainText('Latest assets refreshed');
+    const refreshMessageCount = await page.locator('body').evaluate((body) => (
+      (body.innerText.match(/Latest assets refreshed/g) || []).length
+    ));
+    expect(refreshMessageCount).toBe(1);
   });
 
   test('account Assets Manager surfaces Generate Lab handoff recovery and can dismiss the handoff', async ({

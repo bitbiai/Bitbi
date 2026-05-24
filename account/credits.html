@@ -115,76 +115,82 @@
         <div id="creditsError" class="credits-state credits-state--error glass glass-card" hidden></div>
 
         <div id="creditsDashboard" hidden>
-            <div class="credits-toolbar glass glass-card">
-                <div>
-                    <p id="creditsScopeLabel" class="credits-eyebrow">Organization</p>
-                    <h2 id="creditsOrgName">Not selected</h2>
-                    <p id="creditsAccessScope" class="credits-muted">Access scope pending.</p>
+            <div class="credits-overview-grid">
+                <div class="credits-toolbar glass glass-card">
+                    <div>
+                        <p id="creditsScopeLabel" class="credits-eyebrow">Organization</p>
+                        <h2 id="creditsOrgName">Not selected</h2>
+                        <p id="creditsAccessScope" class="credits-muted">Access scope pending.</p>
+                    </div>
+                    <label id="creditsOrgPickerWrap" class="credits-picker" hidden>
+                        <span>Switch organization</span>
+                        <select id="creditsOrgPicker"></select>
+                    </label>
                 </div>
-                <label id="creditsOrgPickerWrap" class="credits-picker" hidden>
-                    <span>Switch organization</span>
-                    <select id="creditsOrgPicker"></select>
-                </label>
+
+                <div class="credits-summary-grid" id="creditsSummaryGrid"></div>
             </div>
 
-            <div class="credits-summary-grid" id="creditsSummaryGrid"></div>
-
-            <section id="creditsSubscriptionSection" class="credits-section credits-subscription-section" aria-labelledby="creditsSubscriptionTitle" hidden>
-                <div class="credits-section__header">
-                    <div>
-                        <p class="credits-eyebrow">Membership</p>
-                        <h2 id="creditsSubscriptionTitle">Subscription</h2>
+            <div id="creditsWorkGrid" class="credits-work-grid">
+                <section id="creditsSubscriptionSection" class="credits-section credits-subscription-section" aria-labelledby="creditsSubscriptionTitle" hidden>
+                    <div class="credits-section__header">
+                        <div>
+                            <p class="credits-eyebrow">Membership</p>
+                            <h2 id="creditsSubscriptionTitle">Subscription</h2>
+                        </div>
                     </div>
-                </div>
-                <div id="creditsSubscriptionBody"></div>
-                <div id="creditsSubscriptionFeedback" class="credits-note credits-note--success" role="status" hidden></div>
-            </section>
+                    <div id="creditsSubscriptionBody"></div>
+                    <div id="creditsSubscriptionFeedback" class="credits-note credits-note--success" role="status" hidden></div>
+                </section>
 
-            <section id="creditsPacksSection" class="credits-section" aria-labelledby="creditsPacksTitle">
-                <div class="credits-section__header">
-                    <div>
-                        <p class="credits-eyebrow">Live checkout</p>
-                        <h2 id="creditsPacksTitle">Credit packs</h2>
+                <section id="creditsPacksSection" class="credits-section" aria-labelledby="creditsPacksTitle">
+                    <div class="credits-section__header">
+                        <div>
+                            <p class="credits-eyebrow">Live checkout</p>
+                            <h2 id="creditsPacksTitle">Credit packs</h2>
+                        </div>
+                        <span id="creditsCheckoutStatus" class="credits-badge credits-badge--blocked">Checking config</span>
                     </div>
-                    <span id="creditsCheckoutStatus" class="credits-badge credits-badge--blocked">Checking config</span>
-                </div>
-                <div id="creditsConfigNote" class="credits-note" hidden></div>
-                <div id="creditsLegalBlock" class="credits-legal" hidden></div>
-                <div id="creditsPackGrid" class="credits-pack-grid"></div>
-            </section>
+                    <div id="creditsConfigNote" class="credits-note" hidden></div>
+                    <div id="creditsLegalBlock" class="credits-legal" hidden></div>
+                    <div id="creditsPackGrid" class="credits-pack-grid"></div>
+                </section>
+            </div>
 
-            <section id="creditsPurchasesSection" class="credits-section" aria-labelledby="creditsPurchasesTitle">
-                <div class="credits-section__header">
-                    <div>
-                        <p class="credits-eyebrow">History</p>
-                        <h2 id="creditsPurchasesTitle">Recent purchases</h2>
+            <div class="credits-history-grid">
+                <section id="creditsPurchasesSection" class="credits-section" aria-labelledby="creditsPurchasesTitle">
+                    <div class="credits-section__header">
+                        <div>
+                            <p class="credits-eyebrow">History</p>
+                            <h2 id="creditsPurchasesTitle">Recent purchases</h2>
+                        </div>
                     </div>
-                </div>
-                <div class="credits-table-wrap">
-                    <table class="credits-table">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Pack</th>
-                                <th>Status</th>
-                                <th>Amount</th>
-                                <th>Scope</th>
-                            </tr>
-                        </thead>
-                        <tbody id="creditsPurchasesBody"></tbody>
-                    </table>
-                </div>
-            </section>
+                    <div class="credits-table-wrap">
+                        <table class="credits-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Pack</th>
+                                    <th>Status</th>
+                                    <th>Amount</th>
+                                    <th>Scope</th>
+                                </tr>
+                            </thead>
+                            <tbody id="creditsPurchasesBody"></tbody>
+                        </table>
+                    </div>
+                </section>
 
-            <section class="credits-section" aria-labelledby="creditsLedgerTitle">
-                <div class="credits-section__header">
-                    <div>
-                        <p class="credits-eyebrow">Ledger</p>
-                        <h2 id="creditsLedgerTitle">Recent credit activity</h2>
+                <section class="credits-section" aria-labelledby="creditsLedgerTitle">
+                    <div class="credits-section__header">
+                        <div>
+                            <p class="credits-eyebrow">Ledger</p>
+                            <h2 id="creditsLedgerTitle">Recent credit activity</h2>
+                        </div>
                     </div>
-                </div>
-                <div id="creditsLedgerBody" class="credits-ledger-grid"></div>
-            </section>
+                    <div id="creditsLedgerBody" class="credits-ledger-grid"></div>
+                </section>
+            </div>
         </div>
     </div>
     </section>
