@@ -167,15 +167,51 @@ export const HELP_MENU_SECTIONS = Object.freeze([
         }),
         items: Object.freeze([
             Object.freeze({
+                id: 'saved-output-recovery',
+                title: Object.freeze({ en: 'Find saved output', de: 'Gespeicherte Ergebnisse finden' }),
+                summary: Object.freeze({
+                    en: 'Saved Generate Lab output appears in Assets Manager after account save completes.',
+                    de: 'Gespeicherte Generate-Lab-Ergebnisse erscheinen im Assets Manager nach abgeschlossenem Konto-Speichern.',
+                }),
+                detail: Object.freeze({
+                    en: 'If a new item looks missing, refresh the library or show all assets because folder views can hide recent saved output.',
+                    de: 'Wenn ein neues Element fehlt, aktualisieren Sie die Bibliothek oder zeigen Sie alle Assets an, weil Ordneransichten aktuelle Speicherungen ausblenden können.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Assets Manager', de: 'Assets Manager öffnen' }), path: '/account/assets-manager.html', suffix: '?source=help-assets&recent=1#generate-lab-recent' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-assets&step=create' }),
+                ]),
+            }),
+            Object.freeze({
+                id: 'private-publishing',
+                title: Object.freeze({ en: 'Private until published', de: 'Privat bis zur Veröffentlichung' }),
+                summary: Object.freeze({
+                    en: 'Saved media stays private until you publish it to a public BITBI gallery.',
+                    de: 'Gespeicherte Medien bleiben privat, bis Sie sie in einer öffentlichen BITBI-Galerie veröffentlichen.',
+                }),
+            }),
+            Object.freeze({
                 id: 'storage-vs-credits',
                 title: Object.freeze({ en: 'Storage is separate from credits', de: 'Speicher ist getrennt von Credits' }),
                 summary: Object.freeze({
-                    en: 'Moving or deleting files changes your library organization, not your credit balance.',
-                    de: 'Verschieben oder Löschen ändert Ihre Bibliothek, nicht Ihren Credit-Stand.',
+                    en: 'Storage quota and credits are separate account concepts.',
+                    de: 'Speicherplatz und Credits sind getrennte Konto-Konzepte.',
                 }),
                 detail: Object.freeze({
-                    en: 'Use Generate Lab for creation, Credits for balance context, and Assets Manager for saved output.',
-                    de: 'Nutzen Sie Generate Lab zum Erstellen, Credits für den Kontostand und Assets Manager für gespeicherte Ergebnisse.',
+                    en: 'Moving or deleting assets changes the library after backend confirmation. Credits are reviewed in Credits and consumed by generation, not folder organization.',
+                    de: 'Verschieben oder Löschen ändert die Bibliothek nach Backend-Bestätigung. Credits werden in Credits geprüft und durch Generierung verbraucht, nicht durch Ordnerorganisation.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?source=help-assets' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-assets' }),
+                ]),
+            }),
+            Object.freeze({
+                id: 'mobile-asset-actions',
+                title: Object.freeze({ en: 'Mobile asset actions', de: 'Mobile Asset-Aktionen' }),
+                summary: Object.freeze({
+                    en: 'On phones, folder and selection tools stay grouped so the asset context remains visible.',
+                    de: 'Auf Smartphones bleiben Ordner- und Auswahlwerkzeuge gebündelt, damit der Asset-Kontext sichtbar bleibt.',
                 }),
             }),
         ]),

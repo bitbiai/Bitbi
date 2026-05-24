@@ -25,7 +25,6 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
@@ -160,74 +159,6 @@
                     </div>
                 </div>
 
-                <nav class="assets-manager__workspace-nav" aria-labelledby="assetsWorkspaceTitle">
-                    <div>
-                        <p class="assets-manager__eyebrow">Member workspace</p>
-                        <h3 id="assetsWorkspaceTitle" class="assets-manager__workspace-title">Move between creation, credits, and profile</h3>
-                        <p class="assets-manager__workspace-copy">Saved media is account-bound. Use Generate Lab to create, Credits to review balances, and Profile to keep account details current.</p>
-                    </div>
-                    <div class="assets-manager__workspace-actions" aria-label="Member workspace shortcuts">
-                        <a href="/generate-lab/" class="assets-manager__workspace-link assets-manager__workspace-link--primary">Continue creating</a>
-                        <a href="/account/credits.html?scope=member" class="assets-manager__workspace-link">Review credits</a>
-                        <a href="/account/profile.html" class="assets-manager__workspace-link">Profile settings</a>
-                    </div>
-                </nav>
-
-                <section id="assetsWorkspacePriority" class="member-workflow" aria-labelledby="assetsWorkspacePriorityTitle">
-                    <div class="member-workflow__head">
-                        <p class="member-workflow__eyebrow">Workspace priority</p>
-                        <h3 id="assetsWorkspacePriorityTitle" class="member-workflow__title">Keep the library moving</h3>
-                        <p class="member-workflow__copy">Assets Manager is the private library. Start by clearing hidden views, then create more, review credits, or return to the profile checklist.</p>
-                    </div>
-                    <ol class="member-workflow__list" aria-label="Assets Manager workspace next actions">
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link member-workflow__link--primary" href="#studioGalleryFilter">
-                                <span class="member-workflow__step">Now</span>
-                                <strong>Show all assets</strong>
-                                <span>Use the folder filter when a recent save looks missing or hidden.</span>
-                            </a>
-                        </li>
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link" href="/generate-lab/?source=assets-manager&amp;step=create">
-                                <span class="member-workflow__step">Next</span>
-                                <strong>Create more</strong>
-                                <span>Return to Generate Lab for the next image, video, or music output.</span>
-                            </a>
-                        </li>
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link" href="/account/credits.html?scope=member&amp;source=assets-manager">
-                                <span class="member-workflow__step">Then</span>
-                                <strong>Review credits</strong>
-                                <span>Check balances and Pro context before another creation session.</span>
-                            </a>
-                        </li>
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link" href="/account/profile.html?returnContext=assets-manager#profileCompletionCard">
-                                <span class="member-workflow__step">Keep safe</span>
-                                <strong>Complete account</strong>
-                                <span>Profile keeps recovery, wallet guidance, and identity details visible.</span>
-                            </a>
-                        </li>
-                    </ol>
-                </section>
-
-                <section class="assets-manager__first-run" aria-labelledby="assetsFirstRunTitle">
-                    <div class="assets-manager__first-run-head">
-                        <p class="assets-manager__eyebrow">First saved asset?</p>
-                        <h3 id="assetsFirstRunTitle" class="assets-manager__workspace-title">Your library starts after you save from Generate Lab</h3>
-                        <p class="assets-manager__workspace-copy">If this page is empty, create in Generate Lab first. If you just saved something, refresh or show all assets so folders and filters do not hide the newest item.</p>
-                    </div>
-                    <ol class="assets-manager__first-run-steps">
-                        <li><strong>Create</strong><span>Open Generate Lab and generate a preview.</span></li>
-                        <li><strong>Save</strong><span>Use the save action after a result is ready.</span></li>
-                        <li><strong>Recover</strong><span>Refresh this library or show all assets when the latest save is still processing.</span></li>
-                    </ol>
-                    <div class="assets-manager__first-run-actions" aria-label="Assets Manager first-run actions">
-                        <a href="/generate-lab/?source=assets-manager" class="assets-manager__workspace-link assets-manager__workspace-link--primary">Create first asset</a>
-                        <a href="/account/credits.html?scope=member" class="assets-manager__workspace-link">Check credits</a>
-                    </div>
-                </section>
-
                 <section id="assetsHandoffBanner" class="assets-manager__handoff" role="status" aria-live="polite" aria-labelledby="assetsHandoffTitle" hidden>
                     <div class="assets-manager__handoff-copy">
                         <p class="assets-manager__handoff-eyebrow">From Generate Lab</p>
@@ -243,32 +174,13 @@
                     </div>
                 </section>
 
-                <div class="assets-manager__overview" aria-label="Assets Manager overview">
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsStorageTitle">
-                        <p class="assets-manager__overview-label">Storage</p>
-                        <h3 id="assetsStorageTitle" class="assets-manager__overview-title">Storage status</h3>
-                        <p id="studioStorageInsight" class="assets-manager__overview-copy" aria-live="polite">Storage details appear after your library loads.</p>
-                    </section>
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsPrivacyTitle">
-                        <p class="assets-manager__overview-label">Safety</p>
-                        <h3 id="assetsPrivacyTitle" class="assets-manager__overview-title">Private first</h3>
-                        <p class="assets-manager__overview-copy">Saved media stays private until you publish it to a public BITBI gallery.</p>
-                    </section>
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsMobileTitle">
-                        <p class="assets-manager__overview-label">Mobile</p>
-                        <h3 id="assetsMobileTitle" class="assets-manager__overview-title">Actions stay grouped</h3>
-                        <p class="assets-manager__overview-copy">On phones, use Asset actions for folders and selection tools without losing your place.</p>
-                    </section>
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsCreditContextTitle">
-                        <p class="assets-manager__overview-label">Credits</p>
-                        <h3 id="assetsCreditContextTitle" class="assets-manager__overview-title">Storage is separate from credits</h3>
-                        <p class="assets-manager__overview-copy">Moving or deleting assets changes this library after backend confirmation. Credits are reviewed in Credits and consumed by generation, not folder organization.</p>
-                        <div class="assets-manager__overview-actions" aria-label="Credit and generation shortcuts">
-                            <a href="/account/credits.html?scope=member&amp;source=assets-manager">Review credits</a>
-                            <a href="/generate-lab/?source=assets-manager&amp;step=create">Create more</a>
-                        </div>
-                    </section>
-                </div>
+                <section class="assets-manager__storage-panel" aria-labelledby="assetsStorageTitle">
+                    <div class="assets-manager__storage-head">
+                        <p class="assets-manager__storage-label">Storage</p>
+                        <h3 id="assetsStorageTitle" class="assets-manager__storage-title">Storage status</h3>
+                    </div>
+                    <p id="studioStorageInsight" class="assets-manager__storage-copy" aria-live="polite">Storage details appear after your library loads.</p>
+                </section>
 
                 <div class="studio__gallery-header assets-manager__toolbar">
                     <h3 class="studio__card-title">Folders &amp; assets</h3>

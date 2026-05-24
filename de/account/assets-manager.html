@@ -25,7 +25,6 @@
     <link rel="stylesheet" href="../../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/auth.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
@@ -160,74 +159,6 @@
                     </div>
                 </div>
 
-                <nav class="assets-manager__workspace-nav" aria-labelledby="assetsWorkspaceTitle">
-                    <div>
-                        <p class="assets-manager__eyebrow">Mitglieder-Arbeitsbereich</p>
-                        <h3 id="assetsWorkspaceTitle" class="assets-manager__workspace-title">Zwischen Erstellung, Credits und Profil wechseln</h3>
-                        <p class="assets-manager__workspace-copy">Gespeicherte Medien sind an Ihr Konto gebunden. Nutzen Sie Generate Lab zum Erstellen, Credits für Guthaben und Profil für aktuelle Kontodaten.</p>
-                    </div>
-                    <div class="assets-manager__workspace-actions" aria-label="Schnellzugriffe im Mitglieder-Arbeitsbereich">
-                        <a href="/de/generate-lab/" class="assets-manager__workspace-link assets-manager__workspace-link--primary">Weiter erstellen</a>
-                        <a href="/de/account/credits.html?scope=member" class="assets-manager__workspace-link">Credits prüfen</a>
-                        <a href="/de/account/profile.html" class="assets-manager__workspace-link">Profileinstellungen</a>
-                    </div>
-                </nav>
-
-                <section id="assetsWorkspacePriority" class="member-workflow" aria-labelledby="assetsWorkspacePriorityTitle">
-                    <div class="member-workflow__head">
-                        <p class="member-workflow__eyebrow">Arbeitsbereich-Priorität</p>
-                        <h3 id="assetsWorkspacePriorityTitle" class="member-workflow__title">Die Bibliothek in Bewegung halten</h3>
-                        <p class="member-workflow__copy">Assets Manager ist die private Bibliothek. Beginnen Sie mit versteckten Ansichten, erstellen Sie weiter, prüfen Sie Credits oder kehren Sie zur Profil-Checkliste zurück.</p>
-                    </div>
-                    <ol class="member-workflow__list" aria-label="Nächste Assets-Manager-Aktionen im Arbeitsbereich">
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link member-workflow__link--primary" href="#studioGalleryFilter">
-                                <span class="member-workflow__step">Jetzt</span>
-                                <strong>Alle Assets anzeigen</strong>
-                                <span>Nutzen Sie den Ordnerfilter, wenn eine aktuelle Speicherung fehlt oder verborgen wirkt.</span>
-                            </a>
-                        </li>
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link" href="/de/generate-lab/?source=assets-manager&amp;step=create">
-                                <span class="member-workflow__step">Danach</span>
-                                <strong>Weiter erstellen</strong>
-                                <span>Zurück zu Generate Lab für das nächste Bild, Video oder Musik-Ergebnis.</span>
-                            </a>
-                        </li>
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link" href="/de/account/credits.html?scope=member&amp;source=assets-manager">
-                                <span class="member-workflow__step">Dann</span>
-                                <strong>Credits prüfen</strong>
-                                <span>Guthaben und Pro-Kontext vor einer weiteren Erstellungssitzung prüfen.</span>
-                            </a>
-                        </li>
-                        <li class="member-workflow__item">
-                            <a class="member-workflow__link" href="/de/account/profile.html?returnContext=assets-manager#profileCompletionCard">
-                                <span class="member-workflow__step">Sicher bleiben</span>
-                                <strong>Konto vervollständigen</strong>
-                                <span>Profil hält Wiederherstellung, Wallet-Hinweise und Identitätsdaten sichtbar.</span>
-                            </a>
-                        </li>
-                    </ol>
-                </section>
-
-                <section class="assets-manager__first-run" aria-labelledby="assetsFirstRunTitle">
-                    <div class="assets-manager__first-run-head">
-                        <p class="assets-manager__eyebrow">Erstes gespeichertes Asset?</p>
-                        <h3 id="assetsFirstRunTitle" class="assets-manager__workspace-title">Ihre Bibliothek beginnt nach dem Speichern aus Generate Lab</h3>
-                        <p class="assets-manager__workspace-copy">Wenn diese Seite leer ist, erstellen Sie zuerst in Generate Lab. Wenn Sie gerade etwas gespeichert haben, aktualisieren Sie oder zeigen Sie alle Assets, damit Ordner und Filter das neue Element nicht verstecken.</p>
-                    </div>
-                    <ol class="assets-manager__first-run-steps">
-                        <li><strong>Erstellen</strong><span>Öffnen Sie Generate Lab und generieren Sie eine Vorschau.</span></li>
-                        <li><strong>Speichern</strong><span>Nutzen Sie die Speicheraktion, sobald ein Ergebnis bereit ist.</span></li>
-                        <li><strong>Wiederfinden</strong><span>Aktualisieren Sie die Bibliothek oder zeigen Sie alle Assets, wenn die letzte Speicherung noch verarbeitet wird.</span></li>
-                    </ol>
-                    <div class="assets-manager__first-run-actions" aria-label="Erste Aktionen im Assets Manager">
-                        <a href="/de/generate-lab/?source=assets-manager" class="assets-manager__workspace-link assets-manager__workspace-link--primary">Erstes Asset erstellen</a>
-                        <a href="/de/account/credits.html?scope=member" class="assets-manager__workspace-link">Credits prüfen</a>
-                    </div>
-                </section>
-
                 <section id="assetsHandoffBanner" class="assets-manager__handoff" role="status" aria-live="polite" aria-labelledby="assetsHandoffTitle" hidden>
                     <div class="assets-manager__handoff-copy">
                         <p class="assets-manager__handoff-eyebrow">Aus Generate Lab</p>
@@ -243,32 +174,13 @@
                     </div>
                 </section>
 
-                <div class="assets-manager__overview" aria-label="Assets-Manager-Überblick">
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsStorageTitle">
-                        <p class="assets-manager__overview-label">Speicher</p>
-                        <h3 id="assetsStorageTitle" class="assets-manager__overview-title">Speicherstatus</h3>
-                        <p id="studioStorageInsight" class="assets-manager__overview-copy" aria-live="polite">Speicherdetails erscheinen, sobald Ihre Bibliothek geladen ist.</p>
-                    </section>
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsPrivacyTitle">
-                        <p class="assets-manager__overview-label">Sicherheit</p>
-                        <h3 id="assetsPrivacyTitle" class="assets-manager__overview-title">Zuerst privat</h3>
-                        <p class="assets-manager__overview-copy">Gespeicherte Medien bleiben privat, bis Sie sie in einer öffentlichen BITBI-Galerie veröffentlichen.</p>
-                    </section>
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsMobileTitle">
-                        <p class="assets-manager__overview-label">Mobil</p>
-                        <h3 id="assetsMobileTitle" class="assets-manager__overview-title">Aktionen bleiben gebündelt</h3>
-                        <p class="assets-manager__overview-copy">Auf Smartphones nutzen Sie Asset-Aktionen für Ordner- und Auswahlwerkzeuge, ohne den Kontext zu verlieren.</p>
-                    </section>
-                    <section class="assets-manager__overview-item" aria-labelledby="assetsCreditContextTitle">
-                        <p class="assets-manager__overview-label">Credits</p>
-                        <h3 id="assetsCreditContextTitle" class="assets-manager__overview-title">Speicher ist getrennt von Credits</h3>
-                        <p class="assets-manager__overview-copy">Verschieben oder Löschen ändert diese Bibliothek nach Backend-Bestätigung. Credits werden in Credits geprüft und durch Generierung verbraucht, nicht durch Ordnerorganisation.</p>
-                        <div class="assets-manager__overview-actions" aria-label="Credit- und Generierungs-Schnellzugriffe">
-                            <a href="/de/account/credits.html?scope=member&amp;source=assets-manager">Credits prüfen</a>
-                            <a href="/de/generate-lab/?source=assets-manager&amp;step=create">Weiter erstellen</a>
-                        </div>
-                    </section>
-                </div>
+                <section class="assets-manager__storage-panel" aria-labelledby="assetsStorageTitle">
+                    <div class="assets-manager__storage-head">
+                        <p class="assets-manager__storage-label">Speicher</p>
+                        <h3 id="assetsStorageTitle" class="assets-manager__storage-title">Speicherstatus</h3>
+                    </div>
+                    <p id="studioStorageInsight" class="assets-manager__storage-copy" aria-live="polite">Speicherdetails erscheinen, sobald Ihre Bibliothek geladen ist.</p>
+                </section>
 
                 <div class="studio__gallery-header assets-manager__toolbar">
                     <h3 class="studio__card-title">Ordner &amp; Assets</h3>

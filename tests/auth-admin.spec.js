@@ -7799,32 +7799,47 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await expect(page.locator('.legal-hero__title')).toHaveText('Assets Manager');
     await expect(page.locator('#studioSavedAssetsCard')).toBeVisible();
+    await expect(page.locator('.assets-manager__workspace-nav')).toHaveCount(0);
+    await expect(page.locator('#assetsWorkspacePriority')).toHaveCount(0);
+    await expect(page.locator('.assets-manager__first-run')).toHaveCount(0);
+    await expect(page.locator('.assets-manager__overview')).toHaveCount(0);
+    await expect(page.locator('.assets-manager__storage-panel')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Storage status' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Your library starts after you save from Generate Lab' })).toBeVisible();
-    await expect(page.locator('.assets-manager__first-run')).toContainText('First saved asset?');
-    await expect(page.locator('.assets-manager__first-run').getByRole('link', { name: 'Create first asset' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=assets-manager',
-    );
-    await expect(page.locator('.assets-manager__first-run').getByRole('link', { name: 'Check credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member',
-    );
-    await expect(page.getByRole('heading', { name: 'Storage is separate from credits' })).toBeVisible();
-    await expect(page.locator('.assets-manager__overview')).toContainText('Credits are reviewed in Credits and consumed by generation, not folder organization.');
-    await expect(page.locator('.assets-manager__overview').getByRole('link', { name: 'Review credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member&source=assets-manager',
-    );
-    await expect(page.locator('.assets-manager__overview').getByRole('link', { name: 'Create more' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=assets-manager&step=create',
-    );
+    await expect(page.locator('main')).not.toContainText('First saved asset?');
+    await expect(page.locator('main')).not.toContainText('Workspace priority');
+    await expect(page.locator('main')).not.toContainText('Private first');
+    await expect(page.locator('main')).not.toContainText('Actions stay grouped');
+    await expect(page.locator('main')).not.toContainText('Storage is separate from credits');
     await expect(page.locator('#studioStorageInsight')).toContainText('0 MB / 50 MB used. 50 MB remains available');
     await expect(page.locator('#studioViewContext')).toContainText('Folder overview');
     await expect(page.locator('#studioViewContext')).toContainText('Recent backend order');
     await expect(page.locator('#studioViewRefresh')).toHaveText('Refresh latest');
     await expect(page.locator('#studioViewShowAll')).toHaveText('Show all assets');
+
+    await page.locator('#bitbiHelpTrigger').click();
+    const assetsHelp = page.locator('#bitbiHelpPanel [data-help-section="assets"]');
+    await expect(assetsHelp.locator('.help-menu__section-title')).toHaveText('Assets Manager');
+    await assetsHelp.locator('summary.help-menu__section-toggle').click();
+    await expect(assetsHelp).toHaveAttribute('open', '');
+    const savedOutputHelp = assetsHelp.locator('.help-menu__item').filter({ hasText: 'Find saved output' });
+    await expect(savedOutputHelp.locator('summary')).toContainText('Saved Generate Lab output appears in Assets Manager');
+    await expect(savedOutputHelp.locator('.help-menu__item-body')).toBeHidden();
+    await savedOutputHelp.locator('summary.help-menu__item-summary').click();
+    await expect(savedOutputHelp.locator('.help-menu__item-body')).toContainText('refresh the library or show all assets');
+    await expect(savedOutputHelp.getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
+      'href',
+      '/account/assets-manager.html?source=help-assets&recent=1#generate-lab-recent',
+    );
+    const storageHelp = assetsHelp.locator('.help-menu__item').filter({ hasText: 'Storage is separate from credits' });
+    await storageHelp.locator('summary.help-menu__item-summary').click();
+    await expect(storageHelp.locator('.help-menu__item-body')).toContainText('backend confirmation');
+    await expect(storageHelp.getByRole('link', { name: 'Review Credits' })).toHaveAttribute(
+      'href',
+      '/account/credits.html?source=help-assets',
+    );
+    await expect(assetsHelp.locator('.help-menu__item').filter({ hasText: 'Private until published' })).toContainText('Saved media stays private');
+    await expect(assetsHelp.locator('.help-menu__item').filter({ hasText: 'Mobile asset actions' })).toContainText('folder and selection tools stay grouped');
+
     await expect(page.locator('#studioFolderGrid')).toBeVisible();
     await expect(page.locator('#studioFolderGrid .studio__folder-card').first()).toContainText('Open all assets');
     await expect(page.locator('#studioFolderGrid .studio__folder-card').nth(1)).toContainText('Open assets without folder');
