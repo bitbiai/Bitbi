@@ -7823,9 +7823,9 @@ test.describe('Homepage public browse pagination', () => {
     await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
     await expect(page.locator('#galleryGrid .gallery-item:visible')).toHaveCount(2);
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing 2 Mempics.');
-    await expect(page.locator('#galleryPagination .browse-pagination__toggle')).toBeHidden();
-    await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeVisible();
-    await page.locator('#galleryPagination .browse-pagination__btn').click();
+    await expect(page.locator('#galleryPagination .browse-pagination__toggle')).toBeVisible();
+    await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
+    await page.locator('#galleryPagination .browse-pagination__toggle').click();
     await expect(page.locator('#galleryGrid .gallery-item:visible')).toHaveCount(3);
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 3 Mempics.');
     await expect(page.locator('#galleryPagination .browse-pagination__toggle')).toBeHidden();

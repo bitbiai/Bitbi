@@ -4037,8 +4037,8 @@ test.describe('Homepage', () => {
     await expect(videoCard.locator('.video-card__caption')).toHaveText('Published by Ada Member on 2026-04-14.');
   });
 
-  test('desktop published Mempics start at five items and Memvids start at six without changing mobile behavior', async ({ page }) => {
-    const mempicItems = Array.from({ length: 8 }, (_, index) => ({
+  test('desktop published Mempics start at two rows and Memvids start at six without changing mobile behavior', async ({ page }) => {
+    const mempicItems = Array.from({ length: 12 }, (_, index) => ({
       id: `mempic-${index + 1}`,
       slug: `mempic-${index + 1}`,
       title: 'Mempics',
@@ -4149,9 +4149,9 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await switchHomepageCategory(page, 'gallery');
 
-    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 5 Mempics');
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing 10 Mempics.');
     await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
-    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(5);
+    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(10);
     await expect(page.locator('#galleryGrid .gallery-item:visible').first().locator('.public-media-meta__avatar')).toHaveCount(0);
 
     const galleryToggle = page.locator('#galleryPagination .browse-pagination__toggle');
@@ -4159,12 +4159,12 @@ test.describe('Homepage', () => {
     await galleryToggle.scrollIntoViewIfNeeded();
     const galleryScrollBefore = await page.evaluate(() => window.scrollY);
     await galleryToggle.click();
-    await expect(galleryToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(8);
+    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(12);
     const galleryScrollAfter = await page.evaluate(() => window.scrollY);
     expect(galleryScrollAfter).toBeGreaterThanOrEqual(galleryScrollBefore - 1);
-    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 8 Mempics.');
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 12 Mempics.');
     await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
+    await expect(galleryToggle).toBeHidden();
 
     await switchHomepageCategory(page, 'video');
     await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 6 Memvids');
@@ -4189,7 +4189,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toBeEnabled();
     await page.locator('#galleryPagination .browse-pagination__status').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
-    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(8);
+    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(12);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery')).toBeVisible();
@@ -4231,8 +4231,8 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-grid-overlay__close').click();
   });
 
-  test('homepage Gallery fits five cards across on wide desktop while preserving the mobile layout', async ({ page }) => {
-    const items = Array.from({ length: 5 }, (_, index) => {
+  test('homepage Gallery fits five compact columns and two initial rows on wide desktop while preserving the mobile layout', async ({ page }) => {
+    const items = Array.from({ length: 10 }, (_, index) => {
       const id = `mempic-${index + 1}`;
       return {
         id,
@@ -4280,20 +4280,46 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'gallery');
 
     const galleryCards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
-    await expect(galleryCards).toHaveCount(5);
+    await expect(galleryCards).toHaveCount(10);
     await expect(galleryCards.first()).toBeVisible();
 
     const wideLayout = await page.evaluate(() => {
       const grid = document.getElementById('galleryGrid');
       const style = window.getComputedStyle(grid);
+      const rects = Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)')).map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          left: Math.round(rect.left * 100) / 100,
+          top: Math.round(rect.top * 100) / 100,
+          right: Math.round(rect.right * 100) / 100,
+        };
+      });
+      const rows = [];
+      rects.forEach((rect) => {
+        let row = rows.find((candidate) => Math.abs(candidate.top - rect.top) <= 3);
+        if (!row) {
+          row = { top: rect.top, cards: [] };
+          rows.push(row);
+        }
+        row.cards.push(rect);
+      });
+      rows.forEach((row) => row.cards.sort((a, b) => a.left - b.left));
+      const firstRowGaps = rows[0]?.cards.slice(1).map((rect, index) => (
+        Math.round((rect.left - rows[0].cards[index].right) * 100) / 100
+      )) || [];
       return {
         columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
         overflow: grid.scrollWidth - grid.clientWidth,
+        rowCounts: rows.map((row) => row.cards.length),
+        firstRowGaps,
       };
     });
 
     expect(wideLayout.columns).toBe(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
+    expect(wideLayout.rowCounts).toEqual([5, 5]);
+    expect(Math.max(...wideLayout.firstRowGaps)).toBeLessThanOrEqual(16);
+    expect(Math.max(...wideLayout.firstRowGaps) - Math.min(...wideLayout.firstRowGaps)).toBeLessThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 844 });
 
@@ -4304,6 +4330,87 @@ test.describe('Homepage', () => {
     });
 
     expect(mobileLayout).toBe(1);
+  });
+
+  test('homepage Gallery Show More enables limited scroll batches without rendering every Mempic', async ({ page }) => {
+    const items = Array.from({ length: 60 }, (_, index) => {
+      const id = `progressive-mempic-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Mempics ${index + 1}`,
+        caption: `Published by Ada Member on 2026-04-${String((index % 20) + 1).padStart(2, '0')}.`,
+        category: 'mempics',
+        thumb: {
+          url: `/api/gallery/mempics/${id}/thumb`,
+          w: 320,
+          h: 320,
+        },
+        preview: {
+          url: `/api/gallery/mempics/${id}/medium`,
+          w: 1280,
+          h: 1280,
+        },
+        full: {
+          url: `/api/gallery/mempics/${id}/file`,
+        },
+      };
+    });
+    const pages = {
+      first: { items: items.slice(0, 24), next_cursor: 'page-2', has_more: true },
+      'page-2': { items: items.slice(24, 48), next_cursor: 'page-3', has_more: true },
+      'page-3': { items: items.slice(48), next_cursor: null, has_more: false },
+    };
+
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor') || 'first';
+      const pageData = pages[cursor] || pages.first;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: pageData.items,
+            next_cursor: pageData.next_cursor,
+            has_more: pageData.has_more,
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
+
+    const cards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
+    await expect.poll(() => cards.count()).toBe(10);
+
+    const showMore = page.locator('#galleryPagination .browse-pagination__toggle');
+    await expect(showMore).toHaveText('Show More');
+    await showMore.click();
+    await expect.poll(() => cards.count()).toBe(30);
+    await expect(showMore).toBeHidden();
+
+    const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
+    expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
+    expect(idsAfterClick).not.toContain('progressive-mempic-60');
+
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' }));
+    await expect.poll(() => cards.count()).toBe(50);
+
+    const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
+    expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
+    expect(idsAfterScroll).toContain('progressive-mempic-50');
+    expect(idsAfterScroll).not.toContain('progressive-mempic-60');
   });
 
   test('homepage favorites reuse the shared flow for Mempics cards and video modal cards', async ({ page }) => {
