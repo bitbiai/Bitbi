@@ -6526,36 +6526,33 @@ test.describe('Pricing credit-pack rollout', () => {
     });
     await page.goto('/pricing.html');
     await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits & Pro');
-    await expect(page.locator('.pricing-hero__link[href="/generate-lab/?source=pricing-hero&step=create"]')).toContainText('Start creating');
-    await expect(page.locator('.pricing-hero__link[href="#pricingOffers"]')).toContainText('Choose credits');
-    await expect(page.locator('.pricing-card')).toHaveCount(3);
+    await expect(page.locator('.pricing-hero__subtitle')).toHaveText('Flexible credits for image, video, music, and asset generation.');
+    await expect(page.locator('.pricing-hero__link')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Choose BITBI Pro for a monthly creative allowance');
+    await expect(page.locator('main')).not.toContainText('Start creating');
+    await expect(page.locator('main')).not.toContainText('Choose credits');
+    await expect(page.locator('main')).not.toContainText('Compare options');
+    await expect(page.locator('.pricing-card')).toHaveCount(4);
+    await expect(page.locator('.pricing-card__title')).toHaveText(['Free Account', 'BITBI Pro', 'Starter Credits', 'Creator Credits']);
+    await expect(page.locator('[data-pricing-auth-entry="register"]')).toHaveText('Create account');
     await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('Create account to buy');
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Create account to buy');
-    await expect(page.locator('#pricingAccountEntry')).toContainText('Set up the account path before checkout');
-    await expect(page.locator('#pricingAccountEntry')).toContainText('Buying credits, saving generated output, and recovering workspace access require a BITBI account');
-    await expect(page.locator('[data-pricing-auth-entry="login"]')).toHaveText('Sign in');
-    await expect(page.locator('[data-pricing-auth-entry="register"]')).toHaveText('Create account');
-    await expect(page.locator('#pricingAccountEntry a[href="/account/forgot-password.html?source=pricing-account"]')).toContainText('Reset password');
+    await expect(page.locator('#pricingDecision')).toHaveCount(0);
+    await expect(page.locator('#pricingJourney')).toHaveCount(0);
+    await expect(page.locator('#pricingContinuity')).toHaveCount(0);
+    await expect(page.locator('#pricingAccountEntry')).toHaveCount(0);
 
     await page.unroute('**/api/me');
     await mockPricingAccount(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
     await page.goto('/pricing.html');
-    await expect(page.locator('.pricing-card')).toHaveCount(3);
+    await expect(page.locator('.pricing-card')).toHaveCount(4);
+    await expect(page.locator('[data-pricing-account-link="profile"]')).toHaveAttribute('href', '/account/profile.html');
     await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('BITBI Pro selected');
     await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Select pack');
     await expect(page.locator('#pricingOrgSelect')).toHaveCount(0);
     await expect(page.locator('.pricing-org__state')).toContainText('member account');
     await expect(page.locator('.pricing-org__state')).toContainText('No organization setup');
-    await expect(page.locator('#pricingAccountEntry')).toContainText('Your member path is ready');
-    await expect(page.locator('#pricingAccountEntry').getByRole('link', { name: 'Review credits' })).toHaveAttribute('href', '/account/credits.html');
-    await expect(page.locator('#pricingAccountEntry').getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=pricing-account&step=create',
-    );
-    await expect(page.locator('#pricingAccountEntry').getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=pricing-account&recent=1#generate-lab-recent',
-    );
+    await expect(page.locator('#pricingAccountEntry')).toHaveCount(0);
   });
 
   test('logged-out Pricing CTA opens registration instead of Stripe checkout', async ({ page }) => {
@@ -6568,12 +6565,11 @@ test.describe('Pricing credit-pack rollout', () => {
       await fulfillJson(route, { ok: false, error: 'unexpected checkout request' }, 500);
     });
     await page.goto('/pricing.html');
-    await page.locator('[data-pricing-auth-entry="login"]').click();
+    await page.locator('[data-pricing-auth-entry="register"]').click();
     await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
-    await expect(page.locator('.auth-modal__tab[data-tab="login"]')).toHaveClass(/active/);
-    await expect(page.locator('#authLoginMsg')).toHaveText('Create or sign in to a BITBI account before checkout, generation, saving, or workspace recovery.');
+    await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
+    await expect(page.locator('#authRegisterMsg')).toHaveText('Create a free BITBI account to continue.');
     await expectAuthContextRemoved(page);
-    await expect(page.locator('#authLoginForm a[href="/account/forgot-password.html"]')).toHaveText('Forgot password?');
     await page.keyboard.press('Escape');
     await expect(page.locator('.auth-modal__overlay')).not.toHaveClass(/active/);
     await page.locator('[data-pricing-pack="live_credits_5000"]').click();
@@ -6601,7 +6597,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await page.locator('[data-pricing-auth-entry="register"]').click();
     await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
-    await expect(page.locator('#authRegisterMsg')).toHaveText('Erstellen Sie ein BITBI-Konto oder melden Sie sich an, bevor Checkout, Generierung, Speichern oder Wiederherstellung fortgesetzt werden.');
+    await expect(page.locator('#authRegisterMsg')).toHaveText('Erstellen Sie ein kostenloses BITBI-Konto, um fortzufahren.');
     await expectAuthContextRemoved(page);
     await page.keyboard.press('Escape');
     await expect(page.locator('.auth-modal__overlay')).not.toHaveClass(/active/);
@@ -6627,17 +6623,21 @@ test.describe('Pricing credit-pack rollout', () => {
 
     await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits & Pro');
     await expect(page.locator('.pricing-hero__subtitle')).toHaveText('Flexible credits for image, video, music, and asset generation.');
-    await expect(page.locator('.pricing-hero__link[href="/generate-lab/?source=pricing-hero&step=create"]')).toContainText('Start creating');
-    await expect(page.locator('.pricing-hero__link[href="#pricingOffers"]')).toContainText('Choose credits');
-    await expect(page.locator('.pricing-hero__link[href="#pricingDecision"]')).toContainText('Compare options');
+    await expect(page.locator('.pricing-hero__link')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Choose BITBI Pro for a monthly creative allowance');
+    await expect(page.locator('main')).not.toContainText('Start creating');
+    await expect(page.locator('main')).not.toContainText('Choose credits');
+    await expect(page.locator('main')).not.toContainText('Compare options');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
-    await expect(page.locator('.pricing-card')).toHaveCount(3);
-    await expect(page.locator('.pricing-card__title')).toHaveText(['BITBI Pro', 'Starter Credits', 'Creator Credits']);
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('9,99 €');
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('/ month');
-    await expect(page.locator('.pricing-card').nth(1)).toContainText('9.99 €');
-    await expect(page.locator('.pricing-card').nth(2)).toContainText('19.99 €');
-    await expect(page.locator('.pricing-card').nth(2)).toContainText('Best value');
+    await expect(page.locator('.pricing-card')).toHaveCount(4);
+    await expect(page.locator('.pricing-card__title')).toHaveText(['Free Account', 'BITBI Pro', 'Starter Credits', 'Creator Credits']);
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('0 €');
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('No paid credits included');
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('9,99 €');
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('/ month');
+    await expect(page.locator('.pricing-card').nth(2)).toContainText('9.99 €');
+    await expect(page.locator('.pricing-card').nth(3)).toContainText('19.99 €');
+    await expect(page.locator('.pricing-card').nth(3)).toContainText('Best value');
     await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms.');
     await expect(page.locator('.pricing-legal')).toContainText('immediate provision of the credits');
     await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);
@@ -6649,43 +6649,18 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Select pack');
     await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Select pack');
     await expect(page.locator('#pricingBillingState')).toHaveCount(0);
-    await expect(page.locator('#pricingDecision')).toContainText('Pick the option that fits today');
-    await expect(page.locator('#pricingDecision')).toContainText('Run a larger session');
-    await expect(page.locator('#pricingOffers')).toContainText('Choose how you want to create');
-    await expect(page.locator('#pricingGuide')).toContainText('What happens after purchase');
-    await expect(page.locator('.pricing-info-grid')).toContainText('Use credits across BITBI');
-    await expect(page.locator('.pricing-info-grid')).toContainText('One-time packs stay separate');
-    await expect(page.locator('.pricing-info-grid')).toContainText('BITBI Pro stays predictable');
-    await expect(page.locator('#pricingJourney')).toContainText('From pricing to the workspace');
-    await expect(page.locator('#pricingJourney')).toContainText('Backend checks remain the source of truth');
-    await expect(page.locator('#pricingJourney').getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=pricing&step=create',
-    );
-    await expect(page.locator('#pricingJourney').getByRole('link', { name: 'View Assets Manager' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=pricing&recent=1#generate-lab-recent',
-    );
-    await expect(page.locator('#pricingContinuity')).toContainText('From plan choice to the next prompt');
-    await expect(page.locator('#pricingContinuity')).toContainText('When preview is ready');
-    await expect(page.locator('#pricingContinuity').getByRole('link', { name: 'Create in Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=pricing-continuity&step=create',
-    );
-    await expect(page.locator('#pricingContinuity').getByRole('link', { name: 'Review credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?source=pricing-continuity',
-    );
-    await expect(page.locator('#pricingContinuity').getByRole('link', { name: 'Find saved output' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=pricing-continuity&recent=1#generate-lab-recent',
-    );
-    await expect(page.locator('#pricingAccountEntry')).toContainText('Your member path is ready');
-    await expect(page.locator('#pricingAccountEntry')).toContainText('Generate Lab keeps estimated costs visible');
+    await expect(page.locator('#pricingDecision')).toHaveCount(0);
+    await expect(page.locator('#pricingGuide')).toHaveCount(0);
+    await expect(page.locator('#pricingJourney')).toHaveCount(0);
+    await expect(page.locator('#pricingContinuity')).toHaveCount(0);
+    await expect(page.locator('#pricingAccountEntry')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Pick the option that fits today');
+    await expect(page.locator('main')).not.toContainText('From pricing to the workspace');
+    await expect(page.locator('main')).not.toContainText('From plan choice to the next prompt');
+    await expect(page.locator('main')).not.toContainText('Your member path is ready');
     await expect(page.locator('.pricing-faq')).toContainText('Can I cancel BITBI Pro?');
     await expect(page.locator('.pricing-faq')).toContainText('Are credits transferable?');
     await expect(page.locator('.pricing-faq')).toContainText('Is checkout secure?');
-    await expect(page.locator('.pricing-hero')).toContainText('Secure payment continues on pay.bitbi.ai.');
     await expect(page.locator('.pricing-legal')).toContainText('Secure payment continues on pay.bitbi.ai.');
     await expect(page.locator('.pricing-org__state')).toContainText('not tokens, currency, crypto, or transferable value');
     await expect(page.locator('body')).not.toContainText('/api/admin');
@@ -6693,35 +6668,39 @@ test.describe('Pricing credit-pack rollout', () => {
     const pricingSpacing = await page.evaluate(() => {
       const header = document.querySelector('.site-nav__bar')?.getBoundingClientRect();
       const hero = document.querySelector('.pricing-hero')?.getBoundingClientRect();
-      const kicker = document.querySelector('.pricing-hero .pricing-kicker')?.getBoundingClientRect();
       const title = document.querySelector('.pricing-hero__title')?.getBoundingClientRect();
+      const subtitle = document.querySelector('.pricing-hero__subtitle')?.getBoundingClientRect();
       const priceOffsets = Array.from(document.querySelectorAll('.pricing-card__price')).map((node) => {
         const value = node.querySelector('.pricing-card__price-value')?.getBoundingClientRect();
         const box = node.getBoundingClientRect();
         return value ? value.top - box.top : 0;
       });
       return {
-        headerGap: hero && header ? hero.top - header.bottom : 999,
-        kickerInset: hero && kicker ? kicker.top - hero.top : 999,
-        titleGap: kicker && title ? title.top - kicker.bottom : 999,
+        heroHeight: hero?.height || 0,
+        titleHeaderGap: title && header ? title.top - header.bottom : 999,
+        subtitleGap: title && subtitle ? subtitle.top - title.bottom : 999,
         priceOffsets,
       };
     });
-    expect(pricingSpacing.headerGap).toBeGreaterThanOrEqual(0);
-    expect(pricingSpacing.headerGap).toBeLessThanOrEqual(28);
-    expect(pricingSpacing.kickerInset).toBeLessThanOrEqual(110);
-    expect(pricingSpacing.titleGap).toBeLessThanOrEqual(16);
-    expect(pricingSpacing.priceOffsets.every((offset) => offset < -3)).toBe(true);
+    expect(pricingSpacing.heroHeight).toBeGreaterThanOrEqual(145);
+    expect(pricingSpacing.heroHeight).toBeLessThanOrEqual(260);
+    expect(pricingSpacing.titleHeaderGap).toBeGreaterThanOrEqual(0);
+    expect(pricingSpacing.titleHeaderGap).toBeLessThanOrEqual(90);
+    expect(pricingSpacing.subtitleGap).toBeLessThanOrEqual(16);
+    expect(pricingSpacing.priceOffsets.every((offset) => offset < -1)).toBe(true);
 
     const layoutMetrics = await page.locator('.pricing-card').evaluateAll((cards) => cards.map((card) => ({
       width: card.getBoundingClientRect().width,
+      top: Math.round(card.getBoundingClientRect().top),
       scrollWidth: document.documentElement.scrollWidth,
       viewportWidth: window.innerWidth,
     })));
-    expect(layoutMetrics.every((entry) => entry.width >= 280)).toBe(true);
+    expect(layoutMetrics.every((entry) => entry.width >= 240)).toBe(true);
+    expect(new Set(layoutMetrics.map((entry) => entry.top)).size).toBe(1);
     expect(layoutMetrics.every((entry) => entry.scrollWidth <= entry.viewportWidth + 1)).toBe(true);
 
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('[data-pricing-auth-entry="register"], [data-pricing-account-link="profile"]')).toBeVisible();
     await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toBeVisible();
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toBeVisible();
     await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toBeVisible();

@@ -164,7 +164,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Nach Pricing oder Checkout Credits aktualisieren und dem geladenen Guthaben, Pro-Status und Ledger vertrauen. Abbruch- oder Fehlerzustände setzen keine Credit-Gutschrift voraus.',
                 }),
                 links: Object.freeze([
-                    Object.freeze({ label: Object.freeze({ en: 'Open Pricing', de: 'Pricing öffnen' }), path: '/pricing.html', suffix: '#pricingJourney' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Pricing', de: 'Pricing öffnen' }), path: '/pricing.html', suffix: '#pricingOffers' }),
                 ]),
             }),
             Object.freeze({

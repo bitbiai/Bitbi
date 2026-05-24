@@ -3,6 +3,8 @@
    ============================================================ */
 
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
+import { initParticles } from '../../shared/particles.js';
+import { initBinaryRain } from '../../shared/binary-rain.js';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import {
@@ -74,6 +76,19 @@ const COPY = Object.freeze({
         unsafeCheckout: 'Checkout response was not a recognized Stripe-hosted payment URL. No payment was started.',
         accountCreated: 'Account created. Please review the terms and continue to checkout.',
         creditPacks: 'Credit packs',
+        freeAccountTitle: 'Free Account',
+        freeAccountPrice: '0 €',
+        freeAccountCadence: 'account',
+        freeAccountDescription: 'Create a BITBI account before checkout, generation, or saving.',
+        freeAccountBestFor: 'Public browsing and account setup before paid credits.',
+        freeAccountBenefits: Object.freeze([
+            'Profile and recovery access',
+            'Saved workspace context',
+            'No paid credits included',
+        ]),
+        freeAccountCta: 'Create account',
+        freeAccountMemberCta: 'Open profile',
+        freeAccountAuthMessage: 'Create a free BITBI account to continue.',
         offersTitle: 'Choose how you want to create',
         offersCopy: 'BITBI Pro is best for regular creation. One-time packs stay available for flexible top-ups without a subscription.',
         decisionKicker: 'Plan picker',
@@ -225,6 +240,19 @@ const COPY = Object.freeze({
         unsafeCheckout: 'Die Checkout-Antwort war keine erkannte von Stripe gehostete Zahlungs-URL. Es wurde keine Zahlung gestartet.',
         accountCreated: 'Konto erstellt. Bitte prüfen Sie die Bedingungen und fahren Sie mit dem Checkout fort.',
         creditPacks: 'Credit-Pakete',
+        freeAccountTitle: 'Free Account',
+        freeAccountPrice: '0 €',
+        freeAccountCadence: 'Konto',
+        freeAccountDescription: 'Erstellen Sie ein BITBI-Konto vor Checkout, Generierung oder Speichern.',
+        freeAccountBestFor: 'Öffentliches Stöbern und Kontostart vor bezahlten Credits.',
+        freeAccountBenefits: Object.freeze([
+            'Profil und Wiederherstellung',
+            'Gespeicherter Arbeitsbereichskontext',
+            'Keine bezahlten Credits enthalten',
+        ]),
+        freeAccountCta: 'Konto erstellen',
+        freeAccountMemberCta: 'Profil öffnen',
+        freeAccountAuthMessage: 'Erstellen Sie ein kostenloses BITBI-Konto, um fortzufahren.',
         offersTitle: 'Wählen Sie, wie Sie erstellen möchten',
         offersCopy: 'BITBI Pro eignet sich für regelmäßige Nutzung. Einmalige Pakete bleiben für flexible Aufladungen ohne Abo verfügbar.',
         decisionKicker: 'Option wählen',
@@ -435,6 +463,76 @@ function createBadge(text, tone = '') {
     return badge;
 }
 
+function openPricingRegistration() {
+    openAuthModal('register', {
+        message: t('freeAccountAuthMessage'),
+        messageType: 'info',
+        target: 'register',
+        contextKey: 'authRecovery.pricingMessage',
+    });
+}
+
+function createFreeAccountCard(auth) {
+    const card = document.createElement('article');
+    card.className = 'pricing-card glass glass-card reveal visible pricing-card--free';
+    card.dataset.pricingFreeAccount = 'true';
+
+    const head = document.createElement('div');
+    head.className = 'pricing-card__head';
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'pricing-card__title-wrap';
+    titleWrap.append(
+        createTextElement('p', 'pricing-card__eyebrow', t('freeAccountCadence')),
+        createTextElement('h2', 'pricing-card__title', t('freeAccountTitle')),
+    );
+    head.appendChild(titleWrap);
+
+    const price = document.createElement('div');
+    price.className = 'pricing-card__price';
+    price.append(
+        createTextElement('span', 'pricing-card__price-value', t('freeAccountPrice')),
+        createTextElement('span', 'pricing-card__cadence', t('freeAccountCadence')),
+    );
+
+    const description = createTextElement('p', 'pricing-card__copy', t('freeAccountDescription'));
+
+    const bestFor = document.createElement('p');
+    bestFor.className = 'pricing-card__best-for';
+    bestFor.append(
+        createTextElement('span', 'pricing-card__best-for-label', t('bestFor')),
+        document.createTextNode(t('freeAccountBestFor')),
+    );
+
+    const list = document.createElement('ul');
+    list.className = 'pricing-card__list';
+    list.setAttribute('aria-label', t('included'));
+    for (const item of (COPY[LOCALE] || COPY.en).freeAccountBenefits) {
+        const li = document.createElement('li');
+        li.textContent = item;
+        list.appendChild(li);
+    }
+
+    if (auth.loggedIn) {
+        const link = document.createElement('a');
+        link.className = 'pricing-card__cta';
+        link.dataset.pricingAccountLink = 'profile';
+        link.href = localizedHref('/account/profile.html');
+        link.textContent = t('freeAccountMemberCta');
+        card.append(head, price, description, bestFor, list, link);
+        return card;
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pricing-card__cta';
+    button.dataset.pricingAuthEntry = 'register';
+    button.textContent = t('freeAccountCta');
+    button.addEventListener('click', openPricingRegistration);
+
+    card.append(head, price, description, bestFor, list, button);
+    return card;
+}
+
 function createPackCard(pack, auth) {
     const selected = selectedOfferType !== 'subscription' && pack.id === getSelectedPack().id;
     const localizedPack = COPY[LOCALE]?.packs?.[pack.id] || COPY.en.packs[pack.id];
@@ -585,352 +683,24 @@ function createSubscriptionCard(auth) {
     return card;
 }
 
-function createHero() {
-    const hero = document.createElement('section');
-    hero.className = 'pricing-hero glass glass-card reveal visible';
-    const copy = document.createElement('div');
-    copy.className = 'pricing-hero__copy-wrap';
-    copy.append(
-        createTextElement('p', 'pricing-kicker', t('pricing')),
-        createTextElement('h1', 'pricing-hero__title gt-gold-cyan', t('title')),
-        createTextElement('p', 'pricing-hero__subtitle', t('subtitle')),
-        createTextElement('p', 'pricing-hero__copy', t('heroCopy')),
-    );
-    const actions = document.createElement('div');
-    actions.className = 'pricing-hero__actions';
-    const primary = document.createElement('a');
-    primary.className = 'pricing-hero__link pricing-hero__link--primary';
-    primary.href = `${localizedHref('/generate-lab/')}?source=pricing-hero&step=create`;
-    primary.textContent = t('heroPrimary');
-    const secondary = document.createElement('a');
-    secondary.className = 'pricing-hero__link';
-    secondary.href = '#pricingOffers';
-    secondary.textContent = t('heroSecondary');
-    const tertiary = document.createElement('a');
-    tertiary.className = 'pricing-hero__link';
-    tertiary.href = '#pricingDecision';
-    tertiary.textContent = t('heroTertiary');
-    actions.append(primary, secondary, tertiary);
-    copy.appendChild(actions);
-
-    const trust = document.createElement('div');
-    trust.className = 'pricing-hero__panel';
-    trust.setAttribute('aria-label', t('trustNotes'));
-    const badgeRow = document.createElement('div');
-    badgeRow.className = 'pricing-hero__badges';
-    badgeRow.append(
-        createBadge((COPY[LOCALE] || COPY.en).trust[0]),
-        createBadge((COPY[LOCALE] || COPY.en).trust[1], 'featured'),
-        createBadge((COPY[LOCALE] || COPY.en).trust[2]),
-    );
-    trust.appendChild(badgeRow);
-    const stats = document.createElement('dl');
-    stats.className = 'pricing-hero__stats';
-    for (const [value, label] of (COPY[LOCALE] || COPY.en).heroStats) {
-        const item = document.createElement('div');
-        item.className = 'pricing-hero__stat';
-        item.append(
-            createTextElement('dt', 'pricing-hero__stat-value', value),
-            createTextElement('dd', 'pricing-hero__stat-label', label),
-        );
-        stats.appendChild(item);
-    }
-    const note = createTextElement('p', 'pricing-hero__checkout-note', t('securePayment'));
-    const detail = createTextElement('p', 'pricing-hero__host-detail', t('checkoutHostDetail'));
-    trust.append(stats, note, detail);
-    hero.append(copy, trust);
-    return hero;
-}
-
-function createDecisionSection() {
-    const section = document.createElement('section');
-    section.id = 'pricingDecision';
-    section.className = 'pricing-decision-section';
-    section.setAttribute('aria-labelledby', 'pricingDecisionTitle');
-
-    const panel = document.createElement('div');
-    panel.className = 'pricing-decision glass glass-card reveal visible';
-
-    const head = document.createElement('div');
-    head.className = 'pricing-decision__head';
-    const title = createTextElement('h2', 'pricing-section-title', t('decisionTitle'));
-    title.id = 'pricingDecisionTitle';
-    head.append(
-        createTextElement('p', 'pricing-kicker', t('decisionKicker')),
-        title,
-        createTextElement('p', 'pricing-section-copy', t('decisionCopy')),
-    );
-
-    const grid = document.createElement('div');
-    grid.className = 'pricing-decision__grid';
-    for (const [moment, plan, copy, action] of (COPY[LOCALE] || COPY.en).decisionCards) {
-        const card = document.createElement('article');
-        card.className = 'pricing-decision__card';
-        card.append(
-            createTextElement('p', 'pricing-decision__moment', moment),
-            createTextElement('h3', 'pricing-decision__plan', plan),
-            createTextElement('p', 'pricing-decision__copy', copy),
-            createTextElement('p', 'pricing-decision__action', action),
-        );
-        grid.appendChild(card);
-    }
-
-    panel.append(head, grid, createTextElement('p', 'pricing-decision__note', t('decisionFootnote')));
-    section.appendChild(panel);
-    return section;
-}
-
-function createInfoSection(title, text, bullets = []) {
-    const card = document.createElement('article');
-    card.className = 'pricing-info glass glass-card reveal visible';
-    card.append(
-        createTextElement('h2', 'pricing-section-title', title),
-        createTextElement('p', 'pricing-section-copy', text),
-    );
-    if (bullets.length) {
-        const list = document.createElement('ul');
-        list.className = 'pricing-info__list';
-        for (const item of bullets) {
-            const li = document.createElement('li');
-            li.textContent = item;
-            list.appendChild(li);
-        }
-        card.appendChild(list);
-    }
-    return card;
-}
-
 function createOffersSection(auth) {
     const section = document.createElement('section');
     section.id = 'pricingOffers';
     section.className = 'pricing-offers-section';
     section.setAttribute('aria-labelledby', 'pricingOffersTitle');
 
-    const head = document.createElement('div');
-    head.className = 'pricing-section-head';
-    const titleWrap = document.createElement('div');
-    titleWrap.append(
-        createTextElement('p', 'pricing-kicker', t('creditPacks')),
-        createTextElement('h2', 'pricing-section-title', t('offersTitle')),
-        createTextElement('p', 'pricing-section-copy', t('offersCopy')),
-    );
-    titleWrap.querySelector('h2').id = 'pricingOffersTitle';
-    head.appendChild(titleWrap);
-    section.appendChild(head);
+    const heading = createTextElement('h2', 'sr-only', t('creditPacks'));
+    heading.id = 'pricingOffersTitle';
+    section.appendChild(heading);
 
     const grid = document.createElement('div');
     grid.className = 'pricing-offers-grid';
+    grid.appendChild(createFreeAccountCard(auth));
     grid.appendChild(createSubscriptionCard(auth));
     for (const pack of CREDIT_PACKS) {
         grid.appendChild(createPackCard(pack, auth));
     }
     section.appendChild(grid);
-    return section;
-}
-
-function createGuideSection() {
-    const section = document.createElement('section');
-    section.id = 'pricingGuide';
-    section.className = 'pricing-guide-section';
-    section.setAttribute('aria-labelledby', 'pricingGuideTitle');
-
-    const head = document.createElement('div');
-    head.className = 'pricing-section-head';
-    const titleWrap = document.createElement('div');
-    const title = createTextElement('h2', 'pricing-section-title', t('guideTitle'));
-    title.id = 'pricingGuideTitle';
-    titleWrap.append(
-        createTextElement('p', 'pricing-kicker', t('trustNotes')),
-        title,
-        createTextElement('p', 'pricing-section-copy', t('guideCopy')),
-    );
-    head.appendChild(titleWrap);
-    section.appendChild(head);
-
-    const info = document.createElement('div');
-    info.className = 'pricing-info-grid';
-    info.append(...(COPY[LOCALE] || COPY.en).info.map(([titleText, text, bullets]) => createInfoSection(titleText, text, bullets || [])));
-    section.appendChild(info);
-    return section;
-}
-
-function createJourneySection() {
-    const section = document.createElement('section');
-    section.id = 'pricingJourney';
-    section.className = 'pricing-journey glass glass-card reveal visible';
-    section.setAttribute('aria-labelledby', 'pricingJourneyTitle');
-
-    const head = document.createElement('div');
-    head.className = 'pricing-journey__head';
-    const title = createTextElement('h2', 'pricing-section-title', t('journeyTitle'));
-    title.id = 'pricingJourneyTitle';
-    head.append(
-        createTextElement('p', 'pricing-kicker', t('journeyKicker')),
-        title,
-        createTextElement('p', 'pricing-section-copy', t('journeyCopy')),
-    );
-
-    const list = document.createElement('ol');
-    list.className = 'pricing-journey__steps';
-    list.setAttribute('aria-label', t('journeyTitle'));
-    for (const [titleText, copyText] of (COPY[LOCALE] || COPY.en).journeyCards) {
-        const item = document.createElement('li');
-        item.className = 'pricing-journey__step';
-        item.append(
-            createTextElement('h3', 'pricing-journey__step-title', titleText),
-            createTextElement('p', 'pricing-journey__step-copy', copyText),
-        );
-        list.appendChild(item);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'pricing-journey__actions';
-    const primary = document.createElement('a');
-    primary.className = 'pricing-journey__link pricing-journey__link--primary';
-    primary.href = `${localizedHref('/generate-lab/')}?source=pricing&step=create`;
-    primary.textContent = t('journeyPrimary');
-    const secondary = document.createElement('a');
-    secondary.className = 'pricing-journey__link';
-    secondary.href = `${localizedHref('/account/assets-manager.html')}?source=pricing&recent=1#generate-lab-recent`;
-    secondary.textContent = t('journeySecondary');
-    actions.append(primary, secondary);
-
-    section.append(head, list, actions);
-    return section;
-}
-
-function createContinuitySection() {
-    const section = document.createElement('section');
-    section.id = 'pricingContinuity';
-    section.className = 'pricing-continuity glass glass-card reveal visible';
-    section.setAttribute('aria-labelledby', 'pricingContinuityTitle');
-
-    const head = document.createElement('div');
-    head.className = 'pricing-continuity__head';
-    const title = createTextElement('h2', 'pricing-section-title', t('continuityTitle'));
-    title.id = 'pricingContinuityTitle';
-    head.append(
-        createTextElement('p', 'pricing-kicker', t('continuityKicker')),
-        title,
-        createTextElement('p', 'pricing-section-copy', t('continuityCopy')),
-    );
-
-    const grid = document.createElement('div');
-    grid.className = 'pricing-continuity__grid';
-    for (const [titleText, copyText] of (COPY[LOCALE] || COPY.en).continuityCards) {
-        const card = document.createElement('article');
-        card.className = 'pricing-continuity__card';
-        card.append(
-            createTextElement('h3', 'pricing-continuity__card-title', titleText),
-            createTextElement('p', 'pricing-continuity__card-copy', copyText),
-        );
-        grid.appendChild(card);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'pricing-continuity__actions pricing-journey__actions';
-    const generate = document.createElement('a');
-    generate.className = 'pricing-journey__link pricing-journey__link--primary';
-    generate.href = `${localizedHref('/generate-lab/')}?source=pricing-continuity&step=create`;
-    generate.textContent = t('continuityPrimary');
-    const credits = document.createElement('a');
-    credits.className = 'pricing-journey__link';
-    credits.href = `${localizedHref('/account/credits.html')}?source=pricing-continuity`;
-    credits.textContent = t('continuitySecondary');
-    const assets = document.createElement('a');
-    assets.className = 'pricing-journey__link';
-    assets.href = `${localizedHref('/account/assets-manager.html')}?source=pricing-continuity&recent=1#generate-lab-recent`;
-    assets.textContent = t('continuityTertiary');
-    actions.append(generate, credits, assets);
-
-    section.append(head, grid, actions);
-    return section;
-}
-
-function createAccountEntrySection(auth) {
-    const section = document.createElement('section');
-    section.id = 'pricingAccountEntry';
-    section.className = 'pricing-account-entry glass glass-card reveal visible';
-    section.setAttribute('aria-labelledby', 'pricingAccountEntryTitle');
-
-    const copy = COPY[LOCALE] || COPY.en;
-    const cards = auth.loggedIn ? copy.accountEntryCardsMember : copy.accountEntryCardsLoggedOut;
-
-    const head = document.createElement('div');
-    head.className = 'pricing-account-entry__head';
-    const title = createTextElement('h2', 'pricing-section-title', auth.loggedIn
-        ? t('accountEntryTitleMember')
-        : t('accountEntryTitleLoggedOut'));
-    title.id = 'pricingAccountEntryTitle';
-    head.append(
-        createTextElement('p', 'pricing-kicker', t('accountEntryKicker')),
-        title,
-        createTextElement('p', 'pricing-section-copy', auth.loggedIn
-            ? t('accountEntryCopyMember')
-            : t('accountEntryCopyLoggedOut')),
-    );
-
-    const grid = document.createElement('div');
-    grid.className = 'pricing-account-entry__grid';
-    for (const [titleText, copyText] of cards) {
-        const card = document.createElement('article');
-        card.className = 'pricing-account-entry__card';
-        card.append(
-            createTextElement('h3', 'pricing-account-entry__card-title', titleText),
-            createTextElement('p', 'pricing-account-entry__card-copy', copyText),
-        );
-        grid.appendChild(card);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'pricing-account-entry__actions';
-    if (auth.loggedIn) {
-        const credits = document.createElement('a');
-        credits.href = localizedHref('/account/credits.html');
-        credits.className = 'pricing-journey__link pricing-journey__link--primary';
-        credits.textContent = t('accountEntryCredits');
-        const generate = document.createElement('a');
-        generate.href = `${localizedHref('/generate-lab/')}?source=pricing-account&step=create`;
-        generate.className = 'pricing-journey__link';
-        generate.textContent = t('accountEntryGenerate');
-        const assets = document.createElement('a');
-        assets.href = `${localizedHref('/account/assets-manager.html')}?source=pricing-account&recent=1#generate-lab-recent`;
-        assets.className = 'pricing-journey__link';
-        assets.textContent = t('accountEntryAssets');
-        actions.append(credits, generate, assets);
-    } else {
-        const login = document.createElement('button');
-        login.type = 'button';
-        login.className = 'pricing-journey__link pricing-journey__link--primary';
-        login.dataset.pricingAuthEntry = 'login';
-        login.textContent = t('accountEntryLogin');
-        login.addEventListener('click', () => openAuthModal('login', {
-            message: t('accountEntryAuthMessage'),
-            messageType: 'info',
-            target: 'login',
-            contextKey: 'authRecovery.pricingMessage',
-        }));
-
-        const register = document.createElement('button');
-        register.type = 'button';
-        register.className = 'pricing-journey__link';
-        register.dataset.pricingAuthEntry = 'register';
-        register.textContent = t('accountEntryRegister');
-        register.addEventListener('click', () => openAuthModal('register', {
-            message: t('accountEntryAuthMessage'),
-            messageType: 'info',
-            target: 'register',
-            contextKey: 'authRecovery.pricingMessage',
-        }));
-
-        const reset = document.createElement('a');
-        reset.href = `${localizedHref('/account/forgot-password.html')}?source=pricing-account`;
-        reset.className = 'pricing-journey__link';
-        reset.textContent = t('accountEntryReset');
-        actions.append(login, register, reset);
-    }
-
-    section.append(head, grid, actions);
     return section;
 }
 
@@ -1117,15 +887,9 @@ function renderPricingExperience() {
     const shell = document.createElement('div');
     shell.className = 'pricing-shell';
     renderReturnState(shell);
-    shell.appendChild(createHero());
-    shell.appendChild(createDecisionSection());
     shell.appendChild(createOffersSection(auth));
     shell.appendChild(createCreditDestination(auth));
     shell.appendChild(createLegalCheckout(auth));
-    shell.appendChild(createGuideSection());
-    shell.appendChild(createJourneySection());
-    shell.appendChild(createContinuitySection());
-    shell.appendChild(createAccountEntrySection(auth));
     shell.appendChild(createFaqSection());
 
     root.appendChild(shell);
@@ -1157,5 +921,7 @@ function handleAuthState() {
 }
 
 try { initSiteHeader(); } catch (error) { console.warn('siteHeader:', error); }
+try { initParticles('heroCanvas'); } catch (error) { console.warn('pricingParticles:', error); }
+try { initBinaryRain('binaryRain'); } catch (error) { console.warn('pricingBinaryRain:', error); }
 document.addEventListener('bitbi:auth-change', handleAuthState);
 renderPricingExperience();
