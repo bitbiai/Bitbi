@@ -284,11 +284,6 @@ function isAuthFailure(result) {
 }
 
 const workflowStatusConfig = Object.freeze({
-    ready: {
-        title: 'generateLab.workflowReadyTitle',
-        copy: 'generateLab.workflowReadyCopy',
-        tone: 'ready',
-    },
     generating: {
         title: 'generateLab.workflowGeneratingTitle',
         copy: 'generateLab.workflowGeneratingCopy',
@@ -318,7 +313,14 @@ const workflowStatusConfig = Object.freeze({
 
 function setWorkflowStatus(status = 'ready') {
     if (!refs.workflowStatus) return;
-    const config = workflowStatusConfig[status] || workflowStatusConfig.ready;
+    if (status === 'ready') {
+        refs.workflowStatus.hidden = true;
+        refs.workflowStatus.className = 'generate-lab__workflow-status';
+        refs.workflowStatus.replaceChildren();
+        return;
+    }
+    const config = workflowStatusConfig[status] || workflowStatusConfig.attention;
+    refs.workflowStatus.hidden = false;
     refs.workflowStatus.className = `generate-lab__workflow-status is-${config.tone}`;
     refs.workflowStatus.replaceChildren(
         el('span', { className: 'generate-lab__workflow-dot', attrs: { 'aria-hidden': 'true' } }),
@@ -329,75 +331,16 @@ function setWorkflowStatus(status = 'ready') {
     );
 }
 
-const currentResultStatusConfig = Object.freeze({
-    empty: {
-        title: 'generateLab.currentResultEmptyTitle',
-        copy: 'generateLab.currentResultEmptyCopy',
-        tone: 'empty',
-    },
-    generating: {
-        title: 'generateLab.currentResultGeneratingTitle',
-        copy: 'generateLab.currentResultGeneratingCopy',
-        tone: 'saving',
-    },
-    unsaved: {
-        title: 'generateLab.currentResultUnsavedTitle',
-        copy: 'generateLab.currentResultUnsavedCopy',
-        tone: 'unsaved',
-    },
-    saving: {
-        title: 'generateLab.currentResultSavingTitle',
-        copy: 'generateLab.currentResultSavingCopy',
-        tone: 'saving',
-    },
-    saveFailed: {
-        title: 'generateLab.currentResultSaveFailedTitle',
-        copy: 'generateLab.currentResultSaveFailedCopy',
-        tone: 'attention',
-    },
-    saved: {
-        title: 'generateLab.currentResultSavedTitle',
-        copy: 'generateLab.currentResultSavedCopy',
-        tone: 'saved',
-    },
-    recent: {
-        title: 'generateLab.currentResultRecentTitle',
-        copy: 'generateLab.currentResultRecentCopy',
-        tone: 'recent',
-    },
-    attention: {
-        title: 'generateLab.currentResultAttentionTitle',
-        copy: 'generateLab.currentResultAttentionCopy',
-        tone: 'attention',
-    },
-});
-
 function setCurrentResultSummary(status = 'empty') {
-    if (!refs.currentResult || !refs.currentResultTitle || !refs.currentResultCopy) return;
-    const config = currentResultStatusConfig[status] || currentResultStatusConfig.empty;
-    refs.currentResult.className = `generate-lab__current-result is-${config.tone}`;
-    refs.currentResultTitle.textContent = localeText(config.title);
-    refs.currentResultCopy.textContent = localeText(config.copy);
+    void status;
 }
 
 function updateCostInsight(price, insufficient) {
     if (!refs.costInsight) return;
+    void price;
     refs.costInsight.classList.toggle('is-low', insufficient);
-    if (state.sessionExpired) {
-        refs.costInsight.textContent = localeText('authRecovery.sessionExpiredGenerateCopy');
-        return;
-    }
-    if (!state.loggedIn) {
-        refs.costInsight.textContent = localeText('generateLab.costInsightSignedOut');
-        return;
-    }
-    if (state.creditBalance === null) {
-        refs.costInsight.textContent = localeText('generateLab.costInsightEstimateOnly', { cost: formatCredits(price) });
-        return;
-    }
-    refs.costInsight.textContent = insufficient
-        ? localeText('generateLab.costInsightLow', { cost: formatCredits(price) })
-        : localeText('generateLab.costInsightReady', { cost: formatCredits(price), balance: state.creditBalance });
+    refs.costInsight.hidden = true;
+    refs.costInsight.textContent = '';
 }
 
 function setBusy(nextBusy, label = '') {

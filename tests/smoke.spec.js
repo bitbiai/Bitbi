@@ -288,8 +288,6 @@ async function getGenerateLabHeaderMetrics(page) {
       headerStatus: rectFor('#generateLabHeaderStatus'),
       actions: rectFor('header .site-nav__actions'),
       workspace: rectFor('.generate-lab__desktop'),
-      title: rectFor('#generateLabTitle'),
-      subtitle: rectFor('.generate-lab__subtitle'),
       logoHref: logo?.getAttribute('href') || null,
       logoTarget: logo?.getAttribute('target') || null,
       logoRel: logo?.getAttribute('rel') || null,
@@ -317,8 +315,6 @@ async function expectGenerateLabHeaderAligned(page, { locale }) {
   );
   expect(metrics.headerBar.left).toBeLessThan(metrics.workspace.left);
   expect(metrics.headerBar.right).toBeGreaterThan(metrics.workspace.right);
-  expect(metrics.title.left).toBeGreaterThan(metrics.logo.left);
-  expect(metrics.subtitle.right).toBeLessThan(metrics.actions.right);
   expect(metrics.logoHref).toBeNull();
   expect(metrics.logoTarget).toBeNull();
   expect(metrics.logoRel).toBeNull();
@@ -2407,7 +2403,7 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('#labAccountStatus')).toContainText('Session expired. Sign in again.');
     await expect(page.locator('#labCreditStatus')).toContainText('Your prompt stays on this page.');
-    await expect(page.locator('#labCostInsight')).toContainText('Sign in again before generating, saving, or loading recent assets.');
+    await expect(page.locator('#labCostInsight')).toBeHidden();
     await expect(page.locator('#labMessage')).toContainText('Your prompt stays on this page.');
     await expect(page.locator('#labMessage')).not.toContainText('raw generate');
 
@@ -2454,7 +2450,11 @@ test.describe('Homepage', () => {
 
     const workspace = page.locator('.generate-lab__desktop');
     await expect(workspace).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Generate Lab' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Generate Lab' })).toHaveCount(0);
+    await expect(page.locator('.generate-lab__topbar')).toHaveCount(0);
+    await expect(page.locator('.generate-lab__subtitle')).toHaveCount(0);
+    await expect(page.locator('.generate-lab__composer-flow')).toHaveCount(0);
+    await expect(page.locator('#labCreditsLink')).toHaveCount(0);
     await expect(page.locator('.generate-lab__member-nav')).toHaveCount(0);
     await expect(page.locator('#generateWorkspacePriority')).toHaveCount(0);
     await expect(page.locator('.generate-lab__session-panel')).toHaveCount(0);
@@ -2465,6 +2465,16 @@ test.describe('Homepage', () => {
     await expect(workspace).not.toContainText('Account session');
     await expect(workspace).not.toContainText('Account needed');
     await expect(workspace).not.toContainText('First time here?');
+    await expect(workspace).not.toContainText('Create images, videos, and music with BITBI');
+    await expect(workspace).not.toContainText('Write or refine the idea here.');
+    await expect(workspace).not.toContainText('Backend validation confirms final credits.');
+    await expect(workspace).not.toContainText('The result stays visible after save errors.');
+    await expect(workspace).not.toContainText('Saved output opens from Assets Manager.');
+    await expect(workspace).not.toContainText('Ready to configure');
+    await expect(workspace).not.toContainText('Pick a model, review estimated credits, then generate.');
+    await expect(workspace).not.toContainText('Review credits');
+    await expect(workspace).not.toContainText('Images remain in preview until you save them.');
+    await expect(workspace).not.toContainText('Show all saved');
     await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
@@ -2485,11 +2495,8 @@ test.describe('Homepage', () => {
     await expect(page.getByLabel('Describe your image')).toBeVisible();
     await expect(page.getByRole('button', { name: /Sign in to Generate|Generate/i })).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('1 credit');
-    await expect(page.locator('#labWorkflowStatus')).toContainText('Ready to configure');
-    await expect(page.locator('#labWorkflowStatus')).toContainText('Pick a model, review estimated credits, then generate.');
-    await expect(page.locator('#labCostInsight')).toContainText('Estimated 1 credit');
-    await expect(page.locator('#labCreditsLink')).toHaveAttribute('href', '/account/credits.html');
-    await expect(page.locator('.generate-lab__subtitle')).toHaveCSS('text-align', 'right');
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+    await expect(page.locator('#labCostInsight')).toBeHidden();
     const expectLabAccent = async (primary, alt) => {
       const values = await page.locator('body').evaluate((node) => {
         const style = window.getComputedStyle(node);
@@ -2513,7 +2520,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labImageOutputFormat')).toBeVisible();
     await expect(page.locator('#labImageBackground')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('50 credits');
-    await expect(page.locator('#labCostInsight')).toContainText('Estimated 50 credits');
+    await expect(page.locator('#labCostInsight')).toBeHidden();
     await expect(page.locator('#labImageRefPrimary .generate-lab-ref-images__slot')).toHaveCount(3);
     await expect(page.locator('#labImageRefExtra')).toBeHidden();
     await page.locator('#labImageRefToggle').click();
@@ -2536,7 +2543,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labCost')).toHaveText('35 credits');
     await page.selectOption('#labImageQuality', 'auto');
     await expect(page.locator('#labCost')).toHaveText('250 credits');
-    await expect(page.locator('#labCostInsight')).toContainText('Estimated 250 credits');
+    await expect(page.locator('#labCostInsight')).toBeHidden();
     await expect(page.locator('#labImageAutoCostHint')).toBeVisible();
     await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-1-schnell');
     await expect(page.locator('#labImageGptControls')).toBeHidden();
@@ -2552,16 +2559,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labImageSteps')).toBeEnabled();
     await expect(page.locator('#labImageSeed')).toBeEnabled();
 
-    const titleMetrics = await page.locator('#generateLabTitle').evaluate((node) => {
-      const box = node.getBoundingClientRect();
-      const style = window.getComputedStyle(node);
-      return { width: box.width, fontSize: Number.parseFloat(style.fontSize) };
-    });
-    expect(titleMetrics.fontSize).toBeLessThanOrEqual(32);
-
     await page.getByRole('tab', { name: 'Video' }).click();
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'video');
     await expectLabAccent('0, 240, 255', '255, 179, 0');
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+    await expect(workspace).not.toContainText('Video remains in preview until you save it.');
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('HappyHorse 1.0 T2V')).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
@@ -2594,6 +2596,8 @@ test.describe('Homepage', () => {
     await page.getByRole('tab', { name: 'Music' }).click();
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'music');
     await expectLabAccent('255, 179, 0', '0, 240, 255');
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+    await expect(workspace).not.toContainText('Music remains in preview until you save it.');
     await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
     await expect(page.getByLabel('Describe your track')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('150 credits');
@@ -2679,7 +2683,7 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/generate-lab/');
-    await expect(page.locator('#labWorkflowStatus')).toContainText('Ready to configure');
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();
     await expect(page.locator('#labCurrentResult')).toHaveCount(0);
     await expect(page.locator('#labResultStage')).toBeVisible();
     await page.locator('#labPrompt').fill('Neon library archive');
@@ -2693,7 +2697,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Preview ready');
     await expect(page.locator('#labMessage')).toContainText('Image generated. Save it when you are ready.');
-    await expect(page.locator('#labCostInsight')).toContainText('You have 399 credits');
+    await expect(page.locator('#labCostInsight')).toBeHidden();
+    await expect(page.locator('#labBalance')).toContainText('399 credits');
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
@@ -2756,10 +2761,13 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labAccountStatus')).toContainText('Angemeldet als labor@bitbi.ai');
     await expect(page.locator('#labCreditStatus')).toHaveText('900 Credits');
     await expect(page.locator('main')).not.toContainText('Status des angemeldeten Workspace');
-    await expect(page.locator('#labWorkflowStatus')).toContainText('Bereit zum Konfigurieren');
-    await expect(page.locator('#labWorkflowStatus')).toContainText('Wählen Sie ein Modell, prüfen Sie die geschätzten Credits');
-    await expect(page.locator('#labCostInsight')).toContainText('Geschätzt 1 Credit');
-    await expect(page.locator('#labCreditsLink')).toHaveAttribute('href', '/de/account/credits.html');
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+    await expect(page.locator('#labCostInsight')).toBeHidden();
+    await expect(page.locator('#labCreditsLink')).toHaveCount(0);
+    await expect(page.locator('.generate-lab__composer-flow')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Bereit zum Konfigurieren');
+    await expect(page.locator('main')).not.toContainText('Wählen Sie ein Modell, prüfen Sie die geschätzten Credits');
+    await expect(page.locator('main')).not.toContainText('Alle gespeicherten anzeigen');
 
     await page.getByRole('tab', { name: 'Video' }).click();
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
@@ -3099,7 +3107,8 @@ test.describe('Homepage', () => {
 
     await page.goto('/generate-lab/');
     await expect(page.locator('.generate-lab__recent-copy')).toContainText('Backend-loaded saved assets');
-    await expect(page.getByRole('link', { name: 'Show all saved' })).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    await expect(page.getByRole('link', { name: 'Show all saved' })).toHaveCount(0);
+    await expect(page.locator('#labRecentAssetsOpen')).toBeVisible();
 
     await page.getByRole('button', { name: 'Open Neon image in Generate Lab preview' }).click();
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
@@ -3193,7 +3202,7 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Optimized for desktop' })).toBeVisible();
-    await expect(page.getByText('Generate Lab is built for desktop creation.')).toBeVisible();
+    await expect(page.getByText('This creation workspace is built for desktop.')).toBeVisible();
     await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Open BITBI homepage' })).toHaveAttribute('href', '/');
     await expect(page.locator('.generate-lab__desktop')).toBeHidden();
     await expect(page.locator('#labPrompt')).toBeHidden();
