@@ -938,6 +938,9 @@ test.describe('Bilingual locale pages', () => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.goto('/');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toBeVisible();
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveAttribute('aria-label', 'Create a free BITBI account');
     await page.locator('#mobileMenuBtn').click();
     let mobileNav = page.locator('#mobileNav');
     await expect(mobileNav).toHaveAttribute('aria-label', 'Navigation menu');
@@ -948,8 +951,14 @@ test.describe('Bilingual locale pages', () => {
     await expect(mobileNav).not.toContainText('Modelle');
     await expect(mobileNav).not.toContainText('Galerie');
     await expect(mobileNav).not.toContainText('Cookie-Einstellungen');
+    await expect(mobileNav).not.toContainText('Account workspace needs sign-in');
+    await expect(mobileNav).not.toContainText('Signed in as');
+    await expect(mobileNav).not.toContainText('Reset password');
 
     await page.goto('/de/');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toBeVisible();
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveAttribute('aria-label', 'Kostenloses BITBI-Konto erstellen');
     await page.locator('#mobileMenuBtn').click();
     mobileNav = page.locator('#mobileNav');
     await expect(mobileNav).toHaveAttribute('aria-label', 'Navigationsmenü');
@@ -961,6 +970,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(mobileNav).not.toContainText('Gallery');
     await expect(mobileNav).not.toContainText('Contact');
     await expect(mobileNav).not.toContainText('Cookie Settings');
+    await expect(mobileNav).not.toContainText('Konto-Workspace benötigt Anmeldung');
+    await expect(mobileNav).not.toContainText('Angemeldet als');
+    await expect(mobileNav).not.toContainText('Passwort zurücksetzen');
   });
 
   test('shared subpage mobile Models entry follows the active locale', async ({ page }) => {

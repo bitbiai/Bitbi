@@ -11831,27 +11831,18 @@ test.describe('Profile page (authenticated mobile)', () => {
     await seedCookieConsent(page);
   });
 
-  test('signed-out mobile header exposes account recovery without storing raw return URLs', async ({ page }) => {
+  test('signed-out mobile header keeps account creation under the header without raw return URLs', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { loggedIn: false, user: null });
     });
 
     const response = await page.goto('/account/profile.html');
     expect(response.status()).toBe(200);
-    await page.locator('#mobileMenuBtn').click();
-    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    const createCta = page.locator('#mobileHeaderCreateAccount');
+    await expect(createCta).toBeVisible();
+    await expect(createCta).toHaveText('CREATE *FREE* ACCOUNT');
 
-    const recovery = page.locator('.auth-nav__mobile-continuity--signed-out');
-    await expect(recovery).toBeVisible();
-    await expect(recovery).toContainText('Account workspace needs sign-in');
-    await expect(recovery.getByRole('button', { name: 'Sign In' })).toBeVisible();
-    await expect(recovery.getByRole('button', { name: 'Create Account' })).toBeVisible();
-    await expect(recovery.getByRole('link', { name: 'Reset password' })).toHaveAttribute(
-      'href',
-      '/account/forgot-password.html?source=profile',
-    );
-
-    await recovery.getByRole('button', { name: 'Create Account' }).click();
+    await createCta.click();
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
     await expectAuthContextRemoved(page);
@@ -11861,6 +11852,18 @@ test.describe('Profile page (authenticated mobile)', () => {
     const localSnapshot = await page.evaluate(() => Object.values(localStorage).join('\n'));
     expect(`${sessionSnapshot}\n${localSnapshot}`).not.toContain('/account/profile.html');
     expect(`${sessionSnapshot}\n${localSnapshot}`).not.toContain('token=');
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.auth-modal__overlay.active')).toHaveCount(0);
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+
+    await expect(page.locator('#mobileNav').getByRole('button', { name: 'Sign In' })).toBeVisible();
+    await expect(page.locator('#mobileNav .auth-nav__mobile-continuity')).toHaveCount(0);
+    await expect(page.locator('#mobileNav .auth-nav__mobile-workspace')).toHaveCount(0);
+    await expect(page.locator('#mobileNav')).not.toContainText('Account workspace needs sign-in');
+    await expect(page.locator('#mobileNav')).not.toContainText('Create Account');
+    await expect(page.locator('#mobileNav')).not.toContainText('Reset password');
   });
 
   test('mobile header shows avatar with email fallback and removes the mobile profile link when an avatar exists', async ({
@@ -11885,10 +11888,9 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.auth-nav__mobile-account')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity-label')).toHaveText('mobile-header@example.com');
-    await expect(page.locator('.auth-nav__mobile-pricing')).toHaveCount(0);
     await expect(page.locator('.auth-nav__mobile-admin')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-logout')).toBeVisible();
-    await expect(page.locator('.auth-nav__mobile-profile')).toHaveCount(0);
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveCount(0);
 
     const mobileAccountOrder = await page.locator('.auth-nav__mobile-account').evaluate((node) =>
       Array.from(node.children).map((child) => child.className),
@@ -11898,28 +11900,13 @@ test.describe('Profile page (authenticated mobile)', () => {
       'auth-nav__mobile-admin',
       'auth-nav__mobile-logout',
     ]);
-    await expect(page.locator('.auth-nav__mobile-continuity')).toBeVisible();
-    await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Signed in as mobile-header@example.com');
-    await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Profile, Credits, Generate Lab, and Assets Manager use this account session.');
-    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Profile' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?source=profile#profileCompletionCard',
-    );
-    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member&source=profile',
-    );
-    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=profile',
-    );
-    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=profile&recent=1#generate-lab-recent',
-    );
+    await expect(page.locator('.auth-nav__mobile-continuity')).toHaveCount(0);
+    await expect(page.locator('.auth-nav__mobile-workspace')).toHaveCount(0);
+    await expect(page.locator('#mobileNav')).not.toContainText('Signed in as mobile-header@example.com');
+    await expect(page.locator('#mobileNav')).not.toContainText('Open Assets Manager');
   });
 
-  test('mobile header keeps the legacy menu/profile layout when no avatar exists', async ({
+  test('mobile header keeps only compact signed-in controls when no avatar exists', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -11937,10 +11924,14 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
-    await expect(page.locator('.auth-nav__mobile-email')).toHaveText('mobile-fallback@example.com');
-    await expect(page.locator('.auth-nav__mobile-profile')).toBeVisible();
-    await expect(page.locator('.auth-nav__mobile-continuity')).toContainText('Signed in as mobile-fallback@example.com');
-    await expect(page.locator('.auth-nav__mobile-workspace').getByRole('link', { name: 'Open Assets Manager' })).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-actions')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-logout')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-email')).toHaveCount(0);
+    await expect(page.locator('.auth-nav__mobile-profile')).toHaveCount(0);
+    await expect(page.locator('.auth-nav__mobile-continuity')).toHaveCount(0);
+    await expect(page.locator('.auth-nav__mobile-workspace')).toHaveCount(0);
+    await expect(page.locator('#mobileNav')).not.toContainText('Signed in as mobile-fallback@example.com');
+    await expect(page.locator('#mobileNav')).not.toContainText('Open Assets Manager');
   });
 
   test('admin mobile profile shows the same simplified tab bar as non-admin users', async ({

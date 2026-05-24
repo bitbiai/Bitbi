@@ -219,11 +219,7 @@ function initMobileGuestBanner() {
 
         cta.append(title);
         cta.addEventListener('click', () => {
-            if (desktopQuery.matches) {
-                openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
-                return;
-            }
-            menuBtn.click();
+            openAuthModal('register', { contextKey: 'authRecovery.publicMessage' });
         });
 
         banner.appendChild(cta);
@@ -246,7 +242,7 @@ function initMobileGuestBanner() {
 
     function renderBanner() {
         const { ready, loggedIn } = getAuthState();
-        const shouldShow = ready && !loggedIn;
+        const shouldShow = ready && !loggedIn && desktopQuery.matches;
 
         if (!shouldShow) {
             if (banner?.isConnected) banner.remove();

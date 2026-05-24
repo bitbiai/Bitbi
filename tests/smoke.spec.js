@@ -1341,7 +1341,7 @@ test.describe('Homepage', () => {
     }
   });
 
-  test('mobile homepage menu still exposes account and Panel controls', async ({ page }) => {
+  test('mobile homepage menu keeps Panel and sign-in while account creation sits below the header', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -1354,12 +1354,18 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await expect(page.locator('#navbar .locale-switcher')).toBeAttached();
     await expect(page.locator('#navbar .wallet-nav__trigger')).toBeHidden();
+    await expect(page.locator('#mobileHeaderCreateAccount')).toBeVisible();
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('CREATE *FREE* ACCOUNT');
 
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
     await expect(page.locator('#mobileNav .mobile-nav__section--wallet [data-wallet-open="mobile"]')).toBeVisible();
-    await expect(page.locator('#mobileNav .auth-nav__mobile-workspace').getByRole('button', { name: 'Sign In' })).toBeVisible();
-    await expect(page.locator('#mobileNav .auth-nav__mobile-workspace').getByRole('button', { name: 'Create Account' })).toBeVisible();
+    await expect(page.locator('#mobileNav').getByRole('button', { name: 'Sign In' })).toBeVisible();
+    await expect(page.locator('#mobileNav .auth-nav__mobile-continuity')).toHaveCount(0);
+    await expect(page.locator('#mobileNav .auth-nav__mobile-workspace')).toHaveCount(0);
+    await expect(page.locator('#mobileNav')).not.toContainText('Account workspace needs sign-in');
+    await expect(page.locator('#mobileNav')).not.toContainText('Create Account');
+    await expect(page.locator('#mobileNav')).not.toContainText('Reset password');
   });
 
   test('global content shells align to the homepage header inset without horizontal overflow', async ({ page }) => {
@@ -1872,7 +1878,7 @@ test.describe('Homepage', () => {
     await expectModelsOverlayOpenState(page, { homepage: true });
   });
 
-  test('mobile guest banner appears only for logged-out visitors and keeps the menu CTA behavior', async ({ page }) => {
+  test('mobile create-account CTA appears directly below the header and opens registration', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -1884,15 +1890,40 @@ test.describe('Homepage', () => {
 
     await page.goto('/');
 
-    const banner = page.locator('#mobileGuestBanner');
+    const banner = page.locator('#mobileHeaderCreateAccount');
+    await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
     await expect(banner).toBeVisible();
     await expect(banner).toHaveText('CREATE *FREE* ACCOUNT');
     await expect(page.locator('#mobileMenuBtn')).toBeVisible();
+    const placement = await page.evaluate(() => {
+      const cta = document.querySelector('#mobileHeaderCreateAccount')?.getBoundingClientRect();
+      const nav = document.querySelector('#navbar')?.getBoundingClientRect();
+      const menu = document.querySelector('#mobileMenuBtn')?.getBoundingClientRect();
+      const hero = document.querySelector('#hero')?.getBoundingClientRect();
+      return {
+        ctaTop: cta?.top ?? 0,
+        ctaBottom: cta?.bottom ?? 0,
+        ctaHeight: cta?.height ?? 0,
+        navBottom: nav?.bottom ?? 0,
+        menuBottom: menu?.bottom ?? 0,
+        heroTop: hero?.top ?? 0,
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+      };
+    });
+    expect(placement.ctaTop).toBeGreaterThanOrEqual(placement.navBottom - 1);
+    expect(placement.ctaTop).toBeGreaterThanOrEqual(placement.menuBottom - 1);
+    expect(placement.ctaHeight).toBeGreaterThanOrEqual(42);
+    expect(placement.ctaBottom).toBeLessThanOrEqual(placement.heroTop + 120);
+    expect(placement.overflow).toBeLessThanOrEqual(1);
 
     await banner.click();
-    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    await expect(page.locator('.auth-modal__tab.active')).toHaveText('Create Account');
+    await expect(page.locator('#authRegisterForm input[name="email"]')).toBeVisible();
+    await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
 
-    await page.locator('#mobileNavClose').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.auth-modal__overlay.active')).toHaveCount(0);
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
   });
@@ -1915,6 +1946,7 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveCount(0);
     await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
   });
 

@@ -9,8 +9,6 @@ import { withGenerateLabReturnContext } from './generate-lab-context.js?v=__ASSE
 import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
 import {
     authSourceFromCurrentPath,
-    buildPasswordResetHref,
-    buildWorkspaceHref,
     contextKeyForAuthSource,
 } from './auth-return-context.js?v=__ASSET_VERSION__';
 
@@ -65,88 +63,38 @@ function buildDesktopIdentity(user) {
     return identity;
 }
 
-function buildMobileWorkspaceLink(href, labelKey, className = '') {
-    const link = document.createElement('a');
-    link.href = href;
-    link.className = `auth-nav__mobile-workspace-link${className ? ` ${className}` : ''}`;
-    link.textContent = localeText(labelKey);
-    return link;
-}
-
-function buildMobileWorkspaceStatus(user) {
-    const source = authSourceFromCurrentPath();
-    const wrap = document.createElement('div');
-    wrap.className = 'auth-nav__mobile-continuity';
-    wrap.setAttribute('role', 'status');
-    wrap.setAttribute('aria-live', 'polite');
-
-    const status = document.createElement('p');
-    status.className = 'auth-nav__mobile-status';
-    status.textContent = localeText('auth.signedInAs', { name: getIdentityLabel(user) });
-
-    const copy = document.createElement('p');
-    copy.className = 'auth-nav__mobile-copy';
-    copy.textContent = localeText('auth.workspaceStatus');
-
-    const actions = document.createElement('nav');
-    actions.className = 'auth-nav__mobile-workspace';
-    actions.setAttribute('aria-label', localeText('auth.workspaceActions'));
-    actions.append(
-        buildMobileWorkspaceLink(
-            withGenerateLabReturnContext(buildWorkspaceHref('profile', source)),
-            'auth.profile',
-            'auth-nav__mobile-workspace-link--primary',
-        ),
-        buildMobileWorkspaceLink(buildWorkspaceHref('credits', source), 'auth.openCredits'),
-        buildMobileWorkspaceLink(buildWorkspaceHref('generate-lab', source), 'auth.openGenerateLab'),
-        buildMobileWorkspaceLink(buildWorkspaceHref('assets-manager', source), 'auth.openAssetsManager'),
-    );
-
-    wrap.append(status, copy, actions);
-    return wrap;
-}
-
-function buildMobileSignedOutRecovery() {
-    const source = authSourceFromCurrentPath();
-    const contextKey = contextKeyForAuthSource(source);
-    const wrap = document.createElement('div');
-    wrap.className = 'auth-nav__mobile-continuity auth-nav__mobile-continuity--signed-out';
-    wrap.setAttribute('role', 'status');
-    wrap.setAttribute('aria-live', 'polite');
-
-    const status = document.createElement('p');
-    status.className = 'auth-nav__mobile-status';
-    status.textContent = localeText('authReturn.signedOutTitle');
-
-    const copy = document.createElement('p');
-    copy.className = 'auth-nav__mobile-copy';
-    copy.textContent = localeText('authReturn.signedOutCopy');
-
-    const actions = document.createElement('div');
-    actions.className = 'auth-nav__mobile-workspace';
-    actions.setAttribute('aria-label', localeText('authReturn.signedOutActions'));
-
-    const signIn = document.createElement('button');
-    signIn.type = 'button';
-    signIn.className = 'auth-nav__mobile-workspace-link auth-nav__mobile-workspace-link--primary';
-    signIn.textContent = localeText('auth.signIn');
-    signIn.addEventListener('click', () => openAuthModal('login', { contextKey, returnSource: source }));
-
-    const register = document.createElement('button');
-    register.type = 'button';
-    register.className = 'auth-nav__mobile-workspace-link';
-    register.textContent = localeText('auth.createAccount');
-    register.addEventListener('click', () => openAuthModal('register', { contextKey, returnSource: source }));
-
-    const reset = buildMobileWorkspaceLink(buildPasswordResetHref(source), 'authRecovery.contextReset');
-    actions.append(signIn, register, reset);
-
-    wrap.append(status, copy, actions);
-    return wrap;
-}
-
 function usesReorganizedPublicHeader() {
     return !document.body.classList.contains('generate-lab-page') && !document.getElementById('adminHeroTitle');
+}
+
+function renderMobileCreateAccountCta(loggedIn) {
+    document.getElementById('mobileHeaderCreateAccount')?.remove();
+
+    if (loggedIn || !usesReorganizedPublicHeader()) return;
+
+    const header = document.querySelector('header');
+    if (!header) return;
+
+    const cta = document.createElement('button');
+    cta.id = 'mobileHeaderCreateAccount';
+    cta.type = 'button';
+    cta.className = 'auth-nav__mobile-create-account pulse-glow';
+    cta.setAttribute('aria-label', localeText('index.createFreeAccountAria'));
+
+    const label = document.createElement('span');
+    label.className = 'auth-nav__mobile-create-account-label';
+    label.textContent = localeText('index.createAccountFree');
+    cta.appendChild(label);
+
+    cta.addEventListener('click', () => {
+        const source = authSourceFromCurrentPath();
+        openAuthModal('register', {
+            contextKey: contextKeyForAuthSource(source),
+            returnSource: source,
+        });
+    });
+
+    header.insertAdjacentElement('afterend', cta);
 }
 
 function renderMobileHeaderIdentity(user) {
@@ -266,6 +214,7 @@ function renderMobile() {
     authContainer.innerHTML = '';
 
     const { loggedIn, user } = getAuthState();
+    renderMobileCreateAccountCta(loggedIn);
     renderMobileHeaderIdentity(loggedIn ? user : null);
 
     if (loggedIn) {
@@ -304,25 +253,13 @@ function renderMobile() {
             if (adminLink) accountWrap.appendChild(adminLink);
             accountWrap.appendChild(logout);
             authContainer.appendChild(accountWrap);
-            authContainer.appendChild(buildMobileWorkspaceStatus(user));
         } else {
-            const email = document.createElement('span');
-            email.className = 'auth-nav__mobile-email';
-            email.textContent = user?.email || localeText('auth.member');
-            authContainer.appendChild(email);
             const actionsWrap = document.createElement('div');
             actionsWrap.className = 'auth-nav__mobile-actions';
-
-            const profileLink = document.createElement('a');
-            profileLink.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
-            profileLink.className = 'auth-nav__mobile-profile';
-            profileLink.textContent = localeText('auth.profile');
-            actionsWrap.appendChild(profileLink);
 
             if (adminLink) actionsWrap.appendChild(adminLink);
             actionsWrap.appendChild(logout);
             authContainer.appendChild(actionsWrap);
-            authContainer.appendChild(buildMobileWorkspaceStatus(user));
         }
     } else {
         const btn = document.createElement('button');
@@ -337,6 +274,5 @@ function renderMobile() {
             });
         });
         authContainer.appendChild(btn);
-        authContainer.appendChild(buildMobileSignedOutRecovery());
     }
 }
