@@ -566,7 +566,9 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).not.toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
 
     expect(enCredits).not.toContain('href="../css/components/member-workflow.css?v=__ASSET_VERSION__"');
-    expect(repoFile('css/account/credits.css')).toContain('.credits-return[hidden]');
+    expect(repoFile('css/account/credits.css')).not.toContain('.credits-return');
+    expect(enCredits).not.toContain('id="creditsReturnState"');
+    expect(deCredits).not.toContain('id="creditsReturnState"');
     expect(enCredits).not.toContain('id="creditsWorkspacePriority"');
     expect(enCredits).not.toContain('Use credits before the next generation');
     expect(enCredits).not.toContain('Keep creating from your credits context');
@@ -840,8 +842,10 @@ test.describe('Bilingual locale pages', () => {
     expect(localeJs).toContain("creditBalanceUnavailable: 'Credit balance unavailable. Review Credits, then retry generation.'");
     expect(localeJs).toContain("creditBalanceUnavailable: 'Credit-Guthaben nicht verfügbar. Prüfen Sie Credits und versuchen Sie die Generierung erneut.'");
     expect(localeJs).not.toContain('costInsightLow');
-    expect(localeJs).toContain("returnErrorTitle: 'Checkout needs another try'");
-    expect(localeJs).toContain("returnErrorTitle: 'Checkout braucht einen neuen Versuch'");
+    expect(localeJs).not.toContain("returnErrorTitle: 'Checkout needs another try'");
+    expect(localeJs).not.toContain("returnErrorTitle: 'Checkout braucht einen neuen Versuch'");
+    expect(localeJs).not.toContain("returnSuccessTitle: 'Check your verified balance below'");
+    expect(localeJs).not.toContain("returnActionGenerate: 'Open Generate Lab'");
     expect(localeJs).toContain("pricingTitle: 'Checkout starts from an account'");
     expect(localeJs).toContain("pricingTitle: 'Checkout startet aus einem Konto'");
     expect(localeJs).toContain("generateTitle: 'Generate and save with your account'");

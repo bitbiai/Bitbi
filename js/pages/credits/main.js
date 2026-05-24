@@ -26,7 +26,6 @@ const $loading = document.getElementById('creditsLoading');
 const $denied = document.getElementById('creditsDenied');
 const $error = document.getElementById('creditsError');
 const $dashboard = document.getElementById('creditsDashboard');
-const $returnState = document.getElementById('creditsReturnState');
 const $subtitle = document.getElementById('creditsSubtitle');
 const $accountContext = document.getElementById('creditsAccountContext');
 const $scopeLabel = document.getElementById('creditsScopeLabel');
@@ -262,99 +261,6 @@ async function loadEligibleOrganizations() {
         throw error;
     }
     return normalizeOrganizations(res.data, { platformAdmin: false });
-}
-
-function renderReturnState() {
-    const params = new URLSearchParams(window.location.search);
-    const state = params.get('checkout');
-    const source = params.get('source') || '';
-    const fromPricing = source.startsWith('pricing');
-    if (!$returnState || (!state && !fromPricing)) return;
-    const models = {
-        success: {
-            tone: 'success',
-            eyebrow: localeText('credits.returnSuccessEyebrow'),
-            title: localeText('credits.returnSuccessTitle'),
-            copy: localeText('credits.returnSuccessCopy'),
-            actions: [
-                ['#creditsSummaryGrid', localeText('credits.returnActionBalance'), true],
-                [`${localizedHref('/generate-lab/')}?source=credits-return&step=create`, localeText('credits.returnActionGenerate')],
-                [`${localizedHref('/account/assets-manager.html')}?source=credits-return&recent=1#generate-lab-recent`, localeText('credits.returnActionAssets')],
-            ],
-        },
-        cancel: {
-            tone: 'cancel',
-            eyebrow: localeText('credits.returnCancelEyebrow'),
-            title: localeText('credits.returnCancelTitle'),
-            copy: localeText('credits.returnCancelCopy'),
-            actions: [
-                [`${localizedHref('/pricing.html')}#pricingOffers`, localeText('credits.returnActionPricing'), true],
-                [`${localizedHref('/generate-lab/')}?source=credits-return&step=create`, localeText('credits.returnActionGenerate')],
-                ['#creditsSummaryGrid', localeText('credits.returnActionBalance')],
-            ],
-        },
-        error: {
-            tone: 'error',
-            eyebrow: localeText('credits.returnErrorEyebrow'),
-            title: localeText('credits.returnErrorTitle'),
-            copy: localeText('credits.returnErrorCopy'),
-            actions: [
-                [`${localizedHref('/pricing.html')}#pricingOffers`, localeText('credits.returnActionPricing'), true],
-                ['#creditsSummaryGrid', localeText('credits.returnActionBalance')],
-                [`${localizedHref('/account/profile.html')}?returnContext=credits#profileCompletionCard`, localeText('credits.returnActionProfile')],
-            ],
-        },
-        pricing: {
-            tone: 'pricing',
-            eyebrow: localeText('credits.returnPricingEyebrow'),
-            title: localeText('credits.returnPricingTitle'),
-            copy: localeText('credits.returnPricingCopy'),
-            actions: [
-                ['#creditsSummaryGrid', localeText('credits.returnActionBalance'), true],
-                [`${localizedHref('/generate-lab/')}?source=credits-return&step=create`, localeText('credits.returnActionGenerate')],
-                [`${localizedHref('/account/assets-manager.html')}?source=credits-return&recent=1#generate-lab-recent`, localeText('credits.returnActionAssets')],
-                [`${localizedHref('/account/profile.html')}?returnContext=credits#profileCompletionCard`, localeText('credits.returnActionProfile')],
-            ],
-        },
-    };
-    const model = models[state] || (!state && fromPricing ? models.pricing : null);
-    if (!model) return;
-    $returnState.textContent = '';
-    $returnState.className = `credits-return credits-return--${model.tone}`;
-
-    const body = document.createElement('div');
-    body.className = 'credits-return__body';
-    const eyebrow = document.createElement('p');
-    eyebrow.className = 'credits-return__eyebrow';
-    eyebrow.textContent = model.eyebrow;
-    const title = document.createElement('h2');
-    title.className = 'credits-return__title';
-    title.textContent = model.title;
-    const copy = document.createElement('p');
-    copy.className = 'credits-return__copy';
-    copy.textContent = model.copy;
-    body.append(eyebrow, title, copy);
-
-    const actions = document.createElement('div');
-    actions.className = 'credits-return__actions';
-    actions.setAttribute('aria-label', localeText('credits.returnActionsLabel'));
-    for (const [href, label, primary] of model.actions) {
-        const link = document.createElement('a');
-        link.className = primary
-            ? 'credits-workspace-nav__link credits-workspace-nav__link--primary'
-            : 'credits-workspace-nav__link';
-        link.setAttribute('href', href);
-        link.textContent = label;
-        actions.appendChild(link);
-    }
-    $returnState.append(body, actions);
-    if (state === 'success') {
-        show($returnState);
-    } else if (state === 'cancel') {
-        show($returnState);
-    } else if (state === 'error' || fromPricing) {
-        show($returnState);
-    }
 }
 
 function renderOrgPicker() {
@@ -1002,7 +908,6 @@ async function init() {
     try { initParticles('heroCanvas'); } catch (error) { console.warn(error); }
     try { initBinaryRain('binaryRain'); } catch (error) { console.warn(error); }
     try { initCookieConsent(); } catch (error) { console.warn(error); }
-    renderReturnState();
 
     const me = await apiGetMe();
     if (!me.ok || !me.data?.loggedIn) return setDenied({ sessionExpired: isAuthFailure(me) });

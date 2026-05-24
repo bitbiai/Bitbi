@@ -7066,9 +7066,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('.credits-hero.hero.hero--compact')).toBeVisible();
     await expect(page.locator('#creditsTitle')).toHaveClass(/legal-hero__title/);
     await expect(page.locator('#creditsEyebrow')).toHaveCount(0);
-    await expect(page.locator('#creditsReturnState')).toBeHidden();
-    await expect(page.locator('#creditsReturnState')).toHaveAttribute('hidden', '');
-    await expect(page.locator('#creditsReturnState')).toHaveCSS('display', 'none');
+    await expect(page.locator('#creditsReturnState')).toHaveCount(0);
     await expect(page.locator('#creditsWorkspacePriority')).toHaveCount(0);
     await expect(page.locator('.credits-workspace-nav:not(.credits-workspace-nav__link)')).toHaveCount(0);
     await expect(page.locator('.credits-onboarding')).toHaveCount(0);
@@ -7528,49 +7526,54 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsOrgPicker option')).toHaveCount(3);
   });
 
-  test('renders cancel state and has no mobile document overflow', async ({ page }) => {
+  test('suppresses checkout return panel and has no mobile document overflow', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockCreditsAccount(page);
     await page.goto('/account/credits?checkout=cancel');
-    await expect(page.locator('#creditsReturnState')).toContainText('Checkout was cancelled');
-    await expect(page.locator('#creditsReturnState')).toContainText('No balance change was made here');
+    await expect(page.locator('#creditsReturnState')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Checkout was cancelled');
+    await expect(page.locator('main')).not.toContainText('No balance change was made here');
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
-  test('renders pricing and checkout return recovery states without overclaiming grants', async ({ page }) => {
+  test('suppresses pricing and checkout return panels without overclaiming grants', async ({ page }) => {
     await mockCreditsAccount(page, { organizations: [] });
 
     await page.goto('/account/credits?scope=member&source=pricing&checkout=success');
     await expect(page).toHaveURL(/checkout=success/);
-    const state = page.locator('#creditsReturnState');
-    await expect(state).toContainText('Check your verified balance below');
-    await expect(state).toContainText('Credits appear here after backend-confirmed payment');
-    await expect(state).not.toContainText('Credits granted');
-    await expect(state.getByRole('link', { name: 'Check verified balance' })).toHaveAttribute('href', '#creditsSummaryGrid');
-    await expect(state.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=credits-return&step=create',
-    );
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsReturnState')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Check your verified balance below');
+    await expect(page.locator('main')).not.toContainText('Credits appear here after backend-confirmed payment');
+    await expect(page.locator('main')).not.toContainText('Credits granted');
+    await expect(page.getByRole('link', { name: 'Check verified balance' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Open Generate Lab' })).toHaveCount(0);
+    await expect(page.locator('a[href*="source=credits-return"]')).toHaveCount(0);
 
     await page.goto('/account/credits?scope=member&checkout=error');
-    await expect(state).toContainText('Checkout needs another try');
-    await expect(state).toContainText('No credit grant is shown until the backend confirms payment.');
-    await expect(state.getByRole('link', { name: 'Review pricing' })).toHaveAttribute('href', '/pricing.html#pricingOffers');
-    await expect(state.getByRole('link', { name: 'Review profile checklist' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?returnContext=credits#profileCompletionCard',
-    );
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsReturnState')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Checkout needs another try');
+    await expect(page.locator('main')).not.toContainText('No credit grant is shown until the backend confirms payment.');
+    await expect(page.getByRole('link', { name: 'Review pricing' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Review profile checklist' })).toHaveCount(0);
 
     await page.goto('/account/credits?scope=member&source=pricing');
-    await expect(state).toContainText('Confirm credits before the next action');
-    await expect(state).toContainText('BITBI Pro context');
-    await expect(state.getByRole('link', { name: 'View saved assets' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=credits-return&recent=1#generate-lab-recent',
-    );
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsReturnState')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Confirm credits before the next action');
+    await expect(page.locator('main')).not.toContainText('BITBI Pro context');
+    await expect(page.getByRole('link', { name: 'View saved assets' })).toHaveCount(0);
+
+    await page.goto('/de/account/credits?scope=member&source=pricing&checkout=success');
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsReturnState')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Verifiziertes Guthaben unten prüfen');
+    await expect(page.locator('main')).not.toContainText('backend-bestätigter Zahlung');
+    await expect(page.getByRole('link', { name: 'Verifiziertes Guthaben prüfen' })).toHaveCount(0);
+    await expect(page.locator('a[href*="source=credits-return"]')).toHaveCount(0);
   });
 
   test('renders Organization dashboard for eligible owner and auto-selects the only owned org', async ({ page }) => {
