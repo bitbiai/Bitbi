@@ -495,12 +495,8 @@ function updateAccountPanel() {
             ? (state.loggedIn ? localeText('generateLab.creditsUnavailable') : localeText('generateLab.creditsAfterSignIn'))
             : localeText('credits.credits', { count: state.creditBalance });
 
-    [refs.accountStatus, refs.sessionAccountStatus].forEach((node) => {
-        if (node) node.textContent = accountStatusText;
-    });
-    [refs.creditStatus, refs.sessionCreditStatus].forEach((node) => {
-        if (node) node.textContent = creditStatusText;
-    });
+    if (refs.accountStatus) refs.accountStatus.textContent = accountStatusText;
+    if (refs.creditStatus) refs.creditStatus.textContent = creditStatusText;
 }
 
 function updateActionState() {
@@ -1721,8 +1717,6 @@ function cacheRefs() {
     Object.assign(refs, {
         accountStatus: byId('labAccountStatus'),
         creditStatus: byId('labCreditStatus'),
-        sessionAccountStatus: byId('labSessionAccountStatus'),
-        sessionCreditStatus: byId('labSessionCreditStatus'),
         mediaTabs: Array.from(document.querySelectorAll('.generate-lab__media-tab')),
         modelList: byId('labModelList'),
         modelDetails: byId('labModelDetails'),

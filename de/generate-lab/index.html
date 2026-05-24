@@ -37,7 +37,6 @@
     <link rel="stylesheet" href="../../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/components/auth.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/pages/generate-lab.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../../css/base/utilities.css?v=__ASSET_VERSION__">
@@ -97,7 +96,7 @@
             <h1 id="generateLabMobileTitle">Mobiler Erstellungsfluss</h1>
             <p>Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar. Starten Sie mit einem Prompt, prüfen Sie Credits, generieren Sie eine Vorschau und speichern Sie bestätigte Ergebnisse im Assets Manager.</p>
             <p>Mit diesen Schnellzugriffen springen Sie zum Composer, prüfen Kontokontext oder finden gespeicherte Ergebnisse, ohne die Seite zu verlieren.</p>
-            <div class="generate-lab__mobile-actions" aria-label="Schnellzugriffe im Mitglieder-Arbeitsbereich">
+            <div class="generate-lab__mobile-actions" aria-label="Generate-Lab-Schnellzugriffe">
                 <a href="#labPrompt" class="generate-lab__mobile-link">Prompt starten</a>
                 <a href="#labCost" class="generate-lab__mobile-link">Kosten prüfen</a>
                 <a href="/de/account/credits.html?scope=member" class="generate-lab__mobile-link">Credits</a>
@@ -116,98 +115,6 @@
             <h1 id="generateLabTitle" class="generate-lab__title gt-gold-cyan">Generate Lab</h1>
             <p class="generate-lab__subtitle">Erstellen Sie Bilder, Videos und Musik mit BITBIs Live-Modellen für Mitglieder.</p>
         </div>
-
-        <nav class="generate-lab__member-nav reveal" aria-label="Schnellzugriffe im Mitglieder-Arbeitsbereich">
-            <span>Mitglieder-Arbeitsbereich</span>
-            <a href="/de/account/profile.html?returnContext=generate-lab">Profil</a>
-            <a href="/de/account/credits.html?scope=member">Credits</a>
-            <a href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent">Assets Manager</a>
-        </nav>
-
-        <section id="generateWorkspacePriority" class="member-workflow reveal" aria-labelledby="generateWorkspacePriorityTitle">
-            <div class="member-workflow__head">
-                <p class="member-workflow__eyebrow">Arbeitsbereich-Priorität</p>
-                <h2 id="generateWorkspacePriorityTitle" class="member-workflow__title">Vorbereiten, generieren, speichern, verwalten</h2>
-                <p class="member-workflow__copy">Generate Lab ist der Erstellungsbereich. Halten Sie Credit-Prüfung, Profil-Checkliste und Übergabe an gespeicherte Assets nah, bevor Sie absenden oder die Seite verlassen.</p>
-            </div>
-            <ol class="member-workflow__list" aria-label="Nächste Generate-Lab-Aktionen im Arbeitsbereich">
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link member-workflow__link--primary" href="#labCost">
-                        <span class="member-workflow__step">Jetzt</span>
-                        <strong>Kosten prüfen</strong>
-                        <span>Credit-Schätzungen erscheinen vor dem Absenden; Backend-Validierung bleibt final.</span>
-                    </a>
-                </li>
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link" href="#labGenerate">
-                        <span class="member-workflow__step">Danach</span>
-                        <strong>Vorschau generieren</strong>
-                        <span>Nutzen Sie den Prompt-Bereich und speichern Sie nur Ergebnisse, die bleiben sollen.</span>
-                    </a>
-                </li>
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link" href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">
-                        <span class="member-workflow__step">Nach dem Speichern</span>
-                        <strong>Assets Manager öffnen</strong>
-                        <span>Private gespeicherte Ergebnisse finden und aktualisieren, falls Verarbeitung nachläuft.</span>
-                    </a>
-                </li>
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link" href="/de/account/profile.html?returnContext=generate-lab#profileCompletionCard">
-                        <span class="member-workflow__step">Sicher bleiben</span>
-                        <strong>Profil-Checkliste</strong>
-                        <span>Profil bündelt Anmeldung, Bestätigung, Wiederherstellung und Wallet-Status.</span>
-                    </a>
-                </li>
-            </ol>
-        </section>
-
-        <section class="generate-lab__session-panel reveal" aria-labelledby="labSessionTitle">
-            <div>
-                <p class="generate-lab__eyebrow">Kontositzung</p>
-                <h2 id="labSessionTitle">Status des angemeldeten Workspace</h2>
-                <p id="labSessionAccountStatus" class="generate-lab__session-status" role="status" aria-live="polite">Kontositzung wird geprüft...</p>
-                <p id="labSessionCreditStatus" class="generate-lab__session-copy">Credits und gespeicherte Assets laden, nachdem das Backend Ihre Kontositzung bestätigt.</p>
-            </div>
-            <nav class="generate-lab__session-actions" aria-label="Aktionen für den angemeldeten Workspace">
-                <a href="/de/account/profile.html?returnContext=generate-lab#profileCompletionCard">Profil</a>
-                <a href="/de/account/credits.html?scope=member">Credits</a>
-                <a href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Assets Manager</a>
-            </nav>
-        </section>
-
-        <section class="generate-lab__account-needed auth-recovery reveal" aria-labelledby="generateAccountNeededTitle">
-            <div>
-                <p class="auth-recovery__eyebrow">Konto erforderlich</p>
-                <h2 id="generateAccountNeededTitle">Vor Generierung oder Speichern anmelden</h2>
-                <p>Generate Lab kann Modelle und Credit-Schätzungen auch abgemeldet zeigen, aber Generierung, Speichern, aktuelle Assets und finale Credit-Prüfungen benötigen Ihr BITBI-Konto.</p>
-            </div>
-            <ul class="auth-recovery__list" aria-label="Generate-Lab-Kontohinweise">
-                <li>Melden Sie sich an, um eine Sitzung fortzusetzen oder nach Ablauf wieder einzusteigen.</li>
-                <li>Erstellen Sie ein Konto, bevor Sie Ergebnisse im Assets Manager speichern.</li>
-                <li>Credits bleibt die Quelle für Guthaben und BITBI-Pro-Kontext.</li>
-            </ul>
-            <p class="auth-recovery__return">Nach der Anmeldung hier mit dem aktuellen Prompt fortfahren und bestätigten Output im Assets Manager speichern.</p>
-            <div class="auth-recovery__actions" aria-label="Generate-Lab-Kontoaktionen">
-                <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-source="generate-lab" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="login">Anmelden</button>
-                <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-source="generate-lab" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="register">Konto erstellen</button>
-                <a href="/de/account/forgot-password.html?source=generate-lab" class="auth-recovery__link">Passwort zurücksetzen</a>
-                <a href="/de/account/credits.html?scope=member" class="auth-recovery__link">Credits prüfen</a>
-            </div>
-        </section>
-
-        <section class="generate-lab__first-run reveal" aria-labelledby="generateFirstRunTitle">
-            <div>
-                <p class="generate-lab__eyebrow">Zum ersten Mal hier?</p>
-                <h2 id="generateFirstRunTitle">Erstellen, prüfen, speichern, verwalten</h2>
-                <p>Wählen Sie ein Modell, schreiben Sie einen klaren Prompt, prüfen Sie die Credit-Schätzung, generieren Sie eine Vorschau und speichern Sie nur die Ergebnisse, die Sie im Assets Manager behalten möchten.</p>
-            </div>
-            <ol class="generate-lab__first-run-steps">
-                <li><strong>Credits</strong><span>Schätzungen erscheinen vor dem Absenden; Backend-Prüfungen bleiben die Quelle der Wahrheit.</span></li>
-                <li><strong>Speichern</strong><span>Gespeicherte Ergebnisse erscheinen in Ihrer privaten Assets-Manager-Bibliothek.</span></li>
-                <li><strong>Wiederholen</strong><span>Wenn Speichern fehlschlägt, nutzen Sie die Wiederholen-Hinweise im Ergebnisbereich, bevor Sie die Seite verlassen.</span></li>
-            </ol>
-        </section>
 
         <div class="generate-lab__workspace reveal">
             <aside class="generate-lab__panel generate-lab__panel--left" aria-label="Generate Lab Modellauswahl">

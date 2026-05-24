@@ -119,6 +119,18 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                 ]),
             }),
             Object.freeze({
+                id: 'generate-first-run',
+                title: Object.freeze({ en: 'First Generate Lab run', de: 'Erster Generate-Lab-Lauf' }),
+                summary: Object.freeze({
+                    en: 'Choose a model, write the prompt, review the estimate, then generate a preview.',
+                    de: 'Modell wählen, Prompt schreiben, Schätzung prüfen und dann eine Vorschau generieren.',
+                }),
+                detail: Object.freeze({
+                    en: 'Sign in before generation or saving. Save only outputs you want to keep; if saving fails, leave the result visible and retry before leaving the page.',
+                    de: 'Vor Generierung oder Speichern anmelden. Speichern Sie nur Ergebnisse, die bleiben sollen; wenn Speichern fehlschlägt, Ergebnis sichtbar lassen und vor dem Verlassen erneut versuchen.',
+                }),
+            }),
+            Object.freeze({
                 id: 'generate-save',
                 title: Object.freeze({ en: 'Where saved outputs go', de: 'Wo gespeicherte Ergebnisse landen' }),
                 summary: Object.freeze({

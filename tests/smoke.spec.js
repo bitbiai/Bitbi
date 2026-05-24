@@ -2134,6 +2134,10 @@ test.describe('Homepage', () => {
       'href',
       '/de/account/credits.html?source=help-generate',
     );
+    const firstRunItem = generateSection.locator('.help-menu__item').filter({ hasText: 'Erster Generate-Lab-Lauf' });
+    await firstRunItem.locator('.help-menu__item-summary').click();
+    await expect(firstRunItem).toContainText('Modell wählen, Prompt schreiben, Schätzung prüfen');
+    await expect(firstRunItem).toContainText('Vor Generierung oder Speichern anmelden.');
     await expect(panel.locator('a[href^="/de/admin"]')).toHaveCount(0);
   });
 
@@ -2317,7 +2321,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .site-nav__cta')).toHaveText('Anmelden');
   });
 
-  test('Generate Lab signed-out recovery opens the account modal with guidance', async ({ page }) => {
+  test('Generate Lab signed-out generation opens the account modal with guidance', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -2329,23 +2333,20 @@ test.describe('Homepage', () => {
 
     await page.goto('/generate-lab/');
 
-    const recovery = page.locator('.generate-lab__account-needed');
-    await expect(recovery).toBeVisible();
-    await expect(recovery).toContainText('Sign in before generation or saving');
-    await expect(recovery).toContainText('generation, saving, recent assets, and final credit checks require your BITBI account');
-    await expect(recovery.getByRole('link', { name: 'Reset password' })).toHaveAttribute(
-      'href',
-      '/account/forgot-password.html?source=generate-lab',
-    );
+    await expect(page.locator('.generate-lab__account-needed')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Sign in before generation or saving');
+    await expect(page.locator('main')).not.toContainText('generation, saving, recent assets, and final credit checks require your BITBI account');
     await expect(page.locator('#authModal .auth-modal__overlay')).toHaveCount(1);
 
-    await recovery.getByRole('button', { name: 'Sign in' }).click();
+    await page.locator('#labGenerate').click();
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
-    await expect(page.locator('.auth-modal__tab.active')).toHaveText('Sign In');
-    await expect(page.locator('#authLoginMsg')).toContainText(
+    await expect(page.locator('.auth-modal__tab.active')).toHaveText('Create Account');
+    await expect(page.locator('#authRegisterMsg')).toContainText(
       'Create or sign in to a BITBI account before generating, saving, or loading recent assets.',
     );
     await expectAuthContextRemoved(page);
+    await expect(page.locator('#authRegisterForm input[name="email"]')).toBeVisible();
+    await page.locator('.auth-modal__tab[data-tab="login"]').click();
     await expect(page.locator('#authLoginForm input[name="email"]')).toBeVisible();
     await expect(page.locator('#authLoginForm a[href="/account/forgot-password.html"]')).toHaveText('Forgot password?');
   });
@@ -2392,8 +2393,8 @@ test.describe('Homepage', () => {
 
     await page.goto('/generate-lab/');
 
-    await expect(page.locator('#labSessionAccountStatus')).toContainText('Session expired. Sign in again.');
-    await expect(page.locator('#labSessionCreditStatus')).toContainText('Your prompt stays on this page.');
+    await expect(page.locator('#labAccountStatus')).toContainText('Session expired. Sign in again.');
+    await expect(page.locator('#labCreditStatus')).toContainText('Your prompt stays on this page.');
     await expect(page.locator('#labCostInsight')).toContainText('Sign in again before generating, saving, or loading recent assets.');
     await expect(page.locator('#labMessage')).toContainText('Your prompt stays on this page.');
     await expect(page.locator('#labMessage')).not.toContainText('raw generate');
@@ -2442,34 +2443,16 @@ test.describe('Homepage', () => {
     const workspace = page.locator('.generate-lab__desktop');
     await expect(workspace).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Generate Lab' })).toBeVisible();
-    const memberNav = page.locator('.generate-lab__member-nav');
-    await expect(memberNav).toBeVisible();
-    await expect(memberNav).toContainText('Member workspace');
-    await expect(memberNav.getByRole('link', { name: 'Profile' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?returnContext=generate-lab',
-    );
-    await expect(memberNav.getByRole('link', { name: 'Credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member',
-    );
-    await expect(memberNav.getByRole('link', { name: 'Assets Manager' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
-    );
-    const priority = page.locator('#generateWorkspacePriority');
-    await expect(priority).toBeVisible();
-    await expect(priority).toContainText('Prepare, generate, save, manage');
-    await expect(priority.getByRole('link', { name: /Review cost/ })).toHaveAttribute('href', '#labCost');
-    await expect(priority.getByRole('link', { name: /Open Assets Manager/ })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
-    );
-    const firstRunGuide = page.locator('.generate-lab__first-run');
-    await expect(firstRunGuide).toBeVisible();
-    await expect(firstRunGuide).toContainText('Create, preview, save, then manage');
-    await expect(firstRunGuide).toContainText('backend checks remain the source of truth');
-    await expect(firstRunGuide).toContainText('Saved output appears in your private Assets Manager library');
+    await expect(page.locator('.generate-lab__member-nav')).toHaveCount(0);
+    await expect(page.locator('#generateWorkspacePriority')).toHaveCount(0);
+    await expect(page.locator('.generate-lab__session-panel')).toHaveCount(0);
+    await expect(page.locator('.generate-lab__account-needed')).toHaveCount(0);
+    await expect(page.locator('.generate-lab__first-run')).toHaveCount(0);
+    await expect(workspace).not.toContainText('Member workspace');
+    await expect(workspace).not.toContainText('Workspace priority');
+    await expect(workspace).not.toContainText('Account session');
+    await expect(workspace).not.toContainText('Account needed');
+    await expect(workspace).not.toContainText('First time here?');
     await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
@@ -2483,17 +2466,6 @@ test.describe('Homepage', () => {
     await expect(page.locator('#generateLabHeaderStatus')).toBeVisible();
     await expect(page.locator('#labAccountStatus')).toContainText('Signed in as lab@bitbi.ai');
     await expect(page.locator('#labCreditStatus')).toHaveText('900 credits');
-    await expect(page.locator('.generate-lab__session-panel')).toContainText('Signed-in workspace status');
-    await expect(page.locator('#labSessionAccountStatus')).toContainText('Signed in as lab@bitbi.ai');
-    await expect(page.locator('#labSessionCreditStatus')).toHaveText('900 credits');
-    await expect(page.locator('.generate-lab__session-actions').getByRole('link', { name: 'Profile' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?returnContext=generate-lab#profileCompletionCard',
-    );
-    await expect(page.locator('.generate-lab__session-actions').getByRole('link', { name: 'Credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member',
-    );
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Images' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Video' })).toBeVisible();
@@ -2772,13 +2744,10 @@ test.describe('Homepage', () => {
     });
     await page.goto('/de/generate-lab/');
 
-    await expect(page.locator('.generate-lab__session-panel')).toContainText('Status des angemeldeten Workspace');
-    await expect(page.locator('#labSessionAccountStatus')).toContainText('Angemeldet als labor@bitbi.ai');
-    await expect(page.locator('#labSessionCreditStatus')).toHaveText('900 Credits');
-    await expect(page.locator('.generate-lab__session-actions').getByRole('link', { name: 'Profil' })).toHaveAttribute(
-      'href',
-      '/de/account/profile.html?returnContext=generate-lab#profileCompletionCard',
-    );
+    await expect(page.locator('.generate-lab__session-panel')).toHaveCount(0);
+    await expect(page.locator('#labAccountStatus')).toContainText('Angemeldet als labor@bitbi.ai');
+    await expect(page.locator('#labCreditStatus')).toHaveText('900 Credits');
+    await expect(page.locator('main')).not.toContainText('Status des angemeldeten Workspace');
     await expect(page.locator('#labWorkflowStatus')).toContainText('Bereit zum Konfigurieren');
     await expect(page.locator('#labWorkflowStatus')).toContainText('Wählen Sie ein Modell, prüfen Sie die geschätzten Credits');
     await expect(page.locator('#labCostInsight')).toContainText('Geschätzt 1 Credit');

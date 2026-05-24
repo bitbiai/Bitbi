@@ -37,7 +37,6 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/pages/generate-lab.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
@@ -97,7 +96,7 @@
             <h1 id="generateLabMobileTitle">Mobile creation flow</h1>
             <p>The full Generate Lab workspace is available below. Start with a prompt, check credits, generate a preview, then save confirmed output to Assets Manager.</p>
             <p>Use these shortcuts to jump to the composer, review account context, or find saved output without losing the page.</p>
-            <div class="generate-lab__mobile-actions" aria-label="Member workspace shortcuts">
+            <div class="generate-lab__mobile-actions" aria-label="Generate Lab shortcuts">
                 <a href="#labPrompt" class="generate-lab__mobile-link">Start prompt</a>
                 <a href="#labCost" class="generate-lab__mobile-link">Review cost</a>
                 <a href="/account/credits.html?scope=member" class="generate-lab__mobile-link">Credits</a>
@@ -116,98 +115,6 @@
             <h1 id="generateLabTitle" class="generate-lab__title gt-gold-cyan">Generate Lab</h1>
             <p class="generate-lab__subtitle">Create images, videos, and music with BITBI's live member models.</p>
         </div>
-
-        <nav class="generate-lab__member-nav reveal" aria-label="Member workspace shortcuts">
-            <span>Member workspace</span>
-            <a href="/account/profile.html?returnContext=generate-lab">Profile</a>
-            <a href="/account/credits.html?scope=member">Credits</a>
-            <a href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent">Assets Manager</a>
-        </nav>
-
-        <section id="generateWorkspacePriority" class="member-workflow reveal" aria-labelledby="generateWorkspacePriorityTitle">
-            <div class="member-workflow__head">
-                <p class="member-workflow__eyebrow">Workspace priority</p>
-                <h2 id="generateWorkspacePriorityTitle" class="member-workflow__title">Prepare, generate, save, manage</h2>
-                <p class="member-workflow__copy">Generate Lab is the creation stage. Keep credit checks, the profile checklist, and saved-asset handoff close before you submit or leave.</p>
-            </div>
-            <ol class="member-workflow__list" aria-label="Generate Lab workspace next actions">
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link member-workflow__link--primary" href="#labCost">
-                        <span class="member-workflow__step">Now</span>
-                        <strong>Review cost</strong>
-                        <span>Credit estimates appear before submit; backend validation stays final.</span>
-                    </a>
-                </li>
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link" href="#labGenerate">
-                        <span class="member-workflow__step">Next</span>
-                        <strong>Generate preview</strong>
-                        <span>Use the prompt stage, then save only outputs you want to keep.</span>
-                    </a>
-                </li>
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link" href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">
-                        <span class="member-workflow__step">After save</span>
-                        <strong>Open Assets Manager</strong>
-                        <span>Find private saved output, refresh if processing is still catching up.</span>
-                    </a>
-                </li>
-                <li class="member-workflow__item">
-                    <a class="member-workflow__link" href="/account/profile.html?returnContext=generate-lab#profileCompletionCard">
-                        <span class="member-workflow__step">Keep safe</span>
-                        <strong>Profile checklist</strong>
-                        <span>Profile keeps sign-in, verification, recovery, and wallet status together.</span>
-                    </a>
-                </li>
-            </ol>
-        </section>
-
-        <section class="generate-lab__session-panel reveal" aria-labelledby="labSessionTitle">
-            <div>
-                <p class="generate-lab__eyebrow">Account session</p>
-                <h2 id="labSessionTitle">Signed-in workspace status</h2>
-                <p id="labSessionAccountStatus" class="generate-lab__session-status" role="status" aria-live="polite">Checking account session...</p>
-                <p id="labSessionCreditStatus" class="generate-lab__session-copy">Credits and saved assets load after the backend confirms your account session.</p>
-            </div>
-            <nav class="generate-lab__session-actions" aria-label="Signed-in workspace actions">
-                <a href="/account/profile.html?returnContext=generate-lab#profileCompletionCard">Profile</a>
-                <a href="/account/credits.html?scope=member">Credits</a>
-                <a href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Assets Manager</a>
-            </nav>
-        </section>
-
-        <section class="generate-lab__account-needed auth-recovery reveal" aria-labelledby="generateAccountNeededTitle">
-            <div>
-                <p class="auth-recovery__eyebrow">Account needed</p>
-                <h2 id="generateAccountNeededTitle">Sign in before generation or saving</h2>
-                <p>Generate Lab can show models and credit estimates while signed out, but generation, saving, recent assets, and final credit checks require your BITBI account.</p>
-            </div>
-            <ul class="auth-recovery__list" aria-label="Generate Lab account guidance">
-                <li>Sign in to continue a session or recover after expiry.</li>
-                <li>Create an account before saving outputs to Assets Manager.</li>
-                <li>Credits stays the source for balances and BITBI Pro context.</li>
-            </ul>
-            <p class="auth-recovery__return">After sign-in, continue here with the current prompt, then save confirmed output to Assets Manager.</p>
-            <div class="auth-recovery__actions" aria-label="Generate Lab account actions">
-                <button type="button" class="auth-recovery__button auth-recovery__button--primary" data-auth-entry="login" data-auth-source="generate-lab" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="login">Sign in</button>
-                <button type="button" class="auth-recovery__button" data-auth-entry="register" data-auth-source="generate-lab" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="register">Create account</button>
-                <a href="/account/forgot-password.html?source=generate-lab" class="auth-recovery__link">Reset password</a>
-                <a href="/account/credits.html?scope=member" class="auth-recovery__link">Review credits</a>
-            </div>
-        </section>
-
-        <section class="generate-lab__first-run reveal" aria-labelledby="generateFirstRunTitle">
-            <div>
-                <p class="generate-lab__eyebrow">First time here?</p>
-                <h2 id="generateFirstRunTitle">Create, preview, save, then manage</h2>
-                <p>Choose a model, write a clear prompt, review the credit estimate, generate a preview, and save only the outputs you want in Assets Manager.</p>
-            </div>
-            <ol class="generate-lab__first-run-steps">
-                <li><strong>Credits</strong><span>Estimates appear before submit; backend checks remain the source of truth.</span></li>
-                <li><strong>Save</strong><span>Saved output appears in your private Assets Manager library.</span></li>
-                <li><strong>Recover</strong><span>If saving fails, use the retry guidance in the result stage before leaving.</span></li>
-            </ol>
-        </section>
 
         <div class="generate-lab__workspace reveal">
             <aside class="generate-lab__panel generate-lab__panel--left" aria-label="Generate Lab model selection">
