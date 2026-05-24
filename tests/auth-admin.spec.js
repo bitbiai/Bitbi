@@ -8379,7 +8379,7 @@ test.describe('Assets Manager (authenticated)', () => {
     }));
   });
 
-  test('homepage create studio keeps the public model selector restricted to FLUX.1 Schnell', async ({
+  test('homepage create studio offers FLUX.2 Klein while keeping FLUX.1 Schnell as default', async ({
     page,
   }) => {
     const requests = [];
@@ -8398,9 +8398,9 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#galleryStudio .creator-create__preview .creator-create__empty'))
       .toContainText('Your generated image will appear here.');
     await expect(page.locator('#galStudioModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
-    await expect(page.locator('#galStudioModel option')).toHaveCount(1);
+    await expect(page.locator('#galStudioModel option')).toHaveCount(2);
     await expect(page.locator('#galStudioModel')).toContainText('FLUX.1 Schnell');
-    await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Klein 9B');
+    await expect(page.locator('#galStudioModel')).toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Dev');
     await expect(page.locator('#galleryStudio .studio__quota')).toContainText('10 credits available');
     await expect(page.locator('#galleryStudio .studio__quota')).not.toContainText('generations');
@@ -8425,6 +8425,92 @@ test.describe('Assets Manager (authenticated)', () => {
       prompt: 'homepage legacy model request',
       model: '@cf/black-forest-labs/flux-1-schnell',
     }));
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto('/de/');
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Galerie' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
+    await page.locator('.gallery-mode__btn[data-mode="create"]').click();
+    await expect(page.locator('#galleryStudio')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#galStudioModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
+    await expect(page.locator('#galStudioModel option')).toHaveText(['FLUX.1 Schnell', 'FLUX.2 Klein 9B']);
+    await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Dev');
+    await page.selectOption('#galStudioModel', '@cf/black-forest-labs/flux-2-klein-9b');
+    await expect(page.locator('#galleryCreateTitle')).toHaveText('FLUX.2 Klein 9B');
+    await expect(page.locator('#galStudioCreditEstimate')).toHaveText('10 Credits');
+    await expect(page.locator('#galStudioGenerate')).toHaveText('Generieren · 10 Credits');
+  });
+
+  test('homepage create studio disables unsupported FLUX.2 Klein controls and omits unsupported payload fields', async ({
+    page,
+  }) => {
+    const requests = [];
+    await mockAuthenticatedAssetsManager(page, requests);
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
+    await page.locator('.gallery-mode__btn[data-mode="create"]').click();
+    await expect(page.locator('#galleryStudio')).toBeVisible({ timeout: 10_000 });
+
+    await page.selectOption('#galStudioModel', '@cf/black-forest-labs/flux-2-klein-9b');
+    await expect(page.locator('#galleryCreateTitle')).toHaveText('FLUX.2 Klein 9B');
+    await expect(page.locator('#galStudioCreditEstimate')).toHaveText('10 credits');
+    await expect(page.locator('#galStudioGenerate')).toHaveText('Generate · 10 credits');
+
+    const flux2CapabilityState = await page.locator('#galleryStudio').evaluate((studio) => {
+      const steps = studio.querySelector('#galStudioSteps');
+      const seed = studio.querySelector('#galStudioSeed');
+      const randomize = studio.querySelector('#galStudioRandomize');
+      return {
+        stepsDisabled: steps.disabled,
+        stepsHidden: steps.closest('.creator-create__field').hidden,
+        seedDisabled: seed.disabled,
+        seedHidden: seed.closest('.creator-create__field').hidden,
+        randomizeDisabled: randomize.disabled,
+      };
+    });
+    expect(flux2CapabilityState).toEqual({
+      stepsDisabled: true,
+      stepsHidden: true,
+      seedDisabled: true,
+      seedHidden: true,
+      randomizeDisabled: true,
+    });
+
+    await page.locator('#galStudioPrompt').fill('homepage flux2 klein request');
+    await page.locator('#galStudioGenerate').click();
+    await expect(page.locator('#galStudioPreview img')).toBeVisible();
+    expect(requests.at(-1)).toEqual(expect.objectContaining({
+      prompt: 'homepage flux2 klein request',
+      model: '@cf/black-forest-labs/flux-2-klein-9b',
+    }));
+    expect(requests.at(-1)).not.toHaveProperty('steps');
+    expect(requests.at(-1)).not.toHaveProperty('seed');
+
+    await page.selectOption('#galStudioModel', '@cf/black-forest-labs/flux-1-schnell');
+    await expect(page.locator('#galleryCreateTitle')).toHaveText('FLUX.1 Schnell');
+    await expect(page.locator('#galStudioCreditEstimate')).toHaveText('1 credit');
+    const flux1CapabilityState = await page.locator('#galleryStudio').evaluate((studio) => {
+      const steps = studio.querySelector('#galStudioSteps');
+      const seed = studio.querySelector('#galStudioSeed');
+      const randomize = studio.querySelector('#galStudioRandomize');
+      return {
+        stepsDisabled: steps.disabled,
+        stepsHidden: steps.closest('.creator-create__field').hidden,
+        seedDisabled: seed.disabled,
+        seedHidden: seed.closest('.creator-create__field').hidden,
+        randomizeDisabled: randomize.disabled,
+      };
+    });
+    expect(flux1CapabilityState).toEqual({
+      stepsDisabled: false,
+      stepsHidden: false,
+      seedDisabled: false,
+      seedHidden: false,
+      randomizeDisabled: false,
+    });
   });
 
   test('homepage create studio sends a fresh idempotency key for each image generation click', async ({

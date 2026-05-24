@@ -13,6 +13,8 @@ import {
 import {
     DEFAULT_AI_IMAGE_MODEL,
     getAiImageModelOptions,
+    getGenerateLabAiImageModelOptions,
+    getAiImageModelConfig,
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
@@ -32,6 +34,12 @@ const SAVE_REFERENCE_FALLBACK_CODES = new Set([
 /* DOM refs (resolved on init) */
 let $prompt, $model, $steps, $seed, $randomize, $generateBtn, $preview, $genMsg;
 let $saveBar, $folderSelect, $saveBtn, $costLabel;
+let $title;
+
+const HOMEPAGE_GALLERY_CREATE_MODEL_IDS = Object.freeze([
+    DEFAULT_AI_IMAGE_MODEL,
+    '@cf/black-forest-labs/flux-2-klein-9b',
+]);
 
 /* ── Helpers ── */
 
@@ -88,16 +96,59 @@ function populateFolderOptions(selectEl) {
 function populateModelOptions(selectEl, currentValue = DEFAULT_AI_IMAGE_MODEL) {
     if (!selectEl) return;
 
-    const options = getAiImageModelOptions().map(
+    const generateLabModels = new Map(getGenerateLabAiImageModelOptions().map((model) => [model.id, model]));
+    const homepageModels = HOMEPAGE_GALLERY_CREATE_MODEL_IDS
+        .map((id) => generateLabModels.get(id))
+        .filter(Boolean);
+    const options = (homepageModels.length ? homepageModels : getAiImageModelOptions()).map(
         ({ id, label }) => `<option value="${id}">${escapeHtml(label)}</option>`
     );
     selectEl.innerHTML = options.join('');
     selectEl.value = currentValue;
 }
 
+function selectedModelConfig() {
+    return getAiImageModelConfig($model?.value || DEFAULT_AI_IMAGE_MODEL)
+        || getAiImageModelConfig(DEFAULT_AI_IMAGE_MODEL);
+}
+
+function toggleFieldSupport(control, supported) {
+    const field = control?.closest('.creator-create__field, .studio__field');
+    if (field) field.hidden = !supported;
+    if (control) {
+        control.disabled = !supported;
+        control.setAttribute('aria-disabled', supported ? 'false' : 'true');
+    }
+}
+
+function syncModelCapabilityControls() {
+    const config = selectedModelConfig();
+    const supportsSteps = config?.supportsSteps === true;
+    const supportsSeed = config?.supportsSeed === true;
+
+    if ($title) {
+        $title.textContent = config?.label || 'FLUX.1 Schnell';
+    }
+    toggleFieldSupport($steps, supportsSteps);
+    toggleFieldSupport($seed, supportsSeed);
+    if ($randomize) {
+        $randomize.disabled = !supportsSeed;
+        $randomize.setAttribute('aria-disabled', supportsSeed ? 'false' : 'true');
+        $randomize.closest('.creator-create__field, .studio__field')?.toggleAttribute('hidden', !supportsSeed);
+    }
+}
+
 function getEstimatedImageCredits() {
     const selectedModel = $model?.value || DEFAULT_AI_IMAGE_MODEL;
-    const pricing = calculateAiImageCreditCost(selectedModel, { steps: 4, width: 1024, height: 1024 });
+    const config = selectedModelConfig();
+    const params = {
+        width: config?.multipartDefaults?.width || 1024,
+        height: config?.multipartDefaults?.height || 1024,
+    };
+    if (config?.supportsSteps === true) {
+        params.steps = $steps?.value ? Number($steps.value) : 4;
+    }
+    const pricing = calculateAiImageCreditCost(selectedModel, params);
     return Math.max(1, Math.ceil(Number(pricing?.credits || 1)));
 }
 
@@ -148,8 +199,9 @@ async function handleGenerate() {
 
     $preview.innerHTML = `<div class="studio__loading"><div class="studio__spinner"></div><span>${escapeHtml(localeText('studio.creatingImage'))}</span></div>`;
 
-    const steps = $steps.value ? Number($steps.value) : null;
-    const seed  = $seed.value  ? Number($seed.value)  : null;
+    const config = selectedModelConfig();
+    const steps = config?.supportsSteps === true && $steps.value ? Number($steps.value) : null;
+    const seed  = config?.supportsSeed === true && $seed.value ? Number($seed.value) : null;
     const model = $model?.value || DEFAULT_AI_IMAGE_MODEL;
 
     let res;
@@ -286,9 +338,11 @@ export function initGalleryStudio() {
     $folderSelect  = document.getElementById('galStudioFolderSelect');
     $saveBtn       = document.getElementById('galStudioSaveBtn');
     $costLabel     = document.getElementById('galStudioCreditEstimate');
+    $title         = document.getElementById('galleryCreateTitle');
 
     if (!$prompt || !$generateBtn) return;
     populateModelOptions($model);
+    syncModelCapabilityControls();
     renderGenerateButtonLabel();
 
     // Quota indicator (inject after the actions row, load from server)
@@ -298,7 +352,10 @@ export function initGalleryStudio() {
     loadFolders();
 
     $generateBtn.addEventListener('click', handleGenerate);
-    $model?.addEventListener('change', renderGenerateButtonLabel);
+    $model?.addEventListener('change', () => {
+        syncModelCapabilityControls();
+        renderGenerateButtonLabel();
+    });
     $steps?.addEventListener('change', renderGenerateButtonLabel);
     $saveBtn.addEventListener('click', handleSave);
     $randomize.addEventListener('click', () => {
