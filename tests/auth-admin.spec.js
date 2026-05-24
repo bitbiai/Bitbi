@@ -11634,10 +11634,24 @@ test.describe('Profile page (authenticated)', () => {
       const actionHeights = [assets, wallet, credits]
         .filter(Boolean)
         .map((rect) => rect.height);
+      const accountRows = Array.from(node.querySelectorAll('#profileAccountCard .profile__row'))
+        .map((row) => row.getBoundingClientRect());
       return {
         completionOrder,
         accountBelowAvatar: Boolean(avatar && account && account.top > avatar.bottom),
-        avatarComparableToAssets: Boolean(avatar && assets && avatar.height <= assets.height + 24),
+        avatarCompact: Boolean(avatar && avatar.height <= 96),
+        actionCardsVertical: Boolean(
+          assets
+          && wallet
+          && credits
+          && wallet.top > assets.bottom
+          && credits.top > wallet.bottom
+          && Math.abs(wallet.left - assets.left) <= 4
+          && Math.abs(credits.left - assets.left) <= 4,
+        ),
+        accountHeightCompact: Boolean(account && account.height <= 210),
+        accountRowsReadable: accountRows.length === 5
+          && accountRows.every((row, index) => index === 0 || row.top >= accountRows[index - 1].bottom - 1),
         summaryRightOfHeading: Boolean(heading && completionStatus && completionStatus.left > heading.right),
         summarySameHeadingRow: Boolean(
           heading
@@ -11649,11 +11663,15 @@ test.describe('Profile page (authenticated)', () => {
         studioBottomDelta: studioStack && account ? Math.abs(studioStack.bottom - account.bottom) : null,
         actionHeightsBalanced: actionHeights.length === 3
           && Math.max(...actionHeights) - Math.min(...actionHeights) <= 6,
+        actionCardsTouchSafe: actionHeights.length === 3 && Math.min(...actionHeights) >= 44,
       };
     });
     expect(overviewLayout.completionOrder).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
     expect(overviewLayout.accountBelowAvatar).toBe(true);
-    expect(overviewLayout.avatarComparableToAssets).toBe(true);
+    expect(overviewLayout.avatarCompact).toBe(true);
+    expect(overviewLayout.actionCardsVertical).toBe(true);
+    expect(overviewLayout.accountHeightCompact).toBe(true);
+    expect(overviewLayout.accountRowsReadable).toBe(true);
     expect(overviewLayout.summaryRightOfHeading).toBe(true);
     expect(overviewLayout.summarySameHeadingRow).toBe(true);
     expect(overviewLayout.completionBottomDelta).not.toBeNull();
@@ -11661,6 +11679,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(overviewLayout.studioBottomDelta).not.toBeNull();
     expect(overviewLayout.studioBottomDelta).toBeLessThanOrEqual(6);
     expect(overviewLayout.actionHeightsBalanced).toBe(true);
+    expect(overviewLayout.actionCardsTouchSafe).toBe(true);
     const settingsRow = page.locator('.profile__settings-row');
     await expect(settingsRow).toBeVisible();
     const settingsOrder = await settingsRow.locator(':scope > .profile__card').evaluateAll((cards) => (

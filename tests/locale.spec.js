@@ -502,10 +502,12 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).toContain('width: 64px');
     expect(profileCss).toContain('height: 64px');
     expect(profileCss).toContain('.profile__completion-title-row');
+    expect(profileCss).toContain('--profile-overview-account-block');
     expect(profileCss).toContain('grid-template-rows: repeat(3, minmax(0, 1fr))');
     expect(profileCss).toContain('display: contents');
     expect(profileCss).toContain('min-block-size: calc((88px * 2) + var(--space-3))');
     expect(profileCss).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(profileCss).not.toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
 
     expect(enCredits).toContain('credits-workspace-nav');
     expect(enCredits).toContain('id="creditsWorkspacePriority"');

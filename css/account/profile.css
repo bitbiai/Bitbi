@@ -204,13 +204,14 @@
 
     .profile__account-card--compact {
         display: grid;
-        align-content: center;
+        grid-template-rows: auto repeat(5, minmax(1.45rem, 1fr));
+        align-content: stretch;
         min-block-size: calc((88px * 2) + var(--space-3));
         padding: var(--space-3) var(--space-5);
     }
 
     .profile__account-card--compact .profile__title {
-        margin-block-end: var(--space-1);
+        margin-block-end: 0.2rem;
         font-size: 0.95rem;
     }
 
@@ -218,7 +219,7 @@
         grid-template-columns: minmax(6.4rem, auto) minmax(0, 1fr);
         gap: var(--space-2);
         min-block-size: 0;
-        padding: 0.28rem 0;
+        padding: 0.2rem 0;
     }
 
     .profile__account-card--compact .profile__label {
@@ -710,8 +711,8 @@
 
     /* ── Profile action stack ── */
     .profile__studio-stack {
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-rows: repeat(3, minmax(0, 1fr));
         gap: var(--space-4);
         margin-block-start: var(--space-6);
     }
@@ -879,8 +880,8 @@
     .profile__completion-card {
         display: grid;
         align-content: start;
-        gap: var(--space-4);
-        padding: var(--space-5);
+        gap: 0.55rem;
+        padding: var(--space-3);
         border-color: rgba(0, 240, 255, 0.16);
         background:
             linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(34, 197, 94, 0.05)),
@@ -889,7 +890,12 @@
 
     .profile__completion-head {
         display: grid;
-        gap: var(--space-1);
+        gap: 0.25rem;
+    }
+
+    .profile__completion-head .profile__control-eyebrow {
+        font-size: 0.56rem;
+        line-height: 1;
     }
 
     .profile__completion-title-row {
@@ -906,16 +912,17 @@
 
     .profile__completion-status {
         flex: 0 1 auto;
-        max-inline-size: 14rem;
-        padding: 0.32rem 0.58rem;
+        max-inline-size: none;
+        padding: 0.2rem 0.45rem;
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: var(--radius-full);
         background: rgba(255, 255, 255, 0.04);
         color: rgba(255, 255, 255, 0.72);
         font-family: var(--font-mono);
-        font-size: 0.62rem;
-        line-height: 1.25;
+        font-size: 0.52rem;
+        line-height: 1.05;
         text-align: end;
+        white-space: nowrap;
     }
 
     .profile__completion-status--complete {
@@ -927,16 +934,16 @@
     .profile__completion-list {
         display: grid;
         grid-template-columns: 1fr;
-        gap: var(--space-2);
+        gap: 0.3rem;
     }
 
     .profile__completion-item {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr);
-        gap: 0.15rem 0.65rem;
+        gap: 0.03rem 0.5rem;
         align-items: center;
         min-block-size: 0;
-        padding: 0.7rem 0.75rem;
+        padding: 0.34rem 0.55rem;
         border: 1px solid rgba(255, 255, 255, 0.09);
         border-radius: var(--radius-md);
         background: rgba(255, 255, 255, 0.035);
@@ -945,8 +952,8 @@
     .profile__completion-check {
         grid-row: 1 / span 2;
         position: relative;
-        inline-size: 1rem;
-        block-size: 1rem;
+        inline-size: 0.78rem;
+        block-size: 0.78rem;
         border: 1px solid rgba(255, 255, 255, 0.18);
         border-radius: 0.28rem;
         background: rgba(255, 255, 255, 0.04);
@@ -955,10 +962,10 @@
     .profile__completion-check::after {
         content: '';
         position: absolute;
-        inset-block-start: 0.12rem;
-        inset-inline-start: 0.32rem;
-        inline-size: 0.28rem;
-        block-size: 0.54rem;
+        inset-block-start: 0.08rem;
+        inset-inline-start: 0.24rem;
+        inline-size: 0.22rem;
+        block-size: 0.42rem;
         border: solid rgba(255, 255, 255, 0.92);
         border-width: 0 2px 2px 0;
         opacity: 0;
@@ -982,7 +989,7 @@
     .profile__completion-label {
         color: rgba(34, 197, 94, 0.82);
         font-family: var(--font-mono);
-        font-size: 0.65rem;
+        font-size: 0.52rem;
         font-weight: 800;
         letter-spacing: 0;
         text-transform: uppercase;
@@ -991,8 +998,8 @@
     .profile__completion-item strong {
         color: rgba(255, 255, 255, 0.94);
         font-family: var(--font-mono);
-        font-size: 0.76rem;
-        line-height: 1.3;
+        font-size: 0.62rem;
+        line-height: 1.15;
     }
 
     .profile__completion-state--complete {
@@ -1041,52 +1048,24 @@
         .profile__completion-status {
             max-inline-size: 100%;
             text-align: start;
+            white-space: normal;
         }
     }
 
     @media (min-width: 1024px) {
         .profile__overview-grid {
+            --profile-overview-avatar-block: 88px;
+            --profile-overview-account-block: calc((88px * 2) + var(--space-3));
+            --profile-overview-action-gap: var(--space-2);
             display: grid;
-            grid-template-columns: minmax(15rem, 0.9fr) minmax(17rem, 1.1fr);
+            grid-template-columns: minmax(15rem, 0.82fr) minmax(17rem, 1fr) minmax(14rem, 0.82fr);
+            grid-template-rows: var(--profile-overview-avatar-block) minmax(var(--profile-overview-account-block), auto);
             gap: var(--space-4);
             align-items: stretch;
         }
 
         .profile__overview-grid .profile__card {
             margin-block-start: 0;
-        }
-
-        .profile__studio-stack {
-            display: grid;
-            grid-column: 1 / -1;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            margin-block-start: 0;
-            min-block-size: 100%;
-        }
-
-        .profile__studio-stack .profile__studio-card {
-            flex: 1 1 0;
-            min-block-size: 0;
-        }
-
-        .profile__settings-row {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .profile__settings-row .profile__card {
-            min-block-size: 100%;
-        }
-    }
-
-    @media (min-width: 1280px) {
-        .profile__overview-grid {
-            --profile-overview-avatar-block: 88px;
-            --profile-overview-action-block: 74px;
-            --profile-overview-action-gap: var(--space-2);
-            grid-template-columns: minmax(15rem, 0.82fr) minmax(17rem, 1fr) minmax(14rem, 0.82fr);
-            grid-template-rows:
-                var(--profile-overview-avatar-block)
-                minmax(calc((var(--profile-overview-action-block) * 3) + (var(--profile-overview-action-gap) * 2)), auto);
         }
 
         .profile__avatar-account-stack {
@@ -1111,7 +1090,7 @@
             grid-column: 2;
             grid-row: 2;
             block-size: 100%;
-            min-block-size: 0;
+            min-block-size: var(--profile-overview-account-block);
         }
 
         .profile__studio-stack {
@@ -1122,24 +1101,40 @@
             gap: var(--profile-overview-action-gap);
             block-size: 100%;
             min-block-size: 0;
+            margin-block-start: 0;
             align-content: stretch;
         }
 
         .profile__studio-stack--compact .profile__studio-card {
             block-size: 100%;
             min-block-size: 0;
-            padding: 0.75rem 0.9rem;
+            padding: 0.55rem 0.75rem;
             gap: var(--space-3);
         }
 
         .profile__studio-stack--compact .profile__studio-emoji {
-            inline-size: 2.35rem;
-            block-size: 2.35rem;
-            font-size: 1.22rem;
+            inline-size: 2.1rem;
+            block-size: 2.1rem;
+            font-size: 1.08rem;
+            border-radius: var(--radius-md);
         }
 
         .profile__studio-stack--compact .profile__studio-label {
-            font-size: 1rem;
+            font-size: 0.96rem;
+        }
+
+        .profile__settings-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .profile__settings-row .profile__card {
+            min-block-size: 100%;
+        }
+    }
+
+    @media (min-width: 1280px) {
+        .profile__overview-grid {
+            grid-template-columns: minmax(15rem, 0.82fr) minmax(17rem, 1fr) minmax(14rem, 0.82fr);
         }
     }
 
@@ -1154,7 +1149,7 @@
 
     @media (max-width: 1023px) {
         .profile__studio-stack {
-            display: none;
+            display: grid;
             margin-block-start: 0;
         }
 
