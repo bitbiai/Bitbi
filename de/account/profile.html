@@ -258,7 +258,10 @@
 
                     <button type="button" id="profileWalletCard" class="profile__card profile__studio-card profile__studio-card--wallet" aria-label="Wallet öffnen" hidden>
                         <span class="profile__studio-emoji profile__studio-emoji--wallet" aria-hidden="true">&#128142;</span>
-                        <span class="profile__studio-label">Wallet</span>
+                        <span class="profile__studio-copy">
+                            <span class="profile__studio-label">Wallet</span>
+                            <span id="profileWalletCardStatus" class="profile__studio-meta">Wallet wird geprüft...</span>
+                        </span>
                     </button>
 
                     <a href="/de/account/credits.html?scope=member" id="profileCreditsCard" class="profile__card profile__studio-card profile__studio-card--credits" aria-label="Credits öffnen">
@@ -280,12 +283,28 @@
                     <div class="profile__edit-head">
                         <p class="profile__control-eyebrow">Profileinstellungen</p>
                         <h2 class="profile__title">Profil bearbeiten</h2>
-                        <p id="profileEditIntro" class="profile__edit-copy">Anzeigename, Bio, Website und Avatar sind bearbeitbar. E-Mail, Bestätigung und Wallet-Status bleiben bei Kontoübersicht und Wallet-Steuerung.</p>
+                        <p id="profileEditIntro" class="profile__edit-copy">Anzeigename, Bio, Website und Avatar sind hier bearbeitbar. Wallet-Status und Aktionen liegen kompakt im BITBI-Konto-Kontext darunter.</p>
                     </div>
 
                     <div id="profileEditState" class="profile__edit-state" role="status" aria-live="polite">Profilfelder werden aus Ihrem Konto geladen.</div>
                     <div id="formMsg" class="profile__msg" role="status"></div>
                     <p id="profileSaveRecovery" class="profile__save-recovery" hidden>Speichern fehlgeschlagen. Ihre eingegebenen Werte bleiben im Formular; prüfen Sie die Verbindung oder melden Sie sich erneut an und versuchen Sie es noch einmal.</p>
+
+                    <div class="profile__wallet-context" id="profileWalletContext" aria-labelledby="profileWalletContextTitle">
+                        <div class="profile__wallet-context-head">
+                            <div>
+                                <p class="profile__control-eyebrow">BITBI-Konto</p>
+                                <h3 id="profileWalletContextTitle" class="profile__wallet-context-title">Wallet</h3>
+                            </div>
+                        </div>
+                        <p class="profile__wallet-copy" id="walletSectionCopy">Verbinden Sie eine Ethereum-Mainnet-Wallet, um sie mit Ihrem BITBI-Konto zu verknüpfen oder die Wallet-Anmeldung zu nutzen.</p>
+                        <div id="walletSectionMsg" class="profile__msg" role="status"></div>
+                        <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
+                        <div id="walletSectionActions" class="profile__wallet-actions"></div>
+                        <div class="profile__wallet-utility" aria-label="Wallet-Status-Werkzeuge">
+                            <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Wallet-Status aktualisieren</button>
+                        </div>
+                    </div>
 
                     <form id="profileForm" class="profile__form" aria-describedby="profileEditIntro profileEditState">
                         <div>
@@ -305,21 +324,6 @@
                         </div>
                         <button type="submit" id="submitBtn" class="profile__submit">Änderungen speichern</button>
                     </form>
-                </div>
-
-                <div class="profile__card" id="walletSectionCard">
-                    <div class="profile__wallet-head">
-                        <div>
-                            <h2 class="profile__title">Wallet</h2>
-                            <p class="profile__wallet-copy" id="walletSectionCopy">Verbinden Sie eine Ethereum-Mainnet-Wallet, um sie mit Ihrem BITBI-Konto zu verknüpfen oder die Wallet-Anmeldung zu nutzen.</p>
-                        </div>
-                    </div>
-                    <div id="walletSectionMsg" class="profile__msg" role="status"></div>
-                    <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
-                    <div id="walletSectionActions" class="profile__wallet-actions"></div>
-                    <div class="profile__wallet-utility" aria-label="Wallet-Status-Werkzeuge">
-                        <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Wallet-Status aktualisieren</button>
-                    </div>
                 </div>
                 </div>
 

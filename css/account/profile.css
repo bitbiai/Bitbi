@@ -922,6 +922,30 @@
         text-wrap: balance;
     }
 
+    .profile__studio-copy {
+        display: grid;
+        gap: 0.16rem;
+        min-inline-size: 0;
+    }
+
+    .profile__studio-meta {
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 700;
+        line-height: 1.25;
+        color: rgba(255, 255, 255, 0.52);
+        text-transform: uppercase;
+        overflow-wrap: anywhere;
+    }
+
+    .profile__studio-meta[data-state="complete"] {
+        color: rgba(34, 197, 94, 0.84);
+    }
+
+    .profile__studio-meta[data-state="attention"] {
+        color: rgba(255, 179, 0, 0.86);
+    }
+
     .profile__control-eyebrow {
         margin: 0;
         font-family: var(--font-mono);
@@ -1179,11 +1203,7 @@
         }
 
         .profile__settings-row {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .profile__settings-row .profile__card {
-            min-block-size: 100%;
+            grid-template-columns: minmax(0, 1fr);
         }
     }
 
@@ -1313,9 +1333,59 @@
         margin-block-start: calc(var(--space-2) * -1);
     }
 
+    .profile__wallet-context {
+        display: grid;
+        gap: var(--space-3);
+        padding: var(--space-4);
+        border: 1px solid rgba(34, 197, 94, 0.14);
+        border-radius: var(--radius-lg);
+        background:
+            linear-gradient(135deg, rgba(34, 197, 94, 0.075), rgba(0, 240, 255, 0.045)),
+            rgba(255, 255, 255, 0.025);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    }
+
+    .profile__wallet-context-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-3);
+    }
+
+    .profile__wallet-context-title {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        color: rgba(255, 255, 255, 0.92);
+    }
+
+    .profile__wallet-context .profile__wallet-copy {
+        margin: 0;
+        font-size: 0.74rem;
+        line-height: 1.5;
+    }
+
+    .profile__wallet-context .profile__msg {
+        min-block-size: 0;
+    }
+
     .profile__wallet-rows {
         display: flex;
         flex-direction: column;
+    }
+
+    .profile__wallet-context .profile__wallet-rows {
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.055);
+        border-radius: var(--radius-md);
+        background: rgba(0, 0, 0, 0.1);
+    }
+
+    .profile__wallet-context .profile__row {
+        padding-block: 0.48rem;
+        padding-inline: 0.2rem;
     }
 
     .profile__wallet-actions {
@@ -1325,11 +1395,20 @@
         margin-block-start: var(--space-5);
     }
 
+    .profile__wallet-context .profile__wallet-actions {
+        gap: var(--space-2);
+        margin-block-start: 0;
+    }
+
     .profile__wallet-utility {
         display: flex;
         flex-wrap: wrap;
         gap: var(--space-2);
         margin-block-start: var(--space-4);
+    }
+
+    .profile__wallet-context .profile__wallet-utility {
+        margin-block-start: 0;
     }
 
     .profile__wallet-btn {
@@ -1347,6 +1426,13 @@
         text-decoration: none;
         cursor: pointer;
         transition: transform 0.25s var(--ease-default), border-color 0.25s var(--ease-default), background 0.25s var(--ease-default), color 0.25s var(--ease-default);
+    }
+
+    .profile__wallet-context .profile__wallet-btn {
+        min-block-size: 2.35rem;
+        padding: 0.56rem 0.84rem;
+        font-size: 0.68rem;
+        line-height: 1.2;
     }
 
     .profile__wallet-btn:hover,
@@ -1968,13 +2054,20 @@
         }
 
         #profileContent .profile-layout__sidebar {
+            display: none;
+        }
+
+        #profileHomeView.profile-view--favorites-focused .profile-layout,
+        #profileContent[data-active-tab="favorites"] .profile-layout {
             display: block;
         }
 
+        #profileHomeView.profile-view--favorites-focused .profile-layout__main,
         #profileContent[data-active-tab="favorites"] .profile-layout__main {
-            display: grid;
+            display: none;
         }
 
+        #profileHomeView.profile-view--favorites-focused .profile-layout__sidebar,
         #profileContent[data-active-tab="favorites"] .profile-layout__sidebar {
             display: block;
             margin-block-start: 0;

@@ -1127,8 +1127,9 @@ test.describe('Wallet identity profile flow', () => {
       await acceptCookies.click();
     }
 
-    await expect(page.locator('#walletSectionCard')).toBeVisible();
-    await expect(page.locator('#walletSectionCard')).toContainText('No wallet linked');
+    await expect(page.locator('#walletSectionCard')).toHaveCount(0);
+    await expect(page.locator('#profileWalletContext')).toBeVisible();
+    await expect(page.locator('#profileWalletContext')).toContainText('No wallet linked');
 
     await activateProfileWalletAction(page, page.locator('#walletSectionActions .profile__wallet-btn').first());
     await expect(page.locator('#walletModal')).toBeVisible();
@@ -1137,11 +1138,11 @@ test.describe('Wallet identity profile flow', () => {
 
     await page.locator('[data-wallet-link="true"]').click();
     await expect(page.locator('#walletModal')).toContainText('already linked to your BITBI account');
-    await expect(page.locator('#walletSectionCard')).toContainText('Linked and connected');
-    await expect(page.locator('#walletSectionCard')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
+    await expect(page.locator('#profileWalletContext')).toContainText('Linked and connected');
+    await expect(page.locator('#profileWalletContext')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
     await page.locator('[data-wallet-close="panel"]').click();
 
     await activateProfileWalletAction(page, page.locator('#walletSectionActions [class*="--danger"]'));
-    await expect(page.locator('#walletSectionCard')).toContainText('Connected, not linked');
+    await expect(page.locator('#profileWalletContext')).toContainText('Connected, not linked');
   });
 });

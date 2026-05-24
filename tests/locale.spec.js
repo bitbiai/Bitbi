@@ -422,8 +422,10 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('profile__account-card--compact');
     expect(enProfile).toContain('profile__settings-row');
     expect(enProfile.indexOf('class="profile__card profile__edit-card"')).toBeGreaterThan(-1);
-    expect(enProfile.indexOf('id="walletSectionCard"')).toBeGreaterThan(-1);
-    expect(enProfile.indexOf('class="profile__card profile__edit-card"')).toBeLessThan(enProfile.indexOf('id="walletSectionCard"'));
+    expect(enProfile).not.toContain('id="walletSectionCard"');
+    expect(enProfile).toContain('id="profileWalletContext"');
+    expect(enProfile).toContain('id="profileWalletCardStatus"');
+    expect(enProfile.indexOf('class="profile__card profile__edit-card"')).toBeLessThan(enProfile.indexOf('id="profileWalletContext"'));
     expect(enProfile).not.toContain('Wallet linking is optional and never requires sharing private keys.');
     expect(enProfile).not.toContain('id="walletTrustStatus"');
     expect(enProfile).not.toContain('Wallet trust notes');
@@ -431,7 +433,7 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="walletStatusRefreshBtn"');
     expect(enProfile).toContain('Refresh wallet status');
     expect(enProfile).toContain('id="profileEditState"');
-    expect(enProfile).toContain('Email, verification, and wallet state stay with account summary and wallet controls.');
+    expect(enProfile).toContain('Wallet status and actions live in the compact BITBI Account context below.');
     expect(enProfile).toContain('Sign in to open your profile');
     expect(enProfile).toContain('Reset your password or complete email verification after sign-in');
     expect(enProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
@@ -500,8 +502,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('profile__account-card--compact');
     expect(deProfile).toContain('profile__settings-row');
     expect(deProfile.indexOf('class="profile__card profile__edit-card"')).toBeGreaterThan(-1);
-    expect(deProfile.indexOf('id="walletSectionCard"')).toBeGreaterThan(-1);
-    expect(deProfile.indexOf('class="profile__card profile__edit-card"')).toBeLessThan(deProfile.indexOf('id="walletSectionCard"'));
+    expect(deProfile).not.toContain('id="walletSectionCard"');
+    expect(deProfile).toContain('id="profileWalletContext"');
+    expect(deProfile).toContain('id="profileWalletCardStatus"');
+    expect(deProfile.indexOf('class="profile__card profile__edit-card"')).toBeLessThan(deProfile.indexOf('id="profileWalletContext"'));
     expect(deProfile).not.toContain('Wallet-Verknüpfung ist optional und erfordert niemals private Schlüssel.');
     expect(deProfile).not.toContain('id="walletTrustStatus"');
     expect(deProfile).not.toContain('Hinweise zum Wallet-Vertrauen');
@@ -509,7 +513,7 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="walletStatusRefreshBtn"');
     expect(deProfile).toContain('Wallet-Status aktualisieren');
     expect(deProfile).toContain('id="profileEditState"');
-    expect(deProfile).toContain('E-Mail, Bestätigung und Wallet-Status bleiben bei Kontoübersicht und Wallet-Steuerung.');
+    expect(deProfile).toContain('Wallet-Status und Aktionen liegen kompakt im BITBI-Konto-Kontext darunter.');
     expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
     expect(deProfile).toContain('schließen Sie die E-Mail-Bestätigung nach der Anmeldung ab');
     expect(deProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
@@ -525,11 +529,13 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).toContain('grid-template-rows: repeat(4, minmax(0, 1fr))');
     expect(profileCss).toContain('.profile__studio-card--favorites');
     expect(profileCss).toContain('.profile__favorites-back');
+    expect(profileCss).toContain('.profile-view--favorites-focused');
+    expect(profileCss).toContain('.profile__wallet-context');
     expect(profileCss).toContain('#profileTabBar');
     expect(profileCss).toContain('grid-row: 1 / span 2');
     expect(profileCss).toContain('display: contents');
     expect(profileCss).toContain('min-block-size: calc((88px * 2) + var(--space-3))');
-    expect(profileCss).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(profileCss).toContain('grid-template-columns: minmax(0, 1fr)');
     expect(profileCss).not.toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
 
     expect(enCredits).not.toContain('href="../css/components/member-workflow.css?v=__ASSET_VERSION__"');

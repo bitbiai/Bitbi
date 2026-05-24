@@ -84,6 +84,13 @@ const $walletSectionActions = document.getElementById('walletSectionActions');
 const $walletStatusRefreshBtn = document.getElementById('walletStatusRefreshBtn');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
 const $walletCard     = document.getElementById('profileWalletCard');
+const $walletCardStatus = document.getElementById('profileWalletCardStatus');
+const $profileHomeView = document.getElementById('profileHomeView');
+const $profileHero = document.getElementById('profileHero');
+const $profileFavoritesQuickLink = document.getElementById('profileFavoritesQuickLink');
+const $profileFavoritesSection = document.getElementById('profileFavoritesSection');
+const $profileFavoritesBack = document.querySelector('.profile__favorites-back');
+const profileMobileQuery = window.matchMedia?.('(max-width: 1023px)');
 
 const $form           = document.getElementById('profileForm');
 const $displayName    = document.getElementById('displayName');
@@ -139,6 +146,65 @@ if ($tabBar) {
         setActiveTab(btn.dataset.tab);
     });
 }
+
+function isMobileProfileLayout() {
+    return Boolean(profileMobileQuery?.matches);
+}
+
+function syncMobileFavoritesFromHash({ scroll = false } = {}) {
+    if (window.location.hash !== '#profileFavoritesSection' || !isMobileProfileLayout()) return;
+    setMobileFavoritesFocus(true, { scroll, updateHash: false });
+}
+
+function setMobileFavoritesFocus(active, { scroll = true, updateHash = true } = {}) {
+    if (!$profileHomeView || !$profileFavoritesSection) return;
+    const shouldFocusFavorites = Boolean(active && isMobileProfileLayout());
+    $profileHomeView.classList.toggle('profile-view--favorites-focused', shouldFocusFavorites);
+    setActiveTab(shouldFocusFavorites ? 'favorites' : 'profile');
+
+    if (updateHash && window.history?.replaceState) {
+        const targetHash = shouldFocusFavorites ? '#profileFavoritesSection' : '#profileHero';
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${targetHash}`);
+    }
+
+    if (!scroll) return;
+    const target = shouldFocusFavorites ? $profileFavoritesSection : $profileHero;
+    window.requestAnimationFrame(() => {
+        target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        if (shouldFocusFavorites) {
+            $profileFavoritesSection.focus({ preventScroll: true });
+        }
+    });
+}
+
+$profileFavoritesQuickLink?.addEventListener('click', (event) => {
+    if (!isMobileProfileLayout()) return;
+    event.preventDefault();
+    setMobileFavoritesFocus(true);
+});
+
+$profileFavoritesBack?.addEventListener('click', (event) => {
+    if (!isMobileProfileLayout()) return;
+    event.preventDefault();
+    setMobileFavoritesFocus(false);
+});
+
+window.addEventListener('hashchange', () => {
+    if (window.location.hash === '#profileFavoritesSection') {
+        syncMobileFavoritesFromHash({ scroll: true });
+    } else if (isMobileProfileLayout()) {
+        setMobileFavoritesFocus(false, { scroll: false, updateHash: false });
+    }
+});
+
+profileMobileQuery?.addEventListener?.('change', (event) => {
+    if (!event.matches) {
+        $profileHomeView?.classList.remove('profile-view--favorites-focused');
+        setActiveTab('profile');
+        return;
+    }
+    syncMobileFavoritesFromHash({ scroll: false });
+});
 
 $walletCard?.addEventListener('click', () => {
     openWalletWorkspaceView();
@@ -299,6 +365,13 @@ function getWalletCompletion(state = walletViewState) {
     return { done: false, text: localeText('profile.completionWalletNotLinked'), state: 'pending' };
 }
 
+function syncWalletCardStatus(state = walletViewState) {
+    if (!$walletCardStatus) return;
+    const walletStateResult = getWalletCompletion(state);
+    $walletCardStatus.textContent = walletStateResult.text;
+    $walletCardStatus.dataset.state = walletStateResult.state;
+}
+
 function getBooleanProfileSignal(profile = {}, fields = []) {
     for (const field of fields) {
         if (!Object.prototype.hasOwnProperty.call(profile, field)) continue;
@@ -379,6 +452,7 @@ function renderWalletSection(state = walletViewState) {
     if (profileCompletionContext) {
         renderProfileCompletion(profileCompletionContext.profile, profileCompletionContext.account, state);
     }
+    syncWalletCardStatus(state);
     if (!$walletSectionRows || !$walletSectionActions || !$walletSectionCopy || !state) return;
 
     const linkedWallet = state.linkedWallet || null;
@@ -1648,6 +1722,7 @@ async function init() {
         pageSource: 'profile',
         signedIn: true,
     });
+    syncMobileFavoritesFromHash({ scroll: true });
     loadAvatar(false);
     refreshWalletStatus().catch(e => console.warn('walletStatus:', e));
 
