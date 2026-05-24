@@ -7068,6 +7068,10 @@ test.describe('Credits dashboard live credit packs', () => {
     const response = await page.goto('/account/credits.html?scope=member');
     expect(response.status()).toBe(200);
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.credits-hero__glow')).toHaveCount(0);
+    await expect(page.locator('#creditsReturnState')).toBeHidden();
+    await expect(page.locator('#creditsReturnState')).toHaveAttribute('hidden', '');
+    await expect(page.locator('#creditsReturnState')).toHaveCSS('display', 'none');
     await expect(page.locator('#creditsWorkspacePriority')).toHaveCount(0);
     await expect(page.locator('.credits-workspace-nav:not(.credits-workspace-nav__link)')).toHaveCount(0);
     await expect(page.locator('.credits-onboarding')).toHaveCount(0);
@@ -7977,7 +7981,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioGalleryFilter')).toHaveValue('__all__');
   });
 
-  test('account Assets Manager explains empty folder recovery from Generate Lab handoff', async ({
+  test('account Assets Manager keeps empty folder recovery without a Folder detail panel', async ({
     page,
   }) => {
     await mockAuthenticatedAssetsManager(page, [], {
@@ -8029,17 +8033,8 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await page.selectOption('#studioGalleryFilter', 'folder-empty');
 
-    const folderDetail = page.locator('#studioFolderDetail');
-    await expect(folderDetail).toBeVisible();
-    await expect(folderDetail).toContainText('Folder: Empty Project');
-    await expect(folderDetail).toContainText('0 assets in this view.');
-    await expect(folderDetail).toContainText('Recent saves may be in all assets or another folder');
-    await expect(folderDetail.getByRole('button', { name: 'Show all assets' })).toBeVisible();
-    await expect(folderDetail.getByRole('button', { name: 'Folder overview' })).toBeVisible();
-    await expect(folderDetail.getByRole('link', { name: 'Generate more' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=assets-manager',
-    );
+    await expect(page.locator('#studioFolderDetail')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Folder detail');
 
     await expect(page.getByRole('heading', { name: 'No assets in "Empty Project" yet' })).toBeVisible();
     await expect(page.locator('#studioImageGrid')).toContainText('If you just saved from Generate Lab, show all assets');
@@ -8051,12 +8046,12 @@ test.describe('Assets Manager (authenticated)', () => {
       '/generate-lab/?source=assets-manager',
     );
 
-    await page.locator('#studioFolderDetailBack').click();
+    await page.locator('#studioImageGrid').getByRole('button', { name: 'Folder overview' }).click();
     await expect(page.locator('#studioFolderGrid')).toBeVisible();
-    await expect(page.locator('#studioFolderDetail')).toBeHidden();
+    await expect(page.locator('#studioFolderDetail')).toHaveCount(0);
   });
 
-  test('German account Assets Manager localizes folder detail and empty folder recovery', async ({
+  test('German account Assets Manager keeps empty folder recovery without Ordnerdetail panel', async ({
     page,
   }) => {
     await mockAuthenticatedAssetsManager(page, [], {
@@ -8082,9 +8077,8 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await page.selectOption('#studioGalleryFilter', 'folder-leer');
 
-    await expect(page.locator('#studioFolderDetail')).toContainText('Ordner: Leerer Ordner');
-    await expect(page.locator('#studioFolderDetail')).toContainText('0 Assets in dieser Ansicht.');
-    await expect(page.locator('#studioFolderDetail')).toContainText('Alle Assets oder einem anderen Ordner');
+    await expect(page.locator('#studioFolderDetail')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Ordnerdetail');
     await expect(page.getByRole('heading', { name: 'Noch keine Assets in „Leerer Ordner“' })).toBeVisible();
     await expect(page.locator('#studioImageGrid')).toContainText('Wenn Sie gerade aus Generate Lab gespeichert haben');
     await expect(page.locator('#studioImageGrid').getByRole('button', { name: 'Alle Assets anzeigen' })).toBeVisible();
@@ -10586,6 +10580,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(response?.ok()).toBeTruthy();
 
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#profileAvatarCard #avatarRemoveBtn')).toHaveCount(0);
     await page.locator('#avatarChangeBtn').click();
 
     await expect(page.locator('#avatarSourceModal')).toHaveClass(/active/);
@@ -10650,6 +10645,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(response?.ok()).toBeTruthy();
 
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#profileAvatarCard #avatarRemoveBtn')).toHaveCount(0);
     await page.locator('#avatarChangeBtn').click();
 
     const chooser = page.waitForEvent('filechooser');
@@ -10683,7 +10679,16 @@ test.describe('Profile page (authenticated)', () => {
       ])
     );
 
+    await page.locator('#avatarChangeBtn').click();
+    await expect(page.locator('#avatarSourceModal')).toHaveClass(/active/);
+    const visibleMenuItems = page.locator('#avatarSourceModal .profile-avatar-modal__options > button:visible');
+    await expect(visibleMenuItems).toHaveCount(4);
+    await expect(visibleMenuItems.nth(0)).toContainText('Saved Assets');
+    await expect(visibleMenuItems.nth(1)).toContainText('Upload from Device');
+    await expect(visibleMenuItems.nth(2)).toContainText('Generate one');
+    await expect(visibleMenuItems.nth(3)).toContainText('Remove');
     await page.locator('#avatarRemoveBtn').click();
+    await expect(page.locator('#avatarSourceModal')).toBeHidden();
     await expect(page.locator('#avatarMsg')).toContainText('Photo removed.');
     expect(await readAvatarMessageLayout()).toEqual({
       visible: true,
@@ -10821,12 +10826,14 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#avatarSourceModal')).toHaveClass(/active/);
 
     const optionCount = await page
-      .locator('#avatarSourceModal .profile-avatar-modal__option')
+      .locator('#avatarSourceModal .profile-avatar-modal__option:visible')
       .count();
     expect(optionCount).toBe(3);
     await expect(page.locator('#avatarChooseSavedAssets')).toBeVisible();
     await expect(page.locator('#avatarChooseUploadDevice')).toBeVisible();
     await expect(page.locator('#avatarChooseGenerate')).toBeVisible();
+    await expect(page.locator('#profileAvatarCard #avatarRemoveBtn')).toHaveCount(0);
+    await expect(page.locator('#avatarRemoveBtn')).toBeHidden();
 
     const cardWidth = await page
       .locator('#avatarSourceModal .modal-card')

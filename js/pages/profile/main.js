@@ -631,6 +631,21 @@ function setAvatarActionState(isBusy, text = localeText('profile.changePhoto')) 
     if ($avatarUploadText) $avatarUploadText.textContent = isBusy ? text : localeText('profile.changePhoto');
 }
 
+function setAvatarRemoveButtonContent(
+    label = localeText('profile.remove'),
+    description = localeText('profile.removePhotoDesc'),
+) {
+    if (!$avatarRemoveBtn) return;
+    $avatarRemoveBtn.textContent = '';
+    const title = document.createElement('span');
+    title.className = 'profile-avatar-modal__option-title';
+    title.textContent = label;
+    const desc = document.createElement('span');
+    desc.className = 'profile-avatar-modal__option-desc';
+    desc.textContent = description;
+    $avatarRemoveBtn.append(title, desc);
+}
+
 function setAvatarAssetsStatus(text, type = 'neutral') {
     if (!$avatarAssetsStatus) return;
     $avatarAssetsStatus.textContent = text;
@@ -1850,15 +1865,16 @@ async function init() {
     // Avatar remove
     $avatarRemoveBtn.addEventListener('click', async () => {
         hideAvatarMsg();
+        closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
         setAvatarActionState(true);
         $avatarRemoveBtn.disabled = true;
-        $avatarRemoveBtn.textContent = localeText('profile.removing');
+        setAvatarRemoveButtonContent(localeText('profile.removing'), localeText('profile.removingPhotoDesc'));
 
         const result = await apiDeleteAvatar();
 
         setAvatarActionState(false);
         $avatarRemoveBtn.disabled = false;
-        $avatarRemoveBtn.textContent = localeText('profile.remove');
+        setAvatarRemoveButtonContent();
 
         if (result.ok) {
             patchAuthUser({

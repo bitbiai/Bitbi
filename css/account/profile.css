@@ -134,8 +134,7 @@
         justify-content: flex-start;
     }
 
-    .profile__avatar-card--compact .profile__avatar-btn,
-    .profile__avatar-card--compact .profile__avatar-remove {
+    .profile__avatar-card--compact .profile__avatar-btn {
         min-block-size: 2rem;
         padding: 0.4rem 0.58rem;
         font-size: 10px;
@@ -214,31 +213,6 @@
     }
 
     .profile__avatar-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .profile__avatar-remove {
-        padding: var(--space-2) var(--space-4);
-        font-family: var(--font-mono);
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: rgba(255, 255, 255, 0.4);
-        background: transparent;
-        border: var(--border-subtle);
-        border-radius: var(--radius-sm);
-        cursor: pointer;
-        transition: all 0.2s var(--ease-default);
-    }
-
-    .profile__avatar-remove:hover {
-        color: var(--color-danger);
-        border-color: rgba(239, 68, 68, 0.3);
-    }
-
-    .profile__avatar-remove:disabled {
         opacity: 0.5;
         cursor: not-allowed;
     }
@@ -369,7 +343,9 @@
     }
 
     .profile-avatar-modal__option:hover,
-    .profile-avatar-modal__option:focus-visible {
+    .profile-avatar-modal__option:focus-visible,
+    .profile-avatar-modal__remove-option:hover,
+    .profile-avatar-modal__remove-option:focus-visible {
         transform: translateY(-1px);
         border-color: rgba(0, 240, 255, 0.24);
         background:
@@ -377,6 +353,47 @@
             rgba(255, 255, 255, 0.03);
         box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
         outline: none;
+    }
+
+    .profile-avatar-modal__remove-option {
+        display: grid;
+        gap: var(--space-1);
+        width: 100%;
+        padding: var(--space-4) var(--space-5);
+        font: inherit;
+        text-align: left;
+        color: var(--color-text);
+        background:
+            linear-gradient(180deg, rgba(239, 68, 68, 0.075), rgba(255, 255, 255, 0.02)),
+            rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(239, 68, 68, 0.16);
+        border-radius: var(--radius-lg);
+        appearance: none;
+        cursor: pointer;
+        transition:
+            transform 0.2s var(--ease-default),
+            border-color 0.2s var(--ease-default),
+            background 0.2s var(--ease-default),
+            box-shadow 0.2s var(--ease-default);
+    }
+
+    .profile-avatar-modal__remove-option:hover,
+    .profile-avatar-modal__remove-option:focus-visible {
+        border-color: rgba(239, 68, 68, 0.28);
+        background:
+            linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(255, 255, 255, 0.02)),
+            rgba(255, 255, 255, 0.03);
+    }
+
+    .profile-avatar-modal__remove-option .profile-avatar-modal__option-title {
+        color: rgba(255, 204, 204, 0.92);
+    }
+
+    .profile-avatar-modal__remove-option:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
     }
 
     .profile-avatar-modal__option-icon {

@@ -343,8 +343,10 @@ test.describe('Bilingual locale pages', () => {
     const deCredits = repoFile('de/account/credits.html');
     expect(enCredits).toContain('Credits dashboard');
     expect(enCredits).toContain('Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.');
+    expect(enCredits).not.toContain('credits-hero__glow');
     expect(deCredits).toContain('Credits-Dashboard');
     expect(deCredits).toContain('Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.');
+    expect(deCredits).not.toContain('credits-hero__glow');
   });
 
   test('member workspace navigation keeps English and German routes equivalent', () => {
@@ -539,6 +541,7 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).not.toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
 
     expect(enCredits).not.toContain('href="../css/components/member-workflow.css?v=__ASSET_VERSION__"');
+    expect(repoFile('css/account/credits.css')).toContain('.credits-return[hidden]');
     expect(enCredits).not.toContain('id="creditsWorkspacePriority"');
     expect(enCredits).not.toContain('Use credits before the next generation');
     expect(enCredits).not.toContain('Keep creating from your credits context');
@@ -595,9 +598,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).not.toContain('id="studioViewContext"');
     expect(enAssets).not.toContain('Library view');
     expect(enAssets).toContain('Refresh latest');
-    expect(enAssets).toContain('id="studioFolderDetail"');
-    expect(enAssets).toContain('Folder detail');
-    expect(enAssets).toContain('Folder count appears after loading.');
+    expect(enAssets).not.toContain('id="studioFolderDetail"');
+    expect(enAssets).not.toContain('Folder detail');
+    expect(enAssets).not.toContain('Folder count appears after loading.');
     expect(enAssets).toContain('id="studioBulkMoveSummary"');
     expect(enAssets).toContain('id="studioActionResult"');
     expect(enAssets).toContain('Action result');
@@ -635,9 +638,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).not.toContain('id="studioViewContext"');
     expect(deAssets).not.toContain('Bibliotheksansicht');
     expect(deAssets).toContain('Neueste aktualisieren');
-    expect(deAssets).toContain('id="studioFolderDetail"');
-    expect(deAssets).toContain('Ordnerdetail');
-    expect(deAssets).toContain('Die Ordneranzahl erscheint nach dem Laden.');
+    expect(deAssets).not.toContain('id="studioFolderDetail"');
+    expect(deAssets).not.toContain('Ordnerdetail');
+    expect(deAssets).not.toContain('Die Ordneranzahl erscheint nach dem Laden.');
     expect(deAssets).toContain('id="studioBulkMoveSummary"');
     expect(deAssets).toContain('id="studioActionResult"');
     expect(deAssets).toContain('Aktionsergebnis');

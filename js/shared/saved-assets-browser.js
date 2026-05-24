@@ -374,13 +374,6 @@ export function createSavedAssetsBrowser({
     const $viewShowAll = refs.viewShowAll;
     const $viewGenerateLab = refs.viewGenerateLab;
     const $viewCredits = refs.viewCredits;
-    const $folderDetail = refs.folderDetail;
-    const $folderDetailTitle = refs.folderDetailTitle;
-    const $folderDetailCopy = refs.folderDetailCopy;
-    const $folderDetailCount = refs.folderDetailCount;
-    const $folderDetailShowAll = refs.folderDetailShowAll;
-    const $folderDetailBack = refs.folderDetailBack;
-    const $folderDetailGenerateLab = refs.folderDetailGenerateLab;
     const $newFolderBtn = refs.newFolderBtn;
     const $deleteFolderBtn = refs.deleteFolderBtn;
     const $newFolderForm = refs.newFolderForm;
@@ -794,50 +787,6 @@ export function createSavedAssetsBrowser({
         });
     }
 
-    function updateFolderDetail(mode = 'current') {
-        if (!$folderDetail) return;
-
-        const filterValue = $galleryFilter.value;
-        const showFolderContext = !folderViewActive
-            && filterValue
-            && filterValue !== ALL_ASSETS;
-        if (!showFolderContext) {
-            $folderDetail.hidden = true;
-            return;
-        }
-
-        const isUnfoldered = filterValue === UNFOLDERED;
-        const folder = isUnfoldered ? null : getFolderById(filterValue);
-        const folderName = isUnfoldered
-            ? localeText('assets.assets')
-            : (folder?.name || localeText('assets.folderUnknown'));
-        const count = getFolderCount(filterValue);
-        const values = {
-            folder: folderName,
-            countLabel: Number.isFinite(count) ? formatAssetCount(count) : localeText('assets.folderDetailCountUnknown'),
-        };
-
-        $folderDetail.hidden = false;
-        if ($folderDetailTitle) {
-            $folderDetailTitle.textContent = localeText(
-                isUnfoldered ? 'assets.folderDetailUnfolderedTitle' : 'assets.folderDetailTitle',
-                values,
-            );
-        }
-        if ($folderDetailCopy) {
-            const copyKey = isUnfoldered
-                ? (handoffActive ? 'assets.folderDetailUnfolderedHandoffCopy' : 'assets.folderDetailUnfolderedCopy')
-                : (handoffActive ? 'assets.folderDetailHandoffCopy' : 'assets.folderDetailCopy');
-            $folderDetailCopy.textContent = localeText(copyKey, values);
-        }
-        if ($folderDetailCount) {
-            const countKey = mode === 'loading'
-                ? 'assets.folderDetailLoadingCount'
-                : 'assets.folderDetailCount';
-            $folderDetailCount.textContent = localeText(countKey, values);
-        }
-    }
-
     function setCurrentAssetViewStatus() {
         const count = currentAssets.length;
         const filterValue = $galleryFilter.value;
@@ -850,18 +799,15 @@ export function createSavedAssetsBrowser({
         if (filterValue === UNFOLDERED) {
             setListStatus(localeText('assets.unfolderedViewStatus', values), 'unfoldered');
             updateViewContext();
-            updateFolderDetail();
             return;
         }
         if (filterValue && filterValue !== ALL_ASSETS) {
             setListStatus(localeText('assets.folderFilteredStatus', values), 'folder');
             updateViewContext();
-            updateFolderDetail();
             return;
         }
         setListStatus(localeText('assets.listNewestFirstStatus', values), 'all');
         updateViewContext();
-        updateFolderDetail();
     }
 
     function getStorageInsightText(storageUsage, usageText) {
@@ -1031,9 +977,6 @@ export function createSavedAssetsBrowser({
                 ? '/de/account/credits.html?scope=member&source=assets-manager'
                 : '/account/credits.html?scope=member&source=assets-manager';
         }
-        if ($folderDetailGenerateLab) {
-            $folderDetailGenerateLab.href = getGenerateLabHref();
-        }
     }
 
     async function handleViewRefresh() {
@@ -1196,7 +1139,6 @@ export function createSavedAssetsBrowser({
             options.statusView || 'empty',
         );
         updateViewContext(options.statusView === 'error' ? 'error' : 'empty');
-        updateFolderDetail(options.statusView === 'error' ? 'error' : 'empty');
     }
 
     function updateAssetPaginationUi() {
@@ -1623,7 +1565,6 @@ export function createSavedAssetsBrowser({
         updateAssetPaginationUi();
         setListStatus(localeText('assets.folderOverviewStatus'), 'folders');
         updateViewContext();
-        updateFolderDetail();
 
         const total = unfolderedCount + folders.reduce((sum, folder) => sum + (folderCounts[folder.id] || 0), 0);
         $folderGrid.innerHTML = '';
@@ -2117,7 +2058,6 @@ export function createSavedAssetsBrowser({
             updateAssetPaginationUi();
             setListStatus(localeText('assets.listLoadingStatus'), 'loading');
             updateViewContext('loading');
-            updateFolderDetail('loading');
         } else {
             assetLoadingMore = true;
             updateAssetPaginationUi();
@@ -2686,10 +2626,6 @@ export function createSavedAssetsBrowser({
         $folderBackBtn?.addEventListener('click', showFolderView);
         $viewRefresh?.addEventListener('click', handleViewRefresh);
         $viewShowAll?.addEventListener('click', handleViewShowAll);
-        $folderDetailShowAll?.addEventListener('click', () => {
-            openAllAssets();
-        });
-        $folderDetailBack?.addEventListener('click', showFolderView);
         $newFolderBtn?.addEventListener('click', showNewFolderForm);
         $deleteFolderBtn?.addEventListener('click', showDeleteFolderForm);
         $deleteFolderConfirm?.addEventListener('click', handleDeleteFolder);

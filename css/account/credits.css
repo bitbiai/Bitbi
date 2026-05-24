@@ -2,9 +2,7 @@
   .credits-page {
     min-height: 100vh;
     background:
-      radial-gradient(circle at 15% 5%, rgba(0, 240, 255, 0.14), transparent 34rem),
-      radial-gradient(circle at 85% 8%, rgba(255, 215, 0, 0.12), transparent 30rem),
-      linear-gradient(180deg, #070707 0%, #0a0a0a 45%, #050505 100%);
+      linear-gradient(180deg, #070707 0%, #0b1118 48%, #050505 100%);
     color: rgba(255, 255, 255, 0.92);
     padding-block-end: clamp(3rem, 8vw, 7rem);
   }
@@ -16,37 +14,15 @@
   }
 
   .credits-hero {
-    position: relative;
-    isolation: isolate;
-    padding-block: clamp(7rem, 14vw, 11rem) clamp(2rem, 6vw, 4rem);
-  }
-
-  .credits-hero__glow {
-    position: absolute;
-    z-index: -1;
-    border-radius: 999px;
-    filter: blur(24px);
-    opacity: 0.5;
-  }
-
-  .credits-hero__glow--cyan {
-    top: 28%;
-    left: 4%;
-    width: min(24rem, 55vw);
-    aspect-ratio: 1;
-    background: rgba(0, 240, 255, 0.22);
-  }
-
-  .credits-hero__glow--gold {
-    top: 20%;
-    right: 6%;
-    width: min(20rem, 48vw);
-    aspect-ratio: 1;
-    background: rgba(255, 215, 0, 0.16);
+    display: grid;
+    justify-items: center;
+    gap: clamp(0.5rem, 1.5vw, 0.85rem);
+    padding-block: clamp(5.5rem, 10vw, 7.5rem) clamp(1.25rem, 3vw, 2.1rem);
+    text-align: center;
   }
 
   .credits-eyebrow {
-    margin: 0 0 0.55rem;
+    margin: 0;
     color: rgba(0, 240, 255, 0.82);
     font-size: 0.78rem;
     font-weight: 800;
@@ -56,13 +32,13 @@
 
   .credits-title {
     margin: 0;
-    font-size: clamp(3rem, 7vw, 6.5rem);
+    font-size: clamp(3rem, 6vw, 5.5rem);
     line-height: 0.92;
   }
 
   .credits-subtitle {
-    max-width: 48rem;
-    margin: 1rem 0 0;
+    max-width: 42rem;
+    margin: 0;
     color: rgba(255, 255, 255, 0.72);
     font-size: clamp(1rem, 1.6vw, 1.25rem);
     line-height: 1.65;
@@ -70,7 +46,7 @@
 
   .credits-return,
   .credits-note {
-    margin-block-start: 1.25rem;
+    margin-block-start: clamp(0.75rem, 1.5vw, 1rem);
     width: min(100%, 52rem);
     max-width: 100%;
     padding: 0.85rem 1rem;
@@ -84,6 +60,13 @@
     display: grid;
     gap: 0.9rem;
     align-items: start;
+    justify-self: center;
+  }
+
+  .credits-return[hidden],
+  .credits-note[hidden],
+  .credits-legal[hidden] {
+    display: none !important;
   }
 
   .credits-return--success {
@@ -230,15 +213,15 @@
 
   .credits-shell {
     display: grid;
-    gap: clamp(1rem, 2vw, 1.35rem);
+    gap: clamp(1.1rem, 2vw, 1.6rem);
     min-width: 0;
     max-width: 100%;
-    margin-block-start: clamp(0.5rem, 2vw, 1.25rem);
+    margin-block-start: clamp(0.75rem, 2vw, 1.5rem);
   }
 
   #creditsDashboard {
     display: grid;
-    gap: clamp(1rem, 2vw, 1.25rem);
+    gap: clamp(1.1rem, 2vw, 1.6rem);
     min-width: 0;
     max-width: 100%;
   }
@@ -253,10 +236,12 @@
     min-width: 0;
     max-width: 100%;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 1.4rem;
+    border-radius: var(--radius-xl);
     background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.032)),
-      rgba(6, 12, 20, 0.68);
+      linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03)),
+      rgba(13, 27, 42, 0.86);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
   }
 
@@ -276,13 +261,13 @@
   }
 
   .credits-toolbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
-    justify-content: space-between;
     gap: 1.25rem;
     padding: clamp(1rem, 2vw, 1.5rem);
     margin-block-end: 0;
-    border-color: rgba(0, 240, 255, 0.14);
+    border-color: rgba(0, 240, 255, 0.16);
   }
 
   .credits-muted {
@@ -325,9 +310,12 @@
   .credits-pack {
     min-width: 0;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 1.25rem;
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035));
+    border-radius: var(--radius-lg);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.03)),
+      rgba(6, 14, 24, 0.66);
     padding: clamp(1rem, 2vw, 1.35rem);
+    box-shadow: 0 18px 56px rgba(0, 0, 0, 0.2);
   }
 
   .credits-summary-grid--member .credits-card {
@@ -361,6 +349,7 @@
   .credits-section {
     margin-block-start: 0;
     padding: clamp(1rem, 2vw, 1.5rem);
+    border-color: rgba(255, 255, 255, 0.09);
   }
 
   .credits-section__header {
@@ -583,7 +572,7 @@
     gap: 0.9rem;
     min-width: 0;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 1.25rem;
+    border-radius: var(--radius-lg);
     background: rgba(255, 255, 255, 0.045);
     padding: clamp(1rem, 2vw, 1.3rem);
   }
@@ -715,6 +704,10 @@
       width: min(calc(100% - 1rem), 100%);
     }
 
+    .credits-hero {
+      padding-block: clamp(4.9rem, 16vw, 6.25rem) clamp(1rem, 5vw, 1.5rem);
+    }
+
     .credits-return__actions,
     .credits-workspace-nav__link {
       width: 100%;
@@ -726,7 +719,7 @@
 
     .credits-toolbar {
       align-items: stretch;
-      flex-direction: column;
+      grid-template-columns: 1fr;
     }
 
     .credits-summary-grid,

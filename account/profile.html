@@ -218,7 +218,6 @@
                                     <span id="avatarUploadText">Change Photo</span>
                                 </button>
                                 <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp" hidden>
-                                <button type="button" id="avatarRemoveBtn" class="profile__avatar-remove" style="display:none">Remove</button>
                             </div>
                             <p class="profile__hint">JPG, PNG or WebP. Max 2 MB.</p>
                             <div id="avatarMsg" class="profile__msg profile__avatar-message" role="status"></div>
@@ -398,6 +397,10 @@
                         <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#9881;</span>
                         <span class="profile-avatar-modal__option-title">Generate one</span>
                         <span class="profile-avatar-modal__option-desc">Describe a portrait and create an avatar with AI.</span>
+                    </button>
+                    <button type="button" id="avatarRemoveBtn" class="profile-avatar-modal__remove-option" style="display:none">
+                        <span class="profile-avatar-modal__option-title">Remove</span>
+                        <span class="profile-avatar-modal__option-desc">Remove the current profile photo from your BITBI account.</span>
                     </button>
                 </div>
             </div>
