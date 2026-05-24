@@ -174,14 +174,6 @@
                     </div>
                 </section>
 
-                <section class="assets-manager__storage-panel" aria-labelledby="assetsStorageTitle">
-                    <div class="assets-manager__storage-head">
-                        <p class="assets-manager__storage-label">Speicher</p>
-                        <h3 id="assetsStorageTitle" class="assets-manager__storage-title">Speicherstatus</h3>
-                    </div>
-                    <p id="studioStorageInsight" class="assets-manager__storage-copy" aria-live="polite">Speicherdetails erscheinen, sobald Ihre Bibliothek geladen ist.</p>
-                </section>
-
                 <div class="studio__gallery-header assets-manager__toolbar">
                     <h3 class="studio__card-title">Ordner &amp; Assets</h3>
                     <div class="studio__folder-bar">
@@ -201,25 +193,11 @@
                             </div>
                         </div>
                     </div>
+                    <div class="assets-manager__toolbar-actions" aria-label="Bibliotheksaktionen">
+                        <button type="button" id="studioViewRefresh" class="assets-manager__toolbar-btn assets-manager__toolbar-btn--primary">Neueste aktualisieren</button>
+                        <button type="button" id="studioViewShowAll" class="assets-manager__toolbar-btn">Alle Assets anzeigen</button>
+                    </div>
                 </div>
-
-                <section id="studioViewContext" class="assets-manager__view-context" aria-live="polite" aria-labelledby="studioViewContextTitle">
-                    <div class="assets-manager__view-context-copy">
-                        <p class="assets-manager__handoff-eyebrow">Bibliotheksansicht</p>
-                        <h3 id="studioViewContextTitle" class="assets-manager__view-context-title">Ordnerübersicht</h3>
-                        <p id="studioViewContextCopy" class="assets-manager__view-context-text">Wählen Sie einen Ordner oder zeigen Sie alle Assets, um aktuelle Kontospeicherungen zu prüfen. Ordneransichten können das neueste Generate-Lab-Ergebnis ausblenden.</p>
-                        <div class="assets-manager__view-context-pills" aria-label="Details zur aktuellen Bibliotheksansicht">
-                            <span id="studioViewScope" class="assets-manager__view-context-pill">Ordnerübersicht</span>
-                            <span id="studioViewOrder" class="assets-manager__view-context-pill">Aktuelle Backend-Reihenfolge</span>
-                        </div>
-                    </div>
-                    <div class="assets-manager__view-context-actions" aria-label="Wiederherstellungsaktionen für die Bibliotheksansicht">
-                        <button type="button" id="studioViewRefresh" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Neueste aktualisieren</button>
-                        <button type="button" id="studioViewShowAll" class="assets-manager__handoff-btn">Alle Assets anzeigen</button>
-                        <a id="studioViewGenerateLab" class="assets-manager__handoff-btn" href="/de/generate-lab/?source=assets-manager&amp;step=create">Zurück zu Generate Lab</a>
-                        <a id="studioViewCredits" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost" href="/de/account/credits.html?scope=member&amp;source=assets-manager">Credits prüfen</a>
-                    </div>
-                </section>
 
                 <section id="studioFolderDetail" class="assets-manager__folder-detail" aria-live="polite" aria-labelledby="studioFolderDetailTitle" hidden>
                     <div class="assets-manager__folder-detail-copy">

@@ -148,11 +148,27 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Credits im Kontobereich sind der Prüfpunkt für den Stand; Generierung validiert weiterhin serverseitig.',
                 }),
                 detail: Object.freeze({
-                    en: 'Checkout return messages should be treated as guidance until the backend balance updates.',
-                    de: 'Checkout-Rückmeldungen sind Hinweise, bis der Backend-Kontostand aktualisiert ist.',
+                    en: 'After pricing or checkout, refresh Credits and trust the loaded balance, Pro status, and ledger. Cancel or error states do not assume a credit grant.',
+                    de: 'Nach Pricing oder Checkout Credits aktualisieren und dem geladenen Guthaben, Pro-Status und Ledger vertrauen. Abbruch- oder Fehlerzustände setzen keine Credit-Gutschrift voraus.',
                 }),
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Open Pricing', de: 'Pricing öffnen' }), path: '/pricing.html', suffix: '#pricingJourney' }),
+                ]),
+            }),
+            Object.freeze({
+                id: 'credit-generation-flow',
+                title: Object.freeze({ en: 'Before Generate Lab', de: 'Vor Generate Lab' }),
+                summary: Object.freeze({
+                    en: 'Review Credits when balance is low or unknown, then create with backend validation.',
+                    de: 'Credits prüfen, wenn das Guthaben niedrig oder unbekannt ist, und danach mit Backend-Validierung erstellen.',
+                }),
+                detail: Object.freeze({
+                    en: 'Credits are account-bound and consumed by generation. Saved output is managed in Assets Manager; storage guidance lives in the Assets Manager help section.',
+                    de: 'Credits sind konto-gebunden und werden durch Generierung verbraucht. Gespeicherte Ergebnisse werden im Assets Manager verwaltet; Speicherhinweise stehen im Assets-Manager-Hilfebereich.',
+                }),
+                links: Object.freeze([
+                    Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-credits&step=create' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Assets Manager', de: 'Assets Manager öffnen' }), path: '/account/assets-manager.html', suffix: '?source=help-credits&recent=1#generate-lab-recent' }),
                 ]),
             }),
         ]),

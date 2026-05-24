@@ -7068,37 +7068,28 @@ test.describe('Credits dashboard live credit packs', () => {
     const response = await page.goto('/account/credits.html?scope=member');
     expect(response.status()).toBe(200);
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('heading', { name: 'How credits fit into creation' })).toBeVisible();
-    await expect(page.locator('.credits-onboarding')).toContainText('Generate Lab shows estimates before you submit');
-    await expect(page.locator('.credits-onboarding').getByRole('link', { name: 'Create in Generate Lab' })).toHaveAttribute(
+    await expect(page.locator('#creditsWorkspacePriority')).toHaveCount(0);
+    await expect(page.locator('.credits-workspace-nav:not(.credits-workspace-nav__link)')).toHaveCount(0);
+    await expect(page.locator('.credits-onboarding')).toHaveCount(0);
+    await expect(page.locator('#creditsContinuityPanel')).toHaveCount(0);
+    await expect(page.locator('#creditsPostActionGuide')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Workspace priority');
+    await expect(page.locator('main')).not.toContainText('Member workspace');
+    await expect(page.locator('main')).not.toContainText('First-run guide');
+    await expect(page.locator('main')).not.toContainText('Credit and storage context');
+    await expect(page.locator('main')).not.toContainText('After pricing');
+    await page.locator('#bitbiHelpTrigger').click();
+    const creditsHelp = page.locator('#bitbiHelpPanel [data-help-section="credits"]');
+    await expect(creditsHelp.locator('.help-menu__section-title')).toHaveText('Credits & Pro');
+    await creditsHelp.locator('summary.help-menu__section-toggle').click();
+    const generateLabHelp = creditsHelp.locator('.help-menu__item').filter({ hasText: 'Before Generate Lab' });
+    await generateLabHelp.locator('summary.help-menu__item-summary').click();
+    await expect(generateLabHelp.locator('.help-menu__item-body')).toContainText('Credits are account-bound and consumed by generation');
+    await expect(generateLabHelp.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
       'href',
-      '/generate-lab/?source=credits',
+      '/generate-lab/?source=help-credits&step=create',
     );
-    await expect(page.locator('.credits-onboarding').getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=credits',
-    );
-    const continuity = page.locator('#creditsContinuityPanel');
-    await expect(continuity).toContainText('Credits help you create; Assets stores what you save');
-    await expect(continuity).toContainText('Low or unknown credits should send you here first.');
-    await expect(continuity).toContainText('Deleting or moving assets affects your library view, not the credit ledger.');
-    await expect(continuity.getByRole('link', { name: 'Review pricing' })).toHaveAttribute('href', '/pricing.html#pricingOffers');
-    await expect(continuity.getByRole('link', { name: 'Open saved assets' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=credits&recent=1#generate-lab-recent',
-    );
-    await expect(continuity.getByRole('link', { name: 'Check profile' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?returnContext=credits#profileCompletionCard',
-    );
-    const postAction = page.locator('#creditsPostActionGuide');
-    await expect(postAction).toContainText('Use Credits as the verified return point');
-    await expect(postAction).toContainText('Cancel or error states do not assume a credit grant.');
-    await expect(postAction.getByRole('link', { name: 'Check verified balance' })).toHaveAttribute('href', '#creditsSummaryGrid');
-    await expect(postAction.getByRole('link', { name: 'Review profile checklist' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?returnContext=credits#profileCompletionCard',
-    );
+    await page.getByRole('button', { name: 'Close help menu' }).click();
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
@@ -7177,30 +7168,20 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
-  test('member Credits continuity actions remain visible on mobile', async ({ page }) => {
+  test('member Credits remains focused and usable on mobile after explainer removal', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockCreditsAccount(page, { organizations: [] });
     const response = await page.goto('/account/credits.html?scope=member');
     expect(response.status()).toBe(200);
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
 
-    const continuity = page.locator('#creditsContinuityPanel');
-    await expect(continuity).toBeVisible();
-    await expect(continuity).toContainText('Low or unknown credits');
-    await expect(continuity.getByRole('link', { name: 'Review pricing' })).toBeVisible();
-    await expect(continuity.getByRole('link', { name: 'Open saved assets' })).toBeVisible();
-    await expect(continuity.getByRole('link', { name: 'Check profile' })).toBeVisible();
-    await expect(page.locator('#creditsPostActionGuide')).toBeVisible();
-    await expect(page.locator('#creditsPostActionGuide').getByRole('link', { name: 'Check verified balance' })).toBeVisible();
-
-    const linkMetrics = await continuity.locator('.credits-workspace-nav__link').evaluateAll((links) =>
-      links.map((link) => {
-        const rect = link.getBoundingClientRect();
-        return { width: rect.width, height: rect.height };
-      })
-    );
-    expect(linkMetrics).toHaveLength(3);
-    expect(linkMetrics.every((rect) => rect.width >= 240 && rect.width <= 390 && rect.height >= 42)).toBe(true);
+    await expect(page.locator('#creditsWorkspacePriority')).toHaveCount(0);
+    await expect(page.locator('.credits-onboarding')).toHaveCount(0);
+    await expect(page.locator('#creditsContinuityPanel')).toHaveCount(0);
+    await expect(page.locator('#creditsPostActionGuide')).toHaveCount(0);
+    await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(4);
+    await expect(page.locator('#creditsPacksSection')).toBeVisible();
+    await expect(page.locator('#creditsLedgerBody')).toBeVisible();
     const hasDocumentOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     expect(hasDocumentOverflow).toBe(false);
   });
@@ -7271,19 +7252,15 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Gekaufte Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('4.000 Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Legacy-/Bonus-Credits');
-    const continuity = page.locator('#creditsContinuityPanel');
-    await expect(continuity).toContainText('Credits helfen beim Erstellen; Assets speichert, was Sie behalten');
-    await expect(continuity).toContainText('Niedrige oder unbekannte Credits führen zuerst hierher.');
-    await expect(continuity).toContainText('Löschen oder Verschieben ändert die Bibliotheksansicht, nicht das Credit-Ledger.');
-    await expect(continuity.getByRole('link', { name: 'Preise prüfen' })).toHaveAttribute('href', '/de/pricing.html#pricingOffers');
-    await expect(continuity.getByRole('link', { name: 'Gespeicherte Assets öffnen' })).toHaveAttribute(
-      'href',
-      '/de/account/assets-manager.html?source=credits&recent=1#generate-lab-recent',
-    );
-    const postAction = page.locator('#creditsPostActionGuide');
-    await expect(postAction).toContainText('Credits als verifizierten Rückkehrpunkt nutzen');
-    await expect(postAction).toContainText('Abbruch oder Fehler setzen keine Credit-Gutschrift voraus.');
-    await expect(postAction.getByRole('link', { name: 'Verifiziertes Guthaben prüfen' })).toHaveAttribute('href', '#creditsSummaryGrid');
+    await expect(page.locator('#creditsWorkspacePriority')).toHaveCount(0);
+    await expect(page.locator('.credits-onboarding')).toHaveCount(0);
+    await expect(page.locator('#creditsContinuityPanel')).toHaveCount(0);
+    await expect(page.locator('#creditsPostActionGuide')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Arbeitsbereich-Priorität');
+    await expect(page.locator('main')).not.toContainText('Mitglieder-Arbeitsbereich');
+    await expect(page.locator('main')).not.toContainText('Erste Schritte');
+    await expect(page.locator('main')).not.toContainText('Credit- und Speicherkontext');
+    await expect(page.locator('main')).not.toContainText('Nach Pricing');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('BITBI Pro');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Nächste Verlängerung');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('Aktiv');
@@ -7803,16 +7780,17 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#assetsWorkspacePriority')).toHaveCount(0);
     await expect(page.locator('.assets-manager__first-run')).toHaveCount(0);
     await expect(page.locator('.assets-manager__overview')).toHaveCount(0);
-    await expect(page.locator('.assets-manager__storage-panel')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Storage status' })).toBeVisible();
+    await expect(page.locator('.assets-manager__storage-panel')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Storage status' })).toHaveCount(0);
+    await expect(page.locator('#studioStorageInsight')).toHaveCount(0);
+    await expect(page.locator('#studioViewContext')).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('First saved asset?');
     await expect(page.locator('main')).not.toContainText('Workspace priority');
+    await expect(page.locator('main')).not.toContainText('Storage status');
+    await expect(page.locator('main')).not.toContainText('Library view');
     await expect(page.locator('main')).not.toContainText('Private first');
     await expect(page.locator('main')).not.toContainText('Actions stay grouped');
     await expect(page.locator('main')).not.toContainText('Storage is separate from credits');
-    await expect(page.locator('#studioStorageInsight')).toContainText('0 MB / 50 MB used. 50 MB remains available');
-    await expect(page.locator('#studioViewContext')).toContainText('Folder overview');
-    await expect(page.locator('#studioViewContext')).toContainText('Recent backend order');
     await expect(page.locator('#studioViewRefresh')).toHaveText('Refresh latest');
     await expect(page.locator('#studioViewShowAll')).toHaveText('Show all assets');
 
@@ -7851,7 +7829,6 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioSaveBar')).toHaveCount(0);
     await page.getByRole('button', { name: 'Open All Assets, 0 assets' }).press('Enter');
     await expect(page.getByRole('heading', { name: 'Your saved library is empty' })).toBeVisible();
-    await expect(page.locator('#studioViewContext')).toContainText('Viewing all saved assets');
     await expect(page.getByRole('link', { name: 'Start creating' })).toHaveAttribute('href', '/#gallery');
     expect(requests).toEqual([]);
   });
@@ -7873,16 +7850,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(banner.getByRole('button', { name: 'Show all assets' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Your recent creation is not visible yet' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Create another output' })).toHaveAttribute('href', '/generate-lab/');
-    await expect(page.locator('#studioViewContext')).toContainText('Recent output not visible in this view');
-    await expect(page.locator('#studioViewContext')).toContainText('backend-loaded account data');
-    await expect(page.locator('#studioViewGenerateLab')).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=assets-manager&step=create',
-    );
-    await expect(page.locator('#studioViewCredits')).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member&source=assets-manager',
-    );
+    await expect(page.locator('#studioViewContext')).toHaveCount(0);
+    await expect(page.locator('#studioViewGenerateLab')).toHaveCount(0);
+    await expect(page.locator('#studioViewCredits')).toHaveCount(0);
+    await expect(page.locator('#studioViewRefresh')).toHaveText('Refresh latest');
+    await expect(page.locator('#studioViewShowAll')).toHaveText('Show all assets');
     await expect(page.locator('#studioListStatus')).toContainText('No recent output is visible yet');
     await expect(page.locator('#studioImageGrid')).toBeVisible();
     await expect(page.locator('#studioFolderGrid')).toBeHidden();
@@ -7917,11 +7889,8 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(banner.getByRole('button', { name: 'Alle Assets anzeigen' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Ihre neueste Erstellung ist noch nicht sichtbar' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Weiteres Ergebnis erstellen' })).toHaveAttribute('href', '/de/generate-lab/');
-    await expect(page.locator('#studioViewContext')).toContainText('Aktuelles Ergebnis ist in dieser Ansicht nicht sichtbar');
-    await expect(page.locator('#studioViewGenerateLab')).toHaveAttribute(
-      'href',
-      '/de/generate-lab/?source=assets-manager&step=create',
-    );
+    await expect(page.locator('#studioViewContext')).toHaveCount(0);
+    await expect(page.locator('#studioViewGenerateLab')).toHaveCount(0);
     await expect(page.locator('#studioListStatus')).toContainText('noch kein aktuelles Ergebnis sichtbar');
   });
 
@@ -8000,14 +7969,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioGalleryFilter').selectOption('folder-launches');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
     await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset in "Launches"');
-    await expect(page.locator('#studioViewContext')).toContainText('Viewing folder: Launches');
-    await expect(page.locator('#studioViewScope')).toHaveText('Folder: Launches');
+    await expect(page.locator('#studioViewContext')).toHaveCount(0);
 
     await page.locator('#assetsHandoffShowAll').click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
     await expect(page.locator('#studioListStatus')).toContainText('Showing 2 assets, newest first');
-    await expect(page.locator('#studioViewContext')).toContainText('Checking recent Generate Lab output');
-    await expect(page.locator('#studioViewScope')).toHaveText('All saved assets');
     await expect(page.locator('#studioGalleryFilter')).toHaveValue('__all__');
   });
 
@@ -8146,7 +8112,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Could not reload your saved output' })).toBeVisible();
     await expect(page.locator('#studioListStatus')).toContainText('Generate Lab handoff could not reload saved assets');
-    await expect(page.locator('#studioViewContext')).toContainText('Could not verify the recent output');
+    await expect(page.locator('#studioViewContext')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid')).not.toContainText('saved-image-one');
     await expect(page.getByRole('link', { name: 'Create another output' })).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#assetsHandoffBanner')).toContainText('Looking for your latest creation?');
@@ -8174,11 +8140,10 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     const usage = page.locator('#studioStorageUsage');
-    const insight = page.locator('#studioStorageInsight');
     const status = page.locator('.assets-manager__status-pill');
     await expect(usage).toHaveText('14,5 MB / 50 MB');
     await expect(usage).toHaveAttribute('aria-label', /Verwendeter Speicher im Assets Manager: 14,5 MB \/ 50 MB/);
-    await expect(insight).toContainText('14,5 MB / 50 MB verwendet. 35,5 MB bleiben');
+    await expect(page.locator('#studioStorageInsight')).toHaveCount(0);
     await expect(status).toHaveText('Standardmäßig privat');
     const directlyBeforeStatus = await usage.evaluate((node) =>
       node.nextElementSibling?.classList.contains('assets-manager__status-pill')
@@ -8217,11 +8182,10 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     const usage = page.locator('#studioStorageUsage');
-    const insight = page.locator('#studioStorageInsight');
     const status = page.locator('.assets-manager__status-pill');
     await expect(usage).toHaveText('124,8 MB / ∞');
     await expect(usage).toHaveAttribute('aria-label', /Used storage in Assets Manager: 124,8 MB \/ ∞/);
-    await expect(insight).toContainText('This account currently has unlimited Assets Manager storage.');
+    await expect(page.locator('#studioStorageInsight')).toHaveCount(0);
     await expect(status).toHaveText('Private by default');
     const directlyBeforeStatus = await usage.evaluate((node) =>
       node.nextElementSibling?.classList.contains('assets-manager__status-pill')

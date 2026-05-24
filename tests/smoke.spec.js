@@ -1382,7 +1382,7 @@ test.describe('Homepage', () => {
       { path: '/pricing.html', selector: '.pricing-root' },
       { path: '/generate-lab/', selector: '.generate-lab__desktop' },
       { path: '/account/profile.html', selector: '.profile-shell' },
-      { path: '/account/credits.html', selector: '.credits-onboarding' },
+      { path: '/account/credits.html', selector: '.credits-shell' },
       { path: '/account/assets-manager.html', selector: '.assets-manager-shell' },
     ]) {
       await page.goto(path, { waitUntil: 'domcontentloaded' });

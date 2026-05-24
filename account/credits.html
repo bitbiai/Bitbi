@@ -24,7 +24,6 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/components/member-workflow.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/credits.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');</script>
@@ -82,124 +81,6 @@
         <h1 id="creditsTitle" class="credits-title gt-gold-cyan">Credits</h1>
         <p id="creditsSubtitle" class="credits-subtitle">Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.</p>
         <div id="creditsReturnState" class="credits-return" role="status" aria-live="polite" hidden></div>
-    </section>
-
-    <section id="creditsWorkspacePriority" class="member-workflow" aria-labelledby="creditsWorkspacePriorityTitle">
-        <div class="member-workflow__head">
-            <p class="member-workflow__eyebrow">Workspace priority</p>
-            <h2 id="creditsWorkspacePriorityTitle" class="member-workflow__title">Use credits before the next generation</h2>
-            <p class="member-workflow__copy">Credits is the source for account balance and Pro context. Use these actions to decide whether to create, manage saved output, or repair account access.</p>
-        </div>
-        <ol class="member-workflow__list" aria-label="Credits workspace next actions">
-            <li class="member-workflow__item">
-                <a class="member-workflow__link member-workflow__link--primary" href="#creditsSummaryGrid">
-                    <span class="member-workflow__step">Now</span>
-                    <strong>Review balance</strong>
-                    <span>Use the loaded summary and ledger as the account-bound credit source.</span>
-                </a>
-            </li>
-            <li class="member-workflow__item">
-                <a class="member-workflow__link" href="/generate-lab/?source=credits&amp;step=create">
-                    <span class="member-workflow__step">Next</span>
-                    <strong>Create with context</strong>
-                    <span>Generate Lab shows estimates before the backend validates final usage.</span>
-                </a>
-            </li>
-            <li class="member-workflow__item">
-                <a class="member-workflow__link" href="/account/assets-manager.html?source=credits&amp;recent=1#generate-lab-recent">
-                    <span class="member-workflow__step">Then</span>
-                    <strong>Check saved assets</strong>
-                    <span>Open your private library after saving or when storage needs review.</span>
-                </a>
-            </li>
-            <li class="member-workflow__item">
-                <a class="member-workflow__link" href="/account/profile.html?returnContext=credits#profileCompletionCard">
-                    <span class="member-workflow__step">Keep safe</span>
-                    <strong>Account recovery</strong>
-                    <span>Use Profile for sign-in, verification, password, and wallet guidance.</span>
-                </a>
-            </li>
-        </ol>
-    </section>
-
-    <nav class="credits-workspace-nav" aria-labelledby="creditsWorkspaceTitle">
-        <div class="credits-workspace-nav__copy">
-            <p class="credits-eyebrow">Member workspace</p>
-            <h2 id="creditsWorkspaceTitle">Keep creating from your credits context</h2>
-            <p>Credits shows balances and BITBI Pro status. Generate Lab uses backend-validated estimates; Assets Manager keeps saved output private until you publish.</p>
-        </div>
-        <div class="credits-workspace-nav__actions" aria-label="Member workspace shortcuts">
-            <a href="/generate-lab/" class="credits-workspace-nav__link credits-workspace-nav__link--primary">Continue creating</a>
-            <a href="/account/assets-manager.html" class="credits-workspace-nav__link">Manage saved assets</a>
-            <a href="/account/profile.html" class="credits-workspace-nav__link">Profile settings</a>
-        </div>
-    </nav>
-
-    <section class="credits-onboarding" aria-labelledby="creditsOnboardingTitle">
-        <div>
-            <p class="credits-eyebrow">First-run guide</p>
-            <h2 id="creditsOnboardingTitle">How credits fit into creation</h2>
-            <p>Credits are checked by the backend when you generate and save. This page shows account context; Generate Lab remains the place to create and Assets Manager is where saved work appears.</p>
-        </div>
-        <ol class="credits-onboarding__steps">
-            <li><strong>Check balance</strong><span>Use the summary and ledger below as the source of truth for available credits.</span></li>
-            <li><strong>Create carefully</strong><span>Generate Lab shows estimates before you submit; final enforcement stays server-side.</span></li>
-            <li><strong>Save and review</strong><span>After saving, open Assets Manager and refresh if a new item is still processing.</span></li>
-        </ol>
-        <div class="credits-onboarding__actions" aria-label="First-run credit actions">
-            <a href="/generate-lab/?source=credits" class="credits-workspace-nav__link credits-workspace-nav__link--primary">Create in Generate Lab</a>
-            <a href="/account/assets-manager.html?source=credits" class="credits-workspace-nav__link">Open Assets Manager</a>
-        </div>
-    </section>
-
-    <section id="creditsContinuityPanel" class="credits-continuity" aria-labelledby="creditsContinuityTitle">
-        <div class="credits-continuity__copy">
-            <p class="credits-eyebrow">Credit and storage context</p>
-            <h2 id="creditsContinuityTitle">Credits help you create; Assets stores what you save</h2>
-            <p>Low or unknown credits should send you here first. Storage is reviewed in Assets Manager, while generation cost is estimated in Generate Lab and enforced by the backend before work starts.</p>
-        </div>
-        <div class="credits-continuity__grid">
-            <article class="credits-continuity__item">
-                <h3>Low or unknown credits</h3>
-                <p>Reload this dashboard, review pricing if needed, then return to Generate Lab with the latest account context.</p>
-                <a href="/pricing.html#pricingOffers" class="credits-workspace-nav__link">Review pricing</a>
-            </article>
-            <article class="credits-continuity__item">
-                <h3>Saved outputs and storage</h3>
-                <p>Saved creations appear in Assets Manager. Deleting or moving assets affects your library view, not the credit ledger.</p>
-                <a href="/account/assets-manager.html?source=credits&amp;recent=1#generate-lab-recent" class="credits-workspace-nav__link">Open saved assets</a>
-            </article>
-            <article class="credits-continuity__item">
-                <h3>Account confidence</h3>
-                <p>Profile keeps sign-in, verification, wallet, and recovery guidance close when credit or storage state is unclear.</p>
-                <a href="/account/profile.html?returnContext=credits#profileCompletionCard" class="credits-workspace-nav__link">Check profile</a>
-            </article>
-        </div>
-    </section>
-
-    <section id="creditsPostActionGuide" class="credits-post-action" aria-labelledby="creditsPostActionTitle">
-        <div class="credits-post-action__copy">
-            <p class="credits-eyebrow">After pricing</p>
-            <h2 id="creditsPostActionTitle">Use Credits as the verified return point</h2>
-            <p>Checkout return pages only explain what happened in the browser. The loaded balance, BITBI Pro status, and ledger below remain authoritative after backend verification.</p>
-        </div>
-        <div class="credits-post-action__grid">
-            <article class="credits-post-action__item">
-                <h3>Returned from checkout</h3>
-                <p>Success asks you to check the verified balance. Cancel or error states do not assume a credit grant.</p>
-                <a href="#creditsSummaryGrid" class="credits-workspace-nav__link">Check verified balance</a>
-            </article>
-            <article class="credits-post-action__item">
-                <h3>Low or unknown balance</h3>
-                <p>Refresh this dashboard, review pricing if needed, then generate with the latest account context.</p>
-                <a href="/pricing.html#pricingOffers" class="credits-workspace-nav__link">Review pricing</a>
-            </article>
-            <article class="credits-post-action__item">
-                <h3>Account-bound usage</h3>
-                <p>Credits are consumed in Generate Lab, saved output lives in Assets Manager, and recovery stays in Profile.</p>
-                <a href="/account/profile.html?returnContext=credits#profileCompletionCard" class="credits-workspace-nav__link">Review profile checklist</a>
-            </article>
-        </div>
     </section>
 
     <section class="credits-shell" aria-label="Credits dashboard">

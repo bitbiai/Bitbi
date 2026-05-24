@@ -174,14 +174,6 @@
                     </div>
                 </section>
 
-                <section class="assets-manager__storage-panel" aria-labelledby="assetsStorageTitle">
-                    <div class="assets-manager__storage-head">
-                        <p class="assets-manager__storage-label">Storage</p>
-                        <h3 id="assetsStorageTitle" class="assets-manager__storage-title">Storage status</h3>
-                    </div>
-                    <p id="studioStorageInsight" class="assets-manager__storage-copy" aria-live="polite">Storage details appear after your library loads.</p>
-                </section>
-
                 <div class="studio__gallery-header assets-manager__toolbar">
                     <h3 class="studio__card-title">Folders &amp; assets</h3>
                     <div class="studio__folder-bar">
@@ -201,25 +193,11 @@
                             </div>
                         </div>
                     </div>
+                    <div class="assets-manager__toolbar-actions" aria-label="Library actions">
+                        <button type="button" id="studioViewRefresh" class="assets-manager__toolbar-btn assets-manager__toolbar-btn--primary">Refresh latest</button>
+                        <button type="button" id="studioViewShowAll" class="assets-manager__toolbar-btn">Show all assets</button>
+                    </div>
                 </div>
-
-                <section id="studioViewContext" class="assets-manager__view-context" aria-live="polite" aria-labelledby="studioViewContextTitle">
-                    <div class="assets-manager__view-context-copy">
-                        <p class="assets-manager__handoff-eyebrow">Library view</p>
-                        <h3 id="studioViewContextTitle" class="assets-manager__view-context-title">Folder overview</h3>
-                        <p id="studioViewContextCopy" class="assets-manager__view-context-text">Choose a folder or show all assets to review recent account saves. Folder views can hide the latest Generate Lab output.</p>
-                        <div class="assets-manager__view-context-pills" aria-label="Current library view details">
-                            <span id="studioViewScope" class="assets-manager__view-context-pill">Folder overview</span>
-                            <span id="studioViewOrder" class="assets-manager__view-context-pill">Recent backend order</span>
-                        </div>
-                    </div>
-                    <div class="assets-manager__view-context-actions" aria-label="Library view recovery actions">
-                        <button type="button" id="studioViewRefresh" class="assets-manager__handoff-btn assets-manager__handoff-btn--primary">Refresh latest</button>
-                        <button type="button" id="studioViewShowAll" class="assets-manager__handoff-btn">Show all assets</button>
-                        <a id="studioViewGenerateLab" class="assets-manager__handoff-btn" href="/generate-lab/?source=assets-manager&amp;step=create">Back to Generate Lab</a>
-                        <a id="studioViewCredits" class="assets-manager__handoff-btn assets-manager__handoff-btn--ghost" href="/account/credits.html?scope=member&amp;source=assets-manager">Review credits</a>
-                    </div>
-                </section>
 
                 <section id="studioFolderDetail" class="assets-manager__folder-detail" aria-live="polite" aria-labelledby="studioFolderDetailTitle" hidden>
                     <div class="assets-manager__folder-detail-copy">
