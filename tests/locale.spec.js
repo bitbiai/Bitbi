@@ -479,6 +479,7 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="profileAvatarAccountStack"');
     expect(deProfile).toContain('id="profileAvatarCard"');
     expect(deProfile).toContain('profile__avatar-card--compact');
+    expect(deProfile).toContain('profile__avatar-message');
     expect(deProfile).toContain('id="profileAccountCard"');
     expect(deProfile).toContain('profile__account-card--compact');
     expect(deProfile).toContain('profile__settings-row');
@@ -499,11 +500,14 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('href="/de/account/forgot-password.html?source=profile"');
 
     expect(profileCss).toContain('.profile__avatar-card--compact .profile__avatar-frame');
+    expect(profileCss).toContain('grid-template-areas:');
+    expect(profileCss).toContain('"frame actions message"');
     expect(profileCss).toContain('width: 64px');
     expect(profileCss).toContain('height: 64px');
     expect(profileCss).toContain('.profile__completion-title-row');
     expect(profileCss).toContain('--profile-overview-account-block');
     expect(profileCss).toContain('grid-template-rows: repeat(3, minmax(0, 1fr))');
+    expect(profileCss).toContain('grid-row: 1 / span 2');
     expect(profileCss).toContain('display: contents');
     expect(profileCss).toContain('min-block-size: calc((88px * 2) + var(--space-3))');
     expect(profileCss).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');

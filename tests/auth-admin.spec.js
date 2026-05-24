@@ -10623,6 +10623,49 @@ test.describe('Profile page (authenticated)', () => {
       role: 'user',
       avatarRequests,
     });
+    const readAvatarMessageLayout = async () => page.locator('#profileAvatarCard').evaluate((card) => {
+      const rectOf = (selector) => card.querySelector(selector)?.getBoundingClientRect();
+      const overlaps = (first, second) => Boolean(
+        first
+        && second
+        && first.left < second.right - 1
+        && first.right > second.left + 1
+        && first.top < second.bottom - 1
+        && first.bottom > second.top + 1
+      );
+      const cardRect = card.getBoundingClientRect();
+      const frame = rectOf('#avatarFrame');
+      const actions = rectOf('.profile__avatar-actions');
+      const hint = rectOf('.profile__hint');
+      const message = rectOf('#avatarMsg');
+      const messageNode = card.querySelector('#avatarMsg');
+      const messageStyle = messageNode ? getComputedStyle(messageNode) : null;
+      return {
+        visible: Boolean(
+          message
+          && message.width > 40
+          && message.height > 20
+          && messageStyle
+          && messageStyle.display !== 'none'
+          && messageStyle.visibility !== 'hidden'
+        ),
+        insideCard: Boolean(
+          message
+          && message.left >= cardRect.left - 1
+          && message.right <= cardRect.right + 1
+          && message.top >= cardRect.top - 1
+          && message.bottom <= cardRect.bottom + 1
+        ),
+        inMessageArea: messageStyle?.gridArea === 'message',
+        rightOfAvatar: Boolean(message && frame && message.left > frame.right),
+        noOverlap: Boolean(
+          message
+          && !overlaps(message, frame)
+          && !overlaps(message, actions)
+          && !overlaps(message, hint)
+        ),
+      };
+    });
 
     const response = await page.goto('/account/profile.html');
     expect(response?.ok()).toBeTruthy();
@@ -10641,6 +10684,13 @@ test.describe('Profile page (authenticated)', () => {
     });
 
     await expect(page.locator('#avatarMsg')).toContainText('Photo updated.');
+    expect(await readAvatarMessageLayout()).toEqual({
+      visible: true,
+      insideCard: true,
+      inMessageArea: true,
+      rightOfAvatar: true,
+      noOverlap: true,
+    });
     await expect(page.locator('#avatarImg')).toBeVisible();
     await expect(page.locator('.auth-nav__avatar-link')).toBeVisible();
     await expect(page.locator('.site-nav__mood')).toBeHidden();
@@ -10653,6 +10703,17 @@ test.describe('Profile page (authenticated)', () => {
         }),
       ])
     );
+
+    await page.locator('#avatarRemoveBtn').click();
+    await expect(page.locator('#avatarMsg')).toContainText('Photo removed.');
+    expect(await readAvatarMessageLayout()).toEqual({
+      visible: true,
+      insideCard: true,
+      inMessageArea: true,
+      rightOfAvatar: true,
+      noOverlap: true,
+    });
+    expect(avatarRequests).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'delete' })]));
   });
 
   test('saved assets picker stays image-only and uses thumb derivatives for avatar selection', async ({
@@ -11639,7 +11700,7 @@ test.describe('Profile page (authenticated)', () => {
       return {
         completionOrder,
         accountBelowAvatar: Boolean(avatar && account && account.top > avatar.bottom),
-        avatarCompact: Boolean(avatar && avatar.height <= 96),
+        avatarCompact: Boolean(avatar && avatar.height <= 112),
         actionCardsVertical: Boolean(
           assets
           && wallet
@@ -11661,6 +11722,9 @@ test.describe('Profile page (authenticated)', () => {
         ),
         completionBottomDelta: completion && account ? Math.abs(completion.bottom - account.bottom) : null,
         studioBottomDelta: studioStack && account ? Math.abs(studioStack.bottom - account.bottom) : null,
+        studioChecklistTopDelta: studioStack && completion ? Math.abs(studioStack.top - completion.top) : null,
+        studioChecklistBottomDelta: studioStack && completion ? Math.abs(studioStack.bottom - completion.bottom) : null,
+        studioChecklistHeightDelta: studioStack && completion ? Math.abs(studioStack.height - completion.height) : null,
         actionHeightsBalanced: actionHeights.length === 3
           && Math.max(...actionHeights) - Math.min(...actionHeights) <= 6,
         actionCardsTouchSafe: actionHeights.length === 3 && Math.min(...actionHeights) >= 44,
@@ -11678,6 +11742,12 @@ test.describe('Profile page (authenticated)', () => {
     expect(overviewLayout.completionBottomDelta).toBeLessThanOrEqual(6);
     expect(overviewLayout.studioBottomDelta).not.toBeNull();
     expect(overviewLayout.studioBottomDelta).toBeLessThanOrEqual(6);
+    expect(overviewLayout.studioChecklistTopDelta).not.toBeNull();
+    expect(overviewLayout.studioChecklistTopDelta).toBeLessThanOrEqual(6);
+    expect(overviewLayout.studioChecklistBottomDelta).not.toBeNull();
+    expect(overviewLayout.studioChecklistBottomDelta).toBeLessThanOrEqual(6);
+    expect(overviewLayout.studioChecklistHeightDelta).not.toBeNull();
+    expect(overviewLayout.studioChecklistHeightDelta).toBeLessThanOrEqual(6);
     expect(overviewLayout.actionHeightsBalanced).toBe(true);
     expect(overviewLayout.actionCardsTouchSafe).toBe(true);
     const settingsRow = page.locator('.profile__settings-row');
