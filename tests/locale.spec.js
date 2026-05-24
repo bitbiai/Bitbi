@@ -344,6 +344,7 @@ test.describe('Bilingual locale pages', () => {
   test('member workspace navigation keeps English and German routes equivalent', () => {
     const enProfile = repoFile('account/profile.html');
     const deProfile = repoFile('de/account/profile.html');
+    const profileCss = repoFile('css/account/profile.css');
     const enCredits = repoFile('account/credits.html');
     const deCredits = repoFile('de/account/credits.html');
     const enAssets = repoFile('account/assets-manager.html');
@@ -383,6 +384,13 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('Email status');
     expect(enProfile).toContain('Profile image');
     expect(enProfile).toContain('Display name');
+    expect([...enProfile.matchAll(/data-completion-item="([^"]+)"/g)].map((match) => match[1])).toEqual([
+      'signed-in',
+      'email',
+      'profile-image',
+      'display-name',
+      'wallet',
+    ]);
     expect(enProfile).not.toContain('data-completion-item="profile-loaded"');
     expect(enProfile).not.toContain('id="completionProfileLoadedStatus"');
     expect(enProfile).not.toContain('Profile loaded</span>');
@@ -442,6 +450,13 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('E-Mail-Status');
     expect(deProfile).toContain('Profil Bild');
     expect(deProfile).toContain('Anzeige Name');
+    expect([...deProfile.matchAll(/data-completion-item="([^"]+)"/g)].map((match) => match[1])).toEqual([
+      'signed-in',
+      'email',
+      'profile-image',
+      'display-name',
+      'wallet',
+    ]);
     expect(deProfile).not.toContain('data-completion-item="profile-loaded"');
     expect(deProfile).not.toContain('id="completionProfileLoadedStatus"');
     expect(deProfile).not.toContain('Profil geladen</span>');
@@ -470,6 +485,12 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('schließen Sie die E-Mail-Bestätigung nach der Anmeldung ab');
     expect(deProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
     expect(deProfile).toContain('href="/de/account/forgot-password.html?source=profile"');
+
+    expect(profileCss).toContain('.profile__avatar-card--compact .profile__avatar-frame');
+    expect(profileCss).toContain('width: 64px');
+    expect(profileCss).toContain('height: 64px');
+    expect(profileCss).toContain('min-block-size: calc((88px * 2) + var(--space-3))');
+    expect(profileCss).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
 
     expect(enCredits).toContain('credits-workspace-nav');
     expect(enCredits).toContain('id="creditsWorkspacePriority"');

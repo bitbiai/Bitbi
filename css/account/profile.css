@@ -66,7 +66,7 @@
 
     .profile__avatar-card--compact {
         min-block-size: 88px;
-        padding: var(--space-5);
+        padding: var(--space-4) var(--space-5);
         text-align: start;
         align-content: center;
     }
@@ -84,7 +84,7 @@
         grid-template-areas:
             "frame actions"
             "frame hint";
-        gap: 0.35rem var(--space-4);
+        gap: 0.25rem var(--space-3);
         align-items: center;
     }
 
@@ -99,8 +99,8 @@
 
     .profile__avatar-card--compact .profile__avatar-frame {
         grid-area: frame;
-        width: 76px;
-        height: 76px;
+        width: 64px;
+        height: 64px;
         box-shadow:
             0 0 0 1px rgba(0, 240, 255, 0.08),
             0 14px 32px rgba(0, 0, 0, 0.22);
@@ -132,11 +132,19 @@
         justify-content: flex-start;
     }
 
+    .profile__avatar-card--compact .profile__avatar-btn,
+    .profile__avatar-card--compact .profile__avatar-remove {
+        min-block-size: 2rem;
+        padding: 0.45rem 0.7rem;
+        font-size: 10px;
+        line-height: 1.1;
+    }
+
     .profile__avatar-card--compact .profile__hint {
         grid-area: hint;
         margin-block-start: 0;
-        font-size: 0.7rem;
-        line-height: 1.35;
+        font-size: 0.66rem;
+        line-height: 1.25;
         color: rgba(255, 255, 255, 0.36);
     }
 
@@ -197,28 +205,30 @@
     .profile__account-card--compact {
         display: grid;
         align-content: center;
-        min-block-size: calc(176px + var(--space-3));
-        padding: var(--space-5);
+        min-block-size: calc((88px * 2) + var(--space-3));
+        padding: var(--space-3) var(--space-5);
     }
 
     .profile__account-card--compact .profile__title {
-        margin-block-end: var(--space-3);
-        font-size: 1.05rem;
+        margin-block-end: var(--space-1);
+        font-size: 0.95rem;
     }
 
     .profile__account-card--compact .profile__row {
         grid-template-columns: minmax(6.4rem, auto) minmax(0, 1fr);
         gap: var(--space-2);
-        padding: 0.45rem 0;
+        min-block-size: 0;
+        padding: 0.28rem 0;
     }
 
     .profile__account-card--compact .profile__label {
-        font-size: 0.62rem;
+        font-size: 0.58rem;
         letter-spacing: 0.04em;
     }
 
     .profile__account-card--compact .profile__value {
-        font-size: 0.74rem;
+        font-size: 0.68rem;
+        line-height: 1.25;
     }
 
     .profile-avatar-modal[hidden] {
@@ -995,7 +1005,7 @@
     .profile__settings-row {
         display: grid;
         gap: var(--space-6);
-        align-items: start;
+        align-items: stretch;
     }
 
     .profile__settings-row .profile__card {
@@ -1039,6 +1049,10 @@
 
         .profile__settings-row {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .profile__settings-row .profile__card {
+            min-block-size: 100%;
         }
     }
 

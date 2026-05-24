@@ -11495,6 +11495,10 @@ test.describe('Profile page (authenticated)', () => {
       'Display name',
       'Wallet link',
     ]);
+    const completionItems = await page.locator('#profileCompletionCard .profile__completion-item').evaluateAll((items) => (
+      items.map((item) => item.getAttribute('data-completion-item'))
+    ));
+    expect(completionItems).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await expect(page.locator('#walletSectionCard')).not.toContainText('not wallet custody');
@@ -11605,11 +11609,29 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCompletionCard')).toContainText('Display name');
     await expect(page.locator('#profileCompletionCard')).not.toContainText('Profile loaded');
     await expect(page.locator('#profileAvatarCard')).toHaveClass(/profile__avatar-card--compact/);
+    await expect(page.locator('#avatarChangeBtn')).toBeVisible();
+    await expect(page.locator('#profileAvatarCard')).toContainText('JPG, PNG or WebP. Max 2 MB.');
     await expect(page.locator('#profileAvatarAccountStack #profileAccountCard')).toBeVisible();
     await expect(page.locator('#profileAccountCard')).toContainText('Account Info');
     await expect(page.locator('#profileAccountCard')).toContainText('Display Name');
     await expect(page.locator('#profileAccountCard')).toContainText('Member Since');
     await expect(page.locator('#profileAccountCard')).toHaveClass(/profile__account-card--compact/);
+    const overviewLayout = await page.locator('.profile__overview-grid').evaluate((node) => {
+      const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
+      const avatar = rectOf('#profileAvatarCard');
+      const account = rectOf('#profileAccountCard');
+      const assets = rectOf('#profileStudioCard');
+      const completionOrder = Array.from(node.querySelectorAll('#profileCompletionCard .profile__completion-item'))
+        .map((item) => item.getAttribute('data-completion-item'));
+      return {
+        completionOrder,
+        accountBelowAvatar: Boolean(avatar && account && account.top > avatar.bottom),
+        avatarComparableToAssets: Boolean(avatar && assets && avatar.height <= assets.height + 24),
+      };
+    });
+    expect(overviewLayout.completionOrder).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
+    expect(overviewLayout.accountBelowAvatar).toBe(true);
+    expect(overviewLayout.avatarComparableToAssets).toBe(true);
     const settingsRow = page.locator('.profile__settings-row');
     await expect(settingsRow).toBeVisible();
     const settingsLayout = await settingsRow.evaluate((node) => {
