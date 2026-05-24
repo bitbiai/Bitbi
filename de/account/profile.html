@@ -162,9 +162,11 @@
                 <section class="profile__card profile__completion-card" id="profileCompletionCard" aria-labelledby="profileCompletionTitle">
                     <div class="profile__completion-head">
                         <p class="profile__control-eyebrow">Kontovervollständigung</p>
-                        <h2 id="profileCompletionTitle" class="profile__title">Checkliste</h2>
+                        <div class="profile__completion-title-row">
+                            <h2 id="profileCompletionTitle" class="profile__title">Checkliste</h2>
+                            <div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>
+                        </div>
                     </div>
-                    <div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>
                     <div class="profile__completion-list" role="list" aria-label="Checkliste zur Profilvervollständigung">
                         <div class="profile__completion-item" role="listitem" data-completion-item="signed-in" data-state="pending">
                             <span class="profile__completion-check" aria-hidden="true"></span>
@@ -268,21 +270,6 @@
                 </div><!-- /.profile__overview-grid -->
 
                 <div class="profile__settings-row reveal">
-                <div class="profile__card" id="walletSectionCard">
-                    <div class="profile__wallet-head">
-                        <div>
-                            <h2 class="profile__title">Wallet</h2>
-                            <p class="profile__wallet-copy" id="walletSectionCopy">Verbinden Sie eine Ethereum-Mainnet-Wallet, um sie mit Ihrem BITBI-Konto zu verknüpfen oder die Wallet-Anmeldung zu nutzen.</p>
-                        </div>
-                    </div>
-                    <div id="walletSectionMsg" class="profile__msg" role="status"></div>
-                    <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
-                    <div id="walletSectionActions" class="profile__wallet-actions"></div>
-                    <div class="profile__wallet-utility" aria-label="Wallet-Status-Werkzeuge">
-                        <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Wallet-Status aktualisieren</button>
-                    </div>
-                </div>
-
                 <!-- Profil bearbeiten Card -->
                 <div class="profile__card profile__edit-card">
                     <div class="profile__edit-head">
@@ -313,6 +300,21 @@
                         </div>
                         <button type="submit" id="submitBtn" class="profile__submit">Änderungen speichern</button>
                     </form>
+                </div>
+
+                <div class="profile__card" id="walletSectionCard">
+                    <div class="profile__wallet-head">
+                        <div>
+                            <h2 class="profile__title">Wallet</h2>
+                            <p class="profile__wallet-copy" id="walletSectionCopy">Verbinden Sie eine Ethereum-Mainnet-Wallet, um sie mit Ihrem BITBI-Konto zu verknüpfen oder die Wallet-Anmeldung zu nutzen.</p>
+                        </div>
+                    </div>
+                    <div id="walletSectionMsg" class="profile__msg" role="status"></div>
+                    <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
+                    <div id="walletSectionActions" class="profile__wallet-actions"></div>
+                    <div class="profile__wallet-utility" aria-label="Wallet-Status-Werkzeuge">
+                        <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Wallet-Status aktualisieren</button>
+                    </div>
                 </div>
                 </div>
 

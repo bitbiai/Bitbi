@@ -376,6 +376,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="profileCompletionCard"');
     expect(enProfile).toContain('Account completion');
     expect(enProfile).toContain('Checklist');
+    expect(enProfile).toContain('profile__completion-title-row');
+    expect(enProfile).toContain('<div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Completion loads after your profile data.</div>');
+    expect(enProfile).not.toContain('</div>\n                    <div id="profileCompletionStatus" class="profile__completion-status"');
     expect(enProfile).toContain('profile__completion-check');
     expect(enProfile).toContain('data-completion-item="signed-in"');
     expect(enProfile).toContain('data-completion-item="email"');
@@ -407,6 +410,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).toContain('id="profileAccountCard"');
     expect(enProfile).toContain('profile__account-card--compact');
     expect(enProfile).toContain('profile__settings-row');
+    expect(enProfile.indexOf('class="profile__card profile__edit-card"')).toBeGreaterThan(-1);
+    expect(enProfile.indexOf('id="walletSectionCard"')).toBeGreaterThan(-1);
+    expect(enProfile.indexOf('class="profile__card profile__edit-card"')).toBeLessThan(enProfile.indexOf('id="walletSectionCard"'));
     expect(enProfile).not.toContain('Wallet linking is optional and never requires sharing private keys.');
     expect(enProfile).not.toContain('id="walletTrustStatus"');
     expect(enProfile).not.toContain('Wallet trust notes');
@@ -442,6 +448,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="profileCompletionCard"');
     expect(deProfile).toContain('Kontovervollständigung');
     expect(deProfile).toContain('Checkliste');
+    expect(deProfile).toContain('profile__completion-title-row');
+    expect(deProfile).toContain('<div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>');
+    expect(deProfile).not.toContain('</div>\n                    <div id="profileCompletionStatus" class="profile__completion-status"');
     expect(deProfile).toContain('profile__completion-check');
     expect(deProfile).toContain('data-completion-item="signed-in"');
     expect(deProfile).toContain('data-completion-item="email"');
@@ -473,6 +482,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).toContain('id="profileAccountCard"');
     expect(deProfile).toContain('profile__account-card--compact');
     expect(deProfile).toContain('profile__settings-row');
+    expect(deProfile.indexOf('class="profile__card profile__edit-card"')).toBeGreaterThan(-1);
+    expect(deProfile.indexOf('id="walletSectionCard"')).toBeGreaterThan(-1);
+    expect(deProfile.indexOf('class="profile__card profile__edit-card"')).toBeLessThan(deProfile.indexOf('id="walletSectionCard"'));
     expect(deProfile).not.toContain('Wallet-Verknüpfung ist optional und erfordert niemals private Schlüssel.');
     expect(deProfile).not.toContain('id="walletTrustStatus"');
     expect(deProfile).not.toContain('Hinweise zum Wallet-Vertrauen');
@@ -489,6 +501,9 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).toContain('.profile__avatar-card--compact .profile__avatar-frame');
     expect(profileCss).toContain('width: 64px');
     expect(profileCss).toContain('height: 64px');
+    expect(profileCss).toContain('.profile__completion-title-row');
+    expect(profileCss).toContain('grid-template-rows: repeat(3, minmax(0, 1fr))');
+    expect(profileCss).toContain('display: contents');
     expect(profileCss).toContain('min-block-size: calc((88px * 2) + var(--space-3))');
     expect(profileCss).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
 

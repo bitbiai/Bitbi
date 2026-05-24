@@ -11477,6 +11477,8 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
     await expect(page.locator('#profileCompletionCard')).toContainText('Checklist');
     await expect(page.locator('#profileCompletionStatus')).toContainText('5 of 5 account signals complete.');
+    await expect(page.locator('#profileCompletionCard > #profileCompletionStatus')).toHaveCount(0);
+    await expect(page.locator('#profileCompletionCard .profile__completion-title-row #profileCompletionStatus')).toBeVisible();
     await expect(page.locator('#completionSignedInStatus')).toContainText('Signed in');
     await expect(page.locator('#completionEmailStatus')).toContainText('Verified');
     await expect(page.locator('#completionProfileImageStatus')).toContainText('Set');
@@ -11620,25 +11622,56 @@ test.describe('Profile page (authenticated)', () => {
       const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
       const avatar = rectOf('#profileAvatarCard');
       const account = rectOf('#profileAccountCard');
+      const completion = rectOf('#profileCompletionCard');
+      const studioStack = rectOf('#profileStudioStack');
       const assets = rectOf('#profileStudioCard');
+      const wallet = rectOf('#profileWalletCard');
+      const credits = rectOf('#profileCreditsCard');
+      const heading = rectOf('#profileCompletionTitle');
+      const completionStatus = rectOf('#profileCompletionStatus');
       const completionOrder = Array.from(node.querySelectorAll('#profileCompletionCard .profile__completion-item'))
         .map((item) => item.getAttribute('data-completion-item'));
+      const actionHeights = [assets, wallet, credits]
+        .filter(Boolean)
+        .map((rect) => rect.height);
       return {
         completionOrder,
         accountBelowAvatar: Boolean(avatar && account && account.top > avatar.bottom),
         avatarComparableToAssets: Boolean(avatar && assets && avatar.height <= assets.height + 24),
+        summaryRightOfHeading: Boolean(heading && completionStatus && completionStatus.left > heading.right),
+        summarySameHeadingRow: Boolean(
+          heading
+          && completionStatus
+          && completionStatus.top < heading.bottom
+          && completionStatus.bottom > heading.top,
+        ),
+        completionBottomDelta: completion && account ? Math.abs(completion.bottom - account.bottom) : null,
+        studioBottomDelta: studioStack && account ? Math.abs(studioStack.bottom - account.bottom) : null,
+        actionHeightsBalanced: actionHeights.length === 3
+          && Math.max(...actionHeights) - Math.min(...actionHeights) <= 6,
       };
     });
     expect(overviewLayout.completionOrder).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
     expect(overviewLayout.accountBelowAvatar).toBe(true);
     expect(overviewLayout.avatarComparableToAssets).toBe(true);
+    expect(overviewLayout.summaryRightOfHeading).toBe(true);
+    expect(overviewLayout.summarySameHeadingRow).toBe(true);
+    expect(overviewLayout.completionBottomDelta).not.toBeNull();
+    expect(overviewLayout.completionBottomDelta).toBeLessThanOrEqual(6);
+    expect(overviewLayout.studioBottomDelta).not.toBeNull();
+    expect(overviewLayout.studioBottomDelta).toBeLessThanOrEqual(6);
+    expect(overviewLayout.actionHeightsBalanced).toBe(true);
     const settingsRow = page.locator('.profile__settings-row');
     await expect(settingsRow).toBeVisible();
+    const settingsOrder = await settingsRow.locator(':scope > .profile__card').evaluateAll((cards) => (
+      cards.map((card) => card.id || (card.classList.contains('profile__edit-card') ? 'profileEditCard' : 'unknown'))
+    ));
+    expect(settingsOrder).toEqual(['profileEditCard', 'walletSectionCard']);
     const settingsLayout = await settingsRow.evaluate((node) => {
       const wallet = node.querySelector('#walletSectionCard')?.getBoundingClientRect();
       const edit = node.querySelector('.profile__edit-card')?.getBoundingClientRect();
       return {
-        sameRow: Boolean(wallet && edit && Math.abs(wallet.top - edit.top) <= 8 && edit.left > wallet.left),
+        sameRow: Boolean(wallet && edit && Math.abs(wallet.top - edit.top) <= 8 && wallet.left > edit.left),
         columns: getComputedStyle(node).gridTemplateColumns,
       };
     });
