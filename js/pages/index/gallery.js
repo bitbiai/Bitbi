@@ -42,6 +42,8 @@ export function initGallery() {
     let mempicsRevealPromise = null;
     let mempicsObserver = null;
     let mempicsUserScrolledSinceBatch = false;
+    let mempicsScrollBatchSettling = false;
+    let mempicsScrollBatchSettlingTimer = 0;
 
     const mobileMediaQuery = getMobileMediaGridQuery();
     const $paginationStatus = document.createElement('button');
@@ -93,6 +95,8 @@ export function initGallery() {
             ? DESKTOP_INITIAL_MEMPICS
             : mempicsState.items.length;
         mempicsUserScrolledSinceBatch = false;
+        mempicsScrollBatchSettling = false;
+        window.clearTimeout(mempicsScrollBatchSettlingTimer);
     }
 
     function getMempicIdentity(item) {
@@ -346,6 +350,11 @@ export function initGallery() {
                 console.warn('mempics reveal more:', error);
             } finally {
                 mempicsUserScrolledSinceBatch = false;
+                mempicsScrollBatchSettling = true;
+                window.clearTimeout(mempicsScrollBatchSettlingTimer);
+                mempicsScrollBatchSettlingTimer = window.setTimeout(() => {
+                    mempicsScrollBatchSettling = false;
+                }, 180);
                 mempicsRevealPromise = null;
                 updateMempicsPagination(MEMPICS_CATEGORY, errorMessage);
             }
@@ -361,6 +370,7 @@ export function initGallery() {
     }
 
     function maybeRevealMempicsFromScroll() {
+        if (mempicsScrollBatchSettling) return;
         if (!mempicsUserScrolledSinceBatch || !shouldUseScrollLoading()) return;
         const rect = $scrollSentinel.getBoundingClientRect();
         if (rect.top > window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX) return;
@@ -368,6 +378,7 @@ export function initGallery() {
     }
 
     function handleMempicsProgressiveScroll() {
+        if (mempicsScrollBatchSettling) return;
         mempicsUserScrolledSinceBatch = true;
         maybeRevealMempicsFromScroll();
     }
@@ -834,6 +845,7 @@ export function initGallery() {
     window.addEventListener('pagehide', () => {
         if (galGridObserver) { galGridObserver.disconnect(); galGridObserver = null; }
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
+        window.clearTimeout(mempicsScrollBatchSettlingTimer);
         disconnectMempicsObserver();
     });
 }
