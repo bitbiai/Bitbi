@@ -1128,21 +1128,28 @@ test.describe('Wallet identity profile flow', () => {
     }
 
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
-    await expect(page.locator('#profileWalletContext')).toBeVisible();
-    await expect(page.locator('#profileWalletContext')).toContainText('No wallet linked');
+    await expect(page.locator('#profileWalletContext')).toHaveCount(0);
+    await expect(page.locator('#profileWalletCard')).toBeVisible();
 
-    await activateProfileWalletAction(page, page.locator('#walletSectionActions .profile__wallet-btn').first());
+    await activateProfileWalletAction(page, page.locator('#profileWalletCard'));
+    await expect(page.locator('#walletWorkspace')).toBeVisible();
+    await page.locator('#walletAccountTab').click();
+    await expect(page.locator('#wallet-account')).toBeVisible();
+    await expect(page.locator('#wallet-account')).toContainText('Signed in, wallet not connected');
+
+    await activateProfileWalletAction(page, page.locator('#walletPageIdentityActions .wallet-page__button').first());
     await expect(page.locator('#walletModal')).toBeVisible();
     await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
 
     await page.locator('[data-wallet-link="true"]').click();
     await expect(page.locator('#walletModal')).toContainText('already linked to your BITBI account');
-    await expect(page.locator('#profileWalletContext')).toContainText('Linked and connected');
-    await expect(page.locator('#profileWalletContext')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
     await page.locator('[data-wallet-close="panel"]').click();
+    await expect(page.locator('#wallet-account')).toContainText('Linked and connected');
+    await expect(page.locator('#wallet-account')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
 
-    await activateProfileWalletAction(page, page.locator('#walletSectionActions [class*="--danger"]'));
-    await expect(page.locator('#profileWalletContext')).toContainText('Connected, not linked');
+    await page.locator('#walletAccountTab').click();
+    await activateProfileWalletAction(page, page.locator('#walletPageIdentityActions .wallet-page__button--danger'));
+    await expect(page.locator('#wallet-account')).toContainText('Connected, not linked');
   });
 });

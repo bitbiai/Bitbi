@@ -12,11 +12,8 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { setupFocusTrap }    from '../../shared/focus-trap.js';
 import { patchAuthUser }     from '../../shared/auth-state.js';
 import {
-    openWalletPanelView,
     openWalletWorkspaceView,
     refreshWalletStatus,
-    requestWalletLink,
-    unlinkLinkedWallet,
 } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { subscribeWalletState } from '../../shared/wallet/wallet-state.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
@@ -77,11 +74,6 @@ const $completionEmailStatus = document.getElementById('completionEmailStatus');
 const $completionProfileImageStatus = document.getElementById('completionProfileImageStatus');
 const $completionDisplayNameStatus = document.getElementById('completionDisplayNameStatus');
 const $completionWalletStatus = document.getElementById('completionWalletStatus');
-const $walletSectionCopy = document.getElementById('walletSectionCopy');
-const $walletSectionMsg = document.getElementById('walletSectionMsg');
-const $walletSectionRows = document.getElementById('walletSectionRows');
-const $walletSectionActions = document.getElementById('walletSectionActions');
-const $walletStatusRefreshBtn = document.getElementById('walletStatusRefreshBtn');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
 const $walletCard     = document.getElementById('profileWalletCard');
 const $walletCardStatus = document.getElementById('profileWalletCardStatus');
@@ -290,43 +282,6 @@ function updateEditState(mode = 'idle') {
     }
 }
 
-function showWalletSectionMsg(text, type = 'success') {
-    if (!$walletSectionMsg) return;
-    $walletSectionMsg.textContent = text || '';
-    $walletSectionMsg.className = text
-        ? `profile__msg profile__msg--${type}`
-        : 'profile__msg';
-}
-
-function createWalletRow(label, valueNode) {
-    const row = document.createElement('div');
-    row.className = 'profile__row';
-
-    const labelEl = document.createElement('span');
-    labelEl.className = 'profile__label';
-    labelEl.textContent = label;
-
-    const valueEl = document.createElement('span');
-    valueEl.className = 'profile__value';
-    if (typeof valueNode === 'string') {
-        valueEl.textContent = valueNode;
-    } else if (valueNode) {
-        valueEl.appendChild(valueNode);
-    } else {
-        valueEl.textContent = '\u2014';
-    }
-
-    row.append(labelEl, valueEl);
-    return row;
-}
-
-function createWalletPill(label, variant = '') {
-    const pill = document.createElement('span');
-    pill.className = `profile__wallet-pill${variant ? ` profile__wallet-pill--${variant}` : ''}`;
-    pill.textContent = label;
-    return pill;
-}
-
 function setCompletionStatus(el, text, state = 'pending') {
     if (!el) return;
     el.textContent = text;
@@ -443,136 +398,12 @@ function syncProfileAvatarCompletion(hasAvatar) {
     renderProfileCompletion(profileCompletionContext.profile, profileCompletionContext.account);
 }
 
-function addressesEqual(left, right) {
-    if (!left || !right) return false;
-    return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
-}
-
 function renderWalletSection(state = walletViewState) {
     if (profileCompletionContext) {
         renderProfileCompletion(profileCompletionContext.profile, profileCompletionContext.account, state);
     }
     syncWalletCardStatus(state);
-    if (!$walletSectionRows || !$walletSectionActions || !$walletSectionCopy || !state) return;
-
-    const linkedWallet = state.linkedWallet || null;
-    const connectedAddress = state.active?.address || '';
-    const isConnected = state.status === 'connected' && !!connectedAddress;
-    const linkedMatchesConnected = !!(linkedWallet && isConnected && addressesEqual(linkedWallet.address, connectedAddress));
-    const connectedDiffersFromLinked = !!(linkedWallet && isConnected && !linkedMatchesConnected);
-    const actionBusy = state.identityAction && state.identityAction !== 'idle';
-
-    $walletSectionRows.innerHTML = '';
-    $walletSectionActions.innerHTML = '';
-
-    if (!state.authReady) {
-        $walletSectionCopy.textContent = localeText('profile.loadingWallet');
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.status'), localeText('profile.loading')));
-        return;
-    }
-
-    if (!linkedWallet && !isConnected) {
-        $walletSectionCopy.textContent = localeText('profile.noWalletCopy');
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.noWalletLinked'))));
-
-        const connectBtn = document.createElement('button');
-        connectBtn.type = 'button';
-        connectBtn.className = 'profile__wallet-btn';
-        connectBtn.textContent = localeText('profile.connectWallet');
-        connectBtn.addEventListener('click', () => openWalletPanelView());
-        $walletSectionActions.appendChild(connectBtn);
-        return;
-    }
-
-    if (!linkedWallet && isConnected) {
-        $walletSectionCopy.textContent = localeText('profile.connectedNotLinkedCopy');
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.connectedNotLinked'), 'warning')));
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.connectedWallet'), connectedAddress));
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.network'), state.active?.chainLabel || '\u2014'));
-
-        const linkBtn = document.createElement('button');
-        linkBtn.type = 'button';
-        linkBtn.className = 'profile__wallet-btn';
-        linkBtn.disabled = actionBusy;
-        linkBtn.textContent = actionBusy ? localeText('profile.working') : localeText('profile.linkConnectedWallet');
-        linkBtn.addEventListener('click', () => requestWalletLink());
-        $walletSectionActions.appendChild(linkBtn);
-
-        const panelBtn = document.createElement('button');
-        panelBtn.type = 'button';
-        panelBtn.className = 'profile__wallet-btn profile__wallet-btn--ghost';
-        panelBtn.textContent = localeText('profile.openWalletPanel');
-        panelBtn.addEventListener('click', () => openWalletPanelView());
-        $walletSectionActions.appendChild(panelBtn);
-        return;
-    }
-
-    if (linkedWallet) {
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.linkedWallet'), linkedWallet.address));
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.network'), 'Ethereum Mainnet'));
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.linkedAt'), formatDate(linkedWallet.linkedAt)));
-        if (linkedWallet.lastLoginAt) {
-            $walletSectionRows.appendChild(createWalletRow(localeText('profile.lastWalletSignIn'), formatDate(linkedWallet.lastLoginAt)));
-        }
-    }
-
-    if (linkedWallet && linkedMatchesConnected) {
-        $walletSectionCopy.textContent = localeText('profile.walletMatches');
-        $walletSectionRows.prepend(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.linkedConnected'), 'success')));
-    } else if (linkedWallet && connectedDiffersFromLinked) {
-        $walletSectionCopy.textContent = localeText('profile.differentWallet');
-        $walletSectionRows.prepend(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.differentWalletConnected'), 'danger')));
-        $walletSectionRows.appendChild(createWalletRow(localeText('profile.connectedWallet'), connectedAddress));
-    } else if (linkedWallet) {
-        $walletSectionCopy.textContent = localeText('profile.walletLinkedCopy');
-        $walletSectionRows.prepend(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.linked'), 'success')));
-    }
-
-    if (!isConnected) {
-        const connectBtn = document.createElement('button');
-        connectBtn.type = 'button';
-        connectBtn.className = 'profile__wallet-btn';
-        connectBtn.textContent = localeText('profile.connectWallet');
-        connectBtn.addEventListener('click', () => openWalletPanelView());
-        $walletSectionActions.appendChild(connectBtn);
-    } else {
-        const panelBtn = document.createElement('button');
-        panelBtn.type = 'button';
-        panelBtn.className = 'profile__wallet-btn profile__wallet-btn--ghost';
-        panelBtn.textContent = localeText('profile.openWalletPanel');
-        panelBtn.addEventListener('click', () => openWalletPanelView());
-        $walletSectionActions.appendChild(panelBtn);
-    }
-
-    const unlinkBtn = document.createElement('button');
-    unlinkBtn.type = 'button';
-    unlinkBtn.className = 'profile__wallet-btn profile__wallet-btn--danger';
-    unlinkBtn.disabled = actionBusy;
-    unlinkBtn.textContent = state.identityAction === 'unlinking' ? localeText('profile.unlinking') : localeText('profile.unlinkWallet');
-    unlinkBtn.addEventListener('click', async () => {
-        showWalletSectionMsg('', 'success');
-        try {
-            await unlinkLinkedWallet();
-            showWalletSectionMsg(localeText('profile.walletUnlinked'), 'success');
-        } catch {
-            showWalletSectionMsg(localeText('profile.walletUnlinkFailed'), 'error');
-        }
-    });
-    $walletSectionActions.appendChild(unlinkBtn);
 }
-
-$walletStatusRefreshBtn?.addEventListener('click', async () => {
-    $walletStatusRefreshBtn.disabled = true;
-    showWalletSectionMsg(localeText('profile.walletStatusRefreshing'), 'success');
-    try {
-        await refreshWalletStatus();
-        showWalletSectionMsg(localeText('profile.walletStatusRefreshed'), 'success');
-    } catch {
-        showWalletSectionMsg(localeText('profile.walletStatusRefreshFailed'), 'error');
-    } finally {
-        $walletStatusRefreshBtn.disabled = false;
-    }
-});
 
 /* ── Avatar helpers ── */
 const AVATAR_URL = '/api/profile/avatar';

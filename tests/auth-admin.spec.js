@@ -11551,13 +11551,14 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
-    await expect(page.locator('#profileWalletContext')).toBeVisible();
-    await expect(page.locator('#profileWalletContext')).toContainText('Wallet');
-    await expect(page.locator('#profileWalletContext')).not.toContainText('not wallet custody');
-    await expect(page.locator('#profileWalletContext')).not.toContainText('seed phrases');
-    await expect(page.locator('#profileWalletContext')).toContainText('Refresh wallet status');
-    await expect(page.locator('#profileWalletContext')).not.toContainText('custodial wallet');
+    await expect(page.locator('#profileWalletContext')).toHaveCount(0);
+    await expect(page.locator('#walletStatusRefreshBtn')).toHaveCount(0);
+    await expect(page.locator('#profileHomeView')).not.toContainText('BITBI Account');
     await expect(page.locator('#profileWalletCardStatus')).toContainText('Linked');
+    await page.locator('#profileWalletCard').click();
+    await expect(page.locator('#walletWorkspace')).toBeVisible();
+    await page.locator('[data-wallet-workspace-close="panel"]').click();
+    await expect(page.locator('#walletWorkspace')).toBeHidden();
 
     await page.locator('#bitbiHelpTrigger').click();
     const profileHelp = page.locator('[data-help-section="profile"]');
@@ -11569,8 +11570,6 @@ test.describe('Profile page (authenticated)', () => {
     await expect(walletHelp).toContainText('seed phrases or private keys');
     await expect(walletHelp.locator('.help-menu__item-body')).toContainText('Profile, Credits, Generate Lab, and Assets Manager work without a wallet link');
 
-    await page.locator('#walletStatusRefreshBtn').click();
-    await expect(page.locator('#walletSectionMsg')).toContainText('Wallet status refreshed from the existing account endpoint.');
   });
 
   test('profile post-auth hint uses only safe source markers and strips unsafe return params', async ({
@@ -11633,7 +11632,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#formMsg')).not.toContainText('raw internal');
   });
 
-  test('non-admin profile shows Assets Manager, Wallet, Credits, and Favorites cards in the profile action stack', async ({
+  test('non-admin desktop profile shows Assets Manager, Wallet, and Credits cards in the profile action stack', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -11648,9 +11647,15 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
-    await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
+    await expect(page.locator('#profileFavoritesQuickLink')).toBeHidden();
     await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(3);
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible .profile__studio-label')).toHaveText([
+      'Assets Manager',
+      'Wallet',
+      'Credits',
+    ]);
     await expect(page.locator('#profileFavoritesSection')).toBeVisible();
     await expect(page.locator('#profileFavoritesSection')).toHaveAttribute('tabindex', '-1');
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
@@ -11688,7 +11693,7 @@ test.describe('Profile page (authenticated)', () => {
       const completionStatus = rectOf('#profileCompletionStatus');
       const completionOrder = Array.from(node.querySelectorAll('#profileCompletionCard .profile__completion-item'))
         .map((item) => item.getAttribute('data-completion-item'));
-      const actionHeights = [assets, wallet, credits, favorites]
+      const actionHeights = [assets, wallet, credits]
         .filter(Boolean)
         .map((rect) => rect.height);
       const accountRows = Array.from(node.querySelectorAll('#profileAccountCard .profile__row'))
@@ -11701,14 +11706,12 @@ test.describe('Profile page (authenticated)', () => {
           assets
           && wallet
           && credits
-          && favorites
           && wallet.top > assets.bottom
           && credits.top > wallet.bottom
-          && favorites.top > credits.bottom
           && Math.abs(wallet.left - assets.left) <= 4
-          && Math.abs(credits.left - assets.left) <= 4
-          && Math.abs(favorites.left - assets.left) <= 4,
+          && Math.abs(credits.left - assets.left) <= 4,
         ),
+        favoritesHiddenOnDesktop: Boolean(favorites && favorites.width === 0 && favorites.height === 0),
         accountHeightCompact: Boolean(account && account.height <= 210),
         accountRowsReadable: accountRows.length === 5
           && accountRows.every((row, index) => index === 0 || row.top >= accountRows[index - 1].bottom - 1),
@@ -11724,15 +11727,16 @@ test.describe('Profile page (authenticated)', () => {
         studioChecklistTopDelta: studioStack && completion ? Math.abs(studioStack.top - completion.top) : null,
         studioChecklistBottomDelta: studioStack && completion ? Math.abs(studioStack.bottom - completion.bottom) : null,
         studioChecklistHeightDelta: studioStack && completion ? Math.abs(studioStack.height - completion.height) : null,
-        actionHeightsBalanced: actionHeights.length === 4
+        actionHeightsBalanced: actionHeights.length === 3
           && Math.max(...actionHeights) - Math.min(...actionHeights) <= 6,
-        actionCardsTouchSafe: actionHeights.length === 4 && Math.min(...actionHeights) >= 44,
+        actionCardsTouchSafe: actionHeights.length === 3 && Math.min(...actionHeights) >= 44,
       };
     });
     expect(overviewLayout.completionOrder).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
     expect(overviewLayout.accountBelowAvatar).toBe(true);
     expect(overviewLayout.avatarCompact).toBe(true);
     expect(overviewLayout.actionCardsVertical).toBe(true);
+    expect(overviewLayout.favoritesHiddenOnDesktop).toBe(true);
     expect(overviewLayout.accountHeightCompact).toBe(true);
     expect(overviewLayout.accountRowsReadable).toBe(true);
     expect(overviewLayout.summaryRightOfHeading).toBe(true);
@@ -11756,25 +11760,11 @@ test.describe('Profile page (authenticated)', () => {
     ));
     expect(settingsOrder).toEqual(['profileEditCard']);
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
-    await expect(page.locator('#profileWalletContext')).toBeVisible();
-    await expect(page.locator('#profileWalletContext')).toContainText('Wallet');
-    await expect(page.locator('#profileWalletContext')).toContainText('Refresh wallet status');
-    const settingsLayout = await settingsRow.evaluate((node) => {
-      const edit = node.querySelector('.profile__edit-card')?.getBoundingClientRect();
-      const walletContext = node.querySelector('#profileWalletContext')?.getBoundingClientRect();
-      return {
-        walletConsolidatedInEdit: Boolean(
-          edit
-          && walletContext
-          && walletContext.top > edit.top
-          && walletContext.left >= edit.left
-          && walletContext.right <= edit.right + 1
-        ),
-        columns: getComputedStyle(node).gridTemplateColumns,
-      };
-    });
-    expect(settingsLayout.walletConsolidatedInEdit).toBe(true);
-    expect(settingsLayout.columns.split(' ').length).toBe(1);
+    await expect(page.locator('#profileWalletContext')).toHaveCount(0);
+    await expect(page.locator('#walletStatusRefreshBtn')).toHaveCount(0);
+    await expect(settingsRow.locator('.profile__edit-card')).not.toContainText('BITBI Account');
+    const settingsColumns = await settingsRow.evaluate((node) => getComputedStyle(node).gridTemplateColumns);
+    expect(settingsColumns.split(' ').length).toBe(1);
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await expect(page.locator('#profileForm')).toBeVisible();
@@ -11806,7 +11796,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(page.url()).not.toContain('raw-asset');
   });
 
-  test('admin profile shows the same compact Assets Manager + Wallet + Credits + Favorites stack as non-admin users', async ({
+  test('admin desktop profile shows the same compact Assets Manager + Wallet + Credits stack as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
@@ -11821,9 +11811,11 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
-    await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
+    await expect(page.locator('#profileFavoritesQuickLink')).toBeHidden();
     await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(3);
+    await expect(page.locator('#profileWalletContext')).toHaveCount(0);
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
@@ -11961,7 +11953,8 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
-    await expect(page.locator('#profileWalletContext')).toBeVisible();
+    await expect(page.locator('#profileWalletContext')).toHaveCount(0);
+    await expect(page.locator('#walletStatusRefreshBtn')).toHaveCount(0);
     await expect(page.locator('.profile__favorites-back')).toBeHidden();
     await expect(page.locator('.profile__favorites-back')).toHaveAttribute('href', '#profileHero');
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
@@ -11975,19 +11968,11 @@ test.describe('Profile page (authenticated mobile)', () => {
       const quickLinks = rectOf('#profileStudioStack');
       const completion = rectOf('#profileCompletionCard');
       const settings = rectOf('.profile__edit-card');
-      const walletContext = rectOf('#profileWalletContext');
       const favorites = rectOf('#profileFavoritesSection');
       const back = rectOf('.profile__favorites-back');
       const quickLinkRects = Array.from(node.querySelectorAll('#profileStudioStack .profile__studio-card'))
         .map((card) => card.getBoundingClientRect());
       return {
-        walletConsolidatedInSettings: Boolean(
-          settings
-          && walletContext
-          && walletContext.top > settings.top
-          && walletContext.left >= settings.left - 1
-          && walletContext.right <= settings.right + 1
-        ),
         requestedTopOrder: Boolean(
           avatar
           && account
@@ -12006,7 +11991,6 @@ test.describe('Profile page (authenticated mobile)', () => {
           && quickLinkRects.every((rect, index, list) => index === 0 || rect.top > list[index - 1].bottom),
       };
     });
-    expect(mobileOrder.walletConsolidatedInSettings).toBe(true);
     expect(mobileOrder.requestedTopOrder).toBe(true);
     expect(mobileOrder.favoritesHiddenInMainFlow).toBe(true);
     expect(mobileOrder.backHiddenInMainFlow).toBe(true);
@@ -12058,7 +12042,8 @@ test.describe('Profile page (authenticated mobile)', () => {
     ]);
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
-    await expect(page.locator('#profileWalletContext')).toBeVisible();
+    await expect(page.locator('#profileWalletContext')).toHaveCount(0);
+    await expect(page.locator('#walletStatusRefreshBtn')).toHaveCount(0);
     await expect(page.locator('.profile__favorites-back')).toBeHidden();
     await page.locator('#profileFavoritesQuickLink').click();
     await expect(page.locator('#profileFavoritesSection')).toBeVisible();

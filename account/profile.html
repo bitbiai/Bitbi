@@ -282,28 +282,12 @@
                     <div class="profile__edit-head">
                         <p class="profile__control-eyebrow">Profile settings</p>
                         <h2 class="profile__title">Edit Profile</h2>
-                        <p id="profileEditIntro" class="profile__edit-copy">Display name, bio, website, and avatar are editable here. Wallet status and actions live in the compact BITBI Account context below.</p>
+                        <p id="profileEditIntro" class="profile__edit-copy">Display name, bio, website, and avatar are editable here.</p>
                     </div>
 
                     <div id="profileEditState" class="profile__edit-state" role="status" aria-live="polite">Profile fields load from your account.</div>
                     <div id="formMsg" class="profile__msg" role="status"></div>
                     <p id="profileSaveRecovery" class="profile__save-recovery" hidden>Save failed. Your typed values are still in the form; check your connection or sign in again, then retry.</p>
-
-                    <div class="profile__wallet-context" id="profileWalletContext" aria-labelledby="profileWalletContextTitle">
-                        <div class="profile__wallet-context-head">
-                            <div>
-                                <p class="profile__control-eyebrow">BITBI Account</p>
-                                <h3 id="profileWalletContextTitle" class="profile__wallet-context-title">Wallet</h3>
-                            </div>
-                        </div>
-                        <p class="profile__wallet-copy" id="walletSectionCopy">Connect an Ethereum Mainnet wallet to link it to your BITBI account or use wallet sign-in.</p>
-                        <div id="walletSectionMsg" class="profile__msg" role="status"></div>
-                        <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
-                        <div id="walletSectionActions" class="profile__wallet-actions"></div>
-                        <div class="profile__wallet-utility" aria-label="Wallet status tools">
-                            <button type="button" id="walletStatusRefreshBtn" class="profile__wallet-btn profile__wallet-btn--ghost">Refresh wallet status</button>
-                        </div>
-                    </div>
 
                     <form id="profileForm" class="profile__form" aria-describedby="profileEditIntro profileEditState">
                         <div>
