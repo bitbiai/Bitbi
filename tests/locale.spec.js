@@ -298,12 +298,12 @@ test.describe('Bilingual locale pages', () => {
     });
     expectSocialMetadata(enGenerate, {
       title: 'Generate Lab | BITBI',
-      description: "Generate Lab is BITBI's member creation workspace for image, video, and music generation across desktop and mobile.",
+      description: "Generate Lab is BITBI's desktop-optimized member creation workspace for image, video, and music generation.",
       url: 'https://bitbi.ai/generate-lab/',
     });
     expectSocialMetadata(deGenerate, {
       title: 'Generate Lab | BITBI',
-      description: 'Generate Lab ist BITBIs Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung auf Desktop und Mobilgeräten.',
+      description: 'Generate Lab ist BITBIs desktop-optimierter Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung.',
       url: 'https://bitbi.ai/de/generate-lab/',
     });
   });
@@ -729,24 +729,26 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).not.toContain('generate-lab__first-run');
     expect(enGenerate).not.toContain('generate-lab__account-needed');
     expect(enGenerate).not.toContain('Create, preview, save, then manage');
-    expect(enGenerate).toContain('Mobile creation flow');
-    expect(enGenerate).toContain('The full Generate Lab workspace is available below');
+    expect(enGenerate).toContain('Optimized for desktop');
+    expect(enGenerate).toContain('Generate Lab is built for desktop creation');
+    expect(enGenerate).toContain('Open BITBI homepage');
+    expect(enGenerate).not.toContain('Mobile creation flow');
+    expect(enGenerate).not.toContain('The full Generate Lab workspace is available below');
+    expect(enGenerate).not.toContain('Start prompt');
+    expect(enGenerate).not.toContain('Review cost');
     expect(enGenerate).toContain('generate-lab__composer-flow');
     expect(enGenerate).toContain('Backend validation confirms final credits');
-    expect(enGenerate).toContain('id="labCreditRecovery"');
-    expect(enGenerate).toContain('Low or unknown credits?');
-    expect(enGenerate).toContain('Open Credits to refresh balance');
-    expect(enGenerate).toContain('href="/account/credits.html?scope=member&amp;source=generate-lab"');
-    expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent"');
+    expect(enGenerate).not.toContain('id="labCreditRecovery"');
+    expect(enGenerate).not.toContain('Low or unknown credits?');
+    expect(enGenerate).not.toContain('Open Credits to refresh balance');
+    expect(enGenerate).not.toContain('Check saved assets');
     expect(enGenerate).toContain('The result stays visible after save errors');
-    expect(enGenerate).toContain('id="labCurrentResult"');
-    expect(enGenerate).toContain('No preview yet');
-    expect(enGenerate).toContain('Jump to preview');
+    expect(enGenerate).not.toContain('id="labCurrentResult"');
+    expect(enGenerate).not.toContain('No preview yet');
+    expect(enGenerate).not.toContain('Jump to preview');
     expect(enGenerate).toContain('Backend-loaded saved assets');
     expect(enGenerate).toContain('Show all saved');
-    expect(enGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
-    expect(enGenerate).toContain('href="/account/credits.html?scope=member"');
-    expect(enGenerate).toContain('href="/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
+    expect(enGenerate).not.toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(enGenerate).not.toContain('Sign in before generation or saving');
     expect(enGenerate).not.toContain('After sign-in, continue here with the current prompt');
     expect(enGenerate).not.toContain('data-auth-source="generate-lab"');
@@ -763,24 +765,26 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).not.toContain('generate-lab__first-run');
     expect(deGenerate).not.toContain('generate-lab__account-needed');
     expect(deGenerate).not.toContain('Erstellen, prüfen, speichern, verwalten');
-    expect(deGenerate).toContain('Mobiler Erstellungsfluss');
-    expect(deGenerate).toContain('Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar');
+    expect(deGenerate).toContain('Für Desktop optimiert');
+    expect(deGenerate).toContain('Generate Lab ist für die Erstellung am Desktop gebaut');
+    expect(deGenerate).toContain('BITBI-Startseite öffnen');
+    expect(deGenerate).not.toContain('Mobiler Erstellungsfluss');
+    expect(deGenerate).not.toContain('Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar');
+    expect(deGenerate).not.toContain('Prompt starten');
+    expect(deGenerate).not.toContain('Kosten prüfen');
     expect(deGenerate).toContain('generate-lab__composer-flow');
     expect(deGenerate).toContain('Backend-Validierung bestätigt finale Credits');
-    expect(deGenerate).toContain('id="labCreditRecovery"');
-    expect(deGenerate).toContain('Niedrige oder unbekannte Credits?');
-    expect(deGenerate).toContain('Öffnen Sie Credits, um das Guthaben zu aktualisieren');
-    expect(deGenerate).toContain('href="/de/account/credits.html?scope=member&amp;source=generate-lab"');
-    expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent"');
+    expect(deGenerate).not.toContain('id="labCreditRecovery"');
+    expect(deGenerate).not.toContain('Niedrige oder unbekannte Credits?');
+    expect(deGenerate).not.toContain('Öffnen Sie Credits, um das Guthaben zu aktualisieren');
+    expect(deGenerate).not.toContain('Gespeicherte Assets prüfen');
     expect(deGenerate).toContain('Das Ergebnis bleibt nach Speicherfehlern sichtbar');
-    expect(deGenerate).toContain('id="labCurrentResult"');
-    expect(deGenerate).toContain('Noch keine Vorschau');
-    expect(deGenerate).toContain('Zur Vorschau');
+    expect(deGenerate).not.toContain('id="labCurrentResult"');
+    expect(deGenerate).not.toContain('Noch keine Vorschau');
+    expect(deGenerate).not.toContain('Zur Vorschau');
     expect(deGenerate).toContain('Vom Backend geladene gespeicherte Assets');
     expect(deGenerate).toContain('Alle gespeicherten anzeigen');
-    expect(deGenerate).toContain('data-auth-message-key="authRecovery.generateMessage"');
-    expect(deGenerate).toContain('href="/de/account/credits.html?scope=member"');
-    expect(deGenerate).toContain('href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent"');
+    expect(deGenerate).not.toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(deGenerate).not.toContain('Vor Generierung oder Speichern anmelden');
     expect(deGenerate).not.toContain('Nach der Anmeldung hier mit dem aktuellen Prompt');
     expect(deGenerate).not.toContain('data-auth-source="generate-lab"');
@@ -797,14 +801,14 @@ test.describe('Bilingual locale pages', () => {
     expect(localeJs).toContain("workspaceStatus: 'Profil, Credits, Generate Lab und Assets Manager verwenden diese Kontositzung.'");
     expect(localeJs).toContain("safeContext: 'Only a safe page source is used for this guidance; private URLs, tokens, and asset IDs are not stored.'");
     expect(localeJs).toContain("safeContext: 'Für diese Hilfe wird nur eine sichere Seitenquelle verwendet; private URLs, Tokens und Asset-IDs werden nicht gespeichert.'");
-    expect(localeJs).toContain("eyebrow: 'Signed-in workspace'");
-    expect(localeJs).toContain("eyebrow: 'Angemeldeter Arbeitsbereich'");
-    expect(localeJs).toContain("profileTitle: 'You are signed in to Profile'");
-    expect(localeJs).toContain("profileTitle: 'Sie sind im Profil angemeldet'");
-    expect(localeJs).toContain("generateLabTitle: 'You are signed in to Generate Lab'");
-    expect(localeJs).toContain("generateLabTitle: 'Sie sind im Generate Lab angemeldet'");
-    expect(localeJs).toContain("raw return URLs, tokens, and asset IDs are not stored");
-    expect(localeJs).toContain("rohe Rückkehr-URLs, Tokens und Asset-IDs werden nicht gespeichert");
+    expect(localeJs).not.toContain("eyebrow: 'Signed-in workspace'");
+    expect(localeJs).not.toContain("eyebrow: 'Angemeldeter Arbeitsbereich'");
+    expect(localeJs).not.toContain("profileTitle: 'You are signed in to Profile'");
+    expect(localeJs).not.toContain("profileTitle: 'Sie sind im Profil angemeldet'");
+    expect(localeJs).not.toContain("generateLabTitle: 'You are signed in to Generate Lab'");
+    expect(localeJs).not.toContain("generateLabTitle: 'Sie sind im Generate Lab angemeldet'");
+    expect(localeJs).not.toContain("raw return URLs, tokens, and asset IDs are not stored");
+    expect(localeJs).not.toContain("rohe Rückkehr-URLs, Tokens und Asset-IDs werden nicht gespeichert");
     expect(localeJs).toContain("walletStatusRefreshed: 'Wallet status refreshed from the existing account endpoint.'");
     expect(localeJs).toContain("walletStatusRefreshed: 'Wallet-Status aus dem bestehenden Konto-Endpunkt aktualisiert.'");
     expect(helpMenu).toContain("id: 'wallet-safety'");

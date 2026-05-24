@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Generate Lab | BITBI</title>
-    <meta name="description" content="Generate Lab ist BITBIs Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung auf Desktop und Mobilgeräten.">
+    <meta name="description" content="Generate Lab ist BITBIs desktop-optimierter Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung.">
     <meta name="robots" content="noindex, nofollow">
     <meta name="theme-color" content="#0A0A0A">
     <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -13,7 +13,7 @@
     <link rel="alternate" hreflang="de" href="https://bitbi.ai/de/generate-lab/">
     <link rel="alternate" hreflang="x-default" href="https://bitbi.ai/generate-lab/">
     <meta property="og:title" content="Generate Lab | BITBI">
-    <meta property="og:description" content="Generate Lab ist BITBIs Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung auf Desktop und Mobilgeräten.">
+    <meta property="og:description" content="Generate Lab ist BITBIs desktop-optimierter Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://bitbi.ai/de/generate-lab/">
     <meta property="og:image" content="https://bitbi.ai/assets/images/og-default.png">
@@ -21,7 +21,7 @@
     <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Generate Lab | BITBI">
-    <meta name="twitter:description" content="Generate Lab ist BITBIs Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung auf Desktop und Mobilgeräten.">
+    <meta name="twitter:description" content="Generate Lab ist BITBIs desktop-optimierter Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung.">
     <meta name="twitter:image" content="https://bitbi.ai/assets/images/og-default.png">
     <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
     <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
@@ -93,20 +93,11 @@
     <section class="generate-lab__mobile-fallback" aria-labelledby="generateLabMobileTitle">
         <div class="generate-lab__mobile-card">
             <p class="generate-lab__eyebrow">Generate Lab</p>
-            <h1 id="generateLabMobileTitle">Mobiler Erstellungsfluss</h1>
-            <p>Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar. Starten Sie mit einem Prompt, prüfen Sie Credits, generieren Sie eine Vorschau und speichern Sie bestätigte Ergebnisse im Assets Manager.</p>
-            <p>Mit diesen Schnellzugriffen springen Sie zum Composer, prüfen Kontokontext oder finden gespeicherte Ergebnisse, ohne die Seite zu verlieren.</p>
-            <div class="generate-lab__mobile-actions" aria-label="Generate-Lab-Schnellzugriffe">
-                <a href="#labPrompt" class="generate-lab__mobile-link">Prompt starten</a>
-                <a href="#labCost" class="generate-lab__mobile-link">Kosten prüfen</a>
-                <a href="/de/account/credits.html?scope=member" class="generate-lab__mobile-link">Credits</a>
-                <a href="/de/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent" class="generate-lab__mobile-link">Assets Manager</a>
+            <h1 id="generateLabMobileTitle">Für Desktop optimiert</h1>
+            <p>Generate Lab ist für die Erstellung am Desktop gebaut. Nutzen Sie mobil die BITBI-Startseite für öffentliches Stöbern und mobilfreundliche Kontooptionen.</p>
+            <div class="generate-lab__mobile-actions" aria-label="Mobile Generate-Lab-Optionen">
+                <a href="/de/" class="generate-lab__mobile-link" target="bitbi-main" rel="noopener">BITBI-Startseite öffnen</a>
             </div>
-            <div class="generate-lab__mobile-actions" aria-label="Mobile Kontoaktionen">
-                <button type="button" class="generate-lab__mobile-link generate-lab__mobile-link--button" data-auth-entry="login" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="login">Anmelden</button>
-                <button type="button" class="generate-lab__mobile-link generate-lab__mobile-link--button" data-auth-entry="register" data-auth-message-key="authRecovery.generateMessage" data-auth-message-target="register">Konto erstellen</button>
-            </div>
-            <a href="/de/" class="generate-lab__mobile-link" target="bitbi-main" rel="noopener">Zurück zu BITBI</a>
         </div>
     </section>
 
@@ -176,19 +167,6 @@
                         <p>Wählen Sie ein Modell, prüfen Sie die geschätzten Credits und generieren Sie dann.</p>
                     </div>
                 </div>
-
-                <section id="labCurrentResult" class="generate-lab__current-result is-empty" aria-labelledby="labCurrentResultTitle" aria-live="polite">
-                    <div>
-                        <p class="generate-lab__current-kicker">Aktuelles Ergebnis</p>
-                        <h3 id="labCurrentResultTitle">Noch keine Vorschau</h3>
-                        <p id="labCurrentResultCopy">Ihre letzte Generierung oder ein ausgewähltes aktuelles Asset erscheint unten. Backend-bestätigte Speicherungen bleiben die Quelle der Wahrheit.</p>
-                    </div>
-                    <div class="generate-lab__current-actions" aria-label="Aktionen zum aktuellen Ergebnis">
-                        <a id="labJumpToPreview" class="generate-lab__inline-action" href="#labResultStage">Zur Vorschau</a>
-                        <a id="labResultCreditsLink" class="generate-lab__inline-action" href="/de/account/credits.html?scope=member">Credits prüfen</a>
-                        <a id="labResultAssetsLink" class="generate-lab__inline-action" href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Assets Manager öffnen</a>
-                    </div>
-                </section>
 
                 <div id="labResultStage" class="generate-lab__result-stage" aria-live="polite"></div>
 
@@ -423,14 +401,6 @@
                         <div class="generate-lab__action-card-footer">
                             <a id="labCreditsLink" class="generate-lab__text-link" href="/de/account/credits.html" target="bitbi-account" rel="noopener">Credits prüfen</a>
                             <span>Bilder bleiben in der Vorschau, bis Sie sie speichern.</span>
-                        </div>
-                        <div id="labCreditRecovery" class="generate-lab__credit-recovery" aria-label="Credit-Wiederherstellungshinweise">
-                            <strong>Niedrige oder unbekannte Credits?</strong>
-                            <p>Öffnen Sie Credits, um das Guthaben zu aktualisieren, wählen Sie ein günstigeres Modell, wenn verfügbar, und versuchen Sie es erneut. Die Backend-Validierung bleibt final.</p>
-                            <div class="generate-lab__credit-recovery-actions">
-                                <a href="/de/account/credits.html?scope=member&amp;source=generate-lab">Credits prüfen</a>
-                                <a href="/de/account/assets-manager.html?source=generate-lab&amp;recent=1#generate-lab-recent">Gespeicherte Assets prüfen</a>
-                            </div>
                         </div>
                         <button id="labGenerate" type="button" class="generate-lab__generate-btn">Generieren</button>
                     </div>

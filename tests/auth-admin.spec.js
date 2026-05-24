@@ -6899,7 +6899,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(2);
   });
 
-  test('Credits post-auth hint preserves safe source context without showing raw return URLs', async ({ page }) => {
+  test('Credits scrubs unsafe return context without rendering workspace hint panels', async ({ page }) => {
     await mockCreditsAccount(page, {
       role: 'user',
       email: 'post-auth-credits@example.com',
@@ -6909,17 +6909,10 @@ test.describe('Credits dashboard live credit packs', () => {
     await page.goto('/account/credits?scope=member&source=pricing&returnTo=https%3A%2F%2Fevil.example%2Fcredits%3Ftoken%3Draw-credit&token=raw-credit');
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
 
-    const hint = page.locator('[data-auth-post-hint]');
-    await expect(hint).toBeVisible();
-    await expect(hint).toHaveAttribute('data-auth-post-source', 'pricing');
-    await expect(hint).toContainText('You are signed in to Credits');
-    await expect(hint).toContainText('Opened from Pricing.');
-    await expect(hint.getByRole('link', { name: 'Open Credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member&source=pricing',
-    );
-    await expect(hint).not.toContainText('evil.example');
-    await expect(hint).not.toContainText('raw-credit');
+    await expect(page.locator('[data-auth-post-hint]')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('You are signed in to Credits');
+    await expect(page.locator('main')).not.toContainText('Opened from Pricing.');
+    await expect(page.locator('main')).not.toContainText('raw return URLs');
     expect(page.url()).not.toContain('returnTo=');
     expect(page.url()).not.toContain('raw-credit');
   });
@@ -11670,7 +11663,7 @@ test.describe('Profile page (authenticated)', () => {
 
   });
 
-  test('profile post-auth hint uses only safe source markers and strips unsafe return params', async ({
+  test('profile strips unsafe return params without rendering workspace hint panels', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -11683,18 +11676,10 @@ test.describe('Profile page (authenticated)', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
-    const hint = page.locator('[data-auth-post-hint]');
-    await expect(hint).toBeVisible();
-    await expect(hint).toHaveAttribute('data-auth-post-source', 'credits');
-    await expect(hint).toContainText('You are signed in to Profile');
-    await expect(hint).toContainText('Opened from Credits.');
-    await expect(hint).toContainText('raw return URLs, tokens, and asset IDs are not stored');
-    await expect(hint.getByRole('link', { name: 'Profile' })).toHaveAttribute(
-      'href',
-      '/account/profile.html?source=credits#profileCompletionCard',
-    );
-    await expect(hint).not.toContainText('evil.example');
-    await expect(hint).not.toContainText('raw-token');
+    await expect(page.locator('[data-auth-post-hint]')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('You are signed in to Profile');
+    await expect(page.locator('main')).not.toContainText('Opened from Credits.');
+    await expect(page.locator('main')).not.toContainText('raw return URLs');
     expect(page.url()).not.toContain('returnTo=');
     expect(page.url()).not.toContain('raw-token');
 
@@ -11873,23 +11858,16 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('Assets Manager post-auth hint keeps Generate Lab continuation safe', async ({ page }) => {
+  test('Assets Manager strips unsafe return context without rendering workspace hint panels', async ({ page }) => {
     await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
 
     await page.goto('/account/assets-manager?source=generate-lab&recent=1&returnTo=https%3A%2F%2Fevil.example%2Fasset%3Fasset_id%3Draw-asset&token=raw-asset#generate-lab-recent');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
-    const hint = page.locator('[data-auth-post-hint]');
-    await expect(hint).toBeVisible();
-    await expect(hint).toHaveAttribute('data-auth-post-source', 'generate-lab');
-    await expect(hint).toContainText('You are signed in to Assets Manager');
-    await expect(hint).toContainText('Opened from Generate Lab.');
-    await expect(hint.getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
-    );
-    await expect(hint).not.toContainText('evil.example');
-    await expect(hint).not.toContainText('raw-asset');
+    await expect(page.locator('[data-auth-post-hint]')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('You are signed in to Assets Manager');
+    await expect(page.locator('main')).not.toContainText('Opened from Generate Lab.');
+    await expect(page.locator('main')).not.toContainText('raw return URLs');
     expect(page.url()).not.toContain('returnTo=');
     expect(page.url()).not.toContain('raw-asset');
   });
@@ -12034,6 +12012,64 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.auth-nav__mobile-workspace')).toHaveCount(0);
     await expect(page.locator('#mobileNav')).not.toContainText('Signed in as mobile-fallback@example.com');
     await expect(page.locator('#mobileNav')).not.toContainText('Open Assets Manager');
+  });
+
+  test('mobile avatar change menu keeps every action visible inside the viewport', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      hasAvatar: true,
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#avatarChangeBtn')).toBeVisible();
+
+    await page.locator('#avatarChangeBtn').click();
+    await expect(page.locator('#avatarSourceModal')).toHaveClass(/active/);
+    await expect(page.locator('#avatarSourceClose')).toBeVisible();
+    await expect(page.locator('#avatarChooseSavedAssets')).toBeVisible();
+    await expect(page.locator('#avatarChooseUploadDevice')).toBeVisible();
+    await expect(page.locator('#avatarChooseGenerate')).toBeVisible();
+    await expect(page.locator('#avatarRemoveBtn')).toBeVisible();
+
+    const menuLayout = await page.locator('#avatarSourceModal').evaluate((modal) => {
+      const selectors = [
+        '#avatarSourceClose',
+        '#avatarChooseSavedAssets',
+        '#avatarChooseUploadDevice',
+        '#avatarChooseGenerate',
+        '#avatarRemoveBtn',
+      ];
+      const viewportHeight = window.innerHeight;
+      const card = modal.querySelector('.modal-card')?.getBoundingClientRect();
+      const content = modal.querySelector('.modal-content')?.getBoundingClientRect();
+      const items = selectors.map((selector) => {
+        const rect = modal.querySelector(selector)?.getBoundingClientRect();
+        return {
+          selector,
+          top: rect?.top ?? -999,
+          bottom: rect?.bottom ?? 9999,
+          height: rect?.height ?? 0,
+        };
+      });
+      return {
+        viewportHeight,
+        cardHeight: card?.height ?? 0,
+        contentHeight: content?.height ?? 0,
+        allInsideViewport: items.every((item) => item.top >= 0 && item.bottom <= viewportHeight),
+        touchTargets: items.filter((item) => item.selector !== '#avatarSourceClose').every((item) => item.height >= 44),
+        closeTarget: items.find((item) => item.selector === '#avatarSourceClose')?.height ?? 0,
+      };
+    });
+
+    expect(menuLayout.cardHeight).toBeLessThanOrEqual(menuLayout.viewportHeight - 12);
+    expect(menuLayout.contentHeight).toBeLessThanOrEqual(menuLayout.viewportHeight - 12);
+    expect(menuLayout.allInsideViewport).toBe(true);
+    expect(menuLayout.touchTargets).toBe(true);
+    expect(menuLayout.closeTarget).toBeGreaterThanOrEqual(32);
   });
 
   test('admin mobile profile removes the top link bar and keeps the reordered profile sections', async ({

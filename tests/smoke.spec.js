@@ -1893,7 +1893,7 @@ test.describe('Homepage', () => {
     await expectModelsOverlayOpenState(page, { homepage: true });
   });
 
-  test('mobile create-account CTA appears directly below the header and opens registration', async ({ page }) => {
+  test('mobile create-account CTA overlays the hero below the header and opens registration', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -1925,6 +1925,8 @@ test.describe('Homepage', () => {
         navBottom: nav?.bottom ?? 0,
         menuBottom: menu?.bottom ?? 0,
         heroTop: hero?.top ?? 0,
+        ctaOverHero: Boolean(cta && hero && cta.top >= hero.top && cta.bottom <= hero.top + 140),
+        ctaPosition: cta ? window.getComputedStyle(document.querySelector('#mobileHeaderCreateAccount')).position : '',
         viewportWidth,
         overflow: document.documentElement.scrollWidth - window.innerWidth,
       };
@@ -1934,7 +1936,9 @@ test.describe('Homepage', () => {
     expect(placement.ctaHeight).toBeGreaterThanOrEqual(42);
     expect(placement.ctaWidth).toBeLessThan(placement.viewportWidth * 0.78);
     expect(placement.ctaCenterDelta).toBeLessThanOrEqual(2);
-    expect(placement.ctaBottom).toBeLessThanOrEqual(placement.heroTop + 120);
+    expect(placement.heroTop).toBeLessThanOrEqual(1);
+    expect(placement.ctaPosition).toBe('absolute');
+    expect(placement.ctaOverHero).toBe(true);
     expect(placement.overflow).toBeLessThanOrEqual(1);
 
     await banner.click();
@@ -2366,7 +2370,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#authLoginForm a[href="/account/forgot-password.html"]')).toHaveText('Forgot password?');
   });
 
-  test('Generate Lab post-auth hint keeps signed-in continuation safe', async ({ page }) => {
+  test('Generate Lab strips unsafe return context without rendering workspace hint panels', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockGenerateLabMemberSession(page, {
       email: 'post-auth-lab@bitbi.ai',
@@ -2376,17 +2380,10 @@ test.describe('Homepage', () => {
 
     await page.goto('/generate-lab/?source=profile&returnTo=https%3A%2F%2Fevil.example%2Flab%3Ftoken%3Draw-lab&token=raw-lab');
 
-    const hint = page.locator('[data-auth-post-hint]');
-    await expect(hint).toBeVisible({ timeout: 10_000 });
-    await expect(hint).toHaveAttribute('data-auth-post-source', 'profile');
-    await expect(hint).toContainText('You are signed in to Generate Lab');
-    await expect(hint).toContainText('Opened from Profile.');
-    await expect(hint.getByRole('link', { name: 'Open Generate Lab' })).toHaveAttribute(
-      'href',
-      '/generate-lab/?source=profile',
-    );
-    await expect(hint).not.toContainText('evil.example');
-    await expect(hint).not.toContainText('raw-lab');
+    await expect(page.locator('[data-auth-post-hint]')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('You are signed in to Generate Lab');
+    await expect(page.locator('main')).not.toContainText('Opened from Profile.');
+    await expect(page.locator('main')).not.toContainText('raw return URLs');
     expect(page.url()).not.toContain('returnTo=');
     expect(page.url()).not.toContain('raw-lab');
 
@@ -2683,36 +2680,32 @@ test.describe('Homepage', () => {
 
     await page.goto('/generate-lab/');
     await expect(page.locator('#labWorkflowStatus')).toContainText('Ready to configure');
-    await expect(page.locator('#labCurrentResult')).toContainText('No preview yet');
+    await expect(page.locator('#labCurrentResult')).toHaveCount(0);
+    await expect(page.locator('#labResultStage')).toBeVisible();
     await page.locator('#labPrompt').fill('Neon library archive');
 
     await page.locator('#labGenerate').click();
     await generateRequestStarted;
     await expect(page.locator('#labWorkflowStatus')).toContainText('Generation in progress');
-    await expect(page.locator('#labCurrentResult')).toContainText('Generating latest preview');
     await expect(page.locator('#labGenerate')).toBeDisabled();
     releaseGenerateResponse();
 
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Preview ready');
-    await expect(page.locator('#labCurrentResult')).toContainText('Unsaved preview ready');
-    await expect(page.locator('#labCurrentResult')).toContainText('Save before leaving');
     await expect(page.locator('#labMessage')).toContainText('Image generated. Save it when you are ready.');
     await expect(page.locator('#labCostInsight')).toContainText('You have 399 credits');
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Needs attention');
-    await expect(page.locator('#labCurrentResult')).toContainText('Preview still available');
     await expect(page.locator('#labMessage')).toContainText('preview is still available');
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Saved to Assets Manager');
-    await expect(page.locator('#labCurrentResult')).toContainText('Saved result ready');
     await expect(page.locator('#labMessage')).toContainText('Image saved');
-    await expect(page.locator('#labJumpToPreview')).toHaveAttribute('href', '#labResultStage');
-    await expect(page.locator('#labResultCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
+    await expect(page.locator('#labJumpToPreview')).toHaveCount(0);
+    await expect(page.locator('#labResultCreditsLink')).toHaveCount(0);
     const handoffLink = page.getByRole('link', { name: 'View in Assets Manager' });
     await expect(handoffLink).toBeVisible();
     await expect(handoffLink).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
@@ -3111,7 +3104,7 @@ test.describe('Homepage', () => {
     await page.getByRole('button', { name: 'Open Neon image in Generate Lab preview' }).click();
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toHaveAttribute('src', /recent-img\/medium/);
-    await expect(page.locator('#labCurrentResult')).toContainText('Backend saved asset opened');
+    await expect(page.locator('#labCurrentResult')).toHaveCount(0);
     await expect(page.locator('#globalAudioShell')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Open Neon video in Generate Lab preview' }).click();
@@ -3194,42 +3187,19 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/');
   });
 
-  test('Generate Lab keeps the creation workflow usable on mobile', async ({ page }) => {
+  test('Generate Lab shows a desktop-optimized notice on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/generate-lab/');
 
     await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Mobile creation flow' })).toBeVisible();
-    await expect(page.getByText('The full Generate Lab workspace is available below.')).toBeVisible();
-    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Start prompt' })).toHaveAttribute('href', '#labPrompt');
-    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Review cost' })).toHaveAttribute('href', '#labCost');
-    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Credits' })).toHaveAttribute('href', '/account/credits.html?scope=member');
-    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Assets Manager' })).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
-    await expect(page.locator('.generate-lab__desktop')).toBeVisible();
-    await expect(page.locator('#labPrompt')).toBeVisible();
-    await expect(page.locator('.generate-lab__composer-flow')).toBeVisible();
-    await expect(page.locator('.generate-lab__composer-flow')).toContainText('Backend validation confirms final credits.');
-    await expect(page.locator('#labCreditRecovery')).toContainText('Low or unknown credits?');
-    await expect(page.locator('#labCreditRecovery')).toContainText('Backend validation remains final.');
-    await expect(page.locator('#labCreditRecovery').getByRole('link', { name: 'Review Credits' })).toHaveAttribute(
-      'href',
-      '/account/credits.html?scope=member&source=generate-lab',
-    );
-    await expect(page.locator('#labCreditRecovery').getByRole('link', { name: 'Check saved assets' })).toHaveAttribute(
-      'href',
-      '/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent',
-    );
-    const creditRecoveryLinks = await page.locator('#labCreditRecovery a').evaluateAll((links) =>
-      links.map((link) => {
-        const rect = link.getBoundingClientRect();
-        return { width: rect.width, height: rect.height };
-      })
-    );
-    expect(creditRecoveryLinks.every((rect) => rect.width >= 120 && rect.height >= 42)).toBe(true);
-    await expect(page.locator('#labCurrentResult')).toBeVisible();
-    await expect(page.locator('#labCurrentResult')).toContainText('No preview yet');
-    await expect(page.locator('#labJumpToPreview')).toBeVisible();
-    await expect(page.locator('#labGenerate')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Optimized for desktop' })).toBeVisible();
+    await expect(page.getByText('Generate Lab is built for desktop creation.')).toBeVisible();
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Open BITBI homepage' })).toHaveAttribute('href', '/');
+    await expect(page.locator('.generate-lab__desktop')).toBeHidden();
+    await expect(page.locator('#labPrompt')).toBeHidden();
+    await expect(page.locator('#labGenerate')).toBeHidden();
+    await expect(page.locator('#labCreditRecovery')).toHaveCount(0);
+    await expect(page.locator('#labCurrentResult')).toHaveCount(0);
     const hasDocumentOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     expect(hasDocumentOverflow).toBe(false);
   });

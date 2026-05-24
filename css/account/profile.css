@@ -568,6 +568,86 @@
             padding-block-start: calc(var(--space-6) + 0.75rem);
         }
 
+        #avatarSourceModal {
+            align-items: center;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__content {
+            max-inline-size: min(92vw, 26rem);
+            max-block-size: calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 1rem);
+            overflow: visible;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__card {
+            overflow: visible;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__body {
+            gap: 0.52rem;
+            padding: 0.82rem;
+            padding-block-start: 2.9rem;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__close {
+            inset-block-start: 0.62rem;
+            inset-inline-end: 0.62rem;
+            width: 2rem;
+            height: 2rem;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__eyebrow {
+            padding: 0.24rem 0.5rem;
+            font-size: 0.56rem;
+        }
+
+        #avatarSourceModal .modal-title {
+            font-size: 1.05rem;
+            line-height: 1.08;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__desc {
+            font-size: 0.74rem;
+            line-height: 1.32;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__options {
+            gap: 0.48rem;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__option,
+        #avatarSourceModal .profile-avatar-modal__remove-option {
+            min-block-size: 3.05rem;
+            padding: 0.52rem 0.62rem;
+            border-radius: 0.72rem;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__option {
+            grid-template-columns: 1.8rem minmax(0, 1fr);
+            gap: 0.08rem 0.58rem;
+            align-items: center;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__remove-option {
+            gap: 0.08rem;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__option-icon {
+            inline-size: 1.8rem;
+            block-size: 1.8rem;
+            border-radius: 0.58rem;
+            font-size: 1rem;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__option-title {
+            font-size: 0.9rem;
+            line-height: 1.12;
+        }
+
+        #avatarSourceModal .profile-avatar-modal__option-desc {
+            font-size: 0.68rem;
+            line-height: 1.25;
+        }
+
         .profile-avatar-picker__grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: var(--space-3);
