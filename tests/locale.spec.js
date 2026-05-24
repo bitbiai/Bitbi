@@ -341,9 +341,17 @@ test.describe('Bilingual locale pages', () => {
 
     const enCredits = repoFile('account/credits.html');
     const deCredits = repoFile('de/account/credits.html');
+    expect(enCredits).toContain('class="hero hero--compact credits-hero"');
+    expect(enCredits).toContain('class="legal-hero__title credits-title gt-gold-cyan"');
+    expect(enCredits).not.toContain('id="creditsEyebrow"');
+    expect(enCredits).not.toContain('Member credits');
     expect(enCredits).toContain('Credits dashboard');
     expect(enCredits).toContain('Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.');
     expect(enCredits).not.toContain('credits-hero__glow');
+    expect(deCredits).toContain('class="hero hero--compact credits-hero"');
+    expect(deCredits).toContain('class="legal-hero__title credits-title gt-gold-cyan"');
+    expect(deCredits).not.toContain('id="creditsEyebrow"');
+    expect(deCredits).not.toContain('Mitglieder-Credits');
     expect(deCredits).toContain('Credits-Dashboard');
     expect(deCredits).toContain('Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.');
     expect(deCredits).not.toContain('credits-hero__glow');

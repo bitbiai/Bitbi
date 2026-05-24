@@ -1,4 +1,6 @@
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
+import { initParticles } from '../../shared/particles.js';
+import { initBinaryRain } from '../../shared/binary-rain.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import {
     apiAccountCreditsDashboard,
@@ -25,7 +27,6 @@ const $denied = document.getElementById('creditsDenied');
 const $error = document.getElementById('creditsError');
 const $dashboard = document.getElementById('creditsDashboard');
 const $returnState = document.getElementById('creditsReturnState');
-const $eyebrow = document.getElementById('creditsEyebrow');
 const $subtitle = document.getElementById('creditsSubtitle');
 const $scopeLabel = document.getElementById('creditsScopeLabel');
 const $orgName = document.getElementById('creditsOrgName');
@@ -117,7 +118,6 @@ function setDenied({ sessionExpired = false } = {}) {
 
 function setMode(mode) {
     activeMode = mode === 'member' ? 'member' : 'organization';
-    if ($eyebrow) $eyebrow.textContent = activeMode === 'member' ? localeText('credits.memberCredits') : localeText('credits.organizationBilling');
     if ($scopeLabel) $scopeLabel.textContent = activeMode === 'member' ? localeText('credits.memberAccount') : localeText('credits.organization');
     if ($subtitle) {
         $subtitle.textContent = activeMode === 'member'
@@ -1047,6 +1047,8 @@ async function startCheckout(packId, button) {
 
 async function init() {
     try { initSiteHeader(); } catch (error) { console.warn(error); }
+    try { initParticles('heroCanvas'); } catch (error) { console.warn(error); }
+    try { initBinaryRain('binaryRain'); } catch (error) { console.warn(error); }
     try { initCookieConsent(); } catch (error) { console.warn(error); }
     renderReturnState();
 

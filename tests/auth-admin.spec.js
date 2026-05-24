@@ -6898,7 +6898,8 @@ test.describe('Credits dashboard live credit packs', () => {
     });
     await page.goto('/account/credits.html');
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
+    await expect(page.locator('#creditsEyebrow')).toHaveCount(0);
+    await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(2);
   });
@@ -7069,6 +7070,9 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('.credits-hero__glow')).toHaveCount(0);
+    await expect(page.locator('.credits-hero.hero.hero--compact')).toBeVisible();
+    await expect(page.locator('#creditsTitle')).toHaveClass(/legal-hero__title/);
+    await expect(page.locator('#creditsEyebrow')).toHaveCount(0);
     await expect(page.locator('#creditsReturnState')).toBeHidden();
     await expect(page.locator('#creditsReturnState')).toHaveAttribute('hidden', '');
     await expect(page.locator('#creditsReturnState')).toHaveCSS('display', 'none');
@@ -7094,12 +7098,16 @@ test.describe('Credits dashboard live credit packs', () => {
       '/generate-lab/?source=help-credits&step=create',
     );
     await page.getByRole('button', { name: 'Close help menu' }).click();
-    await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
     await expect(page.locator('#creditsAccessScope')).toContainText('Daily top-up: 7 credits granted today.');
     const summaryCards = page.locator('#creditsSummaryGrid .credits-card');
     await expect(summaryCards).toHaveCount(4);
+    const firstSummaryCard = summaryCards.first();
+    const firstSummaryRadius = await firstSummaryCard.evaluate((card) =>
+      window.getComputedStyle(card).borderRadius
+    );
+    expect(parseFloat(firstSummaryRadius)).toBeGreaterThanOrEqual(14);
     await expect(summaryCards.nth(0)).toContainText('Total available');
     await expect(summaryCards.nth(0)).toContainText('10,300 credits');
     await expect(summaryCards.nth(1)).toContainText('Subscription credits');
@@ -7246,7 +7254,8 @@ test.describe('Credits dashboard live credit packs', () => {
     const response = await page.goto('/de/account/credits.html?scope=member');
     expect(response.status()).toBe(200);
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#creditsEyebrow')).toHaveText('Mitglieder-Credits');
+    await expect(page.locator('#creditsEyebrow')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Mitglieder-Credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Mitgliedskonto');
     await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(4);
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Gesamt verfügbar');

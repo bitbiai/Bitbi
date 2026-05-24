@@ -9,6 +9,8 @@ const MODELS_OVERLAY_PATHS = [
   '/legal/datenschutz.html',
   '/legal/terms.html',
   '/account/profile.html',
+  '/account/credits.html',
+  '/de/account/credits.html',
   '/account/assets-manager.html',
   '/admin/index.html',
 ];
@@ -342,9 +344,22 @@ async function expectModelsOverlayOpenState(page, { homepage = false } = {}) {
     }))
   ));
 
-  expect(actualCatalog).toEqual(expectedCatalog);
+  const normalizedCatalog = actualCatalog.map((group) => ({
+    ...group,
+    category: {
+      BILDGENERIERUNG: 'IMAGE GENERATION',
+      MUSIKGENERIERUNG: 'MUSIC GENERATION',
+      VIDEOGENERIERUNG: 'VIDEO GENERATION',
+    }[group.category] || group.category,
+    models: group.models.map((model) => ({
+      ...model,
+      status: model.status === 'Demnächst' ? 'Coming soon' : model.status,
+    })),
+  }));
 
-  const renderedCategories = actualCatalog.map((group) => group.category);
+  expect(normalizedCatalog).toEqual(expectedCatalog);
+
+  const renderedCategories = normalizedCatalog.map((group) => group.category);
   expect(renderedCategories).toEqual(
     expect.arrayContaining(['IMAGE GENERATION', 'MUSIC GENERATION', 'VIDEO GENERATION']),
   );
@@ -5319,14 +5334,14 @@ test.describe('Shared MODELS overlay', () => {
       const currentUrl = new URL(page.url());
       const currentPath = `${currentUrl.pathname}${currentUrl.hash}`;
 
-      await page.getByRole('button', { name: 'Toggle menu' }).click();
-      const modelsButton = page.locator('#mobileNav').getByRole('button', { name: 'Models' });
+      await page.locator('#mobileMenuBtn').click();
+      const modelsButton = page.locator('#mobileNav [data-models-link="mobile"]');
       await modelsButton.click();
 
       await expectPathUnchanged(page, currentPath);
       await expectModelsOverlayOpenState(page);
 
-      await page.getByRole('button', { name: 'Close models' }).click();
+      await page.locator('.models-overlay__close').click();
       await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
       await expectPathUnchanged(page, currentPath);
     });
