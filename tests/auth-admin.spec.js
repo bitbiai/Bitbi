@@ -11459,6 +11459,7 @@ test.describe('Profile page (authenticated)', () => {
       role: 'user',
       email: 'linked-wallet@example.com',
       displayName: 'Linked Wallet Member',
+      hasAvatar: true,
       linkedWallet: {
         address: '0x1234567890abcdef1234567890abcdef12345678',
         short_address: '0x1234...5678',
@@ -11477,12 +11478,23 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCompletionCard')).toContainText('Checklist');
     await expect(page.locator('#profileCompletionStatus')).toContainText('5 of 5 account signals complete.');
     await expect(page.locator('#completionSignedInStatus')).toContainText('Signed in');
-    await expect(page.locator('#completionProfileLoadedStatus')).toContainText('Profile loaded');
     await expect(page.locator('#completionEmailStatus')).toContainText('Verified');
+    await expect(page.locator('#completionProfileImageStatus')).toContainText('Set');
+    await expect(page.locator('#completionDisplayNameStatus')).toContainText('Set');
     await expect(page.locator('#completionWalletStatus')).toContainText('Linked');
-    await expect(page.locator('#completionRecoveryStatus')).toContainText('Available');
     await expect(page.locator('#profileCompletionCard .profile__completion-item')).toHaveCount(5);
+    await expect(page.locator('#completionProfileLoadedStatus')).toHaveCount(0);
+    await expect(page.locator('#completionRecoveryStatus')).toHaveCount(0);
+    await expect(page.locator('#profileCompletionCard')).not.toContainText('Profile loaded');
     await expect(page.locator('#profileCompletionCard [data-state="complete"]')).toHaveCount(5);
+    const completionLabels = await page.locator('#profileCompletionCard .profile__completion-label').allTextContents();
+    expect(completionLabels).toEqual([
+      'Signed in',
+      'Email status',
+      'Profile image',
+      'Display name',
+      'Wallet link',
+    ]);
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await expect(page.locator('#walletSectionCard')).not.toContainText('not wallet custody');
@@ -11588,6 +11600,28 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
     await expect(page.locator('#profileCompletionCard')).toContainText('Checklist');
     await expect(page.locator('#profileCompletionCard .profile__completion-item')).toHaveCount(5);
+    await expect(page.locator('#profileCompletionCard')).toContainText('Email status');
+    await expect(page.locator('#profileCompletionCard')).toContainText('Profile image');
+    await expect(page.locator('#profileCompletionCard')).toContainText('Display name');
+    await expect(page.locator('#profileCompletionCard')).not.toContainText('Profile loaded');
+    await expect(page.locator('#profileAvatarCard')).toHaveClass(/profile__avatar-card--compact/);
+    await expect(page.locator('#profileAvatarAccountStack #profileAccountCard')).toBeVisible();
+    await expect(page.locator('#profileAccountCard')).toContainText('Account Info');
+    await expect(page.locator('#profileAccountCard')).toContainText('Display Name');
+    await expect(page.locator('#profileAccountCard')).toContainText('Member Since');
+    await expect(page.locator('#profileAccountCard')).toHaveClass(/profile__account-card--compact/);
+    const settingsRow = page.locator('.profile__settings-row');
+    await expect(settingsRow).toBeVisible();
+    const settingsLayout = await settingsRow.evaluate((node) => {
+      const wallet = node.querySelector('#walletSectionCard')?.getBoundingClientRect();
+      const edit = node.querySelector('.profile__edit-card')?.getBoundingClientRect();
+      return {
+        sameRow: Boolean(wallet && edit && Math.abs(wallet.top - edit.top) <= 8 && edit.left > wallet.left),
+        columns: getComputedStyle(node).gridTemplateColumns,
+      };
+    });
+    expect(settingsLayout.sameRow).toBe(true);
+    expect(settingsLayout.columns.split(' ').length).toBeGreaterThanOrEqual(2);
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await expect(page.locator('#profileForm')).toBeVisible();

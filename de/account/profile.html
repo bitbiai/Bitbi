@@ -171,55 +171,81 @@
                             <span class="profile__completion-label">Angemeldet</span>
                             <strong id="completionSignedInStatus">Wird geprüft...</strong>
                         </div>
-                        <div class="profile__completion-item" role="listitem" data-completion-item="profile-loaded" data-state="pending">
-                            <span class="profile__completion-check" aria-hidden="true"></span>
-                            <span class="profile__completion-label">Profil geladen</span>
-                            <strong id="completionProfileLoadedStatus">Wird geprüft...</strong>
-                        </div>
                         <div class="profile__completion-item" role="listitem" data-completion-item="email" data-state="pending">
                             <span class="profile__completion-check" aria-hidden="true"></span>
                             <span class="profile__completion-label">E-Mail-Status</span>
                             <strong id="completionEmailStatus">Wird geprüft...</strong>
+                        </div>
+                        <div class="profile__completion-item" role="listitem" data-completion-item="profile-image" data-state="pending">
+                            <span class="profile__completion-check" aria-hidden="true"></span>
+                            <span class="profile__completion-label">Profil Bild</span>
+                            <strong id="completionProfileImageStatus">Wird geprüft...</strong>
+                        </div>
+                        <div class="profile__completion-item" role="listitem" data-completion-item="display-name" data-state="pending">
+                            <span class="profile__completion-check" aria-hidden="true"></span>
+                            <span class="profile__completion-label">Anzeige Name</span>
+                            <strong id="completionDisplayNameStatus">Wird geprüft...</strong>
                         </div>
                         <div class="profile__completion-item" role="listitem" data-completion-item="wallet" data-state="pending">
                             <span class="profile__completion-check" aria-hidden="true"></span>
                             <span class="profile__completion-label">Wallet-Link</span>
                             <strong id="completionWalletStatus">Wallet-Status wird geladen...</strong>
                         </div>
-                        <div class="profile__completion-item" role="listitem" data-completion-item="recovery" data-state="pending">
-                            <span class="profile__completion-check" aria-hidden="true"></span>
-                            <span class="profile__completion-label">Wiederherstellung</span>
-                            <strong id="completionRecoveryStatus">Verfügbar</strong>
-                        </div>
                     </div>
                 </section>
 
-                <div class="profile__card profile__avatar-card">
-                    <div class="profile__avatar-wrap">
-                        <div class="profile__avatar-frame" id="avatarFrame">
-                            <svg id="avatarPlaceholder" class="profile__avatar-placeholder" viewBox="0 0 80 80" fill="none" aria-hidden="true">
-                                <circle cx="40" cy="40" r="40" fill="rgba(255,255,255,0.04)"/>
-                                <circle cx="40" cy="30" r="12" fill="rgba(255,255,255,0.15)"/>
-                                <ellipse cx="40" cy="58" rx="20" ry="14" fill="rgba(255,255,255,0.15)"/>
-                            </svg>
-                            <img id="avatarImg" class="profile__avatar-img" alt="Ihr Avatar" style="display:none">
+                <div class="profile__avatar-account-stack" id="profileAvatarAccountStack">
+                    <div class="profile__card profile__avatar-card profile__avatar-card--compact" id="profileAvatarCard">
+                        <div class="profile__avatar-wrap">
+                            <div class="profile__avatar-frame" id="avatarFrame">
+                                <svg id="avatarPlaceholder" class="profile__avatar-placeholder" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+                                    <circle cx="40" cy="40" r="40" fill="rgba(255,255,255,0.04)"/>
+                                    <circle cx="40" cy="30" r="12" fill="rgba(255,255,255,0.15)"/>
+                                    <ellipse cx="40" cy="58" rx="20" ry="14" fill="rgba(255,255,255,0.15)"/>
+                                </svg>
+                                <img id="avatarImg" class="profile__avatar-img" alt="Ihr Avatar" style="display:none">
+                            </div>
+                            <div class="profile__avatar-actions">
+                                <button
+                                    type="button"
+                                    class="profile__avatar-btn"
+                                    id="avatarChangeBtn"
+                                    aria-haspopup="dialog"
+                                    aria-controls="avatarSourceModal"
+                                >
+                                    <span id="avatarUploadText">Foto ändern</span>
+                                </button>
+                                <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp" hidden>
+                                <button type="button" id="avatarRemoveBtn" class="profile__avatar-remove" style="display:none">Entfernen</button>
+                            </div>
+                            <p class="profile__hint">JPG, PNG oder WebP. Max. 2 MB.</p>
                         </div>
-                        <div class="profile__avatar-actions">
-                            <button
-                                type="button"
-                                class="profile__avatar-btn"
-                                id="avatarChangeBtn"
-                                aria-haspopup="dialog"
-                                aria-controls="avatarSourceModal"
-                            >
-                                <span id="avatarUploadText">Foto ändern</span>
-                            </button>
-                            <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp" hidden>
-                            <button type="button" id="avatarRemoveBtn" class="profile__avatar-remove" style="display:none">Entfernen</button>
-                        </div>
-                        <p class="profile__hint">JPG, PNG oder WebP. Max. 2 MB.</p>
+                        <div id="avatarMsg" class="profile__msg" role="status"></div>
                     </div>
-                    <div id="avatarMsg" class="profile__msg" role="status"></div>
+
+                    <div class="profile__card profile__account-card profile__account-card--compact" id="profileAccountCard">
+                        <h2 class="profile__title">Kontoinformationen</h2>
+                        <div class="profile__row">
+                            <span class="profile__label">Anzeigename</span>
+                            <span class="profile__value" id="summaryName">&mdash;</span>
+                        </div>
+                        <div class="profile__row">
+                            <span class="profile__label">E-Mail</span>
+                            <span class="profile__value" id="summaryEmail">&mdash;</span>
+                        </div>
+                        <div class="profile__row">
+                            <span class="profile__label">Rolle</span>
+                            <span class="profile__value" id="summaryRole"></span>
+                        </div>
+                        <div class="profile__row">
+                            <span class="profile__label">Bestätigt</span>
+                            <span class="profile__value" id="summaryVerified"></span>
+                        </div>
+                        <div class="profile__row">
+                            <span class="profile__label">Mitglied seit</span>
+                            <span class="profile__value" id="summarySince">&mdash;</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="profileStudioStack" class="profile__studio-stack profile__studio-stack--compact">
@@ -241,32 +267,8 @@
 
                 </div><!-- /.profile__overview-grid -->
 
-                <!-- Kontoinformationen Card -->
-                <div class="profile__card reveal">
-                    <h2 class="profile__title">Kontoinformationen</h2>
-                    <div class="profile__row">
-                        <span class="profile__label">Anzeigename</span>
-                        <span class="profile__value" id="summaryName">&mdash;</span>
-                    </div>
-                    <div class="profile__row">
-                        <span class="profile__label">E-Mail</span>
-                        <span class="profile__value" id="summaryEmail">&mdash;</span>
-                    </div>
-                    <div class="profile__row">
-                        <span class="profile__label">Rolle</span>
-                        <span class="profile__value" id="summaryRole"></span>
-                    </div>
-                    <div class="profile__row">
-                        <span class="profile__label">Bestätigt</span>
-                        <span class="profile__value" id="summaryVerified"></span>
-                    </div>
-                    <div class="profile__row">
-                        <span class="profile__label">Mitglied seit</span>
-                        <span class="profile__value" id="summarySince">&mdash;</span>
-                    </div>
-                </div>
-
-                <div class="profile__card reveal" id="walletSectionCard">
+                <div class="profile__settings-row reveal">
+                <div class="profile__card" id="walletSectionCard">
                     <div class="profile__wallet-head">
                         <div>
                             <h2 class="profile__title">Wallet</h2>
@@ -282,7 +284,7 @@
                 </div>
 
                 <!-- Profil bearbeiten Card -->
-                <div class="profile__card profile__edit-card reveal">
+                <div class="profile__card profile__edit-card">
                     <div class="profile__edit-head">
                         <p class="profile__control-eyebrow">Profileinstellungen</p>
                         <h2 class="profile__title">Profil bearbeiten</h2>
@@ -311,6 +313,7 @@
                         </div>
                         <button type="submit" id="submitBtn" class="profile__submit">Änderungen speichern</button>
                     </form>
+                </div>
                 </div>
 
                 <!-- Account Actions -->

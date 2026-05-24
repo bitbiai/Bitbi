@@ -106,6 +106,22 @@ function createContext() {
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
     files: [
+      "github-actions-stuck-evidence/actions-permissions-before.json",
+      "github-actions-stuck-evidence/queued-runs.json",
+    ],
+  });
+  assert.equal(plan.deploySteps.length, 0);
+  assert.deepEqual(plan.impacts.validationOnlyFiles, [
+    "github-actions-stuck-evidence/actions-permissions-before.json",
+    "github-actions-stuck-evidence/queued-runs.json",
+  ]);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.equal(plan.isNoop, true);
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
+    files: [
       "tests/workers.spec.js",
       "AGENTS.md",
       "docs/audits/archive/retired-audit-root-docs/ALPHA_AUDIT_2026_05_15.md",

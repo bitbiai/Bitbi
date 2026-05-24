@@ -23,6 +23,7 @@ const VALIDATION_ONLY_PREFIXES = [
   ".github/workflows/",
   "config/",
   "docs/",
+  "github-actions-stuck-evidence/",
   "scripts/",
   "tests/",
   "workers/auth/CLAUDE.md",

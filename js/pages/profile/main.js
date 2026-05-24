@@ -73,10 +73,10 @@ const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
 const $profileCompletionStatus = document.getElementById('profileCompletionStatus');
 const $completionSignedInStatus = document.getElementById('completionSignedInStatus');
-const $completionProfileLoadedStatus = document.getElementById('completionProfileLoadedStatus');
 const $completionEmailStatus = document.getElementById('completionEmailStatus');
+const $completionProfileImageStatus = document.getElementById('completionProfileImageStatus');
+const $completionDisplayNameStatus = document.getElementById('completionDisplayNameStatus');
 const $completionWalletStatus = document.getElementById('completionWalletStatus');
-const $completionRecoveryStatus = document.getElementById('completionRecoveryStatus');
 const $walletSectionCopy = document.getElementById('walletSectionCopy');
 const $walletSectionMsg = document.getElementById('walletSectionMsg');
 const $walletSectionRows = document.getElementById('walletSectionRows');
@@ -299,17 +299,54 @@ function getWalletCompletion(state = walletViewState) {
     return { done: false, text: localeText('profile.completionWalletNotLinked'), state: 'pending' };
 }
 
+function getBooleanProfileSignal(profile = {}, fields = []) {
+    for (const field of fields) {
+        if (!Object.prototype.hasOwnProperty.call(profile, field)) continue;
+        const value = profile[field];
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') return value.trim().length > 0;
+        if (value !== null && value !== undefined) return Boolean(value);
+    }
+    return null;
+}
+
+function getProfileImageCompletion(profile = {}) {
+    const hasImage = getBooleanProfileSignal(profile, [
+        'has_avatar',
+        'hasAvatar',
+        'avatar_url',
+        'avatarUrl',
+    ]);
+    if (hasImage === true) {
+        return { done: true, text: localeText('profile.completionProfileImageSet'), state: 'complete' };
+    }
+    if (hasImage === false) {
+        return { done: false, text: localeText('profile.completionProfileImageMissing'), state: 'pending' };
+    }
+    return { done: false, text: localeText('profile.completionUnknown'), state: 'pending' };
+}
+
+function getDisplayNameCompletion(profile = {}) {
+    const displayName = String(profile.display_name || profile.displayName || '').trim();
+    if (displayName) {
+        return { done: true, text: localeText('profile.completionDisplayNameSet'), state: 'complete' };
+    }
+    return { done: false, text: localeText('profile.completionDisplayNameMissing'), state: 'pending' };
+}
+
 function renderProfileCompletion(profile = {}, account = {}, walletState = walletViewState) {
     if (!$profileCompletionStatus) return;
 
     const emailState = getEmailCompletion(account);
+    const profileImageState = getProfileImageCompletion(profile);
+    const displayNameState = getDisplayNameCompletion(profile);
     const walletStateResult = getWalletCompletion(walletState);
     const checks = [
         { done: true, el: $completionSignedInStatus, text: localeText('profile.completionSignedIn'), state: 'complete' },
-        { done: true, el: $completionProfileLoadedStatus, text: localeText('profile.completionProfileLoaded'), state: 'complete' },
         { ...emailState, el: $completionEmailStatus },
+        { ...profileImageState, el: $completionProfileImageStatus },
+        { ...displayNameState, el: $completionDisplayNameStatus },
         { ...walletStateResult, el: $completionWalletStatus },
-        { done: true, el: $completionRecoveryStatus, text: localeText('profile.completionRecoveryAvailable'), state: 'complete' },
     ];
 
     checks.forEach((check) => setCompletionStatus(check.el, check.text, check.state));
@@ -321,6 +358,16 @@ function renderProfileCompletion(profile = {}, account = {}, walletState = walle
     $profileCompletionStatus.className = completed === checks.length
         ? 'profile__completion-status profile__completion-status--complete'
         : 'profile__completion-status';
+}
+
+function syncProfileAvatarCompletion(hasAvatar) {
+    if (!profileCompletionContext) return;
+    profileCompletionContext.profile = {
+        ...profileCompletionContext.profile,
+        has_avatar: Boolean(hasAvatar),
+        avatar_url: hasAvatar ? AVATAR_URL : null,
+    };
+    renderProfileCompletion(profileCompletionContext.profile, profileCompletionContext.account);
 }
 
 function addressesEqual(left, right) {
@@ -489,11 +536,13 @@ function loadAvatar(bustCache) {
         $avatarImg.style.display = '';
         $avatarPlaceholder.style.display = 'none';
         $avatarRemoveBtn.style.display = '';
+        syncProfileAvatarCompletion(true);
     };
     img.onerror = () => {
         $avatarImg.style.display = 'none';
         $avatarPlaceholder.style.display = '';
         $avatarRemoveBtn.style.display = 'none';
+        syncProfileAvatarCompletion(false);
     };
     img.src = src;
 }
