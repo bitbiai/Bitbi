@@ -11658,7 +11658,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#formMsg')).not.toContainText('raw internal');
   });
 
-  test('non-admin profile shows Assets Manager, Wallet, and Credits cards in the profile action stack', async ({
+  test('non-admin profile shows Assets Manager, Wallet, Credits, and Favorites cards in the profile action stack', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -11673,6 +11673,11 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
+    await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
+    await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
+    await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
+    await expect(page.locator('#profileFavoritesSection')).toBeVisible();
+    await expect(page.locator('#profileFavoritesSection')).toHaveAttribute('tabindex', '-1');
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileWorkspacePriority')).toHaveCount(0);
     await expect(page.locator('#profileUsageTrustCard')).toHaveCount(0);
@@ -11703,11 +11708,12 @@ test.describe('Profile page (authenticated)', () => {
       const assets = rectOf('#profileStudioCard');
       const wallet = rectOf('#profileWalletCard');
       const credits = rectOf('#profileCreditsCard');
+      const favorites = rectOf('#profileFavoritesQuickLink');
       const heading = rectOf('#profileCompletionTitle');
       const completionStatus = rectOf('#profileCompletionStatus');
       const completionOrder = Array.from(node.querySelectorAll('#profileCompletionCard .profile__completion-item'))
         .map((item) => item.getAttribute('data-completion-item'));
-      const actionHeights = [assets, wallet, credits]
+      const actionHeights = [assets, wallet, credits, favorites]
         .filter(Boolean)
         .map((rect) => rect.height);
       const accountRows = Array.from(node.querySelectorAll('#profileAccountCard .profile__row'))
@@ -11720,10 +11726,13 @@ test.describe('Profile page (authenticated)', () => {
           assets
           && wallet
           && credits
+          && favorites
           && wallet.top > assets.bottom
           && credits.top > wallet.bottom
+          && favorites.top > credits.bottom
           && Math.abs(wallet.left - assets.left) <= 4
-          && Math.abs(credits.left - assets.left) <= 4,
+          && Math.abs(credits.left - assets.left) <= 4
+          && Math.abs(favorites.left - assets.left) <= 4,
         ),
         accountHeightCompact: Boolean(account && account.height <= 210),
         accountRowsReadable: accountRows.length === 5
@@ -11740,9 +11749,9 @@ test.describe('Profile page (authenticated)', () => {
         studioChecklistTopDelta: studioStack && completion ? Math.abs(studioStack.top - completion.top) : null,
         studioChecklistBottomDelta: studioStack && completion ? Math.abs(studioStack.bottom - completion.bottom) : null,
         studioChecklistHeightDelta: studioStack && completion ? Math.abs(studioStack.height - completion.height) : null,
-        actionHeightsBalanced: actionHeights.length === 3
+        actionHeightsBalanced: actionHeights.length === 4
           && Math.max(...actionHeights) - Math.min(...actionHeights) <= 6,
-        actionCardsTouchSafe: actionHeights.length === 3 && Math.min(...actionHeights) >= 44,
+        actionCardsTouchSafe: actionHeights.length === 4 && Math.min(...actionHeights) >= 44,
       };
     });
     expect(overviewLayout.completionOrder).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
@@ -11812,7 +11821,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(page.url()).not.toContain('raw-asset');
   });
 
-  test('admin profile shows the same compact Assets Manager + Wallet + Credits stack as non-admin users', async ({
+  test('admin profile shows the same compact Assets Manager + Wallet + Credits + Favorites stack as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
@@ -11827,6 +11836,9 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
+    await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
+    await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
+    await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
@@ -11949,7 +11961,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#mobileNav')).not.toContainText('Open Assets Manager');
   });
 
-  test('admin mobile profile shows the same simplified tab bar as non-admin users', async ({
+  test('admin mobile profile removes the top link bar and keeps the reordered profile sections', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin' });
@@ -11958,17 +11970,57 @@ test.describe('Profile page (authenticated mobile)', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('#profileTabBar')).toBeVisible();
-    await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
+    await expect(page.locator('#profileTabBar')).toBeHidden();
+    await expect(page.locator('#profileWalletWorkspaceBtn')).toBeHidden();
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveCount(0);
+    await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
+    await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
+    await expect(page.locator('.profile__favorites-back')).toBeVisible();
+    await expect(page.locator('.profile__favorites-back')).toHaveAttribute('href', '#profileHero');
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
 
-    const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
-      (node) => node.scrollWidth > node.clientWidth + 1,
-    );
-    expect(tabBarOverflow).toBe(false);
+    const mobileOrder = await page.locator('#profileContent').evaluate((node) => {
+      const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
+      const avatar = rectOf('#profileAvatarCard');
+      const account = rectOf('#profileAccountCard');
+      const quickLinks = rectOf('#profileStudioStack');
+      const completion = rectOf('#profileCompletionCard');
+      const settings = rectOf('.profile__edit-card');
+      const wallet = rectOf('#walletSectionCard');
+      const favorites = rectOf('#profileFavoritesSection');
+      const back = rectOf('.profile__favorites-back');
+      const quickLinkRects = Array.from(node.querySelectorAll('#profileStudioStack .profile__studio-card'))
+        .map((card) => card.getBoundingClientRect());
+      return {
+        profileBeforeWallet: Boolean(settings && wallet && settings.top < wallet.top),
+        requestedTopOrder: Boolean(
+          avatar
+          && account
+          && quickLinks
+          && completion
+          && settings
+          && wallet
+          && avatar.top < account.top
+          && account.top < quickLinks.top
+          && quickLinks.top < completion.top
+          && completion.top < settings.top
+          && settings.top < wallet.top
+        ),
+        favoritesAfterWallet: Boolean(favorites && wallet && favorites.top > wallet.top),
+        backBelowFavorites: Boolean(back && favorites && back.top > favorites.top),
+        quickLinkCount: quickLinkRects.length,
+        quickLinksVertical: quickLinkRects.length === 4
+          && quickLinkRects.every((rect, index, list) => index === 0 || rect.top > list[index - 1].bottom),
+      };
+    });
+    expect(mobileOrder.profileBeforeWallet).toBe(true);
+    expect(mobileOrder.requestedTopOrder).toBe(true);
+    expect(mobileOrder.favoritesAfterWallet).toBe(true);
+    expect(mobileOrder.backBelowFavorites).toBe(true);
+    expect(mobileOrder.quickLinkCount).toBe(4);
+    expect(mobileOrder.quickLinksVertical).toBe(true);
 
     const hasOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
@@ -11976,7 +12028,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     expect(hasOverflow).toBe(false);
   });
 
-  test('non-admin mobile profile keeps Wallet, Credits, and Assets Manager in the tab bar', async ({
+  test('non-admin mobile profile removes top links and keeps four main quick-link cards', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -11985,9 +12037,18 @@ test.describe('Profile page (authenticated mobile)', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('#profileTabBar')).toBeVisible();
-    await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
+    await expect(page.locator('#profileTabBar')).toBeHidden();
+    await expect(page.locator('#profileWalletWorkspaceBtn')).toBeHidden();
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveCount(0);
+    await expect(page.locator('#profileStudioStack .profile__studio-card')).toHaveCount(4);
+    await expect(page.locator('#profileStudioStack .profile__studio-label')).toHaveText([
+      'Assets Manager',
+      'Wallet',
+      'Credits',
+      'Favorites',
+    ]);
+    await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
+    await expect(page.locator('.profile__favorites-back')).toBeVisible();
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileCompletionCard')).toBeVisible();
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
@@ -11995,7 +12056,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('organization owner mobile profile keeps the compact Wallet + Credits + Assets Manager tab bar', async ({
+  test('organization owner mobile profile keeps compact content without the top link bar', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -12013,15 +12074,22 @@ test.describe('Profile page (authenticated mobile)', () => {
     const response = await page.goto('/account/profile.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
+    await expect(page.locator('#profileTabBar')).toBeHidden();
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveCount(0);
+    await expect(page.locator('#profileStudioStack .profile__studio-label')).toHaveText([
+      'Assets Manager',
+      'Wallet',
+      'Credits',
+      'Favorites',
+    ]);
     await expect(page.locator('#profileCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileOrganizationLink')).toHaveCount(0);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
 
-    const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
-      (node) => node.scrollWidth > node.clientWidth + 1,
+    const hasOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     );
-    expect(tabBarOverflow).toBe(false);
+    expect(hasOverflow).toBe(false);
   });
 });
 

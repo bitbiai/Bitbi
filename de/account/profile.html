@@ -265,6 +265,11 @@
                         <span class="profile__studio-emoji profile__studio-emoji--credits" aria-hidden="true">Cr</span>
                         <span class="profile__studio-label">Credits</span>
                     </a>
+
+                    <a href="#profileFavoritesSection" id="profileFavoritesQuickLink" class="profile__card profile__studio-card profile__studio-card--favorites" aria-label="Favoriten öffnen">
+                        <span class="profile__studio-emoji profile__studio-emoji--favorites" aria-hidden="true">&#9733;</span>
+                        <span class="profile__studio-label">Favoriten</span>
+                    </a>
                 </div>
 
                 </div><!-- /.profile__overview-grid -->
@@ -327,7 +332,7 @@
                     </div>
 
                     <aside class="profile-layout__sidebar" aria-label="Favoriten">
-                        <div class="profile__card profile__favorites reveal">
+                        <div class="profile__card profile__favorites reveal" id="profileFavoritesSection" tabindex="-1">
                             <h2 class="profile__title">Favoriten</h2>
                             <div class="favorites__group" id="favoritesMempics" data-favorites-type="mempics">
                                 <h3 class="favorites__group-label favorites__group-label--magenta">Mempics</h3>
@@ -341,6 +346,7 @@
                                 <h3 class="favorites__group-label favorites__group-label--gold">Sound Lab</h3>
                                 <p class="favorites__empty">Noch keine Favoriten</p>
                             </div>
+                            <a href="#profileHero" class="profile__favorites-back">Zurück zum Profil</a>
                         </div>
                     </aside>
                 </div>

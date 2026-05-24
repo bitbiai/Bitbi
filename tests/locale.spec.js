@@ -363,6 +363,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enProfile).not.toContain('Suggested first-run steps');
     expect(enProfile).toContain('href="/account/assets-manager.html"');
     expect(enProfile).toContain('href="/account/credits.html?scope=member"');
+    expect(enProfile).toContain('id="profileFavoritesQuickLink"');
+    expect(enProfile).toContain('href="#profileFavoritesSection"');
+    expect(enProfile).toContain('aria-label="Open Favorites"');
+    expect(enProfile).toContain('id="profileFavoritesSection" tabindex="-1"');
+    expect(enProfile).toContain('Back to Profile');
     expect(enProfile).toContain('class="section__inner profile-shell"');
     expect(enProfile).toContain('profile__overview-grid');
     expect(enProfile).not.toContain('id="profileSecurityCard"');
@@ -435,6 +440,11 @@ test.describe('Bilingual locale pages', () => {
     expect(deProfile).not.toContain('Empfohlene erste Schritte');
     expect(deProfile).toContain('href="/de/account/assets-manager.html"');
     expect(deProfile).toContain('href="/de/account/credits.html?scope=member"');
+    expect(deProfile).toContain('id="profileFavoritesQuickLink"');
+    expect(deProfile).toContain('href="#profileFavoritesSection"');
+    expect(deProfile).toContain('aria-label="Favoriten öffnen"');
+    expect(deProfile).toContain('id="profileFavoritesSection" tabindex="-1"');
+    expect(deProfile).toContain('Zurück zum Profil');
     expect(deProfile).toContain('class="section__inner profile-shell"');
     expect(deProfile).toContain('profile__overview-grid');
     expect(deProfile).not.toContain('id="profileSecurityCard"');
@@ -506,7 +516,10 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).toContain('height: 64px');
     expect(profileCss).toContain('.profile__completion-title-row');
     expect(profileCss).toContain('--profile-overview-account-block');
-    expect(profileCss).toContain('grid-template-rows: repeat(3, minmax(0, 1fr))');
+    expect(profileCss).toContain('grid-template-rows: repeat(4, minmax(0, 1fr))');
+    expect(profileCss).toContain('.profile__studio-card--favorites');
+    expect(profileCss).toContain('.profile__favorites-back');
+    expect(profileCss).toContain('#profileTabBar');
     expect(profileCss).toContain('grid-row: 1 / span 2');
     expect(profileCss).toContain('display: contents');
     expect(profileCss).toContain('min-block-size: calc((88px * 2) + var(--space-3))');

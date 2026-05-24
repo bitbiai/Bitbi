@@ -1900,19 +1900,25 @@ test.describe('Homepage', () => {
       const nav = document.querySelector('#navbar')?.getBoundingClientRect();
       const menu = document.querySelector('#mobileMenuBtn')?.getBoundingClientRect();
       const hero = document.querySelector('#hero')?.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
       return {
         ctaTop: cta?.top ?? 0,
         ctaBottom: cta?.bottom ?? 0,
         ctaHeight: cta?.height ?? 0,
+        ctaWidth: cta?.width ?? 0,
+        ctaCenterDelta: cta ? Math.abs((cta.left + (cta.width / 2)) - (viewportWidth / 2)) : 999,
         navBottom: nav?.bottom ?? 0,
         menuBottom: menu?.bottom ?? 0,
         heroTop: hero?.top ?? 0,
+        viewportWidth,
         overflow: document.documentElement.scrollWidth - window.innerWidth,
       };
     });
     expect(placement.ctaTop).toBeGreaterThanOrEqual(placement.navBottom - 1);
     expect(placement.ctaTop).toBeGreaterThanOrEqual(placement.menuBottom - 1);
     expect(placement.ctaHeight).toBeGreaterThanOrEqual(42);
+    expect(placement.ctaWidth).toBeLessThan(placement.viewportWidth * 0.78);
+    expect(placement.ctaCenterDelta).toBeLessThanOrEqual(2);
     expect(placement.ctaBottom).toBeLessThanOrEqual(placement.heroTop + 120);
     expect(placement.overflow).toBeLessThanOrEqual(1);
 
