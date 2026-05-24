@@ -5337,12 +5337,6 @@ function creditLedgerIso(monthOffset, day, hour = 12, minute = 0) {
   return new Date(now.getFullYear(), now.getMonth() + monthOffset, day, hour, minute).toISOString();
 }
 
-function creditLedgerMonthLabel(monthOffset, locale = 'en-US') {
-  const now = new Date();
-  const date = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
-  return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(date);
-}
-
 function makeCreditLedgerRows({ prefix, label, monthOffset, count, startBalance = 100 }) {
   return Array.from({ length: count }, (_, index) => {
     const number = index + 1;
@@ -6899,8 +6893,9 @@ test.describe('Credits dashboard live credit packs', () => {
     await page.goto('/account/credits.html');
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#creditsEyebrow')).toHaveCount(0);
-    await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
-    await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
+    await expect(page.locator('#creditsAccountContext')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Member account');
+    await expect(page.locator('main')).not.toContainText('Personal credits');
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(2);
   });
 
@@ -6986,7 +6981,7 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(checkoutRequests[0].idempotencyKey).toMatch(/^credits-live:org_credits_/);
   });
 
-  test('renders member Credits page with simplified summary and monthly ledger cards', async ({ page }) => {
+  test('renders member Credits page with equal summaries, membership history, and compact ledger accordion', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const currentRows = makeCreditLedgerRows({
       prefix: 'current_member_activity',
@@ -7058,7 +7053,12 @@ test.describe('Credits dashboard live credit packs', () => {
           { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 999, currency: 'eur', displayPrice: '9,99 €' },
           { id: 'live_credits_12000', name: '12000 Credit Pack', credits: 12000, amountCents: 1999, currency: 'eur', displayPrice: '19,99 €' },
         ],
-        purchaseHistory: [],
+        purchaseHistory: [{
+          createdAt: creditLedgerIso(0, 2, 10, 0),
+          creditPack: { id: 'live_credits_5000', amountCents: 999, currency: 'eur' },
+          status: 'paid',
+          authorizationScope: 'member',
+        }],
         transactions: [
           ...currentRows,
           ...previousRows,
@@ -7098,12 +7098,13 @@ test.describe('Credits dashboard live credit packs', () => {
       '/generate-lab/?source=help-credits&step=create',
     );
     await page.getByRole('button', { name: 'Close help menu' }).click();
-    await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
-    await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
-    await expect(page.locator('#creditsAccessScope')).toContainText('Daily top-up: 7 credits granted today.');
+    await expect(page.locator('#creditsAccountContext')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Member account');
+    await expect(page.locator('main')).not.toContainText('Personal credits');
+    await expect(page.locator('main')).not.toContainText('Daily top-up: 7 credits granted today.');
     await expect(page.locator('.credits-overview-grid')).toBeVisible();
     await expect(page.locator('#creditsWorkGrid')).toHaveClass(/credits-work-grid--member/);
-    await expect(page.locator('.credits-history-grid')).toBeVisible();
+    await expect(page.locator('.credits-history-grid')).toHaveCount(0);
     const summaryCards = page.locator('#creditsSummaryGrid .credits-card');
     await expect(summaryCards).toHaveCount(4);
     const firstSummaryCard = summaryCards.first();
@@ -7143,10 +7144,13 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(summaryLayout).toHaveLength(4);
     expect(Math.abs(summaryLayout[0].top - summaryLayout[1].top)).toBeLessThanOrEqual(2);
     expect(summaryLayout[1].left).toBeGreaterThan(summaryLayout[0].left);
-    expect(summaryLayout[2].top).toBeGreaterThan(summaryLayout[1].top);
-    expect(summaryLayout[3].top).toBeGreaterThan(summaryLayout[2].top);
-    expect(summaryLayout[0].height).toBeGreaterThan(summaryLayout[1].height * 1.7);
-    expect(Math.abs(summaryLayout[0].bottom - summaryLayout[3].bottom)).toBeLessThanOrEqual(4);
+    expect(Math.abs(summaryLayout[2].top - summaryLayout[0].top)).toBeLessThanOrEqual(2);
+    expect(summaryLayout[2].left).toBeGreaterThan(summaryLayout[1].left);
+    expect(Math.abs(summaryLayout[3].top - summaryLayout[0].top)).toBeLessThanOrEqual(2);
+    expect(summaryLayout[3].left).toBeGreaterThan(summaryLayout[2].left);
+    expect(Math.abs(summaryLayout[0].height - summaryLayout[1].height)).toBeLessThanOrEqual(6);
+    expect(Math.abs(summaryLayout[0].height - summaryLayout[2].height)).toBeLessThanOrEqual(6);
+    expect(Math.abs(summaryLayout[0].height - summaryLayout[3].height)).toBeLessThanOrEqual(6);
     expect(summaryLayout.every((card) => card.width >= 170)).toBe(true);
 
     const workLayout = await page.evaluate(() => {
@@ -7160,48 +7164,64 @@ test.describe('Credits dashboard live credit packs', () => {
       } : null;
     });
     expect(workLayout).not.toBeNull();
-    expect(Math.abs(workLayout.subscriptionTop - workLayout.packsTop)).toBeLessThanOrEqual(3);
-    expect(workLayout.packsLeft).toBeGreaterThan(workLayout.subscriptionLeft);
+    expect(workLayout.packsTop).toBeGreaterThan(workLayout.subscriptionTop);
+    expect(Math.abs(workLayout.subscriptionLeft - workLayout.packsLeft)).toBeLessThanOrEqual(3);
 
-    const historyLayout = await page.evaluate(() => {
+    await expect(page.locator('#creditsSubscriptionSection #creditsPurchasesSection')).toBeVisible();
+    await expect(page.locator('#creditsPurchasesSection')).toContainText('live_credits_5000');
+    await expect(page.locator('#creditsPurchasesSection')).toContainText('paid');
+    const membershipLayout = await page.evaluate(() => {
+      const body = document.getElementById('creditsSubscriptionBody')?.getBoundingClientRect();
       const purchases = document.getElementById('creditsPurchasesSection')?.getBoundingClientRect();
-      const ledger = document.querySelector('[aria-labelledby="creditsLedgerTitle"]')?.getBoundingClientRect();
-      return purchases && ledger ? {
+      return body && purchases ? {
+        bodyTop: Math.round(body.top),
+        bodyLeft: Math.round(body.left),
+        bodyWidth: Math.round(body.width),
         purchasesTop: Math.round(purchases.top),
         purchasesLeft: Math.round(purchases.left),
-        ledgerTop: Math.round(ledger.top),
-        ledgerLeft: Math.round(ledger.left),
+        purchasesWidth: Math.round(purchases.width),
       } : null;
     });
-    expect(historyLayout).not.toBeNull();
-    expect(Math.abs(historyLayout.purchasesTop - historyLayout.ledgerTop)).toBeLessThanOrEqual(3);
-    expect(historyLayout.ledgerLeft).toBeGreaterThan(historyLayout.purchasesLeft);
+    expect(membershipLayout).not.toBeNull();
+    expect(Math.abs(membershipLayout.bodyTop - membershipLayout.purchasesTop)).toBeLessThanOrEqual(4);
+    expect(membershipLayout.purchasesLeft).toBeGreaterThan(membershipLayout.bodyLeft);
+    expect(Math.abs(membershipLayout.bodyWidth - membershipLayout.purchasesWidth)).toBeLessThanOrEqual(14);
 
-    const currentCard = page.locator('#creditsLedgerBody .credits-ledger-card--current');
-    await expect(currentCard.locator('.credits-ledger-card__title')).toHaveText(creditLedgerMonthLabel(0));
-    await expect(page.locator('#creditsLedgerBody .credits-ledger-card')).toHaveCount(3);
-    await expect(currentCard.locator('.credits-ledger-list--direct .credits-ledger-item')).toHaveCount(5);
-    await expect(currentCard.locator('.credits-ledger-list--direct')).toContainText('Current month activity 1');
-    await expect(currentCard.locator('.credits-ledger-list--direct')).toContainText('Current month activity 5');
-    await expect(currentCard.locator('.credits-ledger-list--direct')).not.toContainText('Current month activity 6');
-    await expect(currentCard.locator('details summary')).toHaveText('Show 2 more actions');
-    await currentCard.locator('summary').click();
-    await expect(currentCard.locator('.credits-ledger-more__items')).toContainText('Current month activity 6');
-
-    const previousCard = page.locator('#creditsLedgerBody .credits-ledger-card', { hasText: creditLedgerMonthLabel(-1) });
-    await expect(previousCard.locator('.credits-ledger-list--direct .credits-ledger-item')).toHaveCount(5);
-    await expect(previousCard.locator('details summary')).toHaveText('Show 1 more action');
-    await previousCard.locator('summary').click();
-    await expect(previousCard.locator('.credits-ledger-more__items')).toContainText('Previous month activity 6');
-
-    const olderCard = page.locator('#creditsLedgerBody .credits-ledger-card', { hasText: creditLedgerMonthLabel(-2) });
-    await expect(olderCard.locator('.credits-ledger-list--direct .credits-ledger-item')).toHaveCount(1);
-    await expect(olderCard.locator('details')).toHaveCount(0);
-    await expect(page.locator('#creditsLedgerBody')).toContainText('org_image_credit_catalog');
+    const ledgerLayout = await page.evaluate(() => {
+      const shell = document.querySelector('.credits-shell')?.getBoundingClientRect();
+      const ledger = document.getElementById('creditsLedgerSection')?.getBoundingClientRect();
+      return shell && ledger ? {
+        centerDelta: Math.abs(Math.round((shell.left + shell.right) / 2) - Math.round((ledger.left + ledger.right) / 2)),
+        width: Math.round(ledger.width),
+      } : null;
+    });
+    expect(ledgerLayout).not.toBeNull();
+    expect(ledgerLayout.centerDelta).toBeLessThanOrEqual(4);
+    expect(ledgerLayout.width).toBeLessThanOrEqual(1024);
+    const directLedgerRows = page.locator('#creditsLedgerBody .credits-ledger-list--direct > .credits-ledger-item');
+    await expect(directLedgerRows).toHaveCount(5);
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__summary')).toContainText('USAGE_CHARGE');
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__summary')).toContainText('Current month activity 1');
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__summary')).toContainText('-1 credits');
+    await expect(directLedgerRows.nth(4).locator('.credits-ledger-item__summary')).toContainText('Current month activity 5');
+    await expect(page.locator('#creditsLedgerBody .credits-ledger-list--direct')).not.toContainText('Current month activity 6');
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__fields')).toBeHidden();
+    await directLedgerRows.first().locator('summary').click();
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__fields')).toBeVisible();
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__fields')).toContainText('org_image_credit_catalog');
+    await directLedgerRows.first().locator('summary').click();
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__fields')).toBeHidden();
+    await expect(page.locator('#creditsLedgerBody .credits-ledger-more > summary')).toHaveText('Show 9 more actions');
+    await page.locator('#creditsLedgerBody .credits-ledger-more > summary').click();
+    await expect(page.locator('#creditsLedgerBody .credits-ledger-more__items')).toContainText('Current month activity 6');
+    await expect(page.locator('#creditsLedgerBody .credits-ledger-more__items')).toContainText('Previous month activity 6');
+    await expect(page.locator('#creditsLedgerBody .credits-ledger-more__items')).toContainText('Older month activity 1');
     await expect(page.locator('#creditsOrgPickerWrap')).toHaveCount(0);
     await expect(page.locator('#creditsDashboard')).not.toContainText('Switch organization');
     await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(2);
     await expect(page.locator('#creditsPurchasesSection')).toBeVisible();
+    await expect(page.locator('.credits-back-link')).toHaveText('Back to Profile');
+    await expect(page.locator('.credits-back-link')).toHaveAttribute('href', '/account/profile.html');
 
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileSummaryLayout = await summaryCards.evaluateAll((cards) => cards.map((card) => {
@@ -7307,7 +7327,9 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#creditsEyebrow')).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('Mitglieder-Credits');
-    await expect(page.locator('#creditsScopeLabel')).toHaveText('Mitgliedskonto');
+    await expect(page.locator('#creditsAccountContext')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('Mitgliedskonto');
+    await expect(page.locator('main')).not.toContainText('Persönliche Credits');
     await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(4);
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Gesamt verfügbar');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('10.300 Credits');
@@ -7336,10 +7358,17 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Manuelle Gutschriften');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Eingehende Credits');
     await expect(page.locator('#creditsLegalBlock')).toContainText('Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.');
-    const currentCard = page.locator('#creditsLedgerBody .credits-ledger-card--current');
-    await expect(currentCard.locator('.credits-ledger-card__title')).toHaveText(creditLedgerMonthLabel(0, 'de-DE'));
-    await expect(currentCard.locator('.credits-ledger-list--direct .credits-ledger-item')).toHaveCount(5);
-    await expect(currentCard.locator('details summary')).toHaveText('1 weitere Aktion anzeigen');
+    await expect(page.locator('#creditsSubscriptionSection #creditsPurchasesSection')).toBeVisible();
+    await expect(page.locator('.credits-history-grid')).toHaveCount(0);
+    const directLedgerRows = page.locator('#creditsLedgerBody .credits-ledger-list--direct > .credits-ledger-item');
+    await expect(directLedgerRows).toHaveCount(5);
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__summary')).toContainText('USAGE_CHARGE');
+    await expect(directLedgerRows.first().locator('.credits-ledger-item__summary')).toContainText('Aktuelle Monatsaktivität 1');
+    await expect(page.locator('#creditsLedgerBody .credits-ledger-more > summary')).toHaveText('1 weitere Aktion anzeigen');
+    await page.locator('#creditsLedgerBody .credits-ledger-more > summary').click();
+    await expect(page.locator('#creditsLedgerBody .credits-ledger-more__items')).toContainText('Aktuelle Monatsaktivität 6');
+    await expect(page.locator('.credits-back-link')).toHaveText('Zurück zum Profil');
+    await expect(page.locator('.credits-back-link')).toHaveAttribute('href', '/de/account/profile.html');
   });
 
   test('member Credits page cancels and reactivates an active subscription with confirmation', async ({ page }) => {

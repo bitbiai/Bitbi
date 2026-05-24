@@ -349,7 +349,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('Review personal credits, BITBI Pro status, one-time packs, and organization checkout access when available.');
     expect(enCredits).toContain('class="credits-overview-grid"');
     expect(enCredits).toContain('id="creditsWorkGrid" class="credits-work-grid"');
-    expect(enCredits).toContain('class="credits-history-grid"');
+    expect(enCredits).toContain('class="credits-membership-grid"');
+    expect(enCredits).toContain('id="creditsLedgerSection" class="credits-section credits-ledger-section"');
+    expect(enCredits).toContain('Back to Profile');
     expect(enCredits).not.toContain('credits-hero__glow');
     expect(deCredits).toContain('class="hero hero--compact credits-hero"');
     expect(deCredits).toContain('class="legal-hero__title credits-title gt-gold-cyan"');
@@ -359,7 +361,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('Prüfen Sie persönliche Credits, BITBI-Pro-Status, einmalige Pakete und Organisations-Checkout-Zugriff, wenn verfügbar.');
     expect(deCredits).toContain('class="credits-overview-grid"');
     expect(deCredits).toContain('id="creditsWorkGrid" class="credits-work-grid"');
-    expect(deCredits).toContain('class="credits-history-grid"');
+    expect(deCredits).toContain('class="credits-membership-grid"');
+    expect(deCredits).toContain('id="creditsLedgerSection" class="credits-section credits-ledger-section"');
+    expect(deCredits).toContain('Zurück zum Profil');
     expect(deCredits).not.toContain('credits-hero__glow');
   });
 
@@ -577,7 +581,10 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).not.toContain('After pricing');
     expect(enCredits).toContain('credits-overview-grid');
     expect(enCredits).toContain('credits-work-grid');
-    expect(enCredits).toContain('credits-history-grid');
+    expect(enCredits).not.toContain('credits-history-grid');
+    expect(enCredits).toContain('credits-membership-grid');
+    expect(enCredits).toContain('credits-ledger-section');
+    expect(enCredits).toContain('href="/account/profile.html">Back to Profile</a>');
     expect(enCredits).toContain('Sign in to review credits');
     expect(enCredits).toContain('Profile verification guidance are available');
     expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileCompletionCard"');
@@ -601,7 +608,10 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).not.toContain('Nach Pricing');
     expect(deCredits).toContain('credits-overview-grid');
     expect(deCredits).toContain('credits-work-grid');
-    expect(deCredits).toContain('credits-history-grid');
+    expect(deCredits).not.toContain('credits-history-grid');
+    expect(deCredits).toContain('credits-membership-grid');
+    expect(deCredits).toContain('credits-ledger-section');
+    expect(deCredits).toContain('href="/de/account/profile.html">Zurück zum Profil</a>');
     expect(deCredits).toContain('Anmelden, um Credits zu prüfen');
     expect(deCredits).toContain('Profilhinweise zur Bestätigung sind verfügbar');
     expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileCompletionCard"');

@@ -28,6 +28,7 @@ const $error = document.getElementById('creditsError');
 const $dashboard = document.getElementById('creditsDashboard');
 const $returnState = document.getElementById('creditsReturnState');
 const $subtitle = document.getElementById('creditsSubtitle');
+const $accountContext = document.getElementById('creditsAccountContext');
 const $scopeLabel = document.getElementById('creditsScopeLabel');
 const $orgName = document.getElementById('creditsOrgName');
 const $accessScope = document.getElementById('creditsAccessScope');
@@ -38,6 +39,7 @@ const $workGrid = document.getElementById('creditsWorkGrid');
 const $subscriptionSection = document.getElementById('creditsSubscriptionSection');
 const $subscriptionBody = document.getElementById('creditsSubscriptionBody');
 const $subscriptionFeedback = document.getElementById('creditsSubscriptionFeedback');
+const $membershipGrid = document.querySelector('.credits-membership-grid');
 const $packsSection = document.getElementById('creditsPacksSection');
 const $checkoutStatus = document.getElementById('creditsCheckoutStatus');
 const $configNote = document.getElementById('creditsConfigNote');
@@ -63,8 +65,6 @@ const STRIPE_CHECKOUT_ORIGINS = new Set([
 const EURO_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE, { style: 'currency', currency: 'EUR' });
 const NUMBER_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE);
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat(FORMAT_LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
-const MONTH_FORMATTER = new Intl.DateTimeFormat(FORMAT_LOCALE, { month: 'long', year: 'numeric' });
-
 let currentUser = null;
 let eligibleOrganizations = [];
 let selectedOrganizationId = null;
@@ -134,6 +134,24 @@ function removeMemberIrrelevantOrgPicker() {
     }
 }
 
+function removeMemberAccountContext() {
+    if ($accountContext && $accountContext.isConnected) {
+        $accountContext.remove();
+    }
+}
+
+function placePurchasesInMembership() {
+    if ($membershipGrid && $purchasesSection && $purchasesSection.parentElement !== $membershipGrid) {
+        $membershipGrid.appendChild($purchasesSection);
+    }
+}
+
+function placePurchasesInCheckout() {
+    if ($packsSection && $purchasesSection && $purchasesSection.parentElement !== $packsSection) {
+        $packsSection.appendChild($purchasesSection);
+    }
+}
+
 function setNeedsOrganizationSelection() {
     hide($loading);
     hide($error);
@@ -142,6 +160,7 @@ function setNeedsOrganizationSelection() {
     if ($orgName) $orgName.textContent = localeText('credits.selectOrganization');
     if ($accessScope) $accessScope.textContent = localeText('credits.selectOrganizationHelp');
     if ($subscriptionSection) $subscriptionSection.hidden = true;
+    placePurchasesInCheckout();
     renderOrgPicker();
     renderSummary({});
     renderCheckoutStatus({ enabled: false, configured: false }, currentUser?.role === 'admin' ? 'platform_admin' : 'org_owner');
@@ -165,26 +184,6 @@ function parseLedgerDate(value) {
     if (!value) return null;
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function monthKeyFromDate(date) {
-    if (!date) return 'unknown';
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthStartFromKey(key) {
-    const match = /^(\d{4})-(\d{2})$/.exec(String(key || ''));
-    if (!match) return null;
-    return new Date(Number(match[1]), Number(match[2]) - 1, 1);
-}
-
-function monthLabelFromKey(key) {
-    const date = monthStartFromKey(key);
-    return date ? MONTH_FORMATTER.format(date) : localeText('credits.notReported');
-}
-
-function currentMonthKey() {
-    return monthKeyFromDate(new Date());
 }
 
 function formatMoney(amountCents, currency = 'eur') {
@@ -394,7 +393,7 @@ function renderSummary(balance = {}) {
     $summaryGrid.classList.toggle('credits-summary-grid--member', activeMode === 'member');
     if (activeMode === 'member') {
         $summaryGrid.append(
-            summaryCard(localeText('credits.totalAvailable'), formatCredits(balance.totalCredits ?? balance.current), 'credits-card--hero'),
+            summaryCard(localeText('credits.totalAvailable'), formatCredits(balance.totalCredits ?? balance.current)),
             summaryCard(localeText('credits.subscriptionCredits'), formatCredits(balance.subscriptionCredits)),
             summaryCard(localeText('credits.purchasedCredits'), formatCredits(balance.purchasedCredits)),
             summaryCard(localeText('credits.legacyOrBonusCredits'), formatCredits(balance.legacyOrBonusCredits)),
@@ -556,32 +555,18 @@ function compareLedgerEntries(a, b) {
     return a.index - b.index;
 }
 
-function compareLedgerMonthKeys(a, b) {
-    const dateA = monthStartFromKey(a);
-    const dateB = monthStartFromKey(b);
-    if (!dateA && !dateB) return 0;
-    if (!dateA) return 1;
-    if (!dateB) return -1;
-    return dateB.getTime() - dateA.getTime();
-}
-
-function groupLedgerByMonth(rows = []) {
-    const groups = new Map();
-    rows.forEach((item, index) => {
-        const date = parseLedgerDate(item?.createdAt);
-        const key = monthKeyFromDate(date);
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push({
-            item,
-            index,
-            timestamp: date ? date.getTime() : Number.NEGATIVE_INFINITY,
-        });
-    });
-
-    for (const [key, entries] of groups.entries()) {
-        groups.set(key, entries.sort(compareLedgerEntries).map((entry) => entry.item));
-    }
-    return groups;
+function sortLedgerRows(rows = []) {
+    return rows
+        .map((item, index) => {
+            const date = parseLedgerDate(item?.createdAt);
+            return {
+                item,
+                index,
+                timestamp: date ? date.getTime() : Number.NEGATIVE_INFINITY,
+            };
+        })
+        .sort(compareLedgerEntries)
+        .map((entry) => entry.item);
 }
 
 function ledgerDetails(item = {}) {
@@ -607,23 +592,25 @@ function ledgerField(label, value) {
 }
 
 function createLedgerItem(item = {}) {
-    const entry = document.createElement('article');
+    const entry = document.createElement('details');
     entry.className = 'credits-ledger-item';
 
-    const top = document.createElement('div');
-    top.className = 'credits-ledger-item__top';
+    const summary = document.createElement('summary');
+    summary.className = 'credits-ledger-item__summary';
     const type = document.createElement('span');
     type.className = 'credits-ledger-item__type';
-    type.textContent = item.type || item.entryType || localeText('credits.notReported');
+    type.textContent = String(item.type || item.entryType || localeText('credits.notReported')).toUpperCase();
     const date = document.createElement('time');
     date.className = 'credits-ledger-item__date';
     if (item.createdAt) date.dateTime = item.createdAt;
     date.textContent = formatDate(item.createdAt);
-    top.append(type, date);
-
-    const description = document.createElement('p');
+    const description = document.createElement('span');
     description.className = 'credits-ledger-item__description';
     description.textContent = item.description || item.source || localeText('credits.notReported');
+    const amount = document.createElement('span');
+    amount.className = 'credits-ledger-item__amount';
+    amount.textContent = formatCredits(item.amount);
+    summary.append(type, date, description, amount);
 
     const fields = document.createElement('dl');
     fields.className = 'credits-ledger-item__fields';
@@ -633,7 +620,7 @@ function createLedgerItem(item = {}) {
         ledgerField(localeText('credits.balance'), formatCredits(item.balanceAfter)),
     );
 
-    entry.append(top, description, fields);
+    entry.append(summary, fields);
     return entry;
 }
 
@@ -651,63 +638,30 @@ function createLedgerList(rows, modifier) {
     return list;
 }
 
-function createLedgerMonthCard({ label, rows = [], current = false } = {}) {
-    const card = document.createElement('article');
-    card.className = current ? 'credits-ledger-card credits-ledger-card--current' : 'credits-ledger-card';
+function renderLedger(rows = []) {
+    if (!$ledgerBody) return;
+    $ledgerBody.textContent = '';
+    $ledgerBody.className = 'credits-ledger-grid';
 
-    const title = document.createElement('h3');
-    title.className = 'credits-ledger-card__title';
-    title.textContent = label || localeText('credits.notReported');
-    card.appendChild(title);
-
-    if (!rows.length) {
+    const sortedRows = sortLedgerRows(rows);
+    if (!sortedRows.length) {
         const empty = document.createElement('p');
         empty.className = 'credits-empty';
         empty.textContent = localeText('credits.noLedger');
-        card.appendChild(empty);
-        return card;
+        $ledgerBody.appendChild(empty);
+        return;
     }
 
-    card.appendChild(createLedgerList(rows.slice(0, LEDGER_VISIBLE_LIMIT), 'credits-ledger-list--direct'));
+    $ledgerBody.appendChild(createLedgerList(sortedRows.slice(0, LEDGER_VISIBLE_LIMIT), 'credits-ledger-list--direct'));
 
-    const remaining = rows.slice(LEDGER_VISIBLE_LIMIT);
+    const remaining = sortedRows.slice(LEDGER_VISIBLE_LIMIT);
     if (remaining.length) {
         const details = document.createElement('details');
         details.className = 'credits-ledger-more';
         const summary = document.createElement('summary');
         summary.textContent = showMoreLabel(remaining.length);
         details.append(summary, createLedgerList(remaining, 'credits-ledger-more__items'));
-        card.appendChild(details);
-    }
-
-    return card;
-}
-
-function renderLedger(rows = []) {
-    if (!$ledgerBody) return;
-    $ledgerBody.textContent = '';
-    $ledgerBody.className = 'credits-ledger-grid';
-
-    const groups = groupLedgerByMonth(rows);
-    const currentKey = currentMonthKey();
-    $ledgerBody.appendChild(createLedgerMonthCard({
-        key: currentKey,
-        label: monthLabelFromKey(currentKey),
-        rows: groups.get(currentKey) || [],
-        current: true,
-    }));
-
-    const previousKeys = Array.from(groups.keys())
-        .filter((key) => key !== currentKey)
-        .sort(compareLedgerMonthKeys);
-
-    for (const key of previousKeys) {
-        $ledgerBody.appendChild(createLedgerMonthCard({
-            key,
-            label: monthLabelFromKey(key),
-            rows: groups.get(key) || [],
-            current: false,
-        }));
+        $ledgerBody.appendChild(details);
     }
 }
 
@@ -863,14 +817,9 @@ function renderMemberDashboard(dashboard) {
         pageSource: 'credits',
         signedIn: true,
     });
-    if ($orgName) $orgName.textContent = localeText('credits.personalCredits');
-    if ($accessScope) {
-        const topUp = dashboard.dailyTopUp;
-        $accessScope.textContent = topUp
-            ? localeText('credits.dailyTopupGranted', { credits: formatCredits(topUp.grantedCredits) })
-            : localeText('credits.personalAccount');
-    }
+    removeMemberAccountContext();
     removeMemberIrrelevantOrgPicker();
+    placePurchasesInMembership();
     if ($packsSection) $packsSection.hidden = false;
     if ($purchasesSection) $purchasesSection.hidden = false;
     const checkoutEnabled = renderCheckoutStatus(dashboard.liveCheckout, 'member');
@@ -897,6 +846,7 @@ function renderDashboard(dashboard) {
     if ($packsSection) $packsSection.hidden = false;
     if ($purchasesSection) $purchasesSection.hidden = false;
     if ($subscriptionSection) $subscriptionSection.hidden = true;
+    placePurchasesInCheckout();
     if ($orgName) $orgName.textContent = dashboard.organization?.name || localeText('credits.organization');
     if ($accessScope) {
         $accessScope.textContent = dashboard.organization?.accessScope === 'platform_admin'
