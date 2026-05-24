@@ -99,6 +99,30 @@ export function initGallery() {
         return String(item?.id || item?.slug || item?.thumb?.url || item?.preview?.url || '').trim();
     }
 
+    function getMempicDimensions(item) {
+        const width = Number(item?.thumb?.w || item?.preview?.w);
+        const height = Number(item?.thumb?.h || item?.preview?.h);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            return { width: 4, height: 3 };
+        }
+        return { width, height };
+    }
+
+    function getMempicAspectMeta(item) {
+        const { width, height } = getMempicDimensions(item);
+        const rawRatio = width / height;
+        const displayRatio = Math.min(1.78, Math.max(0.66, rawRatio));
+        const orientation = rawRatio < 0.9
+            ? 'portrait'
+            : rawRatio > 1.1
+                ? 'landscape'
+                : 'square';
+        return {
+            orientation,
+            ratio: displayRatio.toFixed(3),
+        };
+    }
+
     function mergeMempicsItems(items, { replace = false } = {}) {
         const nextItems = replace ? [] : mempicsState.items.slice();
         const seen = new Set(nextItems.map(getMempicIdentity).filter(Boolean));
@@ -385,6 +409,10 @@ export function initGallery() {
         card.className = 'gallery-item';
         const itemIdentity = getMempicIdentity(item);
         if (itemIdentity) card.dataset.galleryItemId = itemIdentity;
+        const aspectMeta = getMempicAspectMeta(item);
+        card.classList.add(`gallery-item--${aspectMeta.orientation}`);
+        card.dataset.galleryAspect = aspectMeta.orientation;
+        card.style.setProperty('--gallery-item-aspect', aspectMeta.ratio);
         card.setAttribute('tabindex', '0');
         card.setAttribute('role', 'button');
         card.setAttribute('aria-label', visibleTitle || item.title || 'Image');

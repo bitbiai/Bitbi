@@ -4232,8 +4232,21 @@ test.describe('Homepage', () => {
   });
 
   test('homepage Gallery fits five compact columns and two initial rows on wide desktop while preserving the mobile layout', async ({ page }) => {
+    const dimensions = [
+      { w: 360, h: 540 },
+      { w: 720, h: 405 },
+      { w: 440, h: 440 },
+      { w: 420, h: 620 },
+      { w: 640, h: 420 },
+      { w: 520, h: 700 },
+      { w: 560, h: 560 },
+      { w: 800, h: 450 },
+      { w: 380, h: 580 },
+      { w: 700, h: 430 },
+    ];
     const items = Array.from({ length: 10 }, (_, index) => {
       const id = `mempic-${index + 1}`;
+      const size = dimensions[index];
       return {
         id,
         slug: id,
@@ -4242,13 +4255,13 @@ test.describe('Homepage', () => {
         category: 'mempics',
         thumb: {
           url: `/api/gallery/mempics/${id}/thumb`,
-          w: 320,
-          h: 320,
+          w: size.w,
+          h: size.h,
         },
         preview: {
           url: `/api/gallery/mempics/${id}/medium`,
-          w: 1280,
-          h: 1280,
+          w: size.w * 2,
+          h: size.h * 2,
         },
         full: {
           url: `/api/gallery/mempics/${id}/file`,
@@ -4289,37 +4302,56 @@ test.describe('Homepage', () => {
       const rects = Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)')).map((node) => {
         const rect = node.getBoundingClientRect();
         return {
+          aspect: node.dataset.galleryAspect || '',
           left: Math.round(rect.left * 100) / 100,
           top: Math.round(rect.top * 100) / 100,
           right: Math.round(rect.right * 100) / 100,
+          width: Math.round(rect.width * 100) / 100,
+          height: Math.round(rect.height * 100) / 100,
         };
       });
-      const rows = [];
+      const columns = [];
       rects.forEach((rect) => {
-        let row = rows.find((candidate) => Math.abs(candidate.top - rect.top) <= 3);
-        if (!row) {
-          row = { top: rect.top, cards: [] };
-          rows.push(row);
+        let column = columns.find((candidate) => Math.abs(candidate.left - rect.left) <= 3);
+        if (!column) {
+          column = { left: rect.left, cards: [] };
+          columns.push(column);
         }
-        row.cards.push(rect);
+        column.cards.push(rect);
       });
-      rows.forEach((row) => row.cards.sort((a, b) => a.left - b.left));
-      const firstRowGaps = rows[0]?.cards.slice(1).map((rect, index) => (
-        Math.round((rect.left - rows[0].cards[index].right) * 100) / 100
+      columns.sort((a, b) => a.left - b.left);
+      const topBand = rects.filter((rect) => Math.abs(rect.top - Math.min(...rects.map((item) => item.top))) <= 3);
+      topBand.sort((a, b) => a.left - b.left);
+      const firstBandGaps = topBand.slice(1).map((rect, index) => (
+        Math.round((rect.left - topBand[index].right) * 100) / 100
       )) || [];
       return {
-        columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+        display: style.display,
+        columnCount: Number(style.columnCount),
         overflow: grid.scrollWidth - grid.clientWidth,
-        rowCounts: rows.map((row) => row.cards.length),
-        firstRowGaps,
+        renderedCount: rects.length,
+        topBandCount: topBand.length,
+        columnCounts: columns.map((column) => column.cards.length),
+        firstBandGaps,
+        portrait: rects.find((rect) => rect.aspect === 'portrait') || null,
+        landscape: rects.find((rect) => rect.aspect === 'landscape') || null,
+        square: rects.find((rect) => rect.aspect === 'square') || null,
+        roundedHeights: Array.from(new Set(rects.map((rect) => Math.round(rect.height / 10) * 10))),
       };
     });
 
-    expect(wideLayout.columns).toBe(5);
+    expect(wideLayout.display).toBe('block');
+    expect(wideLayout.columnCount).toBe(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
-    expect(wideLayout.rowCounts).toEqual([5, 5]);
-    expect(Math.max(...wideLayout.firstRowGaps)).toBeLessThanOrEqual(16);
-    expect(Math.max(...wideLayout.firstRowGaps) - Math.min(...wideLayout.firstRowGaps)).toBeLessThanOrEqual(3);
+    expect(wideLayout.renderedCount).toBe(10);
+    expect(wideLayout.topBandCount).toBe(5);
+    expect(wideLayout.columnCounts).toHaveLength(5);
+    expect(Math.max(...wideLayout.firstBandGaps)).toBeLessThanOrEqual(16);
+    expect(Math.max(...wideLayout.firstBandGaps) - Math.min(...wideLayout.firstBandGaps)).toBeLessThanOrEqual(3);
+    expect(wideLayout.portrait.height).toBeGreaterThan(wideLayout.portrait.width * 1.12);
+    expect(wideLayout.landscape.width).toBeGreaterThan(wideLayout.landscape.height * 1.12);
+    expect(Math.abs(wideLayout.square.width - wideLayout.square.height)).toBeLessThanOrEqual(3);
+    expect(wideLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 844 });
 
