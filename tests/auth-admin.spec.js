@@ -435,6 +435,20 @@ function createMockAiCatalog() {
         model: 'alibaba/hh1-t2v',
         description: 'Admin HappyHorse video preset',
       },
+      {
+        name: 'video_seedance_2_fast',
+        task: 'video',
+        label: 'Seedance 2.0 Fast',
+        model: 'bytedance/seedance-2.0-fast',
+        description: 'Admin Seedance 2.0 Fast preset. Pricing configuration required.',
+      },
+      {
+        name: 'video_seedance_2',
+        task: 'video',
+        label: 'Seedance 2.0',
+        model: 'bytedance/seedance-2.0',
+        description: 'Admin Seedance 2.0 preset. Pricing configuration required.',
+      },
     ],
     models: {
       text: [
@@ -670,6 +684,82 @@ function createMockAiCatalog() {
             defaultGenerateAudio: false,
             defaultWatermark: false,
             defaultPreset: 'video_happyhorse_1_0_t2v',
+          },
+        },
+        {
+          id: 'bytedance/seedance-2.0-fast',
+          task: 'video',
+          label: 'Seedance 2.0 Fast',
+          vendor: 'ByteDance',
+          providerLabel: 'Cloudflare AI Gateway',
+          description: 'Admin-only Cloudflare/AI Gateway Seedance 2.0 Fast entry. Pricing configuration required.',
+          capabilities: {
+            supportsImageInput: false,
+            supportsEndImage: false,
+            supportsNegativePrompt: false,
+            supportsSeed: false,
+            supportsAudioToggle: false,
+            supportsWatermark: false,
+            supportsPromptlessImageMode: false,
+            resolutionField: 'resolution',
+            aspectRatioMode: 'always',
+            maxPromptLength: 5000,
+            maxNegativePromptLength: null,
+            minDuration: 4,
+            maxDuration: 15,
+            aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+            qualityOptions: [],
+            resolutionOptions: ['480p', '720p'],
+            defaultDuration: 5,
+            defaultAspectRatio: '16:9',
+            defaultQuality: null,
+            defaultResolution: '720p',
+            defaultGenerateAudio: false,
+            defaultWatermark: false,
+            defaultPreset: 'video_seedance_2_fast',
+            adminOnly: true,
+            pricingRequired: true,
+            generationEnabled: false,
+            unavailableCode: 'model_pricing_required',
+            unavailableMessage: 'Pricing is not configured for this admin Video AI model. Configure verified Cloudflare pricing before generation.',
+          },
+        },
+        {
+          id: 'bytedance/seedance-2.0',
+          task: 'video',
+          label: 'Seedance 2.0',
+          vendor: 'ByteDance',
+          providerLabel: 'Cloudflare AI Gateway',
+          description: 'Admin-only Cloudflare/AI Gateway Seedance 2.0 entry. Pricing configuration required.',
+          capabilities: {
+            supportsImageInput: false,
+            supportsEndImage: false,
+            supportsNegativePrompt: false,
+            supportsSeed: false,
+            supportsAudioToggle: false,
+            supportsWatermark: false,
+            supportsPromptlessImageMode: false,
+            resolutionField: 'resolution',
+            aspectRatioMode: 'always',
+            maxPromptLength: 5000,
+            maxNegativePromptLength: null,
+            minDuration: 4,
+            maxDuration: 15,
+            aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+            qualityOptions: [],
+            resolutionOptions: ['480p', '720p'],
+            defaultDuration: 5,
+            defaultAspectRatio: '16:9',
+            defaultQuality: null,
+            defaultResolution: '720p',
+            defaultGenerateAudio: false,
+            defaultWatermark: false,
+            defaultPreset: 'video_seedance_2',
+            adminOnly: true,
+            pricingRequired: true,
+            generationEnabled: false,
+            unavailableCode: 'model_pricing_required',
+            unavailableMessage: 'Pricing is not configured for this admin Video AI model. Configure verified Cloudflare pricing before generation.',
           },
         },
       ],
@@ -8730,6 +8820,8 @@ test.describe('Assets Manager (authenticated)', () => {
     const videoCard = overlay.locator('.models-overlay__card').filter({ hasText: 'PixVerse V6' });
     await expect(videoCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' })).toHaveCount(0);
+    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Seedance 2.0 Fast' })).toHaveCount(0);
+    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Seedance 2.0' })).toHaveCount(0);
     const happyHorseCard = overlay.locator('.models-overlay__card').filter({ hasText: 'HappyHorse 1.0 T2V' });
     await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');
@@ -15893,7 +15985,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoImageClear')).toBeHidden();
   });
 
-  test('shows the Vidu Q3 Pro video card in the admin AI Lab', async ({
+  test('shows the admin-only Video AI model cards in the admin AI Lab', async ({
     page,
   }) => {
     await page.goto('/admin/index.html#ai-lab');
@@ -15904,6 +15996,65 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoCardVidu')).toContainText('vidu/q3-pro');
     await expect(page.locator('#aiVideoCardHappyHorse')).toBeVisible();
     await expect(page.locator('#aiVideoCardHappyHorse')).toContainText('alibaba/hh1-t2v');
+    await expect(page.locator('#aiVideoCardSeedanceFast')).toBeVisible();
+    await expect(page.locator('#aiVideoCardSeedanceFast')).toContainText('bytedance/seedance-2.0-fast');
+    await expect(page.locator('#aiVideoCardSeedance')).toBeVisible();
+    await expect(page.locator('#aiVideoCardSeedance')).toContainText('bytedance/seedance-2.0');
+  });
+
+  test('Seedance Video AI models are admin-only but fail closed until verified pricing is configured', async ({
+    page,
+  }) => {
+    const requests = [];
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.unroute('**/api/admin/ai/video-jobs');
+    await page.route('**/api/admin/ai/video-jobs', async (route) => {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'Seedance must not submit while pricing is missing.' }),
+      });
+    });
+
+    await clickAiLabMode(page, 'video');
+    await page.locator('#aiVideoCardSeedanceFast').click();
+    await expect(page.locator('#aiVideoModelBadge')).toContainText('bytedance/seedance-2.0-fast');
+    await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
+    await expect(page.locator('#aiVideoImageField')).toBeHidden();
+    await expect(page.locator('#aiVideoStartImageField')).toBeHidden();
+    await expect(page.locator('#aiVideoEndImageField')).toBeHidden();
+    await expect(page.locator('#aiVideoResolutionField')).toBeVisible();
+    await expect(page.locator('#aiVideoSeedField')).toBeHidden();
+    await expect(page.locator('label:has(#aiVideoGenerateAudio)')).toBeHidden();
+    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('min', '4');
+    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('max', '15');
+    await expect(page.locator('#aiVideoRun')).toBeDisabled();
+    await expect(page.locator('#aiVideoRun')).toHaveAttribute(
+      'title',
+      /Pricing is not configured for this admin Video AI model/,
+    );
+    await expect(page.locator('#aiVideoState')).toContainText('Pricing is not configured');
+    await expect(page.locator('#aiVideoInlineError')).toContainText('Pricing is not configured');
+
+    await page.locator('#aiVideoPrompt').fill('A fast Seedance smoke test');
+    expect(requests).toHaveLength(0);
+
+    await page.locator('#aiVideoCardSeedance').click();
+    await expect(page.locator('#aiVideoModelBadge')).toContainText('bytedance/seedance-2.0');
+    await expect(page.locator('#aiVideoRun')).toBeDisabled();
+    await expect(page.locator('#aiVideoResolutionField')).toBeVisible();
+
+    await page.locator('#aiVideoCardPixverse').click();
+    await expect(page.locator('#aiVideoModelBadge')).toContainText('pixverse/v6');
+    await expect(page.locator('#aiVideoRun')).toBeEnabled();
+    await expect(page.locator('#aiVideoImageField')).toBeVisible();
+    await expect(page.locator('#aiVideoNegativePromptField')).toBeVisible();
+    await expect(page.locator('#aiVideoSeedField')).toBeVisible();
+    await expect(page.locator('label:has(#aiVideoGenerateAudio)')).toBeVisible();
   });
 
   test('HappyHorse 1.0 T2V sends only supported Cloudflare fields and shows admin cost metadata', async ({

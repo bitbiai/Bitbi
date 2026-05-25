@@ -2210,6 +2210,16 @@
                                 <code class="admin-ai__video-model-card-id">alibaba/hh1-t2v</code>
                                 <span class="admin-ai__video-model-card-copy">Cloudflare Workers AI text-to-video with resolution, ratio, duration, seed, and watermark controls.</span>
                             </button>
+                            <button type="button" id="aiVideoCardSeedanceFast" class="admin-ai__video-model-card" data-ai-video-model="bytedance/seedance-2.0-fast" aria-selected="false">
+                                <span class="admin-ai__video-model-card-title">Seedance 2.0 Fast</span>
+                                <code class="admin-ai__video-model-card-id">bytedance/seedance-2.0-fast</code>
+                                <span class="admin-ai__video-model-card-copy">Admin-only Cloudflare entry. Pricing configuration is required before generation.</span>
+                            </button>
+                            <button type="button" id="aiVideoCardSeedance" class="admin-ai__video-model-card" data-ai-video-model="bytedance/seedance-2.0" aria-selected="false">
+                                <span class="admin-ai__video-model-card-title">Seedance 2.0</span>
+                                <code class="admin-ai__video-model-card-id">bytedance/seedance-2.0</code>
+                                <span class="admin-ai__video-model-card-copy">Admin-only Cloudflare entry. Pricing configuration is required before generation.</span>
+                            </button>
                         </div>
 
                         <label class="admin-ai__field">
@@ -2313,6 +2323,7 @@
                             <label id="aiVideoResolutionField" class="admin-ai__field" hidden>
                                 <span class="admin-ai__label">Resolution</span>
                                 <select id="aiVideoResolution" class="admin-ai__input">
+                                    <option value="480p">480p</option>
                                     <option value="540p">540p</option>
                                     <option value="720p" selected>720p</option>
                                     <option value="1080p">1080p</option>

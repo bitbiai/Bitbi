@@ -25,6 +25,10 @@ import {
     ADMIN_AI_MUSIC_KEYS,
     ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
     ADMIN_AI_VIDEO_MODEL_ID,
+    ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
+    ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+    ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID,
+    ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID,
     ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
     FLUX_2_DEV_MODEL_ID,
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
@@ -472,6 +476,8 @@ function describeAdminAiError(task, error, code) {
         return message
             ? `${ADMIN_AI_CODE_MESSAGES.model_not_allowed} ${message}`
             : ADMIN_AI_CODE_MESSAGES.model_not_allowed;
+    case ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE:
+        return message || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
     case 'duplicate_models':
         return ADMIN_AI_CODE_MESSAGES.duplicate_models;
     case 'unauthorized':
@@ -1560,6 +1566,9 @@ export function createAdminAiLab({ showToast } = {}) {
         const isPixverse = spec.id === ADMIN_AI_VIDEO_MODEL_ID;
         const isVidu = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
         const isHappyHorse = spec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID;
+        const isSeedance = spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
+            || spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
+        const isGenerationBlocked = spec.generationEnabled === false || spec.pricingRequired === true;
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
             && (!!state.forms.video.startImageInput || !!state.forms.video.endImageInput);
 
@@ -1573,7 +1582,9 @@ export function createAdminAiLab({ showToast } = {}) {
         });
 
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
-        refs.video.prompt.placeholder = isVidu
+        refs.video.prompt.placeholder = isSeedance
+            ? 'Describe a Seedance video prompt. Generation is blocked until verified pricing is configured.'
+            : isVidu
             ? (usesViduFrameWorkflow
                 ? 'Optional — add a text prompt to steer motion between the selected frames.'
                 : 'Describe the scene, motion, and visual style for text-to-video.')
@@ -1636,6 +1647,8 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.seed.disabled = isBusy || !spec.supportsSeed;
 
         refs.video.generateAudio.disabled = isBusy || (!spec.supportsAudioToggle && !spec.supportsWatermark);
+        const audioLabel = refs.video.generateAudio?.closest('label');
+        if (audioLabel) audioLabel.hidden = !spec.supportsAudioToggle && !spec.supportsWatermark;
         if (refs.video.audioLabel) {
             refs.video.audioLabel.textContent = isHappyHorse
                 ? 'Watermark'
@@ -1650,6 +1663,12 @@ export function createAdminAiLab({ showToast } = {}) {
             if (!isVidu) refs.video.minimalMode.checked = false;
         }
         if (refs.video.minimalModeHint && !isVidu) refs.video.minimalModeHint.hidden = true;
+        if (refs.video.run) {
+            refs.video.run.disabled = isBusy || isGenerationBlocked || !hasCatalog();
+            refs.video.run.title = isGenerationBlocked
+                ? (spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE)
+                : '';
+        }
         refs.video.reset.disabled = isBusy;
         if (refs.video.imageClear) refs.video.imageClear.disabled = isBusy;
         if (refs.video.startImageClear) refs.video.startImageClear.disabled = isBusy;
@@ -3397,7 +3416,11 @@ export function createAdminAiLab({ showToast } = {}) {
         renderDebug(refs.video.debug, refs.video.raw, result?.debugRaw || response);
 
         if (!result) {
-            setResultState(refs.video.state, 'neutral', 'No video generation yet.');
+            const spec = getSelectedVideoModelSpec();
+            const isGenerationBlocked = spec.generationEnabled === false || spec.pricingRequired === true;
+            const blockedMessage = spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
+            setResultState(refs.video.state, isGenerationBlocked ? 'error' : 'neutral', isGenerationBlocked ? blockedMessage : 'No video generation yet.');
+            setVideoInlineError(isGenerationBlocked ? blockedMessage : '');
             syncVideoFieldState();
             return;
         }
@@ -3453,6 +3476,9 @@ export function createAdminAiLab({ showToast } = {}) {
     function validateVideoForm() {
         const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
+        if (spec.generationEnabled === false || spec.pricingRequired === true) {
+            return spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
+        }
         const duration = Number(state.forms.video.duration);
         if (!Number.isInteger(duration) || duration < (spec.minDuration || 1) || duration > (spec.maxDuration || 16)) {
             return `Duration must be an integer between ${spec.minDuration || 1} and ${spec.maxDuration || 16} seconds.`;
@@ -5172,7 +5198,14 @@ export function createAdminAiLab({ showToast } = {}) {
                 const on = refs.video.minimalMode.checked;
                 if (refs.video.minimalModeHint) refs.video.minimalModeHint.hidden = !on;
             });
-            refs.video.prompt.addEventListener('input', () => setVideoInlineError(''));
+            refs.video.prompt.addEventListener('input', () => {
+                const spec = getSelectedVideoModelSpec();
+                if (spec.generationEnabled === false || spec.pricingRequired === true) {
+                    setVideoInlineError(spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE);
+                    return;
+                }
+                setVideoInlineError('');
+            });
             refs.video.imageFile?.addEventListener('change', handleVideoImageFile);
             refs.video.imageClear?.addEventListener('click', clearVideoImage);
             refs.video.startImageFile?.addEventListener('change', handleVideoStartImageFile);

@@ -12742,6 +12742,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(centralHappyHorse).toEqual(happyHorsePricing.calculateHappyHorseT2vCreditPricing(happyHorseParams));
     expect(centralHappyHorse.effectiveProfitMargin)
       .toBeGreaterThanOrEqual(happyHorsePricing.BITBI_HAPPYHORSE_TARGET_PROFIT_MARGIN);
+
+    for (const seedanceModelId of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
+      expect(modelPricing.calculateAiModelCreditCost({
+        mediaType: 'video',
+        modelId: seedanceModelId,
+        params: { duration: 5, resolution: '720p', aspect_ratio: '16:9' },
+      })).toBeNull();
+    }
   });
 
   test('member PixVerse V6 generation charges dynamic credits and saves a video asset', async () => {
@@ -20102,6 +20110,8 @@ test.describe('Worker routes', () => {
         'pixverse/v6',
         'vidu/q3-pro',
         'alibaba/hh1-t2v',
+        'bytedance/seedance-2.0-fast',
+        'bytedance/seedance-2.0',
       ]));
       const happyHorse = body.models.video.find((model) => model.id === 'alibaba/hh1-t2v');
       expect(happyHorse).toMatchObject({
@@ -20114,6 +20124,31 @@ test.describe('Worker routes', () => {
           aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
           minDuration: 3,
           maxDuration: 15,
+        }),
+      });
+      const seedanceFast = body.models.video.find((model) => model.id === 'bytedance/seedance-2.0-fast');
+      expect(seedanceFast).toMatchObject({
+        label: 'Seedance 2.0 Fast',
+        vendor: 'ByteDance',
+        capabilities: expect.objectContaining({
+          adminOnly: true,
+          pricingRequired: true,
+          generationEnabled: false,
+          unavailableCode: 'model_pricing_required',
+          resolutionOptions: ['480p', '720p'],
+          minDuration: 4,
+          maxDuration: 15,
+        }),
+      });
+      const seedance = body.models.video.find((model) => model.id === 'bytedance/seedance-2.0');
+      expect(seedance).toMatchObject({
+        label: 'Seedance 2.0',
+        vendor: 'ByteDance',
+        capabilities: expect.objectContaining({
+          adminOnly: true,
+          pricingRequired: true,
+          generationEnabled: false,
+          unavailableCode: 'model_pricing_required',
         }),
       });
       expect(body.presets[0]).toEqual(expect.objectContaining({
@@ -22166,6 +22201,44 @@ test.describe('Worker routes', () => {
           model: 'alibaba/hh1-t2v',
         },
       });
+    });
+
+    test('POST /api/admin/ai/video-jobs fails closed for Seedance before queueing while pricing is missing', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-seedance-admin');
+      const service = createAiVideoJobServiceBinding();
+      const env = createAuthTestEnv({ users: [admin] });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+
+      for (const model of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+            model,
+            prompt: 'Seedance queue should not start without verified pricing.',
+            duration: 5,
+            aspect_ratio: '16:9',
+            resolution: '720p',
+          }, {
+            Origin: 'https://bitbi.ai',
+            Cookie: `bitbi_session=${token}`,
+            'Idempotency-Key': `video-job-${model.replace(/[^a-z0-9]+/gi, '-')}`,
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(409);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: false,
+          code: 'model_pricing_required',
+          error: expect.stringContaining('Pricing is not configured'),
+        }));
+      }
+
+      expect(env.DB.state.aiVideoJobs).toHaveLength(0);
+      expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
+      expect(service.calls).toHaveLength(0);
     });
 
     test('POST /api/admin/ai/video-jobs keeps HappyHorse admin-only for non-admin sessions', async () => {
@@ -27729,6 +27802,39 @@ test.describe('Worker routes', () => {
         code: 'validation_error',
         error: expect.stringContaining('negative_prompt is not supported by model "alibaba/hh1-t2v"'),
       }));
+    });
+
+    test('POST /api/admin/ai/test-video fails closed for Seedance until verified pricing is configured', async () => {
+      let aiRunCalls = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          aiRunCalls += 1;
+          return { video_url: 'https://cdn.example.com/video/seedance.mp4' };
+        },
+      });
+
+      for (const model of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-video', 'POST', {
+            model,
+            prompt: 'Seedance pricing must be configured before admin generation.',
+            duration: 5,
+            aspect_ratio: '16:9',
+            resolution: '720p',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(409);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: false,
+          code: 'model_pricing_required',
+          error: expect.stringContaining('Pricing is not configured'),
+        }));
+      }
+
+      expect(aiRunCalls).toBe(0);
     });
 
     test('POST /api/admin/ai/test-video accepts image_input for image-to-video', async () => {

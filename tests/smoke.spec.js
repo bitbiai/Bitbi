@@ -60,6 +60,8 @@ const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 
 const expectedModelCatalogs = new Map();
 const REMOVED_MODELS_OVERLAY_MODEL_IDS = new Set([
+  'bytedance/seedance-2.0-fast',
+  'bytedance/seedance-2.0',
   'vidu/q3-pro',
 ]);
 
@@ -2574,6 +2576,8 @@ test.describe('Homepage', () => {
     await expect(page.getByLabel('Describe your video')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
+    await expect(page.getByText('Seedance 2.0 Fast')).toHaveCount(0);
+    await expect(page.getByText('Seedance 2.0')).toHaveCount(0);
 
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
     await expect(page.locator('#labCost')).toHaveText('459 credits');

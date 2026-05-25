@@ -54,6 +54,11 @@ export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
 export const ADMIN_AI_VIDEO_MODEL_ID = "pixverse/v6";
 export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
 export const ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID = HAPPYHORSE_T2V_MODEL_ID;
+export const ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID = "bytedance/seedance-2.0-fast";
+export const ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID = "bytedance/seedance-2.0";
+export const ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE = "model_pricing_required";
+export const ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE =
+  "Pricing is not configured for this admin Video AI model. Configure verified Cloudflare pricing before generation.";
 export const ADMIN_AI_MUSIC_KEYS = [
   "C Major",
   "C# Major",
@@ -172,6 +177,26 @@ export const ADMIN_AI_LIMITS = {
         defaultAspectRatio: HAPPYHORSE_T2V_DEFAULT_RATIO,
         defaultResolution: HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
         defaultWatermark: HAPPYHORSE_T2V_DEFAULT_WATERMARK,
+      },
+      [ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID]: {
+        maxPromptLength: 5000,
+        minDuration: 4,
+        maxDuration: 15,
+        allowedAspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+        allowedResolutions: ["480p", "720p"],
+        defaultDuration: 5,
+        defaultAspectRatio: "16:9",
+        defaultResolution: "720p",
+      },
+      [ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID]: {
+        maxPromptLength: 5000,
+        minDuration: 4,
+        maxDuration: 15,
+        allowedAspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+        allowedResolutions: ["480p", "720p"],
+        defaultDuration: 5,
+        defaultAspectRatio: "16:9",
+        defaultResolution: "720p",
       },
     },
   },
@@ -468,6 +493,74 @@ const VIDEO_MODELS = {
     defaultPreset: "video_happyhorse_1_0_t2v",
     description: "Admin-only Cloudflare Workers AI text-to-video generation with prompt, resolution, ratio, duration, seed, and watermark controls.",
   },
+  [ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID]: {
+    id: ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID,
+    task: "video",
+    label: "Seedance 2.0 Fast",
+    vendor: "ByteDance",
+    providerLabel: "Cloudflare AI Gateway",
+    inputFormat: "json",
+    proxied: true,
+    adminOnly: true,
+    pricingRequired: true,
+    generationEnabled: false,
+    unavailableCode: ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
+    unavailableMessage: ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+    supportsImageInput: false,
+    supportsEndImage: false,
+    supportsNegativePrompt: false,
+    supportsSeed: false,
+    supportsAudioToggle: false,
+    supportsWatermark: false,
+    supportsPromptlessImageMode: false,
+    resolutionField: "resolution",
+    aspectRatioMode: "always",
+    maxPromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID].maxPromptLength,
+    minDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID].minDuration,
+    maxDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID].maxDuration,
+    allowedAspectRatios: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID].allowedAspectRatios,
+    allowedResolutions: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID].allowedResolutions,
+    defaultDuration: 5,
+    defaultAspectRatio: "16:9",
+    defaultResolution: "720p",
+    defaultGenerateAudio: false,
+    defaultPreset: "video_seedance_2_fast",
+    description: "Admin-only Cloudflare/AI Gateway Seedance 2.0 Fast entry. Generation stays blocked until verified provider pricing is configured.",
+  },
+  [ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID]: {
+    id: ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID,
+    task: "video",
+    label: "Seedance 2.0",
+    vendor: "ByteDance",
+    providerLabel: "Cloudflare AI Gateway",
+    inputFormat: "json",
+    proxied: true,
+    adminOnly: true,
+    pricingRequired: true,
+    generationEnabled: false,
+    unavailableCode: ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
+    unavailableMessage: ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+    supportsImageInput: false,
+    supportsEndImage: false,
+    supportsNegativePrompt: false,
+    supportsSeed: false,
+    supportsAudioToggle: false,
+    supportsWatermark: false,
+    supportsPromptlessImageMode: false,
+    resolutionField: "resolution",
+    aspectRatioMode: "always",
+    maxPromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID].maxPromptLength,
+    minDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID].minDuration,
+    maxDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID].maxDuration,
+    allowedAspectRatios: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID].allowedAspectRatios,
+    allowedResolutions: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID].allowedResolutions,
+    defaultDuration: 5,
+    defaultAspectRatio: "16:9",
+    defaultResolution: "720p",
+    defaultGenerateAudio: false,
+    defaultPreset: "video_seedance_2",
+    description: "Admin-only Cloudflare/AI Gateway Seedance 2.0 entry. Generation stays blocked until verified provider pricing is configured.",
+  },
 };
 
 const PRESETS = {
@@ -533,6 +626,20 @@ const PRESETS = {
     label: HAPPYHORSE_T2V_MODEL_LABEL,
     model: ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
     description: "HappyHorse 1.0 T2V preset for admin-only Cloudflare Workers AI generation.",
+  },
+  video_seedance_2_fast: {
+    name: "video_seedance_2_fast",
+    task: "video",
+    label: "Seedance 2.0 Fast",
+    model: ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID,
+    description: "Admin-only Seedance 2.0 Fast preset. Pricing configuration required before generation.",
+  },
+  video_seedance_2: {
+    name: "video_seedance_2",
+    task: "video",
+    label: "Seedance 2.0",
+    model: ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID,
+    description: "Admin-only Seedance 2.0 preset. Pricing configuration required before generation.",
   },
 };
 
@@ -945,6 +1052,11 @@ function toPublicModel(model) {
       defaultGenerateAudio: model.defaultGenerateAudio !== false,
       defaultWatermark: model.defaultWatermark === true,
       defaultPreset: model.defaultPreset || null,
+      adminOnly: model.adminOnly === true,
+      pricingRequired: model.pricingRequired === true,
+      generationEnabled: model.generationEnabled !== false,
+      unavailableCode: model.unavailableCode || null,
+      unavailableMessage: model.unavailableMessage || null,
     };
   }
   return pub;
@@ -1269,6 +1381,14 @@ export function validateAdminAiVideoBody(body) {
   const model = optionalString(input.model, "model", 120);
   const selection = resolveAdminAiModelSelection("video", { preset, model });
   const selectedModel = selection.model;
+
+  if (selectedModel.pricingRequired || selectedModel.generationEnabled === false) {
+    throw new AdminAiValidationError(
+      selectedModel.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+      409,
+      selectedModel.unavailableCode || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE
+    );
+  }
 
   if (selectedModel.id === ADMIN_AI_VIDEO_MODEL_ID) {
     assertOnlyAllowedFields(

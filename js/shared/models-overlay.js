@@ -16,6 +16,8 @@ import { setupFocusTrap } from './focus-trap.js';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const MODELS_OVERLAY_REMOVED_MODEL_IDS = Object.freeze([
+    'bytedance/seedance-2.0-fast',
+    'bytedance/seedance-2.0',
     'vidu/q3-pro',
 ]);
 
