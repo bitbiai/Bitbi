@@ -4020,6 +4020,7 @@ test.describe('Homepage', () => {
 
   test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {
     const rawPrompt = 'Raw prompt text should stay hidden from public Video Explore cards.';
+    const rawDescription = 'A cinematic prompt description that should not be visible on Video Explore cards.';
     await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -4031,9 +4032,14 @@ test.describe('Homepage', () => {
               {
                 id: 'bada55e1',
                 slug: 'memvid-bada55e1',
-                title: rawPrompt,
+                title: rawDescription,
                 prompt: rawPrompt,
+                description: rawDescription,
+                prompt_description: rawDescription,
                 preview_text: rawPrompt,
+                metadata: {
+                  description: rawDescription,
+                },
                 caption: 'Published by Ada Member on 2026-04-14.',
                 category: 'memvids',
                 publisher: {
@@ -4104,11 +4110,20 @@ test.describe('Homepage', () => {
     expect(Math.abs(videoAvatarBox.width - videoAvatarBox.height)).toBeLessThanOrEqual(1);
     await expect(videoCard.locator('.video-card__caption')).toHaveText('Published by Ada Member on 2026-04-14.');
     await expect(videoCard).not.toContainText(rawPrompt);
+    await expect(videoCard).not.toContainText(rawDescription);
     await expect(videoCard.locator('.video-card__subtitle')).toHaveCount(0);
     const videoAriaLabel = await videoCard.getAttribute('aria-label');
     expect(videoAriaLabel).not.toContain(rawPrompt);
+    expect(videoAriaLabel).not.toContain(rawDescription);
+    const videoTitleAttribute = await videoCard.getAttribute('title');
+    expect(videoTitleAttribute || '').not.toContain(rawPrompt);
+    expect(videoTitleAttribute || '').not.toContain(rawDescription);
+    const videoPreviewAlt = await videoCard.locator('.video-card__preview').getAttribute('alt');
+    expect(videoPreviewAlt).not.toContain(rawPrompt);
+    expect(videoPreviewAlt).not.toContain(rawDescription);
     const favoriteAriaLabel = await videoCard.locator('.fav-star').getAttribute('aria-label');
     expect(favoriteAriaLabel).not.toContain(rawPrompt);
+    expect(favoriteAriaLabel).not.toContain(rawDescription);
   });
 
   test('desktop published Mempics and Memvids start at two rows without changing mobile behavior', async ({ page }) => {
@@ -4795,11 +4810,15 @@ test.describe('Homepage', () => {
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
     expect(idsAfterClick).not.toContain('progressive-memvid-60');
 
-    await page.evaluate(() => {
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
-      window.dispatchEvent(new Event('scroll'));
-    });
-    await expect.poll(() => cards.count()).toBe(50);
+    await page.waitForTimeout(220);
+    await expect.poll(async () => {
+      await page.locator('#videoPagination .browse-pagination__sentinel').scrollIntoViewIfNeeded();
+      await page.evaluate(() => {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+        window.dispatchEvent(new Event('scroll'));
+      });
+      return cards.count();
+    }).toBe(50);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
     expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);

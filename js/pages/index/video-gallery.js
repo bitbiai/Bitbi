@@ -163,30 +163,59 @@ export function initVideoGallery() {
         return typeof value === 'string' ? value.trim() : '';
     }
 
-    function getMemvidPromptText(item) {
+    function getMemvidPromptTexts(item) {
         const promptCandidates = [
             item?.prompt,
             item?.generation_prompt,
             item?.input_prompt,
             item?.source_prompt,
+            item?.description,
+            item?.generation_description,
+            item?.prompt_description,
+            item?.raw_prompt,
+            item?.raw_description,
+            item?.raw_prompt_description,
             item?.preview_text,
             item?.metadata?.prompt,
+            item?.metadata?.generation_prompt,
             item?.metadata?.input_prompt,
             item?.metadata?.source_prompt,
+            item?.metadata?.description,
+            item?.metadata?.generation_description,
+            item?.metadata?.prompt_description,
+            item?.metadata?.raw_prompt,
+            item?.metadata?.raw_description,
+            item?.metadata?.raw_prompt_description,
+            item?.metadata?.preview_text,
         ];
-        return promptCandidates.map(normalizeMemvidText).find(Boolean) || '';
+        return promptCandidates.map(normalizeMemvidText).filter(Boolean);
     }
 
-    function memvidTextMatchesPrompt(text, prompt) {
-        return Boolean(text && prompt && text.trim().toLowerCase() === prompt.trim().toLowerCase());
+    function memvidTextMatchesPrompt(text, prompts) {
+        const normalizedText = normalizeMemvidText(text).toLowerCase();
+        if (!normalizedText) return false;
+        const promptTexts = Array.isArray(prompts) ? prompts : [prompts];
+        return promptTexts.some((prompt) => normalizeMemvidText(prompt).toLowerCase() === normalizedText);
+    }
+
+    function isMemvidPromptSource(value) {
+        return [
+            'prompt',
+            'generation_prompt',
+            'input_prompt',
+            'source_prompt',
+            'description',
+            'generation_description',
+            'prompt_description',
+        ].includes(normalizeMemvidText(value).toLowerCase());
     }
 
     function getMemvidDisplayTitle(item) {
         const title = normalizeMemvidText(item?.display_title || item?.asset_title || item?.name || item?.title);
         if (!title || title.toLowerCase() === 'memvids') return '';
         const source = normalizeMemvidText(item?.title_source || item?.titleSource).toLowerCase();
-        if (source === 'prompt' || item?.title_is_prompt === true || item?.is_prompt_title === true) return '';
-        if (memvidTextMatchesPrompt(title, getMemvidPromptText(item))) return '';
+        if (isMemvidPromptSource(source) || item?.title_is_prompt === true || item?.is_prompt_title === true) return '';
+        if (memvidTextMatchesPrompt(title, getMemvidPromptTexts(item))) return '';
         return title;
     }
 
@@ -194,8 +223,8 @@ export function initVideoGallery() {
         const caption = normalizeMemvidText(item?.caption);
         if (!caption) return '';
         const source = normalizeMemvidText(item?.caption_source || item?.captionSource).toLowerCase();
-        if (source === 'prompt' || item?.caption_is_prompt === true || item?.is_prompt_caption === true) return '';
-        if (memvidTextMatchesPrompt(caption, getMemvidPromptText(item))) return '';
+        if (isMemvidPromptSource(source) || item?.caption_is_prompt === true || item?.is_prompt_caption === true) return '';
+        if (memvidTextMatchesPrompt(caption, getMemvidPromptTexts(item))) return '';
         return caption;
     }
 
