@@ -709,7 +709,7 @@ function createMockAiCatalog() {
             maxDuration: 12,
             aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
             qualityOptions: [],
-            resolutionOptions: ['720p', '1080p'],
+            resolutionOptions: ['480p', '720p'],
             defaultDuration: 5,
             defaultAspectRatio: '16:9',
             defaultQuality: null,
@@ -16169,11 +16169,14 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoState')).not.toContainText('Cost discovery');
     await expect(page.locator('#aiVideoRun')).toContainText('credit');
     await expect(page.locator('#aiVideoInlineError')).toBeEmpty();
+    await expect(page.locator('#aiVideoResolution option:not([hidden])')).toHaveText(['480p', '720p']);
+    await expect(page.locator('#aiVideoResolution option[value="1080p"]')).toHaveAttribute('disabled', '');
+    await expect(page.locator('#aiVideoResolution option[value="1080p"]')).toHaveAttribute('hidden', '');
 
     await page.locator('#aiVideoPrompt').fill('A fast Seedance smoke test');
-    await page.locator('#aiVideoResolution').selectOption('1080p');
+    await page.locator('#aiVideoResolution').selectOption('480p');
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
-    const fast1080Label = await page.locator('#aiVideoRun').textContent();
+    const fast480Label = await page.locator('#aiVideoRun').textContent();
     await page.locator('#aiVideoRun').click();
     await expect.poll(() => requests.length).toBe(1);
     expect(requests[0]).toMatchObject({
@@ -16182,7 +16185,7 @@ test.describe('Admin AI Lab', () => {
       prompt: 'A fast Seedance smoke test',
       duration: 5,
       aspect_ratio: '16:9',
-      resolution: '1080p',
+      resolution: '480p',
     });
     expect(requests[0].negative_prompt).toBeUndefined();
     expect(requests[0].seed).toBeUndefined();
@@ -16200,7 +16203,7 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiVideoPrompt').fill('A standard Seedance smoke test');
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
     const standard720Label = await page.locator('#aiVideoRun').textContent();
-    expect(standard720Label).not.toBe(fast1080Label);
+    expect(standard720Label).not.toBe(fast480Label);
     await page.locator('#aiVideoRun').click();
     await expect.poll(() => requests.length).toBe(2);
     expect(requests[1]).toMatchObject({

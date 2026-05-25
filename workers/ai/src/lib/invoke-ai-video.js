@@ -10,7 +10,7 @@ import {
   SEEDANCE_2_ASPECT_RATIOS,
   SEEDANCE_2_MAX_DURATION,
   SEEDANCE_2_MIN_DURATION,
-  SEEDANCE_2_RESOLUTIONS,
+  seedance2ResolutionsForModel,
 } from "../../../../js/shared/seedance-2-pricing.mjs";
 import {
   getDurationMs,
@@ -813,7 +813,7 @@ function buildHappyHorseT2vPayload(input) {
   };
 }
 
-function buildSeedancePayload(input) {
+function buildSeedancePayload(modelId, input) {
   const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
   if (!prompt) {
     throw videoValidationError("Seedance: prompt is required.");
@@ -834,9 +834,10 @@ function buildSeedancePayload(input) {
   }
 
   const resolution = typeof input.resolution === "string" ? input.resolution.trim() : "";
-  if (!SEEDANCE_2_RESOLUTIONS.includes(resolution)) {
+  const allowedResolutions = seedance2ResolutionsForModel(modelId);
+  if (!allowedResolutions.includes(resolution)) {
     throw videoValidationError(
-      `Seedance: resolution must be one of ${SEEDANCE_2_RESOLUTIONS.join(", ")}.`
+      `Seedance: resolution must be one of ${allowedResolutions.join(", ")}.`
     );
   }
 
@@ -917,7 +918,7 @@ export function buildVideoPayload(model, input) {
   }
 
   if (isAdminAiVideoSeedanceModelId(model.id)) {
-    return buildSeedancePayload(input);
+    return buildSeedancePayload(model.id, input);
   }
 
   const error = new Error(`Unsupported video model "${model.id}".`);

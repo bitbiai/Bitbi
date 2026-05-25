@@ -13,7 +13,12 @@ export {
 export const SEEDANCE_2_FAST_MODEL_ID = "bytedance/seedance-2.0-fast";
 export const SEEDANCE_2_MODEL_ID = "bytedance/seedance-2.0";
 
+export const SEEDANCE_2_FAST_RESOLUTIONS = Object.freeze(["480p", "720p"]);
 export const SEEDANCE_2_RESOLUTIONS = Object.freeze(["720p", "1080p"]);
+export const SEEDANCE_2_MODEL_RESOLUTIONS = Object.freeze({
+  [SEEDANCE_2_FAST_MODEL_ID]: SEEDANCE_2_FAST_RESOLUTIONS,
+  [SEEDANCE_2_MODEL_ID]: SEEDANCE_2_RESOLUTIONS,
+});
 export const SEEDANCE_2_ASPECT_RATIOS = Object.freeze(["16:9", "9:16", "1:1", "4:3", "3:4"]);
 export const SEEDANCE_2_MIN_DURATION = 4;
 export const SEEDANCE_2_MAX_DURATION = 12;
@@ -26,8 +31,8 @@ export const SEEDANCE_2_PRICE_MARKUP = 0.20;
 export const SEEDANCE_2_PROVIDER_RATES_USD_PER_SECOND = Object.freeze({
   [SEEDANCE_2_FAST_MODEL_ID]: Object.freeze({
     default: 0.08,
+    "480p": 0.08,
     "720p": 0.08,
-    "1080p": 0.17,
   }),
   [SEEDANCE_2_MODEL_ID]: Object.freeze({
     default: 0.22,
@@ -52,15 +57,21 @@ function normalizeDuration(value) {
   return duration;
 }
 
-function normalizeResolution(value) {
+export function seedance2ResolutionsForModel(modelId) {
+  const id = normalizeModelId(modelId);
+  return SEEDANCE_2_MODEL_RESOLUTIONS[id];
+}
+
+function normalizeResolution(modelId, value) {
   const raw = String(value || "").trim();
+  const allowed = seedance2ResolutionsForModel(modelId);
   if (!raw) {
     return {
       resolution: SEEDANCE_2_DEFAULT_RESOLUTION,
       pricingResolution: "default",
     };
   }
-  if (!SEEDANCE_2_RESOLUTIONS.includes(raw)) {
+  if (!allowed.includes(raw)) {
     throw new Error("Unsupported Seedance resolution.");
   }
   return {
@@ -91,7 +102,7 @@ export function isSeedance2ModelId(modelId) {
 
 export function normalizeSeedance2PricingInput(modelId, settings = {}) {
   const id = normalizeModelId(modelId);
-  const resolution = normalizeResolution(settings.resolution);
+  const resolution = normalizeResolution(id, settings.resolution);
   return {
     modelId: id,
     duration: normalizeDuration(settings.duration),
@@ -143,7 +154,7 @@ export function calculateSeedance2CreditPricing(modelId, settings = {}) {
 export function listSeedance2PricingMatrix() {
   const rows = [];
   for (const modelId of [SEEDANCE_2_FAST_MODEL_ID, SEEDANCE_2_MODEL_ID]) {
-    for (const resolution of SEEDANCE_2_RESOLUTIONS) {
+    for (const resolution of seedance2ResolutionsForModel(modelId)) {
       for (const aspectRatio of SEEDANCE_2_ASPECT_RATIOS) {
         for (let duration = SEEDANCE_2_MIN_DURATION; duration <= SEEDANCE_2_MAX_DURATION; duration += 1) {
           const pricing = calculateSeedance2CreditPricing(modelId, {

@@ -2615,12 +2615,15 @@ test.describe('Homepage', () => {
       '12 s',
     ]);
     await expect(page.locator('#labVideoDuration option[value="15"]')).toHaveCount(0);
-    await expect(page.locator('#labVideoQuality option')).toHaveText(['720p', '1080p']);
+    await expect(page.locator('#labVideoQuality option')).toHaveText(['480p', '720p']);
+    await expect(page.locator('#labVideoQuality option[value="1080p"]')).toHaveCount(0);
     await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
-    await page.selectOption('#labVideoQuality', '1080p');
-    await expect(page.locator('#labCost')).toHaveText('535 credits');
+    await page.selectOption('#labVideoQuality', '480p');
+    await expect(page.locator('#labCost')).toHaveText('252 credits');
+    await page.selectOption('#labVideoQuality', '720p');
+    await expect(page.locator('#labCost')).toHaveText('252 credits');
     await page.selectOption('#labVideoDuration', '12');
-    await expect(page.locator('#labCost')).toHaveText('1283 credits');
+    await expect(page.locator('#labCost')).toHaveText('604 credits');
 
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
@@ -2833,7 +2836,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labVideoAspectLabel')).toHaveText('Format');
     await expect(page.locator('#labVideoDuration option').last()).toHaveAttribute('value', '12');
     await expect(page.locator('#labVideoDuration option[value="15"]')).toHaveCount(0);
-    await expect(page.locator('#labVideoQuality option')).toHaveText(['720p', '1080p']);
+    await expect(page.locator('#labVideoQuality option')).toHaveText(['480p', '720p']);
+    await expect(page.locator('#labVideoQuality option[value="1080p"]')).toHaveCount(0);
     await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
   });
 

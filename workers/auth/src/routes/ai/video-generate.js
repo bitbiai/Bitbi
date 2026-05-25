@@ -30,10 +30,10 @@ import {
   SEEDANCE_2_DEFAULT_ASPECT_RATIO,
   SEEDANCE_2_DEFAULT_DURATION,
   SEEDANCE_2_DEFAULT_RESOLUTION,
+  SEEDANCE_2_FAST_RESOLUTIONS,
   SEEDANCE_2_FAST_MODEL_ID,
   SEEDANCE_2_MAX_DURATION,
   SEEDANCE_2_MIN_DURATION,
-  SEEDANCE_2_RESOLUTIONS,
 } from "../../../../../js/shared/seedance-2-pricing.mjs";
 import { calculateAiVideoCreditCost } from "../../../../../js/shared/ai-model-pricing.mjs";
 import {
@@ -429,7 +429,7 @@ function normalizeSeedanceFastBody(body) {
   });
   const resolution = normalizeEnum(
     body.resolution,
-    enumIncludes(SEEDANCE_2_RESOLUTIONS),
+    enumIncludes(SEEDANCE_2_FAST_RESOLUTIONS),
     SEEDANCE_2_DEFAULT_RESOLUTION,
     "resolution"
   );

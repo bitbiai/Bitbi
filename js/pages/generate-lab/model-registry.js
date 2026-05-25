@@ -41,10 +41,10 @@ import {
     SEEDANCE_2_DEFAULT_ASPECT_RATIO,
     SEEDANCE_2_DEFAULT_DURATION,
     SEEDANCE_2_DEFAULT_RESOLUTION,
+    SEEDANCE_2_FAST_RESOLUTIONS,
     SEEDANCE_2_FAST_MODEL_ID,
     SEEDANCE_2_MAX_DURATION,
     SEEDANCE_2_MIN_DURATION,
-    SEEDANCE_2_RESOLUTIONS,
 } from '../../shared/seedance-2-pricing.mjs?v=__ASSET_VERSION__';
 import { calculateAiModelCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { MINIMAX_MUSIC_2_6_MODEL_ID } from '../../shared/music-2-6-pricing.mjs?v=__ASSET_VERSION__';
@@ -276,7 +276,7 @@ const seedance2FastModel = Object.freeze({
     capabilities: Object.freeze([
         DE ? 'Text zu Video' : 'Text-to-video',
         DE ? `${SEEDANCE_2_MIN_DURATION}-${SEEDANCE_2_MAX_DURATION} Sekunden Dauer` : `${SEEDANCE_2_MIN_DURATION}-${SEEDANCE_2_MAX_DURATION} second duration`,
-        DE ? `${SEEDANCE_2_RESOLUTIONS.join(', ')} Auflösung` : `${SEEDANCE_2_RESOLUTIONS.join(', ')} resolution`,
+        DE ? `${SEEDANCE_2_FAST_RESOLUTIONS.join(', ')} Auflösung` : `${SEEDANCE_2_FAST_RESOLUTIONS.join(', ')} resolution`,
         DE ? `${SEEDANCE_2_ASPECT_RATIOS.join(', ')} Formate` : `${SEEDANCE_2_ASPECT_RATIOS.join(', ')} aspect ratios`,
         DE ? 'Automatisch gespeichertes Video-Asset' : 'Auto-saved video asset',
     ]),
@@ -287,7 +287,7 @@ const seedance2FastModel = Object.freeze({
     }),
     options: Object.freeze({
         duration: Object.freeze({ min: SEEDANCE_2_MIN_DURATION, max: SEEDANCE_2_MAX_DURATION }),
-        resolution: Object.freeze([...SEEDANCE_2_RESOLUTIONS]),
+        resolution: Object.freeze([...SEEDANCE_2_FAST_RESOLUTIONS]),
         aspectRatio: Object.freeze([...SEEDANCE_2_ASPECT_RATIOS]),
     }),
     controls: Object.freeze({

@@ -12725,6 +12725,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       SEEDANCE_2_PRICE_MARKUP,
       SEEDANCE_2_MIN_DURATION,
       SEEDANCE_2_MAX_DURATION,
+      SEEDANCE_2_FAST_RESOLUTIONS,
       SEEDANCE_2_RESOLUTIONS,
       SEEDANCE_2_ASPECT_RATIOS,
       BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -12735,8 +12736,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
 
     expect(SEEDANCE_2_PROVIDER_RATES_USD_PER_SECOND[SEEDANCE_2_FAST_MODEL_ID]).toEqual({
       default: 0.08,
+      '480p': 0.08,
       '720p': 0.08,
-      '1080p': 0.17,
     });
     expect(SEEDANCE_2_PROVIDER_RATES_USD_PER_SECOND[SEEDANCE_2_MODEL_ID]).toEqual({
       default: 0.22,
@@ -12748,14 +12749,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
 
     const matrix = listSeedance2PricingMatrix();
     expect(matrix).toHaveLength(
-      2 * SEEDANCE_2_RESOLUTIONS.length * SEEDANCE_2_ASPECT_RATIOS.length
+      (SEEDANCE_2_FAST_RESOLUTIONS.length + SEEDANCE_2_RESOLUTIONS.length) * SEEDANCE_2_ASPECT_RATIOS.length
       * (SEEDANCE_2_MAX_DURATION - SEEDANCE_2_MIN_DURATION + 1)
     );
 
     const cases = [
       { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 5, resolution: undefined, rate: 0.08 },
-      { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 10, resolution: '720p', rate: 0.08 },
-      { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 12, resolution: '1080p', rate: 0.17 },
+      { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 10, resolution: '480p', rate: 0.08 },
+      { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 12, resolution: '720p', rate: 0.08 },
       { modelId: SEEDANCE_2_MODEL_ID, duration: 5, resolution: undefined, rate: 0.22 },
       { modelId: SEEDANCE_2_MODEL_ID, duration: 10, resolution: '720p', rate: 0.22 },
       { modelId: SEEDANCE_2_MODEL_ID, duration: 12, resolution: '1080p', rate: 0.55 },
@@ -12792,6 +12793,11 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     });
     expect(square.providerCostUsd).toBe(wide.providerCostUsd);
     expect(square.credits).toBe(wide.credits);
+    expect(() => calculateSeedance2CreditPricing(SEEDANCE_2_FAST_MODEL_ID, {
+      duration: 10,
+      resolution: '1080p',
+      aspect_ratio: '16:9',
+    })).toThrow('Unsupported Seedance resolution.');
     expect(() => calculateSeedance2CreditPricing(SEEDANCE_2_MODEL_ID, {
       duration: 10,
       resolution: '480p',
@@ -13446,7 +13452,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const { calculateSeedance2CreditPricing, SEEDANCE_2_FAST_MODEL_ID } = await loadSeedance2PricingModule();
     const expectedPricing = calculateSeedance2CreditPricing(SEEDANCE_2_FAST_MODEL_ID, {
       duration: 12,
-      resolution: '1080p',
+      resolution: '480p',
       aspect_ratio: '9:16',
     });
     const { authWorker, env, token, user, calls, fetchCalls } = await createMemberVideoHarness({
@@ -13468,7 +13474,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         model: SEEDANCE_2_FAST_MODEL_ID,
         prompt: 'A precise Seedance fast member video with clean motion.',
         duration: 12,
-        resolution: '1080p',
+        resolution: '480p',
         aspect_ratio: '9:16',
       },
       idempotencyKey: 'member-seedance-fast-key-123456',
@@ -13487,7 +13493,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         },
         duration: 12,
         aspect_ratio: '9:16',
-        resolution: '1080p',
+        resolution: '480p',
         seed: null,
         watermark: null,
         generate_audio: null,
@@ -13514,7 +13520,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       prompt: 'A precise Seedance fast member video with clean motion.',
       duration: 12,
       aspect_ratio: '9:16',
-      resolution: '1080p',
+      resolution: '480p',
     });
     expect(calls[0].payload).not.toHaveProperty('quality');
     expect(calls[0].payload).not.toHaveProperty('ratio');
@@ -13537,7 +13543,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       pricing_source: 'operator_approved_seedance_pricing_2026_05_25',
       duration: 12,
       aspect_ratio: '9:16',
-      resolution: '1080p',
+      resolution: '480p',
       source_module: 'video',
       asset_id: body.data.asset.id,
     }));
@@ -13548,7 +13554,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       provider: 'workers-ai',
       duration: 12,
       aspect_ratio: '9:16',
-      resolution: '1080p',
+      resolution: '480p',
       workflow: 'text-to-video',
     }));
     expect(metadata).not.toHaveProperty('seed');
@@ -13617,8 +13623,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const invalidOptions = [
       { body: { duration: 13 }, code: 'invalid_duration' },
       { body: { duration: 15 }, code: 'invalid_duration' },
-      { body: { resolution: '480p' }, code: 'invalid_resolution' },
-      { body: { aspect_ratio: '21:9' }, code: 'invalid_aspect_ratio' },
+      { body: { resolution: '1080p' }, code: 'invalid_resolution' },
+      { body: { resolution: '1440p' }, code: 'invalid_resolution' },
     ];
     for (const [index, entry] of invalidOptions.entries()) {
       const res = await postGenerateVideo({
@@ -20431,7 +20437,7 @@ test.describe('Worker routes', () => {
         {
           prompt: '  clean Seedance fast motion  ',
           duration: 12,
-          resolution: '1080p',
+          resolution: '480p',
           aspect_ratio: '9:16',
         }
       );
@@ -20441,7 +20447,7 @@ test.describe('Worker routes', () => {
           prompt: 'clean Seedance fast motion',
           duration: 12,
           aspect_ratio: '9:16',
-          resolution: '1080p',
+          resolution: '480p',
         },
         normalized: {
           prompt: 'clean Seedance fast motion',
@@ -20449,7 +20455,7 @@ test.describe('Worker routes', () => {
           aspect_ratio: '9:16',
           ratio: null,
           quality: null,
-          resolution: '1080p',
+          resolution: '480p',
           seed: null,
           generate_audio: false,
           watermark: null,
@@ -20463,6 +20469,31 @@ test.describe('Worker routes', () => {
       expect(built.payload.audio).toBeUndefined();
       expect(built.payload.negative_prompt).toBeUndefined();
       expect(built.payload.image_input).toBeUndefined();
+
+      const built720 = buildVideoPayload(
+        { id: 'bytedance/seedance-2.0-fast' },
+        {
+          prompt: 'Seedance fast 720p motion',
+          duration: 5,
+          resolution: '720p',
+          aspect_ratio: '16:9',
+        }
+      );
+      expect(built720.payload).toEqual({
+        prompt: 'Seedance fast 720p motion',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+      });
+      expect(() => buildVideoPayload(
+        { id: 'bytedance/seedance-2.0-fast' },
+        {
+          prompt: '1080p should fail for fast',
+          duration: 5,
+          resolution: '1080p',
+          aspect_ratio: '16:9',
+        }
+      )).toThrow(/resolution must be one of 480p, 720p/i);
 
       for (const duration of [13, 15]) {
         expect(() => buildVideoPayload(
@@ -20548,7 +20579,7 @@ test.describe('Worker routes', () => {
           costDiscoveryFlag: null,
           generationEnabled: true,
           unavailableCode: null,
-          resolutionOptions: ['720p', '1080p'],
+          resolutionOptions: ['480p', '720p'],
           minDuration: 4,
           maxDuration: 12,
         }),
@@ -22629,14 +22660,26 @@ test.describe('Worker routes', () => {
       env.AI_LAB = service.binding;
       const token = await seedSession(env, admin.id);
 
-      for (const model of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
+      const invalidResolutionCases = [
+        {
+          model: 'bytedance/seedance-2.0-fast',
+          resolution: '1080p',
+          message: 'resolution must be one of 480p, 720p',
+        },
+        {
+          model: 'bytedance/seedance-2.0',
+          resolution: '480p',
+          message: 'resolution must be one of 720p, 1080p',
+        },
+      ];
+      for (const { model, resolution, message } of invalidResolutionCases) {
         const res = await authWorker.fetch(
           authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
             model,
             prompt: 'Seedance queue should not start without verified pricing.',
             duration: 5,
             aspect_ratio: '16:9',
-            resolution: '480p',
+            resolution,
           }, {
             Origin: 'https://bitbi.ai',
             Cookie: `bitbi_session=${token}`,
@@ -22650,9 +22693,11 @@ test.describe('Worker routes', () => {
         await expect(res.json()).resolves.toEqual(expect.objectContaining({
           ok: false,
           code: 'validation_error',
-          error: expect.stringContaining('resolution must be one of 720p, 1080p'),
+          error: expect.stringContaining(message),
         }));
+      }
 
+      for (const model of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
         for (const duration of [13, 15]) {
           const durationRes = await authWorker.fetch(
             authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
@@ -28389,14 +28434,26 @@ test.describe('Worker routes', () => {
         },
       });
 
-      for (const model of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
+      const invalidResolutionCases = [
+        {
+          model: 'bytedance/seedance-2.0-fast',
+          resolution: '1080p',
+          message: 'resolution must be one of 480p, 720p',
+        },
+        {
+          model: 'bytedance/seedance-2.0',
+          resolution: '480p',
+          message: 'resolution must be one of 720p, 1080p',
+        },
+      ];
+      for (const { model, resolution, message } of invalidResolutionCases) {
         const res = await authWorker.fetch(
           authJsonRequest('/api/admin/ai/test-video', 'POST', {
             model,
             prompt: 'Seedance unsupported setup must fail closed.',
             duration: 5,
             aspect_ratio: '16:9',
-            resolution: '480p',
+            resolution,
           }, authHeaders),
           env,
           createExecutionContext().execCtx
@@ -28406,9 +28463,11 @@ test.describe('Worker routes', () => {
         await expect(res.json()).resolves.toEqual(expect.objectContaining({
           ok: false,
           code: 'validation_error',
-          error: expect.stringContaining('resolution must be one of 720p, 1080p'),
+          error: expect.stringContaining(message),
         }));
+      }
 
+      for (const model of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
         for (const duration of [13, 15]) {
           const durationRes = await authWorker.fetch(
             authJsonRequest('/api/admin/ai/test-video', 'POST', {
