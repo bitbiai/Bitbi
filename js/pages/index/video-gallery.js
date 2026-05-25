@@ -44,6 +44,8 @@ export function initVideoGallery() {
     let memvidsUserScrolledSinceBatch = false;
     let memvidsScrollBatchSettling = false;
     let memvidsScrollBatchSettlingTimer = 0;
+    let memvidsLastRevealScrollY = Number.NaN;
+    let memvidsScrollSentinelNeedsReset = false;
 
     /* Replace the teaser placeholder with a live grid */
     container.innerHTML = '';
@@ -113,6 +115,8 @@ export function initVideoGallery() {
             : memvidsState.items.length;
         memvidsUserScrolledSinceBatch = false;
         memvidsScrollBatchSettling = false;
+        memvidsLastRevealScrollY = Number.NaN;
+        memvidsScrollSentinelNeedsReset = false;
         window.clearTimeout(memvidsScrollBatchSettlingTimer);
     }
 
@@ -387,7 +391,16 @@ export function initVideoGallery() {
         if (memvidsScrollBatchSettling) return;
         if (!memvidsUserScrolledSinceBatch || !shouldUseMemvidsScrollLoading()) return;
         const rect = $scrollSentinel.getBoundingClientRect();
-        if (rect.top > window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX) return;
+        const sentinelIsNear = rect.top <= window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX;
+        if (memvidsScrollSentinelNeedsReset) {
+            if (!sentinelIsNear) memvidsScrollSentinelNeedsReset = false;
+            return;
+        }
+        if (!sentinelIsNear) return;
+        const scrollY = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
+        if (Object.is(scrollY, memvidsLastRevealScrollY)) return;
+        memvidsLastRevealScrollY = scrollY;
+        memvidsScrollSentinelNeedsReset = true;
         revealNextMemvidsBatch();
     }
 
