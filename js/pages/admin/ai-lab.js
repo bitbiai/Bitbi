@@ -1162,25 +1162,49 @@ export function createAdminAiLab({ showToast } = {}) {
         return getAdminAiVideoModelSpec(getSelectedVideoModelId());
     }
 
-    function getHappyHorsePricingForPayload(payload) {
-        if (payload?.model !== ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) return null;
+    function getVideoPricingForPayload(payload) {
+        const modelId = typeof payload?.model === 'string' ? payload.model : '';
+        if (!modelId) return null;
         try {
-            const pricing = calculateAiVideoCreditCost(ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, {
+            const pricing = calculateAiVideoCreditCost(modelId, {
                 resolution: payload.resolution,
                 ratio: payload.ratio,
+                aspect_ratio: payload.aspect_ratio,
                 duration: payload.duration,
                 watermark: payload.watermark,
             });
+            if (!pricing) return null;
             return {
                 providerCostUsd: pricing.providerCostUsd,
-                minimumSellPriceUsd: pricing.minimumSellPriceUsd,
+                minimumSellPriceUsd: pricing.minimumSellPriceUsd ?? pricing.internalCostUsd ?? null,
+                internalCostUsd: pricing.internalCostUsd ?? pricing.minimumSellPriceUsd ?? null,
                 credits: pricing.credits,
                 effectiveProfitMargin: pricing.effectiveProfitMargin,
+                formula: pricing.formula || null,
                 adminCreditsCharged: 0,
             };
         } catch {
             return null;
         }
+    }
+
+    function getSelectedVideoCreditCost() {
+        const spec = getSelectedVideoModelSpec();
+        const pricing = getVideoPricingForPayload({
+            model: spec.id,
+            resolution: state.forms.video.resolution,
+            ratio: state.forms.video.aspectRatio,
+            aspect_ratio: state.forms.video.aspectRatio,
+            duration: Number(state.forms.video.duration),
+            watermark: state.forms.video.generateAudio === true,
+        });
+        return pricing?.credits || null;
+    }
+
+    function getVideoRunLabel() {
+        const credits = getSelectedVideoCreditCost();
+        if (!credits) return TASK_UI.video.idleText;
+        return `Run video test · ${credits} credit${credits === 1 ? '' : 's'}`;
     }
 
     function normalizeVideoFormForModel(modelId = getSelectedVideoModelId()) {
@@ -1305,7 +1329,13 @@ export function createAdminAiLab({ showToast } = {}) {
         const buttonRefs = refs[task];
         if (!buttonRefs?.run || !buttonRefs?.cancel) return;
         buttonRefs.run.disabled = !!isBusy;
-        buttonRefs.run.textContent = isBusy ? busyText : (task === 'image' ? getImageRunLabel() : idleText);
+        buttonRefs.run.textContent = isBusy
+            ? busyText
+            : task === 'image'
+              ? getImageRunLabel()
+              : task === 'video'
+                ? getVideoRunLabel()
+                : idleText;
         buttonRefs.cancel.disabled = !isBusy;
         if (task === 'music') {
             syncMusicFieldState();
@@ -1568,9 +1598,8 @@ export function createAdminAiLab({ showToast } = {}) {
         const isHappyHorse = spec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID;
         const isSeedance = spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
             || spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
-        const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
         const isGenerationBlocked = spec.generationEnabled === false
-            || (spec.pricingRequired === true && !isCostDiscovery);
+            || spec.pricingRequired === true;
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
             && (!!state.forms.video.startImageInput || !!state.forms.video.endImageInput);
 
@@ -1585,7 +1614,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
         refs.video.prompt.placeholder = isSeedance
-            ? 'Describe a Seedance video prompt for admin-only cost discovery.'
+            ? 'Describe a Seedance video prompt.'
             : isVidu
             ? (usesViduFrameWorkflow
                 ? 'Optional — add a text prompt to steer motion between the selected frames.'
@@ -1667,6 +1696,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.minimalModeHint && !isVidu) refs.video.minimalModeHint.hidden = true;
         if (refs.video.run) {
             refs.video.run.disabled = isBusy || isGenerationBlocked || !hasCatalog();
+            if (!isBusy) refs.video.run.textContent = getVideoRunLabel();
             refs.video.run.title = isGenerationBlocked
                 ? (spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE)
                 : '';
@@ -3419,15 +3449,15 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (!result) {
             const spec = getSelectedVideoModelSpec();
-            const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
             const isGenerationBlocked = spec.generationEnabled === false
-                || (spec.pricingRequired === true && !isCostDiscovery);
+                || spec.pricingRequired === true;
             const blockedMessage = spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
-            const costDiscoveryMessage = 'Cost discovery. Pricing is not configured; admin run records setup for manual price table.';
+            const credits = getSelectedVideoCreditCost();
+            const readyMessage = credits ? `Estimated credits: ${credits}. No video generation yet.` : 'No video generation yet.';
             setResultState(
                 refs.video.state,
                 isGenerationBlocked ? 'error' : 'neutral',
-                isGenerationBlocked ? blockedMessage : (isCostDiscovery ? costDiscoveryMessage : 'No video generation yet.')
+                isGenerationBlocked ? blockedMessage : readyMessage
             );
             setVideoInlineError(isGenerationBlocked ? blockedMessage : '');
             syncVideoFieldState();
@@ -3485,8 +3515,7 @@ export function createAdminAiLab({ showToast } = {}) {
     function validateVideoForm() {
         const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
-        const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
-        if (spec.generationEnabled === false || (spec.pricingRequired === true && !isCostDiscovery)) {
+        if (spec.generationEnabled === false || spec.pricingRequired === true) {
             return spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
         }
         const duration = Number(state.forms.video.duration);
@@ -3567,7 +3596,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function buildVideoJobSuccessResponse(job, payload, videoSpec) {
-        const pricing = getHappyHorsePricingForPayload(payload);
+        const pricing = getVideoPricingForPayload(payload);
         return {
             ok: true,
             task: 'video',
@@ -5210,6 +5239,8 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.generateAudio.addEventListener('change', () => {
                 state.forms.video.generateAudio = refs.video.generateAudio.checked;
                 persistState();
+                syncVideoFieldState();
+                if (!state.results.video) renderVideoResult();
             });
             refs.video.minimalMode?.addEventListener('change', () => {
                 const on = refs.video.minimalMode.checked;
@@ -5217,13 +5248,20 @@ export function createAdminAiLab({ showToast } = {}) {
             });
             refs.video.prompt.addEventListener('input', () => {
                 const spec = getSelectedVideoModelSpec();
-                const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
-                if (spec.generationEnabled === false || (spec.pricingRequired === true && !isCostDiscovery)) {
+                if (spec.generationEnabled === false || spec.pricingRequired === true) {
                     setVideoInlineError(spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE);
                     return;
                 }
                 setVideoInlineError('');
             });
+            const refreshVideoEstimateUi = () => {
+                syncVideoFieldState();
+                if (!state.results.video) renderVideoResult();
+            };
+            refs.video.duration.addEventListener('input', refreshVideoEstimateUi);
+            refs.video.aspectRatio.addEventListener('change', refreshVideoEstimateUi);
+            refs.video.quality.addEventListener('change', refreshVideoEstimateUi);
+            refs.video.resolution.addEventListener('change', refreshVideoEstimateUi);
             refs.video.imageFile?.addEventListener('change', handleVideoImageFile);
             refs.video.imageClear?.addEventListener('click', clearVideoImage);
             refs.video.startImageFile?.addEventListener('change', handleVideoStartImageFile);

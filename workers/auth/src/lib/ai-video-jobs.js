@@ -1,9 +1,8 @@
 import {
   ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
-  ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
-  ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
-  ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG,
+  ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
+  ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
   ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
   AdminAiValidationError,
   isAdminAiVideoSeedanceModelId,
@@ -29,7 +28,6 @@ import {
 import {
   assertBudgetSwitchEffectiveEnabled,
   budgetSwitchLogFields,
-  isBudgetSwitchEnabled,
 } from "./admin-platform-budget-switches.js";
 import {
   checkPlatformBudgetCap,
@@ -51,17 +49,18 @@ export const ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID = "admin.video.task.cre
 export const ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID = "admin.video.task.poll";
 export const ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET";
 
-export function isAdminSeedanceCostDiscoveryEnabled(env) {
-  return isBudgetSwitchEnabled(env, ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG);
-}
-
-export function assertAdminSeedanceCostDiscoveryEnabled(env, modelId) {
+export function assertAdminSeedancePricingConfigured(modelId, payload = {}) {
   if (!isAdminAiVideoSeedanceModelId(modelId)) return;
-  if (isAdminSeedanceCostDiscoveryEnabled(env)) return;
+  try {
+    const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
+    if (pricing?.credits > 0 && pricing?.providerCostUsd > 0) return;
+  } catch {
+    // Normalize unknown pricing into the existing admin validation response.
+  }
   throw new AdminAiValidationError(
-    ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
-    403,
-    ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE
+    ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+    409,
+    ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE
   );
 }
 
@@ -234,7 +233,6 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
   const registryEntry = getAiCostOperationRegistryEntry(ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID);
   const registryConfig = registryEntry?.operationConfig || {};
   const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
-  const isSeedanceCostDiscovery = isAdminAiVideoSeedanceModelId(modelId);
   return {
     operationId: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
     featureKey: registryConfig.featureKey || "admin.ai.video_job",
@@ -247,7 +245,7 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
     modelId,
     modelResolverKey: registryConfig.modelResolverKey || "admin.video.model_registry",
     providerCost: true,
-    estimatedCostUnits: isSeedanceCostDiscovery ? 1 : (pricing?.credits || 0),
+    estimatedCostUnits: pricing?.credits || 0,
     estimatedCredits: pricing?.credits || 0,
     idempotencyPolicy: registryConfig.idempotencyPolicy || "required",
     killSwitchPolicy: {
@@ -267,31 +265,34 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
     routeId: registryConfig.routeId || "admin.ai.video-jobs.create",
     routePath: registryConfig.routePath || "/api/admin/ai/video-jobs",
     auditEventPrefix: registryConfig.observabilityEventPrefix || ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
-    notes: isSeedanceCostDiscovery
-      ? "Admin-only Seedance cost-discovery run: provider cost is unknown, no member credits are priced or debited, and one platform budget unit gates the bounded setup."
-      : "Phase 4.5 records platform_admin_lab_budget metadata for admin async video jobs before queueing; no credits are debited.",
+    notes: "Phase 4.5 records platform_admin_lab_budget metadata for admin async video jobs before queueing; no credits are debited.",
     ...(operationOverride || {}),
   };
 }
 
-function buildSeedanceCostDiscoveryMetadata(modelId, payload = {}, createdAt = nowIso()) {
+function buildSeedancePricingMetadata(modelId, payload = {}, createdAt = nowIso()) {
   if (!isAdminAiVideoSeedanceModelId(modelId)) return null;
+  const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
   return {
-    status: "operator_guarded_admin_cost_discovery",
-    pricing_configured: false,
+    status: "operator_approved_admin_pricing",
+    pricing_configured: true,
     credit_debit: false,
-    cost_discovery_flag: ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG,
     model_id: modelId,
     duration: Number(payload.duration || 0) || null,
     resolution: typeof payload.resolution === "string" ? payload.resolution : null,
     aspect_ratio: typeof payload.aspect_ratio === "string" ? payload.aspect_ratio : null,
+    provider_cost_usd: pricing?.providerCostUsd ?? null,
+    internal_cost_usd: pricing?.internalCostUsd ?? null,
+    estimated_credits: pricing?.credits ?? null,
+    pricing_version: pricing?.formula?.pricingVersion || null,
+    pricing_source: pricing?.formula?.pricingSource || null,
     input_mode: "prompt_only",
     workflow: "text_to_video",
     recorded_at: createdAt,
   };
 }
 
-function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso(), costDiscovery = null } = {}) {
+function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso(), seedancePricing = null } = {}) {
   const summary = {
     budget_policy_version: plan.policyVersion,
     operation_id: plan.operationId,
@@ -326,7 +327,7 @@ function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso()
     fingerprint,
     audit_fields: plan.auditFields,
   };
-  if (costDiscovery) summary.cost_discovery = costDiscovery;
+  if (seedancePricing) summary.seedance_pricing = seedancePricing;
   return summary;
 }
 
@@ -368,7 +369,7 @@ export async function buildAdminVideoJobBudgetPolicyContext({
     fingerprint,
     summary: compactAdminVideoBudgetPolicy(plan, fingerprint, {
       createdAt,
-      costDiscovery: buildSeedanceCostDiscoveryMetadata(modelId, payload, createdAt),
+      seedancePricing: buildSeedancePricingMetadata(modelId, payload, createdAt),
     }),
   };
 }
@@ -429,18 +430,22 @@ function safeBudgetPolicyForResponse(value) {
       attempted: policy.provider_task_create.attempted === true,
       provider_task_id_recorded: policy.provider_task_create.provider_task_id_recorded === true,
     } : null,
-    cost_discovery: policy.cost_discovery && typeof policy.cost_discovery === "object" ? {
-      status: policy.cost_discovery.status || null,
-      pricing_configured: policy.cost_discovery.pricing_configured === true,
-      credit_debit: policy.cost_discovery.credit_debit === true,
-      cost_discovery_flag: policy.cost_discovery.cost_discovery_flag || null,
-      model_id: policy.cost_discovery.model_id || null,
-      duration: Number(policy.cost_discovery.duration || 0) || null,
-      resolution: policy.cost_discovery.resolution || null,
-      aspect_ratio: policy.cost_discovery.aspect_ratio || null,
-      input_mode: policy.cost_discovery.input_mode || null,
-      workflow: policy.cost_discovery.workflow || null,
-      recorded_at: policy.cost_discovery.recorded_at || null,
+    seedance_pricing: policy.seedance_pricing && typeof policy.seedance_pricing === "object" ? {
+      status: policy.seedance_pricing.status || null,
+      pricing_configured: policy.seedance_pricing.pricing_configured === true,
+      credit_debit: policy.seedance_pricing.credit_debit === true,
+      model_id: policy.seedance_pricing.model_id || null,
+      duration: Number(policy.seedance_pricing.duration || 0) || null,
+      resolution: policy.seedance_pricing.resolution || null,
+      aspect_ratio: policy.seedance_pricing.aspect_ratio || null,
+      provider_cost_usd: Number(policy.seedance_pricing.provider_cost_usd || 0) || null,
+      internal_cost_usd: Number(policy.seedance_pricing.internal_cost_usd || 0) || null,
+      estimated_credits: Number(policy.seedance_pricing.estimated_credits || 0) || null,
+      pricing_version: policy.seedance_pricing.pricing_version || null,
+      pricing_source: policy.seedance_pricing.pricing_source || null,
+      input_mode: policy.seedance_pricing.input_mode || null,
+      workflow: policy.seedance_pricing.workflow || null,
+      recorded_at: policy.seedance_pricing.recorded_at || null,
     } : null,
     fingerprint: policy.fingerprint || null,
     audit_fields: policy.audit_fields && typeof policy.audit_fields === "object"
@@ -467,12 +472,15 @@ function queueBudgetPolicySummary(job) {
 }
 
 function buildJobStoredInput(payload, modelId) {
-  if (modelId !== ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
+  const supportsAdminPricingMetadata = modelId === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID
+    || isAdminAiVideoSeedanceModelId(modelId);
+  if (!supportsAdminPricingMetadata) {
     return payload;
   }
-  const pricing = calculateAiVideoCreditCost(ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, {
+  const pricing = calculateAiVideoCreditCost(modelId, {
     resolution: payload.resolution,
     ratio: payload.ratio,
+    aspect_ratio: payload.aspect_ratio,
     duration: payload.duration,
     watermark: payload.watermark,
   });
@@ -484,7 +492,8 @@ function buildJobStoredInput(payload, modelId) {
       futureMemberPricing: {
         credits: pricing.credits,
         providerCostUsd: pricing.providerCostUsd,
-        minimumSellPriceUsd: pricing.minimumSellPriceUsd,
+        internalCostUsd: pricing.internalCostUsd ?? pricing.minimumSellPriceUsd ?? null,
+        minimumSellPriceUsd: pricing.minimumSellPriceUsd ?? pricing.internalCostUsd ?? null,
         effectiveProfitMargin: pricing.effectiveProfitMargin,
         formula: pricing.formula,
       },
@@ -827,7 +836,7 @@ export async function createAdminAiVideoJob({
     model: payload.model,
   });
   const modelId = selection.model.id;
-  assertAdminSeedanceCostDiscoveryEnabled(env, modelId);
+  assertAdminSeedancePricingConfigured(modelId, payload);
   const requestHash = await sha256Hex(stableStringify(payload));
   const inputJson = stableStringify(buildJobStoredInput(payload, modelId));
   const existing = await findIdempotentJob(env, adminUser.id, AI_VIDEO_JOB_SCOPE_ADMIN, idempotencyKey);
@@ -1520,29 +1529,29 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   }
 
   try {
-    assertAdminSeedanceCostDiscoveryEnabled(env, job.model);
+    assertAdminSeedancePricingConfigured(job.model, parsedInput);
   } catch (error) {
     const failedAt = nowIso();
     await updateJobFailed(
       env,
       job.id,
-      error?.code || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
-      error?.message || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
+      error?.code || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
+      error?.message || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
       failedAt
     );
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
-      event: "ai_video_job_seedance_cost_discovery_disabled",
+      event: "ai_video_job_seedance_pricing_required",
       level: "warn",
       correlationId: payload.correlationId,
       job_id: job.id,
       provider: job.provider,
       model: job.model,
-      error_code: error?.code || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
+      error_code: error?.code || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
       duration_ms: getDurationMs(startedAt),
     });
-    return { status: "failed", jobId: job.id, reason: error?.code || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE };
+    return { status: "failed", jobId: job.id, reason: error?.code || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE };
   }
 
   const providerPath = job.provider_task_id
@@ -1633,12 +1642,15 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         model_id: job.model,
         provider_family: budgetPolicy.provider_family || job.provider,
         result_status: "succeeded",
-        cost_discovery_status: budgetPolicy.cost_discovery?.status || null,
-        cost_discovery_pricing_configured: budgetPolicy.cost_discovery?.pricing_configured === true,
-        cost_discovery_credit_debit: budgetPolicy.cost_discovery?.credit_debit === true,
-        duration: budgetPolicy.cost_discovery?.duration || null,
-        resolution: budgetPolicy.cost_discovery?.resolution || null,
-        aspect_ratio: budgetPolicy.cost_discovery?.aspect_ratio || null,
+        seedance_pricing_status: budgetPolicy.seedance_pricing?.status || null,
+        seedance_pricing_configured: budgetPolicy.seedance_pricing?.pricing_configured === true,
+        seedance_credit_debit: budgetPolicy.seedance_pricing?.credit_debit === true,
+        seedance_estimated_credits: budgetPolicy.seedance_pricing?.estimated_credits || null,
+        seedance_provider_cost_usd: budgetPolicy.seedance_pricing?.provider_cost_usd || null,
+        seedance_internal_cost_usd: budgetPolicy.seedance_pricing?.internal_cost_usd || null,
+        duration: budgetPolicy.seedance_pricing?.duration || null,
+        resolution: budgetPolicy.seedance_pricing?.resolution || null,
+        aspect_ratio: budgetPolicy.seedance_pricing?.aspect_ratio || null,
       },
     });
     logDiagnostic({

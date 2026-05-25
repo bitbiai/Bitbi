@@ -3,9 +3,6 @@
 import {
   ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
-  ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
-  ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
-  ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG,
   ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
   isAdminAiVideoSeedanceModelId,
 } from "../../../../js/shared/admin-ai-contract.mjs";
@@ -42,9 +39,8 @@ const VIDU_PROVIDER_DEFAULT_POLL_INTERVAL_MS = 4_000;
 const VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = 600_000;
 const VIDU_VALID_RESOLUTIONS = ["540p", "720p", "1080p"];
 const VIDU_VALID_ASPECT_RATIOS = ["16:9", "9:16", "3:4", "4:3", "1:1"];
-const SEEDANCE_VALID_RESOLUTIONS = ["480p", "720p"];
+const SEEDANCE_VALID_RESOLUTIONS = ["720p", "1080p"];
 const SEEDANCE_VALID_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
-const TRUE_FLAG_VALUES = new Set(["1", "true", "yes", "on"]);
 const VIDU_MINIMAL_MODE_PAYLOAD = {
   prompt: "A golden retriever running through a sunlit meadow in slow motion",
   duration: 5,
@@ -667,19 +663,6 @@ function videoValidationError(message) {
   return error;
 }
 
-function isAiWorkerFlagEnabled(env, flagName) {
-  return TRUE_FLAG_VALUES.has(readTrimmedEnvString(env, flagName).toLowerCase());
-}
-
-function assertSeedanceCostDiscoveryEnabled(env, modelId) {
-  if (!isAdminAiVideoSeedanceModelId(modelId)) return;
-  if (isAiWorkerFlagEnabled(env, ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG)) return;
-  const error = new Error(ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE);
-  error.status = 403;
-  error.code = ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE;
-  throw error;
-}
-
 function buildViduQ3Payload(input) {
   let duration = input.duration;
   if (duration !== undefined && duration !== null) {
@@ -1098,7 +1081,6 @@ async function createViduProviderTaskOnce({
  */
 export async function createVideoProviderTask(env, model, input) {
   const startedAt = Date.now();
-  assertSeedanceCostDiscoveryEnabled(env, model.id);
   const request = buildVideoPayload(model, input);
   const minimalModeActive =
     model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && input.minimal_mode === true;
@@ -1143,7 +1125,6 @@ export async function createVideoProviderTask(env, model, input) {
  */
 export async function pollVideoProviderTask(env, model, input, task) {
   const startedAt = Date.now();
-  assertSeedanceCostDiscoveryEnabled(env, model.id);
   const request = buildVideoPayload(model, input);
   const providerTaskId = typeof task?.providerTaskId === "string" ? task.providerTaskId.trim() : "";
   if (!providerTaskId) {
@@ -1248,7 +1229,6 @@ export async function pollVideoProviderTask(env, model, input, task) {
  * @returns {Promise<VideoInvokeResult>}
  */
 export async function invokeVideo(env, model, input) {
-  assertSeedanceCostDiscoveryEnabled(env, model.id);
   ensureAI(env);
   const startedAt = Date.now();
   const request = buildVideoPayload(model, input);

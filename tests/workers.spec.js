@@ -270,6 +270,13 @@ async function loadHappyHorseT2vPricingModule() {
   return import(modulePath);
 }
 
+async function loadSeedance2PricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/seedance-2-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadAiModelPricingModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/ai-model-pricing.mjs')
@@ -12659,6 +12666,82 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       .toThrow('Unsupported HappyHorse duration.');
   });
 
+  test('Seedance 2.0 pricing helper applies operator-approved rates and 20% markup', async () => {
+    const {
+      SEEDANCE_2_FAST_MODEL_ID,
+      SEEDANCE_2_MODEL_ID,
+      SEEDANCE_2_PROVIDER_RATES_USD_PER_SECOND,
+      SEEDANCE_2_PRICE_MARKUP,
+      SEEDANCE_2_RESOLUTIONS,
+      SEEDANCE_2_ASPECT_RATIOS,
+      BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
+      BITBI_MODEL_PRICING_USD_TO_EUR,
+      calculateSeedance2CreditPricing,
+      listSeedance2PricingMatrix,
+    } = await loadSeedance2PricingModule();
+
+    expect(SEEDANCE_2_PROVIDER_RATES_USD_PER_SECOND[SEEDANCE_2_FAST_MODEL_ID]).toEqual({
+      default: 0.08,
+      '720p': 0.08,
+      '1080p': 0.17,
+    });
+    expect(SEEDANCE_2_PROVIDER_RATES_USD_PER_SECOND[SEEDANCE_2_MODEL_ID]).toEqual({
+      default: 0.22,
+      '720p': 0.22,
+      '1080p': 0.55,
+    });
+    expect(SEEDANCE_2_PRICE_MARKUP).toBe(0.20);
+
+    const matrix = listSeedance2PricingMatrix();
+    expect(matrix).toHaveLength(2 * SEEDANCE_2_RESOLUTIONS.length * SEEDANCE_2_ASPECT_RATIOS.length * 12);
+
+    const cases = [
+      { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 5, resolution: undefined, rate: 0.08 },
+      { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 10, resolution: '720p', rate: 0.08 },
+      { modelId: SEEDANCE_2_FAST_MODEL_ID, duration: 15, resolution: '1080p', rate: 0.17 },
+      { modelId: SEEDANCE_2_MODEL_ID, duration: 5, resolution: undefined, rate: 0.22 },
+      { modelId: SEEDANCE_2_MODEL_ID, duration: 10, resolution: '720p', rate: 0.22 },
+      { modelId: SEEDANCE_2_MODEL_ID, duration: 15, resolution: '1080p', rate: 0.55 },
+    ];
+
+    for (const entry of cases) {
+      const priced = calculateSeedance2CreditPricing(entry.modelId, {
+        duration: entry.duration,
+        resolution: entry.resolution,
+        aspect_ratio: '16:9',
+      });
+      const providerCost = entry.duration * entry.rate;
+      const internalCost = providerCost * 1.20;
+      const expectedCredits = Math.max(
+        1,
+        Math.ceil((internalCost * BITBI_MODEL_PRICING_USD_TO_EUR) / BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING)
+      );
+      expect(priced.providerCostUsd).toBeCloseTo(providerCost, 12);
+      expect(priced.internalCostUsd).toBeCloseTo(internalCost, 12);
+      expect(priced.credits).toBe(expectedCredits);
+      expect(priced.chargedValueUsd).toBeGreaterThanOrEqual(internalCost);
+      expect(priced.formula.internalCostUsd).toBe('providerCostUsd * 1.20');
+    }
+
+    const wide = calculateSeedance2CreditPricing(SEEDANCE_2_MODEL_ID, {
+      duration: 10,
+      resolution: '720p',
+      aspect_ratio: '16:9',
+    });
+    const square = calculateSeedance2CreditPricing(SEEDANCE_2_MODEL_ID, {
+      duration: 10,
+      resolution: '720p',
+      aspect_ratio: '1:1',
+    });
+    expect(square.providerCostUsd).toBe(wide.providerCostUsd);
+    expect(square.credits).toBe(wide.credits);
+    expect(() => calculateSeedance2CreditPricing(SEEDANCE_2_MODEL_ID, {
+      duration: 10,
+      resolution: '480p',
+      aspect_ratio: '16:9',
+    })).toThrow('Unsupported Seedance resolution.');
+  });
+
   test('model margin helper derives its credit value from the static live Stripe pack catalog', async () => {
     const stripeBilling = await loadStripeBillingModule();
     const livePacks = await loadLiveCreditPacksModule();
@@ -12691,6 +12774,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const pixversePricing = await loadPixverseV6PricingModule();
     const musicPricing = await loadMusic26PricingModule();
     const happyHorsePricing = await loadHappyHorseT2vPricingModule();
+    const seedancePricing = await loadSeedance2PricingModule();
     const imageCases = [
       {
         modelId: '@cf/black-forest-labs/flux-1-schnell',
@@ -12744,11 +12828,12 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       .toBeGreaterThanOrEqual(happyHorsePricing.BITBI_HAPPYHORSE_TARGET_PROFIT_MARGIN);
 
     for (const seedanceModelId of ['bytedance/seedance-2.0-fast', 'bytedance/seedance-2.0']) {
+      const params = { duration: 5, resolution: '720p', aspect_ratio: '16:9' };
       expect(modelPricing.calculateAiModelCreditCost({
         mediaType: 'video',
         modelId: seedanceModelId,
-        params: { duration: 5, resolution: '720p', aspect_ratio: '16:9' },
-      })).toBeNull();
+        params,
+      })).toEqual(seedancePricing.calculateSeedance2CreditPricing(seedanceModelId, params));
     }
   });
 
@@ -20132,12 +20217,12 @@ test.describe('Worker routes', () => {
         vendor: 'ByteDance',
         capabilities: expect.objectContaining({
           adminOnly: true,
-          pricingRequired: true,
-          costDiscoveryEnabled: true,
-          costDiscoveryFlag: 'ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY',
+          pricingRequired: false,
+          costDiscoveryEnabled: false,
+          costDiscoveryFlag: null,
           generationEnabled: true,
-          unavailableCode: 'admin_seedance_cost_discovery_disabled',
-          resolutionOptions: ['480p', '720p'],
+          unavailableCode: null,
+          resolutionOptions: ['720p', '1080p'],
           minDuration: 4,
           maxDuration: 15,
         }),
@@ -20148,11 +20233,11 @@ test.describe('Worker routes', () => {
         vendor: 'ByteDance',
         capabilities: expect.objectContaining({
           adminOnly: true,
-          pricingRequired: true,
-          costDiscoveryEnabled: true,
-          costDiscoveryFlag: 'ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY',
+          pricingRequired: false,
+          costDiscoveryEnabled: false,
+          costDiscoveryFlag: null,
           generationEnabled: true,
-          unavailableCode: 'admin_seedance_cost_discovery_disabled',
+          unavailableCode: null,
         }),
       });
       expect(body.presets[0]).toEqual(expect.objectContaining({
@@ -22207,14 +22292,11 @@ test.describe('Worker routes', () => {
       });
     });
 
-    test('POST /api/admin/ai/video-jobs fails closed for Seedance when cost discovery flag is absent', async () => {
+    test('POST /api/admin/ai/video-jobs rejects unsupported Seedance setup before queueing', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-seedance-admin');
       const service = createAiVideoJobServiceBinding();
-      const env = createAuthTestEnv({
-        users: [admin],
-        ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY: undefined,
-      });
+      const env = createAuthTestEnv({ users: [admin] });
       env.AI_LAB = service.binding;
       const token = await seedSession(env, admin.id);
 
@@ -22225,7 +22307,7 @@ test.describe('Worker routes', () => {
             prompt: 'Seedance queue should not start without verified pricing.',
             duration: 5,
             aspect_ratio: '16:9',
-            resolution: '720p',
+            resolution: '480p',
           }, {
             Origin: 'https://bitbi.ai',
             Cookie: `bitbi_session=${token}`,
@@ -22235,11 +22317,11 @@ test.describe('Worker routes', () => {
           createExecutionContext().execCtx
         );
 
-        expect(res.status).toBe(403);
+        expect(res.status).toBe(400);
         await expect(res.json()).resolves.toEqual(expect.objectContaining({
           ok: false,
-          code: 'admin_seedance_cost_discovery_disabled',
-          error: expect.stringContaining('Admin Seedance cost discovery is disabled'),
+          code: 'validation_error',
+          error: expect.stringContaining('resolution must be one of 720p, 1080p'),
         }));
       }
 
@@ -22248,26 +22330,32 @@ test.describe('Worker routes', () => {
       expect(service.calls).toHaveLength(0);
     });
 
-    test('POST /api/admin/ai/video-jobs queues Seedance cost discovery with no credit debit and bounded metadata', async () => {
+    test('POST /api/admin/ai/video-jobs queues priced Seedance admin video job with bounded metadata', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { calculateSeedance2CreditPricing } = await loadSeedance2PricingModule();
       const admin = createAdminUser('async-video-seedance-cost-admin');
       const service = createAiVideoJobServiceBinding();
       const assetFetch = createVideoAssetFetchStub();
       const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
       env.AI_LAB = service.binding;
       const token = await seedSession(env, admin.id);
+      const expectedPricing = calculateSeedance2CreditPricing('bytedance/seedance-2.0-fast', {
+        duration: 6,
+        resolution: '720p',
+        aspect_ratio: '9:16',
+      });
 
       const createRes = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
           model: 'bytedance/seedance-2.0-fast',
-          prompt: 'Seedance cost discovery queue test.',
+          prompt: 'Seedance priced queue test.',
           duration: 6,
           aspect_ratio: '9:16',
           resolution: '720p',
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
-          'Idempotency-Key': 'video-job-seedance-cost-discovery-1',
+          'Idempotency-Key': 'video-job-seedance-priced-1',
         }),
         env,
         createExecutionContext().execCtx
@@ -22286,17 +22374,20 @@ test.describe('Worker routes', () => {
             budget_scope: 'platform_admin_lab_budget',
             credit_debit: false,
             live_platform_budget_cap: expect.objectContaining({
-              requested_units: 1,
+              requested_units: expectedPricing.credits,
             }),
-            cost_discovery: expect.objectContaining({
-              status: 'operator_guarded_admin_cost_discovery',
-              pricing_configured: false,
+            seedance_pricing: expect.objectContaining({
+              status: 'operator_approved_admin_pricing',
+              pricing_configured: true,
               credit_debit: false,
-              cost_discovery_flag: 'ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY',
               model_id: 'bytedance/seedance-2.0-fast',
               duration: 6,
               resolution: '720p',
               aspect_ratio: '9:16',
+              provider_cost_usd: expectedPricing.providerCostUsd,
+              internal_cost_usd: expectedPricing.internalCostUsd,
+              estimated_credits: expectedPricing.credits,
+              pricing_source: 'operator_approved_seedance_pricing_2026_05_25',
               input_mode: 'prompt_only',
               workflow: 'text_to_video',
             }),
@@ -22305,13 +22396,22 @@ test.describe('Worker routes', () => {
       });
       expect(env.DB.state.aiVideoJobs).toHaveLength(1);
       const storedInput = JSON.parse(env.DB.state.aiVideoJobs[0].input_json);
-      expect(storedInput).toEqual({
+      expect(storedInput).toMatchObject({
         preset: null,
         model: 'bytedance/seedance-2.0-fast',
-        prompt: 'Seedance cost discovery queue test.',
+        prompt: 'Seedance priced queue test.',
         duration: 6,
         aspect_ratio: '9:16',
         resolution: '720p',
+        __admin_generation_metadata: {
+          releaseStatus: 'admin_only',
+          adminCreditsCharged: 0,
+          futureMemberPricing: {
+            credits: expectedPricing.credits,
+            providerCostUsd: expectedPricing.providerCostUsd,
+            internalCostUsd: expectedPricing.internalCostUsd,
+          },
+        },
       });
       expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(1);
       expect(service.calls).toHaveLength(0);
@@ -22329,7 +22429,7 @@ test.describe('Worker routes', () => {
       expect(internalProviderBody).toEqual({
         preset: null,
         model: 'bytedance/seedance-2.0-fast',
-        prompt: 'Seedance cost discovery queue test.',
+        prompt: 'Seedance priced queue test.',
         duration: 6,
         aspect_ratio: '9:16',
         resolution: '720p',
@@ -22350,9 +22450,12 @@ test.describe('Worker routes', () => {
       expect(usageMetadata).toMatchObject({
         model_id: 'bytedance/seedance-2.0-fast',
         result_status: 'succeeded',
-        cost_discovery_status: 'operator_guarded_admin_cost_discovery',
-        cost_discovery_pricing_configured: false,
-        cost_discovery_credit_debit: false,
+        seedance_pricing_status: 'operator_approved_admin_pricing',
+        seedance_pricing_configured: true,
+        seedance_credit_debit: false,
+        seedance_estimated_credits: expectedPricing.credits,
+        seedance_provider_cost_usd: expectedPricing.providerCostUsd,
+        seedance_internal_cost_usd: expectedPricing.internalCostUsd,
         duration: 6,
         resolution: '720p',
         aspect_ratio: '9:16',
@@ -27923,12 +28026,9 @@ test.describe('Worker routes', () => {
       }));
     });
 
-    test('POST /api/admin/ai/test-video fails closed for Seedance when cost discovery flag is absent', async () => {
+    test('POST /api/admin/ai/test-video rejects unsupported Seedance setup before provider dispatch', async () => {
       let aiRunCalls = 0;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
-        authEnv: {
-          ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY: undefined,
-        },
         aiRun: async () => {
           aiRunCalls += 1;
           return { video_url: 'https://cdn.example.com/video/seedance.mp4' };
@@ -27939,35 +28039,29 @@ test.describe('Worker routes', () => {
         const res = await authWorker.fetch(
           authJsonRequest('/api/admin/ai/test-video', 'POST', {
             model,
-            prompt: 'Seedance cost discovery must be explicitly enabled.',
+            prompt: 'Seedance unsupported setup must fail closed.',
             duration: 5,
             aspect_ratio: '16:9',
-            resolution: '720p',
+            resolution: '480p',
           }, authHeaders),
           env,
           createExecutionContext().execCtx
         );
 
-        expect(res.status).toBe(403);
+        expect(res.status).toBe(400);
         await expect(res.json()).resolves.toEqual(expect.objectContaining({
           ok: false,
-          code: 'admin_seedance_cost_discovery_disabled',
-          error: expect.stringContaining('Admin Seedance cost discovery is disabled'),
+          code: 'validation_error',
+          error: expect.stringContaining('resolution must be one of 720p, 1080p'),
         }));
       }
 
       expect(aiRunCalls).toBe(0);
     });
 
-    test('POST /api/admin/ai/test-video dispatches Seedance through Cloudflare path only when cost discovery flag is enabled', async () => {
+    test('POST /api/admin/ai/test-video dispatches priced Seedance through Cloudflare path', async () => {
       const aiRunCalls = [];
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
-        authEnv: {
-          ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY: 'true',
-        },
-        aiEnv: {
-          ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY: 'true',
-        },
         aiRun: async (...args) => {
           aiRunCalls.push(args);
           return { video_url: 'https://cdn.example.com/video/seedance.mp4' };
@@ -27977,10 +28071,10 @@ test.describe('Worker routes', () => {
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-video', 'POST', {
           model: 'bytedance/seedance-2.0',
-          prompt: 'Seedance enabled cost discovery route.',
+          prompt: 'Seedance priced route.',
           duration: 7,
           aspect_ratio: '4:3',
-          resolution: '480p',
+          resolution: '1080p',
         }, authHeaders),
         env,
         createExecutionContext().execCtx
@@ -27994,10 +28088,10 @@ test.describe('Worker routes', () => {
         },
         result: {
           videoUrl: 'https://cdn.example.com/video/seedance.mp4',
-          prompt: 'Seedance enabled cost discovery route.',
+          prompt: 'Seedance priced route.',
           duration: 7,
           aspect_ratio: '4:3',
-          resolution: '480p',
+          resolution: '1080p',
           seed: null,
           generate_audio: false,
           hasImageInput: false,
@@ -28008,10 +28102,10 @@ test.describe('Worker routes', () => {
       expect(aiRunCalls).toHaveLength(1);
       expect(aiRunCalls[0][0]).toBe('bytedance/seedance-2.0');
       expect(aiRunCalls[0][1]).toEqual({
-        prompt: 'Seedance enabled cost discovery route.',
+        prompt: 'Seedance priced route.',
         duration: 7,
         aspect_ratio: '4:3',
-        resolution: '480p',
+        resolution: '1080p',
       });
       expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'default' } });
       expect(JSON.stringify(aiRunCalls[0][1])).not.toContain('seed');

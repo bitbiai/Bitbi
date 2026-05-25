@@ -440,14 +440,14 @@ function createMockAiCatalog() {
         task: 'video',
         label: 'Seedance 2.0 Fast',
         model: 'bytedance/seedance-2.0-fast',
-        description: 'Admin Seedance 2.0 Fast cost-discovery preset. Credits are not configured.',
+        description: 'Admin Seedance 2.0 Fast preset with operator-approved video pricing.',
       },
       {
         name: 'video_seedance_2',
         task: 'video',
         label: 'Seedance 2.0',
         model: 'bytedance/seedance-2.0',
-        description: 'Admin Seedance 2.0 cost-discovery preset. Credits are not configured.',
+        description: 'Admin Seedance 2.0 preset with operator-approved video pricing.',
       },
     ],
     models: {
@@ -692,7 +692,7 @@ function createMockAiCatalog() {
           label: 'Seedance 2.0 Fast',
           vendor: 'ByteDance',
           providerLabel: 'Cloudflare AI Gateway',
-          description: 'Admin-only Cloudflare/AI Gateway Seedance 2.0 Fast cost-discovery entry. Credits are not priced for member use.',
+          description: 'Admin-only Cloudflare/AI Gateway Seedance 2.0 Fast video generation with operator-approved pricing.',
           capabilities: {
             supportsImageInput: false,
             supportsEndImage: false,
@@ -709,7 +709,7 @@ function createMockAiCatalog() {
             maxDuration: 15,
             aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
             qualityOptions: [],
-            resolutionOptions: ['480p', '720p'],
+            resolutionOptions: ['720p', '1080p'],
             defaultDuration: 5,
             defaultAspectRatio: '16:9',
             defaultQuality: null,
@@ -718,12 +718,12 @@ function createMockAiCatalog() {
             defaultWatermark: false,
             defaultPreset: 'video_seedance_2_fast',
             adminOnly: true,
-            pricingRequired: true,
-            costDiscoveryEnabled: true,
-            costDiscoveryFlag: 'ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY',
+            pricingRequired: false,
+            costDiscoveryEnabled: false,
+            costDiscoveryFlag: null,
             generationEnabled: true,
-            unavailableCode: 'admin_seedance_cost_discovery_disabled',
-            unavailableMessage: 'Admin Seedance cost discovery is disabled. Enable ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY for bounded admin-only test runs.',
+            unavailableCode: null,
+            unavailableMessage: null,
           },
         },
         {
@@ -732,7 +732,7 @@ function createMockAiCatalog() {
           label: 'Seedance 2.0',
           vendor: 'ByteDance',
           providerLabel: 'Cloudflare AI Gateway',
-          description: 'Admin-only Cloudflare/AI Gateway Seedance 2.0 cost-discovery entry. Credits are not priced for member use.',
+          description: 'Admin-only Cloudflare/AI Gateway Seedance 2.0 video generation with operator-approved pricing.',
           capabilities: {
             supportsImageInput: false,
             supportsEndImage: false,
@@ -749,7 +749,7 @@ function createMockAiCatalog() {
             maxDuration: 15,
             aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
             qualityOptions: [],
-            resolutionOptions: ['480p', '720p'],
+            resolutionOptions: ['720p', '1080p'],
             defaultDuration: 5,
             defaultAspectRatio: '16:9',
             defaultQuality: null,
@@ -758,12 +758,12 @@ function createMockAiCatalog() {
             defaultWatermark: false,
             defaultPreset: 'video_seedance_2',
             adminOnly: true,
-            pricingRequired: true,
-            costDiscoveryEnabled: true,
-            costDiscoveryFlag: 'ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY',
+            pricingRequired: false,
+            costDiscoveryEnabled: false,
+            costDiscoveryFlag: null,
             generationEnabled: true,
-            unavailableCode: 'admin_seedance_cost_discovery_disabled',
-            unavailableMessage: 'Admin Seedance cost discovery is disabled. Enable ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY for bounded admin-only test runs.',
+            unavailableCode: null,
+            unavailableMessage: null,
           },
         },
       ],
@@ -16006,7 +16006,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoCardSeedance')).toContainText('bytedance/seedance-2.0');
   });
 
-  test('Seedance Video AI models run admin-only cost discovery without fake credit pricing', async ({
+  test('Seedance Video AI models show priced admin-only estimates and keep payloads bounded', async ({
     page,
   }) => {
     const requests = [];
@@ -16016,7 +16016,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     await page.unroute('**/api/admin/ai/video-jobs');
-    await page.route('**/api/admin/ai/video-jobs/vidjob_seedance_cost_*', async (route) => {
+    await page.route('**/api/admin/ai/video-jobs/vidjob_seedance_priced_*', async (route) => {
       statusPolls += 1;
       await route.fulfill({
         status: 200,
@@ -16024,14 +16024,14 @@ test.describe('Admin AI Lab', () => {
         body: JSON.stringify({
           ok: true,
           job: {
-            jobId: 'vidjob_seedance_cost_discovery',
+            jobId: 'vidjob_seedance_priced',
             status: 'succeeded',
             provider: 'workers-ai',
             model: requests.at(-1)?.model || 'bytedance/seedance-2.0-fast',
             createdAt: '2026-05-25T00:00:00.000Z',
             updatedAt: '2026-05-25T00:00:01.000Z',
             completedAt: '2026-05-25T00:00:01.000Z',
-            outputUrl: '/api/admin/ai/video-jobs/vidjob_seedance_cost_discovery/output',
+            outputUrl: '/api/admin/ai/video-jobs/vidjob_seedance_priced/output',
           },
         }),
       });
@@ -16045,19 +16045,20 @@ test.describe('Admin AI Lab', () => {
           ok: true,
           existing: false,
           job: {
-            jobId: `vidjob_seedance_cost_${requests.length}`,
+            jobId: `vidjob_seedance_priced_${requests.length}`,
             status: 'queued',
             provider: 'workers-ai',
             model: requests.at(-1)?.model || 'bytedance/seedance-2.0-fast',
             createdAt: '2026-05-25T00:00:00.000Z',
             updatedAt: '2026-05-25T00:00:00.000Z',
             completedAt: null,
-            statusUrl: `/api/admin/ai/video-jobs/vidjob_seedance_cost_${requests.length}`,
+            statusUrl: `/api/admin/ai/video-jobs/vidjob_seedance_priced_${requests.length}`,
             budgetPolicy: {
-              cost_discovery: {
-                status: 'operator_guarded_admin_cost_discovery',
-                pricing_configured: false,
+              seedance_pricing: {
+                status: 'operator_approved_admin_pricing',
+                pricing_configured: true,
                 credit_debit: false,
+                estimated_credits: 4,
               },
             },
           },
@@ -16077,12 +16078,15 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('label:has(#aiVideoGenerateAudio)')).toBeHidden();
     await expect(page.locator('#aiVideoDuration')).toHaveAttribute('min', '4');
     await expect(page.locator('#aiVideoDuration')).toHaveAttribute('max', '15');
-    await expect(page.locator('#aiVideoState')).toContainText('Cost discovery');
-    await expect(page.locator('#aiVideoState')).not.toContainText('Credit');
+    await expect(page.locator('#aiVideoState')).toContainText('Estimated credits:');
+    await expect(page.locator('#aiVideoState')).not.toContainText('Cost discovery');
+    await expect(page.locator('#aiVideoRun')).toContainText('credit');
     await expect(page.locator('#aiVideoInlineError')).toBeEmpty();
 
     await page.locator('#aiVideoPrompt').fill('A fast Seedance smoke test');
+    await page.locator('#aiVideoResolution').selectOption('1080p');
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
+    const fast1080Label = await page.locator('#aiVideoRun').textContent();
     await page.locator('#aiVideoRun').click();
     await expect.poll(() => requests.length).toBe(1);
     expect(requests[0]).toMatchObject({
@@ -16091,7 +16095,7 @@ test.describe('Admin AI Lab', () => {
       prompt: 'A fast Seedance smoke test',
       duration: 5,
       aspect_ratio: '16:9',
-      resolution: '720p',
+      resolution: '1080p',
     });
     expect(requests[0].negative_prompt).toBeUndefined();
     expect(requests[0].seed).toBeUndefined();
@@ -16103,8 +16107,11 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiVideoCardSeedance').click();
     await expect(page.locator('#aiVideoModelBadge')).toContainText('bytedance/seedance-2.0');
     await expect(page.locator('#aiVideoResolutionField')).toBeVisible();
+    await page.locator('#aiVideoResolution').selectOption('720p');
     await page.locator('#aiVideoPrompt').fill('A standard Seedance smoke test');
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
+    const standard720Label = await page.locator('#aiVideoRun').textContent();
+    expect(standard720Label).not.toBe(fast1080Label);
     await page.locator('#aiVideoRun').click();
     await expect.poll(() => requests.length).toBe(2);
     expect(requests[1]).toMatchObject({
@@ -16116,6 +16123,7 @@ test.describe('Admin AI Lab', () => {
       resolution: '720p',
     });
     expect(JSON.stringify(requests)).not.toContain('credits');
+    expect(JSON.stringify(requests)).not.toContain('negative_prompt');
 
     await page.locator('#aiVideoCardPixverse').click();
     await expect(page.locator('#aiVideoModelBadge')).toContainText('pixverse/v6');
