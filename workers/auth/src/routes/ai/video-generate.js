@@ -25,6 +25,16 @@ import {
   PIXVERSE_V6_MODEL_ID,
   PIXVERSE_V6_MODEL_LABEL,
 } from "../../../../../js/shared/pixverse-v6-pricing.mjs";
+import {
+  SEEDANCE_2_ASPECT_RATIOS,
+  SEEDANCE_2_DEFAULT_ASPECT_RATIO,
+  SEEDANCE_2_DEFAULT_DURATION,
+  SEEDANCE_2_DEFAULT_RESOLUTION,
+  SEEDANCE_2_FAST_MODEL_ID,
+  SEEDANCE_2_MAX_DURATION,
+  SEEDANCE_2_MIN_DURATION,
+  SEEDANCE_2_RESOLUTIONS,
+} from "../../../../../js/shared/seedance-2-pricing.mjs";
 import { calculateAiVideoCreditCost } from "../../../../../js/shared/ai-model-pricing.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
@@ -86,6 +96,10 @@ const DEFAULT_QUALITY = "720p";
 const DEFAULT_GENERATE_AUDIO = true;
 const DEFAULT_TITLE = "PixVerse Video";
 const HAPPYHORSE_DEFAULT_TITLE = "HappyHorse Video";
+const SEEDANCE_2_FAST_MODEL_LABEL = "Seedance 2.0 Fast";
+const SEEDANCE_2_FAST_VENDOR = "ByteDance";
+const SEEDANCE_2_FAST_DEFAULT_TITLE = "Seedance Video";
+const SEEDANCE_2_MAX_PROMPT_LENGTH = 5000;
 const PIXVERSE_ALLOWED_BODY_FIELDS = new Set([
   "model",
   "prompt",
@@ -96,6 +110,16 @@ const PIXVERSE_ALLOWED_BODY_FIELDS = new Set([
   "quality",
   "seed",
   "generate_audio",
+  "folder_id",
+  "folderId",
+  "title",
+]);
+const SEEDANCE_ALLOWED_BODY_FIELDS = new Set([
+  "model",
+  "prompt",
+  "duration",
+  "resolution",
+  "aspect_ratio",
   "folder_id",
   "folderId",
   "title",
@@ -170,7 +194,13 @@ function normalizeModelId(value) {
   const modelId = value === undefined || value === null || value === ""
     ? PIXVERSE_V6_MODEL_ID
     : String(value).trim();
-  if (modelId === PIXVERSE_V6_MODEL_ID || modelId === HAPPYHORSE_T2V_MODEL_ID) return modelId;
+  if (
+    modelId === PIXVERSE_V6_MODEL_ID ||
+    modelId === HAPPYHORSE_T2V_MODEL_ID ||
+    modelId === SEEDANCE_2_FAST_MODEL_ID
+  ) {
+    return modelId;
+  }
   throw validationError("Video model is not available for member generation.", "model_not_allowed");
 }
 
@@ -385,6 +415,71 @@ function normalizeHappyHorseBody(body) {
   };
 }
 
+function normalizeSeedanceFastBody(body) {
+  assertAllowedBodyFields(body, SEEDANCE_ALLOWED_BODY_FIELDS);
+  const prompt = normalizeOptionalString(body.prompt, SEEDANCE_2_MAX_PROMPT_LENGTH, "prompt", { allowNewlines: true });
+  if (!prompt) {
+    throw validationError(`prompt must be 1-${SEEDANCE_2_MAX_PROMPT_LENGTH} safe characters.`, "invalid_prompt");
+  }
+  const duration = normalizeInteger(body.duration, {
+    fieldName: "duration",
+    min: SEEDANCE_2_MIN_DURATION,
+    max: SEEDANCE_2_MAX_DURATION,
+    fallback: SEEDANCE_2_DEFAULT_DURATION,
+  });
+  const resolution = normalizeEnum(
+    body.resolution,
+    enumIncludes(SEEDANCE_2_RESOLUTIONS),
+    SEEDANCE_2_DEFAULT_RESOLUTION,
+    "resolution"
+  );
+  const aspectRatio = normalizeEnum(
+    body.aspect_ratio,
+    enumIncludes(SEEDANCE_2_ASPECT_RATIOS),
+    SEEDANCE_2_DEFAULT_ASPECT_RATIO,
+    "aspect_ratio"
+  );
+  const title = normalizeOptionalString(body.title, MAX_TITLE_LENGTH, "title")
+    || titleFromPrompt(prompt, SEEDANCE_2_FAST_DEFAULT_TITLE);
+  const folderId = normalizeFolderId(body);
+  const pricing = calculateAiVideoCreditCost(SEEDANCE_2_FAST_MODEL_ID, {
+    duration,
+    resolution,
+    aspect_ratio: aspectRatio,
+  });
+  if (!pricing) {
+    throw validationError("Video model pricing is unavailable.", "pricing_unavailable", 503);
+  }
+  const price = pricing.credits;
+
+  return {
+    modelId: SEEDANCE_2_FAST_MODEL_ID,
+    modelLabel: SEEDANCE_2_FAST_MODEL_LABEL,
+    vendor: SEEDANCE_2_FAST_VENDOR,
+    provider: "workers-ai",
+    preset: "member_video_seedance_2_fast",
+    pricingSource: "operator_approved_seedance_pricing_2026_05_25",
+    prompt,
+    duration,
+    aspectRatio,
+    resolution,
+    seed: null,
+    generateAudio: null,
+    watermark: null,
+    workflow: "text-to-video",
+    title,
+    folderId,
+    price,
+    policyBody: {
+      model: SEEDANCE_2_FAST_MODEL_ID,
+      prompt,
+      duration,
+      aspect_ratio: aspectRatio,
+      resolution,
+    },
+  };
+}
+
 async function normalizeMemberVideoBody(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw validationError("JSON body is required.", "bad_request");
@@ -392,6 +487,9 @@ async function normalizeMemberVideoBody(body) {
   const modelId = normalizeModelId(body.model);
   if (modelId === HAPPYHORSE_T2V_MODEL_ID) {
     return normalizeHappyHorseBody(body);
+  }
+  if (modelId === SEEDANCE_2_FAST_MODEL_ID) {
+    return normalizeSeedanceFastBody(body);
   }
   return normalizePixverseBody(body);
 }
@@ -422,7 +520,17 @@ function buildHappyHorsePayload(input) {
   return payload;
 }
 
+function buildSeedanceFastPayload(input) {
+  return {
+    prompt: input.prompt,
+    duration: input.duration,
+    aspect_ratio: input.aspectRatio,
+    resolution: input.resolution,
+  };
+}
+
 function buildProviderPayload(input) {
+  if (input.modelId === SEEDANCE_2_FAST_MODEL_ID) return buildSeedanceFastPayload(input);
   if (input.modelId === HAPPYHORSE_T2V_MODEL_ID) return buildHappyHorsePayload(input);
   return buildPixversePayload(input);
 }
@@ -1044,6 +1152,7 @@ export async function handleGenerateVideo(ctx) {
       request_mode: "workers-ai-gateway",
       pricing_source: input.pricingSource,
       duration: input.duration,
+      aspect_ratio: input.aspectRatio,
       quality: input.quality,
       resolution: input.resolution,
       ratio: input.ratio,

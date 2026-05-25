@@ -706,7 +706,7 @@ function createMockAiCatalog() {
             maxPromptLength: 5000,
             maxNegativePromptLength: null,
             minDuration: 4,
-            maxDuration: 15,
+            maxDuration: 12,
             aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
             qualityOptions: [],
             resolutionOptions: ['720p', '1080p'],
@@ -746,7 +746,7 @@ function createMockAiCatalog() {
             maxPromptLength: 5000,
             maxNegativePromptLength: null,
             minDuration: 4,
-            maxDuration: 15,
+            maxDuration: 12,
             aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
             qualityOptions: [],
             resolutionOptions: ['720p', '1080p'],
@@ -16159,7 +16159,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoSeedField')).toBeHidden();
     await expect(page.locator('label:has(#aiVideoGenerateAudio)')).toBeHidden();
     await expect(page.locator('#aiVideoDuration')).toHaveAttribute('min', '4');
-    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('max', '15');
+    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('max', '12');
     await expect(page.locator('#aiVideoState')).toContainText('Estimated credits:');
     await expect(page.locator('#aiVideoState')).not.toContainText('Cost discovery');
     await expect(page.locator('#aiVideoRun')).toContainText('credit');
@@ -16188,6 +16188,8 @@ test.describe('Admin AI Lab', () => {
 
     await page.locator('#aiVideoCardSeedance').click();
     await expect(page.locator('#aiVideoModelBadge')).toContainText('bytedance/seedance-2.0');
+    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('min', '4');
+    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('max', '12');
     await expect(page.locator('#aiVideoResolutionField')).toBeVisible();
     await page.locator('#aiVideoResolution').selectOption('720p');
     await page.locator('#aiVideoPrompt').fill('A standard Seedance smoke test');

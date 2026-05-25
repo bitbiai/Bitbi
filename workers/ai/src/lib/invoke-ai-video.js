@@ -7,6 +7,12 @@ import {
   isAdminAiVideoSeedanceModelId,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
+  SEEDANCE_2_ASPECT_RATIOS,
+  SEEDANCE_2_MAX_DURATION,
+  SEEDANCE_2_MIN_DURATION,
+  SEEDANCE_2_RESOLUTIONS,
+} from "../../../../js/shared/seedance-2-pricing.mjs";
+import {
   getDurationMs,
   getErrorFields,
   logDiagnostic,
@@ -45,8 +51,6 @@ const VIDU_PROVIDER_DEFAULT_POLL_INTERVAL_MS = 4_000;
 const VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = BITBI_GENERATION_TIMEOUT_MS;
 const VIDU_VALID_RESOLUTIONS = ["540p", "720p", "1080p"];
 const VIDU_VALID_ASPECT_RATIOS = ["16:9", "9:16", "3:4", "4:3", "1:1"];
-const SEEDANCE_VALID_RESOLUTIONS = ["720p", "1080p"];
-const SEEDANCE_VALID_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
 const VIDU_MINIMAL_MODE_PAYLOAD = {
   prompt: "A golden retriever running through a sunlit meadow in slow motion",
   duration: 5,
@@ -816,21 +820,23 @@ function buildSeedancePayload(input) {
   }
 
   const duration = typeof input.duration === "string" ? parseInt(input.duration, 10) : Number(input.duration);
-  if (!Number.isInteger(duration) || duration < 4 || duration > 15) {
-    throw videoValidationError("Seedance: duration must be an integer between 4 and 15.");
+  if (!Number.isInteger(duration) || duration < SEEDANCE_2_MIN_DURATION || duration > SEEDANCE_2_MAX_DURATION) {
+    throw videoValidationError(
+      `Seedance: duration must be an integer between ${SEEDANCE_2_MIN_DURATION} and ${SEEDANCE_2_MAX_DURATION}.`
+    );
   }
 
   const aspectRatio = typeof input.aspect_ratio === "string" ? input.aspect_ratio.trim() : "";
-  if (!SEEDANCE_VALID_ASPECT_RATIOS.includes(aspectRatio)) {
+  if (!SEEDANCE_2_ASPECT_RATIOS.includes(aspectRatio)) {
     throw videoValidationError(
-      `Seedance: aspect_ratio must be one of ${SEEDANCE_VALID_ASPECT_RATIOS.join(", ")}.`
+      `Seedance: aspect_ratio must be one of ${SEEDANCE_2_ASPECT_RATIOS.join(", ")}.`
     );
   }
 
   const resolution = typeof input.resolution === "string" ? input.resolution.trim() : "";
-  if (!SEEDANCE_VALID_RESOLUTIONS.includes(resolution)) {
+  if (!SEEDANCE_2_RESOLUTIONS.includes(resolution)) {
     throw videoValidationError(
-      `Seedance: resolution must be one of ${SEEDANCE_VALID_RESOLUTIONS.join(", ")}.`
+      `Seedance: resolution must be one of ${SEEDANCE_2_RESOLUTIONS.join(", ")}.`
     );
   }
 

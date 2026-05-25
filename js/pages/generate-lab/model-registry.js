@@ -36,6 +36,16 @@ import {
     PIXVERSE_V6_MODEL_LABEL,
     PIXVERSE_V6_QUALITIES,
 } from '../../shared/pixverse-v6-pricing.mjs?v=__ASSET_VERSION__';
+import {
+    SEEDANCE_2_ASPECT_RATIOS,
+    SEEDANCE_2_DEFAULT_ASPECT_RATIO,
+    SEEDANCE_2_DEFAULT_DURATION,
+    SEEDANCE_2_DEFAULT_RESOLUTION,
+    SEEDANCE_2_FAST_MODEL_ID,
+    SEEDANCE_2_MAX_DURATION,
+    SEEDANCE_2_MIN_DURATION,
+    SEEDANCE_2_RESOLUTIONS,
+} from '../../shared/seedance-2-pricing.mjs?v=__ASSET_VERSION__';
 import { calculateAiModelCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { MINIMAX_MUSIC_2_6_MODEL_ID } from '../../shared/music-2-6-pricing.mjs?v=__ASSET_VERSION__';
 import { getCurrentLocale } from '../../shared/locale.js?v=__ASSET_VERSION__';
@@ -254,6 +264,48 @@ const happyHorseT2vModel = Object.freeze({
     }),
 });
 
+const seedance2FastModel = Object.freeze({
+    id: SEEDANCE_2_FAST_MODEL_ID,
+    displayName: 'Seedance 2.0 Fast',
+    mediaType: 'video',
+    provider: 'ByteDance / Workers AI via AI Gateway',
+    route: '/api/ai/generate-video',
+    outputType: 'video',
+    status: 'LIVE',
+    summary: DE ? 'ByteDance Text-zu-Video mit Dauer, Auflösung und Formatsteuerung.' : 'ByteDance text-to-video with duration, resolution, and aspect controls.',
+    capabilities: Object.freeze([
+        DE ? 'Text zu Video' : 'Text-to-video',
+        DE ? `${SEEDANCE_2_MIN_DURATION}-${SEEDANCE_2_MAX_DURATION} Sekunden Dauer` : `${SEEDANCE_2_MIN_DURATION}-${SEEDANCE_2_MAX_DURATION} second duration`,
+        DE ? `${SEEDANCE_2_RESOLUTIONS.join(', ')} Auflösung` : `${SEEDANCE_2_RESOLUTIONS.join(', ')} resolution`,
+        DE ? `${SEEDANCE_2_ASPECT_RATIOS.join(', ')} Formate` : `${SEEDANCE_2_ASPECT_RATIOS.join(', ')} aspect ratios`,
+        DE ? 'Automatisch gespeichertes Video-Asset' : 'Auto-saved video asset',
+    ]),
+    defaults: Object.freeze({
+        duration: SEEDANCE_2_DEFAULT_DURATION,
+        resolution: SEEDANCE_2_DEFAULT_RESOLUTION,
+        aspectRatio: SEEDANCE_2_DEFAULT_ASPECT_RATIO,
+    }),
+    options: Object.freeze({
+        duration: Object.freeze({ min: SEEDANCE_2_MIN_DURATION, max: SEEDANCE_2_MAX_DURATION }),
+        resolution: Object.freeze([...SEEDANCE_2_RESOLUTIONS]),
+        aspectRatio: Object.freeze([...SEEDANCE_2_ASPECT_RATIOS]),
+    }),
+    controls: Object.freeze({
+        supportsImageInput: false,
+        supportsNegativePrompt: false,
+        supportsAudioToggle: false,
+        supportsSeed: false,
+        supportsWatermark: false,
+        resolutionField: 'resolution',
+        aspectField: 'aspectRatio',
+    }),
+    estimateCredits: ({ duration, resolution, aspectRatio }) => estimateModelCredits('video', SEEDANCE_2_FAST_MODEL_ID, {
+        duration,
+        resolution,
+        aspect_ratio: aspectRatio,
+    }),
+});
+
 const music26Model = Object.freeze({
     id: MUSIC_26_MODEL_ID,
     displayName: 'MiniMax Music 2.6',
@@ -282,6 +334,7 @@ const models = Object.freeze([
     ...imageModels,
     pixverseV6Model,
     happyHorseT2vModel,
+    seedance2FastModel,
     music26Model,
 ]);
 

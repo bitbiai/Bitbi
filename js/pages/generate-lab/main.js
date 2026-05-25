@@ -629,7 +629,10 @@ function syncVideoOptionState({ reset = false } = {}) {
     if (referenceField) referenceField.hidden = !supportsReference;
     if (audioToggle) audioToggle.hidden = !supportsAudio;
     if (watermarkToggle) watermarkToggle.hidden = !supportsWatermark;
-    if (seedField) seedField.classList.toggle('is-disabled', !supportsSeed);
+    if (seedField) {
+        seedField.hidden = !supportsSeed;
+        seedField.classList.toggle('is-disabled', !supportsSeed);
+    }
 
     if (refs.videoQualityLabel) {
         refs.videoQualityLabel.textContent = resolutionField === 'resolution'

@@ -2573,11 +2573,11 @@ test.describe('Homepage', () => {
     await expect(workspace).not.toContainText('Video remains in preview until you save it.');
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('HappyHorse 1.0 T2V')).toBeVisible();
+    await expect(page.locator('#labModelList').getByText('Seedance 2.0 Fast')).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
-    await expect(page.getByText('Seedance 2.0 Fast')).toHaveCount(0);
-    await expect(page.getByText('Seedance 2.0')).toHaveCount(0);
+    await expect(page.getByText('Seedance 2.0', { exact: true })).toHaveCount(0);
 
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
     await expect(page.locator('#labCost')).toHaveText('459 credits');
@@ -2593,12 +2593,42 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labVideoAspect option[value="21:9"]')).toHaveCount(0);
     await page.selectOption('#labVideoQuality', '1080P');
     await expect(page.locator('#labCost')).toHaveText('917 credits');
+
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Seedance 2.0 Fast' }).click();
+    await expect(page.locator('#labCost')).toHaveText('252 credits');
+    await expect(page.locator('#labVideoNegativeField')).toBeHidden();
+    await expect(page.locator('#labVideoReferenceField')).toBeHidden();
+    await expect(page.locator('#labVideoAudioField')).toBeHidden();
+    await expect(page.locator('#labVideoWatermarkField')).toBeHidden();
+    await expect(page.locator('label:has(#labVideoSeed)')).toBeHidden();
+    await expect(page.locator('#labVideoQualityLabel')).toHaveText('Resolution');
+    await expect(page.locator('#labVideoAspectLabel')).toHaveText('Aspect');
+    await expect(page.locator('#labVideoDuration option')).toHaveText([
+      '4 s',
+      '5 s',
+      '6 s',
+      '7 s',
+      '8 s',
+      '9 s',
+      '10 s',
+      '11 s',
+      '12 s',
+    ]);
+    await expect(page.locator('#labVideoDuration option[value="15"]')).toHaveCount(0);
+    await expect(page.locator('#labVideoQuality option')).toHaveText(['720p', '1080p']);
+    await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
+    await page.selectOption('#labVideoQuality', '1080p');
+    await expect(page.locator('#labCost')).toHaveText('535 credits');
+    await page.selectOption('#labVideoDuration', '12');
+    await expect(page.locator('#labCost')).toHaveText('1283 credits');
+
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.locator('#labVideoNegativeField')).toBeVisible();
     await expect(page.locator('#labVideoReferenceField')).toBeVisible();
     await expect(page.locator('#labVideoAudioField')).toBeVisible();
     await expect(page.locator('#labVideoWatermarkField')).toBeHidden();
+    await expect(page.locator('label:has(#labVideoSeed)')).toBeVisible();
     await expect(page.locator('#labVideoQualityLabel')).toHaveText('Quality');
     await expect(page.locator('#labVideoAspectLabel')).toHaveText('Aspect');
 
@@ -2779,6 +2809,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('main')).not.toContainText('Alle gespeicherten anzeigen');
 
     await page.getByRole('tab', { name: 'Video' }).click();
+    await expect(page.locator('#labModelList').getByText('Seedance 2.0 Fast')).toBeVisible();
+    await expect(page.getByText('Seedance 2.0', { exact: true })).toHaveCount(0);
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
     await expect(page.locator('#labVideoNegativeField')).toBeHidden();
     await expect(page.locator('#labVideoReferenceField')).toBeHidden();
@@ -2788,6 +2820,20 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labVideoQualityLabel')).toHaveText('Auflösung');
     await expect(page.locator('#labVideoAspectLabel')).toHaveText('Seitenverhältnis');
     await expect(page.locator('#labVideoQuality option')).toHaveText(['720P', '1080P']);
+    await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
+
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Seedance 2.0 Fast' }).click();
+    await expect(page.locator('#labCost')).toHaveText('252 Credits');
+    await expect(page.locator('#labVideoNegativeField')).toBeHidden();
+    await expect(page.locator('#labVideoReferenceField')).toBeHidden();
+    await expect(page.locator('#labVideoAudioField')).toBeHidden();
+    await expect(page.locator('#labVideoWatermarkField')).toBeHidden();
+    await expect(page.locator('label:has(#labVideoSeed)')).toBeHidden();
+    await expect(page.locator('#labVideoQualityLabel')).toHaveText('Auflösung');
+    await expect(page.locator('#labVideoAspectLabel')).toHaveText('Format');
+    await expect(page.locator('#labVideoDuration option').last()).toHaveAttribute('value', '12');
+    await expect(page.locator('#labVideoDuration option[value="15"]')).toHaveCount(0);
+    await expect(page.locator('#labVideoQuality option')).toHaveText(['720p', '1080p']);
     await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
   });
 
