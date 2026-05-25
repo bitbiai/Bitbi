@@ -189,7 +189,7 @@
             display: block;
             inline-size: 100%;
             margin: 0;
-            aspect-ratio: var(--gallery-item-aspect, 1.333);
+            aspect-ratio: 4 / 3;
             min-inline-size: 0;
             overflow: hidden;
             border-radius: 0.62rem;
@@ -207,11 +207,40 @@
 
         #galleryGrid .gallery-inner {
             block-size: 100%;
+            inline-size: 100%;
             border-radius: inherit;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background:
+                radial-gradient(circle at 50% 42%, rgba(0, 240, 255, 0.08), transparent 56%),
+                linear-gradient(135deg, rgba(13, 27, 42, 0.94) 0%, rgba(4, 8, 15, 0.98) 100%);
         }
 
         #galleryGrid .gallery-inner img {
+            width: 100% !important;
+            inline-size: 100%;
             block-size: 100%;
+            object-fit: cover !important;
+            border-radius: inherit;
+        }
+
+        #galleryGrid .gallery-item--portrait .gallery-inner img {
+            width: 62% !important;
+            inline-size: 62%;
+            block-size: 100%;
+        }
+
+        #galleryGrid .gallery-item--landscape .gallery-inner img {
+            width: 100% !important;
+            inline-size: 100%;
+            block-size: 78%;
+        }
+
+        #galleryGrid .gallery-item--square .gallery-inner img {
+            width: 62% !important;
+            inline-size: 62%;
+            block-size: 82.5%;
         }
 
         #galleryGrid .gallery-overlay {
@@ -2619,8 +2648,38 @@
         }
 
         #videoGrid .video-card__poster {
-            aspect-ratio: var(--video-item-aspect, 1.778);
+            aspect-ratio: 4 / 3;
             border-radius: inherit;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 50% 42%, rgba(255, 179, 0, 0.08), transparent 58%),
+                linear-gradient(135deg, rgba(13, 27, 42, 0.95) 0%, rgba(6, 10, 18, 0.98) 100%);
+        }
+
+        #videoGrid .video-card__preview {
+            width: 100%;
+            inline-size: 100%;
+            block-size: 100%;
+            object-fit: cover;
+            border-radius: inherit;
+        }
+
+        #videoGrid .video-card--portrait .video-card__preview {
+            width: 62%;
+            inline-size: 62%;
+            block-size: 100%;
+        }
+
+        #videoGrid .video-card--landscape .video-card__preview {
+            width: 100%;
+            inline-size: 100%;
+            block-size: 78%;
+        }
+
+        #videoGrid .video-card--square .video-card__preview {
+            width: 62%;
+            inline-size: 62%;
+            block-size: 82.5%;
         }
 
         #videoGrid .video-card__info {

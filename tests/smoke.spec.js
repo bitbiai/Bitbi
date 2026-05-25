@@ -4372,14 +4372,19 @@ test.describe('Homepage', () => {
       const style = window.getComputedStyle(grid);
       const rects = Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)')).map((node) => {
         const rect = node.getBoundingClientRect();
+        const media = node.querySelector('img');
+        const mediaRect = media?.getBoundingClientRect();
         return {
           id: node.dataset.galleryItemId || '',
           aspect: node.dataset.galleryAspect || '',
           left: Math.round(rect.left * 100) / 100,
           top: Math.round(rect.top * 100) / 100,
           right: Math.round(rect.right * 100) / 100,
+          bottom: Math.round(rect.bottom * 100) / 100,
           width: Math.round(rect.width * 100) / 100,
           height: Math.round(rect.height * 100) / 100,
+          mediaWidth: mediaRect ? Math.round(mediaRect.width * 100) / 100 : 0,
+          mediaHeight: mediaRect ? Math.round(mediaRect.height * 100) / 100 : 0,
         };
       });
       const columns = [];
@@ -4399,6 +4404,11 @@ test.describe('Homepage', () => {
       const firstBandGaps = topBand.slice(1).map((rect, index) => (
         Math.round((rect.left - topBand[index].right) * 100) / 100
       )) || [];
+      const topBandBottom = Math.max(...topBand.map((rect) => rect.bottom));
+      const secondBandTop = secondBand.length ? Math.min(...secondBand.map((rect) => rect.top)) : topBandBottom;
+      const rowGap = Math.round((secondBandTop - topBandBottom) * 100) / 100;
+      const topBandHeights = topBand.map((rect) => rect.height);
+      const secondBandHeights = secondBand.map((rect) => rect.height);
       return {
         display: style.display,
         gridColumnCount: style.gridTemplateColumns.split(' ').filter(Boolean).length,
@@ -4413,7 +4423,9 @@ test.describe('Homepage', () => {
         portrait: rects.find((rect) => rect.aspect === 'portrait') || null,
         landscape: rects.find((rect) => rect.aspect === 'landscape') || null,
         square: rects.find((rect) => rect.aspect === 'square') || null,
-        roundedHeights: Array.from(new Set(rects.map((rect) => Math.round(rect.height / 10) * 10))),
+        rowGap,
+        topBandHeightSpread: Math.max(...topBandHeights) - Math.min(...topBandHeights),
+        secondBandHeightSpread: Math.max(...secondBandHeights) - Math.min(...secondBandHeights),
       };
     });
 
@@ -4435,10 +4447,13 @@ test.describe('Homepage', () => {
     expect(wideLayout.columnCounts).toHaveLength(5);
     expect(Math.max(...wideLayout.firstBandGaps)).toBeLessThanOrEqual(16);
     expect(Math.max(...wideLayout.firstBandGaps) - Math.min(...wideLayout.firstBandGaps)).toBeLessThanOrEqual(3);
-    expect(wideLayout.portrait.height).toBeGreaterThan(wideLayout.portrait.width * 1.12);
-    expect(wideLayout.landscape.width).toBeGreaterThan(wideLayout.landscape.height * 1.12);
-    expect(Math.abs(wideLayout.square.width - wideLayout.square.height)).toBeLessThanOrEqual(3);
-    expect(wideLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
+    expect(wideLayout.rowGap).toBeGreaterThanOrEqual(0);
+    expect(wideLayout.rowGap).toBeLessThanOrEqual(16);
+    expect(wideLayout.topBandHeightSpread).toBeLessThanOrEqual(3);
+    expect(wideLayout.secondBandHeightSpread).toBeLessThanOrEqual(3);
+    expect(wideLayout.portrait.mediaHeight).toBeGreaterThan(wideLayout.portrait.mediaWidth * 1.12);
+    expect(wideLayout.landscape.mediaWidth).toBeGreaterThan(wideLayout.landscape.mediaHeight * 1.12);
+    expect(Math.abs(wideLayout.square.mediaWidth - wideLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
 
     await switchHomepageCategory(page, 'video');
     const videoCards = page.locator('#videoGrid .video-card');
@@ -4449,20 +4464,33 @@ test.describe('Homepage', () => {
       const style = window.getComputedStyle(grid);
       const rects = Array.from(grid.querySelectorAll('.video-card')).map((node) => {
         const rect = node.getBoundingClientRect();
+        const media = node.querySelector('.video-card__preview');
+        const mediaRect = media?.getBoundingClientRect();
         return {
           id: node.dataset.videoItemId || '',
           aspect: node.dataset.videoAspect || '',
           left: Math.round(rect.left * 100) / 100,
           top: Math.round(rect.top * 100) / 100,
           right: Math.round(rect.right * 100) / 100,
+          bottom: Math.round(rect.bottom * 100) / 100,
           width: Math.round(rect.width * 100) / 100,
           height: Math.round(rect.height * 100) / 100,
+          mediaWidth: mediaRect ? Math.round(mediaRect.width * 100) / 100 : 0,
+          mediaHeight: mediaRect ? Math.round(mediaRect.height * 100) / 100 : 0,
         };
       });
       const topBand = rects.filter((rect) => Math.abs(rect.top - Math.min(...rects.map((item) => item.top))) <= 3);
       topBand.sort((a, b) => a.left - b.left);
       const secondBand = rects.filter((rect) => rect.top > topBand[0].top + 3);
       secondBand.sort((a, b) => a.left - b.left);
+      const firstBandGaps = topBand.slice(1).map((rect, index) => (
+        Math.round((rect.left - topBand[index].right) * 100) / 100
+      )) || [];
+      const topBandBottom = Math.max(...topBand.map((rect) => rect.bottom));
+      const secondBandTop = secondBand.length ? Math.min(...secondBand.map((rect) => rect.top)) : topBandBottom;
+      const rowGap = Math.round((secondBandTop - topBandBottom) * 100) / 100;
+      const topBandHeights = topBand.map((rect) => rect.height);
+      const secondBandHeights = secondBand.map((rect) => rect.height);
       return {
         display: style.display,
         gridColumnCount: style.gridTemplateColumns.split(' ').filter(Boolean).length,
@@ -4471,10 +4499,13 @@ test.describe('Homepage', () => {
         topBandIds: topBand.map((rect) => rect.id),
         secondBandIds: secondBand.map((rect) => rect.id),
         topBandCount: topBand.length,
+        firstBandGaps,
         portrait: rects.find((rect) => rect.aspect === 'portrait') || null,
         landscape: rects.find((rect) => rect.aspect === 'landscape') || null,
         square: rects.find((rect) => rect.aspect === 'square') || null,
-        roundedHeights: Array.from(new Set(rects.map((rect) => Math.round(rect.height / 10) * 10))),
+        rowGap,
+        topBandHeightSpread: Math.max(...topBandHeights) - Math.min(...topBandHeights),
+        secondBandHeightSpread: Math.max(...secondBandHeights) - Math.min(...secondBandHeights),
       };
     });
 
@@ -4492,10 +4523,15 @@ test.describe('Homepage', () => {
     expect(videoLayout.topBandIds).toEqual(['memvid-11', 'memvid-10', 'memvid-9', 'memvid-8', 'memvid-7']);
     expect(videoLayout.secondBandIds[0]).toBe('memvid-6');
     expect(videoLayout.topBandCount).toBe(5);
-    expect(videoLayout.portrait.height).toBeGreaterThan(videoLayout.portrait.width * 1.12);
-    expect(videoLayout.landscape.width).toBeGreaterThan(videoLayout.landscape.height * 1.12);
-    expect(Math.abs(videoLayout.square.width - videoLayout.square.height)).toBeLessThanOrEqual(3);
-    expect(videoLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
+    expect(Math.max(...videoLayout.firstBandGaps)).toBeLessThanOrEqual(16);
+    expect(Math.max(...videoLayout.firstBandGaps) - Math.min(...videoLayout.firstBandGaps)).toBeLessThanOrEqual(3);
+    expect(videoLayout.rowGap).toBeGreaterThanOrEqual(0);
+    expect(videoLayout.rowGap).toBeLessThanOrEqual(16);
+    expect(videoLayout.topBandHeightSpread).toBeLessThanOrEqual(3);
+    expect(videoLayout.secondBandHeightSpread).toBeLessThanOrEqual(3);
+    expect(videoLayout.portrait.mediaHeight).toBeGreaterThan(videoLayout.portrait.mediaWidth * 1.12);
+    expect(videoLayout.landscape.mediaWidth).toBeGreaterThan(videoLayout.landscape.mediaHeight * 1.12);
+    expect(Math.abs(videoLayout.square.mediaWidth - videoLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 844 });
 
