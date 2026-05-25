@@ -4240,7 +4240,7 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-grid-overlay__close').click();
   });
 
-  test('homepage Gallery and Video fit five aspect-aware columns and two initial rows on wide desktop while preserving the mobile layout', async ({ page }) => {
+  test('homepage Gallery and Video use five-column masonry media walls on wide desktop while preserving the mobile layout', async ({ page }) => {
     const dimensions = [
       { w: 360, h: 540 },
       { w: 720, h: 405 },
@@ -4385,6 +4385,7 @@ test.describe('Homepage', () => {
           height: Math.round(rect.height * 100) / 100,
           mediaWidth: mediaRect ? Math.round(mediaRect.width * 100) / 100 : 0,
           mediaHeight: mediaRect ? Math.round(mediaRect.height * 100) / 100 : 0,
+          mediaCoverage: mediaRect ? Math.round(((mediaRect.width * mediaRect.height) / (rect.width * rect.height)) * 1000) / 1000 : 0,
         };
       });
       const columns = [];
@@ -4397,63 +4398,60 @@ test.describe('Homepage', () => {
         column.cards.push(rect);
       });
       columns.sort((a, b) => a.left - b.left);
-      const topBand = rects.filter((rect) => Math.abs(rect.top - Math.min(...rects.map((item) => item.top))) <= 3);
-      topBand.sort((a, b) => a.left - b.left);
-      const secondBand = rects.filter((rect) => rect.top > topBand[0].top + 3);
-      secondBand.sort((a, b) => a.left - b.left);
-      const firstBandGaps = topBand.slice(1).map((rect, index) => (
-        Math.round((rect.left - topBand[index].right) * 100) / 100
-      )) || [];
-      const topBandBottom = Math.max(...topBand.map((rect) => rect.bottom));
-      const secondBandTop = secondBand.length ? Math.min(...secondBand.map((rect) => rect.top)) : topBandBottom;
-      const rowGap = Math.round((secondBandTop - topBandBottom) * 100) / 100;
-      const topBandHeights = topBand.map((rect) => rect.height);
-      const secondBandHeights = secondBand.map((rect) => rect.height);
+      columns.forEach((column) => column.cards.sort((a, b) => a.top - b.top));
+      const horizontalGaps = columns.slice(1).map((column, index) => {
+        const previousRight = Math.max(...columns[index].cards.map((rect) => rect.right));
+        return Math.round((column.left - previousRight) * 100) / 100;
+      });
+      const verticalGaps = columns.flatMap((column) => column.cards.slice(1).map((rect, index) => (
+        Math.round((rect.top - column.cards[index].bottom) * 100) / 100
+      )));
+      const topLeft = [...rects].sort((a, b) => (a.top - b.top) || (a.left - b.left))[0];
       return {
         display: style.display,
-        gridColumnCount: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+        cssColumnCount: Number.parseInt(style.columnCount, 10) || columns.length,
         overflow: grid.scrollWidth - grid.clientWidth,
         renderedCount: rects.length,
         orderedIds: rects.map((rect) => rect.id),
-        topBandIds: topBand.map((rect) => rect.id),
-        secondBandIds: secondBand.map((rect) => rect.id),
-        topBandCount: topBand.length,
+        topLeftId: topLeft?.id || '',
         columnCounts: columns.map((column) => column.cards.length),
-        firstBandGaps,
+        horizontalGaps,
+        maxVerticalGap: verticalGaps.length ? Math.max(...verticalGaps) : 0,
+        minMediaCoverage: Math.min(...rects.map((rect) => rect.mediaCoverage)),
         portrait: rects.find((rect) => rect.aspect === 'portrait') || null,
         landscape: rects.find((rect) => rect.aspect === 'landscape') || null,
         square: rects.find((rect) => rect.aspect === 'square') || null,
-        rowGap,
-        topBandHeightSpread: Math.max(...topBandHeights) - Math.min(...topBandHeights),
-        secondBandHeightSpread: Math.max(...secondBandHeights) - Math.min(...secondBandHeights),
+        roundedHeights: Array.from(new Set(rects.map((rect) => Math.round(rect.height / 10) * 10))),
       };
     });
 
-    expect(wideLayout.display).toBe('grid');
-    expect(wideLayout.gridColumnCount).toBe(5);
+    expect(wideLayout.display).toBe('block');
+    expect(wideLayout.cssColumnCount).toBe(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
     expect(wideLayout.renderedCount).toBe(10);
-    expect(wideLayout.orderedIds.slice(0, 6)).toEqual([
+    expect(wideLayout.orderedIds.slice(0, 10)).toEqual([
       'mempic-11',
       'mempic-10',
       'mempic-9',
       'mempic-8',
       'mempic-7',
       'mempic-6',
+      'mempic-5',
+      'mempic-4',
+      'mempic-3',
+      'mempic-2',
     ]);
-    expect(wideLayout.topBandIds).toEqual(['mempic-11', 'mempic-10', 'mempic-9', 'mempic-8', 'mempic-7']);
-    expect(wideLayout.secondBandIds[0]).toBe('mempic-6');
-    expect(wideLayout.topBandCount).toBe(5);
+    expect(wideLayout.topLeftId).toBe('mempic-11');
     expect(wideLayout.columnCounts).toHaveLength(5);
-    expect(Math.max(...wideLayout.firstBandGaps)).toBeLessThanOrEqual(16);
-    expect(Math.max(...wideLayout.firstBandGaps) - Math.min(...wideLayout.firstBandGaps)).toBeLessThanOrEqual(3);
-    expect(wideLayout.rowGap).toBeGreaterThanOrEqual(0);
-    expect(wideLayout.rowGap).toBeLessThanOrEqual(16);
-    expect(wideLayout.topBandHeightSpread).toBeLessThanOrEqual(3);
-    expect(wideLayout.secondBandHeightSpread).toBeLessThanOrEqual(3);
-    expect(wideLayout.portrait.mediaHeight).toBeGreaterThan(wideLayout.portrait.mediaWidth * 1.12);
-    expect(wideLayout.landscape.mediaWidth).toBeGreaterThan(wideLayout.landscape.mediaHeight * 1.12);
-    expect(Math.abs(wideLayout.square.mediaWidth - wideLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
+    expect(Math.min(...wideLayout.columnCounts)).toBeGreaterThanOrEqual(1);
+    expect(Math.max(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(16);
+    expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(3);
+    expect(wideLayout.maxVerticalGap).toBeLessThanOrEqual(16);
+    expect(wideLayout.minMediaCoverage).toBeGreaterThan(0.95);
+    expect(wideLayout.portrait.height).toBeGreaterThan(wideLayout.portrait.width * 1.12);
+    expect(wideLayout.landscape.width).toBeGreaterThan(wideLayout.landscape.height * 1.12);
+    expect(Math.abs(wideLayout.square.width - wideLayout.square.height)).toBeLessThanOrEqual(3);
+    expect(wideLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await switchHomepageCategory(page, 'video');
     const videoCards = page.locator('#videoGrid .video-card');
@@ -4477,61 +4475,71 @@ test.describe('Homepage', () => {
           height: Math.round(rect.height * 100) / 100,
           mediaWidth: mediaRect ? Math.round(mediaRect.width * 100) / 100 : 0,
           mediaHeight: mediaRect ? Math.round(mediaRect.height * 100) / 100 : 0,
+          mediaCoverage: mediaRect ? Math.round(((mediaRect.width * mediaRect.height) / (rect.width * rect.height)) * 1000) / 1000 : 0,
         };
       });
-      const topBand = rects.filter((rect) => Math.abs(rect.top - Math.min(...rects.map((item) => item.top))) <= 3);
-      topBand.sort((a, b) => a.left - b.left);
-      const secondBand = rects.filter((rect) => rect.top > topBand[0].top + 3);
-      secondBand.sort((a, b) => a.left - b.left);
-      const firstBandGaps = topBand.slice(1).map((rect, index) => (
-        Math.round((rect.left - topBand[index].right) * 100) / 100
-      )) || [];
-      const topBandBottom = Math.max(...topBand.map((rect) => rect.bottom));
-      const secondBandTop = secondBand.length ? Math.min(...secondBand.map((rect) => rect.top)) : topBandBottom;
-      const rowGap = Math.round((secondBandTop - topBandBottom) * 100) / 100;
-      const topBandHeights = topBand.map((rect) => rect.height);
-      const secondBandHeights = secondBand.map((rect) => rect.height);
+      const columns = [];
+      rects.forEach((rect) => {
+        let column = columns.find((candidate) => Math.abs(candidate.left - rect.left) <= 3);
+        if (!column) {
+          column = { left: rect.left, cards: [] };
+          columns.push(column);
+        }
+        column.cards.push(rect);
+      });
+      columns.sort((a, b) => a.left - b.left);
+      columns.forEach((column) => column.cards.sort((a, b) => a.top - b.top));
+      const horizontalGaps = columns.slice(1).map((column, index) => {
+        const previousRight = Math.max(...columns[index].cards.map((rect) => rect.right));
+        return Math.round((column.left - previousRight) * 100) / 100;
+      });
+      const verticalGaps = columns.flatMap((column) => column.cards.slice(1).map((rect, index) => (
+        Math.round((rect.top - column.cards[index].bottom) * 100) / 100
+      )));
+      const topLeft = [...rects].sort((a, b) => (a.top - b.top) || (a.left - b.left))[0];
       return {
         display: style.display,
-        gridColumnCount: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+        cssColumnCount: Number.parseInt(style.columnCount, 10) || columns.length,
         overflow: grid.scrollWidth - grid.clientWidth,
         orderedIds: rects.map((rect) => rect.id),
-        topBandIds: topBand.map((rect) => rect.id),
-        secondBandIds: secondBand.map((rect) => rect.id),
-        topBandCount: topBand.length,
-        firstBandGaps,
+        topLeftId: topLeft?.id || '',
+        columnCounts: columns.map((column) => column.cards.length),
+        horizontalGaps,
+        maxVerticalGap: verticalGaps.length ? Math.max(...verticalGaps) : 0,
+        minMediaCoverage: Math.min(...rects.map((rect) => rect.mediaCoverage)),
         portrait: rects.find((rect) => rect.aspect === 'portrait') || null,
         landscape: rects.find((rect) => rect.aspect === 'landscape') || null,
         square: rects.find((rect) => rect.aspect === 'square') || null,
-        rowGap,
-        topBandHeightSpread: Math.max(...topBandHeights) - Math.min(...topBandHeights),
-        secondBandHeightSpread: Math.max(...secondBandHeights) - Math.min(...secondBandHeights),
+        roundedHeights: Array.from(new Set(rects.map((rect) => Math.round(rect.height / 10) * 10))),
       };
     });
 
-    expect(videoLayout.display).toBe('grid');
-    expect(videoLayout.gridColumnCount).toBe(5);
+    expect(videoLayout.display).toBe('block');
+    expect(videoLayout.cssColumnCount).toBe(5);
     expect(videoLayout.overflow).toBeLessThanOrEqual(2);
-    expect(videoLayout.orderedIds.slice(0, 6)).toEqual([
+    expect(videoLayout.orderedIds.slice(0, 10)).toEqual([
       'memvid-11',
       'memvid-10',
       'memvid-9',
       'memvid-8',
       'memvid-7',
       'memvid-6',
+      'memvid-5',
+      'memvid-4',
+      'memvid-3',
+      'memvid-2',
     ]);
-    expect(videoLayout.topBandIds).toEqual(['memvid-11', 'memvid-10', 'memvid-9', 'memvid-8', 'memvid-7']);
-    expect(videoLayout.secondBandIds[0]).toBe('memvid-6');
-    expect(videoLayout.topBandCount).toBe(5);
-    expect(Math.max(...videoLayout.firstBandGaps)).toBeLessThanOrEqual(16);
-    expect(Math.max(...videoLayout.firstBandGaps) - Math.min(...videoLayout.firstBandGaps)).toBeLessThanOrEqual(3);
-    expect(videoLayout.rowGap).toBeGreaterThanOrEqual(0);
-    expect(videoLayout.rowGap).toBeLessThanOrEqual(16);
-    expect(videoLayout.topBandHeightSpread).toBeLessThanOrEqual(3);
-    expect(videoLayout.secondBandHeightSpread).toBeLessThanOrEqual(3);
-    expect(videoLayout.portrait.mediaHeight).toBeGreaterThan(videoLayout.portrait.mediaWidth * 1.12);
-    expect(videoLayout.landscape.mediaWidth).toBeGreaterThan(videoLayout.landscape.mediaHeight * 1.12);
-    expect(Math.abs(videoLayout.square.mediaWidth - videoLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
+    expect(videoLayout.topLeftId).toBe('memvid-11');
+    expect(videoLayout.columnCounts).toHaveLength(5);
+    expect(Math.min(...videoLayout.columnCounts)).toBeGreaterThanOrEqual(1);
+    expect(Math.max(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(16);
+    expect(Math.max(...videoLayout.horizontalGaps) - Math.min(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(3);
+    expect(videoLayout.maxVerticalGap).toBeLessThanOrEqual(16);
+    expect(videoLayout.minMediaCoverage).toBeGreaterThan(0.95);
+    expect(videoLayout.portrait.height).toBeGreaterThan(videoLayout.portrait.width * 1.12);
+    expect(videoLayout.landscape.width).toBeGreaterThan(videoLayout.landscape.height * 1.12);
+    expect(Math.abs(videoLayout.square.width - videoLayout.square.height)).toBeLessThanOrEqual(3);
+    expect(videoLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 844 });
 
