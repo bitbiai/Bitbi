@@ -516,6 +516,91 @@ async function routeDefaultMemtracks(page, {
   });
 }
 
+async function routeHomepageVideoHoverFixtures(page, { items, videoRequests = [] }) {
+  await page.route('**/api/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ loggedIn: false, user: null }),
+    });
+  });
+
+  await page.route('**/api/favorites', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, favorites: [] }),
+    });
+  });
+
+  await page.route('**/api/public/news-pulse**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], updated_at: '2026-05-09T00:00:00.000Z' }),
+    });
+  });
+
+  await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: { items: [], has_more: false, next_cursor: null } }),
+    });
+  });
+
+  await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: { items: [], has_more: false, next_cursor: null } }),
+    });
+  });
+
+  await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items,
+          has_more: false,
+          next_cursor: null,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/gallery/memvids/**', async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.pathname.endsWith('/poster') || requestUrl.pathname.endsWith('/avatar')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+      return;
+    }
+
+    if (requestUrl.pathname.endsWith('/file')) {
+      videoRequests.push(requestUrl.pathname);
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: 'not_found' }),
+    });
+  });
+}
+
 async function waitForHomepageScrollMeasurementReady(page) {
   await expect(page.locator('#homeCategories')).toHaveAttribute('data-stage-mode', /^(desktop|stacked)$/);
   await expect(page.locator('#videoGrid')).toHaveCount(1);
@@ -4130,6 +4215,148 @@ test.describe('Homepage', () => {
     expect(favoriteAriaLabel).not.toContain(rawDescription);
   });
 
+  test('desktop Video Explore cards lazy-play muted BITBI previews on hover', async ({ page }) => {
+    const videoRequests = [];
+    const items = Array.from({ length: 3 }, (_, index) => {
+      const id = `hover-memvid-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Hover Cut ${index + 1}`,
+        caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+        category: 'memvids',
+        publisher: { display_name: 'Ada Member' },
+        file: {
+          url: `/api/gallery/memvids/${id}/vpub/file`,
+        },
+        poster: {
+          url: `/api/gallery/memvids/${id}/vpub/poster`,
+          w: 1280,
+          h: 720,
+        },
+      };
+    });
+
+    await page.addInitScript(() => {
+      HTMLMediaElement.prototype.play = function playMock() {
+        this.dataset.playState = 'playing';
+        return Promise.resolve();
+      };
+      HTMLMediaElement.prototype.pause = function pauseMock() {
+        this.dataset.playState = 'paused';
+      };
+    });
+    await routeHomepageVideoHoverFixtures(page, { items, videoRequests });
+
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+    await switchHomepageCategory(page, 'video');
+
+    const cards = page.locator('#videoGrid .video-card');
+    await expect(cards).toHaveCount(3);
+    await expect(cards.nth(0).locator('.video-card__hover-preview')).toHaveCount(0);
+    expect(videoRequests).toEqual([]);
+
+    const firstCard = cards.nth(0);
+    await firstCard.hover();
+    const firstPreview = firstCard.locator('.video-card__hover-preview');
+    await expect(firstPreview).toHaveCount(1);
+    await expect(firstCard).toHaveClass(/video-card--hover-preview-active/);
+    const firstState = await firstPreview.evaluate((video) => ({
+      ariaHidden: video.getAttribute('aria-hidden'),
+      controls: video.controls,
+      muted: video.muted,
+      playsInline: video.playsInline,
+      preload: video.preload,
+      playState: video.dataset.playState || '',
+      src: video.getAttribute('src') || '',
+    }));
+    expect(firstState).toEqual({
+      ariaHidden: 'true',
+      controls: false,
+      muted: true,
+      playsInline: true,
+      preload: 'metadata',
+      playState: 'playing',
+      src: '/api/gallery/memvids/hover-memvid-1/vpub/file',
+    });
+    expect(firstState.src).toMatch(/^\/api\/gallery\/memvids\/[^/]+\/[^/]+\/file$/);
+    expect(firstState.src).not.toMatch(/^https?:\/\//);
+    expect(videoRequests).toContain('/api/gallery/memvids/hover-memvid-1/vpub/file');
+    expect(videoRequests).not.toContain('/api/gallery/memvids/hover-memvid-2/vpub/file');
+    expect(videoRequests).not.toContain('/api/gallery/memvids/hover-memvid-3/vpub/file');
+
+    const secondCard = cards.nth(1);
+    await secondCard.hover();
+    const secondPreview = secondCard.locator('.video-card__hover-preview');
+    await expect(secondPreview).toHaveCount(1);
+    await expect(secondCard).toHaveClass(/video-card--hover-preview-active/);
+    await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
+    await expect(firstPreview).not.toHaveAttribute('src', /./);
+    await expect(secondPreview).toHaveAttribute('src', '/api/gallery/memvids/hover-memvid-2/vpub/file');
+    expect(new Set(videoRequests)).toEqual(new Set([
+      '/api/gallery/memvids/hover-memvid-1/vpub/file',
+      '/api/gallery/memvids/hover-memvid-2/vpub/file',
+    ]));
+    expect(videoRequests).not.toContain('/api/gallery/memvids/hover-memvid-3/vpub/file');
+
+    await page.mouse.move(20, 20);
+    await expect(secondCard).not.toHaveClass(/video-card--hover-preview-active/);
+    await expect(secondPreview).not.toHaveAttribute('src', /./);
+
+    await firstCard.hover();
+    await firstCard.click();
+    await expect(page.locator('#videoModal')).toHaveClass(/active/);
+    await expect(page.locator('#videoModalTitle')).toHaveText('Hover Cut 1');
+    await expect(page.locator('#videoModal video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/hover-memvid-1\/vpub\/file$/);
+    await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
+    await expect(firstPreview).not.toHaveAttribute('src', /./);
+  });
+
+  test('mobile Video Explore cards do not activate hover preview playback', async ({ page }) => {
+    const videoRequests = [];
+    const items = [
+      {
+        id: 'mobile-hover-memvid',
+        slug: 'mobile-hover-memvid',
+        title: 'Mobile Still Poster',
+        caption: 'Touch devices keep the existing card behavior.',
+        category: 'memvids',
+        file: {
+          url: '/api/gallery/memvids/mobile-hover-memvid/vpub/file',
+        },
+        poster: {
+          url: '/api/gallery/memvids/mobile-hover-memvid/vpub/poster',
+          w: 1280,
+          h: 720,
+        },
+      },
+    ];
+
+    await page.addInitScript(() => {
+      HTMLMediaElement.prototype.play = function playMock() {
+        this.dataset.playState = 'playing';
+        return Promise.resolve();
+      };
+    });
+    await routeHomepageVideoHoverFixtures(page, { items, videoRequests });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await expectActiveHomepageCategory(page, 'video');
+
+    const card = page.locator('#videoGrid .video-card').first();
+    await expect(card).toBeVisible();
+    await card.hover({ force: true });
+    await expect(card.locator('.video-card__hover-preview')).toHaveCount(0);
+    await expect(card).not.toHaveClass(/video-card--hover-preview-active/);
+    expect(videoRequests).toEqual([]);
+
+    await card.click();
+    await expect(page.locator('#videoModal')).toHaveClass(/active/);
+    await expect(page.locator('#videoModal video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/mobile-hover-memvid\/vpub\/file$/);
+  });
+
   test('desktop published Mempics and Memvids start at two rows without changing mobile behavior', async ({ page }) => {
     const mempicItems = Array.from({ length: 12 }, (_, index) => ({
       id: `mempic-${index + 1}`,
@@ -4815,14 +5042,18 @@ test.describe('Homepage', () => {
     expect(idsAfterClick).not.toContain('progressive-memvid-60');
 
     await page.waitForTimeout(220);
-    await expect.poll(async () => {
-      await page.locator('#videoPagination .browse-pagination__sentinel').scrollIntoViewIfNeeded();
-      await page.evaluate(() => {
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
-        window.dispatchEvent(new Event('scroll'));
-      });
-      return cards.count();
-    }).toBe(50);
+    await page.evaluate(() => {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      window.dispatchEvent(new Event('scroll'));
+    });
+    await page.waitForTimeout(80);
+    await page.mouse.move(720, 640);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      if (await cards.count() >= 50) break;
+      await page.mouse.wheel(0, 2400);
+      await page.waitForTimeout(140);
+    }
+    await expect.poll(() => cards.count()).toBe(50);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
     expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
