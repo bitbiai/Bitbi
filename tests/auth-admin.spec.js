@@ -11538,6 +11538,8 @@ test.describe('Profile page (authenticated)', () => {
     const response = await page.goto('/account/profile.html');
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#profileFavoritesQuickLink').click();
+    await expect(page.locator('#profileFavoritesOverlay')).toHaveClass(/is-open/);
 
     await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:bad-memtrack"] img')).toHaveCount(0);
     await expect(page.locator('[data-fav-key="soundlab:tiny-hearts"]')).toHaveCount(0);
@@ -11553,8 +11555,10 @@ test.describe('Profile page (authenticated)', () => {
 
     await page.locator('[data-fav-key="soundlab:feedc0de"]').click();
     await expect(page.locator('#favViewer')).toHaveClass(/active/);
+    await expect(page.locator('#profileFavoritesOverlay')).toHaveClass(/is-open/);
     await expect(page.locator('#favViewer .xss-soundlab')).toHaveCount(0);
     await expect(page.locator('#favViewer #fvPlay')).toBeVisible();
+    await expect(page.locator('#favViewer .fav-viewer__download')).toBeVisible();
     await expect(page.locator('#favViewer .fav-viewer__track-title')).toHaveText('Published Member Track');
     await expect(page.locator('#favViewer .fav-viewer__player-hero img')).toHaveAttribute('src', /\/api\/gallery\/memtracks\/feedc0de\/vpubposter\/poster$/);
   });
@@ -11613,6 +11617,10 @@ test.describe('Profile page (authenticated)', () => {
     const response = await page.goto('/account/profile.html');
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#profileFavoritesSection')).toBeHidden();
+    await page.locator('#profileFavoritesQuickLink').click();
+    await expect(page.locator('#profileFavoritesOverlay')).toHaveClass(/is-open/);
+    await expect(page.locator('#profileFavoritesSection')).toBeVisible();
 
     await expect(page.locator('.profile__favorites')).not.toContainText('AI Creations');
     await expect(page.locator('[data-favorites-type="video"] .favorites__group-label')).toHaveText('Memvids');
@@ -11620,9 +11628,17 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('[data-favorites-type="video"] [data-fav-key="video:bada55e1"] img')).toHaveAttribute('src', new RegExp(`/api/gallery/memvids/bada55e1/${memvidVersion}/poster$`));
 
     await page.locator('[data-fav-key="mempics:a1b2c3d4"]').click();
+    await expect(page.locator('#profileFavoritesOverlay')).toHaveClass(/is-open/);
     await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveAttribute('src', new RegExp(`/api/gallery/mempics/a1b2c3d4/${mempicVersion}/medium$`));
     await expect(page.locator('#favViewer .fav-viewer__full-link')).toHaveAttribute('href', new RegExp(`/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file$`));
+    await expect(page.locator('#favViewer .fav-viewer__download')).toHaveAttribute('href', new RegExp(`/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file$`));
+    await expect(page.locator('#favViewer .fav-viewer__nav--next')).toBeVisible();
+    await expect(page.locator('#favViewer .fav-viewer__nav--prev')).toBeVisible();
+    await page.locator('#favViewer .fav-viewer__nav--next').click();
+    await expect(page.locator('#favViewer .fav-viewer__image video')).toHaveAttribute('src', new RegExp(`/api/gallery/memvids/bada55e1/${memvidVersion}/file$`));
+    await expect(page.locator('#favViewer .fav-viewer__title')).toHaveText('Launch Walkthrough');
     await page.locator('#favViewerClose').click();
+    await expect(page.locator('#profileFavoritesOverlay')).toHaveClass(/is-open/);
 
     await page.locator('[data-fav-key="video:bada55e1"]').click();
     await expect(page.locator('#favViewer .fav-viewer__image video')).toHaveAttribute('src', new RegExp(`/api/gallery/memvids/bada55e1/${memvidVersion}/file$`));
@@ -11783,7 +11799,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#formMsg')).not.toContainText('raw internal');
   });
 
-  test('non-admin desktop profile shows Assets Manager, Wallet, and Credits cards in the profile action stack', async ({
+  test('non-admin desktop profile uses three columns and opens Favorites from the action stack', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -11798,16 +11814,12 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
-    await expect(page.locator('#profileFavoritesQuickLink')).toBeHidden();
+    await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
     await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
-    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(3);
-    await expect(page.locator('#profileStudioStack .profile__studio-card:visible .profile__studio-label')).toHaveText([
-      'Assets Manager',
-      'Wallet',
-      'Credits',
-    ]);
-    await expect(page.locator('#profileFavoritesSection')).toBeVisible();
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(4);
+    await expect(page.locator('#profileFavoritesOverlay')).not.toHaveClass(/is-open/);
+    await expect(page.locator('#profileFavoritesSection')).toBeHidden();
     await expect(page.locator('#profileFavoritesSection')).toHaveAttribute('tabindex', '-1');
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileWorkspacePriority')).toHaveCount(0);
@@ -11830,39 +11842,64 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileAccountCard')).toContainText('Display Name');
     await expect(page.locator('#profileAccountCard')).toContainText('Member Since');
     await expect(page.locator('#profileAccountCard')).toHaveClass(/profile__account-card--compact/);
-    const overviewLayout = await page.locator('.profile__overview-grid').evaluate((node) => {
+    const overviewLayout = await page.locator('#profileContent').evaluate((node) => {
       const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
       const avatar = rectOf('#profileAvatarCard');
       const account = rectOf('#profileAccountCard');
       const completion = rectOf('#profileCompletionCard');
+      const settings = rectOf('.profile__settings-row');
       const studioStack = rectOf('#profileStudioStack');
       const assets = rectOf('#profileStudioCard');
+      const favorites = rectOf('#profileFavoritesQuickLink');
       const wallet = rectOf('#profileWalletCard');
       const credits = rectOf('#profileCreditsCard');
-      const favorites = rectOf('#profileFavoritesQuickLink');
       const heading = rectOf('#profileCompletionTitle');
       const completionStatus = rectOf('#profileCompletionStatus');
       const completionOrder = Array.from(node.querySelectorAll('#profileCompletionCard .profile__completion-item'))
         .map((item) => item.getAttribute('data-completion-item'));
-      const actionHeights = [assets, wallet, credits]
+      const actionHeights = [assets, favorites, wallet, credits]
         .filter(Boolean)
         .map((rect) => rect.height);
+      const visualQuickLinks = [
+        ['Assets Manager', assets],
+        ['Favorites', favorites],
+        ['Wallet', wallet],
+        ['Credits', credits],
+      ]
+        .filter(([, rect]) => rect && rect.width > 0 && rect.height > 0)
+        .sort((a, b) => a[1].top - b[1].top)
+        .map(([label]) => label);
       const accountRows = Array.from(node.querySelectorAll('#profileAccountCard .profile__row'))
         .map((row) => row.getBoundingClientRect());
+      const leftWidth = avatar?.width ?? 0;
+      const centerWidth = settings?.width ?? 0;
+      const rightWidth = studioStack?.width ?? 0;
       return {
         completionOrder,
         accountBelowAvatar: Boolean(avatar && account && account.top > avatar.bottom),
+        completionBelowAccount: Boolean(account && completion && completion.top > account.bottom),
         avatarCompact: Boolean(avatar && avatar.height <= 112),
         actionCardsVertical: Boolean(
           assets
+          && favorites
           && wallet
           && credits
-          && wallet.top > assets.bottom
+          && favorites.top > assets.bottom
+          && wallet.top > favorites.bottom
           && credits.top > wallet.bottom
+          && Math.abs(favorites.left - assets.left) <= 4
           && Math.abs(wallet.left - assets.left) <= 4
           && Math.abs(credits.left - assets.left) <= 4,
         ),
-        favoritesHiddenOnDesktop: Boolean(favorites && favorites.width === 0 && favorites.height === 0),
+        visualQuickLinks,
+        threeColumns: Boolean(
+          avatar
+          && settings
+          && studioStack
+          && avatar.left < settings.left
+          && settings.left < studioStack.left
+          && Math.max(leftWidth, centerWidth, rightWidth) - Math.min(leftWidth, centerWidth, rightWidth) <= 28
+        ),
         accountHeightCompact: Boolean(account && account.height <= 210),
         accountRowsReadable: accountRows.length === 5
           && accountRows.every((row, index) => index === 0 || row.top >= accountRows[index - 1].bottom - 1),
@@ -11873,35 +11910,28 @@ test.describe('Profile page (authenticated)', () => {
           && completionStatus.top < heading.bottom
           && completionStatus.bottom > heading.top,
         ),
-        completionBottomDelta: completion && account ? Math.abs(completion.bottom - account.bottom) : null,
-        studioBottomDelta: studioStack && account ? Math.abs(studioStack.bottom - account.bottom) : null,
-        studioChecklistTopDelta: studioStack && completion ? Math.abs(studioStack.top - completion.top) : null,
-        studioChecklistBottomDelta: studioStack && completion ? Math.abs(studioStack.bottom - completion.bottom) : null,
-        studioChecklistHeightDelta: studioStack && completion ? Math.abs(studioStack.height - completion.height) : null,
-        actionHeightsBalanced: actionHeights.length === 3
+        quickStackTopDelta: studioStack && avatar ? Math.abs(studioStack.top - avatar.top) : null,
+        quickStackHeightDelta: studioStack && avatar && account ? Math.abs(studioStack.height - (account.bottom - avatar.top)) : null,
+        actionHeightsBalanced: actionHeights.length === 4
           && Math.max(...actionHeights) - Math.min(...actionHeights) <= 6,
-        actionCardsTouchSafe: actionHeights.length === 3 && Math.min(...actionHeights) >= 44,
+        actionCardsTouchSafe: actionHeights.length === 4 && Math.min(...actionHeights) >= 44,
       };
     });
     expect(overviewLayout.completionOrder).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
     expect(overviewLayout.accountBelowAvatar).toBe(true);
+    expect(overviewLayout.completionBelowAccount).toBe(true);
     expect(overviewLayout.avatarCompact).toBe(true);
     expect(overviewLayout.actionCardsVertical).toBe(true);
-    expect(overviewLayout.favoritesHiddenOnDesktop).toBe(true);
+    expect(overviewLayout.visualQuickLinks).toEqual(['Assets Manager', 'Favorites', 'Wallet', 'Credits']);
+    expect(overviewLayout.threeColumns).toBe(true);
     expect(overviewLayout.accountHeightCompact).toBe(true);
     expect(overviewLayout.accountRowsReadable).toBe(true);
     expect(overviewLayout.summaryRightOfHeading).toBe(true);
     expect(overviewLayout.summarySameHeadingRow).toBe(true);
-    expect(overviewLayout.completionBottomDelta).not.toBeNull();
-    expect(overviewLayout.completionBottomDelta).toBeLessThanOrEqual(6);
-    expect(overviewLayout.studioBottomDelta).not.toBeNull();
-    expect(overviewLayout.studioBottomDelta).toBeLessThanOrEqual(6);
-    expect(overviewLayout.studioChecklistTopDelta).not.toBeNull();
-    expect(overviewLayout.studioChecklistTopDelta).toBeLessThanOrEqual(6);
-    expect(overviewLayout.studioChecklistBottomDelta).not.toBeNull();
-    expect(overviewLayout.studioChecklistBottomDelta).toBeLessThanOrEqual(6);
-    expect(overviewLayout.studioChecklistHeightDelta).not.toBeNull();
-    expect(overviewLayout.studioChecklistHeightDelta).toBeLessThanOrEqual(6);
+    expect(overviewLayout.quickStackTopDelta).not.toBeNull();
+    expect(overviewLayout.quickStackTopDelta).toBeLessThanOrEqual(6);
+    expect(overviewLayout.quickStackHeightDelta).not.toBeNull();
+    expect(overviewLayout.quickStackHeightDelta).toBeLessThanOrEqual(8);
     expect(overviewLayout.actionHeightsBalanced).toBe(true);
     expect(overviewLayout.actionCardsTouchSafe).toBe(true);
     const settingsRow = page.locator('.profile__settings-row');
@@ -11919,8 +11949,30 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await expect(page.locator('#profileForm')).toBeVisible();
+    const helperSpacing = await page.locator('#profileForm').evaluate((form) => {
+      const gapFor = (controlSelector, helperSelector) => {
+        const control = form.querySelector(controlSelector)?.getBoundingClientRect();
+        const helper = form.querySelector(helperSelector)?.getBoundingClientRect();
+        return control && helper ? helper.top - control.bottom : null;
+      };
+      return {
+        displayName: gapFor('#displayName', '#displayNameHelp'),
+        bio: gapFor('#bio', '#bioHelp'),
+        website: gapFor('#website', '#websiteHelp'),
+      };
+    });
+    expect(helperSpacing.displayName).not.toBeNull();
+    expect(helperSpacing.bio).not.toBeNull();
+    expect(helperSpacing.website).not.toBeNull();
+    expect(Math.abs(helperSpacing.displayName - helperSpacing.bio)).toBeLessThanOrEqual(2);
+    expect(Math.abs(helperSpacing.website - helperSpacing.bio)).toBeLessThanOrEqual(2);
     const layoutOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(layoutOverflow).toBe(false);
+    await page.locator('#profileFavoritesQuickLink').click();
+    await expect(page.locator('#profileFavoritesOverlay')).toHaveClass(/is-open/);
+    await expect(page.locator('#profileFavoritesOverlayClose')).toBeVisible();
+    await page.locator('#profileFavoritesOverlayClose').click();
+    await expect(page.locator('#profileFavoritesOverlay')).not.toHaveClass(/is-open/);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -11940,7 +11992,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(page.url()).not.toContain('raw-asset');
   });
 
-  test('admin desktop profile shows the same compact Assets Manager + Wallet + Credits stack as non-admin users', async ({
+  test('admin desktop profile shows the same compact Assets Manager + Favorites + Wallet + Credits stack as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
@@ -11955,10 +12007,21 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
-    await expect(page.locator('#profileFavoritesQuickLink')).toBeHidden();
+    await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
     await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
-    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(3);
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(4);
+    const visualQuickLinks = await page.locator('#profileStudioStack').evaluate((node) => (
+      Array.from(node.querySelectorAll('.profile__studio-card'))
+        .map((card) => ({
+          text: card.querySelector('.profile__studio-label')?.textContent?.trim(),
+          rect: card.getBoundingClientRect(),
+        }))
+        .filter((item) => item.rect.width > 0 && item.rect.height > 0)
+        .sort((a, b) => a.rect.top - b.rect.top)
+        .map((item) => item.text)
+    ));
+    expect(visualQuickLinks).toEqual(['Assets Manager', 'Favorites', 'Wallet', 'Credits']);
     await expect(page.locator('#profileWalletContext')).toHaveCount(0);
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileCompletionCard')).toBeVisible();

@@ -545,9 +545,10 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).toContain('.profile__completion-title-row');
     expect(profileCss).toContain('--profile-overview-account-block');
     expect(profileCss).toContain('grid-template-rows: repeat(4, minmax(0, 1fr))');
-    expect(profileCss).toContain('grid-template-rows: repeat(3, minmax(0, 1fr))');
+    expect(profileCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
     expect(profileCss).toContain('#profileFavoritesQuickLink');
-    expect(profileCss).toContain('display: none');
+    expect(profileCss).toContain('.profile-favorites-overlay.is-open');
+    expect(profileCss).toContain('.profile-favorites-overlay__close');
     expect(profileCss).toContain('.profile__studio-card--favorites');
     expect(profileCss).toContain('.profile__favorites-back');
     expect(profileCss).toContain('.profile-view--favorites-focused');
@@ -557,7 +558,7 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).toContain('display: contents');
     expect(profileCss).toContain('min-block-size: calc((88px * 2) + var(--space-3))');
     expect(profileCss).toContain('grid-template-columns: minmax(0, 1fr)');
-    expect(profileCss).not.toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
+    expect(profileCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
 
     expect(enCredits).not.toContain('href="../css/components/member-workflow.css?v=__ASSET_VERSION__"');
     expect(repoFile('css/account/credits.css')).not.toContain('.credits-return');

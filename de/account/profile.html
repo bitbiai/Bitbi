@@ -318,9 +318,15 @@
 
                     </div>
 
-                    <aside class="profile-layout__sidebar" aria-label="Favoriten">
+                    <aside id="profileFavoritesOverlay" class="profile-layout__sidebar profile-favorites-overlay" aria-label="Favoriten">
+                        <div class="profile-favorites-overlay__backdrop" data-profile-favorites-close></div>
+                        <div id="profileFavoritesOverlayPanel" class="profile-favorites-overlay__panel" aria-labelledby="profileFavoritesTitle">
+                        <button type="button" id="profileFavoritesOverlayClose" class="profile-favorites-overlay__close" aria-label="Favoriten schließen">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            <span>Schließen</span>
+                        </button>
                         <div class="profile__card profile__favorites reveal" id="profileFavoritesSection" tabindex="-1">
-                            <h2 class="profile__title">Favoriten</h2>
+                            <h2 id="profileFavoritesTitle" class="profile__title">Favoriten</h2>
                             <div class="favorites__group" id="favoritesMempics" data-favorites-type="mempics">
                                 <h3 class="favorites__group-label favorites__group-label--magenta">Mempics</h3>
                                 <p class="favorites__empty">Noch keine Favoriten</p>
@@ -334,6 +340,7 @@
                                 <p class="favorites__empty">Noch keine Favoriten</p>
                             </div>
                             <a href="#profileHero" class="profile__favorites-back">Zurück zum Profil</a>
+                        </div>
                         </div>
                     </aside>
                 </div>

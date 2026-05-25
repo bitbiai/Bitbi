@@ -80,6 +80,9 @@ const $walletCardStatus = document.getElementById('profileWalletCardStatus');
 const $profileHomeView = document.getElementById('profileHomeView');
 const $profileHero = document.getElementById('profileHero');
 const $profileFavoritesQuickLink = document.getElementById('profileFavoritesQuickLink');
+const $profileFavoritesOverlay = document.getElementById('profileFavoritesOverlay');
+const $profileFavoritesOverlayPanel = document.getElementById('profileFavoritesOverlayPanel');
+const $profileFavoritesOverlayClose = document.getElementById('profileFavoritesOverlayClose');
 const $profileFavoritesSection = document.getElementById('profileFavoritesSection');
 const $profileFavoritesBack = document.querySelector('.profile__favorites-back');
 const profileMobileQuery = window.matchMedia?.('(max-width: 1023px)');
@@ -143,6 +146,59 @@ function isMobileProfileLayout() {
     return Boolean(profileMobileQuery?.matches);
 }
 
+let favoritesOverlayFocusCleanup = null;
+
+function syncFavoritesOverlayMode() {
+    if (!$profileFavoritesOverlay || !$profileFavoritesOverlayPanel) return;
+    if (isMobileProfileLayout()) {
+        closeFavoritesOverlay({ restoreFocus: false });
+        $profileFavoritesOverlay.removeAttribute('aria-hidden');
+        $profileFavoritesOverlayPanel.removeAttribute('role');
+        $profileFavoritesOverlayPanel.removeAttribute('aria-modal');
+        $profileFavoritesOverlayPanel.removeAttribute('tabindex');
+        return;
+    }
+    $profileFavoritesOverlayPanel.setAttribute('role', 'dialog');
+    $profileFavoritesOverlayPanel.setAttribute('aria-modal', 'true');
+    $profileFavoritesOverlayPanel.setAttribute('tabindex', '-1');
+    $profileFavoritesOverlay.setAttribute('aria-hidden', $profileFavoritesOverlay.classList.contains('is-open') ? 'false' : 'true');
+}
+
+function openFavoritesOverlay(trigger = $profileFavoritesQuickLink) {
+    if (!$profileFavoritesOverlay || !$profileFavoritesOverlayPanel || isMobileProfileLayout()) return;
+    $profileFavoritesOverlay.classList.add('is-open');
+    $profileFavoritesOverlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('profile-favorites-overlay-open');
+    if (favoritesOverlayFocusCleanup) favoritesOverlayFocusCleanup();
+    favoritesOverlayFocusCleanup = setupFocusTrap($profileFavoritesOverlayPanel);
+    if (trigger && typeof trigger.focus === 'function') {
+        $profileFavoritesOverlay.dataset.returnFocus = trigger.id || '';
+    }
+}
+
+function closeFavoritesOverlay({ restoreFocus = true } = {}) {
+    if (!$profileFavoritesOverlay) return;
+    const wasOpen = $profileFavoritesOverlay.classList.contains('is-open');
+    $profileFavoritesOverlay.classList.remove('is-open');
+    document.body.classList.remove('profile-favorites-overlay-open');
+    if (!isMobileProfileLayout()) {
+        $profileFavoritesOverlay.setAttribute('aria-hidden', 'true');
+    }
+    const cleanup = favoritesOverlayFocusCleanup;
+    favoritesOverlayFocusCleanup = null;
+    if (cleanup) {
+        if (restoreFocus && wasOpen) {
+            cleanup();
+        } else {
+            const active = document.activeElement;
+            cleanup();
+            if (active && typeof active.focus === 'function') active.focus({ preventScroll: true });
+        }
+    } else if (restoreFocus && wasOpen) {
+        $profileFavoritesQuickLink?.focus({ preventScroll: true });
+    }
+}
+
 function syncMobileFavoritesFromHash({ scroll = false } = {}) {
     if (window.location.hash !== '#profileFavoritesSection' || !isMobileProfileLayout()) return;
     setMobileFavoritesFocus(true, { scroll, updateHash: false });
@@ -170,9 +226,20 @@ function setMobileFavoritesFocus(active, { scroll = true, updateHash = true } = 
 }
 
 $profileFavoritesQuickLink?.addEventListener('click', (event) => {
-    if (!isMobileProfileLayout()) return;
     event.preventDefault();
+    if (!isMobileProfileLayout()) {
+        openFavoritesOverlay(event.currentTarget);
+        return;
+    }
     setMobileFavoritesFocus(true);
+});
+
+$profileFavoritesOverlayClose?.addEventListener('click', () => {
+    closeFavoritesOverlay();
+});
+
+$profileFavoritesOverlay?.querySelector('[data-profile-favorites-close]')?.addEventListener('click', () => {
+    closeFavoritesOverlay();
 });
 
 $profileFavoritesBack?.addEventListener('click', (event) => {
@@ -190,6 +257,7 @@ window.addEventListener('hashchange', () => {
 });
 
 profileMobileQuery?.addEventListener?.('change', (event) => {
+    syncFavoritesOverlayMode();
     if (!event.matches) {
         $profileHomeView?.classList.remove('profile-view--favorites-focused');
         setActiveTab('profile');
@@ -197,6 +265,8 @@ profileMobileQuery?.addEventListener?.('change', (event) => {
     }
     syncMobileFavoritesFromHash({ scroll: false });
 });
+
+syncFavoritesOverlayMode();
 
 $walletCard?.addEventListener('click', () => {
     openWalletWorkspaceView();
@@ -1070,11 +1140,101 @@ const $viewer = document.getElementById('favViewer');
 const $viewerBody = $viewer ? $viewer.querySelector('.fav-viewer__body') : null;
 const $viewerClose = document.getElementById('favViewerClose');
 let viewerAudioCleanup = null;
+let viewerFocusCleanup = null;
+let favoriteViewerItems = [];
+let viewerCurrentIndex = -1;
+
+const $viewerPrev = document.createElement('button');
+$viewerPrev.type = 'button';
+$viewerPrev.className = 'fav-viewer__nav fav-viewer__nav--prev';
+$viewerPrev.setAttribute('aria-label', localeText('profile.previousFavorite'));
+$viewerPrev.textContent = '‹';
+
+const $viewerNext = document.createElement('button');
+$viewerNext.type = 'button';
+$viewerNext.className = 'fav-viewer__nav fav-viewer__nav--next';
+$viewerNext.setAttribute('aria-label', localeText('profile.nextFavorite'));
+$viewerNext.textContent = '›';
+
+const $viewerDownload = document.createElement('a');
+$viewerDownload.className = 'fav-viewer__download';
+$viewerDownload.target = '_blank';
+$viewerDownload.rel = 'noopener noreferrer';
+$viewerDownload.setAttribute('aria-label', localeText('profile.downloadFavorite'));
+$viewerDownload.textContent = localeText('profile.download');
+if ($viewer) {
+    $viewer.appendChild($viewerPrev);
+    $viewer.appendChild($viewerNext);
+    $viewer.appendChild($viewerDownload);
+}
+
+function sameFavorite(a, b) {
+    return Boolean(a && b && a.item_type === b.item_type && String(a.item_id || '') === String(b.item_id || ''));
+}
+
+function favoriteDomKey(fav) {
+    return `${fav?.item_type || ''}:${fav?.item_id || ''}`;
+}
+
+function findFavoriteTile(fav) {
+    const key = favoriteDomKey(fav);
+    return Array.from(document.querySelectorAll('.fav-tile[data-fav-key]'))
+        .find(tile => tile.dataset.favKey === key) || null;
+}
+
+function currentFavoriteList() {
+    return favoriteViewerItems.filter(fav => Boolean(findFavoriteTile(fav)));
+}
+
+function setViewerChrome(downloadUrl = '') {
+    const items = currentFavoriteList();
+    const hasNavigation = items.length > 1;
+    $viewerPrev.disabled = !hasNavigation;
+    $viewerNext.disabled = !hasNavigation;
+    if (downloadUrl) {
+        $viewerDownload.href = downloadUrl;
+        $viewerDownload.removeAttribute('aria-hidden');
+    } else {
+        $viewerDownload.removeAttribute('href');
+        $viewerDownload.setAttribute('aria-hidden', 'true');
+    }
+}
+
+function openFavoriteInViewer(fav) {
+    if (!fav) return;
+    const items = currentFavoriteList();
+    viewerCurrentIndex = Math.max(0, items.findIndex(item => sameFavorite(item, fav)));
+    viewerCurrentFav = fav;
+    $viewerStar.classList.add('fav-star--active');
+    $viewerStar.setAttribute('aria-pressed', 'true');
+    $viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
+    $viewerStar.style.display = '';
+
+    switch (fav.item_type) {
+        case 'gallery': openGalleryInViewer(fav); break;
+        case 'mempics': openMempicInViewer(fav); break;
+        case 'video': openVideoInViewer(fav); break;
+        case 'soundlab': openSoundlabInViewer(fav); break;
+    }
+}
+
+function navigateFavoriteViewer(direction) {
+    if (!$viewer?.classList.contains('active')) return;
+    const items = currentFavoriteList();
+    if (items.length <= 1) return;
+    const current = Math.max(0, items.findIndex(item => sameFavorite(item, viewerCurrentFav)));
+    const nextIndex = (current + direction + items.length) % items.length;
+    openFavoriteInViewer(items[nextIndex]);
+}
 
 function openViewer(mode) {
     if (!$viewer) return;
+    const wasActive = $viewer.classList.contains('active');
     $viewer.className = `fav-viewer active ${mode || ''}`;
     document.body.style.overflow = 'hidden';
+    if (!wasActive && !viewerFocusCleanup) {
+        viewerFocusCleanup = setupFocusTrap($viewer);
+    }
 }
 
 function closeViewer() {
@@ -1084,6 +1244,10 @@ function closeViewer() {
     if (viewerAudioCleanup) {
         viewerAudioCleanup();
         viewerAudioCleanup = null;
+    }
+    if (viewerFocusCleanup) {
+        viewerFocusCleanup();
+        viewerFocusCleanup = null;
     }
     /* Cleanup iframe */
     const iframe = $viewerBody.querySelector('iframe');
@@ -1099,6 +1263,7 @@ function closeViewer() {
     $viewer.className = 'fav-viewer';
     /* Reset star */
     viewerCurrentFav = null;
+    viewerCurrentIndex = -1;
     $viewerStar.style.display = 'none';
 }
 
@@ -1106,9 +1271,28 @@ if ($viewerClose) $viewerClose.addEventListener('click', closeViewer);
 if ($viewer) {
     $viewer.querySelector('.fav-viewer__backdrop').addEventListener('click', closeViewer);
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && $viewer.classList.contains('active')) closeViewer();
+        const viewerOpen = $viewer.classList.contains('active');
+        if (e.key === 'Escape' && viewerOpen) {
+            e.preventDefault();
+            closeViewer();
+            return;
+        }
+        if (!viewerOpen) {
+            if (e.key === 'Escape' && $profileFavoritesOverlay?.classList.contains('is-open')) {
+                e.preventDefault();
+                closeFavoritesOverlay();
+            }
+            return;
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            navigateFavoriteViewer(e.key === 'ArrowLeft' ? -1 : 1);
+        }
     });
 }
+
+$viewerPrev.addEventListener('click', () => navigateFavoriteViewer(-1));
+$viewerNext.addEventListener('click', () => navigateFavoriteViewer(1));
 
 /* ── Viewer favorite star (remove-from-viewer) ── */
 let viewerCurrentFav = null;
@@ -1140,8 +1324,10 @@ $viewerStar.addEventListener('click', async () => {
     const stale = viewerCurrentFav !== fav;
 
     if (res.ok) {
+        favoriteViewerItems = favoriteViewerItems.filter(item => !sameFavorite(item, fav));
         removeFavTile(fav.item_type, fav.item_id);
         if (!stale) viewerCurrentFav = null;
+        setViewerChrome('');
     } else if (!stale) {
         /* Revert only if still viewing the same item */
         $viewerStar.classList.add('fav-star--active');
@@ -1217,6 +1403,7 @@ function openGalleryInViewer(fav) {
     $viewerBody.innerHTML = '';
     $viewerBody.appendChild(card);
     openViewer('');
+    setViewerChrome(fullUrl || previewUrl);
 }
 
 function openMempicInViewer(fav) {
@@ -1244,6 +1431,7 @@ function openMempicInViewer(fav) {
     $viewerBody.innerHTML = '';
     $viewerBody.appendChild(card);
     openViewer('');
+    setViewerChrome(fullUrl);
 }
 
 /* ── Open soundlab track in viewer ── */
@@ -1315,6 +1503,7 @@ function openSoundlabInViewer(fav) {
     $viewerBody.appendChild(player);
 
     openViewer('');
+    setViewerChrome(memtrackFileUrl);
 
     const track = {
         id: `memtrack:${fav.item_id}`,
@@ -1372,6 +1561,10 @@ function openSoundlabInViewer(fav) {
         const rect = barEl.getBoundingClientRect();
         seekGlobalAudio(((e.clientX - rect.left) / rect.width) * audioState.duration);
     });
+
+    playGlobalTrack(track).catch(() => {
+        renderViewerAudio(getGlobalAudioState());
+    });
 }
 
 function openVideoInViewer(fav) {
@@ -1409,6 +1602,7 @@ function openVideoInViewer(fav) {
     $viewerBody.innerHTML = '';
     $viewerBody.appendChild(card);
     openViewer('');
+    setViewerChrome(fileUrl);
 }
 
 /* ── Build favorite tiles ── */
@@ -1418,6 +1612,11 @@ function renderFavorites(favorites) {
         if (isRetiredSoundLabFavorite(f)) continue;
         if (groups[f.item_type]) groups[f.item_type].push(f);
     }
+    favoriteViewerItems = [
+        ...groups.mempics,
+        ...groups.video,
+        ...groups.soundlab,
+    ];
 
     for (const [type, items] of Object.entries(groups)) {
         const container = document.querySelector(`[data-favorites-type="${type}"]`);
@@ -1521,18 +1720,7 @@ function renderFavorites(favorites) {
 }
 
 function handleTileClick(fav) {
-    viewerCurrentFav = fav;
-    $viewerStar.classList.add('fav-star--active');
-    $viewerStar.setAttribute('aria-pressed', 'true');
-    $viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
-    $viewerStar.style.display = '';
-
-    switch (fav.item_type) {
-        case 'gallery': openGalleryInViewer(fav); break;
-        case 'mempics': openMempicInViewer(fav); break;
-        case 'video': openVideoInViewer(fav); break;
-        case 'soundlab': openSoundlabInViewer(fav); break;
-    }
+    openFavoriteInViewer(fav);
 }
 
 subscribeWalletState((state) => {
