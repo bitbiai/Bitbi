@@ -13,6 +13,12 @@ import {
 import { nowIso, randomTokenHex } from "../../lib/tokens.js";
 import { buildPersonalUserAssetOwnershipFields } from "../../lib/tenant-asset-ownership.js";
 import {
+  BITBI_GENERATION_TIMEOUT_SECONDS,
+  fetchWithGenerationTimeout,
+  isGenerationTimeoutError,
+  runWithGenerationTimeout,
+} from "../../lib/generation-timeout.js";
+import {
   evaluateSharedRateLimit,
   rateLimitResponse,
   rateLimitUnavailableResponse,
@@ -248,7 +254,7 @@ function isHttpsUrl(value) {
 
 async function fetchProviderImageUrl(env, url) {
   const fetcher = env.__TEST_FETCH || globalThis.fetch;
-  const response = await fetcher(url, { method: "GET" });
+  const response = await fetchWithGenerationTimeout(fetcher, url, { method: "GET" });
   if (!response?.ok) {
     throw new Error("provider_image_fetch_failed");
   }
@@ -803,9 +809,11 @@ export async function handleGenerateImage(ctx) {
         credits: imagePricing.credits,
       });
     }
-    const result = gptImage2
-      ? await env.AI.run(modelConfig.id, aiRequest.payload, runOptions)
-      : await env.AI.run(modelConfig.id, aiRequest.payload);
+    const result = await runWithGenerationTimeout(() => (
+      gptImage2
+        ? env.AI.run(modelConfig.id, aiRequest.payload, runOptions)
+        : env.AI.run(modelConfig.id, aiRequest.payload)
+    ));
     const extracted = await extractGeneratedImage(env, result, { allowProviderUrl: gptImage2 });
     if (extracted) {
       base64 = extracted.base64;
@@ -816,8 +824,10 @@ export async function handleGenerateImage(ctx) {
     if (typeof usagePolicy.markProviderFailed === "function") {
       try {
         await usagePolicy.markProviderFailed({
-          code: "provider_failed",
-          message: "Image provider call failed.",
+          code: isGenerationTimeoutError(e) ? "generation_timeout" : "provider_failed",
+          message: isGenerationTimeoutError(e)
+            ? "Image generation timed out."
+            : "Image provider call failed.",
         });
       } catch {}
     }
@@ -833,6 +843,13 @@ export async function handleGenerateImage(ctx) {
       is_admin: isAdmin,
       ...getErrorFields(e),
     });
+    if (isGenerationTimeoutError(e)) {
+      return respond({
+        ok: false,
+        error: `Image generation timed out after ${BITBI_GENERATION_TIMEOUT_SECONDS} seconds.`,
+        code: "generation_timeout",
+      }, { status: 504 });
+    }
     return respond({ ok: false, error: "Image generation failed." }, { status: 502 });
   }
 

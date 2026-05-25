@@ -8473,6 +8473,88 @@ test.describe('Assets Manager (authenticated)', () => {
     }));
   });
 
+  test('shared generation APIs apply the 600 second timeout to image, music, and video requests', async ({
+    page,
+  }) => {
+    const seenPaths = [];
+    await page.addInitScript(() => {
+      window.__bitbiGenerationTimeoutDelays = [];
+      const nativeSetTimeout = window.setTimeout.bind(window);
+      window.setTimeout = (fn, delay, ...args) => {
+        if (delay === 600000) {
+          window.__bitbiGenerationTimeoutDelays.push(delay);
+        }
+        return nativeSetTimeout(fn, delay, ...args);
+      };
+    });
+
+    await page.route('**/api/ai/generate-image', async (route) => {
+      seenPaths.push('/api/ai/generate-image');
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          imageBase64: ONE_PX_PNG_BASE64,
+          mimeType: 'image/png',
+          saveReference: 'timeout-image-reference',
+        },
+      });
+    });
+    await page.route('**/api/ai/generate-music', async (route) => {
+      seenPaths.push('/api/ai/generate-music');
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          audioUrl: 'https://example.com/generated-audio.mp3',
+          saveReference: 'timeout-music-reference',
+        },
+      });
+    });
+    await page.route('**/api/ai/generate-video', async (route) => {
+      seenPaths.push('/api/ai/generate-video');
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          videoUrl: 'https://example.com/generated-video.mp4',
+          saveReference: 'timeout-video-reference',
+        },
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    const results = await page.evaluate(async () => {
+      const {
+        apiAiGenerateImage,
+        apiAiGenerateMusic,
+        apiAiGenerateVideo,
+      } = await import('/js/shared/auth-api.js');
+      const image = await apiAiGenerateImage({
+        prompt: 'timeout image wrapper',
+        model: '@cf/black-forest-labs/flux-1-schnell',
+      });
+      const music = await apiAiGenerateMusic({
+        prompt: 'timeout music wrapper',
+        model: '@cf/meta/musicgen-small',
+      });
+      const video = await apiAiGenerateVideo({
+        prompt: 'timeout video wrapper',
+        model: '@cf/bytedance/stable-video-diffusion-img2vid',
+      });
+      return {
+        ok: [image.ok, music.ok, video.ok],
+        delays: window.__bitbiGenerationTimeoutDelays,
+      };
+    });
+
+    expect(results.ok).toEqual([true, true, true]);
+    expect(results.delays.filter((delay) => delay === 600000)).toHaveLength(3);
+    expect(seenPaths).toEqual([
+      '/api/ai/generate-image',
+      '/api/ai/generate-music',
+      '/api/ai/generate-video',
+    ]);
+  });
+
   test('homepage create studio offers FLUX.2 Klein while keeping FLUX.1 Schnell as default', async ({
     page,
   }) => {

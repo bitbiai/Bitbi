@@ -55,6 +55,13 @@ export function fromError(error, fallbackMessage) {
     });
   }
 
+  if (error?.code === "generation_timeout") {
+    return errorResponse(error.message || fallbackMessage, {
+      status: error.status || 504,
+      code: "generation_timeout",
+    });
+  }
+
   const status = error?.status || 502;
   return errorResponse(fallbackMessage, {
     status,

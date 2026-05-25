@@ -36,6 +36,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
   "js/shared/ai-image-models.mjs": ["auth"],
   "js/shared/durable-rate-limit-do.mjs": ["auth", "contact"],
+  "js/shared/generation-timeout.mjs": ["auth", "ai"],
   "js/shared/public-media-contract.mjs": ["auth"],
   "js/shared/remote-media-policy.mjs": ["auth"],
   "js/shared/request-body.mjs": ["auth", "ai", "contact"],

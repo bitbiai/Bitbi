@@ -18,6 +18,21 @@ async function loadAuthModules() {
   return import(passwordPath);
 }
 
+async function loadGenerationTimeoutModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/generation-timeout.mjs')).href;
+  return import(modulePath);
+}
+
+async function loadAuthGenerationTimeoutModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/generation-timeout.js')).href;
+  return import(modulePath);
+}
+
+async function loadAiGenerationTimeoutModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/ai/src/lib/generation-timeout.js')).href;
+  return import(modulePath);
+}
+
 function makeLegacyPbkdf2Hash(password, iterations = 310_000) {
   const salt = Buffer.alloc(16, 7);
   const hash = pbkdf2Sync(password, salt, iterations, 32, 'sha256');
@@ -769,6 +784,42 @@ function expectPersonalOwnership(row, userId) {
   expect(row.ownership_confidence).toBe('high');
   expect(Date.parse(row.ownership_assigned_at)).not.toBeNaN();
 }
+
+test.describe('BITBI generation timeout standard', () => {
+  test('shares the 600 second generation timeout across frontend and workers', async () => {
+    const shared = await loadGenerationTimeoutModule();
+    const auth = await loadAuthGenerationTimeoutModule();
+    const ai = await loadAiGenerationTimeoutModule();
+
+    expect(shared.BITBI_GENERATION_TIMEOUT_SECONDS).toBe(600);
+    expect(shared.BITBI_GENERATION_TIMEOUT_MS).toBe(600_000);
+    expect(shared.getBitbiGenerationTimeoutMs()).toBe(600_000);
+    expect(auth.BITBI_GENERATION_TIMEOUT_SECONDS).toBe(600);
+    expect(auth.BITBI_GENERATION_TIMEOUT_MS).toBe(600_000);
+    expect(ai.BITBI_GENERATION_TIMEOUT_SECONDS).toBe(600);
+    expect(ai.BITBI_GENERATION_TIMEOUT_MS).toBe(600_000);
+  });
+
+  test('worker helpers fail closed after the configured generation deadline', async () => {
+    const auth = await loadAuthGenerationTimeoutModule();
+
+    await expect(
+      auth.runWithGenerationTimeout(() => new Promise(() => {}), { timeoutMs: 5 })
+    ).rejects.toMatchObject({
+      name: 'GenerationTimeoutError',
+      status: 504,
+      code: 'generation_timeout',
+    });
+
+    await expect(
+      auth.fetchWithGenerationTimeout(() => new Promise(() => {}), 'https://example.com/provider', {}, { timeoutMs: 5 })
+    ).rejects.toMatchObject({
+      name: 'GenerationTimeoutError',
+      status: 504,
+      code: 'generation_timeout',
+    });
+  });
+});
 
 test.describe('Phase 6.4 AI folder/image ownership metadata schema', () => {
   const ownershipColumns = [

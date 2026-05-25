@@ -46,6 +46,11 @@ import {
   assetStorageQuotaErrorBody,
   isAssetStorageQuotaError,
 } from "../../lib/asset-storage-quota.js";
+import {
+  BITBI_GENERATION_TIMEOUT_SECONDS,
+  isGenerationTimeoutError,
+  runWithGenerationTimeout,
+} from "../../lib/generation-timeout.js";
 import { saveGeneratedVideoAsset } from "../../lib/ai-text-assets.js";
 import {
   fetchRemoteAsset,
@@ -711,7 +716,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
   }
 
   try {
-    const result = await env.AI.run(modelId, payload, { gateway: { id: "default" } });
+    const result = await runWithGenerationTimeout(() => env.AI.run(modelId, payload, { gateway: { id: "default" } }));
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-video",
@@ -734,6 +739,14 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
       model: modelId,
       ...getErrorFields(error, { includeMessage: false }),
     });
+    if (isGenerationTimeoutError(error)) {
+      return {
+        ok: false,
+        status: 504,
+        code: "generation_timeout",
+        error: `Video generation timed out after ${BITBI_GENERATION_TIMEOUT_SECONDS} seconds.`,
+      };
+    }
     return {
       ok: false,
       status: 502,

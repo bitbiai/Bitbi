@@ -40,6 +40,7 @@ import {
     calculateAiImageCreditCost,
     calculateAiVideoCreditCost,
 } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import { BITBI_GENERATION_TIMEOUT_MS } from '../../shared/generation-timeout.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
     buildAdminAiLabSaveIntent,
@@ -67,7 +68,7 @@ const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent',
 const HISTORY_LIMIT = 6;
 const ADMIN_AI_UI_VERSION = '__ASSET_VERSION__';
 const GPT_IMAGE_2_REFERENCE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
-const ADMIN_AI_REQUEST_TIMEOUT_MS = 600_000;
+const ADMIN_AI_REQUEST_TIMEOUT_MS = BITBI_GENERATION_TIMEOUT_MS;
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: ADMIN_AI_REQUEST_TIMEOUT_MS,
     image: ADMIN_AI_REQUEST_TIMEOUT_MS,

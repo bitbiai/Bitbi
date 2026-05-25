@@ -2,7 +2,59 @@
    BITBI — Auth API: pure fetch wrappers for auth endpoints
    ============================================================ */
 
+import { BITBI_GENERATION_TIMEOUT_MS } from './generation-timeout.mjs?v=__ASSET_VERSION__';
+
 const BASE = '/api';
+
+function createTimeoutError(message = 'Request timed out.') {
+    if (typeof DOMException === 'function') {
+        return new DOMException(message, 'TimeoutError');
+    }
+    const error = new Error(message);
+    error.name = 'TimeoutError';
+    return error;
+}
+
+function buildRequestSignal(options = {}) {
+    const sourceSignal = options.signal || null;
+    const timeoutMs = Number(options.timeoutMs || 0);
+    if (!timeoutMs) {
+        return {
+            signal: sourceSignal,
+            timedOut: () => false,
+            cleanup: () => {},
+        };
+    }
+
+    if (sourceSignal?.aborted) {
+        return {
+            signal: sourceSignal,
+            timedOut: () => false,
+            cleanup: () => {},
+        };
+    }
+
+    const controller = new AbortController();
+    let timeoutId = 0;
+    let timedOut = false;
+    const abortFromSource = () => controller.abort(sourceSignal?.reason || createTimeoutError('Request cancelled.'));
+    if (sourceSignal) {
+        sourceSignal.addEventListener('abort', abortFromSource, { once: true });
+    }
+    timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort(createTimeoutError(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds.`));
+    }, timeoutMs);
+
+    return {
+        signal: controller.signal,
+        timedOut: () => timedOut,
+        cleanup: () => {
+            if (timeoutId) window.clearTimeout(timeoutId);
+            if (sourceSignal) sourceSignal.removeEventListener('abort', abortFromSource);
+        },
+    };
+}
 
 function normalizeAssetStorageUsage(value) {
     if (!value || typeof value !== 'object') return null;
@@ -29,14 +81,15 @@ function normalizeAssetStorageUsage(value) {
 }
 
 async function request(method, path, body, options = {}) {
+    const signalState = buildRequestSignal(options);
     try {
         const opts = {
             method,
             credentials: 'include',
             headers: {},
         };
-        if (options.signal) {
-            opts.signal = options.signal;
+        if (signalState.signal) {
+            opts.signal = signalState.signal;
         }
         if (options.headers && typeof options.headers === 'object') {
             for (const [key, value] of Object.entries(options.headers)) {
@@ -56,9 +109,17 @@ async function request(method, path, body, options = {}) {
         return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
     } catch (e) {
         if (e?.name === 'AbortError') {
+            if (signalState.timedOut()) {
+                return { ok: false, aborted: true, timeout: true, error: 'Request timed out.', code: 'request_timeout' };
+            }
             return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
         }
+        if (e?.name === 'TimeoutError' || signalState.timedOut()) {
+            return { ok: false, aborted: true, timeout: true, error: 'Request timed out.', code: 'request_timeout' };
+        }
         return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    } finally {
+        signalState.cleanup();
     }
 }
 
@@ -1208,12 +1269,19 @@ function withImageGenerationIdempotency(options = {}) {
     };
 }
 
+function withGenerationRequestTimeout(options = {}) {
+    return {
+        ...(options && typeof options === 'object' ? options : {}),
+        timeoutMs: BITBI_GENERATION_TIMEOUT_MS,
+    };
+}
+
 export function apiAiGenerateImage(promptOrPayload, steps, seed, model, options = {}) {
     if (promptOrPayload && typeof promptOrPayload === 'object' && !Array.isArray(promptOrPayload)) {
         const requestOptions = steps && typeof steps === 'object' && !Array.isArray(steps)
             ? steps
             : options;
-        return request('POST', '/ai/generate-image', promptOrPayload, withImageGenerationIdempotency(requestOptions));
+        return request('POST', '/ai/generate-image', promptOrPayload, withGenerationRequestTimeout(withImageGenerationIdempotency(requestOptions)));
     }
 
     const prompt = promptOrPayload;
@@ -1221,18 +1289,18 @@ export function apiAiGenerateImage(promptOrPayload, steps, seed, model, options 
     if (steps != null) body.steps = steps;
     if (seed != null) body.seed = seed;
     if (model) body.model = model;
-    return request('POST', '/ai/generate-image', body, withImageGenerationIdempotency(options));
+    return request('POST', '/ai/generate-image', body, withGenerationRequestTimeout(withImageGenerationIdempotency(options)));
 }
 
 export function apiAiGenerateMusic(payload, options = {}) {
-    return request('POST', '/ai/generate-music', payload, options).then((res) => {
+    return request('POST', '/ai/generate-music', payload, withGenerationRequestTimeout(options)).then((res) => {
         if (res.ok) notifyAssetStorageChanged();
         return res;
     });
 }
 
 export function apiAiGenerateVideo(payload, options = {}) {
-    return request('POST', '/ai/generate-video', payload, options).then((res) => {
+    return request('POST', '/ai/generate-video', payload, withGenerationRequestTimeout(options)).then((res) => {
         if (res.ok) notifyAssetStorageChanged();
         return res;
     });

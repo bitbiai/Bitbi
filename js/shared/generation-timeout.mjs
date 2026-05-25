@@ -1,0 +1,6 @@
+export const BITBI_GENERATION_TIMEOUT_SECONDS = 600;
+export const BITBI_GENERATION_TIMEOUT_MS = BITBI_GENERATION_TIMEOUT_SECONDS * 1000;
+
+export function getBitbiGenerationTimeoutMs() {
+  return BITBI_GENERATION_TIMEOUT_MS;
+}

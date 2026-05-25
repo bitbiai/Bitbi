@@ -16,6 +16,10 @@ import {
   sanitizeErrorValue,
   summarizeResultShape,
 } from "./invoke-ai-shared.js";
+import {
+  fetchWithGenerationTimeout,
+  runWithGenerationTimeout,
+} from "./generation-timeout.js";
 import { invokeVideo } from "./invoke-ai-video.js";
 
 export { invokeVideo };
@@ -125,7 +129,7 @@ function sanitizeGatewayMetadata(metadata) {
 
 async function fetchRemoteImageCandidate(url) {
   if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
-  const response = await fetch(url);
+  const response = await fetchWithGenerationTimeout(globalThis.fetch, url, { method: "GET" });
   if (!response.ok) {
     throw new Error("Provider image URL could not be fetched.");
   }
@@ -510,7 +514,7 @@ export async function invokeText(env, model, input) {
 
   let raw;
   try {
-    raw = await env.AI.run(model.id, payload);
+    raw = await runWithGenerationTimeout(() => env.AI.run(model.id, payload));
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -620,9 +624,11 @@ export async function invokeImage(env, model, input) {
 
   let raw;
   try {
-    raw = runOptions
-      ? await env.AI.run(model.id, payload, runOptions)
-      : await env.AI.run(model.id, payload);
+    raw = await runWithGenerationTimeout(() => (
+      runOptions
+        ? env.AI.run(model.id, payload, runOptions)
+        : env.AI.run(model.id, payload)
+    ));
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -671,9 +677,9 @@ export async function invokeEmbeddings(env, model, input) {
   const startedAt = Date.now();
   let raw;
   try {
-    raw = await env.AI.run(model.id, {
+    raw = await runWithGenerationTimeout(() => env.AI.run(model.id, {
       text: input.input.length === 1 ? input.input[0] : input.input,
-    });
+    }));
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -731,7 +737,7 @@ export async function invokeMusic(env, model, input) {
 
   let raw;
   try {
-    raw = await env.AI.run(model.id, payload, runOptions);
+    raw = await runWithGenerationTimeout(() => env.AI.run(model.id, payload, runOptions));
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",

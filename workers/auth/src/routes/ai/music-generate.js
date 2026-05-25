@@ -36,6 +36,11 @@ import {
   workerConfigUnavailableResponse,
   WorkerConfigError,
 } from "../../lib/config.js";
+import {
+  BITBI_GENERATION_TIMEOUT_SECONDS,
+  fetchWithGenerationTimeout,
+  isGenerationTimeoutError,
+} from "../../lib/generation-timeout.js";
 import { fetchGeneratedAudioForSave } from "../../lib/generated-audio-save.js";
 import { scheduleMemberMusicCoverGeneration } from "../../lib/member-music-cover.js";
 import { json } from "../../lib/response.js";
@@ -290,7 +295,7 @@ async function signedAiLabJsonRequest({
 
   let response;
   try {
-    response = await env.AI_LAB.fetch(new Request(`${AI_LAB_BASE_URL}${path}`, {
+    response = await fetchWithGenerationTimeout(env.AI_LAB.fetch.bind(env.AI_LAB), new Request(`${AI_LAB_BASE_URL}${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json; charset=utf-8",
@@ -302,6 +307,24 @@ async function signedAiLabJsonRequest({
       body: bodyText,
     }));
   } catch (error) {
+    if (isGenerationTimeoutError(error)) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component,
+        event: "member_ai_music_proxy_timeout",
+        level: "error",
+        correlationId,
+        user_id: user?.id || null,
+        duration_ms: getDurationMs(startedAt),
+        upstream_path: path,
+      });
+      return {
+        ok: false,
+        status: 504,
+        code: "generation_timeout",
+        error: `Music generation timed out after ${BITBI_GENERATION_TIMEOUT_SECONDS} seconds.`,
+      };
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component,

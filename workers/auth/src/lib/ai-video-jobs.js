@@ -38,6 +38,7 @@ import {
 import { proxyToAiLab } from "./admin-ai-proxy.js";
 import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
+import { fetchWithGenerationTimeout } from "./generation-timeout.js";
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 
 export const AI_VIDEO_JOBS_QUEUE_NAME = "bitbi-ai-video-jobs";
@@ -1334,7 +1335,7 @@ export async function fetchRemoteAsset(env, urlValue, {
     error.code = `${label}_fetch_unavailable`;
     throw error;
   }
-  const response = await fetcher(url, { method: "GET" });
+  const response = await fetchWithGenerationTimeout(fetcher, url, { method: "GET" });
   if (!response.ok) {
     const error = new Error(`${label} download failed.`);
     error.status = response.status;

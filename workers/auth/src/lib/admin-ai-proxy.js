@@ -9,6 +9,11 @@ import {
   WorkerConfigError,
 } from "./config.js";
 import {
+  BITBI_GENERATION_TIMEOUT_SECONDS,
+  fetchWithGenerationTimeout,
+  isGenerationTimeoutError,
+} from "./generation-timeout.js";
+import {
   evaluateSharedRateLimit,
   getClientIp,
   rateLimitUnavailableResponse,
@@ -33,6 +38,17 @@ export function serviceUnavailableResponse(correlationId = null) {
       code: "upstream_error",
     },
     { status: 503 }
+  ), correlationId);
+}
+
+export function generationTimeoutResponse(correlationId = null) {
+  return withCorrelationId(json(
+    {
+      ok: false,
+      error: `Generation timed out after ${BITBI_GENERATION_TIMEOUT_SECONDS} seconds.`,
+      code: "request_timeout",
+    },
+    { status: 504 }
   ), correlationId);
 }
 
@@ -130,7 +146,8 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
       requestInfo,
     });
     if (!serviceAuthHeaders) return workerConfigUnavailableResponse(correlationId);
-    response = await env.AI_LAB.fetch(
+    response = await fetchWithGenerationTimeout(
+      env.AI_LAB.fetch.bind(env.AI_LAB),
       new Request(`${AI_LAB_BASE_URL}${path}`, {
         method: "POST",
         headers: {
@@ -145,6 +162,21 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
       })
     );
   } catch (error) {
+    if (isGenerationTimeoutError(error)) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-proxy",
+        event: "admin_ai_live_agent_proxy_timeout",
+        level: "error",
+        correlationId,
+        status: 504,
+        upstream_path: "/internal/ai/live-agent",
+        admin_user_id: adminUser.id,
+        duration_ms: getDurationMs(startedAt),
+        ...getRequestLogFields(requestInfo),
+      });
+      return generationTimeoutResponse(correlationId);
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component: "admin-ai-proxy",
@@ -230,7 +262,8 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
 
   let response;
   try {
-    response = await env.AI_LAB.fetch(
+    response = await fetchWithGenerationTimeout(
+      env.AI_LAB.fetch.bind(env.AI_LAB),
       new Request(`${AI_LAB_BASE_URL}${path}`, {
         method: init.method,
         headers,
@@ -238,6 +271,21 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
       })
     );
   } catch (error) {
+    if (isGenerationTimeoutError(error)) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-proxy",
+        event: "admin_ai_proxy_timeout",
+        level: "error",
+        correlationId,
+        status: 504,
+        upstream_path: path,
+        admin_user_id: adminUser.id,
+        duration_ms: getDurationMs(startedAt),
+        ...getRequestLogFields(requestInfo),
+      });
+      return generationTimeoutResponse(correlationId);
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component: "admin-ai-proxy",

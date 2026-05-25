@@ -26,6 +26,12 @@ import {
   summarizeResultShape,
   summarizeVideoPayload,
 } from "./invoke-ai-shared.js";
+import {
+  BITBI_GENERATION_TIMEOUT_MS,
+  fetchWithGenerationTimeout,
+  isGenerationTimeoutError,
+  runWithGenerationTimeout,
+} from "./generation-timeout.js";
 
 const DEFAULT_AI_GATEWAY_ID = "default";
 const VIDU_PROVIDER_MODEL_ID = "viduq3-pro";
@@ -36,7 +42,7 @@ const VIDU_PROVIDER_CREATE_PATHS = Object.freeze({
   start_end_to_video: "/ent/v2/start-end2video",
 });
 const VIDU_PROVIDER_DEFAULT_POLL_INTERVAL_MS = 4_000;
-const VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = 600_000;
+const VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = BITBI_GENERATION_TIMEOUT_MS;
 const VIDU_VALID_RESOLUTIONS = ["540p", "720p", "1080p"];
 const VIDU_VALID_ASPECT_RATIOS = ["16:9", "9:16", "3:4", "4:3", "1:1"];
 const SEEDANCE_VALID_RESOLUTIONS = ["720p", "1080p"];
@@ -430,12 +436,13 @@ async function invokeViduProviderFallback({
 
   let createResponse;
   try {
-    createResponse = await fetch(`${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
+    createResponse = await fetchWithGenerationTimeout(globalThis.fetch, `${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
       method: "POST",
       headers: baseHeaders,
       body: JSON.stringify(createPayload),
     });
   } catch (providerError) {
+    if (isGenerationTimeoutError(providerError)) throw providerError;
     throw buildViduProviderError("Vidu provider task creation failed.", {
       body: getErrorFields(providerError),
       step: "create",
@@ -517,7 +524,8 @@ async function invokeViduProviderFallback({
 
     let pollResponse;
     try {
-      pollResponse = await fetch(
+      pollResponse = await fetchWithGenerationTimeout(
+        globalThis.fetch,
         `${VIDU_PROVIDER_API_BASE_URL}/ent/v2/tasks/${encodeURIComponent(taskId)}/creations`,
         {
           method: "GET",
@@ -525,6 +533,7 @@ async function invokeViduProviderFallback({
         }
       );
     } catch (providerError) {
+      if (isGenerationTimeoutError(providerError)) throw providerError;
       throw buildViduProviderError("Vidu provider status check failed.", {
         body: getErrorFields(providerError),
         step: "poll",
@@ -946,9 +955,11 @@ function buildVideoTaskResult({
 
 async function runWorkersAiVideoOnce(env, model, input, request, startedAt, runOptions) {
   ensureAI(env);
-  const raw = runOptions
-    ? await env.AI.run(model.id, request.payload, runOptions)
-    : await env.AI.run(model.id, request.payload);
+  const raw = await runWithGenerationTimeout(() => (
+    runOptions
+      ? env.AI.run(model.id, request.payload, runOptions)
+      : env.AI.run(model.id, request.payload)
+  ));
   const videoUrl = extractVideoUrl(raw);
   const providerTaskId = extractViduProviderTaskId(raw);
   const providerState = extractViduProviderState(raw);
@@ -999,7 +1010,7 @@ async function createViduProviderTaskOnce({
   const { workflow, createPath, createPayload } = buildViduProviderCreateRequest(effectivePayload);
   let createResponse;
   try {
-    createResponse = await fetch(`${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
+    createResponse = await fetchWithGenerationTimeout(globalThis.fetch, `${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
       method: "POST",
       headers: {
         Authorization: `Token ${apiKey}`,
@@ -1008,6 +1019,7 @@ async function createViduProviderTaskOnce({
       body: JSON.stringify(createPayload),
     });
   } catch (providerError) {
+    if (isGenerationTimeoutError(providerError)) throw providerError;
     throw buildViduProviderError("Vidu provider task creation failed.", {
       body: getErrorFields(providerError),
       step: "create",
@@ -1151,7 +1163,8 @@ export async function pollVideoProviderTask(env, model, input, task) {
 
   let pollResponse;
   try {
-    pollResponse = await fetch(
+    pollResponse = await fetchWithGenerationTimeout(
+      globalThis.fetch,
       `${VIDU_PROVIDER_API_BASE_URL}/ent/v2/tasks/${encodeURIComponent(providerTaskId)}/creations`,
       {
         method: "GET",
@@ -1161,6 +1174,7 @@ export async function pollVideoProviderTask(env, model, input, task) {
       }
     );
   } catch (providerError) {
+    if (isGenerationTimeoutError(providerError)) throw providerError;
     throw buildViduProviderError("Vidu provider status check failed.", {
       body: getErrorFields(providerError),
       step: "poll",
@@ -1328,9 +1342,11 @@ export async function invokeVideo(env, model, input) {
   let raw;
   let aiGatewayLogId = null;
   try {
-    raw = runOptions
-      ? await env.AI.run(model.id, effectivePayload, runOptions)
-      : await env.AI.run(model.id, effectivePayload);
+    raw = await runWithGenerationTimeout(() => (
+      runOptions
+        ? env.AI.run(model.id, effectivePayload, runOptions)
+        : env.AI.run(model.id, effectivePayload)
+    ));
     aiGatewayLogId = readAiGatewayLogId(env.AI);
     if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
       logViduGatewayReference({

@@ -19,6 +19,11 @@ import {
   workerConfigUnavailableResponse,
   WorkerConfigError,
 } from "../../lib/config.js";
+import {
+  BITBI_GENERATION_TIMEOUT_SECONDS,
+  fetchWithGenerationTimeout,
+  isGenerationTimeoutError,
+} from "../../lib/generation-timeout.js";
 import { buildServiceAuthHeaders } from "../../../../../js/shared/service-auth.mjs";
 import {
   AI_CALLER_POLICY_BUDGET_SCOPES,
@@ -261,7 +266,7 @@ async function signedAiLabTextRequest({
 
   let response;
   try {
-    response = await env.AI_LAB.fetch(new Request(`${AI_LAB_BASE_URL}${INTERNAL_TEXT_PATH}`, {
+    response = await fetchWithGenerationTimeout(env.AI_LAB.fetch.bind(env.AI_LAB), new Request(`${AI_LAB_BASE_URL}${INTERNAL_TEXT_PATH}`, {
       method: "POST",
       headers: {
         "content-type": "application/json; charset=utf-8",
@@ -273,6 +278,24 @@ async function signedAiLabTextRequest({
       body: bodyText,
     }));
   } catch (error) {
+    if (isGenerationTimeoutError(error)) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-text",
+        event: "member_ai_text_proxy_timeout",
+        level: "error",
+        correlationId,
+        user_id: user?.id || null,
+        duration_ms: getDurationMs(startedAt),
+        upstream_path: INTERNAL_TEXT_PATH,
+      });
+      return {
+        ok: false,
+        status: 504,
+        code: "generation_timeout",
+        error: `Text generation timed out after ${BITBI_GENERATION_TIMEOUT_SECONDS} seconds.`,
+      };
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-text",
