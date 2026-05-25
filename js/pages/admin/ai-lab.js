@@ -1568,7 +1568,9 @@ export function createAdminAiLab({ showToast } = {}) {
         const isHappyHorse = spec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID;
         const isSeedance = spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
             || spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
-        const isGenerationBlocked = spec.generationEnabled === false || spec.pricingRequired === true;
+        const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
+        const isGenerationBlocked = spec.generationEnabled === false
+            || (spec.pricingRequired === true && !isCostDiscovery);
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
             && (!!state.forms.video.startImageInput || !!state.forms.video.endImageInput);
 
@@ -1583,7 +1585,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
         refs.video.prompt.placeholder = isSeedance
-            ? 'Describe a Seedance video prompt. Generation is blocked until verified pricing is configured.'
+            ? 'Describe a Seedance video prompt for admin-only cost discovery.'
             : isVidu
             ? (usesViduFrameWorkflow
                 ? 'Optional — add a text prompt to steer motion between the selected frames.'
@@ -3417,9 +3419,16 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (!result) {
             const spec = getSelectedVideoModelSpec();
-            const isGenerationBlocked = spec.generationEnabled === false || spec.pricingRequired === true;
+            const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
+            const isGenerationBlocked = spec.generationEnabled === false
+                || (spec.pricingRequired === true && !isCostDiscovery);
             const blockedMessage = spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
-            setResultState(refs.video.state, isGenerationBlocked ? 'error' : 'neutral', isGenerationBlocked ? blockedMessage : 'No video generation yet.');
+            const costDiscoveryMessage = 'Cost discovery. Pricing is not configured; admin run records setup for manual price table.';
+            setResultState(
+                refs.video.state,
+                isGenerationBlocked ? 'error' : 'neutral',
+                isGenerationBlocked ? blockedMessage : (isCostDiscovery ? costDiscoveryMessage : 'No video generation yet.')
+            );
             setVideoInlineError(isGenerationBlocked ? blockedMessage : '');
             syncVideoFieldState();
             return;
@@ -3476,7 +3485,8 @@ export function createAdminAiLab({ showToast } = {}) {
     function validateVideoForm() {
         const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
-        if (spec.generationEnabled === false || spec.pricingRequired === true) {
+        const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
+        if (spec.generationEnabled === false || (spec.pricingRequired === true && !isCostDiscovery)) {
             return spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
         }
         const duration = Number(state.forms.video.duration);
@@ -4570,6 +4580,13 @@ export function createAdminAiLab({ showToast } = {}) {
             if (!state.forms.video.startImageInput && !state.forms.video.endImageInput) {
                 payload.aspect_ratio = state.forms.video.aspectRatio;
             }
+        } else if (
+            videoSpec.id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
+            || videoSpec.id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID
+        ) {
+            payload.prompt = prompt;
+            payload.aspect_ratio = state.forms.video.aspectRatio;
+            payload.resolution = state.forms.video.resolution;
         } else {
             payload.prompt = prompt;
             payload.aspect_ratio = state.forms.video.aspectRatio;
@@ -5200,7 +5217,8 @@ export function createAdminAiLab({ showToast } = {}) {
             });
             refs.video.prompt.addEventListener('input', () => {
                 const spec = getSelectedVideoModelSpec();
-                if (spec.generationEnabled === false || spec.pricingRequired === true) {
+                const isCostDiscovery = spec.costDiscoveryEnabled === true && spec.pricingRequired === true;
+                if (spec.generationEnabled === false || (spec.pricingRequired === true && !isCostDiscovery)) {
                     setVideoInlineError(spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE);
                     return;
                 }

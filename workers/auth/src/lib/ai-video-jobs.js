@@ -1,8 +1,12 @@
 import {
   ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
+  ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
+  ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
+  ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG,
   ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
   AdminAiValidationError,
+  isAdminAiVideoSeedanceModelId,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import { calculateAiVideoCreditCost } from "../../../../js/shared/ai-model-pricing.mjs";
@@ -25,6 +29,7 @@ import {
 import {
   assertBudgetSwitchEffectiveEnabled,
   budgetSwitchLogFields,
+  isBudgetSwitchEnabled,
 } from "./admin-platform-budget-switches.js";
 import {
   checkPlatformBudgetCap,
@@ -45,6 +50,20 @@ export const ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID = "admin.video.job.create";
 export const ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID = "admin.video.task.create";
 export const ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID = "admin.video.task.poll";
 export const ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET";
+
+export function isAdminSeedanceCostDiscoveryEnabled(env) {
+  return isBudgetSwitchEnabled(env, ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG);
+}
+
+export function assertAdminSeedanceCostDiscoveryEnabled(env, modelId) {
+  if (!isAdminAiVideoSeedanceModelId(modelId)) return;
+  if (isAdminSeedanceCostDiscoveryEnabled(env)) return;
+  throw new AdminAiValidationError(
+    ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
+    403,
+    ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE
+  );
+}
 
 function buildAdminVideoTaskCallerPolicy({ job, path, budgetPolicy, correlationId }) {
   const isPoll = path.endsWith("/poll");
@@ -182,7 +201,13 @@ function sanitizePublicError(value, fallback = "Video job failed.") {
 
 function resolveProvider(modelId) {
   if (modelId === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return "vidu";
-  if (modelId === ADMIN_AI_VIDEO_MODEL_ID || modelId === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) return "workers-ai";
+  if (
+    modelId === ADMIN_AI_VIDEO_MODEL_ID
+    || modelId === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID
+    || isAdminAiVideoSeedanceModelId(modelId)
+  ) {
+    return "workers-ai";
+  }
   return "unknown";
 }
 
@@ -209,6 +234,7 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
   const registryEntry = getAiCostOperationRegistryEntry(ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID);
   const registryConfig = registryEntry?.operationConfig || {};
   const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
+  const isSeedanceCostDiscovery = isAdminAiVideoSeedanceModelId(modelId);
   return {
     operationId: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
     featureKey: registryConfig.featureKey || "admin.ai.video_job",
@@ -221,7 +247,7 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
     modelId,
     modelResolverKey: registryConfig.modelResolverKey || "admin.video.model_registry",
     providerCost: true,
-    estimatedCostUnits: pricing?.credits || 0,
+    estimatedCostUnits: isSeedanceCostDiscovery ? 1 : (pricing?.credits || 0),
     estimatedCredits: pricing?.credits || 0,
     idempotencyPolicy: registryConfig.idempotencyPolicy || "required",
     killSwitchPolicy: {
@@ -241,13 +267,32 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
     routeId: registryConfig.routeId || "admin.ai.video-jobs.create",
     routePath: registryConfig.routePath || "/api/admin/ai/video-jobs",
     auditEventPrefix: registryConfig.observabilityEventPrefix || ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
-    notes: "Phase 4.5 records platform_admin_lab_budget metadata for admin async video jobs before queueing; no credits are debited.",
+    notes: isSeedanceCostDiscovery
+      ? "Admin-only Seedance cost-discovery run: provider cost is unknown, no member credits are priced or debited, and one platform budget unit gates the bounded setup."
+      : "Phase 4.5 records platform_admin_lab_budget metadata for admin async video jobs before queueing; no credits are debited.",
     ...(operationOverride || {}),
   };
 }
 
-function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso() } = {}) {
+function buildSeedanceCostDiscoveryMetadata(modelId, payload = {}, createdAt = nowIso()) {
+  if (!isAdminAiVideoSeedanceModelId(modelId)) return null;
   return {
+    status: "operator_guarded_admin_cost_discovery",
+    pricing_configured: false,
+    credit_debit: false,
+    cost_discovery_flag: ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG,
+    model_id: modelId,
+    duration: Number(payload.duration || 0) || null,
+    resolution: typeof payload.resolution === "string" ? payload.resolution : null,
+    aspect_ratio: typeof payload.aspect_ratio === "string" ? payload.aspect_ratio : null,
+    input_mode: "prompt_only",
+    workflow: "text_to_video",
+    recorded_at: createdAt,
+  };
+}
+
+function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso(), costDiscovery = null } = {}) {
+  const summary = {
     budget_policy_version: plan.policyVersion,
     operation_id: plan.operationId,
     budget_scope: plan.budgetScope,
@@ -281,6 +326,8 @@ function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso()
     fingerprint,
     audit_fields: plan.auditFields,
   };
+  if (costDiscovery) summary.cost_discovery = costDiscovery;
+  return summary;
 }
 
 export async function buildAdminVideoJobBudgetPolicyContext({
@@ -319,7 +366,10 @@ export async function buildAdminVideoJobBudgetPolicyContext({
   return {
     plan,
     fingerprint,
-    summary: compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt }),
+    summary: compactAdminVideoBudgetPolicy(plan, fingerprint, {
+      createdAt,
+      costDiscovery: buildSeedanceCostDiscoveryMetadata(modelId, payload, createdAt),
+    }),
   };
 }
 
@@ -378,6 +428,19 @@ function safeBudgetPolicyForResponse(value) {
       status: policy.provider_task_create.status || null,
       attempted: policy.provider_task_create.attempted === true,
       provider_task_id_recorded: policy.provider_task_create.provider_task_id_recorded === true,
+    } : null,
+    cost_discovery: policy.cost_discovery && typeof policy.cost_discovery === "object" ? {
+      status: policy.cost_discovery.status || null,
+      pricing_configured: policy.cost_discovery.pricing_configured === true,
+      credit_debit: policy.cost_discovery.credit_debit === true,
+      cost_discovery_flag: policy.cost_discovery.cost_discovery_flag || null,
+      model_id: policy.cost_discovery.model_id || null,
+      duration: Number(policy.cost_discovery.duration || 0) || null,
+      resolution: policy.cost_discovery.resolution || null,
+      aspect_ratio: policy.cost_discovery.aspect_ratio || null,
+      input_mode: policy.cost_discovery.input_mode || null,
+      workflow: policy.cost_discovery.workflow || null,
+      recorded_at: policy.cost_discovery.recorded_at || null,
     } : null,
     fingerprint: policy.fingerprint || null,
     audit_fields: policy.audit_fields && typeof policy.audit_fields === "object"
@@ -764,6 +827,7 @@ export async function createAdminAiVideoJob({
     model: payload.model,
   });
   const modelId = selection.model.id;
+  assertAdminSeedanceCostDiscoveryEnabled(env, modelId);
   const requestHash = await sha256Hex(stableStringify(payload));
   const inputJson = stableStringify(buildJobStoredInput(payload, modelId));
   const existing = await findIdempotentJob(env, adminUser.id, AI_VIDEO_JOB_SCOPE_ADMIN, idempotencyKey);
@@ -1455,6 +1519,32 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     return { status: "failed", reason: "bad_stored_payload", error };
   }
 
+  try {
+    assertAdminSeedanceCostDiscoveryEnabled(env, job.model);
+  } catch (error) {
+    const failedAt = nowIso();
+    await updateJobFailed(
+      env,
+      job.id,
+      error?.code || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
+      error?.message || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
+      failedAt
+    );
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-video-jobs-queue",
+      event: "ai_video_job_seedance_cost_discovery_disabled",
+      level: "warn",
+      correlationId: payload.correlationId,
+      job_id: job.id,
+      provider: job.provider,
+      model: job.model,
+      error_code: error?.code || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
+      duration_ms: getDurationMs(startedAt),
+    });
+    return { status: "failed", jobId: job.id, reason: error?.code || ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE };
+  }
+
   const providerPath = job.provider_task_id
     ? "/internal/ai/video-task/poll"
     : "/internal/ai/video-task/create";
@@ -1543,6 +1633,12 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         model_id: job.model,
         provider_family: budgetPolicy.provider_family || job.provider,
         result_status: "succeeded",
+        cost_discovery_status: budgetPolicy.cost_discovery?.status || null,
+        cost_discovery_pricing_configured: budgetPolicy.cost_discovery?.pricing_configured === true,
+        cost_discovery_credit_debit: budgetPolicy.cost_discovery?.credit_debit === true,
+        duration: budgetPolicy.cost_discovery?.duration || null,
+        resolution: budgetPolicy.cost_discovery?.resolution || null,
+        aspect_ratio: budgetPolicy.cost_discovery?.aspect_ratio || null,
       },
     });
     logDiagnostic({

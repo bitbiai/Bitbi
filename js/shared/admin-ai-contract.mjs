@@ -56,9 +56,13 @@ export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
 export const ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID = HAPPYHORSE_T2V_MODEL_ID;
 export const ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID = "bytedance/seedance-2.0-fast";
 export const ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID = "bytedance/seedance-2.0";
+export const ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG = "ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY";
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE = "model_pricing_required";
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE =
   "Pricing is not configured for this admin Video AI model. Configure verified Cloudflare pricing before generation.";
+export const ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE = "admin_seedance_cost_discovery_disabled";
+export const ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE =
+  "Admin Seedance cost discovery is disabled. Enable ENABLE_ADMIN_SEEDANCE_COST_DISCOVERY for bounded admin-only test runs.";
 export const ADMIN_AI_MUSIC_KEYS = [
   "C Major",
   "C# Major",
@@ -237,6 +241,12 @@ export const ADMIN_AI_LIVE_AGENT_MODEL = {
   label: "Gemma 4 26B A4B",
   vendor: "Google",
 };
+
+export function isAdminAiVideoSeedanceModelId(modelId) {
+  const id = String(modelId || "").trim();
+  return id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
+    || id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
+}
 
 const TEXT_MODELS = {
   "@cf/meta/llama-3.1-8b-instruct-fast": {
@@ -503,9 +513,11 @@ const VIDEO_MODELS = {
     proxied: true,
     adminOnly: true,
     pricingRequired: true,
-    generationEnabled: false,
-    unavailableCode: ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
-    unavailableMessage: ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+    costDiscoveryEnabled: true,
+    costDiscoveryFlag: ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG,
+    generationEnabled: true,
+    unavailableCode: ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
+    unavailableMessage: ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
     supportsImageInput: false,
     supportsEndImage: false,
     supportsNegativePrompt: false,
@@ -525,7 +537,7 @@ const VIDEO_MODELS = {
     defaultResolution: "720p",
     defaultGenerateAudio: false,
     defaultPreset: "video_seedance_2_fast",
-    description: "Admin-only Cloudflare/AI Gateway Seedance 2.0 Fast entry. Generation stays blocked until verified provider pricing is configured.",
+    description: "Admin-only Cloudflare/AI Gateway Seedance 2.0 Fast cost-discovery entry. Credits are not priced for member use.",
   },
   [ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID]: {
     id: ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID,
@@ -537,9 +549,11 @@ const VIDEO_MODELS = {
     proxied: true,
     adminOnly: true,
     pricingRequired: true,
-    generationEnabled: false,
-    unavailableCode: ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
-    unavailableMessage: ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+    costDiscoveryEnabled: true,
+    costDiscoveryFlag: ADMIN_AI_VIDEO_SEEDANCE_COST_DISCOVERY_FLAG,
+    generationEnabled: true,
+    unavailableCode: ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_CODE,
+    unavailableMessage: ADMIN_AI_VIDEO_COST_DISCOVERY_DISABLED_MESSAGE,
     supportsImageInput: false,
     supportsEndImage: false,
     supportsNegativePrompt: false,
@@ -559,7 +573,7 @@ const VIDEO_MODELS = {
     defaultResolution: "720p",
     defaultGenerateAudio: false,
     defaultPreset: "video_seedance_2",
-    description: "Admin-only Cloudflare/AI Gateway Seedance 2.0 entry. Generation stays blocked until verified provider pricing is configured.",
+    description: "Admin-only Cloudflare/AI Gateway Seedance 2.0 cost-discovery entry. Credits are not priced for member use.",
   },
 };
 
@@ -632,14 +646,14 @@ const PRESETS = {
     task: "video",
     label: "Seedance 2.0 Fast",
     model: ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID,
-    description: "Admin-only Seedance 2.0 Fast preset. Pricing configuration required before generation.",
+    description: "Admin-only Seedance 2.0 Fast cost-discovery preset. Credits are not configured.",
   },
   video_seedance_2: {
     name: "video_seedance_2",
     task: "video",
     label: "Seedance 2.0",
     model: ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID,
-    description: "Admin-only Seedance 2.0 preset. Pricing configuration required before generation.",
+    description: "Admin-only Seedance 2.0 cost-discovery preset. Credits are not configured.",
   },
 };
 
@@ -1054,6 +1068,8 @@ function toPublicModel(model) {
       defaultPreset: model.defaultPreset || null,
       adminOnly: model.adminOnly === true,
       pricingRequired: model.pricingRequired === true,
+      costDiscoveryEnabled: model.costDiscoveryEnabled === true,
+      costDiscoveryFlag: model.costDiscoveryFlag || null,
       generationEnabled: model.generationEnabled !== false,
       unavailableCode: model.unavailableCode || null,
       unavailableMessage: model.unavailableMessage || null,
@@ -1382,7 +1398,10 @@ export function validateAdminAiVideoBody(body) {
   const selection = resolveAdminAiModelSelection("video", { preset, model });
   const selectedModel = selection.model;
 
-  if (selectedModel.pricingRequired || selectedModel.generationEnabled === false) {
+  if (
+    selectedModel.generationEnabled === false
+    || (selectedModel.pricingRequired === true && selectedModel.costDiscoveryEnabled !== true)
+  ) {
     throw new AdminAiValidationError(
       selectedModel.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
       409,
@@ -1538,6 +1557,51 @@ export function validateAdminAiVideoBody(body) {
             selectedModel.allowedAspectRatios,
             selectedModel.defaultAspectRatio
           ),
+    };
+  }
+
+  if (isAdminAiVideoSeedanceModelId(selectedModel.id)) {
+    assertOnlyAllowedFields(
+      input,
+      [
+        "preset",
+        "model",
+        "prompt",
+        "duration",
+        "aspect_ratio",
+        "resolution",
+      ],
+      selectedModel.id
+    );
+
+    const prompt = requiredString(input.prompt, "prompt", selectedModel.maxPromptLength);
+    const duration = optionalInteger(
+      input.duration,
+      "duration",
+      selectedModel.minDuration,
+      selectedModel.maxDuration,
+      selectedModel.defaultDuration
+    );
+    const aspect_ratio = optionalEnum(
+      input.aspect_ratio,
+      "aspect_ratio",
+      selectedModel.allowedAspectRatios,
+      selectedModel.defaultAspectRatio
+    );
+    const resolution = optionalEnum(
+      input.resolution,
+      "resolution",
+      selectedModel.allowedResolutions,
+      selectedModel.defaultResolution
+    );
+
+    return {
+      preset,
+      model,
+      prompt,
+      duration,
+      aspect_ratio,
+      resolution,
     };
   }
 

@@ -49,6 +49,7 @@ import {
   normalizeBillingIdempotencyKey,
 } from "../lib/billing.js";
 import {
+  assertAdminSeedanceCostDiscoveryEnabled,
   createAdminAiVideoJob,
   getAdminAiVideoJob,
   getAdminAiVideoJobOutput,
@@ -3194,6 +3195,11 @@ export async function handleAdminAI(ctx) {
       const minimalMode = body.minimal_mode === true;
       const { minimal_mode: _strip, ...validationBody } = body;
       const validated = validateVideoPayload(validationBody);
+      const validatedSelection = resolveAdminAiModelSelection("video", {
+        preset: validated.preset,
+        model: validated.model,
+      });
+      assertAdminSeedanceCostDiscoveryEnabled(env, validatedSelection.model.id);
       if (minimalMode) validated.minimal_mode = true;
       logDiagnostic({
         service: "bitbi-auth",
