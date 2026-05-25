@@ -9,6 +9,7 @@ import {
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 
@@ -136,7 +137,7 @@ export function initGallery() {
             if (identity) seen.add(identity);
             nextItems.push(item);
         });
-        mempicsState.items = nextItems;
+        mempicsState.items = orderPublicExploreItems(nextItems, getMempicIdentity);
     }
 
     function renderGalleryState(message) {

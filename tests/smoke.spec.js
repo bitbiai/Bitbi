@@ -4046,7 +4046,7 @@ test.describe('Homepage', () => {
     await expect(videoCard.locator('.video-card__caption')).toHaveText('Published by Ada Member on 2026-04-14.');
   });
 
-  test('desktop published Mempics start at two rows and Memvids start at six without changing mobile behavior', async ({ page }) => {
+  test('desktop published Mempics and Memvids start at two rows without changing mobile behavior', async ({ page }) => {
     const mempicItems = Array.from({ length: 12 }, (_, index) => ({
       id: `mempic-${index + 1}`,
       slug: `mempic-${index + 1}`,
@@ -4071,7 +4071,7 @@ test.describe('Homepage', () => {
       },
     }));
 
-    const memvidItems = Array.from({ length: 7 }, (_, index) => ({
+    const memvidItems = Array.from({ length: 12 }, (_, index) => ({
       id: `memvid-${index + 1}`,
       slug: `memvid-${index + 1}`,
       title: `Launch Cut ${index + 1}`,
@@ -4085,8 +4085,8 @@ test.describe('Homepage', () => {
       },
       poster: {
         url: `/api/gallery/memvids/memvid-${index + 1}/poster`,
-        w: 1280,
-        h: 720,
+        w: index % 3 === 0 ? 720 : index % 3 === 1 ? 1280 : 900,
+        h: index % 3 === 0 ? 1280 : index % 3 === 1 ? 720 : 900,
       },
     }));
 
@@ -4176,21 +4176,21 @@ test.describe('Homepage', () => {
     await expect(galleryToggle).toBeHidden();
 
     await switchHomepageCategory(page, 'video');
-    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 6 Memvids');
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing 10 Memvids.');
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
-    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(6);
+    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(10);
 
     const videoToggle = page.locator('#videoPagination .browse-pagination__toggle');
     await expect(videoToggle).toHaveAttribute('aria-expanded', 'false');
     await videoToggle.scrollIntoViewIfNeeded();
     const videoScrollBefore = await page.evaluate(() => window.scrollY);
     await videoToggle.click();
-    await expect(videoToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(7);
+    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(12);
     const videoScrollAfter = await page.evaluate(() => window.scrollY);
     expect(videoScrollAfter).toBeGreaterThanOrEqual(videoScrollBefore - 1);
-    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 7 Memvids.');
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 12 Memvids.');
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
+    await expect(videoToggle).toBeHidden();
 
     await page.setViewportSize({ width: 390, height: 844 });
     await switchHomepageCategory(page, 'gallery');
@@ -4215,7 +4215,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#videoPagination .browse-pagination__status')).toBeEnabled();
     await page.locator('#videoPagination .browse-pagination__status').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
-    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(7);
+    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(12);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video')).toBeVisible();
@@ -4240,7 +4240,7 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-grid-overlay__close').click();
   });
 
-  test('homepage Gallery fits five compact columns and two initial rows on wide desktop while preserving the mobile layout', async ({ page }) => {
+  test('homepage Gallery and Video fit five aspect-aware columns and two initial rows on wide desktop while preserving the mobile layout', async ({ page }) => {
     const dimensions = [
       { w: 360, h: 540 },
       { w: 720, h: 405 },
@@ -4252,14 +4252,16 @@ test.describe('Homepage', () => {
       { w: 800, h: 450 },
       { w: 380, h: 580 },
       { w: 700, h: 430 },
+      { w: 900, h: 520 },
     ];
-    const items = Array.from({ length: 10 }, (_, index) => {
+    const items = Array.from({ length: 11 }, (_, index) => {
       const id = `mempic-${index + 1}`;
       const size = dimensions[index];
       return {
         id,
         slug: id,
         title: `Mempics ${index + 1}`,
+        created_at: `2026-05-${String(index + 1).padStart(2, '0')}T12:00:00.000Z`,
         caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
         category: 'mempics',
         thumb: {
@@ -4274,6 +4276,39 @@ test.describe('Homepage', () => {
         },
         full: {
           url: `/api/gallery/mempics/${id}/file`,
+        },
+      };
+    });
+    const videoDimensions = [
+      { w: 720, h: 1280 },
+      { w: 1280, h: 720 },
+      { w: 900, h: 900 },
+      { w: 720, h: 1180 },
+      { w: 1280, h: 760 },
+      { w: 720, h: 1280 },
+      { w: 960, h: 960 },
+      { w: 1280, h: 720 },
+      { w: 720, h: 1200 },
+      { w: 1280, h: 800 },
+      { w: 1280, h: 720 },
+    ];
+    const videoItems = Array.from({ length: 11 }, (_, index) => {
+      const id = `memvid-${index + 1}`;
+      const size = videoDimensions[index];
+      return {
+        id,
+        slug: id,
+        title: `Launch Cut ${index + 1}`,
+        created_at: `2026-05-${String(index + 1).padStart(2, '0')}T12:00:00.000Z`,
+        caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+        category: 'memvids',
+        file: {
+          url: `/api/gallery/memvids/${id}/file`,
+        },
+        poster: {
+          url: `/api/gallery/memvids/${id}/poster`,
+          w: size.w,
+          h: size.h,
         },
       };
     });
@@ -4297,6 +4332,33 @@ test.describe('Homepage', () => {
       });
     });
 
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { items: videoItems },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
     await switchHomepageCategory(page, 'gallery');
@@ -4311,6 +4373,7 @@ test.describe('Homepage', () => {
       const rects = Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)')).map((node) => {
         const rect = node.getBoundingClientRect();
         return {
+          id: node.dataset.galleryItemId || '',
           aspect: node.dataset.galleryAspect || '',
           left: Math.round(rect.left * 100) / 100,
           top: Math.round(rect.top * 100) / 100,
@@ -4331,14 +4394,19 @@ test.describe('Homepage', () => {
       columns.sort((a, b) => a.left - b.left);
       const topBand = rects.filter((rect) => Math.abs(rect.top - Math.min(...rects.map((item) => item.top))) <= 3);
       topBand.sort((a, b) => a.left - b.left);
+      const secondBand = rects.filter((rect) => rect.top > topBand[0].top + 3);
+      secondBand.sort((a, b) => a.left - b.left);
       const firstBandGaps = topBand.slice(1).map((rect, index) => (
         Math.round((rect.left - topBand[index].right) * 100) / 100
       )) || [];
       return {
         display: style.display,
-        columnCount: Number(style.columnCount),
+        gridColumnCount: style.gridTemplateColumns.split(' ').filter(Boolean).length,
         overflow: grid.scrollWidth - grid.clientWidth,
         renderedCount: rects.length,
+        orderedIds: rects.map((rect) => rect.id),
+        topBandIds: topBand.map((rect) => rect.id),
+        secondBandIds: secondBand.map((rect) => rect.id),
         topBandCount: topBand.length,
         columnCounts: columns.map((column) => column.cards.length),
         firstBandGaps,
@@ -4349,10 +4417,20 @@ test.describe('Homepage', () => {
       };
     });
 
-    expect(wideLayout.display).toBe('block');
-    expect(wideLayout.columnCount).toBe(5);
+    expect(wideLayout.display).toBe('grid');
+    expect(wideLayout.gridColumnCount).toBe(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
     expect(wideLayout.renderedCount).toBe(10);
+    expect(wideLayout.orderedIds.slice(0, 6)).toEqual([
+      'mempic-11',
+      'mempic-10',
+      'mempic-9',
+      'mempic-8',
+      'mempic-7',
+      'mempic-6',
+    ]);
+    expect(wideLayout.topBandIds).toEqual(['mempic-11', 'mempic-10', 'mempic-9', 'mempic-8', 'mempic-7']);
+    expect(wideLayout.secondBandIds[0]).toBe('mempic-6');
     expect(wideLayout.topBandCount).toBe(5);
     expect(wideLayout.columnCounts).toHaveLength(5);
     expect(Math.max(...wideLayout.firstBandGaps)).toBeLessThanOrEqual(16);
@@ -4361,6 +4439,63 @@ test.describe('Homepage', () => {
     expect(wideLayout.landscape.width).toBeGreaterThan(wideLayout.landscape.height * 1.12);
     expect(Math.abs(wideLayout.square.width - wideLayout.square.height)).toBeLessThanOrEqual(3);
     expect(wideLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
+
+    await switchHomepageCategory(page, 'video');
+    const videoCards = page.locator('#videoGrid .video-card');
+    await expect(videoCards).toHaveCount(10);
+
+    const videoLayout = await page.evaluate(() => {
+      const grid = document.getElementById('videoGrid');
+      const style = window.getComputedStyle(grid);
+      const rects = Array.from(grid.querySelectorAll('.video-card')).map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          id: node.dataset.videoItemId || '',
+          aspect: node.dataset.videoAspect || '',
+          left: Math.round(rect.left * 100) / 100,
+          top: Math.round(rect.top * 100) / 100,
+          right: Math.round(rect.right * 100) / 100,
+          width: Math.round(rect.width * 100) / 100,
+          height: Math.round(rect.height * 100) / 100,
+        };
+      });
+      const topBand = rects.filter((rect) => Math.abs(rect.top - Math.min(...rects.map((item) => item.top))) <= 3);
+      topBand.sort((a, b) => a.left - b.left);
+      const secondBand = rects.filter((rect) => rect.top > topBand[0].top + 3);
+      secondBand.sort((a, b) => a.left - b.left);
+      return {
+        display: style.display,
+        gridColumnCount: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+        overflow: grid.scrollWidth - grid.clientWidth,
+        orderedIds: rects.map((rect) => rect.id),
+        topBandIds: topBand.map((rect) => rect.id),
+        secondBandIds: secondBand.map((rect) => rect.id),
+        topBandCount: topBand.length,
+        portrait: rects.find((rect) => rect.aspect === 'portrait') || null,
+        landscape: rects.find((rect) => rect.aspect === 'landscape') || null,
+        square: rects.find((rect) => rect.aspect === 'square') || null,
+        roundedHeights: Array.from(new Set(rects.map((rect) => Math.round(rect.height / 10) * 10))),
+      };
+    });
+
+    expect(videoLayout.display).toBe('grid');
+    expect(videoLayout.gridColumnCount).toBe(5);
+    expect(videoLayout.overflow).toBeLessThanOrEqual(2);
+    expect(videoLayout.orderedIds.slice(0, 6)).toEqual([
+      'memvid-11',
+      'memvid-10',
+      'memvid-9',
+      'memvid-8',
+      'memvid-7',
+      'memvid-6',
+    ]);
+    expect(videoLayout.topBandIds).toEqual(['memvid-11', 'memvid-10', 'memvid-9', 'memvid-8', 'memvid-7']);
+    expect(videoLayout.secondBandIds[0]).toBe('memvid-6');
+    expect(videoLayout.topBandCount).toBe(5);
+    expect(videoLayout.portrait.height).toBeGreaterThan(videoLayout.portrait.width * 1.12);
+    expect(videoLayout.landscape.width).toBeGreaterThan(videoLayout.landscape.height * 1.12);
+    expect(Math.abs(videoLayout.square.width - videoLayout.square.height)).toBeLessThanOrEqual(3);
+    expect(videoLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 844 });
 
@@ -4371,6 +4506,15 @@ test.describe('Homepage', () => {
     });
 
     expect(mobileLayout).toBe(1);
+
+    await switchHomepageCategory(page, 'video');
+    const mobileVideoLayout = await page.evaluate(() => {
+      const grid = document.getElementById('videoGrid');
+      const style = window.getComputedStyle(grid);
+      return style.gridTemplateColumns.split(' ').filter(Boolean).length;
+    });
+
+    expect(mobileVideoLayout).toBe(1);
   });
 
   test('homepage Gallery Show More enables limited scroll batches without rendering every Mempic', async ({ page }) => {
@@ -4452,6 +4596,90 @@ test.describe('Homepage', () => {
     expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
     expect(idsAfterScroll).toContain('progressive-mempic-50');
     expect(idsAfterScroll).not.toContain('progressive-mempic-60');
+  });
+
+  test('homepage Video Show More enables limited scroll batches without rendering every Memvid', async ({ page }) => {
+    const items = Array.from({ length: 60 }, (_, index) => {
+      const id = `progressive-memvid-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Launch Cut ${index + 1}`,
+        caption: `Published by Ada Member on 2026-04-${String((index % 20) + 1).padStart(2, '0')}.`,
+        category: 'memvids',
+        file: {
+          url: `/api/gallery/memvids/${id}/file`,
+        },
+        poster: {
+          url: `/api/gallery/memvids/${id}/poster`,
+          w: index % 2 === 0 ? 1280 : 720,
+          h: index % 2 === 0 ? 720 : 1280,
+        },
+      };
+    });
+    const pages = {
+      first: { items: items.slice(0, 24), next_cursor: 'page-2', has_more: true },
+      'page-2': { items: items.slice(24, 48), next_cursor: 'page-3', has_more: true },
+      'page-3': { items: items.slice(48), next_cursor: null, has_more: false },
+    };
+
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor') || 'first';
+      const pageData = pages[cursor] || pages.first;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: pageData.items,
+            next_cursor: pageData.next_cursor,
+            has_more: pageData.has_more,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+    await switchHomepageCategory(page, 'video');
+
+    const cards = page.locator('#videoGrid .video-card');
+    await expect.poll(() => cards.count()).toBe(10);
+
+    const showMore = page.locator('#videoPagination .browse-pagination__toggle');
+    await expect(showMore).toHaveText('Show More');
+    await showMore.click();
+    await expect.poll(() => cards.count()).toBe(30);
+    await expect(showMore).toBeHidden();
+
+    const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
+    expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
+    expect(idsAfterClick).not.toContain('progressive-memvid-60');
+
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' }));
+    await expect.poll(() => cards.count()).toBe(50);
+
+    const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
+    expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
+    expect(idsAfterScroll).toContain('progressive-memvid-50');
+    expect(idsAfterScroll).not.toContain('progressive-memvid-60');
   });
 
   test('homepage favorites reuse the shared flow for Mempics cards and video modal cards', async ({ page }) => {

@@ -179,16 +179,16 @@
         }
 
         #galleryGrid.grid-gallery {
-            display: block;
-            column-count: 5;
-            column-gap: clamp(0.38rem, 0.5vw, 0.62rem);
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            align-items: start;
+            gap: clamp(0.38rem, 0.5vw, 0.62rem);
         }
 
         #galleryGrid .gallery-item {
             display: block;
             inline-size: 100%;
-            margin-block-end: clamp(0.38rem, 0.5vw, 0.62rem);
-            break-inside: avoid;
+            margin: 0;
             aspect-ratio: var(--gallery-item-aspect, 1.333);
             min-inline-size: 0;
             overflow: hidden;
@@ -2584,6 +2584,54 @@
         .grid-video { grid-template-columns: repeat(3, 1fr); }
     }
 
+    @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+        #homeCategories[data-active-category="video"] #video-creations > .section__inner {
+            max-inline-size: min(100%, calc(100vw - clamp(1.25rem, 3vw, 3.5rem)));
+        }
+
+        #videoExplore {
+            margin-block-start: calc(var(--space-2) * -1);
+        }
+
+        #videoGrid.grid-video {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            align-items: start;
+            gap: clamp(0.38rem, 0.5vw, 0.62rem);
+        }
+
+        #videoGrid .video-card {
+            border-radius: 0.62rem;
+            background: rgba(6, 13, 22, 0.82);
+            box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+        }
+
+        #videoGrid .video-card--portrait {
+            border-radius: 0.7rem;
+        }
+
+        #videoGrid .video-card--landscape {
+            border-radius: 0.58rem;
+        }
+
+        #videoGrid .video-card__inner {
+            block-size: 100%;
+            border-radius: inherit;
+        }
+
+        #videoGrid .video-card__poster {
+            aspect-ratio: var(--video-item-aspect, 1.778);
+            border-radius: inherit;
+        }
+
+        #videoGrid .video-card__info {
+            padding: clamp(0.72rem, 0.82vw, 1rem);
+        }
+
+        #videoGrid .video-card__title {
+            font-size: clamp(0.78rem, 0.72vw, 0.92rem);
+        }
+    }
+
     .video-card {
         cursor: pointer;
     }
@@ -2604,7 +2652,7 @@
 
     .video-card__poster {
         position: relative;
-        aspect-ratio: 16 / 9;
+        aspect-ratio: var(--video-item-aspect, 16 / 9);
         background: linear-gradient(135deg, rgba(13, 27, 42, 0.95) 0%, rgba(6, 10, 18, 0.98) 100%);
         display: flex;
         align-items: center;

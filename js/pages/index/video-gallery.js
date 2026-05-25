@@ -11,11 +11,14 @@ import {
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
 const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
-const DESKTOP_VISIBLE_MEMVIDS = 6;
+const DESKTOP_INITIAL_MEMVIDS = 10;
+const DESKTOP_MEMVIDS_BATCH = 20;
+const DESKTOP_SCROLL_PRELOAD_PX = 720;
 
 let focusTrapCleanup = null;
 
@@ -34,7 +37,13 @@ export function initVideoGallery() {
         loaded: false,
         loadingMore: false,
     };
-    let memvidsDrawerExpanded = false;
+    let memvidsProgressiveMode = false;
+    let memvidsVisibleLimit = DESKTOP_INITIAL_MEMVIDS;
+    let memvidsRevealPromise = null;
+    let memvidsObserver = null;
+    let memvidsUserScrolledSinceBatch = false;
+    let memvidsScrollBatchSettling = false;
+    let memvidsScrollBatchSettlingTimer = 0;
 
     /* Replace the teaser placeholder with a live grid */
     container.innerHTML = '';
@@ -63,7 +72,11 @@ export function initVideoGallery() {
     $loadMore.type = 'button';
     $loadMore.className = 'browse-pagination__btn';
     $loadMore.textContent = localeText('browse.loadMore');
-    $pagination?.append($paginationStatus, $drawerToggle, $loadMore);
+    const $scrollSentinel = document.createElement('div');
+    $scrollSentinel.className = 'browse-pagination__sentinel';
+    $scrollSentinel.setAttribute('aria-hidden', 'true');
+    $scrollSentinel.hidden = true;
+    $pagination?.append($paginationStatus, $drawerToggle, $loadMore, $scrollSentinel);
 
     function bindMediaQueryChange(query, listener) {
         if (!query) return;
@@ -80,27 +93,27 @@ export function initVideoGallery() {
         return !!desktopDrawerQuery?.matches;
     }
 
-    function hasCollapsedMemvids() {
-        return isDesktopDrawerEnabled()
-            && memvidsState.items.length > DESKTOP_VISIBLE_MEMVIDS;
-    }
-
     function getVisibleMemvidsCount() {
-        if (!hasCollapsedMemvids() || memvidsDrawerExpanded) {
-            return memvidsState.items.length;
-        }
-        return DESKTOP_VISIBLE_MEMVIDS;
+        if (!isDesktopDrawerEnabled()) return memvidsState.items.length;
+        return Math.min(memvidsVisibleLimit, memvidsState.items.length);
     }
 
-    function getRenderedMemvidCards() {
-        return Array.from(grid.querySelectorAll('.video-card'));
+    function canRevealMoreMemvids() {
+        return isDesktopDrawerEnabled()
+            && (
+                memvidsState.items.length > getVisibleMemvidsCount()
+                || (memvidsState.items.length >= DESKTOP_INITIAL_MEMVIDS && memvidsState.hasMore)
+            );
     }
 
-    function syncMemvidsDrawerVisibility() {
-        const hideOverflow = hasCollapsedMemvids() && !memvidsDrawerExpanded;
-        getRenderedMemvidCards().forEach((card, index) => {
-            card.hidden = hideOverflow && index >= DESKTOP_VISIBLE_MEMVIDS;
-        });
+    function resetMemvidsDesktopWindow() {
+        memvidsProgressiveMode = false;
+        memvidsVisibleLimit = isDesktopDrawerEnabled()
+            ? DESKTOP_INITIAL_MEMVIDS
+            : memvidsState.items.length;
+        memvidsUserScrolledSinceBatch = false;
+        memvidsScrollBatchSettling = false;
+        window.clearTimeout(memvidsScrollBatchSettlingTimer);
     }
 
     /* ── Modal ── */
@@ -112,6 +125,46 @@ export function initVideoGallery() {
         el.className = 'video-empty-state';
         el.textContent = message;
         grid.appendChild(el);
+    }
+
+    function getMemvidIdentity(item) {
+        return String(item?.id || item?.slug || item?.poster?.url || item?.file?.url || '').trim();
+    }
+
+    function getMemvidDimensions(item) {
+        const width = Number(item?.poster?.w || item?.preview?.w || item?.width || item?.video_width);
+        const height = Number(item?.poster?.h || item?.preview?.h || item?.height || item?.video_height);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            return { width: 16, height: 9 };
+        }
+        return { width, height };
+    }
+
+    function getMemvidAspectMeta(item) {
+        const { width, height } = getMemvidDimensions(item);
+        const rawRatio = width / height;
+        const displayRatio = Math.min(1.78, Math.max(0.66, rawRatio));
+        const orientation = rawRatio < 0.9
+            ? 'portrait'
+            : rawRatio > 1.1
+                ? 'landscape'
+                : 'square';
+        return {
+            orientation,
+            ratio: displayRatio.toFixed(3),
+        };
+    }
+
+    function mergeMemvidsItems(items, { replace = false } = {}) {
+        const nextItems = replace ? [] : memvidsState.items.slice();
+        const seen = new Set(nextItems.map(getMemvidIdentity).filter(Boolean));
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            const identity = getMemvidIdentity(item);
+            if (identity && seen.has(identity)) return;
+            if (identity) seen.add(identity);
+            nextItems.push(item);
+        });
+        memvidsState.items = orderPublicExploreItems(nextItems, getMemvidIdentity);
     }
 
     function openMemvidsOverlay() {
@@ -193,20 +246,27 @@ export function initVideoGallery() {
             $loadMore.hidden = true;
             $loadMore.textContent = '';
             $loadMore.disabled = false;
+            $scrollSentinel.hidden = true;
+            syncMemvidsScrollLoading();
             return;
         }
         if (!memvidsState.items.length) {
             $pagination.style.display = 'none';
             syncMobileMediaTrigger($paginationStatus, { enabled: false, label: localeText('browse.openMemvidsGrid') });
+            $scrollSentinel.hidden = true;
+            syncMemvidsScrollLoading();
             return;
         }
-        const drawerAvailable = hasCollapsedMemvids();
         const visibleCount = getVisibleMemvidsCount();
-        const showDrawerToggle = drawerAvailable;
-        const showLoadMore = memvidsState.hasMore;
+        const canRevealMore = canRevealMoreMemvids();
+        const showDrawerToggle = isDesktopDrawerEnabled() && canRevealMore && !memvidsProgressiveMode;
+        const showLoadMore = memvidsState.hasMore && (
+            !isDesktopDrawerEnabled()
+            || (!showDrawerToggle && !memvidsProgressiveMode && memvidsState.items.length < DESKTOP_INITIAL_MEMVIDS)
+        );
         $pagination.style.display = '';
-        if (drawerAvailable && !memvidsDrawerExpanded) {
-            $paginationStatus.textContent = localeText('browse.showingAllMemvids', { count: visibleCount });
+        if (canRevealMore) {
+            $paginationStatus.textContent = localeText('browse.showingMemvidsComplete', { count: visibleCount });
         } else if (memvidsState.hasMore) {
             $paginationStatus.textContent = localeText('browse.showingMemvidsComplete', { count: visibleCount });
         } else {
@@ -218,14 +278,17 @@ export function initVideoGallery() {
         });
         $drawerToggle.hidden = !showDrawerToggle;
         $drawerToggle.textContent = showDrawerToggle
-            ? (memvidsDrawerExpanded ? localeText('browse.showLess') : localeText('browse.showMore'))
+            ? localeText('browse.showMore')
             : '';
-        $drawerToggle.setAttribute('aria-expanded', String(showDrawerToggle && memvidsDrawerExpanded));
+        $drawerToggle.disabled = memvidsState.loadingMore;
+        $drawerToggle.setAttribute('aria-expanded', String(showDrawerToggle && memvidsProgressiveMode));
         $loadMore.hidden = !showLoadMore;
         $loadMore.disabled = memvidsState.loadingMore;
         $loadMore.textContent = showLoadMore
             ? (memvidsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
             : '';
+        $scrollSentinel.hidden = !(isDesktopDrawerEnabled() && memvidsProgressiveMode && canRevealMore);
+        syncMemvidsScrollLoading();
     }
 
     async function fetchMemvids(cursor = null) {
@@ -260,15 +323,114 @@ export function initVideoGallery() {
     async function ensureMemvidsLoaded() {
         if (memvidsState.loaded) return;
         const page = await fetchMemvids();
-        memvidsState.items = page.items;
+        mergeMemvidsItems(page.items, { replace: true });
         memvidsState.nextCursor = page.nextCursor;
         memvidsState.hasMore = page.hasMore;
         memvidsState.loaded = true;
+        resetMemvidsDesktopWindow();
+    }
+
+    async function fetchNextMemvidsPage() {
+        if (!memvidsState.hasMore || memvidsState.loadingMore) return false;
+        memvidsState.loadingMore = true;
+        updateMemvidsPagination();
+        try {
+            const page = await fetchMemvids(memvidsState.nextCursor);
+            mergeMemvidsItems(page.items);
+            memvidsState.nextCursor = page.nextCursor;
+            memvidsState.hasMore = page.hasMore;
+            return true;
+        } finally {
+            memvidsState.loadingMore = false;
+            updateMemvidsPagination();
+        }
+    }
+
+    async function revealNextMemvidsBatch() {
+        if (!isDesktopDrawerEnabled()) return;
+        if (!canRevealMoreMemvids()) return;
+        if (memvidsRevealPromise) return memvidsRevealPromise;
+        memvidsProgressiveMode = true;
+        const nextLimit = memvidsVisibleLimit + DESKTOP_MEMVIDS_BATCH;
+        memvidsRevealPromise = (async () => {
+            let errorMessage = '';
+            try {
+                if (nextLimit > memvidsState.items.length && memvidsState.hasMore) {
+                    await fetchNextMemvidsPage();
+                }
+                memvidsVisibleLimit = Math.min(nextLimit, memvidsState.items.length);
+                await render();
+            } catch (error) {
+                errorMessage = localeText('browse.memvidsLoadMoreFailed');
+                console.warn('memvids reveal more:', error);
+            } finally {
+                memvidsUserScrolledSinceBatch = false;
+                memvidsScrollBatchSettling = true;
+                window.clearTimeout(memvidsScrollBatchSettlingTimer);
+                memvidsScrollBatchSettlingTimer = window.setTimeout(() => {
+                    memvidsScrollBatchSettling = false;
+                }, 180);
+                memvidsRevealPromise = null;
+                updateMemvidsPagination(errorMessage);
+            }
+        })();
+        return memvidsRevealPromise;
+    }
+
+    function shouldUseMemvidsScrollLoading() {
+        return isDesktopDrawerEnabled()
+            && memvidsProgressiveMode
+            && canRevealMoreMemvids();
+    }
+
+    function maybeRevealMemvidsFromScroll() {
+        if (memvidsScrollBatchSettling) return;
+        if (!memvidsUserScrolledSinceBatch || !shouldUseMemvidsScrollLoading()) return;
+        const rect = $scrollSentinel.getBoundingClientRect();
+        if (rect.top > window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX) return;
+        revealNextMemvidsBatch();
+    }
+
+    function handleMemvidsProgressiveScroll() {
+        if (memvidsScrollBatchSettling) return;
+        memvidsUserScrolledSinceBatch = true;
+        maybeRevealMemvidsFromScroll();
+    }
+
+    function handleMemvidsIntersection(entries) {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        maybeRevealMemvidsFromScroll();
+    }
+
+    function disconnectMemvidsObserver() {
+        if (!memvidsObserver) return;
+        memvidsObserver.disconnect();
+        memvidsObserver = null;
+    }
+
+    function syncMemvidsScrollLoading() {
+        const active = shouldUseMemvidsScrollLoading();
+        window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
+        disconnectMemvidsObserver();
+        if (!active) return;
+        window.addEventListener('scroll', handleMemvidsProgressiveScroll, { passive: true });
+        if ('IntersectionObserver' in window) {
+            memvidsObserver = new IntersectionObserver(handleMemvidsIntersection, {
+                rootMargin: `${DESKTOP_SCROLL_PRELOAD_PX}px 0px`,
+            });
+            memvidsObserver.observe($scrollSentinel);
+        }
     }
 
     function buildVideoCard(item) {
         const card = document.createElement('div');
         card.className = 'video-card';
+        const itemIdentity = getMemvidIdentity(item);
+        if (itemIdentity) card.dataset.videoItemId = itemIdentity;
+        const aspectMeta = getMemvidAspectMeta(item);
+        card.classList.add(`video-card--${aspectMeta.orientation}`);
+        card.dataset.videoAspect = aspectMeta.orientation;
+        card.style.setProperty('--video-item-aspect', aspectMeta.ratio);
         card.setAttribute('tabindex', '0');
         card.setAttribute('role', 'button');
         card.setAttribute('aria-label', item.title || 'Video');
@@ -368,7 +530,7 @@ export function initVideoGallery() {
         let items;
         try {
             await ensureMemvidsLoaded();
-            items = memvidsState.items.slice();
+            items = memvidsState.items.slice(0, getVisibleMemvidsCount());
         } catch {
             grid.innerHTML = '';
             renderState(localeText('browse.memvidsLoadFailed'));
@@ -388,26 +550,22 @@ export function initVideoGallery() {
             const card = buildVideoCard(item);
             grid.appendChild(card);
         });
-        syncMemvidsDrawerVisibility();
         updateMemvidsPagination();
     }
 
     async function loadMoreMemvids() {
-        if (!memvidsState.hasMore || memvidsState.loadingMore) return;
-        memvidsState.loadingMore = true;
-        updateMemvidsPagination();
         let errorMessage = '';
         try {
-            const page = await fetchMemvids(memvidsState.nextCursor);
-            memvidsState.items = memvidsState.items.concat(page.items);
-            memvidsState.nextCursor = page.nextCursor;
-            memvidsState.hasMore = page.hasMore;
+            const loaded = await fetchNextMemvidsPage();
+            if (!loaded) return;
+            if (!isDesktopDrawerEnabled()) {
+                memvidsVisibleLimit = memvidsState.items.length;
+            }
             render();
         } catch (error) {
             errorMessage = localeText('browse.memvidsLoadMoreFailed');
             console.warn('memvids load more:', error);
         } finally {
-            memvidsState.loadingMore = false;
             updateMemvidsPagination(errorMessage);
         }
     }
@@ -518,6 +676,9 @@ export function initVideoGallery() {
 
     window.addEventListener('pagehide', () => {
         deck.destroy();
+        window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
+        window.clearTimeout(memvidsScrollBatchSettlingTimer);
+        disconnectMemvidsObserver();
     }, { once: true });
 
     $loadMore?.addEventListener('click', () => {
@@ -526,17 +687,13 @@ export function initVideoGallery() {
     $paginationStatus.addEventListener('click', openMemvidsOverlay);
 
     $drawerToggle?.addEventListener('click', () => {
-        const nextExpanded = !memvidsDrawerExpanded;
-        const previousScrollY = nextExpanded ? window.scrollY : 0;
-        memvidsDrawerExpanded = nextExpanded;
-        syncMemvidsDrawerVisibility();
-        updateMemvidsPagination();
+        const previousScrollY = window.scrollY;
+        revealNextMemvidsBatch();
         try {
             $drawerToggle.focus({ preventScroll: true });
         } catch {
             $drawerToggle.focus();
         }
-        if (!nextExpanded) return;
         window.requestAnimationFrame(() => {
             if (window.scrollY + 1 < previousScrollY) {
                 window.scrollTo({ top: previousScrollY, behavior: 'auto' });
@@ -545,9 +702,7 @@ export function initVideoGallery() {
     });
 
     bindMediaQueryChange(desktopDrawerQuery, () => {
-        if (!isDesktopDrawerEnabled()) {
-            memvidsDrawerExpanded = false;
-        }
+        resetMemvidsDesktopWindow();
         render();
     });
     bindMediaQueryChange(mobileMediaQuery, () => {
