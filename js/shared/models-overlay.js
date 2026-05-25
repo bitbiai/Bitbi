@@ -15,6 +15,10 @@ import { getGenerateLabAiImageModelOptions } from './ai-image-models.mjs?v=__ASS
 import { setupFocusTrap } from './focus-trap.js';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
+const MODELS_OVERLAY_REMOVED_MODEL_IDS = Object.freeze([
+    'vidu/q3-pro',
+]);
+
 const MODEL_GROUPS = [
     { task: 'image', categoryKey: 'models.imageGeneration', side: 'left' },
     { task: 'music', categoryKey: 'models.musicGeneration', side: 'right' },
@@ -57,7 +61,7 @@ function buildCatalogSignature({ excludeModelIds = [] } = {}) {
 function buildModelCatalog({ excludeModelIds = [] } = {}) {
     const catalog = listAdminAiCatalog();
     const modelsByTask = catalog?.models || {};
-    const excludedIds = new Set(excludeModelIds);
+    const excludedIds = new Set([...MODELS_OVERLAY_REMOVED_MODEL_IDS, ...excludeModelIds]);
 
     return MODEL_GROUPS.map(({ task, categoryKey, side }) => ({
         category: localeText(categoryKey),

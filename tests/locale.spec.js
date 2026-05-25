@@ -964,9 +964,7 @@ test.describe('Bilingual locale pages', () => {
     await expect(
       overlay.locator('.models-overlay__card').filter({ hasText: 'FLUX.2 Klein 9B' }).locator('.models-overlay__status'),
     ).toHaveText('LIVE');
-    await expect(
-      overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' }).locator('.models-overlay__status'),
-    ).toHaveText('Demnächst');
+    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(overlay).toHaveAttribute('aria-hidden', 'true');
     await expect(overlay).not.toHaveClass(/is-active/);

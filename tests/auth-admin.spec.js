@@ -8711,7 +8711,7 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(musicRequests[0].body.credits).toBeUndefined();
   });
 
-  test('homepage hero-linked models list omits FLUX.2 Dev only from the public overlay', async ({
+  test('homepage hero-linked models list omits unreleased internal models from the public overlay', async ({
     page,
   }) => {
     const response = await page.goto('/');
@@ -8729,8 +8729,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(musicCard.locator('.models-overlay__status')).toHaveText('LIVE');
     const videoCard = overlay.locator('.models-overlay__card').filter({ hasText: 'PixVerse V6' });
     await expect(videoCard.locator('.models-overlay__status')).toHaveText('LIVE');
-    const viduCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' });
-    await expect(viduCard.locator('.models-overlay__status')).toHaveText('Coming soon');
+    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' })).toHaveCount(0);
     const happyHorseCard = overlay.locator('.models-overlay__card').filter({ hasText: 'HappyHorse 1.0 T2V' });
     await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');

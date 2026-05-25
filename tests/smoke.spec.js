@@ -59,6 +59,9 @@ const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
 const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 
 const expectedModelCatalogs = new Map();
+const REMOVED_MODELS_OVERLAY_MODEL_IDS = new Set([
+  'vidu/q3-pro',
+]);
 
 function buildNewsPulseItems(prefix = 'mobile-pulse') {
   return Array.from({ length: 3 }, (_, index) => ({
@@ -147,11 +150,13 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
     },
     {
       category: 'VIDEO GENERATION',
-      models: (models.video || []).map((entry) => ({
-        name: liveVideoById.get(entry.id)?.label || entry.label,
-        vendor: entry.vendor,
-        status: liveVideoIds.has(entry.id) ? 'LIVE' : 'Coming soon',
-      })),
+      models: (models.video || [])
+        .filter((entry) => !REMOVED_MODELS_OVERLAY_MODEL_IDS.has(entry.id))
+        .map((entry) => ({
+          name: liveVideoById.get(entry.id)?.label || entry.label,
+          vendor: entry.vendor,
+          status: liveVideoIds.has(entry.id) ? 'LIVE' : 'Coming soon',
+        })),
     },
   ];
 
