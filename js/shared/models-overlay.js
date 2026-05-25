@@ -8,6 +8,7 @@ import {
     ADMIN_AI_MUSIC_MODEL_ID,
     ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
     ADMIN_AI_VIDEO_MODEL_ID,
+    ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID,
     HAPPYHORSE_T2V_MODEL_LABEL,
     listAdminAiCatalog,
 } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
@@ -16,7 +17,6 @@ import { setupFocusTrap } from './focus-trap.js';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const MODELS_OVERLAY_REMOVED_MODEL_IDS = Object.freeze([
-    'bytedance/seedance-2.0-fast',
     'bytedance/seedance-2.0',
     'vidu/q3-pro',
 ]);
@@ -35,6 +35,7 @@ const USER_LIVE_MODELS = {
     video: [
         { id: ADMIN_AI_VIDEO_MODEL_ID, label: 'PixVerse V6' },
         { id: ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, label: HAPPYHORSE_T2V_MODEL_LABEL },
+        { id: ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID, label: 'Seedance 2.0 Fast' },
     ],
 };
 

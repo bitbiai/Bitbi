@@ -8906,8 +8906,13 @@ test.describe('Assets Manager (authenticated)', () => {
     const videoCard = overlay.locator('.models-overlay__card').filter({ hasText: 'PixVerse V6' });
     await expect(videoCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' })).toHaveCount(0);
-    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Seedance 2.0 Fast' })).toHaveCount(0);
-    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Seedance 2.0' })).toHaveCount(0);
+    const seedanceFastCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Seedance 2.0 Fast' });
+    await expect(seedanceFastCard.locator('.models-overlay__status')).toHaveText('LIVE');
+    const publicModelNames = await overlay.locator('.models-overlay__name').evaluateAll((nodes) => (
+      nodes.map((node) => node.textContent?.trim() || '')
+    ));
+    expect(publicModelNames).toContain('Seedance 2.0 Fast');
+    expect(publicModelNames).not.toContain('Seedance 2.0');
     const happyHorseCard = overlay.locator('.models-overlay__card').filter({ hasText: 'HappyHorse 1.0 T2V' });
     await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');

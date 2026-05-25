@@ -159,6 +159,46 @@ export function initVideoGallery() {
         };
     }
 
+    function normalizeMemvidText(value) {
+        return typeof value === 'string' ? value.trim() : '';
+    }
+
+    function getMemvidPromptText(item) {
+        const promptCandidates = [
+            item?.prompt,
+            item?.generation_prompt,
+            item?.input_prompt,
+            item?.source_prompt,
+            item?.preview_text,
+            item?.metadata?.prompt,
+            item?.metadata?.input_prompt,
+            item?.metadata?.source_prompt,
+        ];
+        return promptCandidates.map(normalizeMemvidText).find(Boolean) || '';
+    }
+
+    function memvidTextMatchesPrompt(text, prompt) {
+        return Boolean(text && prompt && text.trim().toLowerCase() === prompt.trim().toLowerCase());
+    }
+
+    function getMemvidDisplayTitle(item) {
+        const title = normalizeMemvidText(item?.display_title || item?.asset_title || item?.name || item?.title);
+        if (!title || title.toLowerCase() === 'memvids') return '';
+        const source = normalizeMemvidText(item?.title_source || item?.titleSource).toLowerCase();
+        if (source === 'prompt' || item?.title_is_prompt === true || item?.is_prompt_title === true) return '';
+        if (memvidTextMatchesPrompt(title, getMemvidPromptText(item))) return '';
+        return title;
+    }
+
+    function getMemvidDisplayCaption(item) {
+        const caption = normalizeMemvidText(item?.caption);
+        if (!caption) return '';
+        const source = normalizeMemvidText(item?.caption_source || item?.captionSource).toLowerCase();
+        if (source === 'prompt' || item?.caption_is_prompt === true || item?.is_prompt_caption === true) return '';
+        if (memvidTextMatchesPrompt(caption, getMemvidPromptText(item))) return '';
+        return caption;
+    }
+
     function mergeMemvidsItems(items, { replace = false } = {}) {
         const nextItems = replace ? [] : memvidsState.items.slice();
         const seen = new Set(nextItems.map(getMemvidIdentity).filter(Boolean));
@@ -178,10 +218,12 @@ export function initVideoGallery() {
             emptyText: localeText('browse.noMemvids'),
             className: 'mobile-media-grid-overlay--video',
             renderItem(item, index, { openDetail } = {}) {
+                const displayTitle = getMemvidDisplayTitle(item);
+                const safeTitle = displayTitle || `Memvid ${index + 1}`;
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--video';
-                button.setAttribute('aria-label', item.title || localeText('browse.showMemvid', { count: index + 1 }));
+                button.setAttribute('aria-label', displayTitle || localeText('browse.showMemvid', { count: index + 1 }));
 
                 const poster = item.poster?.url || '';
                 if (poster) {
@@ -200,13 +242,13 @@ export function initVideoGallery() {
 
                 const label = document.createElement('span');
                 label.className = 'mobile-media-grid-overlay__item-label';
-                label.textContent = item.title || `Memvid ${index + 1}`;
+                label.textContent = safeTitle;
                 button.appendChild(label);
 
                 button.addEventListener('click', () => {
                     if (typeof openDetail === 'function') {
                         openDetail({
-                            title: item.title || `Memvid ${index + 1}`,
+                            title: safeTitle,
                             className: 'mobile-media-detail-overlay--video',
                             renderContent() {
                                 const wrap = document.createElement('div');
@@ -441,12 +483,17 @@ export function initVideoGallery() {
         const itemIdentity = getMemvidIdentity(item);
         if (itemIdentity) card.dataset.videoItemId = itemIdentity;
         const aspectMeta = getMemvidAspectMeta(item);
+        const publisher = item.publisher || null;
+        const publisherDisplayName = normalizeMemvidText(publisher?.display_name);
+        const displayTitle = getMemvidDisplayTitle(item);
+        const displayCaption = getMemvidDisplayCaption(item);
+        const safeLabel = publisherDisplayName || displayTitle || 'Video';
         card.classList.add(`video-card--${aspectMeta.orientation}`);
         card.dataset.videoAspect = aspectMeta.orientation;
         card.style.setProperty('--video-item-aspect', aspectMeta.ratio);
         card.setAttribute('tabindex', '0');
         card.setAttribute('role', 'button');
-        card.setAttribute('aria-label', item.title || 'Video');
+        card.setAttribute('aria-label', safeLabel);
 
         const inner = document.createElement('div');
         inner.className = 'video-card__inner rounded-xl overflow-hidden relative';
@@ -459,7 +506,7 @@ export function initVideoGallery() {
             const img = document.createElement('img');
             img.className = 'video-card__preview';
             img.src = item.poster.url;
-            img.alt = item.title || 'Video thumbnail';
+            img.alt = displayTitle || 'Video thumbnail';
             img.loading = 'lazy';
             img.decoding = 'async';
             if (item.poster.w) img.width = item.poster.w;
@@ -474,7 +521,7 @@ export function initVideoGallery() {
         poster.appendChild(playIcon);
 
         const star = createStarButton('video', item.id, {
-            title: item.title || 'Video',
+            title: displayTitle || publisherDisplayName || 'Video',
             thumb_url: item.poster?.url || '',
         });
         star.style.cssText = 'position:absolute;top:8px;right:8px';
@@ -486,7 +533,6 @@ export function initVideoGallery() {
         const info = document.createElement('div');
         info.className = 'video-card__info';
 
-        const publisher = item.publisher || null;
         const publisherRow = document.createElement('div');
         publisherRow.className = 'public-media-meta__identity public-media-meta__identity--video';
         if (publisher?.avatar?.url) {
@@ -502,24 +548,23 @@ export function initVideoGallery() {
 
         const publisherName = document.createElement('h4');
         publisherName.className = 'video-card__title';
-        publisherName.textContent = publisher?.display_name || item.title || 'Memvids';
+        publisherName.textContent = publisherDisplayName || displayTitle || 'Memvids';
         publisherRow.appendChild(publisherName);
         info.appendChild(publisherRow);
 
-        const hasCustomTitle = typeof item.title === 'string'
-            && item.title.trim()
-            && item.title.trim().toLowerCase() !== 'memvids';
-        if (hasCustomTitle) {
+        if (displayTitle && publisherDisplayName) {
             const subtitle = document.createElement('p');
             subtitle.className = 'video-card__subtitle';
-            subtitle.textContent = item.title.trim();
+            subtitle.textContent = displayTitle;
             info.appendChild(subtitle);
         }
 
-        const caption = document.createElement('p');
-        caption.className = 'video-card__caption';
-        caption.textContent = item.caption || '';
-        info.appendChild(caption);
+        if (displayCaption) {
+            const caption = document.createElement('p');
+            caption.className = 'video-card__caption';
+            caption.textContent = displayCaption;
+            info.appendChild(caption);
+        }
 
         inner.appendChild(info);
         card.appendChild(inner);
@@ -642,6 +687,8 @@ export function initVideoGallery() {
     }
 
     function openVideoModal(item) {
+        const displayTitle = getMemvidDisplayTitle(item);
+        const displayCaption = getMemvidDisplayCaption(item);
         const video = document.createElement('video');
         video.controls = true;
         video.autoplay = true;
@@ -651,7 +698,7 @@ export function initVideoGallery() {
         video.src = item.file.url;
 
         const star = createStarButton('video', item.id, {
-            title: item.title || 'Video',
+            title: displayTitle || 'Video',
             thumb_url: item.poster?.url || '',
         });
         star.classList.add('video-modal__fav');
@@ -660,8 +707,8 @@ export function initVideoGallery() {
         modal.favoriteSlot.appendChild(star);
         modal.videoWrap.innerHTML = '';
         modal.videoWrap.appendChild(video);
-        modal.titleEl.textContent = item.title || 'Memvids';
-        modal.captionEl.textContent = item.caption || '';
+        modal.titleEl.textContent = displayTitle || 'Memvids';
+        modal.captionEl.textContent = displayCaption;
 
         modal.root.classList.add('active');
         document.body.style.overflow = 'hidden';

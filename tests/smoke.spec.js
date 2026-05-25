@@ -60,7 +60,6 @@ const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 
 const expectedModelCatalogs = new Map();
 const REMOVED_MODELS_OVERLAY_MODEL_IDS = new Set([
-  'bytedance/seedance-2.0-fast',
   'bytedance/seedance-2.0',
   'vidu/q3-pro',
 ]);
@@ -112,6 +111,7 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
   const liveVideoById = new Map([
     [contractModule.ADMIN_AI_VIDEO_MODEL_ID, { label: 'PixVerse V6' }],
     [contractModule.ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, { label: contractModule.HAPPYHORSE_T2V_MODEL_LABEL }],
+    [contractModule.ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID, { label: 'Seedance 2.0 Fast' }],
   ]);
   const liveVideoIds = new Set(liveVideoById.keys());
 
@@ -3951,6 +3951,11 @@ test.describe('Homepage', () => {
     await mempicsCard.hover();
     await expect(mempicsCard.locator('.public-media-meta__title')).toHaveText('Ada Member');
     await expect(mempicsCard.locator('.public-media-meta__avatar')).toBeVisible();
+    const galleryAvatarBox = await mempicsCard.locator('.public-media-meta__avatar').boundingBox();
+    expect(galleryAvatarBox).toBeTruthy();
+    expect(galleryAvatarBox.width).toBeLessThanOrEqual(34);
+    expect(galleryAvatarBox.height).toBeLessThanOrEqual(34);
+    expect(Math.abs(galleryAvatarBox.width - galleryAvatarBox.height)).toBeLessThanOrEqual(1);
     await expect(mempicsCard.locator('.public-media-meta')).not.toContainText('Mempics');
 
     await mempicsCard.click();
@@ -4014,6 +4019,7 @@ test.describe('Homepage', () => {
   });
 
   test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {
+    const rawPrompt = 'Raw prompt text should stay hidden from public Video Explore cards.';
     await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -4025,7 +4031,9 @@ test.describe('Homepage', () => {
               {
                 id: 'bada55e1',
                 slug: 'memvid-bada55e1',
-                title: 'Memvids',
+                title: rawPrompt,
+                prompt: rawPrompt,
+                preview_text: rawPrompt,
                 caption: 'Published by Ada Member on 2026-04-14.',
                 category: 'memvids',
                 publisher: {
@@ -4089,7 +4097,18 @@ test.describe('Homepage', () => {
     const videoCard = page.locator('#videoGrid .video-card').first();
     await expect(videoCard.locator('.video-card__title')).toHaveText('Ada Member');
     await expect(videoCard.locator('.public-media-meta__avatar')).toBeVisible();
+    const videoAvatarBox = await videoCard.locator('.public-media-meta__avatar').boundingBox();
+    expect(videoAvatarBox).toBeTruthy();
+    expect(videoAvatarBox.width).toBeLessThanOrEqual(34);
+    expect(videoAvatarBox.height).toBeLessThanOrEqual(34);
+    expect(Math.abs(videoAvatarBox.width - videoAvatarBox.height)).toBeLessThanOrEqual(1);
     await expect(videoCard.locator('.video-card__caption')).toHaveText('Published by Ada Member on 2026-04-14.');
+    await expect(videoCard).not.toContainText(rawPrompt);
+    await expect(videoCard.locator('.video-card__subtitle')).toHaveCount(0);
+    const videoAriaLabel = await videoCard.getAttribute('aria-label');
+    expect(videoAriaLabel).not.toContain(rawPrompt);
+    const favoriteAriaLabel = await videoCard.locator('.fav-star').getAttribute('aria-label');
+    expect(favoriteAriaLabel).not.toContain(rawPrompt);
   });
 
   test('desktop published Mempics and Memvids start at two rows without changing mobile behavior', async ({ page }) => {
@@ -4547,9 +4566,15 @@ test.describe('Homepage', () => {
         display: style.display,
         cssColumnCount: Number.parseInt(style.columnCount, 10) || columns.length,
         overflow: grid.scrollWidth - grid.clientWidth,
+        viewportWidth: window.innerWidth,
         orderedIds: rects.map((rect) => rect.id),
         topLeftId: topLeft?.id || '',
         columnCounts: columns.map((column) => column.cards.length),
+        lastColumn: columns.length ? {
+          left: columns[columns.length - 1].left,
+          right: Math.max(...columns[columns.length - 1].cards.map((rect) => rect.right)),
+          width: columns[columns.length - 1].cards[0]?.width || 0,
+        } : null,
         horizontalGaps,
         maxVerticalGap: verticalGaps.length ? Math.max(...verticalGaps) : 0,
         minMediaCoverage: Math.min(...rects.map((rect) => rect.mediaCoverage)),
@@ -4578,6 +4603,10 @@ test.describe('Homepage', () => {
     expect(videoLayout.topLeftId).toBe('memvid-11');
     expect(videoLayout.columnCounts).toHaveLength(5);
     expect(Math.min(...videoLayout.columnCounts)).toBeGreaterThanOrEqual(1);
+    expect(videoLayout.columnCounts[4]).toBeGreaterThanOrEqual(1);
+    expect(videoLayout.lastColumn.width).toBeGreaterThan(150);
+    expect(videoLayout.lastColumn.left).toBeLessThan(videoLayout.viewportWidth - 180);
+    expect(videoLayout.lastColumn.right).toBeLessThanOrEqual(videoLayout.viewportWidth + 2);
     expect(Math.max(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(16);
     expect(Math.max(...videoLayout.horizontalGaps) - Math.min(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(3);
     expect(videoLayout.maxVerticalGap).toBeLessThanOrEqual(16);
@@ -4679,7 +4708,10 @@ test.describe('Homepage', () => {
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
     expect(idsAfterClick).not.toContain('progressive-mempic-60');
 
-    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' }));
+    await page.evaluate(() => {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+      window.dispatchEvent(new Event('scroll'));
+    });
     await expect.poll(() => cards.count()).toBe(50);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
@@ -4763,7 +4795,10 @@ test.describe('Homepage', () => {
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
     expect(idsAfterClick).not.toContain('progressive-memvid-60');
 
-    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' }));
+    await page.evaluate(() => {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+      window.dispatchEvent(new Event('scroll'));
+    });
     await expect.poll(() => cards.count()).toBe(50);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));

@@ -944,6 +944,12 @@ test.describe('Bilingual locale pages', () => {
     await expect(
       overlay.locator('.models-overlay__card').filter({ hasText: 'GPT Image 2' }).locator('.models-overlay__status'),
     ).toHaveText('LIVE');
+    let publicModelNames = await overlay.locator('.models-overlay__name').evaluateAll((nodes) => (
+      nodes.map((node) => node.textContent?.trim() || '')
+    ));
+    expect(publicModelNames).toContain('Seedance 2.0 Fast');
+    expect(publicModelNames).not.toContain('Seedance 2.0');
+    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(overlay).toHaveAttribute('aria-hidden', 'true');
     await expect(overlay).not.toHaveClass(/is-active/);
@@ -965,8 +971,11 @@ test.describe('Bilingual locale pages', () => {
       overlay.locator('.models-overlay__card').filter({ hasText: 'FLUX.2 Klein 9B' }).locator('.models-overlay__status'),
     ).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' })).toHaveCount(0);
-    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Seedance 2.0 Fast' })).toHaveCount(0);
-    await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Seedance 2.0' })).toHaveCount(0);
+    publicModelNames = await overlay.locator('.models-overlay__name').evaluateAll((nodes) => (
+      nodes.map((node) => node.textContent?.trim() || '')
+    ));
+    expect(publicModelNames).toContain('Seedance 2.0 Fast');
+    expect(publicModelNames).not.toContain('Seedance 2.0');
     await page.keyboard.press('Escape');
     await expect(overlay).toHaveAttribute('aria-hidden', 'true');
     await expect(overlay).not.toHaveClass(/is-active/);

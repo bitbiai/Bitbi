@@ -215,12 +215,20 @@
             background: linear-gradient(135deg, rgba(13, 27, 42, 0.72) 0%, rgba(4, 8, 15, 0.86) 100%);
         }
 
-        #galleryGrid .gallery-inner img {
+        #galleryGrid .gallery-inner > img {
             width: 100% !important;
             inline-size: 100%;
             block-size: 100%;
             object-fit: cover !important;
             border-radius: inherit;
+        }
+
+        #galleryGrid .public-media-meta__avatar {
+            inline-size: 2rem;
+            block-size: 2rem;
+            max-inline-size: 2rem;
+            max-block-size: 2rem;
+            aspect-ratio: 1;
         }
 
         #galleryGrid .gallery-overlay {
@@ -2607,6 +2615,7 @@
             column-count: 5;
             column-gap: clamp(0.38rem, 0.5vw, 0.62rem);
             column-fill: balance;
+            inline-size: 100%;
         }
 
         #videoGrid .video-card {
