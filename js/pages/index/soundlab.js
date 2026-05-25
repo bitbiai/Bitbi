@@ -9,6 +9,7 @@ import {
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import { syncCategoryGhostModels } from './category-ghost-models.js?v=__ASSET_VERSION__';
 import {
     initGlobalAudioManager,
     getGlobalAudioState,
@@ -478,6 +479,7 @@ export function initSoundLab(revealObserver) {
                 ctn.appendChild(card);
                 if (revealObserver) revealObserver.observe(card);
             });
+            syncCategoryGhostModels('sound', items);
             renderMemtrackRows(currentState);
             ctn.dispatchEvent(new CustomEvent('snd:tracks-refresh'));
             document.dispatchEvent(new CustomEvent('bitbi:homepage-category-content-ready', {
@@ -488,6 +490,7 @@ export function initSoundLab(revealObserver) {
             console.warn('soundLab memtracks:', error);
             memtracksState.error = 'Could not load published tracks right now.';
             memtracksState.loaded = true;
+            syncCategoryGhostModels('sound', []);
         } finally {
             memtracksState.loading = false;
             syncStatus();

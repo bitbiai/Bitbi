@@ -181,7 +181,7 @@ export function initCategoryCarousel() {
 
     function getStageAlignmentDelta() {
         const navBottom = navbar?.getBoundingClientRect().bottom || 0;
-        const stageTop = viewport.getBoundingClientRect().top;
+        const stageTop = stage.getBoundingClientRect().top;
         return stageTop - navBottom;
     }
 

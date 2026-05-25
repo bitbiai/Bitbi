@@ -9,6 +9,7 @@ import {
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import { syncCategoryGhostModels } from './category-ghost-models.js?v=__ASSET_VERSION__';
 import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
@@ -45,6 +46,8 @@ export function initGallery() {
     let mempicsUserScrolledSinceBatch = false;
     let mempicsScrollBatchSettling = false;
     let mempicsScrollBatchSettlingTimer = 0;
+    let mempicsLastRevealScrollY = Number.NaN;
+    let mempicsScrollSentinelNeedsReset = false;
 
     const mobileMediaQuery = getMobileMediaGridQuery();
     const $paginationStatus = document.createElement('button');
@@ -97,6 +100,8 @@ export function initGallery() {
             : mempicsState.items.length;
         mempicsUserScrolledSinceBatch = false;
         mempicsScrollBatchSettling = false;
+        mempicsLastRevealScrollY = Number.NaN;
+        mempicsScrollSentinelNeedsReset = false;
         window.clearTimeout(mempicsScrollBatchSettlingTimer);
     }
 
@@ -374,7 +379,16 @@ export function initGallery() {
         if (mempicsScrollBatchSettling) return;
         if (!mempicsUserScrolledSinceBatch || !shouldUseScrollLoading()) return;
         const rect = $scrollSentinel.getBoundingClientRect();
-        if (rect.top > window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX) return;
+        const sentinelIsNear = rect.top <= window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX;
+        if (mempicsScrollSentinelNeedsReset) {
+            if (!sentinelIsNear) mempicsScrollSentinelNeedsReset = false;
+            return;
+        }
+        if (!sentinelIsNear) return;
+        const scrollY = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
+        if (Object.is(scrollY, mempicsLastRevealScrollY)) return;
+        mempicsLastRevealScrollY = scrollY;
+        mempicsScrollSentinelNeedsReset = true;
         revealNextMempicsBatch();
     }
 
@@ -530,6 +544,7 @@ export function initGallery() {
                 if (seq !== renderSeq) return;
                 Array.from(grid.querySelectorAll('.gallery-empty-state')).forEach((node) => node.remove());
                 renderGalleryState(localeText('browse.mempicsLoadFailed'));
+                syncCategoryGhostModels('gallery', []);
                 updateMempicsPagination(filter, localeText('browse.mempicsLoadFailed'));
                 return;
             }
@@ -539,6 +554,7 @@ export function initGallery() {
 
         if (!list.length) {
             renderGalleryState(localeText('browse.noMempics'));
+            syncCategoryGhostModels('gallery', []);
             updateMempicsPagination(filter);
             return;
         }
@@ -547,6 +563,7 @@ export function initGallery() {
             const card = buildGalleryCard(item);
             grid.appendChild(card);
         });
+        syncCategoryGhostModels('gallery', list);
         updateMempicsPagination(filter);
     }
 

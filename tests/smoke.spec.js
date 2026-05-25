@@ -458,6 +458,7 @@ async function routeDefaultMemtracks(page, {
   id = 'feedc0de',
   version = 'vpub',
   title = 'Public Member Track',
+  modelLabel = 'Music 2.6',
 } = {}) {
   await page.route('**/api/public/news-pulse**', async (route) => {
     await route.fulfill({
@@ -481,6 +482,7 @@ async function routeDefaultMemtracks(page, {
               title,
               caption: 'Published by Ada Member.',
               category: 'memtracks',
+              model_label: modelLabel,
               publisher: { display_name: 'Ada Member' },
               file: { url: `/api/gallery/memtracks/${id}/${version}/file` },
               poster: {
@@ -3707,13 +3709,23 @@ test.describe('Homepage', () => {
         const sectionStyle = section ? window.getComputedStyle(section) : null;
         const headerStyle = header ? window.getComputedStyle(header) : null;
         const modeRect = section?.querySelector('.video-mode')?.getBoundingClientRect();
+        const modeButtons = Array.from(section?.querySelectorAll('.video-mode__btn') || []);
+        const [firstModeButton, secondModeButton] = modeButtons.map((button) => button.getBoundingClientRect());
         const contentRect = section?.querySelector('#videoExplore')?.getBoundingClientRect();
+        const title = section?.querySelector('.section__title');
+        const titleRect = title?.getBoundingClientRect();
+        const titleStyle = title ? window.getComputedStyle(title) : null;
         return {
           descriptionsPresent: document.querySelectorAll('#gallery .section__desc, #video-creations .section__desc, #soundlab .section__desc').length,
           modeHintsPresent: document.querySelectorAll('#gallery .gallery-mode__hint, #video-creations .video-mode__hint, #soundlab .video-mode__hint').length,
           modeContentGap: modeRect && contentRect ? contentRect.top - modeRect.bottom : 0,
+          modeButtonGap: firstModeButton && secondModeButton ? secondModeButton.left - firstModeButton.right : 0,
           sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
+          sectionTopToHeading: sectionStyle && headerStyle
+            ? parseFloat(sectionStyle.paddingTop) + parseFloat(headerStyle.paddingTop)
+            : sectionRect && titleRect ? titleRect.top - sectionRect.top : 0,
           headerMarginBottom: headerStyle ? parseFloat(headerStyle.marginBottom) : 0,
+          titleFontSize: titleStyle ? parseFloat(titleStyle.fontSize) : 0,
           dividerVisible: Boolean(before && before.content !== 'none' && parseFloat(before.width) > 0.5),
           dividerWidth: before ? parseFloat(before.width) : 0,
           sectionWidth: sectionRect?.width || 0,
@@ -3722,12 +3734,16 @@ test.describe('Homepage', () => {
 
       expect(desktopMetrics.descriptionsPresent).toBe(0);
       expect(desktopMetrics.modeHintsPresent).toBe(0);
-      expect(desktopMetrics.modeContentGap).toBeGreaterThan(20);
-      expect(desktopMetrics.modeContentGap).toBeLessThan(50);
-      expect(desktopMetrics.sectionPaddingTop).toBeGreaterThan(30);
-      expect(desktopMetrics.sectionPaddingTop).toBeLessThan(35);
-      expect(desktopMetrics.headerMarginBottom).toBeGreaterThan(37);
-      expect(desktopMetrics.headerMarginBottom).toBeLessThan(40);
+      expect(desktopMetrics.titleFontSize).toBeGreaterThan(53);
+      expect(desktopMetrics.titleFontSize).toBeLessThan(55);
+      expect(desktopMetrics.modeContentGap).toBeGreaterThan(13);
+      expect(desktopMetrics.modeContentGap).toBeLessThan(16);
+      expect(desktopMetrics.modeButtonGap).toBeGreaterThan(43);
+      expect(desktopMetrics.modeButtonGap).toBeLessThan(47);
+      expect(desktopMetrics.sectionTopToHeading).toBeGreaterThan(25);
+      expect(desktopMetrics.sectionTopToHeading).toBeLessThan(27);
+      expect(desktopMetrics.headerMarginBottom).toBeGreaterThan(26);
+      expect(desktopMetrics.headerMarginBottom).toBeLessThan(28);
       expect(desktopMetrics.dividerVisible).toBe(false);
 
       const mobilePage = await mobileContext.newPage();
@@ -3815,6 +3831,7 @@ test.describe('Homepage', () => {
                 title: 'Mempics',
                 caption: 'Published by Ada Member on 2026-04-12.',
                 category: 'mempics',
+                model_id: '@cf/black-forest-labs/flux-1-schnell',
                 thumb: {
                   url: '/api/gallery/mempics/header-check-mempic/thumb',
                   w: 320,
@@ -3857,6 +3874,7 @@ test.describe('Homepage', () => {
                 title: 'Launch Walkthrough',
                 caption: 'Published by Ada Member on 2026-04-14.',
                 category: 'memvids',
+                model_label: 'Seedance 2.0 Fast',
                 file: {
                   url: '/api/gallery/memvids/header-check-memvid/file',
                 },
@@ -3911,6 +3929,97 @@ test.describe('Homepage', () => {
     await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
     await switchHomepageCategory(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
+
+    const readActiveCategoryMetrics = async (selector, modeSelector, contentSelector) => page.evaluate((args) => {
+      const section = document.querySelector(args.selector);
+      const header = section?.querySelector('.section__header--sm');
+      const title = section?.querySelector('.section__title');
+      const mode = section?.querySelector(args.modeSelector);
+      const content = section?.querySelector(args.contentSelector);
+      const buttons = Array.from(mode?.querySelectorAll('[role="tab"]') || []);
+      const first = buttons[0]?.getBoundingClientRect();
+      const second = buttons[1]?.getBoundingClientRect();
+      const modeRect = mode?.getBoundingClientRect();
+      const contentRect = content?.getBoundingClientRect();
+      const sectionStyle = window.getComputedStyle(section);
+      const headerStyle = window.getComputedStyle(header);
+      return {
+        titleFontSize: parseFloat(window.getComputedStyle(title).fontSize),
+        sectionTopToHeading: parseFloat(sectionStyle.paddingTop) + parseFloat(headerStyle.paddingTop),
+        headerMarginBottom: parseFloat(headerStyle.marginBottom),
+        actionContentGap: modeRect && contentRect ? contentRect.top - modeRect.bottom : 0,
+        actionGap: first && second ? second.left - first.right : 0,
+      };
+    }, { selector, modeSelector, contentSelector });
+
+    const desktopCategoryMetrics = {};
+    await switchHomepageCategory(page, 'video');
+    desktopCategoryMetrics.video = await readActiveCategoryMetrics('#video-creations', '.video-mode', '#videoExplore');
+    await switchHomepageCategory(page, 'gallery');
+    desktopCategoryMetrics.gallery = await readActiveCategoryMetrics('#gallery', '.gallery-mode', '#galleryExplore');
+    await switchHomepageCategory(page, 'sound');
+    desktopCategoryMetrics.sound = await readActiveCategoryMetrics('#soundlab', '.video-mode', '#soundLabExplore');
+
+    Object.entries(desktopCategoryMetrics).forEach(([category, metrics]) => {
+      expect(metrics.titleFontSize, `${category} heading`).toBeGreaterThan(53);
+      expect(metrics.titleFontSize, `${category} heading`).toBeLessThan(55);
+      expect(metrics.sectionTopToHeading, `${category} top-to-heading gap`).toBeGreaterThan(25);
+      expect(metrics.sectionTopToHeading, `${category} top-to-heading gap`).toBeLessThan(27);
+      expect(metrics.headerMarginBottom, `${category} header gap`).toBeGreaterThan(26);
+      expect(metrics.headerMarginBottom, `${category} header gap`).toBeLessThan(28);
+      expect(metrics.actionContentGap, `${category} action-to-content gap`).toBeGreaterThan(13);
+      expect(metrics.actionContentGap, `${category} action-to-content gap`).toBeLessThan(16);
+      expect(metrics.actionGap, `${category} action horizontal gap`).toBeGreaterThan(43);
+      expect(metrics.actionGap, `${category} action horizontal gap`).toBeLessThan(47);
+    });
+
+    const ghostState = await page.evaluate(() => {
+      const read = (selector) => {
+        const root = document.querySelector(`${selector} .category-ghost-models`);
+        const names = Array.from(root?.querySelectorAll('.category-ghost-models__name') || [])
+          .map((node) => node.textContent.trim())
+          .filter(Boolean);
+        return {
+          names,
+          hidden: root?.hidden ?? true,
+          ariaHidden: root?.getAttribute('aria-hidden') || '',
+          rootPointerEvents: root ? window.getComputedStyle(root).pointerEvents : '',
+          namePointerEvents: root?.firstElementChild ? window.getComputedStyle(root.firstElementChild).pointerEvents : '',
+        };
+      };
+      return {
+        gallery: read('#gallery'),
+        video: read('#video-creations'),
+        sound: read('#soundlab'),
+      };
+    });
+
+    expect(ghostState.gallery.hidden).toBe(false);
+    expect(ghostState.gallery.names).toEqual(['FLUX.1 Schnell']);
+    expect(ghostState.gallery.names).not.toContain('Seedance 2.0 Fast');
+    expect(ghostState.gallery.names).not.toContain('Music 2.6');
+    expect(ghostState.video.hidden).toBe(false);
+    expect(ghostState.video.names).toEqual(['Seedance 2.0 Fast']);
+    expect(ghostState.video.names).not.toContain('FLUX.1 Schnell');
+    expect(ghostState.video.names).not.toContain('Music 2.6');
+    expect(ghostState.sound.hidden).toBe(false);
+    expect(ghostState.sound.names).toEqual(['Music 2.6']);
+    expect(ghostState.sound.names).not.toContain('FLUX.1 Schnell');
+    expect(ghostState.sound.names).not.toContain('Seedance 2.0 Fast');
+    for (const state of Object.values(ghostState)) {
+      expect(state.ariaHidden).toBe('true');
+      expect(state.rootPointerEvents).toBe('none');
+      expect(state.namePointerEvents).toBe('none');
+    }
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const reducedGhostMotion = await page.locator('#soundlab .category-ghost-models__name').first().evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      return { animationName: style.animationName, opacity: style.opacity };
+    });
+    expect(reducedGhostMotion.animationName).toBe('none');
+    expect(Number(reducedGhostMotion.opacity)).toBeGreaterThan(0);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
 
     const desktopHeaderLayout = await page.evaluate(() => (
       ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
@@ -4110,6 +4219,7 @@ test.describe('Homepage', () => {
   test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {
     const rawPrompt = 'Raw prompt text should stay hidden from public Video Explore cards.';
     const rawDescription = 'A cinematic prompt description that should not be visible on Video Explore cards.';
+    const manualVideoTitle = 'Manual Public Video Title';
     await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -4122,6 +4232,8 @@ test.describe('Homepage', () => {
                 id: 'bada55e1',
                 slug: 'memvid-bada55e1',
                 title: rawDescription,
+                display_title: manualVideoTitle,
+                asset_title: manualVideoTitle,
                 prompt: rawPrompt,
                 description: rawDescription,
                 prompt_description: rawDescription,
@@ -4200,19 +4312,24 @@ test.describe('Homepage', () => {
     await expect(videoCard.locator('.video-card__caption')).toHaveText('Published by Ada Member on 2026-04-14.');
     await expect(videoCard).not.toContainText(rawPrompt);
     await expect(videoCard).not.toContainText(rawDescription);
+    await expect(videoCard).not.toContainText(manualVideoTitle);
     await expect(videoCard.locator('.video-card__subtitle')).toHaveCount(0);
     const videoAriaLabel = await videoCard.getAttribute('aria-label');
     expect(videoAriaLabel).not.toContain(rawPrompt);
     expect(videoAriaLabel).not.toContain(rawDescription);
+    expect(videoAriaLabel).not.toContain(manualVideoTitle);
     const videoTitleAttribute = await videoCard.getAttribute('title');
     expect(videoTitleAttribute || '').not.toContain(rawPrompt);
     expect(videoTitleAttribute || '').not.toContain(rawDescription);
+    expect(videoTitleAttribute || '').not.toContain(manualVideoTitle);
     const videoPreviewAlt = await videoCard.locator('.video-card__preview').getAttribute('alt');
     expect(videoPreviewAlt).not.toContain(rawPrompt);
     expect(videoPreviewAlt).not.toContain(rawDescription);
+    expect(videoPreviewAlt).not.toContain(manualVideoTitle);
     const favoriteAriaLabel = await videoCard.locator('.fav-star').getAttribute('aria-label');
     expect(favoriteAriaLabel).not.toContain(rawPrompt);
     expect(favoriteAriaLabel).not.toContain(rawDescription);
+    expect(favoriteAriaLabel).not.toContain(manualVideoTitle);
   });
 
   test('desktop Video Explore cards lazy-play muted BITBI previews on hover', async ({ page }) => {

@@ -11,6 +11,7 @@ import {
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import { syncCategoryGhostModels } from './category-ghost-models.js?v=__ASSET_VERSION__';
 import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
@@ -626,9 +627,8 @@ export function initVideoGallery() {
         const aspectMeta = getMemvidAspectMeta(item);
         const publisher = item.publisher || null;
         const publisherDisplayName = normalizeMemvidText(publisher?.display_name);
-        const displayTitle = getMemvidDisplayTitle(item);
         const displayCaption = getMemvidDisplayCaption(item);
-        const safeLabel = publisherDisplayName || displayTitle || 'Video';
+        const safeLabel = publisherDisplayName || 'Video';
         card.classList.add(`video-card--${aspectMeta.orientation}`);
         card.dataset.videoAspect = aspectMeta.orientation;
         card.style.setProperty('--video-item-aspect', aspectMeta.ratio);
@@ -647,7 +647,7 @@ export function initVideoGallery() {
             const img = document.createElement('img');
             img.className = 'video-card__preview';
             img.src = item.poster.url;
-            img.alt = displayTitle || 'Video thumbnail';
+            img.alt = 'Video thumbnail';
             img.loading = 'lazy';
             img.decoding = 'async';
             if (item.poster.w) img.width = item.poster.w;
@@ -662,7 +662,7 @@ export function initVideoGallery() {
         poster.appendChild(playIcon);
 
         const star = createStarButton('video', item.id, {
-            title: displayTitle || publisherDisplayName || 'Video',
+            title: publisherDisplayName || 'Video',
             thumb_url: item.poster?.url || '',
         });
         star.style.cssText = 'position:absolute;top:8px;right:8px';
@@ -689,16 +689,9 @@ export function initVideoGallery() {
 
         const publisherName = document.createElement('h4');
         publisherName.className = 'video-card__title';
-        publisherName.textContent = publisherDisplayName || displayTitle || 'Memvids';
+        publisherName.textContent = publisherDisplayName || 'Memvids';
         publisherRow.appendChild(publisherName);
         info.appendChild(publisherRow);
-
-        if (displayTitle && publisherDisplayName) {
-            const subtitle = document.createElement('p');
-            subtitle.className = 'video-card__subtitle';
-            subtitle.textContent = displayTitle;
-            info.appendChild(subtitle);
-        }
 
         if (displayCaption) {
             const caption = document.createElement('p');
@@ -740,6 +733,7 @@ export function initVideoGallery() {
         } catch {
             grid.innerHTML = '';
             renderState(localeText('browse.memvidsLoadFailed'));
+            syncCategoryGhostModels('video', []);
             updateMemvidsPagination(localeText('browse.memvidsLoadFailed'));
             return;
         }
@@ -748,6 +742,7 @@ export function initVideoGallery() {
 
         if (!items.length) {
             renderState(localeText('browse.noMemvids'));
+            syncCategoryGhostModels('video', []);
             updateMemvidsPagination();
             return;
         }
@@ -756,6 +751,7 @@ export function initVideoGallery() {
             const card = buildVideoCard(item);
             grid.appendChild(card);
         });
+        syncCategoryGhostModels('video', items);
         updateMemvidsPagination();
     }
 
