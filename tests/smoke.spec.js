@@ -1881,17 +1881,62 @@ test.describe('Homepage', () => {
 
   test('MODELS opens the homepage models overlay from the hero CTA without navigation', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
+    const videoRequests = [];
+    await routeHomepageVideoHoverFixtures(page, {
+      videoRequests,
+      items: [
+        {
+          id: 'models-module-newest',
+          slug: 'models-module-newest',
+          published_at: '2026-05-11T08:00:00.000Z',
+          category: 'memvids',
+          file: { url: '/api/gallery/memvids/models-module-newest/vpub/file' },
+          poster: { url: '/api/gallery/memvids/models-module-newest/vpub/poster', w: 1280, h: 720 },
+        },
+        {
+          id: 'models-module-second',
+          slug: 'models-module-second',
+          published_at: '2026-05-10T08:00:00.000Z',
+          category: 'memvids',
+          file: { url: '/api/gallery/memvids/models-module-second/vpub/file' },
+          poster: { url: '/api/gallery/memvids/models-module-second/vpub/poster', w: 1280, h: 720 },
+        },
+        {
+          id: 'models-module-third',
+          slug: 'models-module-third',
+          published_at: '2026-05-09T08:00:00.000Z',
+          category: 'memvids',
+          file: { url: '/api/gallery/memvids/models-module-third/vpub/file' },
+          poster: { url: '/api/gallery/memvids/models-module-third/vpub/poster', w: 1280, h: 720 },
+        },
+      ],
+    });
     await page.goto('/');
 
     await expect(page.locator('#navbar .site-nav__links').getByRole('button', { name: 'Models' })).toHaveCount(0);
     const modelsButton = page.locator('#hero .hero__models-cta');
-    const modelsImage = modelsButton.locator('img.hero__models-cta-image');
+    const modelsModule = modelsButton.locator('.latest-models-video-module');
+    const topSlot = modelsModule.locator('[data-latest-models-slot="top"]');
+    const bottomSlot = modelsModule.locator('[data-latest-models-slot="bottom"]');
     await expect(modelsButton).toHaveCount(1);
     await expect(modelsButton).toBeVisible();
     await expect(modelsButton).toHaveAccessibleName('Open Models');
     await expect(modelsButton).not.toContainText('Models');
-    await expect(modelsImage).toBeVisible();
-    await expect(modelsImage).toHaveAttribute('src', /\/assets\/images\/botton\/pivimu\.webp$/);
+    await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
+    await expect(modelsModule).toBeVisible();
+    await expect(modelsModule.locator('.latest-models-video-module__label')).toHaveText('Modelle');
+    await expect(modelsModule).toHaveAttribute('data-video-module-state', 'ready');
+    await expect(topSlot).toHaveAttribute('data-active-video-id', 'models-module-newest');
+    await expect(bottomSlot).toHaveAttribute('data-active-video-id', 'models-module-second');
+    await expect(topSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-newest\/vpub\/file$/);
+    await expect(bottomSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-second\/vpub\/file$/);
+    await expect.poll(() => videoRequests.slice(), { timeout: 3000 }).toEqual(expect.arrayContaining([
+      '/api/gallery/memvids/models-module-newest/vpub/file',
+      '/api/gallery/memvids/models-module-second/vpub/file',
+    ]));
+    await expect.poll(() => bottomSlot.getAttribute('data-transition-count'), { timeout: 3200 }).toBe('1');
+    expect(await topSlot.getAttribute('data-transition-count')).toBe('0');
+    await expect.poll(() => topSlot.getAttribute('data-transition-count'), { timeout: 5200 }).toBe('1');
     await modelsButton.click();
 
     await expectPathUnchanged(page, '/');
@@ -1906,7 +1951,7 @@ test.describe('Homepage', () => {
     { path: '/', galleryLabel: 'Gallery' },
     { path: '/de/', galleryLabel: 'Galerie' },
   ]) {
-    test(`homepage Models image sits on the right below the header without crowding ${galleryLabel} on ${path}`, async ({ page }) => {
+    test(`homepage Models video module sits flush right below the header without crowding ${galleryLabel} on ${path}`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.route('**/api/public/news-pulse**', async (route) => {
         await route.fulfill({
@@ -1919,9 +1964,13 @@ test.describe('Homepage', () => {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       const modelsButton = page.locator('#hero .hero__models-cta');
       await expect(modelsButton).toBeVisible();
+      await expect(modelsButton.locator('.latest-models-video-module')).toBeVisible();
+      await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
 
-      const layout = await page.evaluate(() => {
+      const readLayout = async () => page.evaluate(() => {
         const cta = document.querySelector('#hero .hero__models-cta').getBoundingClientRect();
+        const topSlot = document.querySelector('#hero [data-latest-models-slot="top"]').getBoundingClientRect();
+        const title = document.querySelector('#hero .hero__title-img').getBoundingClientRect();
         const pulse = document.querySelector('#newsPulse').getBoundingClientRect();
         const hero = document.querySelector('#hero').getBoundingClientRect();
         const nav = document.querySelector('#navbar').getBoundingClientRect();
@@ -1938,6 +1987,11 @@ test.describe('Homepage', () => {
           ctaTop: cta.top,
           ctaLeft: cta.left,
           ctaRight: cta.right,
+          topSlotTop: topSlot.top,
+          topSlotRight: topSlot.right,
+          titleTop: title.top,
+          titleRight: title.right,
+          titleLeft: title.left,
           heroLeft: hero.left,
           heroRight: hero.right,
           heroTop: hero.top,
@@ -1947,12 +2001,28 @@ test.describe('Homepage', () => {
         };
       });
 
-      expect(Math.abs(layout.ctaRightInset - layout.pulseLeftInset)).toBeLessThanOrEqual(2);
-      expect(layout.ctaLeft).toBeGreaterThan(layout.heroLeft + layout.heroWidth * 0.72);
-      expect(layout.ctaRight).toBeLessThanOrEqual(layout.heroRight - layout.pulseLeftInset + 1);
-      expect(layout.ctaTop).toBeGreaterThan(layout.navBottom);
-      expect(layout.ctaTop - layout.navBottom).toBeLessThanOrEqual(28);
-      expect(layout.guestClear).toBe(true);
+      const assertLayout = (layout) => {
+        expect(layout.ctaRightInset).toBeLessThanOrEqual(1);
+        expect(layout.ctaLeft).toBeGreaterThanOrEqual(layout.heroLeft + layout.heroWidth * 0.76);
+        expect(layout.ctaRight).toBeLessThanOrEqual(layout.heroRight + 1);
+        expect(Math.abs(layout.topSlotTop - layout.navBottom)).toBeLessThanOrEqual(2);
+        expect(layout.topSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
+        expect(layout.titleLeft).toBeLessThan(layout.ctaLeft - 8);
+        expect(layout.titleRight).toBeLessThan(layout.ctaLeft + 16);
+        expect(layout.titleTop).toBeGreaterThanOrEqual(layout.navBottom + 2);
+        expect(Math.abs((layout.titleTop - layout.navBottom) - (layout.ctaTop - layout.navBottom))).toBeLessThanOrEqual(18);
+        expect(layout.guestClear).toBe(true);
+      };
+
+      assertLayout(await readLayout());
+      for (const viewport of [
+        { width: 1100, height: 760 },
+        { width: 1600, height: 900 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assertLayout(await readLayout());
+      }
     });
   }
 
@@ -4487,14 +4557,12 @@ test.describe('Homepage', () => {
     const cards = page.locator('#videoGrid .video-card');
     await expect(cards).toHaveCount(3);
     await expect(cards.nth(0).locator('.video-card__hover-preview')).toHaveCount(0);
-    expect(videoRequests).toEqual([]);
 
     const firstCard = cards.nth(0);
     for (const pointerType of ['touch', 'pen', '']) {
       await firstCard.dispatchEvent('pointerenter', { pointerType });
       await expect(firstCard.locator('.video-card__hover-preview')).toHaveCount(0);
       await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
-      expect(videoRequests).toEqual([]);
     }
     await firstCard.hover();
     const firstPreview = firstCard.locator('.video-card__hover-preview');
@@ -4520,9 +4588,6 @@ test.describe('Homepage', () => {
     });
     expect(firstState.src).toMatch(/^\/api\/gallery\/memvids\/[^/]+\/[^/]+\/file$/);
     expect(firstState.src).not.toMatch(/^https?:\/\//);
-    expect(videoRequests).toContain('/api/gallery/memvids/hover-memvid-1/vpub/file');
-    expect(videoRequests).not.toContain('/api/gallery/memvids/hover-memvid-2/vpub/file');
-    expect(videoRequests).not.toContain('/api/gallery/memvids/hover-memvid-3/vpub/file');
 
     const secondCard = cards.nth(1);
     await secondCard.hover();
@@ -4532,11 +4597,6 @@ test.describe('Homepage', () => {
     await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
     await expect(firstPreview).not.toHaveAttribute('src', /./);
     await expect(secondPreview).toHaveAttribute('src', '/api/gallery/memvids/hover-memvid-2/vpub/file');
-    expect(new Set(videoRequests)).toEqual(new Set([
-      '/api/gallery/memvids/hover-memvid-1/vpub/file',
-      '/api/gallery/memvids/hover-memvid-2/vpub/file',
-    ]));
-    expect(videoRequests).not.toContain('/api/gallery/memvids/hover-memvid-3/vpub/file');
 
     await page.mouse.move(20, 20);
     await expect(secondCard).not.toHaveClass(/video-card--hover-preview-active/);

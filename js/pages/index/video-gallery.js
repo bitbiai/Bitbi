@@ -15,7 +15,12 @@ import {
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
 import { syncCategoryGhostModels } from './category-ghost-models.js?v=__ASSET_VERSION__';
-import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
+import {
+    fetchPublicMemvidsPage,
+    getPublicMemvidIdentity,
+    orderPublicMemvidItems,
+    resolvePublicMemvidFileUrl,
+} from './public-memvids.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
@@ -31,7 +36,6 @@ export function initVideoGallery() {
     const $pagination = document.getElementById('videoPagination');
     if (!container) return;
 
-    let memvidsPromise = null;
     const desktopDrawerQuery = window.matchMedia?.(DESKTOP_PUBLIC_DRAWER_MEDIA);
     const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     const mobileMediaQuery = getMobileMediaGridQuery();
@@ -140,21 +144,7 @@ export function initVideoGallery() {
     }
 
     function getMemvidIdentity(item) {
-        return String(item?.id || item?.slug || item?.poster?.url || item?.file?.url || '').trim();
-    }
-
-    function resolvePublicMemvidFileUrl(value) {
-        const raw = typeof value === 'string' ? value.trim() : '';
-        if (!raw) return '';
-        try {
-            const url = new URL(raw, window.location.origin);
-            if (url.origin !== window.location.origin) return '';
-            if (!url.pathname.startsWith('/api/gallery/memvids/')) return '';
-            if (!url.pathname.endsWith('/file')) return '';
-            return `${url.pathname}${url.search}`;
-        } catch {
-            return '';
-        }
+        return getPublicMemvidIdentity(item);
     }
 
     function getMemvidHoverPreviewSrc(item) {
@@ -359,7 +349,7 @@ export function initVideoGallery() {
             if (identity) seen.add(identity);
             nextItems.push(item);
         });
-        memvidsState.items = orderPublicExploreItems(nextItems, getMemvidIdentity);
+        memvidsState.items = orderPublicMemvidItems(nextItems);
     }
 
     function openMemvidsOverlay() {
@@ -489,32 +479,12 @@ export function initVideoGallery() {
     }
 
     async function fetchMemvids(cursor = null) {
-        if (memvidsPromise) return memvidsPromise;
-        memvidsPromise = (async () => {
-            try {
-                const params = new URLSearchParams();
-                params.set('limit', String(MEMVIDS_LIMIT));
-                if (cursor) params.set('cursor', cursor);
-                const res = await fetch(`/api/gallery/memvids?${params}`, {
-                    credentials: 'same-origin',
-                });
-                const data = await res.json().catch(() => null);
-                if (!res.ok) {
-                    throw new Error(data?.error || `Error ${res.status}`);
-                }
-                return {
-                    items: Array.isArray(data?.data?.items) ? data.data.items : [],
-                    nextCursor: typeof data?.data?.next_cursor === 'string' ? data.data.next_cursor : null,
-                    hasMore: data?.data?.has_more === true,
-                };
-            } catch (error) {
-                console.warn('memvids:', error);
-                throw error;
-            } finally {
-                memvidsPromise = null;
-            }
-        })();
-        return memvidsPromise;
+        try {
+            return await fetchPublicMemvidsPage({ limit: MEMVIDS_LIMIT, cursor });
+        } catch (error) {
+            console.warn('memvids:', error);
+            throw error;
+        }
     }
 
     async function ensureMemvidsLoaded() {
