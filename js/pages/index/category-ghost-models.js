@@ -8,6 +8,114 @@ const CATEGORY_PANEL_SELECTORS = {
     sound: '#soundlab',
 };
 
+const GHOST_SLOT_ROTATION_MS = 3600;
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+
+const GHOST_SAFE_SLOTS = Object.freeze({
+    left: Object.freeze([
+        Object.freeze({
+            id: 'left-high',
+            inline: 'clamp(0.15rem, 1.15vw, 1.25rem)',
+            top: '10%',
+            driftX: '34px',
+            driftY: '-14px',
+            endX: '64px',
+            endY: '8px',
+            scale: '1.1',
+            peak: '0.58',
+            duration: '9.8s',
+        }),
+        Object.freeze({
+            id: 'left-mid',
+            inline: 'clamp(0.8rem, 2.8vw, 3.25rem)',
+            top: '34%',
+            driftX: '24px',
+            driftY: '16px',
+            endX: '54px',
+            endY: '32px',
+            scale: '1.07',
+            peak: '0.5',
+            duration: '10.6s',
+        }),
+        Object.freeze({
+            id: 'left-low',
+            inline: 'clamp(0.25rem, 4.2vw, 4.85rem)',
+            top: '54%',
+            driftX: '30px',
+            driftY: '-7px',
+            endX: '68px',
+            endY: '14px',
+            scale: '1.13',
+            peak: '0.54',
+            duration: '11.2s',
+        }),
+        Object.freeze({
+            id: 'left-depth',
+            inline: 'clamp(1.35rem, 3.5vw, 4rem)',
+            top: '18%',
+            driftX: '42px',
+            driftY: '10px',
+            endX: '76px',
+            endY: '25px',
+            scale: '1.16',
+            peak: '0.46',
+            duration: '12s',
+        }),
+    ]),
+    right: Object.freeze([
+        Object.freeze({
+            id: 'right-high',
+            inline: 'clamp(0.15rem, 1.25vw, 1.4rem)',
+            top: '12%',
+            driftX: '-36px',
+            driftY: '-12px',
+            endX: '-70px',
+            endY: '9px',
+            scale: '1.1',
+            peak: '0.56',
+            duration: '10s',
+        }),
+        Object.freeze({
+            id: 'right-mid',
+            inline: 'clamp(0.95rem, 2.95vw, 3.4rem)',
+            top: '40%',
+            driftX: '-24px',
+            driftY: '15px',
+            endX: '-58px',
+            endY: '34px',
+            scale: '1.08',
+            peak: '0.5',
+            duration: '10.9s',
+        }),
+        Object.freeze({
+            id: 'right-low',
+            inline: 'clamp(0.3rem, 4.3vw, 5rem)',
+            top: '56%',
+            driftX: '-32px',
+            driftY: '-8px',
+            endX: '-72px',
+            endY: '16px',
+            scale: '1.14',
+            peak: '0.54',
+            duration: '11.4s',
+        }),
+        Object.freeze({
+            id: 'right-depth',
+            inline: 'clamp(1.25rem, 3.4vw, 3.9rem)',
+            top: '24%',
+            driftX: '-44px',
+            driftY: '9px',
+            endX: '-78px',
+            endY: '24px',
+            scale: '1.16',
+            peak: '0.48',
+            duration: '12.2s',
+        }),
+    ]),
+});
+
+const ghostRotationTimers = new WeakMap();
+
 const CATEGORY_CONFIG_FALLBACK_MODEL_NAMES = Object.freeze({
     gallery: Object.freeze([
         'FLUX.1 Schnell',
@@ -216,6 +324,72 @@ function fallbackModelNames(category) {
     return dedupeModelNames(CATEGORY_CONFIG_FALLBACK_MODEL_NAMES[category] || [], category);
 }
 
+function hashGhostSeed(value) {
+    let hash = 2166136261;
+    const text = String(value);
+    for (let i = 0; i < text.length; i += 1) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+
+function canAnimateGhostSlots() {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
+    return !window.matchMedia(REDUCED_MOTION_QUERY).matches;
+}
+
+function stopGhostRotation(root) {
+    const timer = ghostRotationTimers.get(root);
+    if (timer) {
+        window.clearInterval(timer);
+        ghostRotationTimers.delete(root);
+    }
+}
+
+function pickGhostSlot(category, name, index, cycle, side) {
+    const slots = GHOST_SAFE_SLOTS[side] || GHOST_SAFE_SLOTS.left;
+    const seed = hashGhostSeed(`${category}:${name}:${index}`);
+    return slots[(seed + cycle + index) % slots.length];
+}
+
+function applyGhostSlot(el, slot, cycle) {
+    el.dataset.ghostSlot = slot.id;
+    el.dataset.ghostCycle = String(cycle);
+    el.style.setProperty('--ghost-inline', slot.inline);
+    el.style.setProperty('--ghost-top', slot.top);
+    el.style.setProperty('--ghost-drift-x', slot.driftX);
+    el.style.setProperty('--ghost-drift-y', slot.driftY);
+    el.style.setProperty('--ghost-end-x', slot.endX);
+    el.style.setProperty('--ghost-end-y', slot.endY);
+    el.style.setProperty('--ghost-scale', slot.scale);
+    el.style.setProperty('--ghost-peak-opacity', slot.peak);
+    el.style.setProperty('--ghost-duration', slot.duration);
+}
+
+function applyGhostSlots(root, category, cycle) {
+    const nodes = Array.from(root.querySelectorAll('.category-ghost-models__name'));
+    nodes.forEach((el, index) => {
+        const side = el.dataset.ghostSide === 'right' ? 'right' : 'left';
+        const slot = pickGhostSlot(category, el.dataset.modelName || el.textContent || '', index, cycle, side);
+        applyGhostSlot(el, slot, cycle);
+    });
+    root.dataset.ghostCycle = String(cycle);
+    root.dataset.ghostRotation = 'seeded-safe-slots';
+}
+
+function startGhostRotation(root, category) {
+    stopGhostRotation(root);
+    let cycle = 0;
+    applyGhostSlots(root, category, cycle);
+    if (!canAnimateGhostSlots()) return;
+    const timer = window.setInterval(() => {
+        cycle = (cycle + 1) % 997;
+        applyGhostSlots(root, category, cycle);
+    }, GHOST_SLOT_ROTATION_MS);
+    ghostRotationTimers.set(root, timer);
+}
+
 function ensureGhostRoot(panel, category) {
     let root = panel.querySelector(`.category-ghost-models[data-ghost-category="${category}"]`);
     if (root) return root;
@@ -239,7 +413,12 @@ export function syncCategoryGhostModels(category, items) {
     root.replaceChildren();
     root.hidden = names.length === 0;
     root.dataset.ghostSource = names.length ? source : 'none';
-    if (!names.length) return names;
+    if (!names.length) {
+        stopGhostRotation(root);
+        root.dataset.ghostRotation = 'none';
+        root.dataset.ghostCycle = '0';
+        return names;
+    }
 
     names.forEach((name, index) => {
         const el = document.createElement('span');
@@ -248,10 +427,10 @@ export function syncCategoryGhostModels(category, items) {
         el.dataset.modelName = name;
         el.style.setProperty('--ghost-index', String(index));
         el.style.setProperty('--ghost-delay', `${-4.8 - (index * 1.45)}s`);
-        el.style.setProperty('--ghost-top', `${18 + ((index * 23) % 54)}%`);
         el.textContent = name;
         root.appendChild(el);
     });
 
+    startGhostRotation(root, category);
     return names;
 }

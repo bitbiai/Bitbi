@@ -1460,7 +1460,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('#navbar .locale-switcher')).toBeAttached();
     await expect(page.locator('#navbar .wallet-nav__trigger')).toBeHidden();
     await expect(page.locator('#mobileHeaderCreateAccount')).toBeVisible();
-    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('Join for free');
+    await expect(page.getByText('CREATE *FREE* ACCOUNT')).toHaveCount(0);
 
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
@@ -1998,7 +1999,8 @@ test.describe('Homepage', () => {
     const banner = page.locator('#mobileHeaderCreateAccount');
     await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
     await expect(banner).toBeVisible();
-    await expect(banner).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(banner).toHaveText('Join for free');
+    await expect(page.getByText('CREATE *FREE* ACCOUNT')).toHaveCount(0);
     await expect(page.locator('#mobileMenuBtn')).toBeVisible();
     const placement = await page.evaluate(() => {
       const cta = document.querySelector('#mobileHeaderCreateAccount')?.getBoundingClientRect();
@@ -2077,7 +2079,8 @@ test.describe('Homepage', () => {
     await page.goto('/');
     const banner = page.locator('#mobileGuestBanner');
     await expect(banner).toBeVisible();
-    await expect(banner).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(banner).toHaveText('Join for free');
+    await expect(page.getByText('CREATE *FREE* ACCOUNT')).toHaveCount(0);
     const bannerMetrics = await page.evaluate(() => {
       const banner = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
       const header = document.querySelector('#navbar .site-nav__bar')?.getBoundingClientRect();
@@ -3999,6 +4002,7 @@ test.describe('Homepage', () => {
       const section = document.querySelector(activeSelector);
       const root = section?.querySelector('.category-ghost-models');
       const sectionRect = section?.getBoundingClientRect();
+      const contentRect = section?.querySelector('#galleryExplore, #videoExplore, #soundLabExplore')?.getBoundingClientRect();
       const actionRects = Array.from(section?.querySelectorAll('.gallery-mode [role="tab"], .video-mode [role="tab"]') || [])
         .map((node) => node.getBoundingClientRect());
       const centerX = sectionRect ? sectionRect.left + (sectionRect.width / 2) : 0;
@@ -4007,21 +4011,40 @@ test.describe('Homepage', () => {
       const centralLeft = Math.min(...centralRects.map((rect) => rect.left));
       const centralRight = Math.max(...centralRects.map((rect) => rect.right));
       const nodes = Array.from(root?.querySelectorAll('.category-ghost-models__name') || []);
+      const overlaps = (rect, target) => Boolean(
+        rect && target
+        && rect.left < target.right
+        && rect.right > target.left
+        && rect.top < target.bottom
+        && rect.bottom > target.top
+      );
       const names = nodes
         .map((node) => node.textContent.trim())
         .filter(Boolean);
       const details = nodes.map((node) => {
         const rect = node.getBoundingClientRect();
         const style = window.getComputedStyle(node);
+        const side = node.dataset.ghostSide || '';
+        const peakOpacity = Number.parseFloat(style.getPropertyValue('--ghost-peak-opacity')) || 0;
         return {
           name: node.textContent.trim(),
-          side: node.dataset.ghostSide || '',
+          side,
+          slot: node.dataset.ghostSlot || '',
+          cycle: node.dataset.ghostCycle || '',
           opacity: Number(style.opacity || 0),
+          peakOpacity,
           pointerEvents: style.pointerEvents,
           left: rect.left,
           right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
           width: rect.width,
           outsideCentralCluster: rect.right < centralLeft || rect.left > centralRight,
+          withinSafeZone: side === 'right'
+            ? rect.left > centralRight && rect.right <= (sectionRect?.right || rect.right) + 1
+            : rect.right < centralLeft && rect.left >= (sectionRect?.left || rect.left) - 1,
+          avoidsActions: actionRects.every((actionRect) => !overlaps(rect, actionRect)),
+          avoidsGrid: !contentRect || !overlaps(rect, contentRect),
         };
       });
       const rootStyle = root ? window.getComputedStyle(root) : null;
@@ -4030,13 +4053,20 @@ test.describe('Homepage', () => {
         details,
         hidden: root?.hidden ?? true,
         source: root?.dataset.ghostSource || '',
+        rotation: root?.dataset.ghostRotation || '',
+        rootCycle: root?.dataset.ghostCycle || '',
         ariaHidden: root?.getAttribute('aria-hidden') || '',
         rootDisplay: rootStyle?.display || '',
         rootPointerEvents: rootStyle?.pointerEvents || '',
         rootZIndex: rootStyle ? Number(rootStyle.zIndex || 0) : 0,
         namePointerEvents: root?.firstElementChild ? window.getComputedStyle(root.firstElementChild).pointerEvents : '',
         maxOpacity: Math.max(0, ...details.map((detail) => detail.opacity)),
+        maxPeakOpacity: Math.max(0, ...details.map((detail) => detail.peakOpacity)),
         outsideCentralCluster: details.length > 0 && details.every((detail) => detail.outsideCentralCluster),
+        withinSafeZones: details.length > 0 && details.every((detail) => detail.withinSafeZone),
+        avoidsActions: details.length > 0 && details.every((detail) => detail.avoidsActions),
+        avoidsGrid: details.length > 0 && details.every((detail) => detail.avoidsGrid),
+        slotSignature: details.map((detail) => `${detail.name}:${detail.side}:${detail.slot}`).join('|'),
         leftCount: details.filter((detail) => detail.side === 'left').length,
         rightCount: details.filter((detail) => detail.side === 'right').length,
       };
@@ -4075,13 +4105,26 @@ test.describe('Homepage', () => {
       expect(state.rootDisplay).toBe('block');
       expect(state.rootPointerEvents).toBe('none');
       expect(state.rootZIndex).toBeGreaterThanOrEqual(2);
+      expect(state.rotation).toBe('seeded-safe-slots');
+      expect(state.rootCycle).toMatch(/^\d+$/);
       expect(state.namePointerEvents).toBe('none');
       expect(state.maxOpacity).toBeGreaterThan(0.18);
+      expect(state.maxPeakOpacity).toBeGreaterThanOrEqual(0.46);
       expect(state.outsideCentralCluster, JSON.stringify(state.details)).toBe(true);
+      expect(state.withinSafeZones, JSON.stringify(state.details)).toBe(true);
+      expect(state.avoidsActions, JSON.stringify(state.details)).toBe(true);
+      expect(state.avoidsGrid, JSON.stringify(state.details)).toBe(true);
       expect(state.leftCount).toBeGreaterThanOrEqual(1);
     }
     expect(ghostState.gallery.rightCount).toBeGreaterThanOrEqual(1);
     expect(ghostState.video.rightCount).toBeGreaterThanOrEqual(1);
+
+    await switchHomepageCategory(page, 'video');
+    const initialVideoGhostSignature = ghostState.video.slotSignature;
+    await expect.poll(async () => {
+      const state = await readActiveGhostState('#video-creations');
+      return state.rootCycle !== ghostState.video.rootCycle && state.slotSignature !== initialVideoGhostSignature;
+    }, { timeout: 6000, intervals: [500] }).toBe(true);
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const reducedGhostMotion = await page.locator('#soundlab .category-ghost-models__name').first().evaluate((node) => {
@@ -4110,6 +4153,7 @@ test.describe('Homepage', () => {
       expect(titleOffset).toBeLessThanOrEqual(1);
     });
 
+    await switchHomepageCategory(page, 'sound');
     await page.setViewportSize({ width: 390, height: 844 });
 
     await expect(page.locator('#gallery .section__label')).toHaveCount(0);

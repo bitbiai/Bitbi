@@ -1029,7 +1029,8 @@ test.describe('Bilingual locale pages', () => {
 
     await page.goto('/');
     await expect(page.locator('#mobileHeaderCreateAccount')).toBeVisible();
-    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('Join for free');
+    await expect(page.getByText('CREATE *FREE* ACCOUNT')).toHaveCount(0);
     await expect(page.locator('#mobileHeaderCreateAccount')).toHaveAttribute('aria-label', 'Create a free BITBI account');
     await page.locator('#mobileMenuBtn').click();
     let mobileNav = page.locator('#mobileNav');
@@ -1047,7 +1048,8 @@ test.describe('Bilingual locale pages', () => {
 
     await page.goto('/de/');
     await expect(page.locator('#mobileHeaderCreateAccount')).toBeVisible();
-    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(page.locator('#mobileHeaderCreateAccount')).toHaveText('Join for free');
+    await expect(page.getByText('CREATE *FREE* ACCOUNT')).toHaveCount(0);
     await expect(page.locator('#mobileHeaderCreateAccount')).toHaveAttribute('aria-label', 'Kostenloses BITBI-Konto erstellen');
     await page.locator('#mobileMenuBtn').click();
     mobileNav = page.locator('#mobileNav');

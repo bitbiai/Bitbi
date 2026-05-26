@@ -12233,7 +12233,8 @@ test.describe('Profile page (authenticated mobile)', () => {
     expect(response.status()).toBe(200);
     const createCta = page.locator('#mobileHeaderCreateAccount');
     await expect(createCta).toBeVisible();
-    await expect(createCta).toHaveText('CREATE *FREE* ACCOUNT');
+    await expect(createCta).toHaveText('Join for free');
+    await expect(page.getByText('CREATE *FREE* ACCOUNT')).toHaveCount(0);
 
     await createCta.click();
     await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
