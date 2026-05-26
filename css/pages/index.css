@@ -4100,7 +4100,7 @@
             --latest-models-cube-depth: calc(var(--latest-models-module-width, 20rem) / 2);
             --latest-models-caption-space: clamp(2.5rem, 5.2vh, 3.55rem);
             --latest-models-video-stack-height: calc(100% - var(--latest-models-caption-space));
-            --latest-models-seam-overlap: 2px;
+            --latest-models-seam-overlap: clamp(5px, 0.8vh, 8px);
             position: absolute;
             inset: 0;
             display: block;

@@ -2124,14 +2124,14 @@ test.describe('Homepage', () => {
         expect(layout.labelTransform).not.toBe('none');
         expect(Math.abs(layout.topMediaTop - layout.moduleTop)).toBeLessThanOrEqual(1);
         expect(layout.topMediaBottom).toBeGreaterThanOrEqual(seamY);
-        expect(layout.topMediaBottom).toBeLessThanOrEqual(seamY + 4);
+        expect(layout.topMediaBottom).toBeLessThanOrEqual(seamY + 9);
         expect(layout.bottomMediaTop).toBeLessThanOrEqual(seamY);
-        expect(layout.bottomMediaTop).toBeGreaterThanOrEqual(seamY - 4);
+        expect(layout.bottomMediaTop).toBeGreaterThanOrEqual(seamY - 9);
         expect(layout.bottomMediaBottom).toBeLessThanOrEqual(layout.bottomSlotBottom + 1);
         expect(layout.bottomMediaBottom).toBeGreaterThanOrEqual(layout.bottomSlotBottom - 1);
         expect(layout.topMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
         expect(layout.bottomMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
-        expect(layout.bottomMediaTop - layout.topMediaBottom).toBeLessThanOrEqual(0);
+        expect(layout.bottomMediaTop - layout.topMediaBottom).toBeLessThanOrEqual(-4);
         expect(layout.ctaBoxShadow).toBe('none');
         expect(layout.ctaBeforeContent).toBe('none');
         expect(layout.moduleBeforeContent).toBe('none');
