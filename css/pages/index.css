@@ -4383,7 +4383,7 @@
 
         .hero--homepage .hero__actions--single-cta {
             margin-block-start: 0;
-            padding-block-start: clamp(4.85rem, 14vh, 8.9rem);
+            padding-block-start: clamp(9rem, calc(46.7vh - 11.75rem), 14.5rem);
         }
 
         .hero--homepage .hero__scroll-hint {
