@@ -4674,7 +4674,7 @@
 
         .hero--homepage .hero__actions--single-cta {
             margin-block-start: 0;
-            padding-block-start: clamp(4.85rem, 14vh, 8.9rem);
+            padding-block-start: clamp(7.75rem, calc(73.5vh - 27.5rem), 30rem);
         }
 
         .hero--homepage .hero__scroll-hint {
