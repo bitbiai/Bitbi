@@ -2496,6 +2496,7 @@ test.describe('Homepage', () => {
       const heroEl = document.querySelector('#hero');
       const titleEl = document.querySelector('#hero .hero__title-img');
       const scrollHintEl = document.querySelector('#hero .hero__scroll-hint');
+      const navEl = document.querySelector('#navbar');
       const teaserStyle = teaserEl ? window.getComputedStyle(teaserEl) : null;
       const teaserBefore = teaserEl ? window.getComputedStyle(teaserEl, '::before') : null;
       const teaserAfter = teaserEl ? window.getComputedStyle(teaserEl, '::after') : null;
@@ -2506,6 +2507,7 @@ test.describe('Homepage', () => {
       const heroRect = heroEl?.getBoundingClientRect();
       const titleRect = titleEl?.getBoundingClientRect();
       const scrollHintRect = scrollHintEl?.getBoundingClientRect();
+      const navRect = navEl?.getBoundingClientRect();
       const scrollHintTranslateY = scrollHintStyle?.transform && scrollHintStyle.transform !== 'none'
         ? new DOMMatrixReadOnly(scrollHintStyle.transform).m42
         : 0;
@@ -2518,6 +2520,12 @@ test.describe('Homepage', () => {
           ? Math.abs((teaserRect.left + teaserRect.width / 2) - (heroRect.left + heroRect.width / 2))
           : Number.POSITIVE_INFINITY,
         titleToTeaserGap: teaserRect && titleRect ? teaserRect.top - titleRect.bottom : 0,
+        titleWidth: titleRect?.width || 0,
+        titleHeight: titleRect?.height || 0,
+        titleCenterOffset: titleRect && heroRect
+          ? Math.abs((titleRect.left + titleRect.width / 2) - (heroRect.left + heroRect.width / 2))
+          : Number.POSITIVE_INFINITY,
+        titleHeaderGap: titleRect && navRect ? titleRect.top - navRect.bottom : 0,
         teaserToScrollGap: teaserRect && scrollHintRect ? scrollHintLayoutTop - teaserRect.bottom : 0,
         minBlockSize: teaserStyle ? parseFloat(teaserStyle.minHeight || teaserStyle.minBlockSize || '0') : 0,
         teaserFontSize: teaserStyle ? parseFloat(teaserStyle.fontSize) : 0,
@@ -2546,6 +2554,11 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.actionJustifyContent).toBe('center');
     expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
     expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
+    expect(teaserMetrics.titleWidth).toBeGreaterThanOrEqual(496);
+    expect(teaserMetrics.titleWidth).toBeLessThanOrEqual(499);
+    expect(teaserMetrics.titleHeight).toBeGreaterThan(320);
+    expect(teaserMetrics.titleCenterOffset).toBeLessThanOrEqual(2);
+    expect(teaserMetrics.titleHeaderGap).toBeGreaterThanOrEqual(0);
     expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(64);
     expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(34);
     expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);

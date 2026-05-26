@@ -3883,6 +3883,10 @@
         filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.14)) drop-shadow(0 0 28px rgba(255, 255, 255, 0.08));
     }
 
+    .hero--homepage .hero__title-img {
+        width: clamp(232.26px, 45.6225vw, 497.7px);
+    }
+
     .hero__lab-energy {
         display: none;
     }
