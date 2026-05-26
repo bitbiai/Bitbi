@@ -4226,8 +4226,6 @@
             z-index: 1;
             -webkit-clip-path: url("#latestModelsTopClip");
             clip-path: url("#latestModelsTopClip");
-            -webkit-mask-image: url("#latestModelsTopFeatherMask");
-            mask-image: url("#latestModelsTopFeatherMask");
         }
 
         .latest-models-video-module__slot--bottom {
@@ -4237,20 +4235,6 @@
             z-index: 2;
             -webkit-clip-path: url("#latestModelsBottomClip");
             clip-path: url("#latestModelsBottomClip");
-            -webkit-mask-image: url("#latestModelsBottomFeatherMask");
-            mask-image: url("#latestModelsBottomFeatherMask");
-        }
-
-        .latest-models-video-module__slot--top,
-        .latest-models-video-module__slot--bottom {
-            -webkit-mask-repeat: no-repeat;
-            mask-repeat: no-repeat;
-            -webkit-mask-position: 0 0;
-            mask-position: 0 0;
-            -webkit-mask-size: 100% 100%;
-            mask-size: 100% 100%;
-            -webkit-mask-mode: alpha;
-            mask-mode: alpha;
         }
 
         .latest-models-video-module__slot--top > .latest-models-video-module__cube,
