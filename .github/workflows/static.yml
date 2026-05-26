@@ -2,9 +2,24 @@
 name: Deploy static content to Pages
 
 on:
-  # Runs on pushes targeting the default branch
+  # Runs on pushes targeting the default branch. Homepage/UI-only pushes are
+  # ignored here so the fast UI workflow can deploy them without waiting behind
+  # this full Worker/release/static validation stack. Mixed or risky pushes
+  # still run this workflow because paths-ignore only skips when every changed
+  # file matches the safe UI list.
   push:
     branches: ["main"]
+    paths-ignore:
+      - "index.html"
+      - "de/index.html"
+      - "css/pages/index.css"
+      - "css/base/**"
+      - "css/components/**"
+      - "js/pages/index/**"
+      - "assets/images/**"
+      - "assets/favicons/**"
+      - "fonts/**"
+      - "tests/smoke.spec.js"
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:

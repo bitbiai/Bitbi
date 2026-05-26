@@ -13,16 +13,27 @@
 # - local images/favicons/fonts
 # - tests/smoke.spec.js
 #
-# The guard compares the push base/head. For manual dispatch, set
-# "base_ref" to the commit/SHA/ref you want to compare against; when omitted,
-# it compares HEAD^..HEAD. If the guard blocks, rerun the full static workflow
-# or split risky/backend/workflow files into a separate direct-main change.
+# The push paths filter starts this workflow only for likely UI commits. The
+# internal guard still compares all changed files because a mixed commit can
+# include both an allowed UI file and a risky file. Mixed/risky changes fail
+# before validation, before the Pages environment, and before Pages concurrency.
 
 name: Fast UI Deploy to Pages
 
 on:
   push:
     branches: ["main"]
+    paths:
+      - "index.html"
+      - "de/index.html"
+      - "css/pages/index.css"
+      - "css/base/**"
+      - "css/components/**"
+      - "js/pages/index/**"
+      - "assets/images/**"
+      - "assets/favicons/**"
+      - "fonts/**"
+      - "tests/smoke.spec.js"
   workflow_dispatch:
     inputs:
       base_ref:
@@ -32,23 +43,18 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  fast-ui-deploy:
-    name: Guard, validate, and deploy UI-only change
+  guard:
+    name: Classify changed files
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      ui_only: ${{ steps.changed-files.outputs.ui_only }}
+      base_ref: ${{ steps.changed-files.outputs.base_ref }}
+      head_ref: ${{ steps.changed-files.outputs.head_ref }}
     steps:
       - name: Checkout full history
         uses: actions/checkout@v5
@@ -56,6 +62,7 @@ jobs:
           fetch-depth: 0
 
       - name: Guard changed files are UI-only
+        id: changed-files
         env:
           EVENT_NAME: ${{ github.event_name }}
           PUSH_BASE: ${{ github.event.before }}
@@ -141,8 +148,35 @@ jobs:
           fi
 
           echo "All changed files are UI-only. Continuing with fast validation and Pages deploy."
-          printf 'FAST_UI_BASE_REF=%s\n' "$BASE_REF" >> "$GITHUB_ENV"
-          printf 'FAST_UI_HEAD_REF=%s\n' "$HEAD_REF" >> "$GITHUB_ENV"
+          printf 'ui_only=true\n' >> "$GITHUB_OUTPUT"
+          printf 'base_ref=%s\n' "$BASE_REF" >> "$GITHUB_OUTPUT"
+          printf 'head_ref=%s\n' "$HEAD_REF" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Validate and deploy UI-only change
+    needs: guard
+    if: needs.guard.outputs.ui_only == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Keep the shared production Pages lock only on the actual deploy job.
+    # The guard job must never block the full workflow's Pages deploy queue.
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    env:
+      FAST_UI_BASE_REF: ${{ needs.guard.outputs.base_ref }}
+      FAST_UI_HEAD_REF: ${{ needs.guard.outputs.head_ref }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
