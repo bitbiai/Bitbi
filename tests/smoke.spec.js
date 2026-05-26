@@ -4490,6 +4490,12 @@ test.describe('Homepage', () => {
     expect(videoRequests).toEqual([]);
 
     const firstCard = cards.nth(0);
+    for (const pointerType of ['touch', 'pen', '']) {
+      await firstCard.dispatchEvent('pointerenter', { pointerType });
+      await expect(firstCard.locator('.video-card__hover-preview')).toHaveCount(0);
+      await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
+      expect(videoRequests).toEqual([]);
+    }
     await firstCard.hover();
     const firstPreview = firstCard.locator('.video-card__hover-preview');
     await expect(firstPreview).toHaveCount(1);
@@ -4579,6 +4585,12 @@ test.describe('Homepage', () => {
 
     const card = page.locator('#videoGrid .video-card').first();
     await expect(card).toBeVisible();
+    for (const pointerType of ['touch', 'pen', 'mouse', '']) {
+      await card.dispatchEvent('pointerenter', { pointerType });
+      await expect(card.locator('.video-card__hover-preview')).toHaveCount(0);
+      await expect(card).not.toHaveClass(/video-card--hover-preview-active/);
+      expect(videoRequests).toEqual([]);
+    }
     await card.hover({ force: true });
     await expect(card.locator('.video-card__hover-preview')).toHaveCount(0);
     await expect(card).not.toHaveClass(/video-card--hover-preview-active/);

@@ -165,6 +165,10 @@ export function initVideoGallery() {
         return !!desktopDrawerQuery?.matches && !reducedMotionQuery?.matches;
     }
 
+    function isMouseHoverPointer(event) {
+        return event?.pointerType === 'mouse';
+    }
+
     function resetHoverPreviewVideo(video) {
         if (!video) return;
         video.pause();
@@ -239,7 +243,7 @@ export function initVideoGallery() {
         const posterUrl = item?.poster?.url || '';
 
         card.addEventListener('pointerenter', (event) => {
-            if (event.pointerType && event.pointerType !== 'mouse') return;
+            if (!isMouseHoverPointer(event)) return;
             startHoverPreview(card, previewSrc, posterUrl);
         });
         card.addEventListener('pointerleave', () => {
