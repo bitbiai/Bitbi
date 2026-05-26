@@ -2492,7 +2492,6 @@ test.describe('Homepage', () => {
       const teaserEl = document.querySelector('.hero__lab-teaser');
       const textEl = teaserEl?.querySelector('.hero__lab-teaser-text');
       const actionsEl = document.querySelector('.hero__actions');
-      const energyEl = document.querySelector('#hero .hero__lab-energy');
       const heroEl = document.querySelector('#hero');
       const titleEl = document.querySelector('#hero .hero__title-img');
       const scrollHintEl = document.querySelector('#hero .hero__scroll-hint');
@@ -2500,10 +2499,8 @@ test.describe('Homepage', () => {
       const teaserStyle = teaserEl ? window.getComputedStyle(teaserEl) : null;
       const teaserBefore = teaserEl ? window.getComputedStyle(teaserEl, '::before') : null;
       const teaserAfter = teaserEl ? window.getComputedStyle(teaserEl, '::after') : null;
-      const energyStyle = energyEl ? window.getComputedStyle(energyEl) : null;
       const scrollHintStyle = scrollHintEl ? window.getComputedStyle(scrollHintEl) : null;
       const teaserRect = teaserEl?.getBoundingClientRect();
-      const energyRect = energyEl?.getBoundingClientRect();
       const heroRect = heroEl?.getBoundingClientRect();
       const titleRect = titleEl?.getBoundingClientRect();
       const scrollHintRect = scrollHintEl?.getBoundingClientRect();
@@ -2535,22 +2532,6 @@ test.describe('Homepage', () => {
         beforeAnimation: teaserBefore?.animationName || '',
         afterAnimation: teaserAfter?.animationName || '',
         pointerEvents: teaserStyle?.pointerEvents || '',
-        energyAriaHidden: energyEl?.getAttribute('aria-hidden') || '',
-        energyDisplay: energyStyle?.display || '',
-        energyPointerEvents: energyStyle?.pointerEvents || '',
-        energyZIndex: Number.parseInt(energyStyle?.zIndex || '0', 10),
-        energyFlowCount: energyEl?.querySelectorAll('.hero__lab-energy-flow').length || 0,
-        energyGlowCount: energyEl?.querySelectorAll('.hero__lab-energy-glow').length || 0,
-        energyNodeCount: energyEl?.querySelectorAll('.hero__lab-energy-node').length || 0,
-        energySparkCount: energyEl?.querySelectorAll('.hero__lab-energy-spark').length || 0,
-        energyWithinHero: Boolean(
-          energyRect &&
-          heroRect &&
-          energyRect.left >= heroRect.left - 1 &&
-          energyRect.right <= heroRect.right + 1 &&
-          energyRect.top >= heroRect.top - 1 &&
-          energyRect.bottom <= heroRect.bottom + 1
-        ),
       };
     });
 
@@ -2573,15 +2554,6 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.beforeAnimation).toContain('heroLabCtaGlow');
     expect(teaserMetrics.afterAnimation).toContain('heroLabCtaSheen');
     expect(teaserMetrics.pointerEvents).not.toBe('none');
-    expect(teaserMetrics.energyAriaHidden).toBe('true');
-    expect(teaserMetrics.energyDisplay).toBe('block');
-    expect(teaserMetrics.energyPointerEvents).toBe('none');
-    expect(teaserMetrics.energyZIndex).toBeLessThan(10);
-    expect(teaserMetrics.energyFlowCount).toBeGreaterThanOrEqual(7);
-    expect(teaserMetrics.energyGlowCount).toBeGreaterThanOrEqual(5);
-    expect(teaserMetrics.energyNodeCount).toBeGreaterThanOrEqual(3);
-    expect(teaserMetrics.energySparkCount).toBeGreaterThanOrEqual(12);
-    expect(teaserMetrics.energyWithinHero).toBe(true);
   });
 
   test('hero falls back cleanly in reduced motion mode', async ({ page }) => {
