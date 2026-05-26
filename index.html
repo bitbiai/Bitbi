@@ -145,6 +145,134 @@
     <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
     <section id="newsPulse" class="news-pulse" data-news-pulse data-news-pulse-locale="en" aria-label="Bitbi Live Pulse"></section>
 
+    <div class="hero__creation-stream" aria-hidden="true">
+        <svg class="hero__creation-stream-svg" viewBox="0 0 1440 760" preserveAspectRatio="none" focusable="false" aria-hidden="true">
+            <defs>
+                <linearGradient id="creationStreamCyanGradient" x1="670" y1="590" x2="1180" y2="240" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#ffffff" stop-opacity="0.92"/>
+                    <stop offset="0.18" stop-color="#00f0ff"/>
+                    <stop offset="0.58" stop-color="#22d3ee"/>
+                    <stop offset="1" stop-color="#60a5fa"/>
+                </linearGradient>
+                <linearGradient id="creationStreamMagentaGradient" x1="680" y1="610" x2="1190" y2="440" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#00f0ff" stop-opacity="0.72"/>
+                    <stop offset="0.46" stop-color="#c084fc"/>
+                    <stop offset="1" stop-color="#ff4fd8"/>
+                </linearGradient>
+                <linearGradient id="creationStreamVioletGradient" x1="690" y1="580" x2="1195" y2="470" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#67e8f9" stop-opacity="0.54"/>
+                    <stop offset="0.5" stop-color="#7c3aed"/>
+                    <stop offset="1" stop-color="#a78bfa" stop-opacity="0.86"/>
+                </linearGradient>
+                <linearGradient id="creationStreamGoldGradient" x1="705" y1="575" x2="1180" y2="380" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+                    <stop offset="0.45" stop-color="#00f0ff" stop-opacity="0.75"/>
+                    <stop offset="1" stop-color="#ffcf66"/>
+                </linearGradient>
+                <linearGradient id="creationStreamWhiteCoreGradient" x1="690" y1="588" x2="1180" y2="320" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+                    <stop offset="0.28" stop-color="#ffffff" stop-opacity="0.98"/>
+                    <stop offset="0.58" stop-color="#9ffbff"/>
+                    <stop offset="1" stop-color="#ffffff" stop-opacity="0.16"/>
+                </linearGradient>
+                <radialGradient id="creationStreamFlareGradient" cx="50%" cy="50%" r="50%">
+                    <stop offset="0" stop-color="#ffffff" stop-opacity="0.96"/>
+                    <stop offset="0.28" stop-color="#00f0ff" stop-opacity="0.72"/>
+                    <stop offset="0.66" stop-color="#a855f7" stop-opacity="0.2"/>
+                    <stop offset="1" stop-color="#00f0ff" stop-opacity="0"/>
+                </radialGradient>
+                <radialGradient id="creationStreamSparkGradient" cx="50%" cy="50%" r="50%">
+                    <stop offset="0" stop-color="#ffffff"/>
+                    <stop offset="0.42" stop-color="#67e8f9"/>
+                    <stop offset="1" stop-color="#00f0ff" stop-opacity="0"/>
+                </radialGradient>
+                <filter id="creationStreamSoftGlow" x="-18%" y="-22%" width="136%" height="144%" color-interpolation-filters="sRGB">
+                    <feGaussianBlur stdDeviation="7" result="softGlow"/>
+                    <feGaussianBlur stdDeviation="2.4" in="SourceGraphic" result="nearGlow"/>
+                    <feMerge>
+                        <feMergeNode in="softGlow"/>
+                        <feMergeNode in="nearGlow"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+                <filter id="creationStreamCoreGlow" x="-12%" y="-16%" width="124%" height="132%" color-interpolation-filters="sRGB">
+                    <feGaussianBlur stdDeviation="2.1" result="coreGlow"/>
+                    <feMerge>
+                        <feMergeNode in="coreGlow"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+                <filter id="creationStreamParticleGlow" x="-80%" y="-80%" width="260%" height="260%" color-interpolation-filters="sRGB">
+                    <feGaussianBlur stdDeviation="1.6" result="particleGlow"/>
+                    <feMerge>
+                        <feMergeNode in="particleGlow"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+
+            <g class="hero__creation-stream-layer hero__creation-stream-layer--halo" filter="url(#creationStreamSoftGlow)">
+                <path class="hero__creation-stream-path hero__creation-stream-halo hero__creation-stream-halo--main" stroke="url(#creationStreamCyanGradient)" d="M 700 590 C 800 562, 900 500, 980 418 C 1042 354, 1092 292, 1160 240"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-halo hero__creation-stream-halo--upper" stroke="url(#creationStreamCyanGradient)" d="M 716 578 C 822 532, 904 455, 986 360 C 1038 300, 1098 254, 1168 222"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-halo hero__creation-stream-halo--lower" stroke="url(#creationStreamMagentaGradient)" d="M 692 610 C 816 620, 938 568, 1038 510 C 1090 480, 1142 456, 1190 438"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-halo hero__creation-stream-halo--violet" stroke="url(#creationStreamVioletGradient)" d="M 680 622 C 818 650, 948 604, 1054 542 C 1102 514, 1144 492, 1196 472"></path>
+            </g>
+
+            <g class="hero__creation-stream-layer hero__creation-stream-layer--strands" filter="url(#creationStreamCoreGlow)">
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--core" stroke="url(#creationStreamCyanGradient)" d="M 700 590 C 805 568, 895 506, 972 432 C 1034 372, 1095 306, 1160 250"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--upper" stroke="url(#creationStreamCyanGradient)" d="M 716 580 C 822 538, 902 466, 982 366 C 1040 294, 1092 255, 1168 228"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--upper-fine" stroke="url(#creationStreamWhiteCoreGradient)" d="M 688 584 C 796 560, 878 510, 952 426 C 1026 342, 1087 274, 1175 236"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--lower" stroke="url(#creationStreamCyanGradient)" d="M 694 606 C 820 610, 930 548, 1018 504 C 1080 474, 1130 444, 1182 424"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--magenta" stroke="url(#creationStreamMagentaGradient)" d="M 682 614 C 816 638, 944 585, 1048 520 C 1094 492, 1138 462, 1188 444"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--violet" stroke="url(#creationStreamVioletGradient)" d="M 674 628 C 810 670, 948 620, 1056 552 C 1106 520, 1154 494, 1204 472"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--gold" stroke="url(#creationStreamGoldGradient)" d="M 710 596 C 838 590, 944 540, 1040 466 C 1088 430, 1135 404, 1178 384"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--bridge" stroke="url(#creationStreamMagentaGradient)" d="M 736 570 C 852 572, 950 532, 1032 470 C 1088 428, 1126 375, 1178 332"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-strand hero__creation-stream-strand--thread" stroke="url(#creationStreamWhiteCoreGradient)" d="M 690 604 C 804 592, 890 550, 970 488 C 1048 428, 1100 392, 1162 366"></path>
+            </g>
+
+            <g class="hero__creation-stream-layer hero__creation-stream-layer--highlights" filter="url(#creationStreamCoreGlow)">
+                <path class="hero__creation-stream-path hero__creation-stream-highlight hero__creation-stream-highlight--one" stroke="url(#creationStreamWhiteCoreGradient)" d="M 700 590 C 805 568, 895 506, 972 432 C 1034 372, 1095 306, 1160 250"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-highlight hero__creation-stream-highlight--two" stroke="url(#creationStreamWhiteCoreGradient)" d="M 716 580 C 822 538, 902 466, 982 366 C 1040 294, 1092 255, 1168 228"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-highlight hero__creation-stream-highlight--three" stroke="url(#creationStreamWhiteCoreGradient)" d="M 694 606 C 820 610, 930 548, 1018 504 C 1080 474, 1130 444, 1182 424"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-highlight hero__creation-stream-highlight--four" stroke="url(#creationStreamGoldGradient)" d="M 710 596 C 838 590, 944 540, 1040 466 C 1088 430, 1135 404, 1178 384"></path>
+                <path class="hero__creation-stream-path hero__creation-stream-highlight hero__creation-stream-highlight--five" stroke="url(#creationStreamMagentaGradient)" d="M 682 614 C 816 638, 944 585, 1048 520 C 1094 492, 1138 462, 1188 444"></path>
+            </g>
+
+            <g class="hero__creation-stream-layer hero__creation-stream-layer--particles" filter="url(#creationStreamParticleGlow)">
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="724" cy="586" r="1.8"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--white" cx="756" cy="578" r="1.2"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--gold" cx="790" cy="570" r="1.5"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="824" cy="548" r="2"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--magenta" cx="856" cy="532" r="1.4"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--white" cx="888" cy="504" r="1.1"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="922" cy="478" r="1.8"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--violet" cx="952" cy="446" r="1.5"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--white" cx="986" cy="410" r="1.2"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="1024" cy="374" r="1.7"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--magenta" cx="1062" cy="330" r="1.3"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="1100" cy="292" r="2.1"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--gold" cx="1140" cy="260" r="1.4"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--white" cx="1172" cy="235" r="1.1"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--magenta" cx="748" cy="612" r="1.6"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--violet" cx="810" cy="625" r="1.3"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="876" cy="608" r="1.8"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--white" cx="934" cy="580" r="1"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--magenta" cx="990" cy="548" r="1.5"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="1044" cy="512" r="2"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--gold" cx="1096" cy="484" r="1.2"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--violet" cx="1138" cy="458" r="1.6"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--white" cx="1180" cy="432" r="1.1"></circle>
+                <circle class="hero__creation-stream-particle hero__creation-stream-particle--cyan" cx="1200" cy="470" r="1.7"></circle>
+            </g>
+
+            <g class="hero__creation-stream-layer hero__creation-stream-layer--flares" filter="url(#creationStreamParticleGlow)">
+                <ellipse class="hero__creation-stream-flare hero__creation-stream-flare--origin" fill="url(#creationStreamFlareGradient)" cx="704" cy="594" rx="46" ry="17"></ellipse>
+                <circle class="hero__creation-stream-flare hero__creation-stream-flare--top" fill="url(#creationStreamFlareGradient)" cx="1162" cy="238" r="28"></circle>
+                <circle class="hero__creation-stream-flare hero__creation-stream-flare--bottom" fill="url(#creationStreamFlareGradient)" cx="1184" cy="430" r="25"></circle>
+            </g>
+        </svg>
+    </div>
+
     <div class="hero__models-cta-wrap">
         <button type="button" class="hero__models-cta" data-models-link="desktop" aria-label="Open Models">
             <span class="latest-models-video-module" data-latest-models-video-module aria-hidden="true">

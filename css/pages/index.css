@@ -3892,6 +3892,69 @@
         width: clamp(232.26px, 45.6225vw, 497.7px);
     }
 
+    .hero__creation-stream {
+        display: none;
+    }
+
+    @keyframes heroCreationStreamFlow {
+        0% {
+            stroke-dashoffset: 240;
+            opacity: 0.22;
+        }
+
+        38%,
+        68% {
+            opacity: 0.98;
+        }
+
+        100% {
+            stroke-dashoffset: -280;
+            opacity: 0.28;
+        }
+    }
+
+    @keyframes heroCreationStreamShimmer {
+        0%,
+        100% {
+            opacity: 0.46;
+        }
+
+        52% {
+            opacity: 0.86;
+        }
+    }
+
+    @keyframes heroCreationStreamParticle {
+        0%,
+        100% {
+            opacity: 0.18;
+            transform: translate3d(0, 0, 0) scale(0.72);
+        }
+
+        38% {
+            opacity: 0.96;
+            transform: translate3d(3px, -3px, 0) scale(1.16);
+        }
+
+        72% {
+            opacity: 0.36;
+            transform: translate3d(-2px, 2px, 0) scale(0.86);
+        }
+    }
+
+    @keyframes heroCreationStreamFlare {
+        0%,
+        100% {
+            opacity: 0.32;
+            transform: scale(0.92);
+        }
+
+        48% {
+            opacity: 0.72;
+            transform: scale(1.08);
+        }
+    }
+
     @media (min-width: 768px) {
         .hero--homepage .hero__title {
             filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.16)) drop-shadow(0 0 34px rgba(255, 255, 255, 0.1));
@@ -4044,6 +4107,221 @@
     }
 
     @media (min-width: 1024px) {
+        .hero__creation-stream {
+            position: absolute;
+            inset: 0;
+            z-index: 9;
+            display: block;
+            overflow: hidden;
+            contain: paint;
+            pointer-events: none;
+            opacity: 0.9;
+            mix-blend-mode: screen;
+        }
+
+        .hero__creation-stream-svg {
+            position: absolute;
+            inset: 0;
+            display: block;
+            inline-size: 100%;
+            block-size: 100%;
+            overflow: visible;
+        }
+
+        .hero__creation-stream-path {
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .hero__creation-stream-halo {
+            opacity: 0.24;
+            animation: heroCreationStreamShimmer 7.6s ease-in-out infinite;
+        }
+
+        .hero__creation-stream-halo--main {
+            stroke-width: clamp(22px, 2.45vw, 38px);
+        }
+
+        .hero__creation-stream-halo--upper {
+            stroke-width: clamp(14px, 1.6vw, 25px);
+            opacity: 0.18;
+            animation-delay: -2.6s;
+        }
+
+        .hero__creation-stream-halo--lower {
+            stroke-width: clamp(16px, 1.9vw, 30px);
+            opacity: 0.2;
+            animation-delay: -4s;
+        }
+
+        .hero__creation-stream-halo--violet {
+            stroke-width: clamp(10px, 1.25vw, 20px);
+            opacity: 0.16;
+            animation-delay: -1.5s;
+        }
+
+        .hero__creation-stream-strand {
+            stroke-width: 2.6px;
+            opacity: 0.78;
+            animation: heroCreationStreamShimmer 6.4s ease-in-out infinite;
+        }
+
+        .hero__creation-stream-strand--core {
+            stroke-width: 5.4px;
+            opacity: 0.84;
+        }
+
+        .hero__creation-stream-strand--upper {
+            stroke-width: 3.2px;
+            animation-delay: -1.2s;
+        }
+
+        .hero__creation-stream-strand--upper-fine,
+        .hero__creation-stream-strand--thread {
+            stroke-width: 1.35px;
+            opacity: 0.58;
+            animation-delay: -2.7s;
+        }
+
+        .hero__creation-stream-strand--lower {
+            stroke-width: 3.5px;
+            animation-delay: -2s;
+        }
+
+        .hero__creation-stream-strand--magenta {
+            stroke-width: 2.4px;
+            opacity: 0.66;
+            animation-delay: -3.1s;
+        }
+
+        .hero__creation-stream-strand--violet {
+            stroke-width: 1.75px;
+            opacity: 0.52;
+            animation-delay: -4.2s;
+        }
+
+        .hero__creation-stream-strand--gold {
+            stroke-width: 1.6px;
+            opacity: 0.62;
+            animation-delay: -1.8s;
+        }
+
+        .hero__creation-stream-strand--bridge {
+            stroke-width: 1.45px;
+            opacity: 0.48;
+            animation-delay: -5s;
+        }
+
+        .hero__creation-stream-highlight {
+            stroke-width: 1.35px;
+            stroke-dasharray: 18 92;
+            stroke-dashoffset: 240;
+            opacity: 0.76;
+            animation: heroCreationStreamFlow 5.8s linear infinite;
+        }
+
+        .hero__creation-stream-highlight--one {
+            stroke-width: 1.9px;
+            stroke-dasharray: 24 118;
+        }
+
+        .hero__creation-stream-highlight--two {
+            animation-duration: 6.7s;
+            animation-delay: -1.4s;
+        }
+
+        .hero__creation-stream-highlight--three {
+            stroke-width: 1.65px;
+            animation-duration: 5.1s;
+            animation-delay: -2.8s;
+        }
+
+        .hero__creation-stream-highlight--four {
+            stroke-width: 1.1px;
+            stroke-dasharray: 10 78;
+            animation-duration: 7.8s;
+            animation-delay: -3.5s;
+            opacity: 0.58;
+        }
+
+        .hero__creation-stream-highlight--five {
+            stroke-width: 1.25px;
+            stroke-dasharray: 12 84;
+            animation-duration: 6.1s;
+            animation-delay: -4.6s;
+            opacity: 0.52;
+        }
+
+        .hero__creation-stream-particle {
+            fill: url("#creationStreamSparkGradient");
+            opacity: 0;
+            transform-box: fill-box;
+            transform-origin: center;
+            animation: heroCreationStreamParticle 5.2s ease-in-out infinite;
+        }
+
+        .hero__creation-stream-particle--white {
+            fill: rgba(255, 255, 255, 0.92);
+        }
+
+        .hero__creation-stream-particle--cyan {
+            fill: rgba(0, 240, 255, 0.92);
+        }
+
+        .hero__creation-stream-particle--magenta {
+            fill: rgba(255, 79, 216, 0.82);
+        }
+
+        .hero__creation-stream-particle--violet {
+            fill: rgba(168, 85, 247, 0.78);
+        }
+
+        .hero__creation-stream-particle--gold {
+            fill: rgba(255, 207, 102, 0.82);
+        }
+
+        .hero__creation-stream-particle:nth-child(3n + 1) {
+            animation-duration: 4.6s;
+            animation-delay: -1.2s;
+        }
+
+        .hero__creation-stream-particle:nth-child(3n + 2) {
+            animation-duration: 6.4s;
+            animation-delay: -2.8s;
+        }
+
+        .hero__creation-stream-particle:nth-child(4n) {
+            animation-duration: 8.2s;
+            animation-delay: -4.5s;
+        }
+
+        .hero__creation-stream-particle:nth-child(5n) {
+            animation-duration: 7.2s;
+            animation-delay: -5.4s;
+        }
+
+        .hero__creation-stream-flare {
+            transform-box: fill-box;
+            transform-origin: center;
+            opacity: 0.42;
+            animation: heroCreationStreamFlare 5.8s ease-in-out infinite;
+        }
+
+        .hero__creation-stream-flare--origin {
+            opacity: 0.28;
+            animation-delay: -1.7s;
+        }
+
+        .hero__creation-stream-flare--top {
+            animation-delay: -3.4s;
+        }
+
+        .hero__creation-stream-flare--bottom {
+            animation-delay: -4.7s;
+        }
+
         .hero__models-cta-wrap {
             position: absolute;
             inset-block-start: calc(4rem + env(safe-area-inset-top, 0px));
@@ -4405,6 +4683,12 @@
             .hero__models-cta {
                 --latest-models-module-width: clamp(21rem, 24vw, 27rem);
             }
+        }
+    }
+
+    @media (max-width: 1023px), (hover: none), (pointer: coarse) {
+        .hero__creation-stream {
+            display: none;
         }
     }
 
@@ -5002,6 +5286,27 @@
         .hero__lab-teaser::before,
         .hero__lab-teaser::after {
             animation: none;
+        }
+
+        .hero__creation-stream *,
+        .hero__creation-stream-highlight,
+        .hero__creation-stream-particle,
+        .hero__creation-stream-flare {
+            animation: none;
+        }
+
+        .hero__creation-stream {
+            opacity: 0.56;
+        }
+
+        .hero__creation-stream-highlight {
+            stroke-dasharray: none;
+            opacity: 0.46;
+        }
+
+        .hero__creation-stream-particle {
+            opacity: 0.28;
+            transform: none;
         }
 
         .latest-models-video-module__cube.is-turning,
