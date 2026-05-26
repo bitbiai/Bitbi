@@ -15,6 +15,7 @@ const LATEST_MEMVID_LIMIT = 60;
 const CYCLE_MS = 4000;
 const BOTTOM_START_OFFSET_MS = 2000;
 const TRANSITION_MS = 920;
+const TRANSITION_FALLBACK_MS = TRANSITION_MS + 120;
 
 function bindMediaQueryChange(query, listener) {
     if (!query) return;
@@ -86,31 +87,54 @@ function createFace(entry, side) {
     return face;
 }
 
-function clearSlot(slot) {
-    slot.querySelectorAll('video').forEach((video) => {
+function disposeVideos(root, preserveRoot = null) {
+    root?.querySelectorAll?.('video')?.forEach((video) => {
+        if (preserveRoot?.contains?.(video)) return;
         video.pause();
         video.removeAttribute('src');
         try { video.load(); } catch { /* noop */ }
     });
+}
+
+function setFaceSide(face, side) {
+    face.classList.remove('latest-models-video-module__face--front', 'latest-models-video-module__face--right');
+    face.classList.add(`latest-models-video-module__face--${side}`);
+}
+
+function playFace(face) {
+    face.querySelectorAll('video').forEach((video) => {
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(() => {});
+        }
+    });
+}
+
+function clearSlot(slot) {
+    disposeVideos(slot);
     slot.replaceChildren(createFallback());
-    slot.classList.remove('is-turning', 'is-ready');
+    slot.classList.remove('is-turning', 'is-ready', 'is-reduced-transition');
     slot.removeAttribute('data-active-video-id');
     slot.removeAttribute('data-active-index');
     slot.removeAttribute('data-transition-count');
+    slot.removeAttribute('data-next-delay-ms');
 }
 
-function renderSettledSlot(slot, entry, index, transitionCount) {
-    slot.querySelectorAll('video').forEach((video) => {
-        video.pause();
-        video.removeAttribute('src');
-        try { video.load(); } catch { /* noop */ }
-    });
+function renderSettledSlot(slot, entry, index, transitionCount, preservedFace = null) {
+    const previousChildren = Array.from(slot.children);
+    const face = preservedFace || createFace(entry, 'front');
+    setFaceSide(face, 'front');
+    playFace(face);
+
     const cube = document.createElement('span');
     cube.className = 'latest-models-video-module__cube';
-    cube.appendChild(createFace(entry, 'front'));
+    cube.appendChild(face);
+    previousChildren.forEach((node) => {
+        if (node !== cube) disposeVideos(node, face);
+    });
     slot.replaceChildren(cube);
     slot.classList.add('is-ready');
-    slot.classList.remove('is-turning');
+    slot.classList.remove('is-turning', 'is-reduced-transition');
     slot.dataset.activeVideoId = entry?.id || '';
     slot.dataset.activeIndex = String(index);
     slot.dataset.transitionCount = String(transitionCount);
@@ -133,12 +157,13 @@ function makeSlotController(slot, entries, startIndex, { reducedMotion = false }
     function schedule(delay = CYCLE_MS) {
         window.clearTimeout(timer);
         if (stopped || entries.length < 2) return;
+        slot.dataset.nextDelayMs = String(delay);
         timer = window.setTimeout(advance, delay);
     }
 
-    function settle(nextIndex) {
+    function settle(nextIndex, incomingFace = null) {
         index = nextIndex;
-        renderSettledSlot(slot, entries[index], index, transitionCount);
+        renderSettledSlot(slot, entries[index], index, transitionCount, incomingFace);
         schedule();
     }
 
@@ -146,33 +171,47 @@ function makeSlotController(slot, entries, startIndex, { reducedMotion = false }
         if (stopped || entries.length < 2) return;
         const nextIndex = (index + 1) % entries.length;
         transitionCount += 1;
+        slot.removeAttribute('data-next-delay-ms');
+
+        const previousChildren = Array.from(slot.children);
+        const existingFrontFace = slot.querySelector(':scope > .latest-models-video-module__cube > .latest-models-video-module__face--front');
+        const frontFace = existingFrontFace || createFace(entries[index], 'front');
+        const incomingFace = createFace(entries[nextIndex], reducedMotion ? 'front' : 'right');
 
         if (reducedMotion) {
             slot.classList.add('is-reduced-transition');
-            settle(nextIndex);
+            previousChildren.forEach((node) => disposeVideos(node, incomingFace));
+            settle(nextIndex, incomingFace);
             return;
         }
 
         const cube = document.createElement('span');
         cube.className = 'latest-models-video-module__cube is-turning';
+        setFaceSide(frontFace, 'front');
+        setFaceSide(incomingFace, 'right');
         cube.append(
-            createFace(entries[index], 'front'),
-            createFace(entries[nextIndex], 'right'),
+            frontFace,
+            incomingFace,
         );
-        slot.querySelectorAll('video').forEach((video) => {
-            video.pause();
-            video.removeAttribute('src');
-            try { video.load(); } catch { /* noop */ }
-        });
+        previousChildren.forEach((node) => disposeVideos(node, frontFace));
         slot.replaceChildren(cube);
         slot.classList.add('is-turning', 'is-ready');
         slot.dataset.activeVideoId = entries[nextIndex]?.id || '';
         slot.dataset.activeIndex = String(nextIndex);
         slot.dataset.transitionCount = String(transitionCount);
         window.clearTimeout(transitionTimer);
-        transitionTimer = window.setTimeout(() => {
-            if (!stopped) settle(nextIndex);
-        }, TRANSITION_MS);
+
+        let didSettle = false;
+        const finish = (event) => {
+            if (event && event.target !== cube) return;
+            if (didSettle) return;
+            didSettle = true;
+            cube.removeEventListener('animationend', finish);
+            window.clearTimeout(transitionTimer);
+            if (!stopped) settle(nextIndex, incomingFace);
+        };
+        cube.addEventListener('animationend', finish);
+        transitionTimer = window.setTimeout(finish, TRANSITION_FALLBACK_MS);
     }
 
     renderSettledSlot(slot, entries[index], index, transitionCount);
@@ -234,7 +273,7 @@ export function initLatestModelsVideoModule(root = document) {
             const bottomController = makeSlotController(slots.bottom, slotEntries, 1 % slotEntries.length, { reducedMotion });
             controllers = [topController, bottomController];
             topController.schedule(CYCLE_MS);
-            bottomController.schedule(reducedMotion ? CYCLE_MS : BOTTOM_START_OFFSET_MS);
+            bottomController.schedule(BOTTOM_START_OFFSET_MS);
         } catch (error) {
             console.warn('latestModelsVideoModule:', error);
             if (token !== loadToken) return;
