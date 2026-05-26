@@ -1,0 +1,190 @@
+# Fast path for direct-main homepage/UI-only updates.
+#
+# This workflow intentionally keeps a narrow changed-file allowlist and fails
+# closed for anything outside it. It is meant for low-risk static homepage
+# polish, not backend, auth, billing, Worker, package, release, config, or
+# workflow changes. Risky or mixed changes should use the full
+# ".github/workflows/static.yml" Pages workflow.
+#
+# UI-only means every changed file is one of:
+# - index.html or de/index.html
+# - homepage CSS/static component CSS listed below
+# - homepage JS under js/pages/index/**
+# - local images/favicons/fonts
+# - tests/smoke.spec.js
+#
+# The guard compares the push base/head. For manual dispatch, set
+# "base_ref" to the commit/SHA/ref you want to compare against; when omitted,
+# it compares HEAD^..HEAD. If the guard blocks, rerun the full static workflow
+# or split risky/backend/workflow files into a separate direct-main change.
+
+name: Fast UI Deploy to Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Optional base ref/SHA for changed-file guard. Defaults to HEAD^."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  fast-ui-deploy:
+    name: Guard, validate, and deploy UI-only change
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Guard changed files are UI-only
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BASE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.sha }}
+          MANUAL_BASE: ${{ github.event.inputs.base_ref }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            HEAD_REF="$PUSH_HEAD"
+            BASE_REF="${MANUAL_BASE:-HEAD^}"
+          else
+            HEAD_REF="$PUSH_HEAD"
+            BASE_REF="$PUSH_BASE"
+          fi
+
+          if [ -z "${BASE_REF:-}" ] || echo "$BASE_REF" | grep -Eq '^0+$'; then
+            echo "Fast UI deploy cannot determine a safe base ref."
+            echo "For workflow_dispatch, provide a base_ref. For push events, github.event.before must be available."
+            exit 1
+          fi
+
+          git rev-parse --verify "$BASE_REF^{commit}" >/dev/null
+          git rev-parse --verify "$HEAD_REF^{commit}" >/dev/null
+
+          echo "Changed-file guard"
+          echo "- Event: $EVENT_NAME"
+          echo "- Base:  $BASE_REF"
+          echo "- Head:  $HEAD_REF"
+          echo
+
+          mapfile -t changed_files < <(git diff --name-only --no-renames "$BASE_REF" "$HEAD_REF" | sort)
+
+          echo "Changed files (${#changed_files[@]}):"
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            echo "- none"
+          else
+            printf -- '- %s\n' "${changed_files[@]}"
+          fi
+          echo
+
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            echo "No changed files were found; refusing fast deploy to avoid an accidental production redeploy."
+            exit 1
+          fi
+
+          is_ui_safe_path() {
+            case "$1" in
+              index.html) return 0 ;;
+              de/index.html) return 0 ;;
+              css/pages/index.css) return 0 ;;
+              css/base/*) return 0 ;;
+              css/components/*) return 0 ;;
+              js/pages/index/*) return 0 ;;
+              assets/images/*) return 0 ;;
+              assets/favicons/*) return 0 ;;
+              fonts/*) return 0 ;;
+              tests/smoke.spec.js) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          blocked=()
+          for file in "${changed_files[@]}"; do
+            if ! is_ui_safe_path "$file"; then
+              blocked+=("$file")
+            fi
+          done
+
+          if [ "${#blocked[@]}" -gt 0 ]; then
+            echo "Fast UI deploy blocked. These files are outside the UI-only allowlist:"
+            printf -- '- %s\n' "${blocked[@]}"
+            echo
+            echo "Examples of paths intentionally blocked from this fast path:"
+            echo "- workers/**, admin/**, account/**"
+            echo "- js/shared/auth*, js/shared/wallet/**, js/pages/admin/**"
+            echo "- package.json, package-lock.json, config/**, scripts/**"
+            echo "- migrations/**, .github/workflows/**, _worker.js"
+            echo "- billing/auth/provider/security/backend-related files"
+            echo
+            echo "Use the full static workflow for risky or mixed changes, or split the direct-main push into a UI-only change."
+            exit 1
+          fi
+
+          echo "All changed files are UI-only. Continuing with fast validation and Pages deploy."
+          printf 'FAST_UI_BASE_REF=%s\n' "$BASE_REF" >> "$GITHUB_ENV"
+          printf 'FAST_UI_HEAD_REF=%s\n' "$HEAD_REF" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check JavaScript syntax
+        run: npm run check:js
+
+      - name: Check committed secrets
+        run: npm run check:secrets
+
+      - name: Check DOM sink baseline
+        run: npm run check:dom-sinks
+
+      - name: Check auth route policy coverage
+        run: npm run check:route-policies
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run focused homepage smoke tests
+        run: npx playwright test tests/smoke.spec.js -g "Homepage|MODELS|hero section renders|Static assets" --project=chromium
+
+      - name: Build static site
+        run: npm run build:static
+
+      - name: Check diff whitespace
+        run: git diff --check "$FAST_UI_BASE_REF" "$FAST_UI_HEAD_REF"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: '_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
