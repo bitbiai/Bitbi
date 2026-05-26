@@ -4115,7 +4115,7 @@
             overflow: hidden;
             contain: paint;
             pointer-events: none;
-            opacity: 0.9;
+            opacity: 0.86;
             mix-blend-mode: screen;
         }
 
@@ -4136,95 +4136,133 @@
         }
 
         .hero__creation-stream-halo {
-            opacity: 0.24;
-            animation: heroCreationStreamShimmer 7.6s ease-in-out infinite;
+            opacity: 0.15;
+            animation: heroCreationStreamShimmer 8.6s ease-in-out infinite;
         }
 
         .hero__creation-stream-halo--main {
-            stroke-width: clamp(22px, 2.45vw, 38px);
+            stroke-width: clamp(12px, 1.35vw, 22px);
         }
 
         .hero__creation-stream-halo--upper {
-            stroke-width: clamp(14px, 1.6vw, 25px);
-            opacity: 0.18;
+            stroke-width: clamp(8px, 0.95vw, 16px);
+            opacity: 0.13;
             animation-delay: -2.6s;
         }
 
         .hero__creation-stream-halo--lower {
-            stroke-width: clamp(16px, 1.9vw, 30px);
-            opacity: 0.2;
+            stroke-width: clamp(10px, 1.08vw, 18px);
+            opacity: 0.14;
             animation-delay: -4s;
         }
 
         .hero__creation-stream-halo--violet {
-            stroke-width: clamp(10px, 1.25vw, 20px);
-            opacity: 0.16;
+            stroke-width: clamp(7px, 0.8vw, 14px);
+            opacity: 0.11;
             animation-delay: -1.5s;
         }
 
         .hero__creation-stream-strand {
-            stroke-width: 2.6px;
-            opacity: 0.78;
-            animation: heroCreationStreamShimmer 6.4s ease-in-out infinite;
+            stroke-width: 1.65px;
+            opacity: 0.72;
+            animation: heroCreationStreamShimmer 7.2s ease-in-out infinite;
         }
 
         .hero__creation-stream-strand--core {
-            stroke-width: 5.4px;
-            opacity: 0.84;
+            stroke-width: 3px;
+            opacity: 0.82;
         }
 
         .hero__creation-stream-strand--upper {
-            stroke-width: 3.2px;
+            stroke-width: 2.1px;
+            opacity: 0.74;
             animation-delay: -1.2s;
+        }
+
+        .hero__creation-stream-strand--cyan-a {
+            stroke-width: 1.7px;
+            opacity: 0.76;
+            animation-delay: -2.2s;
+        }
+
+        .hero__creation-stream-strand--cyan-b {
+            stroke-width: 1.45px;
+            opacity: 0.62;
+            animation-delay: -3.4s;
+        }
+
+        .hero__creation-stream-strand--cyan-c {
+            stroke-width: 1.25px;
+            opacity: 0.56;
+            animation-delay: -5.2s;
         }
 
         .hero__creation-stream-strand--upper-fine,
         .hero__creation-stream-strand--thread {
-            stroke-width: 1.35px;
-            opacity: 0.58;
+            stroke-width: 0.95px;
+            opacity: 0.7;
             animation-delay: -2.7s;
         }
 
         .hero__creation-stream-strand--lower {
-            stroke-width: 3.5px;
+            stroke-width: 2.35px;
+            opacity: 0.74;
             animation-delay: -2s;
         }
 
+        .hero__creation-stream-strand--teal-low {
+            stroke-width: 1.55px;
+            opacity: 0.6;
+            animation-delay: -4.8s;
+        }
+
         .hero__creation-stream-strand--magenta {
-            stroke-width: 2.4px;
-            opacity: 0.66;
+            stroke-width: 1.85px;
+            opacity: 0.68;
             animation-delay: -3.1s;
         }
 
+        .hero__creation-stream-strand--magenta-b {
+            stroke-width: 1.35px;
+            opacity: 0.56;
+            animation-delay: -4.4s;
+        }
+
         .hero__creation-stream-strand--violet {
-            stroke-width: 1.75px;
-            opacity: 0.52;
+            stroke-width: 1.25px;
+            opacity: 0.5;
             animation-delay: -4.2s;
         }
 
+        .hero__creation-stream-strand--violet-bridge {
+            stroke-width: 1.1px;
+            opacity: 0.46;
+            animation-delay: -5.8s;
+        }
+
         .hero__creation-stream-strand--gold {
-            stroke-width: 1.6px;
-            opacity: 0.62;
+            stroke-width: 1.05px;
+            opacity: 0.58;
             animation-delay: -1.8s;
         }
 
-        .hero__creation-stream-strand--bridge {
-            stroke-width: 1.45px;
-            opacity: 0.48;
-            animation-delay: -5s;
+        .hero__creation-stream-strand--gold-fine {
+            stroke-width: 0.8px;
+            opacity: 0.42;
+            animation-delay: -6.2s;
         }
 
         .hero__creation-stream-highlight {
-            stroke-width: 1.35px;
-            stroke-dasharray: 18 92;
-            stroke-dashoffset: 240;
-            opacity: 0.76;
+            stroke-width: 0.95px;
+            stroke-dasharray: 14 104;
+            stroke-dashoffset: 260;
+            opacity: 0.7;
             animation: heroCreationStreamFlow 5.8s linear infinite;
         }
 
         .hero__creation-stream-highlight--one {
-            stroke-width: 1.9px;
-            stroke-dasharray: 24 118;
+            stroke-width: 1.35px;
+            stroke-dasharray: 20 132;
         }
 
         .hero__creation-stream-highlight--two {
@@ -4233,7 +4271,7 @@
         }
 
         .hero__creation-stream-highlight--three {
-            stroke-width: 1.65px;
+            stroke-width: 1.2px;
             animation-duration: 5.1s;
             animation-delay: -2.8s;
         }
@@ -4252,6 +4290,22 @@
             animation-duration: 6.1s;
             animation-delay: -4.6s;
             opacity: 0.52;
+        }
+
+        .hero__creation-stream-highlight--six {
+            stroke-width: 0.95px;
+            stroke-dasharray: 11 88;
+            animation-duration: 7.2s;
+            animation-delay: -2.1s;
+            opacity: 0.62;
+        }
+
+        .hero__creation-stream-highlight--seven {
+            stroke-width: 0.85px;
+            stroke-dasharray: 9 76;
+            animation-duration: 8.4s;
+            animation-delay: -5.2s;
+            opacity: 0.48;
         }
 
         .hero__creation-stream-particle {
@@ -4305,12 +4359,12 @@
         .hero__creation-stream-flare {
             transform-box: fill-box;
             transform-origin: center;
-            opacity: 0.42;
+            opacity: 0.5;
             animation: heroCreationStreamFlare 5.8s ease-in-out infinite;
         }
 
         .hero__creation-stream-flare--origin {
-            opacity: 0.28;
+            opacity: 0.42;
             animation-delay: -1.7s;
         }
 
@@ -4320,6 +4374,19 @@
 
         .hero__creation-stream-flare--bottom {
             animation-delay: -4.7s;
+        }
+
+        .hero__creation-stream-flare-ray {
+            fill: none;
+            stroke-width: 0.85px;
+            stroke-linecap: round;
+            opacity: 0.48;
+            vector-effect: non-scaling-stroke;
+            animation: heroCreationStreamFlare 6.4s ease-in-out infinite;
+        }
+
+        .hero__creation-stream-flare-ray--bottom {
+            animation-delay: -3.2s;
         }
 
         .hero__models-cta-wrap {
