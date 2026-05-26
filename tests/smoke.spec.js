@@ -1924,19 +1924,63 @@ test.describe('Homepage', () => {
     await expect(modelsButton).not.toContainText('Models');
     await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
     await expect(modelsModule).toBeVisible();
-    await expect(modelsModule.locator('.latest-models-video-module__label')).toHaveText('Modelle');
+    await expect(modelsModule.locator('.latest-models-video-module__label')).toHaveText('Platform Modelle');
     await expect(modelsModule).toHaveAttribute('data-video-module-state', 'ready');
     await expect(topSlot).toHaveAttribute('data-active-video-id', 'models-module-newest');
     await expect(bottomSlot).toHaveAttribute('data-active-video-id', 'models-module-second');
+    await expect(topSlot).toHaveAttribute('data-next-delay-ms', '4000');
+    await expect(bottomSlot).toHaveAttribute('data-next-delay-ms', '2000');
     await expect(topSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-newest\/vpub\/file$/);
     await expect(bottomSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-second\/vpub\/file$/);
     await expect.poll(() => videoRequests.slice(), { timeout: 3000 }).toEqual(expect.arrayContaining([
       '/api/gallery/memvids/models-module-newest/vpub/file',
       '/api/gallery/memvids/models-module-second/vpub/file',
     ]));
+
+    await expect
+      .poll(async () => bottomSlot.evaluate((slot) => {
+        const incoming = slot.querySelector('.latest-models-video-module__face--right video');
+        if (!incoming) return '';
+        incoming.dataset.continuityMarker = 'bottom-incoming-survives';
+        return incoming.getAttribute('src') || '';
+      }), { timeout: 3000 })
+      .toContain('/api/gallery/memvids/models-module-third/vpub/file');
+    await expect
+      .poll(async () => bottomSlot.evaluate((slot) => {
+        const incoming = slot.querySelector('.latest-models-video-module__face--front video');
+        if (slot.classList.contains('is-turning') || !incoming) return '';
+        return [
+          incoming.dataset.continuityMarker || '',
+          slot.dataset.nextDelayMs || '',
+          slot.dataset.transitionCount || '',
+          incoming.getAttribute('src') || '',
+        ].join('|');
+      }), { timeout: 2200 })
+      .toContain('bottom-incoming-survives|4000|1|/api/gallery/memvids/models-module-third/vpub/file');
     await expect.poll(() => bottomSlot.getAttribute('data-transition-count'), { timeout: 3200 }).toBe('1');
     expect(await topSlot.getAttribute('data-transition-count')).toBe('0');
-    await expect.poll(() => topSlot.getAttribute('data-transition-count'), { timeout: 5200 }).toBe('1');
+
+    await expect
+      .poll(async () => topSlot.evaluate((slot) => {
+        const incoming = slot.querySelector('.latest-models-video-module__face--right video');
+        if (!incoming) return '';
+        incoming.dataset.continuityMarker = 'top-incoming-survives';
+        return incoming.getAttribute('src') || '';
+      }), { timeout: 2600 })
+      .toContain('/api/gallery/memvids/models-module-second/vpub/file');
+    await expect.poll(() => topSlot.getAttribute('data-transition-count'), { timeout: 1200 }).toBe('1');
+    await expect
+      .poll(async () => topSlot.evaluate((slot) => {
+        const incoming = slot.querySelector('.latest-models-video-module__face--front video');
+        if (slot.classList.contains('is-turning') || !incoming) return '';
+        return [
+          incoming.dataset.continuityMarker || '',
+          slot.dataset.nextDelayMs || '',
+          slot.dataset.transitionCount || '',
+          incoming.getAttribute('src') || '',
+        ].join('|');
+      }), { timeout: 2200 })
+      .toContain('top-incoming-survives|4000|1|/api/gallery/memvids/models-module-second/vpub/file');
     await modelsButton.click();
 
     await expectPathUnchanged(page, '/');
@@ -1965,6 +2009,7 @@ test.describe('Homepage', () => {
       const modelsButton = page.locator('#hero .hero__models-cta');
       await expect(modelsButton).toBeVisible();
       await expect(modelsButton.locator('.latest-models-video-module')).toBeVisible();
+      await expect(modelsButton.locator('.latest-models-video-module__label')).toHaveText('Platform Modelle');
       await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
 
       const readLayout = async () => page.evaluate(() => {
@@ -2045,6 +2090,10 @@ test.describe('Homepage', () => {
       };
 
       assertLayout(await readLayout());
+      await modelsButton.hover();
+      await expect
+        .poll(() => modelsButton.evaluate((node) => window.getComputedStyle(node).boxShadow))
+        .toBe('none');
       for (const viewport of [
         { width: 1100, height: 760 },
         { width: 1600, height: 900 },
@@ -2394,11 +2443,15 @@ test.describe('Homepage', () => {
       const textEl = teaserEl?.querySelector('.hero__lab-teaser-text');
       const actionsEl = document.querySelector('.hero__actions');
       const heroEl = document.querySelector('#hero');
+      const titleEl = document.querySelector('#hero .hero__title-img');
+      const scrollHintEl = document.querySelector('#hero .hero__scroll-hint');
       const teaserStyle = teaserEl ? window.getComputedStyle(teaserEl) : null;
       const teaserBefore = teaserEl ? window.getComputedStyle(teaserEl, '::before') : null;
       const teaserAfter = teaserEl ? window.getComputedStyle(teaserEl, '::after') : null;
       const teaserRect = teaserEl?.getBoundingClientRect();
       const heroRect = heroEl?.getBoundingClientRect();
+      const titleRect = titleEl?.getBoundingClientRect();
+      const scrollHintRect = scrollHintEl?.getBoundingClientRect();
       return {
         actionClass: actionsEl?.className || '',
         actionJustifyContent: actionsEl ? window.getComputedStyle(actionsEl).justifyContent : '',
@@ -2406,6 +2459,8 @@ test.describe('Homepage', () => {
         centerOffset: teaserRect && heroRect
           ? Math.abs((teaserRect.left + teaserRect.width / 2) - (heroRect.left + heroRect.width / 2))
           : Number.POSITIVE_INFINITY,
+        titleToTeaserGap: teaserRect && titleRect ? teaserRect.top - titleRect.bottom : 0,
+        teaserToScrollGap: teaserRect && scrollHintRect ? scrollHintRect.top - teaserRect.bottom : 0,
         minBlockSize: teaserStyle ? parseFloat(teaserStyle.minHeight || teaserStyle.minBlockSize || '0') : 0,
         teaserFontSize: teaserStyle ? parseFloat(teaserStyle.fontSize) : 0,
         textTransform: teaserStyle?.textTransform || '',
@@ -2421,7 +2476,9 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.actionJustifyContent).toBe('center');
     expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
     expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
-    expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(52);
+    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(42);
+    expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(36);
+    expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);
     expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
     expect(teaserMetrics.textTransform).toBe('none');
     expect(teaserMetrics.boxShadow).not.toBe('none');
