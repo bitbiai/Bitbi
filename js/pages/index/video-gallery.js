@@ -5,7 +5,10 @@
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createStarButton } from '../../shared/favorites.js';
-import { initMobileCardDeck } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
+import {
+    MAX_MOBILE_DECK_DOTS,
+    initMobileCardDeck,
+} from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 import {
     getMobileMediaGridQuery,
     openMobileMediaGrid,
@@ -64,6 +67,8 @@ export function initVideoGallery() {
         deckClass: 'vid-deck',
         dotsClass: 'vid-deck-dots',
         dotClass: 'vid-deck-dot',
+        maxDots: MAX_MOBILE_DECK_DOTS,
+        dotTargetMode: 'proportional',
     });
 
     const $paginationStatus = document.createElement('button');

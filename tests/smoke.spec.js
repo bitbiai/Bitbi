@@ -4633,6 +4633,82 @@ test.describe('Homepage', () => {
       },
     }));
 
+    const memtrackItems = Array.from({ length: 12 }, (_, index) => ({
+      id: `memtrack-${index + 1}`,
+      slug: `memtrack-${index + 1}`,
+      title: `Public Member Track ${index + 1}`,
+      caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+      category: 'memtracks',
+      model_label: 'Music 2.6',
+      publisher: {
+        display_name: 'Ada Member',
+      },
+      file: {
+        url: `/api/gallery/memtracks/memtrack-${index + 1}/file`,
+      },
+      poster: {
+        url: `/api/gallery/memtracks/memtrack-${index + 1}/poster`,
+        w: 320,
+        h: 320,
+      },
+    }));
+
+    const expectActiveDeckIndex = async (gridSelector, cardSelector, expectedIndex) => {
+      const index = await page.evaluate(({ gridSelector, cardSelector }) => (
+        Array.from(document.querySelectorAll(`${gridSelector} ${cardSelector}`)).findIndex((card) => {
+          const style = window.getComputedStyle(card);
+          return style.pointerEvents !== 'none';
+        })
+      ), { gridSelector, cardSelector });
+      expect(index).toBe(expectedIndex);
+    };
+
+    const swipeToDeckIndex = async (gridSelector, cardSelector, expectedIndex) => {
+      for (let index = 0; index < expectedIndex; index += 1) {
+        await dispatchHorizontalTouchSwipe(page, gridSelector);
+      }
+      await expectActiveDeckIndex(gridSelector, cardSelector, expectedIndex);
+    };
+
+    const expectCappedDots = async (selector, expectedCount = 10) => {
+      const dots = page.locator(selector);
+      await expect(dots).toHaveCount(expectedCount);
+      const metrics = await dots.first().evaluate((dot) => {
+        const node = dot.parentElement;
+        return {
+          dotCount: node?.querySelectorAll('button').length || 0,
+          activeCount: node?.querySelectorAll('button.active').length || 0,
+          scrollWidth: node?.scrollWidth || 0,
+          clientWidth: node?.clientWidth || 0,
+          selectedTargets: Array.from(node?.querySelectorAll('button[aria-selected="true"]') || []).map((selectedDot) => selectedDot.dataset.targetIndex || ''),
+        };
+      });
+      expect(metrics.dotCount).toBeLessThanOrEqual(10);
+      expect(metrics.activeCount).toBe(1);
+      expect(metrics.scrollWidth - metrics.clientWidth).toBeLessThanOrEqual(1);
+      return metrics;
+    };
+
+    const expectMobileOverlayGrid = async (expectedCount) => {
+      const overlay = page.locator('.mobile-media-grid-overlay');
+      await expect(overlay).toBeVisible();
+      await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(expectedCount);
+      const metrics = await page.locator('.mobile-media-grid-overlay__grid').evaluate((grid) => {
+        const style = window.getComputedStyle(grid);
+        const items = Array.from(grid.querySelectorAll('.mobile-media-grid-overlay__item'));
+        const firstTop = items[0]?.getBoundingClientRect().top ?? 0;
+        const shell = grid.closest('.mobile-media-grid-overlay__shell') || grid;
+        return {
+          columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+          firstRowCount: items.filter((item) => Math.abs(item.getBoundingClientRect().top - firstTop) < 2).length,
+          overflow: shell.scrollWidth - shell.clientWidth,
+        };
+      });
+      expect(metrics.columns).toBe(3);
+      expect(metrics.firstRowCount).toBe(Math.min(3, expectedCount));
+      expect(metrics.overflow).toBeLessThanOrEqual(1);
+    };
+
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -4697,6 +4773,39 @@ test.describe('Homepage', () => {
       });
     });
 
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: memtrackItems,
+            has_more: false,
+            next_cursor: null,
+            applied_limit: 60,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memtracks/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/webp',
+          body: Buffer.from('mock-poster'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'audio/mpeg',
+        body: Buffer.from('mock-audio'),
+      });
+    });
+
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
     await switchHomepageCategory(page, 'gallery');
@@ -4737,11 +4846,14 @@ test.describe('Homepage', () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await switchHomepageCategory(page, 'gallery');
+    await expectCappedDots('.gal-deck-dots .gal-deck-dot');
+    await swipeToDeckIndex('#galleryGrid', '.gallery-item:not(.locked-area)', 11);
+    const galleryDotState = await expectCappedDots('.gal-deck-dots .gal-deck-dot');
+    expect(galleryDotState.selectedTargets).toEqual(['11']);
     await expect(page.locator('#galleryPagination .browse-pagination__toggle')).toBeHidden();
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toBeEnabled();
     await page.locator('#galleryPagination .browse-pagination__status').click();
-    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
-    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(12);
+    await expectMobileOverlayGrid(12);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery')).toBeVisible();
@@ -4755,10 +4867,13 @@ test.describe('Homepage', () => {
     await expect(page.locator('a[href*="/api/gallery/mempics/"]')).toHaveCount(0);
 
     await switchHomepageCategory(page, 'video');
+    await expectCappedDots('.vid-deck-dots .vid-deck-dot');
+    await swipeToDeckIndex('#videoGrid', '.video-card', 11);
+    const videoDotState = await expectCappedDots('.vid-deck-dots .vid-deck-dot');
+    expect(videoDotState.selectedTargets).toEqual(['11']);
     await expect(page.locator('#videoPagination .browse-pagination__status')).toBeEnabled();
     await page.locator('#videoPagination .browse-pagination__status').click();
-    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
-    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(12);
+    await expectMobileOverlayGrid(12);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video')).toBeVisible();
@@ -4769,15 +4884,18 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-grid-overlay__close').click();
 
     await switchHomepageCategory(page, 'sound');
-    await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing all 1 Memtracks.');
+    await expectCappedDots('.snd-deck-dots .snd-deck-dot');
+    await swipeToDeckIndex('#soundLabTracks', '.snd-card--memtrack', 11);
+    const soundDotState = await expectCappedDots('.snd-deck-dots .snd-deck-dot');
+    expect(soundDotState.selectedTargets).toEqual(['11']);
+    await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing all 12 Memtracks.');
     await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toBeEnabled();
     await page.locator('.snd-memtracks-pagination .browse-pagination__status').click();
-    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
-    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(1);
+    await expectMobileOverlayGrid(12);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--sound')).toBeVisible();
-    await expect(page.locator('.mobile-media-detail-overlay__sound-title')).toHaveText('Public Member Track');
+    await expect(page.locator('.mobile-media-detail-overlay__sound-title')).toHaveText('Public Member Track 1');
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await page.locator('.mobile-media-grid-overlay__close').click();

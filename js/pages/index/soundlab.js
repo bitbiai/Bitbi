@@ -5,6 +5,11 @@
 import { formatTime } from '../../shared/format-time.js';
 import { createStarButton } from '../../shared/favorites.js';
 import {
+    MAX_MOBILE_DECK_DOTS,
+    getMobileDeckActiveDotIndex,
+    getMobileDeckDotTargets,
+} from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
+import {
     getMobileMediaGridQuery,
     openMobileMediaGrid,
     syncMobileMediaTrigger,
@@ -558,36 +563,41 @@ export function initSoundLab(revealObserver) {
             if (!dotsEl) return;
             const cards = getCards();
             const dots = dotsEl.querySelectorAll('.snd-deck-dot');
-            if (dots.length !== cards.length) {
+            const targets = getMobileDeckDotTargets(cards.length, MAX_MOBILE_DECK_DOTS);
+            if (dots.length !== targets.length) {
                 buildDots();
                 return;
             }
+            const activeDot = getMobileDeckActiveDotIndex(deckActive, targets);
             dots.forEach((dot, i) => {
-                dot.classList.toggle('active', i === deckActive);
-                dot.setAttribute('aria-selected', i === deckActive ? 'true' : 'false');
+                dot.classList.toggle('active', i === activeDot);
+                dot.setAttribute('aria-selected', i === activeDot ? 'true' : 'false');
             });
         }
 
         function buildDots() {
             if (dotsEl) dotsEl.remove();
             const cards = getCards();
-            if (cards.length <= 1) {
+            const targets = getMobileDeckDotTargets(cards.length, MAX_MOBILE_DECK_DOTS);
+            if (targets.length <= 1) {
                 dotsEl = null;
                 return;
             }
+            const activeDot = getMobileDeckActiveDotIndex(deckActive, targets);
             dotsEl = document.createElement('div');
             dotsEl.className = 'snd-deck-dots';
             dotsEl.setAttribute('role', 'tablist');
             dotsEl.setAttribute('aria-label', localeText('browse.soundLabTracks'));
-            cards.forEach((_, i) => {
+            targets.forEach((target, i) => {
                 const dot = document.createElement('button');
                 dot.type = 'button';
-                dot.className = `snd-deck-dot${i === deckActive ? ' active' : ''}`;
+                dot.className = `snd-deck-dot${i === activeDot ? ' active' : ''}`;
                 dot.setAttribute('role', 'tab');
-                dot.setAttribute('aria-selected', i === deckActive ? 'true' : 'false');
-                dot.setAttribute('aria-label', `Show track ${i + 1}`);
+                dot.setAttribute('aria-selected', i === activeDot ? 'true' : 'false');
+                dot.setAttribute('aria-label', `Show track ${target + 1}`);
+                dot.dataset.targetIndex = String(target);
                 dot.addEventListener('click', () => {
-                    deckActive = i;
+                    deckActive = target;
                     layout();
                     syncDots();
                 });

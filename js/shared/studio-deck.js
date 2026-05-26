@@ -6,6 +6,46 @@
 
 import { setupFocusTrap } from './focus-trap.js';
 
+export const MAX_MOBILE_DECK_DOTS = 10;
+
+export function getMobileDeckDotTargets(itemCount, maxDots = MAX_MOBILE_DECK_DOTS) {
+    const count = Math.max(0, Number(itemCount) || 0);
+    const limit = Math.max(0, Math.floor(Number(maxDots) || 0));
+    if (!limit || count <= limit) {
+        return Array.from({ length: count }, (_, index) => index);
+    }
+    const lastIndex = count - 1;
+    const visibleCount = Math.min(limit, count);
+    const targets = [];
+    for (let dotIndex = 0; dotIndex < visibleCount; dotIndex += 1) {
+        const target = Math.round((dotIndex * lastIndex) / Math.max(visibleCount - 1, 1));
+        if (!targets.includes(target)) targets.push(target);
+    }
+    return targets;
+}
+
+export function getMobileDeckActiveDotIndex(activeIndex, targets) {
+    if (!Array.isArray(targets) || !targets.length) return -1;
+    const active = Math.max(0, Number(activeIndex) || 0);
+    let index = 0;
+    targets.forEach((target, targetIndex) => {
+        if (active >= target) index = targetIndex;
+    });
+    return index;
+}
+
+function getGroupedDeckDotTargets(cards, maxDots) {
+    if (!Number.isFinite(maxDots) || maxDots <= 0 || cards.length <= maxDots) {
+        return cards.map((_, index) => index);
+    }
+    const groupSize = Math.ceil(cards.length / maxDots);
+    const targets = [];
+    for (let index = 0; index < cards.length; index += groupSize) {
+        targets.push(index);
+    }
+    return targets;
+}
+
 /* ── Modal (injected once per page) ── */
 let modal = null;
 let focusTrapCleanup = null;
@@ -264,6 +304,7 @@ function _createDeck(grid, {
     dotsClass = 'studio-deck-dots',
     dotClass = 'studio-deck-dot',
     maxDots = Infinity,
+    dotTargetMode = 'grouped',
 }) {
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
@@ -280,24 +321,17 @@ function _createDeck(grid, {
     }
 
     function getDotTargets(cards) {
-        if (!Number.isFinite(maxDots) || maxDots <= 0 || cards.length <= maxDots) {
-            return cards.map((_, index) => index);
+        if (dotTargetMode !== 'proportional') {
+            return getGroupedDeckDotTargets(cards, maxDots);
         }
-        const groupSize = Math.ceil(cards.length / maxDots);
-        const targets = [];
-        for (let index = 0; index < cards.length; index += groupSize) {
-            targets.push(index);
-        }
-        return targets;
+        return getMobileDeckDotTargets(
+            cards.length,
+            Number.isFinite(maxDots) ? maxDots : cards.length,
+        );
     }
 
     function getActiveDotIndex(targets) {
-        if (!targets.length) return -1;
-        let index = 0;
-        targets.forEach((target, targetIndex) => {
-            if (active >= target) index = targetIndex;
-        });
-        return index;
+        return getMobileDeckActiveDotIndex(active, targets);
     }
 
     /* ── Layout (mirrors gallery.js galLayout) ── */
@@ -351,6 +385,7 @@ function _createDeck(grid, {
             d.setAttribute('role', 'tab');
             d.setAttribute('aria-selected', i === activeDot ? 'true' : 'false');
             d.setAttribute('aria-label', `Show ${itemLabel} ${target + 1}`);
+            d.dataset.targetIndex = String(target);
             d.addEventListener('click', () => { active = target; layout(); syncDots(); });
             dotsEl.appendChild(d);
         });

@@ -5,6 +5,11 @@
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createStarButton } from '../../shared/favorites.js';
 import {
+    MAX_MOBILE_DECK_DOTS,
+    getMobileDeckActiveDotIndex,
+    getMobileDeckDotTargets,
+} from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
+import {
     getMobileMediaGridQuery,
     openMobileMediaGrid,
     syncMobileMediaTrigger,
@@ -699,19 +704,22 @@ export function initGallery() {
     function galBuildDots() {
         if (galDotsEl) galDotsEl.remove();
         const all = galGetCards();
-        if (all.length <= 1) { galDotsEl = null; return; }
+        const targets = getMobileDeckDotTargets(all.length, MAX_MOBILE_DECK_DOTS);
+        if (targets.length <= 1) { galDotsEl = null; return; }
+        const activeDot = getMobileDeckActiveDotIndex(galActive, targets);
         galDotsEl = document.createElement('div');
         galDotsEl.className = 'gal-deck-dots';
         galDotsEl.setAttribute('role', 'tablist');
         galDotsEl.setAttribute('aria-label', localeText('browse.galleryCards'));
-        all.forEach((_, i) => {
+        targets.forEach((target, i) => {
             const d = document.createElement('button');
             d.type = 'button';
-            d.className = 'gal-deck-dot' + (i === galActive ? ' active' : '');
+            d.className = 'gal-deck-dot' + (i === activeDot ? ' active' : '');
             d.setAttribute('role', 'tab');
-            d.setAttribute('aria-selected', i === galActive ? 'true' : 'false');
-            d.setAttribute('aria-label', `Show card ${i + 1}`);
-            d.addEventListener('click', () => { galActive = i; galLayout(); galSyncDots(); });
+            d.setAttribute('aria-selected', i === activeDot ? 'true' : 'false');
+            d.setAttribute('aria-label', `Show card ${target + 1}`);
+            d.dataset.targetIndex = String(target);
+            d.addEventListener('click', () => { galActive = target; galLayout(); galSyncDots(); });
             galDotsEl.appendChild(d);
         });
         grid.after(galDotsEl);
@@ -721,10 +729,12 @@ export function initGallery() {
         if (!galDotsEl) return;
         const dots = galDotsEl.querySelectorAll('.gal-deck-dot');
         const all = galGetCards();
-        if (dots.length !== all.length) { galBuildDots(); return; }
+        const targets = getMobileDeckDotTargets(all.length, MAX_MOBILE_DECK_DOTS);
+        if (dots.length !== targets.length) { galBuildDots(); return; }
+        const activeDot = getMobileDeckActiveDotIndex(galActive, targets);
         dots.forEach((d, i) => {
-            d.classList.toggle('active', i === galActive);
-            d.setAttribute('aria-selected', i === galActive ? 'true' : 'false');
+            d.classList.toggle('active', i === activeDot);
+            d.setAttribute('aria-selected', i === activeDot ? 'true' : 'false');
         });
     }
 
