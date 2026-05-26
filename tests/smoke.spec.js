@@ -5549,10 +5549,18 @@ test.describe('Homepage', () => {
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
     expect(idsAfterClick).not.toContain('progressive-mempic-60');
 
+    await page.waitForTimeout(220);
     await page.evaluate(() => {
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
       window.dispatchEvent(new Event('scroll'));
     });
+    await page.waitForTimeout(80);
+    await page.mouse.move(720, 640);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      if (await cards.count() >= 50) break;
+      await page.mouse.wheel(0, 2400);
+      await page.waitForTimeout(140);
+    }
     await expect.poll(() => cards.count()).toBe(50);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));

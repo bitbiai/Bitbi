@@ -186,6 +186,7 @@
         }
 
         #galleryGrid .gallery-item {
+            position: relative;
             display: inline-block;
             inline-size: 100%;
             margin: 0 0 clamp(0.38rem, 0.5vw, 0.62rem);
@@ -198,6 +199,10 @@
             vertical-align: top;
             break-inside: avoid;
             page-break-inside: avoid;
+        }
+
+        #galleryGrid .gallery-item--square {
+            aspect-ratio: 1;
         }
 
         #galleryGrid .gallery-item--portrait {
