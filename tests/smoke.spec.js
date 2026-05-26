@@ -1921,10 +1921,11 @@ test.describe('Homepage', () => {
     await expect(modelsButton).toHaveCount(1);
     await expect(modelsButton).toBeVisible();
     await expect(modelsButton).toHaveAccessibleName('Open Models');
-    await expect(modelsButton).not.toContainText('Models');
+    await expect(modelsButton).not.toContainText('NEW MODELS');
     await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
     await expect(modelsModule).toBeVisible();
-    await expect(modelsModule.locator('.latest-models-video-module__label')).toHaveText('Platform Modelle');
+    await expect(modelsModule.locator('.latest-models-video-module__label')).toHaveText('Platform Models');
+    await expect(page.locator('#hero')).not.toContainText('Platform Modelle');
     await expect(modelsModule).toHaveAttribute('data-video-module-state', 'ready');
     await expect(topSlot).toHaveAttribute('data-active-video-id', 'models-module-newest');
     await expect(bottomSlot).toHaveAttribute('data-active-video-id', 'models-module-second');
@@ -2009,7 +2010,9 @@ test.describe('Homepage', () => {
       const modelsButton = page.locator('#hero .hero__models-cta');
       await expect(modelsButton).toBeVisible();
       await expect(modelsButton.locator('.latest-models-video-module')).toBeVisible();
-      await expect(modelsButton.locator('.latest-models-video-module__label')).toHaveText('Platform Modelle');
+      const expectedModuleLabel = path === '/de/' ? 'Plattform-Modelle' : 'Platform Models';
+      await expect(modelsButton.locator('.latest-models-video-module__label')).toHaveText(expectedModuleLabel);
+      await expect(page.locator('#hero')).not.toContainText('Platform Modelle');
       await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
 
       const readLayout = async () => page.evaluate(() => {
@@ -2476,8 +2479,8 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.actionJustifyContent).toBe('center');
     expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
     expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
-    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(42);
-    expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(36);
+    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(48);
+    expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(40);
     expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);
     expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
     expect(teaserMetrics.textTransform).toBe('none');
