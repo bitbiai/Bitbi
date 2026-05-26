@@ -3937,6 +3937,19 @@
         }
     }
 
+    @keyframes heroLabEnergyNodePulse {
+        0%,
+        100% {
+            opacity: 0.36;
+            transform: scale(0.9);
+        }
+
+        48% {
+            opacity: 0.78;
+            transform: scale(1.08);
+        }
+    }
+
     @media (min-width: 768px) {
         .hero--homepage .hero__title {
             filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.16)) drop-shadow(0 0 34px rgba(255, 255, 255, 0.1));
@@ -4097,7 +4110,7 @@
             overflow: hidden;
             pointer-events: none;
             mix-blend-mode: screen;
-            opacity: 0.9;
+            opacity: 0.86;
         }
 
         .hero__lab-energy::before,
@@ -4110,29 +4123,30 @@
         }
 
         .hero__lab-energy::before {
-            inset-block-start: clamp(26rem, 57vh, 34rem);
-            inset-inline-start: calc(50% - clamp(8rem, 12vw, 13rem));
-            inline-size: clamp(14rem, 20vw, 22rem);
-            block-size: clamp(3.4rem, 7vh, 5.4rem);
+            inset-block-start: clamp(29rem, 63vh, 38rem);
+            inset-inline-start: calc(50% - clamp(9rem, 13vw, 14rem));
+            inline-size: clamp(13rem, 18vw, 20rem);
+            block-size: clamp(2.6rem, 5vh, 4.3rem);
             background:
-                radial-gradient(ellipse at 50% 50%, rgba(0, 240, 255, 0.34), transparent 66%),
-                radial-gradient(ellipse at 62% 46%, rgba(255, 179, 0, 0.16), transparent 58%);
-            filter: blur(18px);
-            opacity: 0.74;
-            transform: rotate(-8deg);
+                radial-gradient(ellipse at 48% 50%, rgba(0, 240, 255, 0.28), transparent 66%),
+                radial-gradient(ellipse at 66% 44%, rgba(255, 79, 216, 0.16), transparent 60%),
+                radial-gradient(ellipse at 38% 56%, rgba(255, 179, 0, 0.1), transparent 58%);
+            filter: blur(16px);
+            opacity: 0.62;
+            transform: rotate(-10deg);
         }
 
         .hero__lab-energy::after {
-            inset-block-start: clamp(8rem, 22vh, 14rem);
-            inset-inline-end: clamp(7.5rem, 12vw, 16rem);
-            inline-size: clamp(15rem, 24vw, 28rem);
-            block-size: clamp(18rem, 44vh, 31rem);
+            inset-block-start: clamp(7rem, 18vh, 12rem);
+            inset-inline-end: clamp(5.8rem, 10vw, 14rem);
+            inline-size: clamp(14rem, 22vw, 26rem);
+            block-size: clamp(19rem, 48vh, 33rem);
             background:
-                radial-gradient(ellipse at 74% 24%, rgba(0, 240, 255, 0.2), transparent 60%),
-                radial-gradient(ellipse at 52% 62%, rgba(124, 58, 237, 0.18), transparent 68%),
-                radial-gradient(ellipse at 36% 76%, rgba(255, 179, 0, 0.1), transparent 58%);
-            filter: blur(24px);
-            opacity: 0.42;
+                radial-gradient(ellipse at 78% 22%, rgba(0, 240, 255, 0.16), transparent 64%),
+                radial-gradient(ellipse at 50% 58%, rgba(124, 58, 237, 0.16), transparent 70%),
+                radial-gradient(ellipse at 38% 80%, rgba(255, 79, 216, 0.11), transparent 62%);
+            filter: blur(28px);
+            opacity: 0.34;
         }
 
         .hero__lab-energy-svg {
@@ -4153,48 +4167,107 @@
         }
 
         .hero__lab-energy-glow {
-            opacity: 0.42;
+            opacity: 0.3;
             animation: heroLabEnergyGlowPulse 5.8s ease-in-out infinite;
         }
 
-        .hero__lab-energy-glow--main {
-            stroke-width: clamp(25px, 2.7vw, 42px);
+        .hero__lab-energy-glow--spine {
+            stroke-width: clamp(18px, 2.1vw, 32px);
         }
 
-        .hero__lab-energy-glow--top {
-            stroke-width: clamp(18px, 2vw, 30px);
+        .hero__lab-energy-glow--upper {
+            stroke-width: clamp(11px, 1.5vw, 23px);
             animation-delay: -1.8s;
-            opacity: 0.36;
+            opacity: 0.28;
         }
 
         .hero__lab-energy-glow--lower {
-            stroke-width: clamp(20px, 2.2vw, 34px);
+            stroke-width: clamp(12px, 1.6vw, 25px);
             animation-delay: -3s;
-            opacity: 0.4;
+            opacity: 0.3;
+        }
+
+        .hero__lab-energy-glow--filament {
+            stroke-width: clamp(7px, 0.9vw, 14px);
+            opacity: 0.2;
+            animation-delay: -2.4s;
+        }
+
+        .hero__lab-energy-node {
+            opacity: 0.42;
+            transform-box: fill-box;
+            transform-origin: center;
+            animation: heroLabEnergyNodePulse 4.8s ease-in-out infinite;
+        }
+
+        .hero__lab-energy-node--top {
+            animation-delay: -1.5s;
+        }
+
+        .hero__lab-energy-node--bottom {
+            animation-delay: -2.7s;
         }
 
         .hero__lab-energy-flow {
-            stroke-width: 3.2px;
-            stroke-dasharray: 34 118;
+            stroke-width: 2.35px;
+            stroke-dasharray: 18 94;
             filter:
-                drop-shadow(0 0 8px rgba(0, 240, 255, 0.78))
-                drop-shadow(0 0 18px rgba(124, 58, 237, 0.44))
-                drop-shadow(0 0 28px rgba(255, 179, 0, 0.16));
-            animation: heroLabEnergyFlow 3.7s linear infinite;
+                drop-shadow(0 0 7px rgba(0, 240, 255, 0.74))
+                drop-shadow(0 0 16px rgba(124, 58, 237, 0.38))
+                drop-shadow(0 0 26px rgba(255, 179, 0, 0.12));
+            animation: heroLabEnergyFlow 4.6s linear infinite;
+            opacity: 0.86;
         }
 
-        .hero__lab-energy-flow--top {
-            stroke-width: 2.6px;
-            stroke-dasharray: 24 104;
-            animation-duration: 3.1s;
+        .hero__lab-energy-flow--spine {
+            stroke-width: 2.8px;
+            stroke-dasharray: 24 112;
+        }
+
+        .hero__lab-energy-flow--upper {
+            stroke-width: 1.85px;
+            stroke-dasharray: 14 92;
+            animation-duration: 3.8s;
             animation-delay: -0.95s;
         }
 
         .hero__lab-energy-flow--lower {
-            stroke-width: 2.8px;
-            stroke-dasharray: 28 112;
-            animation-duration: 4.1s;
+            stroke-width: 2.15px;
+            stroke-dasharray: 16 106;
+            animation-duration: 4.9s;
             animation-delay: -1.8s;
+        }
+
+        .hero__lab-energy-flow--upper-alt,
+        .hero__lab-energy-flow--lower-alt,
+        .hero__lab-energy-flow--accent,
+        .hero__lab-energy-flow--accent-top {
+            stroke-width: 1.25px;
+            stroke-dasharray: 9 76;
+            filter:
+                drop-shadow(0 0 6px rgba(255, 79, 216, 0.56))
+                drop-shadow(0 0 14px rgba(124, 58, 237, 0.34));
+            opacity: 0.66;
+        }
+
+        .hero__lab-energy-flow--upper-alt {
+            animation-duration: 5.2s;
+            animation-delay: -2.3s;
+        }
+
+        .hero__lab-energy-flow--lower-alt {
+            animation-duration: 4.3s;
+            animation-delay: -1.4s;
+        }
+
+        .hero__lab-energy-flow--accent {
+            animation-duration: 3.6s;
+            animation-delay: -2.9s;
+        }
+
+        .hero__lab-energy-flow--accent-top {
+            animation-duration: 4s;
+            animation-delay: -0.6s;
         }
 
         .hero__lab-energy-spark {
@@ -4225,6 +4298,41 @@
         .hero__lab-energy-spark--five {
             animation-delay: -3.1s;
             animation-duration: 4.6s;
+        }
+
+        .hero__lab-energy-spark--six {
+            animation-delay: -3.55s;
+            animation-duration: 3.9s;
+        }
+
+        .hero__lab-energy-spark--seven {
+            animation-delay: -0.45s;
+            animation-duration: 3.1s;
+        }
+
+        .hero__lab-energy-spark--eight {
+            animation-delay: -1.2s;
+            animation-duration: 4.2s;
+        }
+
+        .hero__lab-energy-spark--nine {
+            animation-delay: -2.1s;
+            animation-duration: 3.7s;
+        }
+
+        .hero__lab-energy-spark--ten {
+            animation-delay: -2.85s;
+            animation-duration: 4.8s;
+        }
+
+        .hero__lab-energy-spark--eleven {
+            animation-delay: -3.35s;
+            animation-duration: 3.4s;
+        }
+
+        .hero__lab-energy-spark--twelve {
+            animation-delay: -1.7s;
+            animation-duration: 4.5s;
         }
 
         .hero__models-cta-wrap {
@@ -4566,7 +4674,7 @@
 
         .hero--homepage .hero__actions--single-cta {
             margin-block-start: 0;
-            padding-block-start: clamp(3.4rem, 8.2vh, 5.75rem);
+            padding-block-start: clamp(4.85rem, 14vh, 8.9rem);
         }
 
         .hero--homepage .hero__scroll-hint {
@@ -5207,6 +5315,7 @@
 
         .hero__lab-energy-glow,
         .hero__lab-energy-flow,
+        .hero__lab-energy-node,
         .hero__lab-energy-spark {
             animation: none;
         }

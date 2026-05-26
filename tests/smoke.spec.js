@@ -2539,6 +2539,10 @@ test.describe('Homepage', () => {
         energyDisplay: energyStyle?.display || '',
         energyPointerEvents: energyStyle?.pointerEvents || '',
         energyZIndex: Number.parseInt(energyStyle?.zIndex || '0', 10),
+        energyFlowCount: energyEl?.querySelectorAll('.hero__lab-energy-flow').length || 0,
+        energyGlowCount: energyEl?.querySelectorAll('.hero__lab-energy-glow').length || 0,
+        energyNodeCount: energyEl?.querySelectorAll('.hero__lab-energy-node').length || 0,
+        energySparkCount: energyEl?.querySelectorAll('.hero__lab-energy-spark').length || 0,
         energyWithinHero: Boolean(
           energyRect &&
           heroRect &&
@@ -2559,7 +2563,7 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.titleHeight).toBeGreaterThan(320);
     expect(teaserMetrics.titleCenterOffset).toBeLessThanOrEqual(2);
     expect(teaserMetrics.titleHeaderGap).toBeGreaterThanOrEqual(0);
-    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(64);
+    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(96);
     expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(34);
     expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);
     expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
@@ -2573,6 +2577,10 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.energyDisplay).toBe('block');
     expect(teaserMetrics.energyPointerEvents).toBe('none');
     expect(teaserMetrics.energyZIndex).toBeLessThan(10);
+    expect(teaserMetrics.energyFlowCount).toBeGreaterThanOrEqual(7);
+    expect(teaserMetrics.energyGlowCount).toBeGreaterThanOrEqual(5);
+    expect(teaserMetrics.energyNodeCount).toBeGreaterThanOrEqual(3);
+    expect(teaserMetrics.energySparkCount).toBeGreaterThanOrEqual(12);
     expect(teaserMetrics.energyWithinHero).toBe(true);
   });
 
