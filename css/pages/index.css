@@ -4147,8 +4147,8 @@
 
         .latest-models-video-module__label {
             position: absolute;
-            inset-block-start: clamp(0.82rem, 1.65vh, 1.08rem);
-            inset-inline-start: clamp(1.34rem, 3.7vw, 3.24rem);
+            inset-block-start: calc(50% + clamp(0.74rem, 1.5vh, 1.16rem));
+            inset-inline-start: 62%;
             z-index: 4;
             font-family: var(--font-mono);
             font-size: clamp(0.66rem, 0.82vw, 0.9rem);
@@ -4171,6 +4171,7 @@
                 0 0 18px rgba(0, 240, 255, 0.5),
                 0 0 34px rgba(255, 179, 0, 0.22),
                 0 14px 24px rgba(0, 0, 0, 0.46);
+            transform: translateX(-50%);
             pointer-events: none;
         }
 
@@ -4253,6 +4254,20 @@
             z-index: 2;
             -webkit-clip-path: url("#latestModelsBottomClip");
             clip-path: url("#latestModelsBottomClip");
+        }
+
+        .latest-models-video-module__slot--top > .latest-models-video-module__cube,
+        .latest-models-video-module__slot--top > .latest-models-video-module__fallback {
+            inset-block-start: 0;
+            inset-block-end: auto;
+            block-size: 50%;
+        }
+
+        .latest-models-video-module__slot--bottom > .latest-models-video-module__cube,
+        .latest-models-video-module__slot--bottom > .latest-models-video-module__fallback {
+            inset-block-start: 50%;
+            inset-block-end: 0;
+            block-size: 50%;
         }
 
         .latest-models-video-module__cube,

@@ -2019,9 +2019,17 @@ test.describe('Homepage', () => {
         const ctaNode = document.querySelector('#hero .hero__models-cta');
         const topSlotNode = document.querySelector('#hero [data-latest-models-slot="top"]');
         const bottomSlotNode = document.querySelector('#hero [data-latest-models-slot="bottom"]');
+        const moduleNode = document.querySelector('#hero .latest-models-video-module');
+        const labelNode = moduleNode.querySelector('.latest-models-video-module__label');
+        const topMediaNode = topSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
+        const bottomMediaNode = bottomSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
         const cta = ctaNode.getBoundingClientRect();
+        const module = moduleNode.getBoundingClientRect();
+        const label = labelNode.getBoundingClientRect();
         const topSlot = topSlotNode.getBoundingClientRect();
         const bottomSlot = bottomSlotNode.getBoundingClientRect();
+        const topMedia = topMediaNode.getBoundingClientRect();
+        const bottomMedia = bottomMediaNode.getBoundingClientRect();
         const title = document.querySelector('#hero .hero__title-img').getBoundingClientRect();
         const pulse = document.querySelector('#newsPulse').getBoundingClientRect();
         const hero = document.querySelector('#hero').getBoundingClientRect();
@@ -2029,9 +2037,9 @@ test.describe('Homepage', () => {
         const guest = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
         const ctaStyle = getComputedStyle(ctaNode);
         const ctaBeforeStyle = getComputedStyle(ctaNode, '::before');
-        const moduleNode = document.querySelector('#hero .latest-models-video-module');
         const moduleBeforeStyle = getComputedStyle(moduleNode, '::before');
         const moduleAfterStyle = getComputedStyle(moduleNode, '::after');
+        const labelStyle = getComputedStyle(labelNode);
         const topSlotStyle = getComputedStyle(topSlotNode);
         const bottomSlotStyle = getComputedStyle(bottomSlotNode);
         const topSlotBeforeStyle = getComputedStyle(topSlotNode, '::before');
@@ -2050,12 +2058,27 @@ test.describe('Homepage', () => {
           ctaTop: cta.top,
           ctaLeft: cta.left,
           ctaRight: cta.right,
+          moduleTop: module.top,
+          moduleBottom: module.bottom,
+          moduleLeft: module.left,
+          moduleWidth: module.width,
+          moduleHeight: module.height,
+          labelTop: label.top,
+          labelBottom: label.bottom,
+          labelCenterX: label.left + label.width / 2,
+          labelTransform: labelStyle.transform,
           topSlotTop: topSlot.top,
           topSlotBottom: topSlot.bottom,
           bottomSlotBottom: bottomSlot.bottom,
           topSlotRight: topSlot.right,
           bottomSlotTop: bottomSlot.top,
           bottomSlotRight: bottomSlot.right,
+          topMediaTop: topMedia.top,
+          topMediaBottom: topMedia.bottom,
+          topMediaHeight: topMedia.height,
+          bottomMediaTop: bottomMedia.top,
+          bottomMediaBottom: bottomMedia.bottom,
+          bottomMediaHeight: bottomMedia.height,
           titleTop: title.top,
           titleRight: title.right,
           titleLeft: title.left,
@@ -2089,6 +2112,17 @@ test.describe('Homepage', () => {
         expect(layout.bottomSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
         expect(Math.abs(layout.bottomSlotTop - layout.topSlotTop)).toBeLessThanOrEqual(1);
         expect(Math.abs(layout.bottomSlotBottom - layout.topSlotBottom)).toBeLessThanOrEqual(1);
+        expect(layout.labelTop).toBeGreaterThan(layout.moduleTop + layout.moduleHeight * 0.5);
+        expect(layout.labelBottom).toBeLessThan(layout.moduleBottom - 16);
+        expect(layout.labelCenterX).toBeGreaterThan(layout.moduleLeft + layout.moduleWidth * 0.48);
+        expect(layout.labelCenterX).toBeLessThan(layout.moduleLeft + layout.moduleWidth * 0.78);
+        expect(layout.labelTransform).not.toBe('none');
+        expect(Math.abs(layout.topMediaTop - layout.moduleTop)).toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.topMediaBottom - (layout.moduleTop + layout.moduleHeight * 0.5))).toBeLessThanOrEqual(1.5);
+        expect(Math.abs(layout.bottomMediaTop - (layout.moduleTop + layout.moduleHeight * 0.5))).toBeLessThanOrEqual(1.5);
+        expect(Math.abs(layout.bottomMediaBottom - layout.moduleBottom)).toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.topMediaHeight - layout.moduleHeight * 0.5)).toBeLessThanOrEqual(1.5);
+        expect(Math.abs(layout.bottomMediaHeight - layout.moduleHeight * 0.5)).toBeLessThanOrEqual(1.5);
         expect(layout.ctaBoxShadow).toBe('none');
         expect(layout.ctaBeforeContent).toBe('none');
         expect(layout.moduleBeforeContent).toBe('none');
