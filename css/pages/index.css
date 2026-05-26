@@ -4106,7 +4106,7 @@
 
         .latest-models-video-module::before,
         .latest-models-video-module::after {
-            content: '';
+            content: none;
             position: absolute;
             inset: 0;
             pointer-events: none;
@@ -4219,7 +4219,7 @@
         }
 
         .latest-models-video-module__slot::before {
-            content: '';
+            content: none;
             position: absolute;
             inset-block: -3%;
             inset-inline-start: -8%;
@@ -4238,18 +4238,18 @@
         }
 
         .latest-models-video-module__slot--top {
-            inset-block-start: 0;
+            inset: 0;
             inline-size: 100%;
-            block-size: calc(52% + 14px);
+            block-size: 100%;
             z-index: 1;
             -webkit-clip-path: url("#latestModelsTopClip");
             clip-path: url("#latestModelsTopClip");
         }
 
         .latest-models-video-module__slot--bottom {
-            inset-block-start: calc(52% - 14px);
+            inset: 0;
             inline-size: 100%;
-            block-size: calc(48% + 14px);
+            block-size: 100%;
             z-index: 2;
             -webkit-clip-path: url("#latestModelsBottomClip");
             clip-path: url("#latestModelsBottomClip");
@@ -4315,7 +4315,7 @@
         }
 
         .hero__models-cta::before {
-            content: '';
+            content: none;
             position: absolute;
             inset-block: -1.3rem;
             inset-inline-start: -2rem;

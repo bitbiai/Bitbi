@@ -2028,8 +2028,14 @@ test.describe('Homepage', () => {
         const nav = document.querySelector('#navbar').getBoundingClientRect();
         const guest = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
         const ctaStyle = getComputedStyle(ctaNode);
+        const ctaBeforeStyle = getComputedStyle(ctaNode, '::before');
+        const moduleNode = document.querySelector('#hero .latest-models-video-module');
+        const moduleBeforeStyle = getComputedStyle(moduleNode, '::before');
+        const moduleAfterStyle = getComputedStyle(moduleNode, '::after');
         const topSlotStyle = getComputedStyle(topSlotNode);
         const bottomSlotStyle = getComputedStyle(bottomSlotNode);
+        const topSlotBeforeStyle = getComputedStyle(topSlotNode, '::before');
+        const bottomSlotBeforeStyle = getComputedStyle(bottomSlotNode, '::before');
         const topSlotAfterStyle = getComputedStyle(topSlotNode, '::after');
         const bottomSlotAfterStyle = getComputedStyle(bottomSlotNode, '::after');
         const guestClear = !guest?.width || !guest?.height || (
@@ -2046,6 +2052,7 @@ test.describe('Homepage', () => {
           ctaRight: cta.right,
           topSlotTop: topSlot.top,
           topSlotBottom: topSlot.bottom,
+          bottomSlotBottom: bottomSlot.bottom,
           topSlotRight: topSlot.right,
           bottomSlotTop: bottomSlot.top,
           bottomSlotRight: bottomSlot.right,
@@ -2058,10 +2065,15 @@ test.describe('Homepage', () => {
           heroWidth: hero.width,
           navBottom: nav.bottom,
           ctaBoxShadow: ctaStyle.boxShadow,
+          ctaBeforeContent: ctaBeforeStyle.content,
+          moduleBeforeContent: moduleBeforeStyle.content,
+          moduleAfterContent: moduleAfterStyle.content,
           topSlotBoxShadow: topSlotStyle.boxShadow,
           bottomSlotBoxShadow: bottomSlotStyle.boxShadow,
           topSlotClipPath: topSlotStyle.clipPath,
           bottomSlotClipPath: bottomSlotStyle.clipPath,
+          topSlotBeforeContent: topSlotBeforeStyle.content,
+          bottomSlotBeforeContent: bottomSlotBeforeStyle.content,
           topSlotAfterContent: topSlotAfterStyle.content,
           bottomSlotAfterContent: bottomSlotAfterStyle.content,
           guestClear,
@@ -2075,14 +2087,18 @@ test.describe('Homepage', () => {
         expect(Math.abs(layout.topSlotTop - layout.navBottom)).toBeLessThanOrEqual(2);
         expect(layout.topSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
         expect(layout.bottomSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
-        const seamDelta = layout.bottomSlotTop - layout.topSlotBottom;
-        expect(seamDelta).toBeLessThanOrEqual(1);
-        expect(seamDelta).toBeGreaterThanOrEqual(-32);
+        expect(Math.abs(layout.bottomSlotTop - layout.topSlotTop)).toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.bottomSlotBottom - layout.topSlotBottom)).toBeLessThanOrEqual(1);
         expect(layout.ctaBoxShadow).toBe('none');
+        expect(layout.ctaBeforeContent).toBe('none');
+        expect(layout.moduleBeforeContent).toBe('none');
+        expect(layout.moduleAfterContent).toBe('none');
         expect(layout.topSlotBoxShadow).toBe('none');
         expect(layout.bottomSlotBoxShadow).toBe('none');
         expect(layout.topSlotClipPath).not.toBe('none');
         expect(layout.bottomSlotClipPath).not.toBe('none');
+        expect(layout.topSlotBeforeContent).toBe('none');
+        expect(layout.bottomSlotBeforeContent).toBe('none');
         expect(layout.topSlotAfterContent).toBe('none');
         expect(layout.bottomSlotAfterContent).toBe('none');
         expect(layout.titleLeft).toBeLessThan(layout.ctaLeft - 8);
