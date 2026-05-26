@@ -3866,42 +3866,9 @@
     .hero--homepage {
         --homepage-hero-side-inset: var(--bitbi-content-gutter, var(--bitbi-public-header-inset, clamp(0.7rem, 2vw, 1.4rem)));
         --homepage-news-pulse-width: clamp(24rem, 42vw, 44rem);
-    }
-
-    .hero--homepage .hero__media {
-        position: absolute;
-        inset: 0;
-        z-index: 0;
-        overflow: hidden;
-        pointer-events: none;
         background:
             radial-gradient(120% 88% at 50% 16%, rgba(13, 27, 42, 0.44) 0%, rgba(5, 8, 13, 0.18) 48%, transparent 72%),
             linear-gradient(180deg, #05080d 0%, #07111a 52%, #04060a 100%);
-    }
-
-    .hero--homepage .hero__media::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(180deg, rgba(4, 6, 10, 0.12) 0%, rgba(5, 8, 13, 0.18) 48%, rgba(4, 6, 10, 0.22) 100%);
-    }
-
-    .hero--homepage .hero__media-video {
-        display: block;
-        inline-size: 100%;
-        block-size: 100%;
-        object-fit: cover;
-        object-position: center center;
-        opacity: 0;
-        transition: opacity 220ms ease-out;
-    }
-
-    .hero--homepage .hero__media-video.is-active {
-        opacity: 0.63;
-    }
-
-    .hero--homepage .hero__media-video[hidden] {
-        display: none;
     }
 
     .hero--homepage #heroCanvas {
@@ -4407,7 +4374,7 @@
 
         .hero--homepage .hero__actions--single-cta {
             margin-block-start: 0;
-            padding-block-start: clamp(2.45rem, 6vh, 4.25rem);
+            padding-block-start: clamp(3.4rem, 8.2vh, 5.75rem);
         }
 
         .hero--homepage .hero__scroll-hint {
@@ -4994,10 +4961,6 @@
 
     /* --- Reduced Motion --- */
     @media (prefers-reduced-motion: reduce) {
-        .hero--homepage .hero__media-video {
-            display: none;
-        }
-
         .mobile-guest-banner__cta,
         .mobile-guest-banner::after {
             animation: none;

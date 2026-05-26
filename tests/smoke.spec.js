@@ -2167,13 +2167,6 @@ test.describe('Homepage', () => {
     });
   }
 
-  test('homepage hero video uses the intended 1.5x playback speed', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('[data-hero-video]')).toHaveCount(1);
-    await expect.poll(() => page.locator('[data-hero-video]').evaluate((video) => video.playbackRate)).toBe(1.5);
-    await expect.poll(() => page.locator('[data-hero-video]').evaluate((video) => video.defaultPlaybackRate)).toBe(1.5);
-  });
-
   test('MODELS opens the homepage models overlay from the mobile navigation without navigation', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
@@ -2467,16 +2460,11 @@ test.describe('Homepage', () => {
   test('hero section renders', async ({ page }) => {
     await page.goto('/');
     const hero = page.locator('#hero');
-    const heroVideo = hero.locator('[data-hero-video]');
     const teaser = hero.locator('.hero__lab-teaser');
 
     await expect(hero).toBeVisible();
-    await expect(heroVideo).toBeVisible();
-    await expect(heroVideo).not.toHaveAttribute('controls', /./);
-    await expect(heroVideo).not.toHaveAttribute('poster', /./);
-    await expect
-      .poll(() => heroVideo.evaluate((el) => el.classList.contains('is-active')))
-      .toBe(true);
+    await expect(hero.locator('[data-hero-video]')).toHaveCount(0);
+    await expect(hero.locator('.hero__media-video')).toHaveCount(0);
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
     await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toHaveCount(0);
     await expect(hero).not.toContainText('Open Generate Lab, review credit context before submit');
@@ -2538,8 +2526,8 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.actionJustifyContent).toBe('center');
     expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
     expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
-    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(48);
-    expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(40);
+    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(64);
+    expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(34);
     expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);
     expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
     expect(teaserMetrics.textTransform).toBe('none');
@@ -2555,11 +2543,10 @@ test.describe('Homepage', () => {
     await page.goto('/');
 
     const hero = page.locator('#hero');
-    const heroVideo = hero.locator('[data-hero-video]');
     const teaser = hero.locator('.hero__lab-teaser');
 
     await expect(hero).toBeVisible();
-    await expect(heroVideo).toBeHidden();
+    await expect(hero.locator('[data-hero-video]')).toHaveCount(0);
     await expect(hero.getByRole('heading', { name: 'Start creating from the public site' })).toHaveCount(0);
     await expect(teaser).toBeVisible();
     await expect(teaser.locator('.hero__lab-teaser-text')).toHaveText('Open Generate Lab');
@@ -3652,15 +3639,6 @@ test.describe('Homepage', () => {
     expect(mobileFooterSpacing.helpVisible).toBe(true);
     expect(mobileFooterSpacing.helpRightGap).toBeGreaterThanOrEqual(8);
     expect(mobileFooterSpacing.scrollWidth).toBeLessThanOrEqual(mobileFooterSpacing.clientWidth + 1);
-  });
-
-  test('hero uses the mobile background video asset on narrow viewports', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/');
-
-    await expect
-      .poll(() => page.locator('[data-hero-video]').evaluate((el) => el.currentSrc))
-      .toContain('/assets/images/hero/hero-flow-mobile.mp4');
   });
 
   test('Contact hash navigation aligns the footer contact row flush with the header', async ({ page }) => {
