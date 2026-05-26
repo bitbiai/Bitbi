@@ -2010,9 +2010,12 @@ test.describe('Homepage', () => {
       const modelsButton = page.locator('#hero .hero__models-cta');
       await expect(modelsButton).toBeVisible();
       await expect(modelsButton.locator('.latest-models-video-module')).toBeVisible();
-      const expectedModuleLabel = path === '/de/' ? 'Plattform-Modelle' : 'Platform Models';
+      const expectedModuleLabel = path === '/de/' ? 'Plattform Modelle' : 'Platform Models';
       await expect(modelsButton.locator('.latest-models-video-module__label')).toHaveText(expectedModuleLabel);
       await expect(page.locator('#hero')).not.toContainText('Platform Modelle');
+      await expect(page.locator('#hero')).not.toContainText('Plattform-Modelle');
+      await expect(page.locator('#hero')).not.toContainText('Platform-Models');
+      await expect(page.locator('#hero')).not.toContainText('Plattform-Models');
       await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
 
       const readLayout = async () => page.evaluate(() => {
@@ -2069,6 +2072,7 @@ test.describe('Homepage', () => {
           labelTransform: labelStyle.transform,
           topSlotTop: topSlot.top,
           topSlotBottom: topSlot.bottom,
+          topSlotHeight: topSlot.height,
           bottomSlotBottom: bottomSlot.bottom,
           topSlotRight: topSlot.right,
           bottomSlotTop: bottomSlot.top,
@@ -2112,17 +2116,22 @@ test.describe('Homepage', () => {
         expect(layout.bottomSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
         expect(Math.abs(layout.bottomSlotTop - layout.topSlotTop)).toBeLessThanOrEqual(1);
         expect(Math.abs(layout.bottomSlotBottom - layout.topSlotBottom)).toBeLessThanOrEqual(1);
-        expect(layout.labelTop).toBeGreaterThan(layout.moduleTop + layout.moduleHeight * 0.5);
-        expect(layout.labelBottom).toBeLessThan(layout.moduleBottom - 16);
+        const seamY = layout.topSlotTop + layout.topSlotHeight * 0.5;
+        expect(layout.labelTop).toBeGreaterThanOrEqual(layout.bottomSlotBottom + 4);
+        expect(layout.labelBottom).toBeLessThan(layout.moduleBottom - 8);
         expect(layout.labelCenterX).toBeGreaterThan(layout.moduleLeft + layout.moduleWidth * 0.48);
         expect(layout.labelCenterX).toBeLessThan(layout.moduleLeft + layout.moduleWidth * 0.78);
         expect(layout.labelTransform).not.toBe('none');
         expect(Math.abs(layout.topMediaTop - layout.moduleTop)).toBeLessThanOrEqual(1);
-        expect(Math.abs(layout.topMediaBottom - (layout.moduleTop + layout.moduleHeight * 0.5))).toBeLessThanOrEqual(1.5);
-        expect(Math.abs(layout.bottomMediaTop - (layout.moduleTop + layout.moduleHeight * 0.5))).toBeLessThanOrEqual(1.5);
-        expect(Math.abs(layout.bottomMediaBottom - layout.moduleBottom)).toBeLessThanOrEqual(1);
-        expect(Math.abs(layout.topMediaHeight - layout.moduleHeight * 0.5)).toBeLessThanOrEqual(1.5);
-        expect(Math.abs(layout.bottomMediaHeight - layout.moduleHeight * 0.5)).toBeLessThanOrEqual(1.5);
+        expect(layout.topMediaBottom).toBeGreaterThanOrEqual(seamY);
+        expect(layout.topMediaBottom).toBeLessThanOrEqual(seamY + 4);
+        expect(layout.bottomMediaTop).toBeLessThanOrEqual(seamY);
+        expect(layout.bottomMediaTop).toBeGreaterThanOrEqual(seamY - 4);
+        expect(layout.bottomMediaBottom).toBeLessThanOrEqual(layout.bottomSlotBottom + 1);
+        expect(layout.bottomMediaBottom).toBeGreaterThanOrEqual(layout.bottomSlotBottom - 1);
+        expect(layout.topMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
+        expect(layout.bottomMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
+        expect(layout.bottomMediaTop - layout.topMediaBottom).toBeLessThanOrEqual(0);
         expect(layout.ctaBoxShadow).toBe('none');
         expect(layout.ctaBeforeContent).toBe('none');
         expect(layout.moduleBeforeContent).toBe('none');

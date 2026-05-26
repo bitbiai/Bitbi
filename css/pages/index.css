@@ -4098,6 +4098,9 @@
 
         .latest-models-video-module {
             --latest-models-cube-depth: calc(var(--latest-models-module-width, 20rem) / 2);
+            --latest-models-caption-space: clamp(2.5rem, 5.2vh, 3.55rem);
+            --latest-models-video-stack-height: calc(100% - var(--latest-models-caption-space));
+            --latest-models-seam-overlap: 2px;
             position: absolute;
             inset: 0;
             display: block;
@@ -4147,8 +4150,8 @@
 
         .latest-models-video-module__label {
             position: absolute;
-            inset-block-start: calc(50% + clamp(0.74rem, 1.5vh, 1.16rem));
-            inset-inline-start: 62%;
+            inset-block-start: calc(var(--latest-models-video-stack-height) + clamp(0.42rem, 0.9vh, 0.68rem));
+            inset-inline-start: 60%;
             z-index: 4;
             font-family: var(--font-mono);
             font-size: clamp(0.66rem, 0.82vw, 0.9rem);
@@ -4206,6 +4209,8 @@
 
         .latest-models-video-module__slot {
             position: absolute;
+            inset-block-start: 0;
+            inset-block-end: auto;
             inset-inline-end: 0;
             display: block;
             overflow: hidden;
@@ -4239,18 +4244,18 @@
         }
 
         .latest-models-video-module__slot--top {
-            inset: 0;
+            inset-inline-start: 0;
             inline-size: 100%;
-            block-size: 100%;
+            block-size: var(--latest-models-video-stack-height);
             z-index: 1;
             -webkit-clip-path: url("#latestModelsTopClip");
             clip-path: url("#latestModelsTopClip");
         }
 
         .latest-models-video-module__slot--bottom {
-            inset: 0;
+            inset-inline-start: 0;
             inline-size: 100%;
-            block-size: 100%;
+            block-size: var(--latest-models-video-stack-height);
             z-index: 2;
             -webkit-clip-path: url("#latestModelsBottomClip");
             clip-path: url("#latestModelsBottomClip");
@@ -4260,14 +4265,14 @@
         .latest-models-video-module__slot--top > .latest-models-video-module__fallback {
             inset-block-start: 0;
             inset-block-end: auto;
-            block-size: 50%;
+            block-size: calc(50% + var(--latest-models-seam-overlap));
         }
 
         .latest-models-video-module__slot--bottom > .latest-models-video-module__cube,
         .latest-models-video-module__slot--bottom > .latest-models-video-module__fallback {
-            inset-block-start: 50%;
+            inset-block-start: calc(50% - var(--latest-models-seam-overlap));
             inset-block-end: 0;
-            block-size: 50%;
+            block-size: calc(50% + var(--latest-models-seam-overlap));
         }
 
         .latest-models-video-module__cube,
