@@ -3715,11 +3715,17 @@ test.describe('Homepage', () => {
         const title = section?.querySelector('.section__title');
         const titleRect = title?.getBoundingClientRect();
         const titleStyle = title ? window.getComputedStyle(title) : null;
+        const modeStyle = section?.querySelector('.video-mode')
+          ? window.getComputedStyle(section.querySelector('.video-mode'))
+          : null;
         return {
           descriptionsPresent: document.querySelectorAll('#gallery .section__desc, #video-creations .section__desc, #soundlab .section__desc').length,
           modeHintsPresent: document.querySelectorAll('#gallery .gallery-mode__hint, #video-creations .video-mode__hint, #soundlab .video-mode__hint').length,
+          headingActionGap: titleRect && firstModeButton ? firstModeButton.top - titleRect.bottom : 0,
           modeContentGap: modeRect && contentRect ? contentRect.top - modeRect.bottom : 0,
           modeButtonGap: firstModeButton && secondModeButton ? secondModeButton.left - firstModeButton.right : 0,
+          modePaddingTop: modeStyle ? parseFloat(modeStyle.paddingTop) : 0,
+          modePaddingBottom: modeStyle ? parseFloat(modeStyle.paddingBottom) : 0,
           sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
           sectionTopToHeading: sectionStyle && headerStyle
             ? parseFloat(sectionStyle.paddingTop) + parseFloat(headerStyle.paddingTop)
@@ -3736,14 +3742,20 @@ test.describe('Homepage', () => {
       expect(desktopMetrics.modeHintsPresent).toBe(0);
       expect(desktopMetrics.titleFontSize).toBeGreaterThan(53);
       expect(desktopMetrics.titleFontSize).toBeLessThan(55);
-      expect(desktopMetrics.modeContentGap).toBeGreaterThan(13);
-      expect(desktopMetrics.modeContentGap).toBeLessThan(16);
-      expect(desktopMetrics.modeButtonGap).toBeGreaterThan(43);
-      expect(desktopMetrics.modeButtonGap).toBeLessThan(47);
-      expect(desktopMetrics.sectionTopToHeading).toBeGreaterThan(25);
-      expect(desktopMetrics.sectionTopToHeading).toBeLessThan(27);
-      expect(desktopMetrics.headerMarginBottom).toBeGreaterThan(26);
-      expect(desktopMetrics.headerMarginBottom).toBeLessThan(28);
+      expect(desktopMetrics.headingActionGap).toBeGreaterThan(24);
+      expect(desktopMetrics.headingActionGap).toBeLessThan(29);
+      expect(desktopMetrics.modeContentGap).toBeGreaterThan(8);
+      expect(desktopMetrics.modeContentGap).toBeLessThan(12);
+      expect(desktopMetrics.modeButtonGap).toBeGreaterThan(45);
+      expect(desktopMetrics.modeButtonGap).toBeLessThan(48);
+      expect(desktopMetrics.modePaddingTop).toBeGreaterThan(7);
+      expect(desktopMetrics.modePaddingTop).toBeLessThan(9);
+      expect(desktopMetrics.modePaddingBottom).toBeGreaterThan(7);
+      expect(desktopMetrics.modePaddingBottom).toBeLessThan(9);
+      expect(desktopMetrics.sectionTopToHeading).toBeGreaterThan(20);
+      expect(desktopMetrics.sectionTopToHeading).toBeLessThan(22);
+      expect(desktopMetrics.headerMarginBottom).toBeGreaterThan(17);
+      expect(desktopMetrics.headerMarginBottom).toBeLessThan(20);
       expect(desktopMetrics.dividerVisible).toBe(false);
 
       const mobilePage = await mobileContext.newPage();
@@ -3816,6 +3828,7 @@ test.describe('Homepage', () => {
         body: JSON.stringify({ ok: true, favorites: [] }),
       });
     });
+    await routeDefaultMemtracks(page, { modelLabel: '' });
 
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
@@ -3831,7 +3844,6 @@ test.describe('Homepage', () => {
                 title: 'Mempics',
                 caption: 'Published by Ada Member on 2026-04-12.',
                 category: 'mempics',
-                model_id: '@cf/black-forest-labs/flux-1-schnell',
                 thumb: {
                   url: '/api/gallery/mempics/header-check-mempic/thumb',
                   w: 320,
@@ -3874,7 +3886,6 @@ test.describe('Homepage', () => {
                 title: 'Launch Walkthrough',
                 caption: 'Published by Ada Member on 2026-04-14.',
                 category: 'memvids',
-                model_label: 'Seedance 2.0 Fast',
                 file: {
                   url: '/api/gallery/memvids/header-check-memvid/file',
                 },
@@ -3943,12 +3954,17 @@ test.describe('Homepage', () => {
       const contentRect = content?.getBoundingClientRect();
       const sectionStyle = window.getComputedStyle(section);
       const headerStyle = window.getComputedStyle(header);
+      const modeStyle = mode ? window.getComputedStyle(mode) : null;
+      const titleRect = title?.getBoundingClientRect();
       return {
         titleFontSize: parseFloat(window.getComputedStyle(title).fontSize),
         sectionTopToHeading: parseFloat(sectionStyle.paddingTop) + parseFloat(headerStyle.paddingTop),
         headerMarginBottom: parseFloat(headerStyle.marginBottom),
+        headingActionGap: titleRect && first ? first.top - titleRect.bottom : 0,
         actionContentGap: modeRect && contentRect ? contentRect.top - modeRect.bottom : 0,
         actionGap: first && second ? second.left - first.right : 0,
+        modePaddingTop: modeStyle ? parseFloat(modeStyle.paddingTop) : 0,
+        modePaddingBottom: modeStyle ? parseFloat(modeStyle.paddingBottom) : 0,
       };
     }, { selector, modeSelector, contentSelector });
 
@@ -3963,54 +3979,109 @@ test.describe('Homepage', () => {
     Object.entries(desktopCategoryMetrics).forEach(([category, metrics]) => {
       expect(metrics.titleFontSize, `${category} heading`).toBeGreaterThan(53);
       expect(metrics.titleFontSize, `${category} heading`).toBeLessThan(55);
-      expect(metrics.sectionTopToHeading, `${category} top-to-heading gap`).toBeGreaterThan(25);
-      expect(metrics.sectionTopToHeading, `${category} top-to-heading gap`).toBeLessThan(27);
-      expect(metrics.headerMarginBottom, `${category} header gap`).toBeGreaterThan(26);
-      expect(metrics.headerMarginBottom, `${category} header gap`).toBeLessThan(28);
-      expect(metrics.actionContentGap, `${category} action-to-content gap`).toBeGreaterThan(13);
-      expect(metrics.actionContentGap, `${category} action-to-content gap`).toBeLessThan(16);
-      expect(metrics.actionGap, `${category} action horizontal gap`).toBeGreaterThan(43);
-      expect(metrics.actionGap, `${category} action horizontal gap`).toBeLessThan(47);
+      expect(metrics.sectionTopToHeading, `${category} top-to-heading gap corrected`).toBeGreaterThan(20);
+      expect(metrics.sectionTopToHeading, `${category} top-to-heading gap corrected`).toBeLessThan(22);
+      expect(metrics.headerMarginBottom, `${category} header gap`).toBeGreaterThan(17);
+      expect(metrics.headerMarginBottom, `${category} header gap`).toBeLessThan(20);
+      expect(metrics.headingActionGap, `${category} heading-to-action gap`).toBeGreaterThan(24);
+      expect(metrics.headingActionGap, `${category} heading-to-action gap`).toBeLessThan(29);
+      expect(metrics.actionContentGap, `${category} action-to-content gap corrected`).toBeGreaterThan(8);
+      expect(metrics.actionContentGap, `${category} action-to-content gap corrected`).toBeLessThan(12);
+      expect(metrics.actionGap, `${category} action horizontal gap`).toBeGreaterThan(45);
+      expect(metrics.actionGap, `${category} action horizontal gap`).toBeLessThan(48);
+      expect(metrics.modePaddingTop, `${category} action padding top`).toBeGreaterThan(7);
+      expect(metrics.modePaddingTop, `${category} action padding top`).toBeLessThan(9);
+      expect(metrics.modePaddingBottom, `${category} action padding bottom`).toBeGreaterThan(7);
+      expect(metrics.modePaddingBottom, `${category} action padding bottom`).toBeLessThan(9);
     });
 
-    const ghostState = await page.evaluate(() => {
-      const read = (selector) => {
-        const root = document.querySelector(`${selector} .category-ghost-models`);
-        const names = Array.from(root?.querySelectorAll('.category-ghost-models__name') || [])
-          .map((node) => node.textContent.trim())
-          .filter(Boolean);
+    const readActiveGhostState = async (selector) => page.evaluate((activeSelector) => {
+      const section = document.querySelector(activeSelector);
+      const root = section?.querySelector('.category-ghost-models');
+      const sectionRect = section?.getBoundingClientRect();
+      const actionRects = Array.from(section?.querySelectorAll('.gallery-mode [role="tab"], .video-mode [role="tab"]') || [])
+        .map((node) => node.getBoundingClientRect());
+      const centerX = sectionRect ? sectionRect.left + (sectionRect.width / 2) : 0;
+      const titleVisualRect = { left: centerX - 340, right: centerX + 340 };
+      const centralRects = [titleVisualRect, ...actionRects].filter(Boolean);
+      const centralLeft = Math.min(...centralRects.map((rect) => rect.left));
+      const centralRight = Math.max(...centralRects.map((rect) => rect.right));
+      const nodes = Array.from(root?.querySelectorAll('.category-ghost-models__name') || []);
+      const names = nodes
+        .map((node) => node.textContent.trim())
+        .filter(Boolean);
+      const details = nodes.map((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
         return {
-          names,
-          hidden: root?.hidden ?? true,
-          ariaHidden: root?.getAttribute('aria-hidden') || '',
-          rootPointerEvents: root ? window.getComputedStyle(root).pointerEvents : '',
-          namePointerEvents: root?.firstElementChild ? window.getComputedStyle(root.firstElementChild).pointerEvents : '',
+          name: node.textContent.trim(),
+          side: node.dataset.ghostSide || '',
+          opacity: Number(style.opacity || 0),
+          pointerEvents: style.pointerEvents,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          outsideCentralCluster: rect.right < centralLeft || rect.left > centralRight,
         };
-      };
+      });
+      const rootStyle = root ? window.getComputedStyle(root) : null;
       return {
-        gallery: read('#gallery'),
-        video: read('#video-creations'),
-        sound: read('#soundlab'),
+        names,
+        details,
+        hidden: root?.hidden ?? true,
+        source: root?.dataset.ghostSource || '',
+        ariaHidden: root?.getAttribute('aria-hidden') || '',
+        rootDisplay: rootStyle?.display || '',
+        rootPointerEvents: rootStyle?.pointerEvents || '',
+        rootZIndex: rootStyle ? Number(rootStyle.zIndex || 0) : 0,
+        namePointerEvents: root?.firstElementChild ? window.getComputedStyle(root.firstElementChild).pointerEvents : '',
+        maxOpacity: Math.max(0, ...details.map((detail) => detail.opacity)),
+        outsideCentralCluster: details.length > 0 && details.every((detail) => detail.outsideCentralCluster),
+        leftCount: details.filter((detail) => detail.side === 'left').length,
+        rightCount: details.filter((detail) => detail.side === 'right').length,
       };
-    });
+    }, selector);
+
+    const ghostState = {};
+    await switchHomepageCategory(page, 'gallery');
+    ghostState.gallery = await readActiveGhostState('#gallery');
+    await switchHomepageCategory(page, 'video');
+    ghostState.video = await readActiveGhostState('#video-creations');
+    await switchHomepageCategory(page, 'sound');
+    ghostState.sound = await readActiveGhostState('#soundlab');
 
     expect(ghostState.gallery.hidden).toBe(false);
-    expect(ghostState.gallery.names).toEqual(['FLUX.1 Schnell']);
+    expect(ghostState.gallery.source).toBe('category-config');
+    expect(ghostState.gallery.names).toEqual(['FLUX.1 Schnell', 'FLUX.2 Klein 9B', 'GPT Image 2']);
     expect(ghostState.gallery.names).not.toContain('Seedance 2.0 Fast');
+    expect(ghostState.gallery.names).not.toContain('HappyHorse 1.0 T2V');
     expect(ghostState.gallery.names).not.toContain('Music 2.6');
     expect(ghostState.video.hidden).toBe(false);
-    expect(ghostState.video.names).toEqual(['Seedance 2.0 Fast']);
+    expect(ghostState.video.source).toBe('category-config');
+    expect(ghostState.video.names).toEqual(['PixVerse V6', 'HappyHorse 1.0 T2V', 'Seedance 2.0 Fast']);
     expect(ghostState.video.names).not.toContain('FLUX.1 Schnell');
+    expect(ghostState.video.names).not.toContain('GPT Image 2');
     expect(ghostState.video.names).not.toContain('Music 2.6');
+    expect(ghostState.video.names).not.toContain('Seedance 2.0');
+    expect(ghostState.video.names).not.toContain('Vidu Q3 Pro');
     expect(ghostState.sound.hidden).toBe(false);
+    expect(ghostState.sound.source).toBe('category-config');
     expect(ghostState.sound.names).toEqual(['Music 2.6']);
     expect(ghostState.sound.names).not.toContain('FLUX.1 Schnell');
     expect(ghostState.sound.names).not.toContain('Seedance 2.0 Fast');
     for (const state of Object.values(ghostState)) {
+      expect(new Set(state.names).size).toBe(state.names.length);
       expect(state.ariaHidden).toBe('true');
+      expect(state.rootDisplay).toBe('block');
       expect(state.rootPointerEvents).toBe('none');
+      expect(state.rootZIndex).toBeGreaterThanOrEqual(2);
       expect(state.namePointerEvents).toBe('none');
+      expect(state.maxOpacity).toBeGreaterThan(0.18);
+      expect(state.outsideCentralCluster, JSON.stringify(state.details)).toBe(true);
+      expect(state.leftCount).toBeGreaterThanOrEqual(1);
     }
+    expect(ghostState.gallery.rightCount).toBeGreaterThanOrEqual(1);
+    expect(ghostState.video.rightCount).toBeGreaterThanOrEqual(1);
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const reducedGhostMotion = await page.locator('#soundlab .category-ghost-models__name').first().evaluate((node) => {
@@ -4018,7 +4089,7 @@ test.describe('Homepage', () => {
       return { animationName: style.animationName, opacity: style.opacity };
     });
     expect(reducedGhostMotion.animationName).toBe('none');
-    expect(Number(reducedGhostMotion.opacity)).toBeGreaterThan(0);
+    expect(Number(reducedGhostMotion.opacity)).toBeGreaterThanOrEqual(0.2);
     await page.emulateMedia({ reducedMotion: 'no-preference' });
 
     const desktopHeaderLayout = await page.evaluate(() => (

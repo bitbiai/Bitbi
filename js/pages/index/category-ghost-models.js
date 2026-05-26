@@ -8,6 +8,46 @@ const CATEGORY_PANEL_SELECTORS = {
     sound: '#soundlab',
 };
 
+const CATEGORY_CONFIG_FALLBACK_MODEL_NAMES = Object.freeze({
+    gallery: Object.freeze([
+        'FLUX.1 Schnell',
+        'FLUX.2 Klein 9B',
+        'GPT Image 2',
+    ]),
+    video: Object.freeze([
+        'PixVerse V6',
+        'HappyHorse 1.0 T2V',
+        'Seedance 2.0 Fast',
+    ]),
+    sound: Object.freeze([
+        'Music 2.6',
+    ]),
+});
+
+const CATEGORY_KNOWN_MODEL_NAMES = Object.freeze({
+    gallery: new Set([
+        'FLUX.1 Schnell',
+        'FLUX.2 Klein 9B',
+        'FLUX.2 Dev',
+        'GPT Image 2',
+    ]),
+    video: new Set([
+        'PixVerse V6',
+        'PixVerse V4.5',
+        'HappyHorse 1.0 T2V',
+        'Seedance 2.0 Fast',
+    ]),
+    sound: new Set([
+        'Music 2.6',
+        'MiniMax Music 2.6',
+    ]),
+});
+
+const DISALLOWED_PUBLIC_MODEL_NAMES = new Set([
+    'Seedance 2.0',
+    'Vidu Q3 Pro',
+]);
+
 const MODEL_LABELS = new Map([
     ['@cf/black-forest-labs/flux-1-schnell', 'FLUX.1 Schnell'],
     ['black-forest-labs/flux-1-schnell', 'FLUX.1 Schnell'],
@@ -24,10 +64,13 @@ const MODEL_LABELS = new Map([
     ['pixverse/v4.5', 'PixVerse V4.5'],
     ['alibaba/hh1-t2v', 'HappyHorse 1.0 T2V'],
     ['bytedance/seedance-2.0-fast', 'Seedance 2.0 Fast'],
-    ['bytedance/seedance-2.0', 'Seedance 2.0'],
     ['minimax/music-2.6', 'Music 2.6'],
     ['music-2.6', 'Music 2.6'],
 ]);
+
+const ALL_KNOWN_MODEL_NAMES = new Set(
+    Object.values(CATEGORY_KNOWN_MODEL_NAMES).flatMap((names) => [...names])
+);
 
 const DIRECT_MODEL_KEYS = [
     'modelLabel',
@@ -100,6 +143,14 @@ function normalizeModelLabel(value) {
     return raw;
 }
 
+function isCategoryAllowedModelName(category, name) {
+    if (!name || DISALLOWED_PUBLIC_MODEL_NAMES.has(name)) return false;
+    const categoryNames = CATEGORY_KNOWN_MODEL_NAMES[category];
+    if (!categoryNames) return false;
+    if (ALL_KNOWN_MODEL_NAMES.has(name)) return categoryNames.has(name);
+    return true;
+}
+
 function readModelValue(value, out) {
     if (typeof value === 'string') {
         const label = normalizeModelLabel(value);
@@ -138,18 +189,31 @@ function readItemModelLabels(item) {
     return labels;
 }
 
-function collectModelNames(items) {
+function dedupeModelNames(names, category) {
     const seen = new Set();
+    const deduped = [];
+    (Array.isArray(names) ? names : []).forEach((name) => {
+        if (!isCategoryAllowedModelName(category, name)) return;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        deduped.push(name);
+    });
+    return deduped;
+}
+
+function collectModelNames(category, items) {
     const names = [];
     (Array.isArray(items) ? items : []).forEach((item) => {
         readItemModelLabels(item).forEach((name) => {
-            const key = name.toLowerCase();
-            if (seen.has(key)) return;
-            seen.add(key);
             names.push(name);
         });
     });
-    return names;
+    return dedupeModelNames(names, category);
+}
+
+function fallbackModelNames(category) {
+    return dedupeModelNames(CATEGORY_CONFIG_FALLBACK_MODEL_NAMES[category] || [], category);
 }
 
 function ensureGhostRoot(panel, category) {
@@ -169,9 +233,12 @@ export function syncCategoryGhostModels(category, items) {
     const panel = document.querySelector(selector);
     if (!panel) return [];
     const root = ensureGhostRoot(panel, category);
-    const names = collectModelNames(items).slice(0, 6);
+    const collectedNames = collectModelNames(category, items);
+    const source = collectedNames.length ? 'media-metadata' : 'category-config';
+    const names = (collectedNames.length ? collectedNames : fallbackModelNames(category)).slice(0, 6);
     root.replaceChildren();
     root.hidden = names.length === 0;
+    root.dataset.ghostSource = names.length ? source : 'none';
     if (!names.length) return names;
 
     names.forEach((name, index) => {
@@ -180,7 +247,7 @@ export function syncCategoryGhostModels(category, items) {
         el.dataset.ghostSide = index % 2 === 0 ? 'left' : 'right';
         el.dataset.modelName = name;
         el.style.setProperty('--ghost-index', String(index));
-        el.style.setProperty('--ghost-delay', `${index * 1.35}s`);
+        el.style.setProperty('--ghost-delay', `${-4.8 - (index * 1.45)}s`);
         el.style.setProperty('--ghost-top', `${18 + ((index * 23) % 54)}%`);
         el.textContent = name;
         root.appendChild(el);
