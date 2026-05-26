@@ -145,6 +145,55 @@
     <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
     <section id="newsPulse" class="news-pulse" data-news-pulse data-news-pulse-locale="de" aria-label="KI-Puls"></section>
 
+    <div class="hero__lab-energy" aria-hidden="true">
+        <svg class="hero__lab-energy-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none" focusable="false" aria-hidden="true">
+            <defs>
+                <linearGradient id="heroLabEnergyCoreGradient" x1="510" y1="700" x2="880" y2="280" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#fff3bf"/>
+                    <stop offset="0.28" stop-color="#00f0ff"/>
+                    <stop offset="0.68" stop-color="#7dd3fc"/>
+                    <stop offset="1" stop-color="#c084fc"/>
+                </linearGradient>
+                <linearGradient id="heroLabEnergyForkGradient" x1="620" y1="590" x2="900" y2="560" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#00f0ff"/>
+                    <stop offset="0.55" stop-color="#7c3aed"/>
+                    <stop offset="1" stop-color="#ffb300"/>
+                </linearGradient>
+                <filter id="heroLabEnergyGlow" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+                    <feGaussianBlur stdDeviation="10" result="softGlow"/>
+                    <feGaussianBlur stdDeviation="3.5" in="SourceGraphic" result="nearGlow"/>
+                    <feMerge>
+                        <feMergeNode in="softGlow"/>
+                        <feMergeNode in="nearGlow"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+                <radialGradient id="heroLabEnergySparkGradient" cx="50%" cy="50%" r="50%">
+                    <stop offset="0" stop-color="#ffffff"/>
+                    <stop offset="0.42" stop-color="#00f0ff"/>
+                    <stop offset="1" stop-color="#00f0ff" stop-opacity="0"/>
+                </radialGradient>
+            </defs>
+            <g class="hero__lab-energy-aura" filter="url(#heroLabEnergyGlow)">
+                <path class="hero__lab-energy-glow hero__lab-energy-glow--main" stroke="url(#heroLabEnergyCoreGradient)" d="M 505 695 C 585 680 640 632 692 560 C 738 496 778 386 874 292"></path>
+                <path class="hero__lab-energy-glow hero__lab-energy-glow--lower" stroke="url(#heroLabEnergyForkGradient)" d="M 512 700 C 600 692 651 626 708 604 C 770 579 824 594 914 544"></path>
+                <path class="hero__lab-energy-glow hero__lab-energy-glow--top" stroke="url(#heroLabEnergyCoreGradient)" d="M 632 610 C 682 556 704 464 760 408 C 800 366 833 326 878 292"></path>
+            </g>
+            <g class="hero__lab-energy-core">
+                <path class="hero__lab-energy-flow hero__lab-energy-flow--main" stroke="url(#heroLabEnergyCoreGradient)" d="M 505 695 C 585 680 640 632 692 560 C 738 496 778 386 874 292"></path>
+                <path class="hero__lab-energy-flow hero__lab-energy-flow--lower" stroke="url(#heroLabEnergyForkGradient)" d="M 512 700 C 600 692 651 626 708 604 C 770 579 824 594 914 544"></path>
+                <path class="hero__lab-energy-flow hero__lab-energy-flow--top" stroke="url(#heroLabEnergyCoreGradient)" d="M 632 610 C 682 556 704 464 760 408 C 800 366 833 326 878 292"></path>
+            </g>
+            <g class="hero__lab-energy-sparks">
+                <circle class="hero__lab-energy-spark hero__lab-energy-spark--one" fill="url(#heroLabEnergySparkGradient)" cx="548" cy="680" r="4.5"></circle>
+                <circle class="hero__lab-energy-spark hero__lab-energy-spark--two" fill="url(#heroLabEnergySparkGradient)" cx="650" cy="622" r="3.4"></circle>
+                <circle class="hero__lab-energy-spark hero__lab-energy-spark--three" fill="url(#heroLabEnergySparkGradient)" cx="738" cy="474" r="3.8"></circle>
+                <circle class="hero__lab-energy-spark hero__lab-energy-spark--four" fill="url(#heroLabEnergySparkGradient)" cx="808" cy="584" r="3.2"></circle>
+                <circle class="hero__lab-energy-spark hero__lab-energy-spark--five" fill="url(#heroLabEnergySparkGradient)" cx="884" cy="304" r="4"></circle>
+            </g>
+        </svg>
+    </div>
+
     <div class="hero__models-cta-wrap">
         <button type="button" class="hero__models-cta" data-models-link="desktop" aria-label="Modelle öffnen">
             <span class="latest-models-video-module" data-latest-models-video-module aria-hidden="true">

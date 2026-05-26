@@ -2492,16 +2492,24 @@ test.describe('Homepage', () => {
       const teaserEl = document.querySelector('.hero__lab-teaser');
       const textEl = teaserEl?.querySelector('.hero__lab-teaser-text');
       const actionsEl = document.querySelector('.hero__actions');
+      const energyEl = document.querySelector('#hero .hero__lab-energy');
       const heroEl = document.querySelector('#hero');
       const titleEl = document.querySelector('#hero .hero__title-img');
       const scrollHintEl = document.querySelector('#hero .hero__scroll-hint');
       const teaserStyle = teaserEl ? window.getComputedStyle(teaserEl) : null;
       const teaserBefore = teaserEl ? window.getComputedStyle(teaserEl, '::before') : null;
       const teaserAfter = teaserEl ? window.getComputedStyle(teaserEl, '::after') : null;
+      const energyStyle = energyEl ? window.getComputedStyle(energyEl) : null;
+      const scrollHintStyle = scrollHintEl ? window.getComputedStyle(scrollHintEl) : null;
       const teaserRect = teaserEl?.getBoundingClientRect();
+      const energyRect = energyEl?.getBoundingClientRect();
       const heroRect = heroEl?.getBoundingClientRect();
       const titleRect = titleEl?.getBoundingClientRect();
       const scrollHintRect = scrollHintEl?.getBoundingClientRect();
+      const scrollHintTranslateY = scrollHintStyle?.transform && scrollHintStyle.transform !== 'none'
+        ? new DOMMatrixReadOnly(scrollHintStyle.transform).m42
+        : 0;
+      const scrollHintLayoutTop = scrollHintRect ? scrollHintRect.top - scrollHintTranslateY : 0;
       return {
         actionClass: actionsEl?.className || '',
         actionJustifyContent: actionsEl ? window.getComputedStyle(actionsEl).justifyContent : '',
@@ -2510,7 +2518,7 @@ test.describe('Homepage', () => {
           ? Math.abs((teaserRect.left + teaserRect.width / 2) - (heroRect.left + heroRect.width / 2))
           : Number.POSITIVE_INFINITY,
         titleToTeaserGap: teaserRect && titleRect ? teaserRect.top - titleRect.bottom : 0,
-        teaserToScrollGap: teaserRect && scrollHintRect ? scrollHintRect.top - teaserRect.bottom : 0,
+        teaserToScrollGap: teaserRect && scrollHintRect ? scrollHintLayoutTop - teaserRect.bottom : 0,
         minBlockSize: teaserStyle ? parseFloat(teaserStyle.minHeight || teaserStyle.minBlockSize || '0') : 0,
         teaserFontSize: teaserStyle ? parseFloat(teaserStyle.fontSize) : 0,
         textTransform: teaserStyle?.textTransform || '',
@@ -2519,6 +2527,18 @@ test.describe('Homepage', () => {
         beforeAnimation: teaserBefore?.animationName || '',
         afterAnimation: teaserAfter?.animationName || '',
         pointerEvents: teaserStyle?.pointerEvents || '',
+        energyAriaHidden: energyEl?.getAttribute('aria-hidden') || '',
+        energyDisplay: energyStyle?.display || '',
+        energyPointerEvents: energyStyle?.pointerEvents || '',
+        energyZIndex: Number.parseInt(energyStyle?.zIndex || '0', 10),
+        energyWithinHero: Boolean(
+          energyRect &&
+          heroRect &&
+          energyRect.left >= heroRect.left - 1 &&
+          energyRect.right <= heroRect.right + 1 &&
+          energyRect.top >= heroRect.top - 1 &&
+          energyRect.bottom <= heroRect.bottom + 1
+        ),
       };
     });
 
@@ -2536,6 +2556,11 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.beforeAnimation).toContain('heroLabCtaGlow');
     expect(teaserMetrics.afterAnimation).toContain('heroLabCtaSheen');
     expect(teaserMetrics.pointerEvents).not.toBe('none');
+    expect(teaserMetrics.energyAriaHidden).toBe('true');
+    expect(teaserMetrics.energyDisplay).toBe('block');
+    expect(teaserMetrics.energyPointerEvents).toBe('none');
+    expect(teaserMetrics.energyZIndex).toBeLessThan(10);
+    expect(teaserMetrics.energyWithinHero).toBe(true);
   });
 
   test('hero falls back cleanly in reduced motion mode', async ({ page }) => {

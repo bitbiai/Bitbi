@@ -3883,6 +3883,56 @@
         filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.14)) drop-shadow(0 0 28px rgba(255, 255, 255, 0.08));
     }
 
+    .hero__lab-energy {
+        display: none;
+    }
+
+    @keyframes heroLabEnergyFlow {
+        0% {
+            stroke-dashoffset: 160;
+            opacity: 0.24;
+        }
+
+        18%,
+        72% {
+            opacity: 0.92;
+        }
+
+        100% {
+            stroke-dashoffset: -260;
+            opacity: 0.28;
+        }
+    }
+
+    @keyframes heroLabEnergyGlowPulse {
+        0%,
+        100% {
+            opacity: 0.34;
+        }
+
+        50% {
+            opacity: 0.62;
+        }
+    }
+
+    @keyframes heroLabEnergySparkPulse {
+        0%,
+        100% {
+            opacity: 0;
+            transform: scale(0.52);
+        }
+
+        32% {
+            opacity: 0.92;
+            transform: scale(1.18);
+        }
+
+        68% {
+            opacity: 0.36;
+            transform: scale(0.82);
+        }
+    }
+
     @media (min-width: 768px) {
         .hero--homepage .hero__title {
             filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.16)) drop-shadow(0 0 34px rgba(255, 255, 255, 0.1));
@@ -4035,6 +4085,144 @@
     }
 
     @media (min-width: 1024px) {
+        .hero__lab-energy {
+            position: absolute;
+            inset: calc(4rem + env(safe-area-inset-top, 0px)) 0 0;
+            z-index: 9;
+            display: block;
+            overflow: hidden;
+            pointer-events: none;
+            mix-blend-mode: screen;
+            opacity: 0.9;
+        }
+
+        .hero__lab-energy::before,
+        .hero__lab-energy::after {
+            content: '';
+            position: absolute;
+            pointer-events: none;
+            border-radius: 999px;
+            mix-blend-mode: screen;
+        }
+
+        .hero__lab-energy::before {
+            inset-block-start: clamp(26rem, 57vh, 34rem);
+            inset-inline-start: calc(50% - clamp(8rem, 12vw, 13rem));
+            inline-size: clamp(14rem, 20vw, 22rem);
+            block-size: clamp(3.4rem, 7vh, 5.4rem);
+            background:
+                radial-gradient(ellipse at 50% 50%, rgba(0, 240, 255, 0.34), transparent 66%),
+                radial-gradient(ellipse at 62% 46%, rgba(255, 179, 0, 0.16), transparent 58%);
+            filter: blur(18px);
+            opacity: 0.74;
+            transform: rotate(-8deg);
+        }
+
+        .hero__lab-energy::after {
+            inset-block-start: clamp(8rem, 22vh, 14rem);
+            inset-inline-end: clamp(7.5rem, 12vw, 16rem);
+            inline-size: clamp(15rem, 24vw, 28rem);
+            block-size: clamp(18rem, 44vh, 31rem);
+            background:
+                radial-gradient(ellipse at 74% 24%, rgba(0, 240, 255, 0.2), transparent 60%),
+                radial-gradient(ellipse at 52% 62%, rgba(124, 58, 237, 0.18), transparent 68%),
+                radial-gradient(ellipse at 36% 76%, rgba(255, 179, 0, 0.1), transparent 58%);
+            filter: blur(24px);
+            opacity: 0.42;
+        }
+
+        .hero__lab-energy-svg {
+            position: absolute;
+            inset: 0;
+            display: block;
+            inline-size: 100%;
+            block-size: 100%;
+            overflow: visible;
+        }
+
+        .hero__lab-energy-glow,
+        .hero__lab-energy-flow {
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .hero__lab-energy-glow {
+            opacity: 0.42;
+            animation: heroLabEnergyGlowPulse 5.8s ease-in-out infinite;
+        }
+
+        .hero__lab-energy-glow--main {
+            stroke-width: clamp(25px, 2.7vw, 42px);
+        }
+
+        .hero__lab-energy-glow--top {
+            stroke-width: clamp(18px, 2vw, 30px);
+            animation-delay: -1.8s;
+            opacity: 0.36;
+        }
+
+        .hero__lab-energy-glow--lower {
+            stroke-width: clamp(20px, 2.2vw, 34px);
+            animation-delay: -3s;
+            opacity: 0.4;
+        }
+
+        .hero__lab-energy-flow {
+            stroke-width: 3.2px;
+            stroke-dasharray: 34 118;
+            filter:
+                drop-shadow(0 0 8px rgba(0, 240, 255, 0.78))
+                drop-shadow(0 0 18px rgba(124, 58, 237, 0.44))
+                drop-shadow(0 0 28px rgba(255, 179, 0, 0.16));
+            animation: heroLabEnergyFlow 3.7s linear infinite;
+        }
+
+        .hero__lab-energy-flow--top {
+            stroke-width: 2.6px;
+            stroke-dasharray: 24 104;
+            animation-duration: 3.1s;
+            animation-delay: -0.95s;
+        }
+
+        .hero__lab-energy-flow--lower {
+            stroke-width: 2.8px;
+            stroke-dasharray: 28 112;
+            animation-duration: 4.1s;
+            animation-delay: -1.8s;
+        }
+
+        .hero__lab-energy-spark {
+            opacity: 0;
+            transform-box: fill-box;
+            transform-origin: center;
+            filter:
+                drop-shadow(0 0 7px rgba(255, 255, 255, 0.82))
+                drop-shadow(0 0 16px rgba(0, 240, 255, 0.68));
+            animation: heroLabEnergySparkPulse 3.8s ease-in-out infinite;
+        }
+
+        .hero__lab-energy-spark--two {
+            animation-delay: -0.8s;
+            animation-duration: 3.2s;
+        }
+
+        .hero__lab-energy-spark--three {
+            animation-delay: -1.65s;
+            animation-duration: 4.3s;
+        }
+
+        .hero__lab-energy-spark--four {
+            animation-delay: -2.4s;
+            animation-duration: 3.5s;
+        }
+
+        .hero__lab-energy-spark--five {
+            animation-delay: -3.1s;
+            animation-duration: 4.6s;
+        }
+
         .hero__models-cta-wrap {
             position: absolute;
             inset-block-start: calc(4rem + env(safe-area-inset-top, 0px));
@@ -4386,6 +4574,14 @@
         }
 
         @media (max-width: 1180px) {
+            .hero__lab-energy {
+                opacity: 0.68;
+            }
+
+            .hero__lab-energy-flow {
+                stroke-width: 2.4px;
+            }
+
             .hero__models-cta {
                 --latest-models-module-width: clamp(10.75rem, 18vw, 13rem);
                 --latest-models-module-height: clamp(21rem, 58vh, 32rem);
@@ -5003,6 +5199,26 @@
         .latest-models-video-module__cube,
         .latest-models-video-module__cube.is-turning {
             transform: translateZ(calc(-1 * var(--latest-models-cube-depth))) rotateY(0deg);
+        }
+
+        .hero__lab-energy-glow,
+        .hero__lab-energy-flow,
+        .hero__lab-energy-spark {
+            animation: none;
+        }
+
+        .hero__lab-energy {
+            opacity: 0.46;
+        }
+
+        .hero__lab-energy-flow {
+            opacity: 0.54;
+            stroke-dasharray: none;
+        }
+
+        .hero__lab-energy-spark {
+            opacity: 0.34;
+            transform: none;
         }
 
         .gallery-inner {
