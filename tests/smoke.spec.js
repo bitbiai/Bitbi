@@ -1968,13 +1968,22 @@ test.describe('Homepage', () => {
       await expect(modelsButton.locator('img.hero__models-cta-image')).toHaveCount(0);
 
       const readLayout = async () => page.evaluate(() => {
-        const cta = document.querySelector('#hero .hero__models-cta').getBoundingClientRect();
-        const topSlot = document.querySelector('#hero [data-latest-models-slot="top"]').getBoundingClientRect();
+        const ctaNode = document.querySelector('#hero .hero__models-cta');
+        const topSlotNode = document.querySelector('#hero [data-latest-models-slot="top"]');
+        const bottomSlotNode = document.querySelector('#hero [data-latest-models-slot="bottom"]');
+        const cta = ctaNode.getBoundingClientRect();
+        const topSlot = topSlotNode.getBoundingClientRect();
+        const bottomSlot = bottomSlotNode.getBoundingClientRect();
         const title = document.querySelector('#hero .hero__title-img').getBoundingClientRect();
         const pulse = document.querySelector('#newsPulse').getBoundingClientRect();
         const hero = document.querySelector('#hero').getBoundingClientRect();
         const nav = document.querySelector('#navbar').getBoundingClientRect();
         const guest = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
+        const ctaStyle = getComputedStyle(ctaNode);
+        const topSlotStyle = getComputedStyle(topSlotNode);
+        const bottomSlotStyle = getComputedStyle(bottomSlotNode);
+        const topSlotAfterStyle = getComputedStyle(topSlotNode, '::after');
+        const bottomSlotAfterStyle = getComputedStyle(bottomSlotNode, '::after');
         const guestClear = !guest?.width || !guest?.height || (
           guest.right <= cta.left - 8 ||
           guest.left >= cta.right + 8 ||
@@ -1988,7 +1997,10 @@ test.describe('Homepage', () => {
           ctaLeft: cta.left,
           ctaRight: cta.right,
           topSlotTop: topSlot.top,
+          topSlotBottom: topSlot.bottom,
           topSlotRight: topSlot.right,
+          bottomSlotTop: bottomSlot.top,
+          bottomSlotRight: bottomSlot.right,
           titleTop: title.top,
           titleRight: title.right,
           titleLeft: title.left,
@@ -1997,6 +2009,13 @@ test.describe('Homepage', () => {
           heroTop: hero.top,
           heroWidth: hero.width,
           navBottom: nav.bottom,
+          ctaBoxShadow: ctaStyle.boxShadow,
+          topSlotBoxShadow: topSlotStyle.boxShadow,
+          bottomSlotBoxShadow: bottomSlotStyle.boxShadow,
+          topSlotClipPath: topSlotStyle.clipPath,
+          bottomSlotClipPath: bottomSlotStyle.clipPath,
+          topSlotAfterContent: topSlotAfterStyle.content,
+          bottomSlotAfterContent: bottomSlotAfterStyle.content,
           guestClear,
         };
       });
@@ -2007,6 +2026,17 @@ test.describe('Homepage', () => {
         expect(layout.ctaRight).toBeLessThanOrEqual(layout.heroRight + 1);
         expect(Math.abs(layout.topSlotTop - layout.navBottom)).toBeLessThanOrEqual(2);
         expect(layout.topSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
+        expect(layout.bottomSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
+        const seamDelta = layout.bottomSlotTop - layout.topSlotBottom;
+        expect(seamDelta).toBeLessThanOrEqual(1);
+        expect(seamDelta).toBeGreaterThanOrEqual(-32);
+        expect(layout.ctaBoxShadow).toBe('none');
+        expect(layout.topSlotBoxShadow).toBe('none');
+        expect(layout.bottomSlotBoxShadow).toBe('none');
+        expect(layout.topSlotClipPath).not.toBe('none');
+        expect(layout.bottomSlotClipPath).not.toBe('none');
+        expect(layout.topSlotAfterContent).toBe('none');
+        expect(layout.bottomSlotAfterContent).toBe('none');
         expect(layout.titleLeft).toBeLessThan(layout.ctaLeft - 8);
         expect(layout.titleRight).toBeLessThan(layout.ctaLeft + 16);
         expect(layout.titleTop).toBeGreaterThanOrEqual(layout.navBottom + 2);
