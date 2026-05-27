@@ -4513,22 +4513,22 @@
 
         .latest-models-video-module__edge-glow-path--halo {
             stroke: url("#latestModelsEdgeGlowGradient");
-            stroke-width: 18px;
-            opacity: 0.42;
+            stroke-width: 54px;
+            opacity: 0.74;
             filter: url("#latestModelsEdgeGlowSoft");
         }
 
         .latest-models-video-module__edge-glow-path--core {
             stroke: url("#latestModelsEdgeGlowGradient");
-            stroke-width: 5.6px;
-            opacity: 0.58;
+            stroke-width: 16.8px;
+            opacity: 1;
             filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.44)) drop-shadow(0 0 14px rgba(211, 84, 255, 0.24));
         }
 
         .latest-models-video-module__edge-glow-path--highlight {
             stroke: url("#latestModelsEdgeHighlightGradient");
-            stroke-width: 2px;
-            opacity: 0.76;
+            stroke-width: 6px;
+            opacity: 1;
             filter: drop-shadow(0 0 7px rgba(159, 251, 255, 0.42));
         }
 

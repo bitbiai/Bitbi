@@ -2024,7 +2024,9 @@ test.describe('Homepage', () => {
         const bottomSlotNode = document.querySelector('#hero [data-latest-models-slot="bottom"]');
         const moduleNode = document.querySelector('#hero .latest-models-video-module');
         const edgeGlowNode = moduleNode.querySelector('.latest-models-video-module__edge-glow');
+        const edgeGlowHaloNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--halo');
         const edgeGlowPathNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--core');
+        const edgeGlowHighlightNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--highlight');
         const labTeaserNode = document.querySelector('#hero .hero__lab-teaser');
         const labelNode = moduleNode.querySelector('.latest-models-video-module__label');
         const topMediaNode = topSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
@@ -2045,7 +2047,9 @@ test.describe('Homepage', () => {
         const ctaStyle = getComputedStyle(ctaNode);
         const ctaBeforeStyle = getComputedStyle(ctaNode, '::before');
         const edgeGlowStyle = getComputedStyle(edgeGlowNode);
+        const edgeGlowHaloStyle = getComputedStyle(edgeGlowHaloNode);
         const edgeGlowPathStyle = getComputedStyle(edgeGlowPathNode);
+        const edgeGlowHighlightStyle = getComputedStyle(edgeGlowHighlightNode);
         const labTeaserAfterStyle = getComputedStyle(labTeaserNode, '::after');
         const moduleBeforeStyle = getComputedStyle(moduleNode, '::before');
         const moduleAfterStyle = getComputedStyle(moduleNode, '::after');
@@ -2107,6 +2111,12 @@ test.describe('Homepage', () => {
           edgeGlowPointerEvents: edgeGlowStyle.pointerEvents,
           edgeGlowPathD: edgeGlowPathNode?.getAttribute('d') || '',
           edgeGlowPathStroke: edgeGlowPathStyle.stroke,
+          edgeGlowHaloStrokeWidth: Number.parseFloat(edgeGlowHaloStyle.strokeWidth || '0'),
+          edgeGlowHaloOpacity: Number.parseFloat(edgeGlowHaloStyle.opacity || '0'),
+          edgeGlowCoreStrokeWidth: Number.parseFloat(edgeGlowPathStyle.strokeWidth || '0'),
+          edgeGlowCoreOpacity: Number.parseFloat(edgeGlowPathStyle.opacity || '0'),
+          edgeGlowHighlightStrokeWidth: Number.parseFloat(edgeGlowHighlightStyle.strokeWidth || '0'),
+          edgeGlowHighlightOpacity: Number.parseFloat(edgeGlowHighlightStyle.opacity || '0'),
           labTeaserAfterContent: labTeaserAfterStyle.content,
           labTeaserAfterInsetInlineStart: labTeaserAfterStyle.insetInlineStart,
           labTeaserAfterInsetInlineEnd: labTeaserAfterStyle.insetInlineEnd,
@@ -2160,6 +2170,12 @@ test.describe('Homepage', () => {
         expect(layout.edgeGlowPointerEvents).toBe('none');
         expect(layout.edgeGlowPathD).toBe('M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100');
         expect(layout.edgeGlowPathStroke).not.toBe('none');
+        expect(layout.edgeGlowHaloStrokeWidth).toBeGreaterThanOrEqual(54);
+        expect(layout.edgeGlowHaloOpacity).toBeGreaterThanOrEqual(0.74);
+        expect(layout.edgeGlowCoreStrokeWidth).toBeGreaterThanOrEqual(16.8);
+        expect(layout.edgeGlowCoreOpacity).toBeGreaterThanOrEqual(0.99);
+        expect(layout.edgeGlowHighlightStrokeWidth).toBeGreaterThanOrEqual(6);
+        expect(layout.edgeGlowHighlightOpacity).toBeGreaterThanOrEqual(0.99);
         expect(layout.labTeaserAfterContent).not.toBe('none');
         expect(layout.labTeaserAfterInsetInlineStart).toBe('1px');
         expect(layout.labTeaserAfterInsetInlineEnd).toBe('1px');
@@ -2609,6 +2625,7 @@ test.describe('Homepage', () => {
         const stream = document.querySelector('#hero .hero__creation-stream');
         const topSlot = document.querySelector('#hero [data-latest-models-slot="top"]');
         const bottomSlot = document.querySelector('#hero [data-latest-models-slot="bottom"]');
+        const edgeGlowPath = document.querySelector('#hero .latest-models-video-module__edge-glow-path--core');
         const paths = Array.from(document.querySelectorAll([
           '#hero .hero__creation-stream-halo',
           '#hero .hero__creation-stream-strand',
@@ -2639,6 +2656,34 @@ test.describe('Homepage', () => {
           return new DOMPoint(point.x, point.y).matrixTransform(matrix);
         };
 
+        const getNearestEdgeGlowPoint = (screenY) => {
+          if (!edgeGlowPath || !Number.isFinite(screenY)) return null;
+
+          let length = 0;
+          try {
+            length = edgeGlowPath.getTotalLength();
+          } catch {
+            return null;
+          }
+
+          if (!Number.isFinite(length) || length <= 0) return null;
+
+          let nearest = null;
+          let nearestDistance = Number.POSITIVE_INFINITY;
+          const samples = 128;
+          for (let index = 0; index <= samples; index += 1) {
+            const point = toScreenPoint(edgeGlowPath, edgeGlowPath.getPointAtLength((length * index) / samples));
+            if (!point) continue;
+            const distance = Math.abs(point.y - screenY);
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              nearest = point;
+            }
+          }
+
+          return nearest;
+        };
+
         const pointInsideTeaser = (point) => Boolean(teaserRect && point
           && point.x >= teaserRect.left - tolerance
           && point.x <= teaserRect.right + tolerance
@@ -2661,22 +2706,31 @@ test.describe('Homepage', () => {
           const screenPoint = toScreenPoint(path, end);
           const y = screenPoint?.y ?? null;
           const x = screenPoint?.x ?? null;
+          const nearestEdgePoint = getNearestEdgeGlowPoint(y);
+          const edgeGlowDelta = screenPoint && nearestEdgePoint
+            ? Math.hypot(screenPoint.x - nearestEdgePoint.x, screenPoint.y - nearestEdgePoint.y)
+            : null;
           const insideVideoY = Boolean(videoRect && screenPoint
             && y >= videoRect.top - tolerance
             && y <= videoRect.bottom + tolerance);
           const nearVideoEdge = Boolean(videoRect && screenPoint
             && x >= videoRect.left - 12
             && x <= videoRect.left + (videoRect.width * 0.42));
+          const onEdgeGlowRail = edgeGlowDelta !== null && edgeGlowDelta <= 8;
 
           return {
             className: path.getAttribute('class') || '',
             x: x === null ? null : Math.round(x * 100) / 100,
             y: y === null ? null : Math.round(y * 100) / 100,
+            edgeGlowDelta: edgeGlowDelta === null ? null : Math.round(edgeGlowDelta * 100) / 100,
             insideVideoY,
             nearVideoEdge,
+            onEdgeGlowRail,
           };
         });
-        const endpointFailures = endpoints.filter((entry) => !entry.insideVideoY || !entry.nearVideoEdge);
+        const endpointFailures = endpoints.filter((entry) => (
+          !entry.insideVideoY || !entry.nearVideoEdge || !entry.onEdgeGlowRail
+        ));
         const endpointYs = endpoints
           .map((entry) => entry.y)
           .filter((value) => Number.isFinite(value));

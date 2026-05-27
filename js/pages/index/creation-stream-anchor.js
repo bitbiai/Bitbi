@@ -4,6 +4,7 @@ const CTA_SELECTOR = '.hero__lab-teaser';
 const MODELS_MODULE_SELECTOR = '.latest-models-video-module';
 const TOP_SLOT_SELECTOR = '[data-latest-models-slot="top"]';
 const BOTTOM_SLOT_SELECTOR = '[data-latest-models-slot="bottom"]';
+const EDGE_GLOW_PATH_SELECTOR = '.latest-models-video-module__edge-glow-path--core';
 const STREAM_PATH_SELECTOR = [
     '.hero__creation-stream-halo',
     '.hero__creation-stream-strand',
@@ -239,7 +240,7 @@ function getEdgeXFraction(y) {
     return 0.03 + ((0.2 - 0.03) * (1 - Math.cos(progress * Math.PI)) / 2);
 }
 
-function getEndpointPoint(slotRect, role) {
+function getFallbackEndpointPoint(slotRect, role) {
     const y = clamp(role.y, 0.2, 0.82);
     const edgeX = getEdgeXFraction(y);
 
@@ -247,6 +248,66 @@ function getEndpointPoint(slotRect, role) {
         x: slotRect.left + (slotRect.width * (edgeX + role.xOffset)),
         y: slotRect.top + (slotRect.height * y),
     };
+}
+
+function getPointInSvgSpace(sourceElement, sourcePoint, targetSvg) {
+    if (typeof DOMPoint !== 'function') return null;
+
+    const sourceMatrix = sourceElement.getScreenCTM?.();
+    const targetMatrix = targetSvg.getScreenCTM?.();
+    if (!sourceMatrix || !targetMatrix) return null;
+
+    try {
+        const screenPoint = new DOMPoint(sourcePoint.x, sourcePoint.y)
+            .matrixTransform(sourceMatrix);
+
+        return screenPoint.matrixTransform(targetMatrix.inverse());
+    } catch {
+        return null;
+    }
+}
+
+function getEdgeGlowEndpointPoint(svg, edgeGlowPath, role) {
+    if (!edgeGlowPath || typeof edgeGlowPath.getTotalLength !== 'function') {
+        return null;
+    }
+
+    const edgeSvg = edgeGlowPath.ownerSVGElement;
+    const viewBox = edgeSvg?.viewBox?.baseVal;
+    if (!edgeSvg || !viewBox || !viewBox.height) return null;
+
+    const targetY = viewBox.y + (viewBox.height * clamp(role.y, 0.2, 0.82));
+    let totalLength = 0;
+
+    try {
+        totalLength = edgeGlowPath.getTotalLength();
+    } catch {
+        return null;
+    }
+
+    if (!Number.isFinite(totalLength) || totalLength <= 0) return null;
+
+    let nearestPoint = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    const samples = 96;
+
+    for (let index = 0; index <= samples; index += 1) {
+        const point = edgeGlowPath.getPointAtLength((totalLength * index) / samples);
+        const distance = Math.abs(point.y - targetY);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestPoint = point;
+        }
+    }
+
+    if (!nearestPoint) return null;
+
+    return getPointInSvgSpace(edgeGlowPath, nearestPoint, svg);
+}
+
+function getEndpointPoint(svg, edgeGlowPath, slotRect, role) {
+    return getEdgeGlowEndpointPoint(svg, edgeGlowPath, role)
+        || getFallbackEndpointPoint(slotRect, role);
 }
 
 function getCurveMidPoint(origin, endpoint, role) {
@@ -345,6 +406,7 @@ export function initCreationStreamAnchor(root = document) {
     const modelsModule = root.querySelector(MODELS_MODULE_SELECTOR);
     const topSlot = root.querySelector(TOP_SLOT_SELECTOR);
     const bottomSlot = root.querySelector(BOTTOM_SLOT_SELECTOR);
+    const edgeGlowPath = root.querySelector(EDGE_GLOW_PATH_SELECTOR);
     if (!stream || !svg || !cta) return;
 
     const routes = Array.from(svg.querySelectorAll(STREAM_PATH_SELECTOR))
@@ -376,7 +438,7 @@ export function initCreationStreamAnchor(root = document) {
             anchorPath(
                 route,
                 getOriginPoint(zone, index),
-                getEndpointPoint(videoStackRect, route.endpointRole),
+                getEndpointPoint(svg, edgeGlowPath, videoStackRect, route.endpointRole),
             );
         });
 
@@ -391,8 +453,8 @@ export function initCreationStreamAnchor(root = document) {
             anchorCircle(particle, getOriginPoint(zone, index, ORIGIN_PARTICLE_JITTERS));
         });
 
-        const topEndpoint = getEndpointPoint(videoStackRect, { y: 0.3, xOffset: 0.012 });
-        const bottomEndpoint = getEndpointPoint(videoStackRect, { y: 0.66, xOffset: 0.012 });
+        const topEndpoint = getEndpointPoint(svg, edgeGlowPath, videoStackRect, { y: 0.3, xOffset: 0.012 });
+        const bottomEndpoint = getEndpointPoint(svg, edgeGlowPath, videoStackRect, { y: 0.66, xOffset: 0.012 });
         if (topFlare) anchorCircle(topFlare, topEndpoint);
         if (bottomFlare) anchorCircle(bottomFlare, bottomEndpoint);
         if (topFlareRay) anchorFlareRay(topFlareRay, topEndpoint, 18);
@@ -420,6 +482,7 @@ export function initCreationStreamAnchor(root = document) {
         if (modelsModule) observer.observe(modelsModule);
         if (topSlot) observer.observe(topSlot);
         if (bottomSlot) observer.observe(bottomSlot);
+        if (edgeGlowPath?.ownerSVGElement) observer.observe(edgeGlowPath.ownerSVGElement);
     }
 
     document.fonts?.ready?.then(schedule).catch(() => {});
