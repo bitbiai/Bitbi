@@ -2023,11 +2023,15 @@ test.describe('Homepage', () => {
         const topSlotNode = document.querySelector('#hero [data-latest-models-slot="top"]');
         const bottomSlotNode = document.querySelector('#hero [data-latest-models-slot="bottom"]');
         const moduleNode = document.querySelector('#hero .latest-models-video-module');
+        const edgeGlowNode = moduleNode.querySelector('.latest-models-video-module__edge-glow');
+        const edgeGlowPathNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--core');
+        const labTeaserNode = document.querySelector('#hero .hero__lab-teaser');
         const labelNode = moduleNode.querySelector('.latest-models-video-module__label');
         const topMediaNode = topSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
         const bottomMediaNode = bottomSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
         const cta = ctaNode.getBoundingClientRect();
         const module = moduleNode.getBoundingClientRect();
+        const edgeGlow = edgeGlowNode.getBoundingClientRect();
         const label = labelNode.getBoundingClientRect();
         const topSlot = topSlotNode.getBoundingClientRect();
         const bottomSlot = bottomSlotNode.getBoundingClientRect();
@@ -2040,6 +2044,9 @@ test.describe('Homepage', () => {
         const guest = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
         const ctaStyle = getComputedStyle(ctaNode);
         const ctaBeforeStyle = getComputedStyle(ctaNode, '::before');
+        const edgeGlowStyle = getComputedStyle(edgeGlowNode);
+        const edgeGlowPathStyle = getComputedStyle(edgeGlowPathNode);
+        const labTeaserAfterStyle = getComputedStyle(labTeaserNode, '::after');
         const moduleBeforeStyle = getComputedStyle(moduleNode, '::before');
         const moduleAfterStyle = getComputedStyle(moduleNode, '::after');
         const labelStyle = getComputedStyle(labelNode);
@@ -2093,10 +2100,18 @@ test.describe('Homepage', () => {
           navBottom: nav.bottom,
           ctaBoxShadow: ctaStyle.boxShadow,
           ctaBeforeContent: ctaBeforeStyle.content,
-          ctaBeforePointerEvents: ctaBeforeStyle.pointerEvents,
-          ctaBeforeInlineSize: parseFloat(ctaBeforeStyle.inlineSize),
-          ctaBeforeInsetInlineStart: parseFloat(ctaBeforeStyle.insetInlineStart),
-          ctaBeforeFilter: ctaBeforeStyle.filter,
+          edgeGlowTop: edgeGlow.top,
+          edgeGlowBottom: edgeGlow.bottom,
+          edgeGlowLeft: edgeGlow.left,
+          edgeGlowRight: edgeGlow.right,
+          edgeGlowPointerEvents: edgeGlowStyle.pointerEvents,
+          edgeGlowPathD: edgeGlowPathNode?.getAttribute('d') || '',
+          edgeGlowPathStroke: edgeGlowPathStyle.stroke,
+          labTeaserAfterContent: labTeaserAfterStyle.content,
+          labTeaserAfterInsetInlineStart: labTeaserAfterStyle.insetInlineStart,
+          labTeaserAfterInsetInlineEnd: labTeaserAfterStyle.insetInlineEnd,
+          labTeaserAfterBackgroundPositionX: labTeaserAfterStyle.backgroundPositionX,
+          labTeaserAfterClipPath: labTeaserAfterStyle.clipPath,
           moduleBeforeContent: moduleBeforeStyle.content,
           moduleAfterContent: moduleAfterStyle.content,
           topSlotBoxShadow: topSlotStyle.boxShadow,
@@ -2137,12 +2152,19 @@ test.describe('Homepage', () => {
         expect(layout.bottomMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
         expect(layout.bottomMediaTop - layout.topMediaBottom).toBeLessThanOrEqual(-4);
         expect(layout.ctaBoxShadow).toBe('none');
-        expect(layout.ctaBeforeContent).not.toBe('none');
-        expect(layout.ctaBeforePointerEvents).toBe('none');
-        expect(layout.ctaBeforeInsetInlineStart).toBeLessThan(0);
-        expect(layout.ctaBeforeInlineSize).toBeGreaterThan(24);
-        expect(layout.ctaBeforeInlineSize).toBeLessThan(layout.moduleWidth * 0.42);
-        expect(layout.ctaBeforeFilter).toContain('blur');
+        expect(layout.ctaBeforeContent).toBe('none');
+        expect(Math.abs(layout.edgeGlowTop - layout.moduleTop)).toBeLessThanOrEqual(1);
+        expect(layout.edgeGlowBottom).toBeLessThan(layout.labelTop);
+        expect(Math.abs(layout.edgeGlowLeft - layout.moduleLeft)).toBeLessThanOrEqual(1);
+        expect(layout.edgeGlowRight).toBeLessThanOrEqual(layout.moduleLeft + layout.moduleWidth + 1);
+        expect(layout.edgeGlowPointerEvents).toBe('none');
+        expect(layout.edgeGlowPathD).toBe('M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100');
+        expect(layout.edgeGlowPathStroke).not.toBe('none');
+        expect(layout.labTeaserAfterContent).not.toBe('none');
+        expect(layout.labTeaserAfterInsetInlineStart).toBe('1px');
+        expect(layout.labTeaserAfterInsetInlineEnd).toBe('1px');
+        expect(layout.labTeaserAfterBackgroundPositionX).not.toBe('');
+        expect(layout.labTeaserAfterClipPath).not.toBe('none');
         expect(layout.moduleBeforeContent).toBe('none');
         expect(layout.moduleAfterContent).toBe('none');
         expect(layout.topSlotBoxShadow).toBe('none');

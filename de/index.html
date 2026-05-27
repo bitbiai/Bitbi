@@ -302,6 +302,34 @@
     <div class="hero__models-cta-wrap">
         <button type="button" class="hero__models-cta" data-models-link="desktop" aria-label="Modelle öffnen">
             <span class="latest-models-video-module" data-latest-models-video-module aria-hidden="true">
+                <svg class="latest-models-video-module__edge-glow" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                    <defs>
+                        <linearGradient id="latestModelsEdgeGlowGradient" x1="10" y1="0" x2="20" y2="100" gradientUnits="userSpaceOnUse">
+                            <stop offset="0" stop-color="#00f0ff" stop-opacity="0.82"/>
+                            <stop offset="0.28" stop-color="#38bdf8" stop-opacity="0.78"/>
+                            <stop offset="0.5" stop-color="#d354ff" stop-opacity="0.62"/>
+                            <stop offset="0.74" stop-color="#14f1d9" stop-opacity="0.68"/>
+                            <stop offset="1" stop-color="#8b5cf6" stop-opacity="0.42"/>
+                        </linearGradient>
+                        <linearGradient id="latestModelsEdgeHighlightGradient" x1="10" y1="0" x2="20" y2="100" gradientUnits="userSpaceOnUse">
+                            <stop offset="0" stop-color="#ffffff" stop-opacity="0.7"/>
+                            <stop offset="0.32" stop-color="#9ffbff" stop-opacity="0.86"/>
+                            <stop offset="0.54" stop-color="#ff6ff0" stop-opacity="0.46"/>
+                            <stop offset="0.78" stop-color="#67e8f9" stop-opacity="0.78"/>
+                            <stop offset="1" stop-color="#ffffff" stop-opacity="0.18"/>
+                        </linearGradient>
+                        <filter id="latestModelsEdgeGlowSoft" x="-80%" y="-12%" width="190%" height="124%" color-interpolation-filters="sRGB">
+                            <feGaussianBlur stdDeviation="5.6" result="edgeGlow"/>
+                            <feMerge>
+                                <feMergeNode in="edgeGlow"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+                    <path class="latest-models-video-module__edge-glow-path latest-models-video-module__edge-glow-path--halo" d="M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100"></path>
+                    <path class="latest-models-video-module__edge-glow-path latest-models-video-module__edge-glow-path--core" d="M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100"></path>
+                    <path class="latest-models-video-module__edge-glow-path latest-models-video-module__edge-glow-path--highlight" d="M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100"></path>
+                </svg>
                 <svg class="latest-models-video-module__mask" width="0" height="0" viewBox="0 0 1 1" aria-hidden="true" focusable="false">
                     <defs>
                         <clipPath id="latestModelsTopClip" clipPathUnits="objectBoundingBox">
