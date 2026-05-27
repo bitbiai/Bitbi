@@ -2027,6 +2027,9 @@ test.describe('Homepage', () => {
         const edgeGlowHaloNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--halo');
         const edgeGlowPathNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--core');
         const edgeGlowHighlightNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--highlight');
+        const topClipPathNode = document.querySelector('#latestModelsTopClip path');
+        const bottomClipPathNode = document.querySelector('#latestModelsBottomClip path');
+        const moduleClipPathNode = document.querySelector('#latestModelsModuleClip path');
         const labTeaserNode = document.querySelector('#hero .hero__lab-teaser');
         const labelNode = moduleNode.querySelector('.latest-models-video-module__label');
         const topMediaNode = topSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
@@ -2111,6 +2114,9 @@ test.describe('Homepage', () => {
           edgeGlowPointerEvents: edgeGlowStyle.pointerEvents,
           edgeGlowPathD: edgeGlowPathNode?.getAttribute('d') || '',
           edgeGlowPathStroke: edgeGlowPathStyle.stroke,
+          topClipPathD: topClipPathNode?.getAttribute('d') || '',
+          bottomClipPathD: bottomClipPathNode?.getAttribute('d') || '',
+          moduleClipPathD: moduleClipPathNode?.getAttribute('d') || '',
           edgeGlowHaloStrokeWidth: Number.parseFloat(edgeGlowHaloStyle.strokeWidth || '0'),
           edgeGlowHaloOpacity: Number.parseFloat(edgeGlowHaloStyle.opacity || '0'),
           edgeGlowCoreStrokeWidth: Number.parseFloat(edgeGlowPathStyle.strokeWidth || '0'),
@@ -2169,6 +2175,9 @@ test.describe('Homepage', () => {
         expect(layout.edgeGlowRight).toBeLessThanOrEqual(layout.moduleLeft + layout.moduleWidth + 1);
         expect(layout.edgeGlowPointerEvents).toBe('none');
         expect(layout.edgeGlowPathD).toBe('M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100');
+        expect(layout.moduleClipPathD).toBe('M 1 0 L 0.34 0 C 0.16 0.02 0.04 0.18 0.04 0.34 C 0.04 0.48 0.18 0.56 0.14 0.64 C 0.08 0.76 0.03 0.86 0.2 1 L 1 1 Z');
+        expect(layout.topClipPathD).toBe('M 1 0 L 0.34 0 C 0.16 0.02 0.04 0.18 0.04 0.34 C 0.04 0.403945 0.069207 0.455372 0.097128 0.5 C 0.31 0.545 0.58 0.47 1 0.5 Z');
+        expect(layout.bottomClipPathD).toBe('M 1 0.486 C 0.58 0.456 0.31 0.531 0.088501 0.486 C 0.124508 0.545559 0.16361 0.59278 0.14 0.64 C 0.08 0.76 0.03 0.86 0.2 1 L 1 1 Z');
         expect(layout.edgeGlowPathStroke).not.toBe('none');
         expect(layout.edgeGlowHaloStrokeWidth).toBeGreaterThanOrEqual(54);
         expect(layout.edgeGlowHaloOpacity).toBeGreaterThanOrEqual(0.74);
