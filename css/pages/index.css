@@ -214,14 +214,19 @@
         }
 
         #galleryGrid .gallery-inner {
-            block-size: 100%;
             inline-size: 100%;
+            aspect-ratio: var(--gallery-item-aspect, 1.333);
             border-radius: inherit;
+            overflow: hidden;
+            position: relative;
             background: linear-gradient(135deg, rgba(13, 27, 42, 0.72) 0%, rgba(4, 8, 15, 0.86) 100%);
         }
 
-        #galleryGrid .gallery-inner > img {
+        #galleryGrid .gallery-inner > img:first-child {
+            position: absolute;
+            inset: 0;
             width: 100% !important;
+            height: 100% !important;
             inline-size: 100%;
             block-size: 100%;
             object-fit: cover !important;
