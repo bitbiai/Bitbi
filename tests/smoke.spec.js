@@ -2780,6 +2780,25 @@ test.describe('Homepage', () => {
             maxTurn: Math.round(maxTurn * 100) / 100,
           };
         }).filter((entry) => entry.maxTurn > 82);
+        const parseNumberList = (value) => (
+          (value.match(/-?\d+(?:\.\d+)?/g) || []).map((part) => Number.parseFloat(part))
+        );
+        const getHighlightKey = (path) => {
+          const className = path.getAttribute('class') || '';
+          const variant = ['one', 'two', 'three', 'four', 'five', 'six', 'seven']
+            .find((key) => className.includes(`hero__creation-stream-highlight--${key}`));
+          return variant || 'base';
+        };
+        const highlightMetrics = Object.fromEntries(highlightPaths.map((path) => {
+          const style = window.getComputedStyle(path);
+          return [
+            getHighlightKey(path),
+            {
+              animationDuration: Number.parseFloat(style.animationDuration || '0'),
+              strokeDasharray: parseNumberList(style.strokeDasharray || ''),
+            },
+          ];
+        }));
         const particleDurations = particles.flatMap((particle) => (
           window.getComputedStyle(particle).animationDuration
             .split(',')
@@ -2823,6 +2842,7 @@ test.describe('Homepage', () => {
           highlightPathCount: highlightPaths.length,
           flareCount: flares.length,
           particleCount: particles.length,
+          highlightMetrics,
           maxParticleAnimationDuration: particleDurations.length
             ? Math.max(...particleDurations)
             : 0,
@@ -2848,6 +2868,16 @@ test.describe('Homepage', () => {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('#hero .hero__creation-stream')).toBeAttached();
 
+      const expectedHighlightMetrics = {
+        one: { animationDuration: 2.9, strokeDasharray: [20, 66] },
+        two: { animationDuration: 3.35, strokeDasharray: [14, 52] },
+        three: { animationDuration: 2.55, strokeDasharray: [14, 52] },
+        four: { animationDuration: 3.9, strokeDasharray: [10, 39] },
+        five: { animationDuration: 3.05, strokeDasharray: [12, 42] },
+        six: { animationDuration: 3.6, strokeDasharray: [11, 44] },
+        seven: { animationDuration: 4.2, strokeDasharray: [9, 38] },
+      };
+
       for (const width of [1100, 1280, 1440, 1600]) {
         await page.setViewportSize({ width, height: 900 });
         const metrics = await measureStreamAnchors();
@@ -2864,6 +2894,18 @@ test.describe('Homepage', () => {
         expect(metrics.particleCount, `stream particle count for ${context}`).toBe(72);
         expect(metrics.maxParticleAnimationDuration, `stream particle max duration for ${context}`).toBeLessThanOrEqual(4.1);
         expect(metrics.minParticleAnimationDuration, `stream particle min duration for ${context}`).toBeGreaterThanOrEqual(2.3);
+        for (const [variant, expected] of Object.entries(expectedHighlightMetrics)) {
+          const actual = metrics.highlightMetrics[variant];
+          expect(actual, `stream highlight ${variant} metrics for ${context}`).toBeTruthy();
+          expect(
+            actual.animationDuration,
+            `stream highlight ${variant} duration for ${context}`,
+          ).toBeCloseTo(expected.animationDuration, 2);
+          expect(
+            actual.strokeDasharray.slice(0, 2),
+            `stream highlight ${variant} dasharray for ${context}`,
+          ).toEqual(expected.strokeDasharray);
+        }
         expect(metrics.pathFailures, `stream path starts outside CTA for ${context}`).toEqual([]);
         expect(metrics.flareInside, `stream origin flare outside CTA for ${context}`).toBe(true);
         expect(metrics.endpointFailures, `stream endpoints away from Models edge for ${context}`).toEqual([]);
