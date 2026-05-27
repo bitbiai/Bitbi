@@ -121,7 +121,7 @@ function initMobileGuestBanner() {
 }
 
 function initHeroModelsCtaPlacement() {
-    const wrap = document.querySelector('.hero__models-cta-wrap');
+    const wrap = document.querySelector('.hero__models-cta-wrap--right, .hero__models-cta-wrap:not(.hero__models-cta-wrap--left)');
     const button = wrap?.querySelector('.hero__models-cta');
     const logo = document.querySelector('.site-nav__logo');
     const galleryLink = document.querySelector('.site-nav__links [data-category-link="gallery"]');
@@ -206,7 +206,12 @@ let revealObserver = null;
 try { revealObserver = initScrollReveal(); } catch (e) { console.warn('scrollReveal:', e); }
 
 /* Sections */
-try { initNewsPulse(document, { getAuthState }); } catch (e) { console.warn('newsPulse:', e); }
+try {
+    const newsPulse = document.querySelector('[data-news-pulse]');
+    if (!newsPulse?.dataset.newsPulseDisabled) {
+        initNewsPulse(document, { getAuthState });
+    }
+} catch (e) { console.warn('newsPulse:', e); }
 try { initGallery(); } catch (e) { console.warn('gallery:', e); }
 try { initVideoGallery(); } catch (e) { console.warn('videoGallery:', e); }
 try { initSoundLab(revealObserver); } catch (e) { console.warn('soundLab:', e); }

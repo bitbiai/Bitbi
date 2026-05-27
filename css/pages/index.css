@@ -3896,6 +3896,15 @@
         display: none;
     }
 
+    .hero--homepage .news-pulse--is-disabled,
+    .hero--homepage .news-pulse[data-news-pulse-disabled] {
+        display: none !important;
+        visibility: hidden !important;
+        inline-size: 0 !important;
+        block-size: 0 !important;
+        overflow: hidden !important;
+    }
+
     @keyframes heroCreationStreamFlow {
         0% {
             stroke-dashoffset: 240;
@@ -4421,6 +4430,16 @@
             pointer-events: none;
         }
 
+        .hero__models-cta-wrap--left {
+            inset-inline-start: 0;
+            inset-inline-end: auto;
+        }
+
+        .hero__models-cta-wrap--right {
+            inset-inline-start: auto;
+            inset-inline-end: 0;
+        }
+
         .hero__models-cta {
             position: relative;
             pointer-events: auto;
@@ -4458,6 +4477,12 @@
             pointer-events: none;
             -webkit-clip-path: url("#latestModelsModuleClip");
             clip-path: url("#latestModelsModuleClip");
+        }
+
+        .latest-models-video-module--left::before,
+        .latest-models-video-module--left::after {
+            -webkit-clip-path: url("#latestModelsLeftModuleClip");
+            clip-path: url("#latestModelsLeftModuleClip");
         }
 
         .latest-models-video-module::before {
@@ -4562,6 +4587,10 @@
             pointer-events: none;
         }
 
+        .latest-models-video-module--left .latest-models-video-module__label {
+            inset-inline-start: 40%;
+        }
+
         .latest-models-video-module__label::before {
             content: '';
             position: absolute;
@@ -4636,6 +4665,11 @@
             clip-path: url("#latestModelsTopClip");
         }
 
+        .latest-models-video-module--left .latest-models-video-module__slot--top {
+            -webkit-clip-path: url("#latestModelsLeftTopClip");
+            clip-path: url("#latestModelsLeftTopClip");
+        }
+
         .latest-models-video-module__slot--bottom {
             inset-inline-start: 0;
             inline-size: 100%;
@@ -4643,6 +4677,11 @@
             z-index: 2;
             -webkit-clip-path: url("#latestModelsBottomClip");
             clip-path: url("#latestModelsBottomClip");
+        }
+
+        .latest-models-video-module--left .latest-models-video-module__slot--bottom {
+            -webkit-clip-path: url("#latestModelsLeftBottomClip");
+            clip-path: url("#latestModelsLeftBottomClip");
         }
 
         .latest-models-video-module__slot--top > .latest-models-video-module__cube,

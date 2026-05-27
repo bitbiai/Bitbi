@@ -155,16 +155,20 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('main')).not.toContainText('Mit Konto erstellen, ohne Konto stöbern');
   });
 
-  test('English and German homepages include the localized Live Pulse mount and reduced-motion CSS', () => {
+  test('English and German homepages keep the temporarily disabled localized Live Pulse mount and reduced-motion CSS', () => {
     const enHome = repoFile('index.html');
     const deHome = repoFile('de/index.html');
     const css = repoFile('css/components/news-pulse.css');
 
     expect(enHome).toContain('data-news-pulse-locale="en"');
+    expect(enHome).toContain('data-news-pulse-disabled="temporary-homepage-layout"');
+    expect(enHome).toContain('aria-hidden="true" hidden');
     expect(enHome).toContain('aria-label="Bitbi Live Pulse"');
     expect(enHome).toContain('css/components/news-pulse.css');
     expect(enHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
     expect(deHome).toContain('data-news-pulse-locale="de"');
+    expect(deHome).toContain('data-news-pulse-disabled="temporary-homepage-layout"');
+    expect(deHome).toContain('aria-hidden="true" hidden');
     expect(deHome).toContain('aria-label="KI-Puls"');
     expect(deHome).toContain('../css/components/news-pulse.css');
     expect(deHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);

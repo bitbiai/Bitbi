@@ -41,13 +41,45 @@ function removeMediaQueryChange(query, listener) {
 
 function getPreviewItems(items) {
     return (Array.isArray(items) ? items : [])
-        .map((item) => ({
+        .map((item, originalIndex) => ({
             item,
             id: getPublicMemvidIdentity(item),
             src: resolvePublicMemvidFileUrl(item?.file?.url),
             poster: typeof item?.poster?.url === 'string' ? item.poster.url : '',
+            sortTime: getItemSortTime(item),
+            originalIndex,
         }))
-        .filter((entry) => entry.id && entry.src);
+        .filter((entry) => entry.id && entry.src)
+        .sort((a, b) => {
+            if (b.sortTime !== a.sortTime) return b.sortTime - a.sortTime;
+            return a.originalIndex - b.originalIndex;
+        });
+}
+
+function getItemSortTime(item) {
+    const candidates = [
+        item?.published_at,
+        item?.created_at,
+        item?.updated_at,
+    ];
+    for (const value of candidates) {
+        const time = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+        if (Number.isFinite(time)) return time;
+    }
+    return 0;
+}
+
+function getModuleSide(module, index) {
+    const side = module?.dataset?.latestModelsVideoModuleSide;
+    if (side === 'left' || side === 'right') return side;
+    return index === 0 ? 'right' : 'left';
+}
+
+function getEntriesForSide(entries, side) {
+    const latestEntries = entries.slice(0, 5);
+    const nextEntries = entries.slice(5, 10);
+    const selected = side === 'left' ? nextEntries : latestEntries;
+    return selected.length ? selected : latestEntries;
 }
 
 function createFallback() {
@@ -223,26 +255,52 @@ function makeSlotController(slot, entries, startIndex, { reducedMotion = false }
 }
 
 export function initLatestModelsVideoModule(root = document) {
-    const button = root.querySelector('#hero .hero__models-cta[data-models-link="desktop"]');
-    const module = button?.querySelector('[data-latest-models-video-module]');
-    if (!button || !module) return;
+    const modules = Array.from(root.querySelectorAll('#hero .hero__models-cta [data-latest-models-video-module]'))
+        .map((module, index) => ({
+            module,
+            side: getModuleSide(module, index),
+            slots: {
+                top: module.querySelector('[data-latest-models-slot="top"]'),
+                bottom: module.querySelector('[data-latest-models-slot="bottom"]'),
+            },
+            controllers: [],
+        }))
+        .filter((entry) => entry.slots.top && entry.slots.bottom);
+    if (!modules.length) return;
 
     const desktopQuery = window.matchMedia?.(DESKTOP_MODELS_VIDEO_MEDIA);
     const reducedMotionQuery = window.matchMedia?.(REDUCED_MOTION_MEDIA);
-    const slots = {
-        top: module.querySelector('[data-latest-models-slot="top"]'),
-        bottom: module.querySelector('[data-latest-models-slot="bottom"]'),
-    };
-    if (!slots.top || !slots.bottom) return;
-
-    let controllers = [];
     let enabled = false;
     let loadToken = 0;
 
     function stop() {
-        controllers.forEach((controller) => controller.stop());
-        controllers = [];
+        modules.forEach((entry) => {
+            entry.controllers.forEach((controller) => controller.stop());
+            entry.controllers = [];
+        });
         enabled = false;
+    }
+
+    function clearModule(entry) {
+        clearSlot(entry.slots.top);
+        clearSlot(entry.slots.bottom);
+    }
+
+    function startModule(entry, entries, reducedMotion) {
+        if (!entries.length) {
+            entry.module.dataset.videoModuleState = 'fallback';
+            clearModule(entry);
+            return;
+        }
+
+        entry.module.dataset.videoModuleState = 'ready';
+        entry.module.dataset.latestModelsVideoPool = entry.side;
+        const slotEntries = entries.length > 1 ? entries : [entries[0], entries[0]];
+        const topController = makeSlotController(entry.slots.top, slotEntries, 0, { reducedMotion });
+        const bottomController = makeSlotController(entry.slots.bottom, slotEntries, 1 % slotEntries.length, { reducedMotion });
+        entry.controllers = [topController, bottomController];
+        topController.schedule(CYCLE_MS);
+        bottomController.schedule(BOTTOM_START_OFFSET_MS);
     }
 
     async function start() {
@@ -253,33 +311,33 @@ export function initLatestModelsVideoModule(root = document) {
         if (enabled) return;
         enabled = true;
         const token = ++loadToken;
-        module.dataset.videoModuleState = 'loading';
+        modules.forEach((entry) => {
+            entry.module.dataset.videoModuleState = 'loading';
+        });
         try {
             const page = await fetchPublicMemvidsPage({ limit: LATEST_MEMVID_LIMIT });
             if (token !== loadToken || !desktopQuery.matches) return;
-            const entries = getPreviewItems(page.items).slice(0, 8);
+            const entries = getPreviewItems(page.items);
             if (!entries.length) {
-                module.dataset.videoModuleState = 'fallback';
-                clearSlot(slots.top);
-                clearSlot(slots.bottom);
+                modules.forEach((entry) => {
+                    entry.module.dataset.videoModuleState = 'fallback';
+                    clearModule(entry);
+                });
                 return;
             }
             stop();
             enabled = true;
-            module.dataset.videoModuleState = 'ready';
-            const slotEntries = entries.length > 1 ? entries : [entries[0], entries[0]];
             const reducedMotion = !!reducedMotionQuery?.matches;
-            const topController = makeSlotController(slots.top, slotEntries, 0, { reducedMotion });
-            const bottomController = makeSlotController(slots.bottom, slotEntries, 1 % slotEntries.length, { reducedMotion });
-            controllers = [topController, bottomController];
-            topController.schedule(CYCLE_MS);
-            bottomController.schedule(BOTTOM_START_OFFSET_MS);
+            modules.forEach((entry) => {
+                startModule(entry, getEntriesForSide(entries, entry.side), reducedMotion);
+            });
         } catch (error) {
             console.warn('latestModelsVideoModule:', error);
             if (token !== loadToken) return;
-            module.dataset.videoModuleState = 'fallback';
-            clearSlot(slots.top);
-            clearSlot(slots.bottom);
+            modules.forEach((entry) => {
+                entry.module.dataset.videoModuleState = 'fallback';
+                clearModule(entry);
+            });
         }
     }
 
