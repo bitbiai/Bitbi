@@ -2093,6 +2093,10 @@ test.describe('Homepage', () => {
           navBottom: nav.bottom,
           ctaBoxShadow: ctaStyle.boxShadow,
           ctaBeforeContent: ctaBeforeStyle.content,
+          ctaBeforePointerEvents: ctaBeforeStyle.pointerEvents,
+          ctaBeforeInlineSize: parseFloat(ctaBeforeStyle.inlineSize),
+          ctaBeforeInsetInlineStart: parseFloat(ctaBeforeStyle.insetInlineStart),
+          ctaBeforeFilter: ctaBeforeStyle.filter,
           moduleBeforeContent: moduleBeforeStyle.content,
           moduleAfterContent: moduleAfterStyle.content,
           topSlotBoxShadow: topSlotStyle.boxShadow,
@@ -2133,7 +2137,12 @@ test.describe('Homepage', () => {
         expect(layout.bottomMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
         expect(layout.bottomMediaTop - layout.topMediaBottom).toBeLessThanOrEqual(-4);
         expect(layout.ctaBoxShadow).toBe('none');
-        expect(layout.ctaBeforeContent).toBe('none');
+        expect(layout.ctaBeforeContent).not.toBe('none');
+        expect(layout.ctaBeforePointerEvents).toBe('none');
+        expect(layout.ctaBeforeInsetInlineStart).toBeLessThan(0);
+        expect(layout.ctaBeforeInlineSize).toBeGreaterThan(24);
+        expect(layout.ctaBeforeInlineSize).toBeLessThan(layout.moduleWidth * 0.42);
+        expect(layout.ctaBeforeFilter).toContain('blur');
         expect(layout.moduleBeforeContent).toBe('none');
         expect(layout.moduleAfterContent).toBe('none');
         expect(layout.topSlotBoxShadow).toBe('none');

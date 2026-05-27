@@ -4009,7 +4009,7 @@
         min-block-size: 3.62rem;
         padding: 1rem 2.6rem;
         border-radius: var(--radius-full);
-        overflow: hidden;
+        overflow: visible;
         font-family: var(--font-mono);
         font-size: 0.94rem;
         font-weight: 900;
@@ -4026,8 +4026,13 @@
             inset 0 1px 0 rgba(255, 255, 255, 0.16),
             inset 0 -18px 34px rgba(0, 240, 255, 0.03),
             0 18px 42px rgba(0, 0, 0, 0.38),
-            0 0 24px rgba(var(--hero-lab-accent), 0.12),
-            0 0 50px rgba(var(--hero-lab-gold), 0.05);
+            0 0 18px rgba(255, 138, 28, 0.42),
+            0 0 38px rgba(255, 88, 24, 0.3),
+            0 0 66px rgba(var(--hero-lab-gold), 0.22),
+            0 0 30px rgba(var(--hero-lab-accent), 0.1);
+        filter:
+            drop-shadow(0 0 14px rgba(255, 132, 24, 0.38))
+            drop-shadow(0 0 32px rgba(255, 64, 24, 0.22));
         backdrop-filter: blur(20px) saturate(1.08);
         -webkit-backdrop-filter: blur(20px) saturate(1.08);
         transition:
@@ -4041,14 +4046,17 @@
     .hero__lab-teaser::before {
         content: '';
         position: absolute;
-        inset: -0.74rem;
+        inset: -0.9rem -1.35rem;
         z-index: -1;
         border-radius: inherit;
         background:
-            radial-gradient(circle at 50% 50%, rgba(var(--hero-lab-accent), 0.24), transparent 64%),
-            radial-gradient(circle at 18% 18%, rgba(var(--hero-lab-gold), 0.18), transparent 44%);
-        filter: blur(14px);
-        opacity: 0.56;
+            radial-gradient(ellipse at 50% 50%, rgba(255, 146, 28, 0.68), transparent 55%),
+            radial-gradient(ellipse at 42% 40%, rgba(255, 219, 112, 0.48), transparent 56%),
+            radial-gradient(ellipse at 64% 58%, rgba(255, 56, 28, 0.34), transparent 68%),
+            linear-gradient(90deg, rgba(var(--hero-lab-accent), 0.14), transparent 24% 76%, rgba(255, 190, 68, 0.2));
+        filter: blur(18px) saturate(1.36) brightness(1.14);
+        opacity: 0.96;
+        mix-blend-mode: screen;
         animation: heroLabCtaGlow 5.4s ease-in-out infinite;
         pointer-events: none;
     }
@@ -4060,6 +4068,7 @@
         inline-size: 44%;
         inset-inline-start: 0;
         border-radius: inherit;
+        overflow: hidden;
         background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
         transform: translateX(-135%) skewX(-18deg);
         animation: heroLabCtaSheen 6.2s ease-in-out infinite;
@@ -4075,8 +4084,10 @@
             inset 0 1px 0 rgba(255, 255, 255, 0.2),
             inset 0 -20px 36px rgba(0, 240, 255, 0.05),
             0 20px 48px rgba(0, 0, 0, 0.42),
-            0 0 30px rgba(var(--hero-lab-gold), 0.16),
-            0 0 48px rgba(var(--hero-lab-accent), 0.1);
+            0 0 24px rgba(255, 160, 42, 0.52),
+            0 0 48px rgba(255, 82, 24, 0.34),
+            0 0 78px rgba(var(--hero-lab-gold), 0.26),
+            0 0 40px rgba(var(--hero-lab-accent), 0.12);
         outline: none;
         transform: translateY(-3px) scale(1.01);
     }
@@ -4663,21 +4674,29 @@
         }
 
         .hero__models-cta::before {
-            content: none;
+            content: '';
             position: absolute;
-            inset-block: -1.3rem;
-            inset-inline-start: -2rem;
-            inline-size: 54%;
+            inset-block-start: clamp(0.35rem, 0.9vh, 0.75rem);
+            inset-block-end: calc(clamp(2.5rem, 5.2vh, 3.55rem) + clamp(0.25rem, 0.7vh, 0.55rem));
+            inset-inline-start: clamp(-2.45rem, -3.3vw, -1.25rem);
+            inline-size: clamp(3.1rem, 6.4vw, 6.9rem);
             z-index: -1;
-            border-radius: 999px;
+            border-radius: 66% 34% 42% 58% / 52% 44% 56% 48%;
             background:
-                radial-gradient(ellipse at 88% 18%, rgba(255, 242, 180, 0.15), transparent 52%),
-                radial-gradient(ellipse at 82% 56%, rgba(0, 240, 255, 0.2), transparent 68%),
-                radial-gradient(ellipse at 76% 86%, rgba(190, 90, 255, 0.12), transparent 62%);
-            filter: blur(18px);
-            opacity: 0.68;
+                radial-gradient(ellipse at 78% 11%, rgba(255, 224, 122, 0.74), transparent 34%),
+                radial-gradient(ellipse at 83% 28%, rgba(255, 129, 28, 0.68), transparent 46%),
+                radial-gradient(ellipse at 70% 50%, rgba(255, 68, 28, 0.44), transparent 58%),
+                radial-gradient(ellipse at 82% 72%, rgba(255, 168, 42, 0.6), transparent 48%),
+                radial-gradient(ellipse at 72% 90%, rgba(255, 220, 104, 0.44), transparent 42%),
+                radial-gradient(ellipse at 92% 49%, rgba(0, 240, 255, 0.18), transparent 54%);
+            filter: blur(20px) saturate(1.32) brightness(1.08);
+            mix-blend-mode: screen;
+            opacity: 0.92;
+            pointer-events: none;
+            transform: translateX(-0.12rem);
             transition:
                 opacity 0.28s var(--ease-default),
+                filter 0.28s var(--ease-default),
                 transform 0.28s var(--ease-smooth);
         }
 
@@ -4690,8 +4709,9 @@
 
         .hero__models-cta:hover::before,
         .hero__models-cta:focus-visible::before {
-            opacity: 0.82;
-            transform: translateX(-0.22rem) scale(1.04);
+            opacity: 1;
+            filter: blur(22px) saturate(1.42) brightness(1.15);
+            transform: translateX(-0.2rem) scaleX(1.05);
         }
 
         .hero__models-cta:focus-visible {
