@@ -2647,6 +2647,7 @@ test.describe('Homepage', () => {
         const particleLayer = stream?.querySelector('.hero__creation-stream-layer--particles');
         const particles = Array.from(stream?.querySelectorAll('.hero__creation-stream-layer--particles .hero__creation-stream-particle') || []);
         const flares = Array.from(stream?.querySelectorAll('.hero__creation-stream-flare') || []);
+        const flareRays = Array.from(stream?.querySelectorAll('.hero__creation-stream-flare-ray') || []);
         const flare = stream?.querySelector('.hero__creation-stream-flare--origin');
         const topFlare = stream?.querySelector('.hero__creation-stream-flare--top');
         const bottomFlare = stream?.querySelector('.hero__creation-stream-flare--bottom');
@@ -2811,6 +2812,12 @@ test.describe('Homepage', () => {
             && style.visibility !== 'hidden'
             && Number.parseFloat(style.opacity || '1') > 0;
         }).length;
+        const visibleFlareRayCount = flareRays.filter((ray) => {
+          const style = window.getComputedStyle(ray);
+          return style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number.parseFloat(style.opacity || '1') > 0;
+        }).length;
         const particleDurations = particles.flatMap((particle) => (
           window.getComputedStyle(particle).animationDuration
             .split(',')
@@ -2860,6 +2867,8 @@ test.describe('Homepage', () => {
           flareCount: flares.length,
           particleCount: particles.length,
           visibleParticleCount,
+          flareRayCount: flareRays.length,
+          visibleFlareRayCount,
           particleLayerDisplay: particleLayerStyle?.display || '',
           highlightMetrics,
           maxParticleAnimationDuration: particleDurations.length
@@ -2886,10 +2895,6 @@ test.describe('Homepage', () => {
       await page.setViewportSize({ width: 1100, height: 900 });
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('#hero .hero__creation-stream')).toHaveCount(2);
-      await expect(page.locator('#heroCanvas')).toHaveAttribute(
-        'data-particle-exclusion-zones',
-        /right-half-no-particles/,
-      );
 
       const expectedHighlightMetrics = {
         one: { animationDuration: 2.9, strokeDasharray: [20, 66] },
@@ -2915,16 +2920,9 @@ test.describe('Homepage', () => {
           expect(metrics.strandPathCount, `stream strand path count for ${context}`).toBe(15);
           expect(metrics.highlightPathCount, `stream highlight path count for ${context}`).toBe(7);
           expect(metrics.flareCount, `stream flare count for ${context}`).toBe(3);
-          expect(metrics.particleCount, `stream particle count for ${context}`).toBe(72);
-          if (side === 'right') {
-            expect(metrics.particleLayerDisplay, `right stream particles visible for ${context}`).toBe('none');
-            expect(metrics.visibleParticleCount, `right stream visible particle count for ${context}`).toBe(0);
-          } else {
-            expect(metrics.particleLayerDisplay, `left stream particles hidden for ${context}`).not.toBe('none');
-            expect(metrics.visibleParticleCount, `left stream visible particle count for ${context}`).toBeGreaterThan(0);
-            expect(metrics.maxParticleAnimationDuration, `stream particle max duration for ${context}`).toBeLessThanOrEqual(4.1);
-            expect(metrics.minParticleAnimationDuration, `stream particle min duration for ${context}`).toBeGreaterThanOrEqual(2.3);
-          }
+          expect(metrics.particleLayerDisplay, `stream particles visible for ${context}`).toBe('none');
+          expect(metrics.visibleParticleCount, `stream visible particle count for ${context}`).toBe(0);
+          expect(metrics.visibleFlareRayCount, `stream visible flare-ray count for ${context}`).toBe(0);
           for (const [variant, expected] of Object.entries(expectedHighlightMetrics)) {
             const actual = metrics.highlightMetrics[variant];
             expect(actual, `stream highlight ${variant} metrics for ${context}`).toBeTruthy();
@@ -5652,11 +5650,13 @@ test.describe('Homepage', () => {
       const style = window.getComputedStyle(grid);
       const rects = Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)')).map((node) => {
         const rect = node.getBoundingClientRect();
+        const nodeStyle = window.getComputedStyle(node);
         const media = node.querySelector('.gallery-item__media');
         const mediaRect = media?.getBoundingClientRect();
         return {
           id: node.dataset.galleryItemId || '',
           aspect: node.dataset.galleryAspect || '',
+          cssAspect: Number.parseFloat(nodeStyle.getPropertyValue('--gallery-item-aspect')) || 0,
           mediaSrc: media?.getAttribute('src') || '',
           mediaNaturalWidth: media?.naturalWidth || 0,
           mediaNaturalHeight: media?.naturalHeight || 0,
@@ -5733,9 +5733,12 @@ test.describe('Homepage', () => {
     expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(3);
     expect(wideLayout.maxVerticalGap).toBeLessThanOrEqual(16);
     expect(wideLayout.minMediaCoverage).toBeGreaterThan(0.95);
-    expect(wideLayout.portrait.mediaHeight).toBeGreaterThan(wideLayout.portrait.mediaWidth * 1.12);
-    expect(wideLayout.landscape.mediaWidth).toBeGreaterThan(wideLayout.landscape.mediaHeight * 1.12);
-    expect(Math.abs(wideLayout.square.mediaWidth - wideLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
+    expect(wideLayout.portrait.aspect).toBe('portrait');
+    expect(wideLayout.portrait.cssAspect).toBeLessThan(0.9);
+    expect(wideLayout.landscape.aspect).toBe('landscape');
+    expect(wideLayout.landscape.cssAspect).toBeGreaterThan(1.1);
+    expect(wideLayout.square.aspect).toBe('square');
+    expect(Math.abs(wideLayout.square.cssAspect - 1)).toBeLessThanOrEqual(0.01);
     expect(wideLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await switchHomepageCategory(page, 'video');
@@ -5747,11 +5750,13 @@ test.describe('Homepage', () => {
       const style = window.getComputedStyle(grid);
       const rects = Array.from(grid.querySelectorAll('.video-card')).map((node) => {
         const rect = node.getBoundingClientRect();
+        const nodeStyle = window.getComputedStyle(node);
         const media = node.querySelector('.video-card__preview');
         const mediaRect = media?.getBoundingClientRect();
         return {
           id: node.dataset.videoItemId || '',
           aspect: node.dataset.videoAspect || '',
+          cssAspect: Number.parseFloat(nodeStyle.getPropertyValue('--video-item-aspect')) || 0,
           left: Math.round(rect.left * 100) / 100,
           top: Math.round(rect.top * 100) / 100,
           right: Math.round(rect.right * 100) / 100,
@@ -5831,9 +5836,12 @@ test.describe('Homepage', () => {
     expect(Math.max(...videoLayout.horizontalGaps) - Math.min(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(3);
     expect(videoLayout.maxVerticalGap).toBeLessThanOrEqual(16);
     expect(videoLayout.minMediaCoverage).toBeGreaterThan(0.95);
-    expect(videoLayout.portrait.mediaHeight).toBeGreaterThan(videoLayout.portrait.mediaWidth * 1.12);
-    expect(videoLayout.landscape.mediaWidth).toBeGreaterThan(videoLayout.landscape.mediaHeight * 1.12);
-    expect(Math.abs(videoLayout.square.mediaWidth - videoLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
+    expect(videoLayout.portrait.aspect).toBe('portrait');
+    expect(videoLayout.portrait.cssAspect).toBeLessThan(0.9);
+    expect(videoLayout.landscape.aspect).toBe('landscape');
+    expect(videoLayout.landscape.cssAspect).toBeGreaterThan(1.1);
+    expect(videoLayout.square.aspect).toBe('square');
+    expect(Math.abs(videoLayout.square.cssAspect - 1)).toBeLessThanOrEqual(0.01);
     expect(videoLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 844 });

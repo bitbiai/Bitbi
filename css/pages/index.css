@@ -3902,11 +3902,13 @@
         display: none;
     }
 
-    .hero__creation-stream--right .hero__creation-stream-layer--particles,
-    .hero__creation-stream--right .hero__creation-stream-particle {
+    .hero__creation-stream .hero__creation-stream-layer--particles,
+    .hero__creation-stream .hero__creation-stream-particle,
+    .hero__creation-stream .hero__creation-stream-flare-ray {
         display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
+        animation: none !important;
     }
 
     .hero--homepage .news-pulse--is-disabled,

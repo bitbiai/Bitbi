@@ -172,20 +172,11 @@ try { initMobileGuestBanner(); } catch (e) { console.warn('guestBanner:', e); }
 
 /* Hero particles (index uses more particles, nebulae, connections) */
 try { initParticles('heroCanvas', {
-    maxParticles: 100,
+    maxParticles: 0,
     particleDensity: 15000,
-    nebulaCount: 7,
-    showConnections: true,
+    nebulaCount: 0,
+    showConnections: false,
     connectionDistance: 280,
-    exclusionZones: [
-        {
-            name: 'right-half-no-particles',
-            xMin: 0.48,
-            xMax: 1,
-            yMin: 0,
-            yMax: 1,
-        },
-    ],
 }); } catch (e) { console.warn('particles:', e); }
 
 /* Binary rain (index uses more columns) */
