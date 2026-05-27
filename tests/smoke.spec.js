@@ -5577,10 +5577,17 @@ test.describe('Homepage', () => {
     });
 
     await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      const requestUrl = new URL(route.request().url());
+      const item = items.find((candidate) => requestUrl.pathname.includes(`/${candidate.id}/`));
+      const dimensions = requestUrl.pathname.endsWith('/thumb')
+        ? item?.thumb
+        : item?.preview || item?.thumb;
+      const width = Number(dimensions?.w) || 1;
+      const height = Number(dimensions?.h) || 1;
       await route.fulfill({
         status: 200,
-        contentType: 'image/png',
-        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        contentType: 'image/svg+xml',
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#001018"/></svg>`,
       });
     });
 
@@ -5624,11 +5631,16 @@ test.describe('Homepage', () => {
       const style = window.getComputedStyle(grid);
       const rects = Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)')).map((node) => {
         const rect = node.getBoundingClientRect();
-        const media = node.querySelector('img');
+        const media = node.querySelector('.gallery-item__media');
         const mediaRect = media?.getBoundingClientRect();
         return {
           id: node.dataset.galleryItemId || '',
           aspect: node.dataset.galleryAspect || '',
+          mediaSrc: media?.getAttribute('src') || '',
+          mediaNaturalWidth: media?.naturalWidth || 0,
+          mediaNaturalHeight: media?.naturalHeight || 0,
+          mediaAttrWidth: media?.getAttribute('width') || '',
+          mediaAttrHeight: media?.getAttribute('height') || '',
           left: Math.round(rect.left * 100) / 100,
           top: Math.round(rect.top * 100) / 100,
           right: Math.round(rect.right * 100) / 100,

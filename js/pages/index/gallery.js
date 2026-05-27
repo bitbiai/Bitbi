@@ -453,6 +453,7 @@ export function initGallery() {
         inner.style.border = '1px solid rgba(255,255,255,0.04)';
 
         const img = new Image();
+        img.className = 'gallery-item__media';
         img.src = item.thumb.url;
         img.alt = item.title;
         img.width = item.thumb.w;
