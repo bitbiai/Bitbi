@@ -2556,7 +2556,7 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.pointerEvents).not.toBe('none');
   });
 
-  test('hero creation stream origins stay covered by the Generate Lab CTA', async ({ page }) => {
+  test('hero creation stream origins and endpoints stay anchored to CTA and Models module', async ({ page }) => {
     await page.route('**/api/public/news-pulse**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -2565,7 +2565,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    const measureOrigins = async () => {
+    const measureStreamAnchors = async () => {
       await expect(page.locator('#hero .hero__creation-stream[data-creation-stream-anchored="true"]')).toBeAttached();
       await page.evaluate(() => new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(resolve));
@@ -2576,13 +2576,29 @@ test.describe('Homepage', () => {
         const teaser = document.querySelector('#hero .hero__lab-teaser');
         const actions = document.querySelector('#hero .hero__actions--single-cta');
         const stream = document.querySelector('#hero .hero__creation-stream');
+        const topSlot = document.querySelector('#hero [data-latest-models-slot="top"]');
+        const bottomSlot = document.querySelector('#hero [data-latest-models-slot="bottom"]');
         const paths = Array.from(document.querySelectorAll([
           '#hero .hero__creation-stream-halo',
           '#hero .hero__creation-stream-strand',
           '#hero .hero__creation-stream-highlight',
         ].join(',')));
         const flare = document.querySelector('#hero .hero__creation-stream-flare--origin');
+        const topFlare = document.querySelector('#hero .hero__creation-stream-flare--top');
+        const bottomFlare = document.querySelector('#hero .hero__creation-stream-flare--bottom');
         const teaserRect = teaser?.getBoundingClientRect();
+        const topSlotRect = topSlot?.getBoundingClientRect();
+        const bottomSlotRect = bottomSlot?.getBoundingClientRect();
+        const videoRect = topSlotRect && bottomSlotRect
+          ? {
+            left: Math.min(topSlotRect.left, bottomSlotRect.left),
+            right: Math.max(topSlotRect.right, bottomSlotRect.right),
+            top: Math.min(topSlotRect.top, bottomSlotRect.top),
+            bottom: Math.max(topSlotRect.bottom, bottomSlotRect.bottom),
+            width: Math.max(topSlotRect.right, bottomSlotRect.right) - Math.min(topSlotRect.left, bottomSlotRect.left),
+            height: Math.max(topSlotRect.bottom, bottomSlotRect.bottom) - Math.min(topSlotRect.top, bottomSlotRect.top),
+          }
+          : null;
         const streamStyle = stream ? window.getComputedStyle(stream) : null;
         const actionsStyle = actions ? window.getComputedStyle(actions) : null;
 
@@ -2609,12 +2625,60 @@ test.describe('Homepage', () => {
           };
         }).filter((entry) => !entry.inside);
 
+        const endpoints = paths.map((path) => {
+          const end = path.getPointAtLength(path.getTotalLength());
+          const screenPoint = toScreenPoint(path, end);
+          const y = screenPoint?.y ?? null;
+          const x = screenPoint?.x ?? null;
+          const insideVideoY = Boolean(videoRect && screenPoint
+            && y >= videoRect.top - tolerance
+            && y <= videoRect.bottom + tolerance);
+          const nearVideoEdge = Boolean(videoRect && screenPoint
+            && x >= videoRect.left - 12
+            && x <= videoRect.left + (videoRect.width * 0.42));
+
+          return {
+            className: path.getAttribute('class') || '',
+            x: x === null ? null : Math.round(x * 100) / 100,
+            y: y === null ? null : Math.round(y * 100) / 100,
+            insideVideoY,
+            nearVideoEdge,
+          };
+        });
+        const endpointFailures = endpoints.filter((entry) => !entry.insideVideoY || !entry.nearVideoEdge);
+        const endpointYs = endpoints
+          .map((entry) => entry.y)
+          .filter((value) => Number.isFinite(value));
+        const endpointSpread = endpointYs.length
+          ? Math.max(...endpointYs) - Math.min(...endpointYs)
+          : 0;
+        const midpoint = videoRect ? videoRect.top + (videoRect.height * 0.5) : 0;
+        const upperEndpointCount = endpoints.filter((entry) => Number.isFinite(entry.y) && entry.y < midpoint).length;
+        const lowerEndpointCount = endpoints.filter((entry) => Number.isFinite(entry.y) && entry.y >= midpoint).length;
+
         const flarePoint = flare
           ? toScreenPoint(flare, {
             x: flare.cx.baseVal.value,
             y: flare.cy.baseVal.value,
           })
           : null;
+        const topFlarePoint = topFlare
+          ? toScreenPoint(topFlare, {
+            x: topFlare.cx.baseVal.value,
+            y: topFlare.cy.baseVal.value,
+          })
+          : null;
+        const bottomFlarePoint = bottomFlare
+          ? toScreenPoint(bottomFlare, {
+            x: bottomFlare.cx.baseVal.value,
+            y: bottomFlare.cy.baseVal.value,
+          })
+          : null;
+        const flareNearVideoEdge = (point) => Boolean(videoRect && point
+          && point.x >= videoRect.left - 12
+          && point.x <= videoRect.left + (videoRect.width * 0.42)
+          && point.y >= videoRect.top - tolerance
+          && point.y <= videoRect.bottom + tolerance);
 
         return {
           width: window.innerWidth,
@@ -2625,6 +2689,13 @@ test.describe('Homepage', () => {
           pathCount: paths.length,
           pathFailures,
           flareInside: pointInsideTeaser(flarePoint),
+          endpointFailures,
+          endpointSpread,
+          expectedEndpointSpread: videoRect ? videoRect.height * 0.48 : 0,
+          upperEndpointCount,
+          lowerEndpointCount,
+          topFlareNearVideoEdge: flareNearVideoEdge(topFlarePoint),
+          bottomFlareNearVideoEdge: flareNearVideoEdge(bottomFlarePoint),
         };
       });
     };
@@ -2636,7 +2707,7 @@ test.describe('Homepage', () => {
 
       for (const width of [1100, 1280, 1440, 1600]) {
         await page.setViewportSize({ width, height: 900 });
-        const metrics = await measureOrigins();
+        const metrics = await measureStreamAnchors();
         const context = `${path} at ${width}px`;
 
         expect(metrics.streamPointerEvents, `stream pointer events for ${context}`).toBe('none');
@@ -2645,6 +2716,12 @@ test.describe('Homepage', () => {
         expect(metrics.pathCount, `stream path count for ${context}`).toBeGreaterThan(20);
         expect(metrics.pathFailures, `stream path starts outside CTA for ${context}`).toEqual([]);
         expect(metrics.flareInside, `stream origin flare outside CTA for ${context}`).toBe(true);
+        expect(metrics.endpointFailures, `stream endpoints away from Models edge for ${context}`).toEqual([]);
+        expect(metrics.endpointSpread, `stream endpoint spread for ${context}`).toBeGreaterThan(metrics.expectedEndpointSpread);
+        expect(metrics.upperEndpointCount, `upper stream endpoints for ${context}`).toBeGreaterThan(8);
+        expect(metrics.lowerEndpointCount, `lower stream endpoints for ${context}`).toBeGreaterThan(8);
+        expect(metrics.topFlareNearVideoEdge, `top stream flare away from Models edge for ${context}`).toBe(true);
+        expect(metrics.bottomFlareNearVideoEdge, `bottom stream flare away from Models edge for ${context}`).toBe(true);
       }
     }
   });
