@@ -2599,8 +2599,8 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.actionJustifyContent).toBe('center');
     expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
     expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
-    expect(teaserMetrics.titleWidth).toBeGreaterThanOrEqual(496);
-    expect(teaserMetrics.titleWidth).toBeLessThanOrEqual(499);
+    expect(teaserMetrics.titleWidth).toBeGreaterThanOrEqual(600);
+    expect(teaserMetrics.titleWidth).toBeLessThanOrEqual(604);
     expect(teaserMetrics.titleHeight).toBeGreaterThan(320);
     expect(teaserMetrics.titleCenterOffset).toBeLessThanOrEqual(2);
     expect(teaserMetrics.titleHeaderGap).toBeGreaterThanOrEqual(0);
@@ -2644,6 +2644,7 @@ test.describe('Homepage', () => {
         const strandPaths = Array.from(stream?.querySelectorAll('.hero__creation-stream-strand') || []);
         const highlightPaths = Array.from(stream?.querySelectorAll('.hero__creation-stream-highlight') || []);
         const paths = [...haloPaths, ...strandPaths, ...highlightPaths];
+        const particleLayer = stream?.querySelector('.hero__creation-stream-layer--particles');
         const particles = Array.from(stream?.querySelectorAll('.hero__creation-stream-layer--particles .hero__creation-stream-particle') || []);
         const flares = Array.from(stream?.querySelectorAll('.hero__creation-stream-flare') || []);
         const flare = stream?.querySelector('.hero__creation-stream-flare--origin');
@@ -2664,6 +2665,7 @@ test.describe('Homepage', () => {
           : null;
         const streamStyle = stream ? window.getComputedStyle(stream) : null;
         const actionsStyle = actions ? window.getComputedStyle(actions) : null;
+        const particleLayerStyle = particleLayer ? window.getComputedStyle(particleLayer) : null;
 
         const toScreenPoint = (element, point) => {
           const matrix = element.getScreenCTM?.();
@@ -2803,6 +2805,12 @@ test.describe('Homepage', () => {
             },
           ];
         }));
+        const visibleParticleCount = particles.filter((particle) => {
+          const style = window.getComputedStyle(particle);
+          return style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number.parseFloat(style.opacity || '1') > 0;
+        }).length;
         const particleDurations = particles.flatMap((particle) => (
           window.getComputedStyle(particle).animationDuration
             .split(',')
@@ -2851,6 +2859,8 @@ test.describe('Homepage', () => {
           highlightPathCount: highlightPaths.length,
           flareCount: flares.length,
           particleCount: particles.length,
+          visibleParticleCount,
+          particleLayerDisplay: particleLayerStyle?.display || '',
           highlightMetrics,
           maxParticleAnimationDuration: particleDurations.length
             ? Math.max(...particleDurations)
@@ -2876,6 +2886,10 @@ test.describe('Homepage', () => {
       await page.setViewportSize({ width: 1100, height: 900 });
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('#hero .hero__creation-stream')).toHaveCount(2);
+      await expect(page.locator('#heroCanvas')).toHaveAttribute(
+        'data-particle-exclusion-zones',
+        /right-half-no-particles/,
+      );
 
       const expectedHighlightMetrics = {
         one: { animationDuration: 2.9, strokeDasharray: [20, 66] },
@@ -2902,8 +2916,15 @@ test.describe('Homepage', () => {
           expect(metrics.highlightPathCount, `stream highlight path count for ${context}`).toBe(7);
           expect(metrics.flareCount, `stream flare count for ${context}`).toBe(3);
           expect(metrics.particleCount, `stream particle count for ${context}`).toBe(72);
-          expect(metrics.maxParticleAnimationDuration, `stream particle max duration for ${context}`).toBeLessThanOrEqual(4.1);
-          expect(metrics.minParticleAnimationDuration, `stream particle min duration for ${context}`).toBeGreaterThanOrEqual(2.3);
+          if (side === 'right') {
+            expect(metrics.particleLayerDisplay, `right stream particles visible for ${context}`).toBe('none');
+            expect(metrics.visibleParticleCount, `right stream visible particle count for ${context}`).toBe(0);
+          } else {
+            expect(metrics.particleLayerDisplay, `left stream particles hidden for ${context}`).not.toBe('none');
+            expect(metrics.visibleParticleCount, `left stream visible particle count for ${context}`).toBeGreaterThan(0);
+            expect(metrics.maxParticleAnimationDuration, `stream particle max duration for ${context}`).toBeLessThanOrEqual(4.1);
+            expect(metrics.minParticleAnimationDuration, `stream particle min duration for ${context}`).toBeGreaterThanOrEqual(2.3);
+          }
           for (const [variant, expected] of Object.entries(expectedHighlightMetrics)) {
             const actual = metrics.highlightMetrics[variant];
             expect(actual, `stream highlight ${variant} metrics for ${context}`).toBeTruthy();

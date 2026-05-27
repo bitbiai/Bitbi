@@ -177,6 +177,15 @@ try { initParticles('heroCanvas', {
     nebulaCount: 7,
     showConnections: true,
     connectionDistance: 280,
+    exclusionZones: [
+        {
+            name: 'right-half-no-particles',
+            xMin: 0.48,
+            xMax: 1,
+            yMin: 0,
+            yMax: 1,
+        },
+    ],
 }); } catch (e) { console.warn('particles:', e); }
 
 /* Binary rain (index uses more columns) */

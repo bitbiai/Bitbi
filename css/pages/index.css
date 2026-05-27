@@ -3886,6 +3886,7 @@
     }
 
     .hero--homepage .hero__title-wrap {
+        block-size: clamp(151.36px, 29.7307vw, 324.33px);
         margin-block-end: var(--space-6);
     }
 
@@ -3894,11 +3895,18 @@
     }
 
     .hero--homepage .hero__title-img {
-        width: clamp(232.26px, 45.6225vw, 497.7px);
+        width: clamp(281.03px, 55.2032vw, 602.22px);
     }
 
     .hero__creation-stream {
         display: none;
+    }
+
+    .hero__creation-stream--right .hero__creation-stream-layer--particles,
+    .hero__creation-stream--right .hero__creation-stream-particle {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
     }
 
     .hero--homepage .news-pulse--is-disabled,

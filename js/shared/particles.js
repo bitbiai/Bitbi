@@ -10,6 +10,9 @@ export function initParticles(canvasId, options = {}) {
     const nebulaCount = options.nebulaCount ?? 3;
     const showConnections = options.showConnections ?? false;
     const connectionDistance = options.connectionDistance ?? 280;
+    const exclusionZones = Array.isArray(options.exclusionZones)
+        ? options.exclusionZones.filter((zone) => zone && typeof zone === 'object')
+        : [];
 
     const c = document.getElementById(canvasId);
     if (!c) return null;
@@ -30,6 +33,53 @@ export function initParticles(canvasId, options = {}) {
     }
     resize();
 
+    if (exclusionZones.length) {
+        const zoneNames = exclusionZones.map((zone) => zone.name).filter(Boolean).join(' ');
+        c.dataset.particleExclusionZones = zoneNames || String(exclusionZones.length);
+    } else {
+        delete c.dataset.particleExclusionZones;
+    }
+
+    function isPointInExclusionZone(x, y) {
+        if (!exclusionZones.length || !W || !H) return false;
+        const normalizedX = x / W;
+        const normalizedY = y / H;
+
+        return exclusionZones.some((zone) => {
+            const xMin = Number.isFinite(zone.xMin) ? zone.xMin : 0;
+            const xMax = Number.isFinite(zone.xMax) ? zone.xMax : 1;
+            const yMin = Number.isFinite(zone.yMin) ? zone.yMin : 0;
+            const yMax = Number.isFinite(zone.yMax) ? zone.yMax : 1;
+
+            return normalizedX >= xMin
+                && normalizedX <= xMax
+                && normalizedY >= yMin
+                && normalizedY <= yMax;
+        });
+    }
+
+    function getRandomPointOutsideExclusionZones() {
+        for (let attempt = 0; attempt < 40; attempt++) {
+            const point = {
+                x: Math.random() * W,
+                y: Math.random() * H,
+            };
+            if (!isPointInExclusionZone(point.x, point.y)) return point;
+        }
+
+        const fallbackPoints = [
+            { x: W * 0.25, y: H * 0.5 },
+            { x: W * 0.1, y: H * 0.25 },
+            { x: W * 0.1, y: H * 0.75 },
+            { x: W * 0.45, y: H * 0.5 },
+        ];
+
+        return fallbackPoints.find((point) => !isPointInExclusionZone(point.x, point.y)) || {
+            x: 0,
+            y: 0,
+        };
+    }
+
     if (typeof ResizeObserver !== 'undefined') {
         ro = new ResizeObserver(() => resize());
         ro.observe(c.parentElement);
@@ -46,8 +96,9 @@ export function initParticles(canvasId, options = {}) {
     class P {
         constructor() { this.reset(); }
         reset() {
-            this.x = Math.random() * W;
-            this.y = Math.random() * H;
+            const point = getRandomPointOutsideExclusionZones();
+            this.x = point.x;
+            this.y = point.y;
             this.vx = (Math.random() - 0.5) * 0.25;
             this.vy = (Math.random() - 0.5) * 0.25;
             this.r = Math.random() * 1.8 + 0.4;
@@ -58,9 +109,17 @@ export function initParticles(canvasId, options = {}) {
             this.x += this.vx;
             this.y += this.vy;
             this.life -= 0.0008;
-            if (this.x < 0 || this.x > W || this.y < 0 || this.y > H || this.life <= 0) this.reset();
+            if (
+                this.x < 0
+                || this.x > W
+                || this.y < 0
+                || this.y > H
+                || this.life <= 0
+                || isPointInExclusionZone(this.x, this.y)
+            ) this.reset();
         }
         draw() {
+            if (isPointInExclusionZone(this.x, this.y)) return;
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
             ctx.fillStyle = this.cy
@@ -72,18 +131,31 @@ export function initParticles(canvasId, options = {}) {
 
     class N {
         constructor() {
-            this.x = Math.random() * W;
-            this.y = Math.random() * H;
+            this.reset();
+        }
+        reset() {
+            const point = getRandomPointOutsideExclusionZones();
+            this.x = point.x;
+            this.y = point.y;
             this.br = Math.random() * 3 + 2;
             this.ph = Math.random() * 6.28;
             this.sp = Math.random() * 0.008 + 0.004;
             const cs = ['0,240,255', '255,179,0', '192,38,211'];
             this.col = cs[Math.floor(Math.random() * 3)];
+            this.r = this.br;
         }
         update(t) {
+            if (
+                this.x < 0
+                || this.x > W
+                || this.y < 0
+                || this.y > H
+                || isPointInExclusionZone(this.x, this.y)
+            ) this.reset();
             this.r = this.br + Math.sin(t * this.sp + this.ph) * 1.5;
         }
         draw() {
+            if (isPointInExclusionZone(this.x, this.y)) return;
             const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 7);
             g.addColorStop(0, `rgba(${this.col},.25)`);
             g.addColorStop(1, `rgba(${this.col},0)`);
@@ -145,7 +217,14 @@ export function initParticles(canvasId, options = {}) {
                     const dx = ns[i].x - ns[j].x;
                     const dy = ns[i].y - ns[j].y;
                     const d = Math.sqrt(dx * dx + dy * dy);
-                    if (d < connectionDistance) {
+                    const midpointX = (ns[i].x + ns[j].x) / 2;
+                    const midpointY = (ns[i].y + ns[j].y) / 2;
+                    if (
+                        d < connectionDistance
+                        && !isPointInExclusionZone(ns[i].x, ns[i].y)
+                        && !isPointInExclusionZone(ns[j].x, ns[j].y)
+                        && !isPointInExclusionZone(midpointX, midpointY)
+                    ) {
                         ctx.beginPath();
                         ctx.moveTo(ns[i].x, ns[i].y);
                         ctx.lineTo(ns[j].x, ns[j].y);
