@@ -2112,6 +2112,7 @@ test.describe('Homepage', () => {
           edgeGlowLeft: edgeGlow.left,
           edgeGlowRight: edgeGlow.right,
           edgeGlowPointerEvents: edgeGlowStyle.pointerEvents,
+          edgeGlowZIndex: Number.parseInt(edgeGlowStyle.zIndex || '0', 10),
           edgeGlowPathD: edgeGlowPathNode?.getAttribute('d') || '',
           edgeGlowPathStroke: edgeGlowPathStyle.stroke,
           topClipPathD: topClipPathNode?.getAttribute('d') || '',
@@ -2132,6 +2133,8 @@ test.describe('Homepage', () => {
           moduleAfterContent: moduleAfterStyle.content,
           topSlotBoxShadow: topSlotStyle.boxShadow,
           bottomSlotBoxShadow: bottomSlotStyle.boxShadow,
+          topSlotZIndex: Number.parseInt(topSlotStyle.zIndex || '0', 10),
+          bottomSlotZIndex: Number.parseInt(bottomSlotStyle.zIndex || '0', 10),
           topSlotClipPath: topSlotStyle.clipPath,
           bottomSlotClipPath: bottomSlotStyle.clipPath,
           topSlotBeforeContent: topSlotBeforeStyle.content,
@@ -2174,6 +2177,8 @@ test.describe('Homepage', () => {
         expect(Math.abs(layout.edgeGlowLeft - layout.moduleLeft)).toBeLessThanOrEqual(1);
         expect(layout.edgeGlowRight).toBeLessThanOrEqual(layout.moduleLeft + layout.moduleWidth + 1);
         expect(layout.edgeGlowPointerEvents).toBe('none');
+        expect(layout.edgeGlowZIndex).toBeLessThan(layout.topSlotZIndex);
+        expect(layout.edgeGlowZIndex).toBeLessThan(layout.bottomSlotZIndex);
         expect(layout.edgeGlowPathD).toBe('M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100');
         expect(layout.moduleClipPathD).toBe('M 1 0 L 0.34 0 C 0.16 0.02 0.04 0.18 0.04 0.34 C 0.04 0.48 0.18 0.56 0.14 0.64 C 0.08 0.76 0.03 0.86 0.2 1 L 1 1 Z');
         expect(layout.topClipPathD).toBe('M 1 0 L 0.34 0 C 0.16 0.02 0.04 0.18 0.04 0.34 C 0.04 0.403945 0.069207 0.455372 0.097128 0.5 C 0.31 0.545 0.58 0.47 1 0.5 Z');
