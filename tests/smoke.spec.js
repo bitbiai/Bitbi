@@ -5700,9 +5700,9 @@ test.describe('Homepage', () => {
     expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(3);
     expect(wideLayout.maxVerticalGap).toBeLessThanOrEqual(16);
     expect(wideLayout.minMediaCoverage).toBeGreaterThan(0.95);
-    expect(wideLayout.portrait.height).toBeGreaterThan(wideLayout.portrait.width * 1.12);
-    expect(wideLayout.landscape.width).toBeGreaterThan(wideLayout.landscape.height * 1.12);
-    expect(Math.abs(wideLayout.square.width - wideLayout.square.height)).toBeLessThanOrEqual(3);
+    expect(wideLayout.portrait.mediaHeight).toBeGreaterThan(wideLayout.portrait.mediaWidth * 1.12);
+    expect(wideLayout.landscape.mediaWidth).toBeGreaterThan(wideLayout.landscape.mediaHeight * 1.12);
+    expect(Math.abs(wideLayout.square.mediaWidth - wideLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
     expect(wideLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await switchHomepageCategory(page, 'video');
@@ -5798,9 +5798,9 @@ test.describe('Homepage', () => {
     expect(Math.max(...videoLayout.horizontalGaps) - Math.min(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(3);
     expect(videoLayout.maxVerticalGap).toBeLessThanOrEqual(16);
     expect(videoLayout.minMediaCoverage).toBeGreaterThan(0.95);
-    expect(videoLayout.portrait.height).toBeGreaterThan(videoLayout.portrait.width * 1.12);
-    expect(videoLayout.landscape.width).toBeGreaterThan(videoLayout.landscape.height * 1.12);
-    expect(Math.abs(videoLayout.square.width - videoLayout.square.height)).toBeLessThanOrEqual(3);
+    expect(videoLayout.portrait.mediaHeight).toBeGreaterThan(videoLayout.portrait.mediaWidth * 1.12);
+    expect(videoLayout.landscape.mediaWidth).toBeGreaterThan(videoLayout.landscape.mediaHeight * 1.12);
+    expect(Math.abs(videoLayout.square.mediaWidth - videoLayout.square.mediaHeight)).toBeLessThanOrEqual(3);
     expect(videoLayout.roundedHeights.length).toBeGreaterThanOrEqual(3);
 
     await page.setViewportSize({ width: 390, height: 844 });
