@@ -2655,6 +2655,31 @@ test.describe('Homepage', () => {
         const midpoint = videoRect ? videoRect.top + (videoRect.height * 0.5) : 0;
         const upperEndpointCount = endpoints.filter((entry) => Number.isFinite(entry.y) && entry.y < midpoint).length;
         const lowerEndpointCount = endpoints.filter((entry) => Number.isFinite(entry.y) && entry.y >= midpoint).length;
+        const getTurnAngle = (a, b, c) => {
+          const first = { x: b.x - a.x, y: b.y - a.y };
+          const second = { x: c.x - b.x, y: c.y - b.y };
+          const firstLength = Math.hypot(first.x, first.y);
+          const secondLength = Math.hypot(second.x, second.y);
+          if (!firstLength || !secondLength) return 0;
+          const cosine = Math.min(1, Math.max(-1, (
+            (first.x * second.x) + (first.y * second.y)
+          ) / (firstLength * secondLength)));
+          return Math.acos(cosine) * (180 / Math.PI);
+        };
+        const smoothnessFailures = paths.map((path) => {
+          const length = path.getTotalLength();
+          const points = [0.62, 0.7, 0.78, 0.86, 0.94, 1]
+            .map((ratio) => toScreenPoint(path, path.getPointAtLength(length * ratio)))
+            .filter(Boolean);
+          const angles = points.slice(1, -1).map((point, index) => (
+            getTurnAngle(points[index], point, points[index + 2])
+          ));
+          const maxTurn = angles.length ? Math.max(...angles) : 0;
+          return {
+            className: path.getAttribute('class') || '',
+            maxTurn: Math.round(maxTurn * 100) / 100,
+          };
+        }).filter((entry) => entry.maxTurn > 82);
 
         const flarePoint = flare
           ? toScreenPoint(flare, {
@@ -2694,6 +2719,7 @@ test.describe('Homepage', () => {
           expectedEndpointSpread: videoRect ? videoRect.height * 0.48 : 0,
           upperEndpointCount,
           lowerEndpointCount,
+          smoothnessFailures,
           topFlareNearVideoEdge: flareNearVideoEdge(topFlarePoint),
           bottomFlareNearVideoEdge: flareNearVideoEdge(bottomFlarePoint),
         };
@@ -2720,6 +2746,7 @@ test.describe('Homepage', () => {
         expect(metrics.endpointSpread, `stream endpoint spread for ${context}`).toBeGreaterThan(metrics.expectedEndpointSpread);
         expect(metrics.upperEndpointCount, `upper stream endpoints for ${context}`).toBeGreaterThan(8);
         expect(metrics.lowerEndpointCount, `lower stream endpoints for ${context}`).toBeGreaterThan(8);
+        expect(metrics.smoothnessFailures, `stream final-third kink for ${context}`).toEqual([]);
         expect(metrics.topFlareNearVideoEdge, `top stream flare away from Models edge for ${context}`).toBe(true);
         expect(metrics.bottomFlareNearVideoEdge, `bottom stream flare away from Models edge for ${context}`).toBe(true);
       }

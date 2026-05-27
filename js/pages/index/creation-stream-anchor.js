@@ -100,28 +100,12 @@ function parseRoute(path) {
         startY,
         firstControlX,
         firstControlY,
-        secondControlX,
-        secondControlY,
-        midX,
-        midY,
-        finalControlOneX,
-        finalControlOneY,
-        finalControlTwoX,
-        finalControlTwoY,
-        endX,
-        endY,
     ] = values;
 
     return {
         path,
         firstControlOffsetX: firstControlX - startX,
         firstControlOffsetY: firstControlY - startY,
-        secondControl: { x: secondControlX, y: secondControlY },
-        mid: { x: midX, y: midY },
-        finalControlOne: { x: finalControlOneX, y: finalControlOneY },
-        finalControlTwoOffsetX: finalControlTwoX - endX,
-        finalControlTwoOffsetY: finalControlTwoY - endY,
-        originalEnd: { x: endX, y: endY },
         endpointRole: getEndpointRole(path),
     };
 }
@@ -132,6 +116,20 @@ function formatCoordinate(value) {
 
 function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
+}
+
+function getDistance(start, end) {
+    return Math.hypot(end.x - start.x, end.y - start.y);
+}
+
+function getUnitVector(vector, fallback = { x: 1, y: 0 }) {
+    const length = Math.hypot(vector.x, vector.y);
+    if (!length) return fallback;
+
+    return {
+        x: vector.x / length,
+        y: vector.y / length,
+    };
 }
 
 function getSvgRect(svg, rect) {
@@ -251,15 +249,48 @@ function getEndpointPoint(slotRect, role) {
     };
 }
 
+function getCurveMidPoint(origin, endpoint, role) {
+    const upperBranch = role.y < 0.5;
+    const progress = upperBranch ? 0.58 : 0.62;
+    const sag = upperBranch
+        ? 54 + ((0.5 - role.y) * 90)
+        : 18 + ((role.y - 0.5) * 42);
+
+    return {
+        x: origin.x + ((endpoint.x - origin.x) * progress) - (upperBranch ? 4 : 16),
+        y: origin.y + ((endpoint.y - origin.y) * progress) + sag,
+    };
+}
+
 function anchorPath(route, origin, endpoint) {
     const nextControlX = origin.x + route.firstControlOffsetX;
     const nextControlY = origin.y + route.firstControlOffsetY;
-    const endpointDeltaX = endpoint.x - route.originalEnd.x;
-    const endpointDeltaY = endpoint.y - route.originalEnd.y;
-    const finalControlOneX = route.finalControlOne.x + (endpointDeltaX * 0.5);
-    const finalControlOneY = route.finalControlOne.y + (endpointDeltaY * 0.5);
-    const finalControlTwoX = endpoint.x + route.finalControlTwoOffsetX;
-    const finalControlTwoY = endpoint.y + route.finalControlTwoOffsetY;
+    const mid = getCurveMidPoint(origin, endpoint, route.endpointRole);
+    const midTangent = getUnitVector({
+        x: mid.x - origin.x,
+        y: mid.y - origin.y,
+    });
+    const endpointTangent = getUnitVector({
+        x: 1,
+        y: clamp((route.endpointRole.y - 0.5) * 1.8, -0.62, 0.62),
+    });
+    const originToMidDistance = getDistance(origin, mid);
+    const secondControlDistance = clamp(originToMidDistance * 0.34, 72, 168);
+    const secondControlX = mid.x - (midTangent.x * secondControlDistance);
+    const secondControlY = mid.y - (midTangent.y * secondControlDistance);
+    const endpointDistance = getDistance(mid, endpoint);
+    const finalControlOneX = mid.x + (
+        midTangent.x * clamp(endpointDistance * 0.42, 84, 190)
+    );
+    const finalControlOneY = mid.y + (
+        midTangent.y * clamp(endpointDistance * 0.42, 84, 190)
+    );
+    const finalControlTwoX = endpoint.x - (
+        endpointTangent.x * clamp(endpointDistance * 0.46, 88, 198)
+    );
+    const finalControlTwoY = endpoint.y - (
+        endpointTangent.y * clamp(endpointDistance * 0.46, 88, 198)
+    );
     const nextD = [
         'M',
         formatCoordinate(origin.x),
@@ -267,10 +298,10 @@ function anchorPath(route, origin, endpoint) {
         'C',
         formatCoordinate(nextControlX),
         formatCoordinate(nextControlY),
-        formatCoordinate(route.secondControl.x),
-        formatCoordinate(route.secondControl.y),
-        formatCoordinate(route.mid.x),
-        formatCoordinate(route.mid.y),
+        formatCoordinate(secondControlX),
+        formatCoordinate(secondControlY),
+        formatCoordinate(mid.x),
+        formatCoordinate(mid.y),
         'C',
         formatCoordinate(finalControlOneX),
         formatCoordinate(finalControlOneY),
