@@ -2640,11 +2640,12 @@ test.describe('Homepage', () => {
         const topSlot = document.querySelector('#hero [data-latest-models-slot="top"]');
         const bottomSlot = document.querySelector('#hero [data-latest-models-slot="bottom"]');
         const edgeGlowPath = document.querySelector('#hero .latest-models-video-module__edge-glow-path--core');
-        const paths = Array.from(document.querySelectorAll([
-          '#hero .hero__creation-stream-halo',
-          '#hero .hero__creation-stream-strand',
-          '#hero .hero__creation-stream-highlight',
-        ].join(',')));
+        const haloPaths = Array.from(document.querySelectorAll('#hero .hero__creation-stream-halo'));
+        const strandPaths = Array.from(document.querySelectorAll('#hero .hero__creation-stream-strand'));
+        const highlightPaths = Array.from(document.querySelectorAll('#hero .hero__creation-stream-highlight'));
+        const paths = [...haloPaths, ...strandPaths, ...highlightPaths];
+        const particles = Array.from(document.querySelectorAll('#hero .hero__creation-stream-layer--particles .hero__creation-stream-particle'));
+        const flares = Array.from(document.querySelectorAll('#hero .hero__creation-stream-flare'));
         const flare = document.querySelector('#hero .hero__creation-stream-flare--origin');
         const topFlare = document.querySelector('#hero .hero__creation-stream-flare--top');
         const bottomFlare = document.querySelector('#hero .hero__creation-stream-flare--bottom');
@@ -2779,6 +2780,12 @@ test.describe('Homepage', () => {
             maxTurn: Math.round(maxTurn * 100) / 100,
           };
         }).filter((entry) => entry.maxTurn > 82);
+        const particleDurations = particles.flatMap((particle) => (
+          window.getComputedStyle(particle).animationDuration
+            .split(',')
+            .map((duration) => Number.parseFloat(duration))
+            .filter(Number.isFinite)
+        ));
 
         const flarePoint = flare
           ? toScreenPoint(flare, {
@@ -2811,6 +2818,17 @@ test.describe('Homepage', () => {
           actionsPosition: actionsStyle?.position || '',
           actionsZIndex: Number.parseInt(actionsStyle?.zIndex || '0', 10),
           pathCount: paths.length,
+          haloPathCount: haloPaths.length,
+          strandPathCount: strandPaths.length,
+          highlightPathCount: highlightPaths.length,
+          flareCount: flares.length,
+          particleCount: particles.length,
+          maxParticleAnimationDuration: particleDurations.length
+            ? Math.max(...particleDurations)
+            : 0,
+          minParticleAnimationDuration: particleDurations.length
+            ? Math.min(...particleDurations)
+            : 0,
           pathFailures,
           flareInside: pointInsideTeaser(flarePoint),
           endpointFailures,
@@ -2839,6 +2857,13 @@ test.describe('Homepage', () => {
         expect(metrics.actionsPosition, `CTA action stacking for ${context}`).toBe('relative');
         expect(metrics.actionsZIndex, `CTA action z-index for ${context}`).toBeGreaterThan(metrics.streamZIndex);
         expect(metrics.pathCount, `stream path count for ${context}`).toBeGreaterThan(20);
+        expect(metrics.haloPathCount, `stream halo path count for ${context}`).toBe(4);
+        expect(metrics.strandPathCount, `stream strand path count for ${context}`).toBe(15);
+        expect(metrics.highlightPathCount, `stream highlight path count for ${context}`).toBe(7);
+        expect(metrics.flareCount, `stream flare count for ${context}`).toBe(3);
+        expect(metrics.particleCount, `stream particle count for ${context}`).toBe(72);
+        expect(metrics.maxParticleAnimationDuration, `stream particle max duration for ${context}`).toBeLessThanOrEqual(4.1);
+        expect(metrics.minParticleAnimationDuration, `stream particle min duration for ${context}`).toBeGreaterThanOrEqual(2.3);
         expect(metrics.pathFailures, `stream path starts outside CTA for ${context}`).toEqual([]);
         expect(metrics.flareInside, `stream origin flare outside CTA for ${context}`).toBe(true);
         expect(metrics.endpointFailures, `stream endpoints away from Models edge for ${context}`).toEqual([]);
