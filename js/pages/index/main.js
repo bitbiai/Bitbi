@@ -21,6 +21,7 @@ import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASS
 import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initSoundLabCreate } from './soundlab-create.js?v=__ASSET_VERSION__';
 import { initVideoCreate } from './video-create.js?v=__ASSET_VERSION__';
+import { initCreationStreamAnchor } from './creation-stream-anchor.js?v=__ASSET_VERSION__';
 import { initLatestModelsVideoModule } from './latest-models-video-module.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initContact } from './contact.js?v=__ASSET_VERSION__';
@@ -165,6 +166,7 @@ function initHeroModelsCtaPlacement() {
 const authReady = initAuth().catch(e => console.warn('auth:', e));
 
 try { initHeroModelsCtaPlacement(); } catch (e) { console.warn('heroModelsCta:', e); }
+try { initCreationStreamAnchor(); } catch (e) { console.warn('creationStreamAnchor:', e); }
 try { initLatestModelsVideoModule(); } catch (e) { console.warn('latestModelsVideoModule:', e); }
 try { initMobileGuestBanner(); } catch (e) { console.warn('guestBanner:', e); }
 

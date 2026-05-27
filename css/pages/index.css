@@ -3990,6 +3990,8 @@
     }
 
     .hero__actions--single-cta {
+        position: relative;
+        z-index: 11;
         inline-size: 100%;
     }
 
@@ -4115,8 +4117,13 @@
             overflow: hidden;
             contain: paint;
             pointer-events: none;
-            opacity: 0.86;
+            opacity: 0;
             mix-blend-mode: screen;
+            transition: opacity 0.18s ease-out;
+        }
+
+        .hero__creation-stream[data-creation-stream-anchored="true"] {
+            opacity: 0.86;
         }
 
         .hero__creation-stream-svg {

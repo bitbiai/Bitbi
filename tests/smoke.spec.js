@@ -2556,6 +2556,99 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.pointerEvents).not.toBe('none');
   });
 
+  test('hero creation stream origins stay covered by the Generate Lab CTA', async ({ page }) => {
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], updated_at: '2026-05-27T08:00:00.000Z' }),
+      });
+    });
+
+    const measureOrigins = async () => {
+      await expect(page.locator('#hero .hero__creation-stream[data-creation-stream-anchored="true"]')).toBeAttached();
+      await page.evaluate(() => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      }));
+
+      return page.evaluate(() => {
+        const tolerance = 2;
+        const teaser = document.querySelector('#hero .hero__lab-teaser');
+        const actions = document.querySelector('#hero .hero__actions--single-cta');
+        const stream = document.querySelector('#hero .hero__creation-stream');
+        const paths = Array.from(document.querySelectorAll([
+          '#hero .hero__creation-stream-halo',
+          '#hero .hero__creation-stream-strand',
+          '#hero .hero__creation-stream-highlight',
+        ].join(',')));
+        const flare = document.querySelector('#hero .hero__creation-stream-flare--origin');
+        const teaserRect = teaser?.getBoundingClientRect();
+        const streamStyle = stream ? window.getComputedStyle(stream) : null;
+        const actionsStyle = actions ? window.getComputedStyle(actions) : null;
+
+        const toScreenPoint = (element, point) => {
+          const matrix = element.getScreenCTM?.();
+          if (!matrix) return null;
+          return new DOMPoint(point.x, point.y).matrixTransform(matrix);
+        };
+
+        const pointInsideTeaser = (point) => Boolean(teaserRect && point
+          && point.x >= teaserRect.left - tolerance
+          && point.x <= teaserRect.right + tolerance
+          && point.y >= teaserRect.top - tolerance
+          && point.y <= teaserRect.bottom + tolerance);
+
+        const pathFailures = paths.map((path) => {
+          const start = path.getPointAtLength(0);
+          const screenPoint = toScreenPoint(path, start);
+          return {
+            className: path.getAttribute('class') || '',
+            x: screenPoint ? Math.round(screenPoint.x * 100) / 100 : null,
+            y: screenPoint ? Math.round(screenPoint.y * 100) / 100 : null,
+            inside: pointInsideTeaser(screenPoint),
+          };
+        }).filter((entry) => !entry.inside);
+
+        const flarePoint = flare
+          ? toScreenPoint(flare, {
+            x: flare.cx.baseVal.value,
+            y: flare.cy.baseVal.value,
+          })
+          : null;
+
+        return {
+          width: window.innerWidth,
+          streamPointerEvents: streamStyle?.pointerEvents || '',
+          streamZIndex: Number.parseInt(streamStyle?.zIndex || '0', 10),
+          actionsPosition: actionsStyle?.position || '',
+          actionsZIndex: Number.parseInt(actionsStyle?.zIndex || '0', 10),
+          pathCount: paths.length,
+          pathFailures,
+          flareInside: pointInsideTeaser(flarePoint),
+        };
+      });
+    };
+
+    for (const path of ['/', '/de/']) {
+      await page.setViewportSize({ width: 1100, height: 900 });
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('#hero .hero__creation-stream')).toBeAttached();
+
+      for (const width of [1100, 1280, 1440, 1600]) {
+        await page.setViewportSize({ width, height: 900 });
+        const metrics = await measureOrigins();
+        const context = `${path} at ${width}px`;
+
+        expect(metrics.streamPointerEvents, `stream pointer events for ${context}`).toBe('none');
+        expect(metrics.actionsPosition, `CTA action stacking for ${context}`).toBe('relative');
+        expect(metrics.actionsZIndex, `CTA action z-index for ${context}`).toBeGreaterThan(metrics.streamZIndex);
+        expect(metrics.pathCount, `stream path count for ${context}`).toBeGreaterThan(20);
+        expect(metrics.pathFailures, `stream path starts outside CTA for ${context}`).toEqual([]);
+        expect(metrics.flareInside, `stream origin flare outside CTA for ${context}`).toBe(true);
+      }
+    }
+  });
+
   test('hero falls back cleanly in reduced motion mode', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
