@@ -4572,6 +4572,19 @@
             filter: drop-shadow(0 0 7px rgba(159, 251, 255, 0.42));
         }
 
+        .latest-models-video-module--left .latest-models-video-module__edge-glow-path--halo {
+            stroke: url("#latestModelsLeftEdgeGlowGradient");
+            filter: url("#latestModelsLeftEdgeGlowSoft");
+        }
+
+        .latest-models-video-module--left .latest-models-video-module__edge-glow-path--core {
+            stroke: url("#latestModelsLeftEdgeGlowGradient");
+        }
+
+        .latest-models-video-module--left .latest-models-video-module__edge-glow-path--highlight {
+            stroke: url("#latestModelsLeftEdgeHighlightGradient");
+        }
+
         .latest-models-video-module__label {
             position: absolute;
             inset-block-start: calc(var(--latest-models-video-stack-height) + clamp(0.42rem, 0.9vh, 0.68rem));

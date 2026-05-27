@@ -1958,10 +1958,17 @@ test.describe('Homepage', () => {
         const topSlotNode = moduleNode.querySelector('[data-latest-models-slot="top"]');
         const bottomSlotNode = moduleNode.querySelector('[data-latest-models-slot="bottom"]');
         const edgeGlowNode = moduleNode.querySelector('.latest-models-video-module__edge-glow');
+        const leftEdgeGlowNode = leftModuleNode.querySelector('.latest-models-video-module__edge-glow');
         const edgeGlowHaloNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--halo');
         const edgeGlowPathNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--core');
         const edgeGlowHighlightNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--highlight');
+        const leftEdgeGlowHaloNode = leftEdgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--halo');
         const leftEdgeGlowPathNode = leftModuleNode.querySelector('.latest-models-video-module__edge-glow-path--core');
+        const leftEdgeGlowHighlightNode = leftEdgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--highlight');
+        const edgeGlowFilterNode = edgeGlowNode?.querySelector('#latestModelsEdgeGlowSoft');
+        const leftEdgeGlowFilterNode = leftEdgeGlowNode?.querySelector('#latestModelsLeftEdgeGlowSoft');
+        const leftEdgeGlowGradientNode = leftEdgeGlowNode?.querySelector('#latestModelsLeftEdgeGlowGradient');
+        const leftEdgeHighlightGradientNode = leftEdgeGlowNode?.querySelector('#latestModelsLeftEdgeHighlightGradient');
         const topClipPathNode = document.querySelector('#latestModelsTopClip path');
         const bottomClipPathNode = document.querySelector('#latestModelsBottomClip path');
         const moduleClipPathNode = document.querySelector('#latestModelsModuleClip path');
@@ -1996,6 +2003,9 @@ test.describe('Homepage', () => {
         const edgeGlowHaloStyle = getComputedStyle(edgeGlowHaloNode);
         const edgeGlowPathStyle = getComputedStyle(edgeGlowPathNode);
         const edgeGlowHighlightStyle = getComputedStyle(edgeGlowHighlightNode);
+        const leftEdgeGlowHaloStyle = getComputedStyle(leftEdgeGlowHaloNode);
+        const leftEdgeGlowPathStyle = getComputedStyle(leftEdgeGlowPathNode);
+        const leftEdgeGlowHighlightStyle = getComputedStyle(leftEdgeGlowHighlightNode);
         const labTeaserAfterStyle = getComputedStyle(labTeaserNode, '::after');
         const moduleBeforeStyle = getComputedStyle(moduleNode, '::before');
         const moduleAfterStyle = getComputedStyle(moduleNode, '::after');
@@ -2081,6 +2091,21 @@ test.describe('Homepage', () => {
           edgeGlowPathD: edgeGlowPathNode?.getAttribute('d') || '',
           leftEdgeGlowPathD: leftEdgeGlowPathNode?.getAttribute('d') || '',
           edgeGlowPathStroke: edgeGlowPathStyle.stroke,
+          leftEdgeGlowHaloStroke: leftEdgeGlowHaloStyle.stroke,
+          leftEdgeGlowHaloFilter: leftEdgeGlowHaloStyle.filter,
+          leftEdgeGlowPathStroke: leftEdgeGlowPathStyle.stroke,
+          leftEdgeGlowHighlightStroke: leftEdgeGlowHighlightStyle.stroke,
+          edgeGlowFilterX: edgeGlowFilterNode?.getAttribute('x') || '',
+          edgeGlowFilterWidth: edgeGlowFilterNode?.getAttribute('width') || '',
+          leftEdgeGlowFilterUnits: leftEdgeGlowFilterNode?.getAttribute('filterUnits') || '',
+          leftEdgeGlowFilterX: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('x') || '0'),
+          leftEdgeGlowFilterY: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('y') || '0'),
+          leftEdgeGlowFilterWidth: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('width') || '0'),
+          leftEdgeGlowFilterHeight: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('height') || '0'),
+          leftEdgeGlowGradientX1: leftEdgeGlowGradientNode?.getAttribute('x1') || '',
+          leftEdgeGlowGradientX2: leftEdgeGlowGradientNode?.getAttribute('x2') || '',
+          leftEdgeHighlightGradientX1: leftEdgeHighlightGradientNode?.getAttribute('x1') || '',
+          leftEdgeHighlightGradientX2: leftEdgeHighlightGradientNode?.getAttribute('x2') || '',
           topClipPathD: topClipPathNode?.getAttribute('d') || '',
           bottomClipPathD: bottomClipPathNode?.getAttribute('d') || '',
           moduleClipPathD: moduleClipPathNode?.getAttribute('d') || '',
@@ -2179,7 +2204,22 @@ test.describe('Homepage', () => {
         expect(layout.leftModuleClipPathD).toBe('M 0 0 L 0.66 0 C 0.84 0.02 0.96 0.18 0.96 0.34 C 0.96 0.48 0.82 0.56 0.86 0.64 C 0.92 0.76 0.97 0.86 0.8 1 L 0 1 Z');
         expect(layout.leftTopClipPathD).toBe('M 0 0 L 0.66 0 C 0.84 0.02 0.96 0.18 0.96 0.34 C 0.96 0.403945 0.930793 0.455372 0.902872 0.5 C 0.69 0.545 0.42 0.47 0 0.5 Z');
         expect(layout.leftBottomClipPathD).toBe('M 0 0.486 C 0.42 0.456 0.69 0.531 0.911499 0.486 C 0.875492 0.545559 0.83639 0.59278 0.86 0.64 C 0.92 0.76 0.97 0.86 0.8 1 L 0 1 Z');
-        expect(layout.edgeGlowPathStroke).not.toBe('none');
+        expect(layout.edgeGlowPathStroke).toContain('latestModelsEdgeGlowGradient');
+        expect(layout.leftEdgeGlowHaloStroke).toContain('latestModelsLeftEdgeGlowGradient');
+        expect(layout.leftEdgeGlowPathStroke).toContain('latestModelsLeftEdgeGlowGradient');
+        expect(layout.leftEdgeGlowHighlightStroke).toContain('latestModelsLeftEdgeHighlightGradient');
+        expect(layout.leftEdgeGlowHaloFilter).toContain('latestModelsLeftEdgeGlowSoft');
+        expect(layout.edgeGlowFilterX).toBe('-80%');
+        expect(layout.edgeGlowFilterWidth).toBe('190%');
+        expect(layout.leftEdgeGlowFilterUnits).toBe('userSpaceOnUse');
+        expect(layout.leftEdgeGlowFilterX).toBeLessThanOrEqual(-70);
+        expect(layout.leftEdgeGlowFilterY).toBeLessThanOrEqual(-20);
+        expect(layout.leftEdgeGlowFilterWidth).toBeGreaterThanOrEqual(240);
+        expect(layout.leftEdgeGlowFilterHeight).toBeGreaterThanOrEqual(140);
+        expect(layout.leftEdgeGlowGradientX1).toBe('90');
+        expect(layout.leftEdgeGlowGradientX2).toBe('80');
+        expect(layout.leftEdgeHighlightGradientX1).toBe('90');
+        expect(layout.leftEdgeHighlightGradientX2).toBe('80');
         expect(layout.edgeGlowHaloStrokeWidth).toBeGreaterThanOrEqual(54);
         expect(layout.edgeGlowHaloOpacity).toBeGreaterThanOrEqual(0.74);
         expect(layout.edgeGlowCoreStrokeWidth).toBeGreaterThanOrEqual(16.8);
