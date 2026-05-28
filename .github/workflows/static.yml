@@ -159,9 +159,33 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Check static deploy release-plan safety
+        id: static_safety
+        env:
+          STATIC_DEPLOY_EVENT: ${{ github.event_name }}
+          STATIC_DEPLOY_ACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_plan_dependency_acknowledgement || '' }}
+          STATIC_DEPLOY_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_plan_base_ref || github.event.before }}
+          STATIC_DEPLOY_HEAD_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run check:static-deploy-safety:github -- --base "${STATIC_DEPLOY_BASE_REF:-}" --head "${STATIC_DEPLOY_HEAD_REF:-}" --event-name "$STATIC_DEPLOY_EVENT" --acknowledgement "$STATIC_DEPLOY_ACK"
+      - name: Report skipped static deploy
+        if: steps.static_safety.outputs.static_deploy_skipped == 'true'
+        run: |
+          echo "Static deploy skipped because release plan requires non-static deploy steps first."
+          echo "Workers, D1 migrations, and processor services are not deployed by the GitHub Pages workflow."
       - name: Setup Pages
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
         uses: actions/configure-pages@v6
       - name: Validate JS import paths
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
         run: |
           errors=0
           grep -rn "from ['\"]\.\.*/.*['\"]" --include="*.js" --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=.wrangler . | while IFS= read -r line; do
@@ -188,6 +212,7 @@ jobs:
           fi
           echo "All JS import paths validated successfully"
       - name: Check target="_blank" links have rel="noopener"
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
         run: |
           violations=$(grep -rn 'target="_blank"' --include="*.html" --include="*.js" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler --exclude="*.min.js" . | grep -v 'noopener' || true)
           if [ -n "$violations" ]; then
@@ -199,6 +224,7 @@ jobs:
           fi
           echo "All target=\"_blank\" links include rel=\"noopener\" — OK"
       - name: Validate local CSS/JS references
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
         run: |
           # Check that CSS stylesheet and JS script references point to existing files
           # (Complements the JS import path validator above)
@@ -241,6 +267,7 @@ jobs:
           fi
           echo "All local CSS/JS references validated successfully"
       - name: Validate page metadata
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
         run: |
           errors=0
           for f in index.html; do
@@ -263,23 +290,6 @@ jobs:
             exit 1
           fi
           echo "Page metadata validated successfully"
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: 'npm'
-      - name: Install dependencies
-        run: npm ci
-      - name: Check static deploy release-plan safety
-        id: static_safety
-        env:
-          STATIC_DEPLOY_EVENT: ${{ github.event_name }}
-          STATIC_DEPLOY_ACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_plan_dependency_acknowledgement || '' }}
-          STATIC_DEPLOY_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_plan_base_ref || github.event.before }}
-          STATIC_DEPLOY_HEAD_REF: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          npm run check:static-deploy-safety -- --base "${STATIC_DEPLOY_BASE_REF:-}" --head "${STATIC_DEPLOY_HEAD_REF:-}" --event-name "$STATIC_DEPLOY_EVENT" --acknowledgement "$STATIC_DEPLOY_ACK" --github-output
       - name: Install Playwright Chromium
         if: steps.static_safety.outputs.static_deploy_skipped != 'true'
         run: npx playwright install --with-deps chromium

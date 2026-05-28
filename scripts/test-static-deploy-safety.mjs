@@ -62,6 +62,24 @@ function writeJsonFixture(name, value) {
 }
 
 {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  assert.equal(
+    packageJson.scripts["check:static-deploy-safety:github"],
+    "node scripts/check-static-deploy-safety.mjs --github-output"
+  );
+  const workflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/static.yml"), "utf8");
+  assert(workflow.includes("npm run check:static-deploy-safety:github --"));
+  assert(!workflow.includes("npm run check:static-deploy-safety -- --base"));
+  assert(workflow.includes("Report skipped static deploy"));
+  assert(workflow.includes("steps.static_safety.outputs.static_deploy_skipped != 'true'"));
+  assert(
+    workflow.indexOf("Check static deploy release-plan safety")
+      < workflow.indexOf("Setup Pages"),
+    "static deploy safety must run before Pages setup"
+  );
+}
+
+{
   const { safety } = safetyFor(["docs/production-readiness/README.md"]);
   assert.equal(safety.ok, true);
   assert.equal(safety.mode, "validation_only");
@@ -101,7 +119,13 @@ function writeJsonFixture(name, value) {
 
 {
   const { plan, safety } = safetyFor(
-    ["services/homepage-ffmpeg-processor/processor.mjs", "admin/index.html"],
+    [
+      "services/homepage-ffmpeg-processor/Dockerfile",
+      "services/homepage-ffmpeg-processor/README.md",
+      "services/homepage-ffmpeg-processor/package.json",
+      "services/homepage-ffmpeg-processor/processor.mjs",
+      "admin/index.html",
+    ],
     { eventName: "push" }
   );
   assert.equal(safety.ok, false);
@@ -112,6 +136,36 @@ function writeJsonFixture(name, value) {
     plan.deploySteps.map((step) => step.id),
     ["homepage-ffmpeg-processor", "static-site"]
   );
+}
+
+{
+  const outputPath = path.join(os.tmpdir(), `bitbi-static-deploy-output-${process.pid}.txt`);
+  const summaryPath = path.join(os.tmpdir(), `bitbi-static-deploy-summary-${process.pid}.md`);
+  const result = guard([
+    "--event-name",
+    "push",
+    "--files",
+    "workers/auth/migrations/0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql,workers/auth/src/routes/homepage-hero-videos.js,services/homepage-ffmpeg-processor/processor.mjs,admin/index.html",
+    "--github-output",
+  ], {
+    env: {
+      GITHUB_OUTPUT: outputPath,
+      GITHUB_STEP_SUMMARY: summaryPath,
+    },
+  });
+  assert.equal(result.status, 0);
+  assert(result.stdout.includes("- Status: skipped"));
+  const output = fs.readFileSync(outputPath, "utf8");
+  const summary = fs.readFileSync(summaryPath, "utf8");
+  fs.rmSync(outputPath, { force: true });
+  fs.rmSync(summaryPath, { force: true });
+  assert(output.includes("static_deploy_decision=skipped"));
+  assert(output.includes("static_deploy_skipped=true"));
+  assert(summary.includes("Static deploy skipped because release plan requires non-static deploy steps first."));
+  assert(summary.includes("- auth-migrations"));
+  assert(summary.includes("- auth-worker"));
+  assert(summary.includes("- homepage-ffmpeg-processor"));
+  assert(summary.includes("- static-site"));
 }
 
 {

@@ -136,6 +136,8 @@ Operator action only. Deploy the reviewed `main` commit using the existing stati
 
 If static deploy skips or blocks, inspect the guard output, run `npm run release:plan`, deploy affected units in the reported order through the approved operator process, and record evidence. A manual `workflow_dispatch` rerun may acknowledge handled dependencies only with the exact phrase `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`; that acknowledgement is accepted only on `workflow_dispatch`, is ignored on push, is operator-owned, and is not production readiness, live billing readiness, deploy approval, or proof that live evidence exists.
 
+The workflow uses `npm run check:static-deploy-safety:github -- ...` so push runs can emit `allowed`, `skipped`, or `blocked` outputs. Local `npm run check:static-deploy-safety` remains strict and may exit non-zero for mixed release plans that the GitHub push workflow would report as a clean skip.
+
 Record:
 
 - operator

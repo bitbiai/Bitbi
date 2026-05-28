@@ -55,11 +55,18 @@ function createContext() {
 }
 
 {
+  const processorFiles = [
+    "services/homepage-ffmpeg-processor/Dockerfile",
+    "services/homepage-ffmpeg-processor/README.md",
+    "services/homepage-ffmpeg-processor/package.json",
+    "services/homepage-ffmpeg-processor/processor.mjs",
+  ];
   const plan = createReleasePlanFromRepo(repoRoot, {
-    files: ["services/homepage-ffmpeg-processor/processor.mjs"],
+    files: processorFiles,
   });
   assert.deepEqual(Object.keys(plan.impacts.services), ["homepage-ffmpeg-processor"]);
   assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(plan.impacts.services["homepage-ffmpeg-processor"].changedFiles, processorFiles);
   assert.equal(plan.impacts.static.required, false);
   assert.deepEqual(
     plan.deploySteps.map((step) => step.id),
