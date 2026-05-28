@@ -1290,7 +1290,17 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "Requires Admin/MFA in production, same-origin JSON, Idempotency-Key, operator_reason, fail-closed rate limiting, and audit logging. It queues short-preview metadata only; provider processing remains signed machine-to-machine and public APIs expose only ready Stream preview UIDs.",
   }),
   adminJsonWrite("admin.homepage.hero-videos.memvid-stream-previews.run", "POST", "/api/admin/homepage/hero-videos/memvid-stream-previews/run", "homepage", "smallJson", "admin-action-ip", {
-    config: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_MEMVID_STREAM_PREVIEWS", "GITHUB_ACTIONS_DISPATCH_TOKEN", "GITHUB_REPOSITORY", "GITHUB_MEMVID_STREAM_WORKFLOW_FILE"],
+    config: [
+      "DB",
+      "PUBLIC_RATE_LIMITER",
+      "ENABLE_MEMVID_STREAM_PREVIEWS",
+      "MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER",
+      "GITHUB_ACTIONS_DISPATCH_TOKEN",
+      "GITHUB_ACTIONS_DISPATCH_OWNER",
+      "GITHUB_ACTIONS_DISPATCH_REPO",
+      "GITHUB_ACTIONS_DISPATCH_WORKFLOW",
+      "GITHUB_ACTIONS_DISPATCH_REF",
+    ],
     audit: { event: "memvid_stream_preview_run_requested" },
     notes: "Requires Admin/MFA in production, same-origin JSON, Idempotency-Key, operator_reason, fail-closed rate limiting, and audit logging. It queues missing public Memvid previews, marks ready previews missing MP4 download metadata for repair, and optionally dispatches the processor workflow without exposing tokens.",
   }),

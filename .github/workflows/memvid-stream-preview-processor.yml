@@ -6,7 +6,7 @@ on:
       job_limit:
         description: Jobs to claim per processor pass
         required: false
-        default: "4"
+        default: "5"
       max_runs:
         description: Number of processor passes to run
         required: false
@@ -15,6 +15,14 @@ on:
         description: Repair ready previews missing Cloudflare MP4 download URLs
         required: false
         default: "true"
+      dispatch_reason:
+        description: Operator reason recorded by the Admin dispatch request
+        required: false
+        default: "Admin requested Memvid Stream preview processing."
+      dry_run:
+        description: Print claimed jobs without processing
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -41,12 +49,30 @@ jobs:
           ffmpeg -version
           ffprobe -version
 
+      - name: Verify processor configuration
+        env:
+          AUTH_WORKER_BASE_URL: ${{ vars.AUTH_WORKER_BASE_URL || 'https://bitbi.ai' }}
+          MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: ${{ secrets.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID || vars.STREAM_ACCOUNT_ID || secrets.STREAM_ACCOUNT_ID }}
+          CLOUDFLARE_STREAM_API_TOKEN: ${{ secrets.CLOUDFLARE_STREAM_API_TOKEN || secrets.STREAM_API_TOKEN }}
+        run: |
+          missing=0
+          for name in AUTH_WORKER_BASE_URL MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_STREAM_API_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured for the Memvid Stream preview processor workflow."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Run Memvid Stream preview processor
         env:
           AUTH_WORKER_BASE_URL: ${{ vars.AUTH_WORKER_BASE_URL || 'https://bitbi.ai' }}
           HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET: ${{ secrets.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET }}
           MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: ${{ secrets.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.STREAM_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID || vars.STREAM_ACCOUNT_ID || secrets.STREAM_ACCOUNT_ID }}
           STREAM_ACCOUNT_ID: ${{ secrets.STREAM_ACCOUNT_ID }}
           CLOUDFLARE_STREAM_API_TOKEN: ${{ secrets.CLOUDFLARE_STREAM_API_TOKEN || secrets.STREAM_API_TOKEN }}
           STREAM_API_TOKEN: ${{ secrets.STREAM_API_TOKEN }}
@@ -55,6 +81,8 @@ jobs:
           PROCESS_MEMVID_STREAM_PREVIEWS: "1"
           REPAIR_MEMVID_STREAM_DOWNLOADS: ${{ inputs.repair_downloads }}
           JOB_LIMIT: ${{ inputs.job_limit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          DISPATCH_REASON: ${{ inputs.dispatch_reason }}
           STREAM_DOWNLOAD_POLL_INTERVAL_MS: ${{ vars.STREAM_DOWNLOAD_POLL_INTERVAL_MS || '5000' }}
           STREAM_DOWNLOAD_MAX_WAIT_MS: ${{ vars.STREAM_DOWNLOAD_MAX_WAIT_MS || '300000' }}
         run: |

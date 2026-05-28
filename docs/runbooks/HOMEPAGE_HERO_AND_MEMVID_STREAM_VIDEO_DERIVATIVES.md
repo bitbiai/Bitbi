@@ -44,10 +44,12 @@ Processor/provider secrets:
 
 Optional GitHub Actions dispatch settings for the one-click Admin Memvid preview flow:
 
-- `GITHUB_ACTIONS_DISPATCH_TOKEN`
-- `GITHUB_REPOSITORY`, for example `bitbiai/Bitbi`
-- `GITHUB_MEMVID_STREAM_WORKFLOW_FILE`, default `memvid-stream-preview-processor.yml`
-- `GITHUB_MEMVID_STREAM_WORKFLOW_REF`, default `main`
+- `MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER=github_actions`
+- `GITHUB_ACTIONS_DISPATCH_TOKEN`, Worker secret with permission to dispatch the workflow
+- `GITHUB_ACTIONS_DISPATCH_OWNER=bitbiai`
+- `GITHUB_ACTIONS_DISPATCH_REPO=Bitbi`
+- `GITHUB_ACTIONS_DISPATCH_WORKFLOW=memvid-stream-preview-processor.yml`
+- `GITHUB_ACTIONS_DISPATCH_REF=main`
 
 With provider secrets/config absent, provider work fails closed and the public site falls back to existing poster/full-play behavior. Missing provider secrets do not imply production readiness even when Worker flags and Admin switches are on.
 
@@ -60,12 +62,18 @@ The Memvid Stream Preview plain-text Worker vars are tracked in `workers/auth/wr
 - `ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY`
 - `MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS`
 - `MEMVID_STREAM_PREVIEW_MAX_LOOPS`
+- `MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER`
+- `GITHUB_ACTIONS_DISPATCH_OWNER`
+- `GITHUB_ACTIONS_DISPATCH_REPO`
+- `GITHUB_ACTIONS_DISPATCH_WORKFLOW`
+- `GITHUB_ACTIONS_DISPATCH_REF`
 
-`workers/auth/wrangler.jsonc` also uses `keep_vars: true` to preserve dashboard-managed vars that are not represented in the local config. Future Wrangler deploy diffs must not show removal of the Memvid Stream Preview vars above. The Cloudflare Stream API token and Memvid preview processor secret remain Worker secrets and must never be committed. If Wrangler or repo validation reports missing required secrets, set them from `workers/auth` without printing or committing values:
+`workers/auth/wrangler.jsonc` also uses `keep_vars: true` to preserve dashboard-managed vars that are not represented in the local config. Future Wrangler deploy diffs must not show removal of the Memvid Stream Preview vars above. The Cloudflare Stream API token, Memvid preview processor secret, and GitHub Actions dispatch token remain Worker secrets and must never be committed. If Wrangler or repo validation reports missing required secrets, set them from `workers/auth` without printing or committing values:
 
 ```bash
 npx wrangler secret put CLOUDFLARE_STREAM_API_TOKEN
 npx wrangler secret put MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET
+npx wrangler secret put GITHUB_ACTIONS_DISPATCH_TOKEN
 ```
 
 ## Deploy Order
@@ -118,10 +126,10 @@ The Worker validates and stores the preset in `app_settings` as `homepage_hero_f
 
 1. Admin clicks **Generate / repair Memvid previews** in Homepage Hero Videos.
 2. The Auth Worker queues missing public Memvid preview rows and marks existing ready rows that lack Cloudflare MP4 download metadata for repair.
-3. If GitHub dispatch settings are configured, the Worker dispatches `.github/workflows/memvid-stream-preview-processor.yml`; otherwise it returns a clear warning and leaves the jobs queued for the separately deployed processor.
+3. If GitHub dispatch settings are configured, the Worker dispatches `.github/workflows/memvid-stream-preview-processor.yml` through the GitHub REST API; otherwise it returns a clear warning and leaves the jobs queued for the separately deployed processor.
 4. A trusted processor/backfill path creates short preview clips for public Memvids.
 5. The clip is uploaded to Cloudflare Stream.
-6. The processor calls Cloudflare Stream `/downloads`, polls until `result.default.status` is `ready`, and stores the real returned MP4 download URL in `provider_metadata_json`.
+6. The processor polls Cloudflare Stream video details until the uploaded video is ready, then calls Cloudflare Stream `/downloads`, polls until `result.default.status` is `ready`, and stores the real returned MP4 download URL in `provider_metadata_json`. If `/downloads` returns a transient 400 while Stream processing catches up, the processor retries within the bounded polling window instead of failing immediately.
 7. `memvid_stream_previews` stores the safe Stream UID, duration, loop cap, ready status, and Stream download metadata.
 8. Public Memvid list responses include `stream_preview` only for ready rows when the Worker flag and Admin metadata switch are effectively enabled. The MP4 URL is exposed only if it is an HTTPS Cloudflare Stream delivery URL.
 9. Desktop hover/fine-pointer frontend code waits before loading playback, loops at most three times, and destroys the player on mouseleave.
@@ -131,6 +139,12 @@ The public `stream_preview` contract may include `autoplay_enabled: false` when 
 Mobile/touch and `prefers-reduced-motion` users get poster-only cards. Full click/tap playback continues to use the existing public Memvid file route.
 
 Manual Cloudflare `/downloads` curl calls are no longer part of the operator workflow. If old ready rows have a Stream UID but no stored MP4 download URL, the same Admin button plus processor repair mode (`REPAIR_MEMVID_STREAM_DOWNLOADS=1`) repairs them.
+
+Local development or emergency manual fallback remains available without changing production behavior:
+
+```bash
+PROCESS_HOMEPAGE_HERO=0 PROCESS_HOMEPAGE_SOURCE_POSTERS=0 PROCESS_MEMVID_STREAM_PREVIEWS=1 JOB_LIMIT=5 node services/homepage-ffmpeg-processor/processor.mjs
+```
 
 ## Cost Safety
 

@@ -14,7 +14,7 @@ const PROCESS_HOMEPAGE_HERO = process.env.PROCESS_HOMEPAGE_HERO !== "0" && proce
 const PROCESS_HOMEPAGE_SOURCE_POSTERS = process.env.PROCESS_HOMEPAGE_SOURCE_POSTERS !== "0" && process.env.PROCESS_HOMEPAGE_SOURCE_POSTERS !== "false";
 const PROCESS_MEMVID_STREAM_PREVIEWS = process.env.PROCESS_MEMVID_STREAM_PREVIEWS === "1" || process.env.PROCESS_MEMVID_STREAM_PREVIEWS === "true";
 const REPAIR_MEMVID_STREAM_DOWNLOADS = process.env.REPAIR_MEMVID_STREAM_DOWNLOADS === "1" || process.env.REPAIR_MEMVID_STREAM_DOWNLOADS === "true";
-const JOB_LIMIT = Math.max(1, Math.min(4, Number.parseInt(process.env.JOB_LIMIT || "1", 10) || 1));
+const JOB_LIMIT = Math.max(1, Math.min(8, Number.parseInt(process.env.JOB_LIMIT || "1", 10) || 1));
 const WORK_DIR = process.env.WORK_DIR || tmpdir();
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
@@ -313,19 +313,89 @@ function extractStreamDownloadState(body = {}) {
   };
 }
 
-async function streamDownloadsRequest(uid, {
-  method = "GET",
+function cloudflareApiDetails(body = {}) {
+  const parts = [];
+  for (const field of ["errors", "messages"]) {
+    const rows = Array.isArray(body?.[field]) ? body[field] : [];
+    for (const row of rows.slice(0, 3)) {
+      const code = String(row?.code || "").replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 40);
+      const message = String(row?.message || "")
+        .replace(/[\r\n\t]+/g, " ")
+        .replace(/\s+/g, " ")
+        .slice(0, 180);
+      if (code || message) parts.push(`${field}.${code || "message"}: ${message || "no message"}`);
+    }
+  }
+  return parts.join("; ");
+}
+
+function makeCloudflareRequestError({
+  phase,
+  action,
+  status,
+  body,
+  fallback,
+  code = "cloudflare_stream_download_request_failed",
+}) {
+  const details = cloudflareApiDetails(body);
+  const message = [
+    `${phase}: ${fallback}`,
+    status ? `HTTP ${status}` : null,
+    details || null,
+  ].filter(Boolean).join(" - ");
+  const error = new Error(message);
+  error.code = code;
+  error.phase = phase;
+  error.action = action;
+  error.status = status;
+  error.body = body;
+  return error;
+}
+
+function requireStreamApiConfig(phase, { accountId, apiToken }) {
+  if (!accountId || !apiToken) {
+    const error = new Error("Cloudflare Stream account/token is required for MP4 download preparation.");
+    error.code = "cloudflare_stream_not_configured";
+    error.phase = phase;
+    throw error;
+  }
+}
+
+function extractStreamVideoState(body = {}) {
+  const result = body?.result || body || {};
+  const statusObject = result.status && typeof result.status === "object" ? result.status : {};
+  const state = String(
+    statusObject.state
+      || statusObject.status
+      || result.state
+      || (typeof result.status === "string" ? result.status : "")
+      || result.processingStatus
+      || ""
+  ).toLowerCase();
+  const ready = result.readyToStream === true
+    || result.ready_to_stream === true
+    || ["ready", "complete", "completed", "finished", "success"].includes(state);
+  return {
+    status: ready ? "ready" : state,
+    ready,
+    failed: ["failed", "error"].includes(state),
+    percent_complete: statusObject.pctComplete
+      ?? statusObject.percentComplete
+      ?? result.pctComplete
+      ?? result.percentComplete
+      ?? null,
+    raw: result,
+  };
+}
+
+async function streamVideoRequest(uid, {
   fetchImpl = fetch,
   accountId = STREAM_ACCOUNT_ID,
   apiToken = STREAM_API_TOKEN,
 } = {}) {
-  if (!accountId || !apiToken) {
-    const error = new Error("Cloudflare Stream account/token is required for MP4 download preparation.");
-    error.code = "cloudflare_stream_not_configured";
-    throw error;
-  }
-  const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/stream/${encodeURIComponent(uid)}/downloads`, {
-    method,
+  requireStreamApiConfig("stream_status_poll", { accountId, apiToken });
+  const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/stream/${encodeURIComponent(uid)}`, {
+    method: "GET",
     headers: {
       Authorization: `Bearer ${apiToken}`,
       Accept: "application/json",
@@ -333,12 +403,84 @@ async function streamDownloadsRequest(uid, {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || body?.success === false) {
-    const error = new Error(body?.errors?.[0]?.message || `Cloudflare Stream downloads ${method} failed with HTTP ${res.status}`);
-    error.status = res.status;
-    error.body = body;
-    throw error;
+    throw makeCloudflareRequestError({
+      phase: "stream_status_poll",
+      action: "GET /stream/{uid}",
+      status: res.status,
+      body,
+      fallback: "Cloudflare Stream video status request failed.",
+    });
   }
   return body || {};
+}
+
+async function streamDownloadsRequest(uid, {
+  method = "GET",
+  fetchImpl = fetch,
+  accountId = STREAM_ACCOUNT_ID,
+  apiToken = STREAM_API_TOKEN,
+} = {}) {
+  requireStreamApiConfig(method === "POST" ? "download_create" : "download_poll", { accountId, apiToken });
+  const headers = {
+    Authorization: `Bearer ${apiToken}`,
+  };
+  if (method !== "POST") {
+    headers.Accept = "application/json";
+  }
+  const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/stream/${encodeURIComponent(uid)}/downloads`, {
+    method,
+    headers,
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || body?.success === false) {
+    throw makeCloudflareRequestError({
+      phase: method === "POST" ? "download_create" : "download_poll",
+      action: `${method} /stream/{uid}/downloads`,
+      status: res.status,
+      body,
+      fallback: `Cloudflare Stream downloads ${method} failed.`,
+    });
+  }
+  return body || {};
+}
+
+export async function ensureStreamVideoReady(uid, {
+  fetchImpl = fetch,
+  accountId = STREAM_ACCOUNT_ID,
+  apiToken = STREAM_API_TOKEN,
+  pollIntervalMs = STREAM_DOWNLOAD_POLL_INTERVAL_MS,
+  maxWaitMs = STREAM_DOWNLOAD_MAX_WAIT_MS,
+  sleepImpl = sleep,
+} = {}) {
+  if (!uid) {
+    const error = new Error("Cloudflare Stream UID is required for video readiness polling.");
+    error.code = "cloudflare_stream_uid_required";
+    error.phase = "stream_status_poll";
+    throw error;
+  }
+  let lastState = null;
+  const maxPolls = Math.max(1, Math.ceil(maxWaitMs / Math.max(1, pollIntervalMs)) + 1);
+  for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+    const state = extractStreamVideoState(
+      await streamVideoRequest(uid, { fetchImpl, accountId, apiToken })
+    );
+    lastState = state;
+    if (state.ready) return state;
+    if (state.failed) {
+      const error = new Error(`stream_status_poll: Cloudflare Stream video processing failed with status ${state.status || "failed"}.`);
+      error.code = "cloudflare_stream_download_failed";
+      error.phase = "stream_status_poll";
+      error.streamState = state;
+      throw error;
+    }
+    if (attempt === maxPolls - 1) break;
+    await sleepImpl(pollIntervalMs);
+  }
+  const error = new Error(`stream_status_poll: Cloudflare Stream video was not ready before the timeout. Last status: ${lastState?.status || "unknown"}.`);
+  error.code = "cloudflare_stream_video_not_ready";
+  error.phase = "stream_status_poll";
+  error.streamState = lastState;
+  throw error;
 }
 
 export async function ensureStreamDownloadReady(uid, {
@@ -352,20 +494,61 @@ export async function ensureStreamDownloadReady(uid, {
   if (!uid) {
     const error = new Error("Cloudflare Stream UID is required for MP4 download preparation.");
     error.code = "cloudflare_stream_uid_required";
+    error.phase = "download_create";
     throw error;
   }
 
-  try {
-    await streamDownloadsRequest(uid, { method: "POST", fetchImpl, accountId, apiToken });
-  } catch (error) {
+  let streamState = await ensureStreamVideoReady(uid, {
+    fetchImpl,
+    accountId,
+    apiToken,
+    pollIntervalMs,
+    maxWaitMs,
+    sleepImpl,
+  });
+
+  let downloadCreateAccepted = false;
+  let lastCreateError = null;
+  const maxCreateAttempts = Math.max(1, Math.ceil(maxWaitMs / Math.max(1, pollIntervalMs)) + 1);
+  for (let attempt = 0; attempt < maxCreateAttempts; attempt += 1) {
     try {
-      const stateAfterPostFailure = extractStreamDownloadState(
-        await streamDownloadsRequest(uid, { method: "GET", fetchImpl, accountId, apiToken })
-      );
-      if (!stateAfterPostFailure.status) throw error;
-    } catch {
+      await streamDownloadsRequest(uid, { method: "POST", fetchImpl, accountId, apiToken });
+      downloadCreateAccepted = true;
+      break;
+    } catch (error) {
+      lastCreateError = error;
+      try {
+        const stateAfterPostFailure = extractStreamDownloadState(
+          await streamDownloadsRequest(uid, { method: "GET", fetchImpl, accountId, apiToken })
+        );
+        if (stateAfterPostFailure.status) {
+          downloadCreateAccepted = true;
+          break;
+        }
+      } catch {}
+      if (error.status === 400) {
+        streamState = await ensureStreamVideoReady(uid, {
+          fetchImpl,
+          accountId,
+          apiToken,
+          pollIntervalMs,
+          maxWaitMs,
+          sleepImpl,
+        });
+        if (attempt === maxCreateAttempts - 1) break;
+        await sleepImpl(pollIntervalMs);
+        continue;
+      }
+      error.code = error.code || "cloudflare_stream_download_request_failed";
+      error.phase = error.phase || "download_create";
       throw error;
     }
+  }
+  if (!downloadCreateAccepted) {
+    const error = lastCreateError || new Error("download_create: Cloudflare Stream MP4 download creation did not succeed.");
+    error.code = lastCreateError?.code || "cloudflare_stream_download_request_failed";
+    error.phase = lastCreateError?.phase || "download_create";
+    throw error;
   }
 
   let lastState = null;
@@ -379,20 +562,24 @@ export async function ensureStreamDownloadReady(uid, {
         status: "ready",
         url: state.url,
         percent_complete: state.percent_complete,
+        stream_status: streamState?.status || null,
+        stream_percent_complete: streamState?.percent_complete ?? null,
         raw: state.raw,
       };
     }
     if (state.status === "failed" || state.status === "error") {
-      const error = new Error("Cloudflare Stream MP4 download generation failed.");
+      const error = new Error("download_poll: Cloudflare Stream MP4 download generation failed.");
       error.code = "cloudflare_stream_download_failed";
+      error.phase = "download_poll";
       error.downloadState = state;
       throw error;
     }
     if (attempt === maxPolls - 1) break;
     await sleepImpl(pollIntervalMs);
   }
-  const error = new Error("Cloudflare Stream MP4 download was not ready before the timeout.");
+  const error = new Error(`download_poll: Cloudflare Stream MP4 download was not ready before the timeout. Last status: ${lastState?.status || "unknown"}.`);
   error.code = "cloudflare_stream_download_not_ready";
+  error.phase = "download_poll";
   error.downloadState = lastState;
   throw error;
 }
@@ -478,11 +665,17 @@ async function completeMemvidPreviewJob(job, result, streamResult) {
       max_loop_count: Math.min(3, Number(job.preset?.maxLoopCount || 3) || 3),
       source_fingerprint: job.source?.fingerprint || null,
       provider_metadata: {
-        stream_status: streamResult.metadata?.status || null,
+        stream_status: download.stream_status || streamResult.metadata?.status || null,
         uploaded: streamResult.metadata?.uploaded || null,
         download_status: download.status || null,
         download_url: download.url || null,
         download_percent_complete: download.percent_complete ?? null,
+        cloudflare_stream_video_status: download.stream_status || null,
+        cloudflare_stream_video_percent_complete: download.stream_percent_complete ?? null,
+        cloudflare_stream_download_status: download.status || null,
+        cloudflare_stream_download_url: download.url || null,
+        cloudflare_stream_download_percent_complete: download.percent_complete ?? null,
+        cloudflare_stream_download_checked_at: new Date().toISOString(),
       },
     }),
   });

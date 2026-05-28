@@ -40778,6 +40778,10 @@ test.describe('Worker routes', () => {
           download_status: 'ready',
           download_url: 'https://customer-test.cloudflarestream.com/streamCompleteUid001/downloads/default.mp4',
           download_percent_complete: 100,
+          cloudflare_stream_download_status: 'ready',
+          cloudflare_stream_download_url: 'https://customer-test.cloudflarestream.com/streamCompleteUid001/downloads/default.mp4',
+          cloudflare_stream_download_percent_complete: 100,
+          cloudflare_stream_download_checked_at: '2026-05-20T12:04:00.000Z',
         },
       }, {
         Authorization: 'Bearer test-stream-processor-secret',
@@ -40791,6 +40795,9 @@ test.describe('Worker routes', () => {
     expect(JSON.parse(row.provider_metadata_json).provider_metadata).toMatchObject({
       download_status: 'ready',
       download_url: 'https://customer-test.cloudflarestream.com/streamCompleteUid001/downloads/default.mp4',
+      cloudflare_stream_download_status: 'ready',
+      cloudflare_stream_download_url: 'https://customer-test.cloudflarestream.com/streamCompleteUid001/downloads/default.mp4',
+      cloudflare_stream_download_percent_complete: 100,
     });
 
     const publicRes = await authWorker.fetch(
@@ -40813,9 +40820,12 @@ test.describe('Worker routes', () => {
       MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
       CLOUDFLARE_ACCOUNT_ID: 'test-account',
       CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER: 'github_actions',
       GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
-      GITHUB_REPOSITORY: 'bitbiai/Bitbi',
-      GITHUB_MEMVID_STREAM_WORKFLOW_FILE: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_OWNER: 'bitbiai',
+      GITHUB_ACTIONS_DISPATCH_REPO: 'Bitbi',
+      GITHUB_ACTIONS_DISPATCH_WORKFLOW: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_REF: 'main',
       aiTextAssets: [{
         id: 'a11ce101',
         user_id: 'memvid-owner',
@@ -40892,15 +40902,25 @@ test.describe('Worker routes', () => {
       expect(runRes.status).toBe(202);
       const body = await runRes.json();
       expect(body.data).toMatchObject({
+        queued_new_count: 1,
         queued_count: 1,
+        queued_repair_count: 1,
         repair_queued_count: 1,
+        dispatch_configured: true,
+        dispatch_attempted: true,
+        dispatch_succeeded: true,
+        dispatch_provider: 'github_actions',
         processor_dispatch_configured: true,
         processor_dispatch_started: true,
       });
+      expect(JSON.stringify(body)).not.toContain('test-dispatch-token');
       expect(dispatches).toHaveLength(1);
       expect(dispatches[0].url).toContain('/actions/workflows/memvid-stream-preview-processor.yml/dispatches');
       expect(dispatches[0].body.inputs).toMatchObject({
+        job_limit: '5',
         repair_downloads: 'true',
+        dry_run: 'false',
+        dispatch_reason: 'Run Stream preview processing.',
       });
       expect(env.DB.state.memvidStreamPreviews.some((preview) => preview.asset_id === 'a11ce101' && preview.status === 'queued')).toBe(true);
       const repair = env.DB.state.memvidStreamPreviews.find((preview) => preview.id === 'msp_repair00000001');
@@ -40954,11 +40974,65 @@ test.describe('Worker routes', () => {
     expect(runRes.status).toBe(202);
     const body = await runRes.json();
     expect(body.data).toMatchObject({
+      queued_new_count: 1,
       queued_count: 1,
+      dispatch_configured: false,
+      dispatch_attempted: false,
+      dispatch_succeeded: false,
       processor_dispatch_configured: false,
       processor_dispatch_started: false,
     });
-    expect(body.data.warnings[0]).toContain('automatic processor dispatch is not configured');
+    expect(body.data.warnings[0]).toContain('Automatic processor dispatch is not configured');
+  });
+
+  test('Admin one-click Memvid Stream preview run sanitizes GitHub dispatch failures', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('stream-run-dispatch-fail-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER: 'github_actions',
+      GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
+      GITHUB_ACTIONS_DISPATCH_OWNER: 'bitbiai',
+      GITHUB_ACTIONS_DISPATCH_REPO: 'Bitbi',
+      GITHUB_ACTIONS_DISPATCH_WORKFLOW: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_REF: 'main',
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({ message: 'Bad credentials: test-dispatch-token' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    try {
+      const runRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/homepage/hero-videos/memvid-stream-previews/run', 'POST', {
+          operator_reason: 'Run Stream preview processing.',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'memvid-stream-preview-run-dispatch-fail',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(runRes.status).toBe(202);
+      const body = await runRes.json();
+      expect(body.data).toMatchObject({
+        dispatch_configured: true,
+        dispatch_attempted: true,
+        dispatch_succeeded: false,
+        dispatch_provider: 'github_actions',
+      });
+      expect(body.data.dispatch_message).toContain('forbidden');
+      expect(JSON.stringify(body)).not.toContain('test-dispatch-token');
+      expect(JSON.stringify(body)).not.toContain('Bad credentials');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test('Memvid Stream preview Admin switches control public metadata and autoplay exposure', async () => {

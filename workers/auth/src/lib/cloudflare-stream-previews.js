@@ -104,9 +104,11 @@ export function getStreamDownloadUrlFromProviderMetadata(raw) {
     ? metadata.provider_metadata
     : metadata;
   const candidates = [
+    providerMetadata.cloudflare_stream_download_url,
     providerMetadata.download_url,
     providerMetadata.mp4_url,
     providerMetadata.download?.url,
+    metadata.cloudflare_stream_download_url,
     metadata.download_url,
     metadata.mp4_url,
   ];
@@ -118,7 +120,12 @@ export function hasReadyStreamDownloadMetadata(raw) {
   const providerMetadata = metadata.provider_metadata && typeof metadata.provider_metadata === "object"
     ? metadata.provider_metadata
     : metadata;
-  const status = String(providerMetadata.download_status || providerMetadata.download?.status || "").toLowerCase();
+  const status = String(
+    providerMetadata.cloudflare_stream_download_status
+      || providerMetadata.download_status
+      || providerMetadata.download?.status
+      || ""
+  ).toLowerCase();
   return status === "ready" && Boolean(getStreamDownloadUrlFromProviderMetadata(metadata));
 }
 

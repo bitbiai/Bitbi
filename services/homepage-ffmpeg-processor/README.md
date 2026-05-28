@@ -10,7 +10,7 @@ Required environment:
 
 Optional environment:
 
-- `JOB_LIMIT`, default `1`, max `4`
+- `JOB_LIMIT`, default `1`, max `8`
 - `PROCESS_HOMEPAGE_HERO=0` to skip Homepage Hero jobs
 - `PROCESS_HOMEPAGE_SOURCE_POSTERS=0` to skip private manual-upload source poster backfill jobs
 - `PROCESS_MEMVID_STREAM_PREVIEWS=1` to claim short Memvid preview jobs
@@ -30,6 +30,13 @@ Run locally:
 npm --prefix services/homepage-ffmpeg-processor run dry-run
 ```
 
+Production Memvid Stream preview backfill/repair can be dispatched by the Auth
+Worker through `.github/workflows/memvid-stream-preview-processor.yml` when the
+Worker has `MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER=github_actions`, the
+non-secret GitHub owner/repo/workflow/ref vars, and the
+`GITHUB_ACTIONS_DISPATCH_TOKEN` secret configured. The same processor command
+still works manually for local development and emergency fallback.
+
 The processor downloads sources only through signed internal Auth Worker URLs, writes optimized MP4/WebP outputs locally, uploads derivatives or private source posters through signed completion endpoints, and reports sanitized failures through signed fail endpoints.
 
 Homepage Hero jobs include a validated structured preset from the Auth Worker. The processor constructs ffmpeg arguments from those bounded fields only; it does not accept raw ffmpeg command fragments from Admin/browser input.
@@ -41,8 +48,11 @@ poster fields through the Auth Worker. The public homepage still serves only
 ready optimized hero derivatives, never these private source originals.
 
 Memvid Stream preview jobs are short-preview-only. After uploading the clip to
-Cloudflare Stream, the processor calls the Stream `/downloads` API, polls until
-the default MP4 download is `ready`, and sends the real returned download URL to
-the Auth Worker. Public hover previews use that stored Cloudflare delivery URL
-after the Worker validates the host. Manual `/downloads` curl calls are not part
-of the production operator flow.
+Cloudflare Stream, the processor first polls the Stream video details endpoint
+until the uploaded video is ready. It then calls the Stream `/downloads` API,
+polls until the default MP4 download is `ready`, and sends the real returned
+download URL to the Auth Worker. A transient Cloudflare 400 from `/downloads`
+while Stream processing catches up is retried within the bounded polling window.
+Public hover previews use that stored Cloudflare delivery URL after the Worker
+validates the host. Manual `/downloads` curl calls are not part of the production
+operator flow.

@@ -1066,48 +1066,79 @@ async function markMemvidStreamPreviewDownloadRepairsRequested(env, rows = []) {
 }
 
 function getMemvidStreamPreviewProcessorDispatchStatus(env) {
+  const explicitProvider = String(env?.MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER || "").trim().toLowerCase();
   const token = String(env?.GITHUB_ACTIONS_DISPATCH_TOKEN || "").trim();
-  const repository = String(env?.GITHUB_REPOSITORY || "").trim();
-  const workflowFile = String(env?.GITHUB_MEMVID_STREAM_WORKFLOW_FILE || "memvid-stream-preview-processor.yml").trim();
-  const ref = String(env?.GITHUB_MEMVID_STREAM_WORKFLOW_REF || env?.GITHUB_REF_NAME || "main").trim();
+  const legacyRepository = String(env?.GITHUB_REPOSITORY || "").trim();
+  const [legacyOwner, legacyRepo] = legacyRepository.split("/");
+  const owner = String(env?.GITHUB_ACTIONS_DISPATCH_OWNER || legacyOwner || "").trim();
+  const repo = String(env?.GITHUB_ACTIONS_DISPATCH_REPO || legacyRepo || "").trim();
+  const workflowFile = String(
+    env?.GITHUB_ACTIONS_DISPATCH_WORKFLOW
+      || env?.GITHUB_MEMVID_STREAM_WORKFLOW_FILE
+      || "memvid-stream-preview-processor.yml"
+  ).trim();
+  const ref = String(
+    env?.GITHUB_ACTIONS_DISPATCH_REF
+      || env?.GITHUB_MEMVID_STREAM_WORKFLOW_REF
+      || env?.GITHUB_REF_NAME
+      || "main"
+  ).trim();
+  const provider = explicitProvider || (token || owner || repo ? "github_actions" : "");
   const missing = [];
+  if (provider && provider !== "github_actions") missing.push("MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER");
+  if (!provider) missing.push("MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER");
   if (!token) missing.push("GITHUB_ACTIONS_DISPATCH_TOKEN");
-  if (!repository) missing.push("GITHUB_REPOSITORY");
-  if (!workflowFile) missing.push("GITHUB_MEMVID_STREAM_WORKFLOW_FILE");
-  if (!ref) missing.push("GITHUB_MEMVID_STREAM_WORKFLOW_REF");
+  if (!owner) missing.push("GITHUB_ACTIONS_DISPATCH_OWNER");
+  if (!repo) missing.push("GITHUB_ACTIONS_DISPATCH_REPO");
+  if (!workflowFile) missing.push("GITHUB_ACTIONS_DISPATCH_WORKFLOW");
+  if (!ref) missing.push("GITHUB_ACTIONS_DISPATCH_REF");
   return {
-    configured: missing.length === 0,
+    provider: provider || null,
+    configured: provider === "github_actions" && missing.length === 0,
     missing,
-    repository_configured: Boolean(repository),
+    repository_configured: Boolean(owner && repo),
+    owner_configured: Boolean(owner),
+    repo_configured: Boolean(repo),
     workflow_file: workflowFile || null,
     ref: ref || null,
   };
 }
 
 async function dispatchMemvidStreamPreviewProcessorWorkflow(env, {
-  jobLimit = 4,
+  jobLimit = 5,
   repairDownloads = true,
+  dispatchReason = "Admin requested Memvid Stream preview processing.",
 } = {}) {
   const status = getMemvidStreamPreviewProcessorDispatchStatus(env);
   if (!status.configured) {
     return {
       configured: false,
+      attempted: false,
+      succeeded: false,
       started: false,
+      provider: status.provider,
       missing: status.missing,
-      warning: "Processor dispatch is not configured.",
+      message: "Automatic processor dispatch is not configured. Configure GitHub Actions dispatch or run the processor manually.",
+      warning: "Automatic processor dispatch is not configured. Configure GitHub Actions dispatch or run the processor manually.",
     };
   }
-  const [owner, repo] = String(env.GITHUB_REPOSITORY || "").split("/");
+  const owner = String(env?.GITHUB_ACTIONS_DISPATCH_OWNER || String(env?.GITHUB_REPOSITORY || "").split("/")[0] || "").trim();
+  const repo = String(env?.GITHUB_ACTIONS_DISPATCH_REPO || String(env?.GITHUB_REPOSITORY || "").split("/")[1] || "").trim();
   if (!owner || !repo) {
     return {
       configured: false,
+      attempted: false,
+      succeeded: false,
       started: false,
-      missing: ["GITHUB_REPOSITORY"],
+      provider: "github_actions",
+      missing: ["GITHUB_ACTIONS_DISPATCH_OWNER", "GITHUB_ACTIONS_DISPATCH_REPO"],
+      message: "GitHub Actions dispatch repository is invalid.",
       warning: "Processor dispatch repository is invalid.",
     };
   }
   const workflowFile = encodeURIComponent(status.workflow_file);
   let res;
+  const clampedJobLimit = String(Math.max(1, Math.min(8, Number(jobLimit || 5) || 5)));
   try {
     res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/${workflowFile}/dispatches`, {
       method: "POST",
@@ -1121,30 +1152,51 @@ async function dispatchMemvidStreamPreviewProcessorWorkflow(env, {
       body: JSON.stringify({
         ref: status.ref,
         inputs: {
-          job_limit: String(Math.max(1, Math.min(8, Number(jobLimit || 4) || 4))),
+          job_limit: clampedJobLimit,
           max_runs: "1",
           repair_downloads: repairDownloads ? "true" : "false",
+          dry_run: "false",
+          dispatch_reason: String(dispatchReason || "Admin requested Memvid Stream preview processing.").slice(0, 180),
         },
       }),
     });
   } catch {
     return {
       configured: true,
+      attempted: true,
+      succeeded: false,
       started: false,
+      provider: "github_actions",
+      message: "Processor dispatch request failed before GitHub accepted it.",
       warning: "Processor dispatch request failed before GitHub accepted it.",
     };
   }
   if (!res.ok) {
+    const statusMessages = {
+      401: "GitHub Actions dispatch was rejected. Check the dispatch token permissions.",
+      403: "GitHub Actions dispatch was forbidden. Check the dispatch token permissions.",
+      404: "GitHub Actions workflow or repository was not found.",
+      422: "GitHub Actions dispatch rejected the configured ref or workflow inputs.",
+    };
+    const message = statusMessages[res.status] || `GitHub Actions dispatch failed with HTTP ${res.status}.`;
     return {
       configured: true,
+      attempted: true,
+      succeeded: false,
       started: false,
+      provider: "github_actions",
       status: res.status,
-      warning: `Processor dispatch failed with HTTP ${res.status}.`,
+      message,
+      warning: message,
     };
   }
   return {
     configured: true,
+    attempted: true,
+    succeeded: true,
     started: true,
+    provider: "github_actions",
+    message: "Processor dispatch started.",
     workflow_file: status.workflow_file,
     ref: status.ref,
   };
@@ -2007,8 +2059,15 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
       ok: true,
       existing: true,
       data: {
+        queued_new_count: Number(existing.queued_count || 0),
         queued_count: Number(existing.queued_count || 0),
+        queued_repair_count: streamPreviewSummary.ready_missing_download_url || 0,
         repair_queued_count: streamPreviewSummary.ready_missing_download_url || 0,
+        dispatch_configured: getMemvidStreamPreviewProcessorDispatchStatus(env).configured,
+        dispatch_attempted: false,
+        dispatch_succeeded: false,
+        dispatch_provider: getMemvidStreamPreviewProcessorDispatchStatus(env).provider,
+        dispatch_message: "This idempotent run request was already recorded; processor dispatch was not re-attempted.",
         processor_dispatch_configured: getMemvidStreamPreviewProcessorDispatchStatus(env).configured,
         processor_dispatch_started: false,
         feature_status: featureStatus,
@@ -2038,8 +2097,9 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
   ).run();
 
   const dispatch = await dispatchMemvidStreamPreviewProcessorWorkflow(env, {
-    jobLimit: Math.min(8, Math.max(1, Number(body.job_limit || body.jobLimit || 4) || 4)),
+    jobLimit: Math.min(8, Math.max(1, Number(body.job_limit || body.jobLimit || 5) || 5)),
     repairDownloads: true,
+    dispatchReason: operatorReason,
   });
   const [featureStatus, streamPreviewSummary] = await Promise.all([
     getVideoDeliveryFeatureStatus(env),
@@ -2047,16 +2107,18 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
   ]);
   const warnings = [];
   if (!dispatch.configured) {
-    warnings.push("Preview jobs were queued, but automatic processor dispatch is not configured.");
+    warnings.push(dispatch.message || "Preview jobs were queued, but automatic processor dispatch is not configured.");
   } else if (!dispatch.started) {
-    warnings.push(dispatch.warning || "Preview jobs were queued, but automatic processor dispatch did not start.");
+    warnings.push(dispatch.message || dispatch.warning || "Preview jobs were queued, but automatic processor dispatch did not start.");
   }
 
   await auditHomepageHeroVideoEvent(ctx, result.user, "memvid_stream_preview_run_requested", {
     queued_count: created.length,
     repair_queued_count: repairRows.length,
-    processor_dispatch_configured: dispatch.configured === true,
-    processor_dispatch_started: dispatch.started === true,
+    dispatch_provider: dispatch.provider || null,
+    dispatch_configured: dispatch.configured === true,
+    dispatch_attempted: dispatch.attempted === true,
+    dispatch_succeeded: dispatch.succeeded === true,
     operator_reason_present: true,
     idempotency_key_hash_present: true,
   });
@@ -2065,10 +2127,17 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
     ok: true,
     data: {
       queued: created,
+      queued_new_count: created.length,
       queued_count: created.length,
+      queued_repair_count: repairRows.length,
       repair_queued_count: repairRows.length,
+      dispatch_configured: dispatch.configured === true,
+      dispatch_attempted: dispatch.attempted === true,
+      dispatch_succeeded: dispatch.succeeded === true,
+      dispatch_provider: dispatch.provider || null,
+      dispatch_message: dispatch.message || dispatch.warning || null,
       processor_dispatch_configured: dispatch.configured === true,
-      processor_dispatch_started: dispatch.started === true,
+      processor_dispatch_started: dispatch.succeeded === true,
       feature_status: featureStatus,
       stream_preview_summary: streamPreviewSummary,
       warnings,
@@ -3052,7 +3121,12 @@ async function handleMemvidStreamPreviewComplete(ctx, jobIdFromPath) {
   if (!streamUid) return json({ ok: false, error: "Valid Stream UID is required.", code: "invalid_stream_uid" }, { status: 400 });
   const providerMetadata = body.provider_metadata || body.providerMetadata || {};
   const downloadUrl = getStreamDownloadUrlFromProviderMetadata(providerMetadata);
-  const downloadStatus = String(providerMetadata.download_status || providerMetadata.download?.status || "").toLowerCase();
+  const downloadStatus = String(
+    providerMetadata.cloudflare_stream_download_status
+      || providerMetadata.download_status
+      || providerMetadata.download?.status
+      || ""
+  ).toLowerCase();
   if (downloadStatus !== "ready" || !isSafeCloudflareStreamPlaybackUrl(downloadUrl)) {
     return json({
       ok: false,
@@ -3097,6 +3171,13 @@ async function handleMemvidStreamPreviewComplete(ctx, jobIdFromPath) {
         ...providerMetadata,
         download_status: "ready",
         download_url: downloadUrl,
+        cloudflare_stream_download_status: "ready",
+        cloudflare_stream_download_url: downloadUrl,
+        cloudflare_stream_download_percent_complete: providerMetadata.cloudflare_stream_download_percent_complete
+          ?? providerMetadata.download_percent_complete
+          ?? providerMetadata.download?.percent_complete
+          ?? null,
+        cloudflare_stream_download_checked_at: providerMetadata.cloudflare_stream_download_checked_at || now,
       },
       source_fingerprint: sanitizeShortText(body.source_fingerprint, ""),
     }),

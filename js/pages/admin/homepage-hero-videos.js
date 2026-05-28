@@ -382,7 +382,10 @@ export function createHomepageHeroVideosAdmin({
         const flags = stream.feature_flags || {};
         preview.append(createMetaRow('Provider config', flags.provider_configured ? 'Configured' : 'Missing'));
         const dispatch = state.streamPreviewProcessorDispatch || {};
-        preview.append(createMetaRow('Processor dispatch', dispatch.configured ? 'Configured' : 'Not configured'));
+        const dispatchLabel = dispatch.configured
+            ? `Configured${dispatch.provider ? ` (${dispatch.provider})` : ''}`
+            : 'Not configured';
+        preview.append(createMetaRow('Processor dispatch', dispatchLabel));
         preview.append(createMetaRow('Ready previews', String(stream.ready_count ?? 0)));
         preview.append(createMetaRow('Ready MP4 downloads', String(stream.ready_with_download_url ?? 0)));
         preview.append(createMetaRow('Needs MP4 repair', String(stream.ready_missing_download_url ?? 0)));
@@ -784,14 +787,21 @@ export function createHomepageHeroVideosAdmin({
             renderShell();
             return;
         }
-        const count = Number(res.data?.data?.queued_count || 0);
-        const repairCount = Number(res.data?.data?.repair_queued_count || 0);
-        const started = res.data?.data?.processor_dispatch_started === true;
+        const data = res.data?.data || {};
+        const count = Number(data.queued_new_count ?? data.queued_count ?? 0);
+        const repairCount = Number(data.queued_repair_count ?? data.repair_queued_count ?? 0);
+        const started = data.dispatch_succeeded === true || data.processor_dispatch_started === true;
         const warnings = Array.isArray(res.data?.data?.warnings) ? res.data.data.warnings : [];
+        const dispatchMessage = data.dispatch_message || warnings[0] || 'Automatic processor dispatch is not configured.';
         syncFeatureState(res.data?.data || {});
+        state.streamPreviewProcessorDispatch = {
+            ...(state.streamPreviewProcessorDispatch || {}),
+            configured: data.dispatch_configured ?? data.processor_dispatch_configured ?? state.streamPreviewProcessorDispatch?.configured,
+            provider: data.dispatch_provider ?? state.streamPreviewProcessorDispatch?.provider,
+        };
         const message = started
             ? `Preview processing started. Queued ${count} new and ${repairCount} repair job${repairCount === 1 ? '' : 's'}.`
-            : `Queued ${count} new and ${repairCount} repair job${repairCount === 1 ? '' : 's'}. ${warnings[0] || 'Automatic processor dispatch is not configured.'}`;
+            : `Queued ${count} new and ${repairCount} repair job${repairCount === 1 ? '' : 's'}. ${dispatchMessage}`;
         setStatus(message, started ? 'success' : 'warning');
         showToast?.(started ? 'Preview processing started.' : 'Preview jobs queued; processor dispatch is not configured.', started ? 'success' : 'warning');
         await refreshConfigOnly();
