@@ -11331,7 +11331,8 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith('SELECT status, preview_duration_seconds, max_loop_count FROM memvid_stream_previews')) {
+    if (query.startsWith('SELECT status, stream_uid, preview_duration_seconds, max_loop_count, provider_metadata_json FROM memvid_stream_previews')
+      || query.startsWith('SELECT status, preview_duration_seconds, max_loop_count FROM memvid_stream_previews')) {
       return { results: this.state.memvidStreamPreviews.slice() };
     }
 
@@ -11383,6 +11384,26 @@ class MockD1 {
       this.state.memvidStreamPreviews = this.state.memvidStreamPreviews
         .filter((row) => !(row.asset_id === assetId && row.user_id === userId));
       return { success: true, meta: { changes: before - this.state.memvidStreamPreviews.length } };
+    }
+
+    if (query.startsWith('SELECT id, stream_uid, provider_metadata_json FROM memvid_stream_previews')) {
+      const [limit] = bindings;
+      return {
+        results: this.state.memvidStreamPreviews
+          .filter((row) => row.status === 'ready' && row.stream_uid)
+          .sort((a, b) => String(b.completed_at || b.updated_at || '').localeCompare(String(a.completed_at || a.updated_at || '')))
+          .slice(0, limit),
+      };
+    }
+
+    if (query.startsWith('UPDATE memvid_stream_previews SET provider_metadata_json = ?')) {
+      const [providerMetadataJson, updatedAt, previewId] = bindings;
+      const row = this.state.memvidStreamPreviews.find((item) => item.id === previewId && item.status === 'ready');
+      if (row) {
+        row.provider_metadata_json = providerMetadataJson;
+        row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
     }
 
     if (query.startsWith('SELECT assets.id, assets.user_id, assets.r2_key')) {
@@ -11785,6 +11806,21 @@ class MockD1 {
           title: asset.title,
         };
       }
+      if (query.includes("previews.status = 'ready'")) {
+        const rows = this.state.memvidStreamPreviews
+          .filter((preview) => preview.status === 'ready' && preview.stream_uid)
+          .map((preview) => {
+            const asset = this.state.aiTextAssets.find((row) => row.id === preview.asset_id) || {};
+            return {
+              ...preview,
+              title: asset.title,
+              mime_type: asset.mime_type,
+              size_bytes: asset.size_bytes,
+            };
+          })
+          .slice(0, limitOrJobId);
+        return { results: rows };
+      }
       const rows = this.state.memvidStreamPreviews
         .filter((preview) => preview.status === 'queued')
         .map((preview) => {
@@ -11948,6 +11984,10 @@ function createAuthTestEnv(seed = {}) {
     STREAM_ACCOUNT_ID: seed.STREAM_ACCOUNT_ID,
     CLOUDFLARE_STREAM_API_TOKEN: seed.CLOUDFLARE_STREAM_API_TOKEN,
     STREAM_API_TOKEN: seed.STREAM_API_TOKEN,
+    GITHUB_ACTIONS_DISPATCH_TOKEN: seed.GITHUB_ACTIONS_DISPATCH_TOKEN,
+    GITHUB_REPOSITORY: seed.GITHUB_REPOSITORY,
+    GITHUB_MEMVID_STREAM_WORKFLOW_FILE: seed.GITHUB_MEMVID_STREAM_WORKFLOW_FILE,
+    GITHUB_MEMVID_STREAM_WORKFLOW_REF: seed.GITHUB_MEMVID_STREAM_WORKFLOW_REF,
     STRIPE_MODE: seed.STRIPE_MODE,
     STRIPE_SECRET_KEY: seed.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: seed.STRIPE_WEBHOOK_SECRET,

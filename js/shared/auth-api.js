@@ -353,6 +353,12 @@ export function apiAdminBackfillMemvidStreamPreviews(payload = {}, { idempotency
     });
 }
 
+export function apiAdminRunMemvidStreamPreviews(payload = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/homepage/hero-videos/memvid-stream-previews/run', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminUpdateHomepageHeroVideoSlot(slot, payload = {}, { idempotencyKey } = {}) {
     return request('PUT', `/admin/homepage/hero-videos/slots/${encodeURIComponent(slot)}`, payload, {
         headers: { 'Idempotency-Key': idempotencyKey },

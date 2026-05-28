@@ -839,6 +839,7 @@
       "GET /api/admin/homepage/hero-videos/candidates",
       "POST /api/admin/homepage/hero-videos/uploads",
       "POST /api/admin/homepage/hero-videos/memvid-stream-previews/backfill",
+      "POST /api/admin/homepage/hero-videos/memvid-stream-previews/run",
       "POST /api/admin/homepage/hero-videos/derivatives",
       "GET /api/admin/readiness/status",
       "GET /api/admin/operations/timeline",
@@ -906,6 +907,7 @@
       "/admin/homepage/hero-videos/candidates",
       "/admin/homepage/hero-videos/uploads",
       "/admin/homepage/hero-videos/memvid-stream-previews/backfill",
+      "/admin/homepage/hero-videos/memvid-stream-previews/run",
       "/admin/homepage/hero-videos/derivatives"
     ]
   }

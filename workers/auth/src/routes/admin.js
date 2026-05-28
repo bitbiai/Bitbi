@@ -964,6 +964,8 @@ export async function handleAdmin(ctx) {
     (pathname === "/api/admin/homepage/hero-videos/uploads" && method === "POST") ||
     // route-policy: admin.homepage.hero-videos.memvid-stream-previews.backfill
     (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill" && method === "POST") ||
+    // route-policy: admin.homepage.hero-videos.memvid-stream-previews.run
+    (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/run" && method === "POST") ||
     // route-policy: admin.homepage.hero-videos.derivatives.create
     (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "POST")
   ) {

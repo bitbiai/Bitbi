@@ -14,8 +14,11 @@ Optional environment:
 - `PROCESS_HOMEPAGE_HERO=0` to skip Homepage Hero jobs
 - `PROCESS_HOMEPAGE_SOURCE_POSTERS=0` to skip private manual-upload source poster backfill jobs
 - `PROCESS_MEMVID_STREAM_PREVIEWS=1` to claim short Memvid preview jobs
+- `REPAIR_MEMVID_STREAM_DOWNLOADS=1` to repair ready Memvid Stream preview rows that have a Stream UID but no stored ready MP4 download URL
 - `CLOUDFLARE_ACCOUNT_ID` or `STREAM_ACCOUNT_ID`
 - `CLOUDFLARE_STREAM_API_TOKEN` or `STREAM_API_TOKEN`
+- `STREAM_DOWNLOAD_POLL_INTERVAL_MS`, default `5000`
+- `STREAM_DOWNLOAD_MAX_WAIT_MS`, default `300000`
 - `DRY_RUN=1` to claim and print jobs without downloading or completing them
 - `WORK_DIR`, default OS temp directory
 - `FFMPEG_BIN`, default `ffmpeg`
@@ -36,3 +39,10 @@ as source-poster jobs at `/api/internal/homepage/hero-videos/source-posters/jobs
 Those jobs extract a WebP frame and store it on the private `ai_text_assets`
 poster fields through the Auth Worker. The public homepage still serves only
 ready optimized hero derivatives, never these private source originals.
+
+Memvid Stream preview jobs are short-preview-only. After uploading the clip to
+Cloudflare Stream, the processor calls the Stream `/downloads` API, polls until
+the default MP4 download is `ready`, and sends the real returned download URL to
+the Auth Worker. Public hover previews use that stored Cloudflare delivery URL
+after the Worker validates the host. Manual `/downloads` curl calls are not part
+of the production operator flow.

@@ -131,6 +131,7 @@ async function listReadyStreamPreviewsForAssets(env, assetIds, streamPreviewConf
               status,
               preview_duration_seconds,
               max_loop_count,
+              provider_metadata_json,
               completed_at,
               updated_at
        FROM memvid_stream_previews

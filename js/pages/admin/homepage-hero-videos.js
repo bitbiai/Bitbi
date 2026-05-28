@@ -1,9 +1,9 @@
 import {
-    apiAdminBackfillMemvidStreamPreviews,
     apiAdminCreateHomepageHeroVideoDerivative,
     apiAdminHomepageHeroVideoCandidates,
     apiAdminHomepageHeroVideos,
     apiAdminRetryHomepageHeroVideoPoster,
+    apiAdminRunMemvidStreamPreviews,
     apiAdminUpdateHomepageHeroVideoFeatureSwitch,
     apiAdminUpdateHomepageHeroVideoPreset,
     apiAdminUploadHomepageHeroVideoSource,
@@ -266,6 +266,7 @@ export function createHomepageHeroVideosAdmin({
         presetStatus: null,
         presetDraft: null,
         streamPreviewSummary: null,
+        streamPreviewProcessorDispatch: null,
         uploadFile: null,
         uploadPoster: null,
         uploadPosterWarning: '',
@@ -318,6 +319,7 @@ export function createHomepageHeroVideosAdmin({
             ? configData.external_ffmpeg_enabled === true
             : ffmpegFeature?.effective_enabled === true;
         state.streamPreviewSummary = configData.stream_preview_summary || state.streamPreviewSummary;
+        state.streamPreviewProcessorDispatch = configData.stream_preview_processor_dispatch || state.streamPreviewProcessorDispatch;
     }
 
     function renderShell() {
@@ -379,13 +381,17 @@ export function createHomepageHeroVideosAdmin({
         const stream = state.streamPreviewSummary || {};
         const flags = stream.feature_flags || {};
         preview.append(createMetaRow('Provider config', flags.provider_configured ? 'Configured' : 'Missing'));
+        const dispatch = state.streamPreviewProcessorDispatch || {};
+        preview.append(createMetaRow('Processor dispatch', dispatch.configured ? 'Configured' : 'Not configured'));
         preview.append(createMetaRow('Ready previews', String(stream.ready_count ?? 0)));
+        preview.append(createMetaRow('Ready MP4 downloads', String(stream.ready_with_download_url ?? 0)));
+        preview.append(createMetaRow('Needs MP4 repair', String(stream.ready_missing_download_url ?? 0)));
         preview.append(createMetaRow('Failed previews', String(stream.failed_count ?? 0)));
         preview.append(createMetaRow('Estimated delivered minutes', String(stream.estimated_delivered_minutes ?? 0)));
         const actions = el('div', 'admin-hero-videos__actions');
-        const backfillBtn = el('button', 'btn-action admin-hero-videos__button--ghost', state.streamBackfillBusy ? 'Queueing...' : 'Queue preview backfill');
+        const backfillBtn = el('button', 'btn-action admin-hero-videos__button--ghost', state.streamBackfillBusy ? 'Queuing previews and starting processor...' : 'Generate / repair Memvid previews');
         backfillBtn.type = 'button';
-        backfillBtn.dataset.action = 'queue-stream-preview-backfill';
+        backfillBtn.dataset.action = 'run-stream-preview-processing';
         backfillBtn.disabled = !getFeature('memvid_stream_previews')?.effective_enabled || state.streamBackfillBusy;
         actions.append(backfillBtn);
         preview.append(actions);
@@ -753,33 +759,41 @@ export function createHomepageHeroVideosAdmin({
         renderShell();
     }
 
-    async function queueStreamPreviewBackfill() {
+    async function runStreamPreviewProcessing() {
         if (state.streamBackfillBusy) return;
         const reason = readReason();
         if (reason.length < 8) {
-            setStatus('Enter an operator reason before queueing Stream preview backfill.', 'error');
+            setStatus('Enter an operator reason before generating or repairing Stream previews.', 'error');
             return;
         }
         state.streamBackfillBusy = true;
-        setStatus('Queueing Memvid Stream preview backfill...');
+        setStatus('Queuing previews and starting processor...');
         renderShell();
-        const res = await apiAdminBackfillMemvidStreamPreviews({
-            limit: 10,
+        const res = await apiAdminRunMemvidStreamPreviews({
+            limit: 25,
+            repair_limit: 100,
             operator_reason: reason,
         }, {
-            idempotencyKey: createAdminIdempotencyKey('memvid-stream-preview-backfill'),
+            idempotencyKey: createAdminIdempotencyKey('memvid-stream-preview-run'),
         });
         state.streamBackfillBusy = false;
         if (!res.ok) {
-            const message = formatApiError?.(res, 'Stream preview backfill could not be queued.') || res.error;
+            const message = formatApiError?.(res, 'Stream preview processing could not be started.') || res.error;
             setStatus(message, 'error');
             showToast?.(message, 'error');
             renderShell();
             return;
         }
         const count = Number(res.data?.data?.queued_count || 0);
-        setStatus(`Queued ${count} Memvid Stream preview job${count === 1 ? '' : 's'}.`, 'success');
-        showToast?.(`Queued ${count} Stream preview job${count === 1 ? '' : 's'}.`, 'success');
+        const repairCount = Number(res.data?.data?.repair_queued_count || 0);
+        const started = res.data?.data?.processor_dispatch_started === true;
+        const warnings = Array.isArray(res.data?.data?.warnings) ? res.data.data.warnings : [];
+        syncFeatureState(res.data?.data || {});
+        const message = started
+            ? `Preview processing started. Queued ${count} new and ${repairCount} repair job${repairCount === 1 ? '' : 's'}.`
+            : `Queued ${count} new and ${repairCount} repair job${repairCount === 1 ? '' : 's'}. ${warnings[0] || 'Automatic processor dispatch is not configured.'}`;
+        setStatus(message, started ? 'success' : 'warning');
+        showToast?.(started ? 'Preview processing started.' : 'Preview jobs queued; processor dispatch is not configured.', started ? 'success' : 'warning');
         await refreshConfigOnly();
     }
 
@@ -1092,11 +1106,11 @@ export function createHomepageHeroVideosAdmin({
                     renderShell();
                 });
             }
-            if (action === 'queue-stream-preview-backfill') {
-                queueStreamPreviewBackfill().catch((error) => {
+            if (action === 'run-stream-preview-processing') {
+                runStreamPreviewProcessing().catch((error) => {
                     console.warn(error);
                     state.streamBackfillBusy = false;
-                    setStatus('Stream preview backfill could not be queued.', 'error');
+                    setStatus('Stream preview processing could not be started.', 'error');
                     renderShell();
                 });
             }

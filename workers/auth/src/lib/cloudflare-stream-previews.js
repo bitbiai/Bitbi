@@ -72,13 +72,64 @@ export function normalizeStreamUid(value) {
   return uid;
 }
 
-export function buildCloudflareStreamPlayback(streamUid) {
+export function isSafeCloudflareStreamPlaybackUrl(value) {
+  if (!value) return false;
+  try {
+    const url = new URL(String(value));
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    return host === "videodelivery.net"
+      || host.endsWith(".videodelivery.net")
+      || host === "cloudflarestream.com"
+      || host.endsWith(".cloudflarestream.com");
+  } catch {
+    return false;
+  }
+}
+
+export function parseStreamProviderMetadata(raw) {
+  if (!raw || raw === "{}") return {};
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getStreamDownloadUrlFromProviderMetadata(raw) {
+  const metadata = parseStreamProviderMetadata(raw);
+  const providerMetadata = metadata.provider_metadata && typeof metadata.provider_metadata === "object"
+    ? metadata.provider_metadata
+    : metadata;
+  const candidates = [
+    providerMetadata.download_url,
+    providerMetadata.mp4_url,
+    providerMetadata.download?.url,
+    metadata.download_url,
+    metadata.mp4_url,
+  ];
+  return candidates.find((candidate) => isSafeCloudflareStreamPlaybackUrl(candidate)) || null;
+}
+
+export function hasReadyStreamDownloadMetadata(raw) {
+  const metadata = parseStreamProviderMetadata(raw);
+  const providerMetadata = metadata.provider_metadata && typeof metadata.provider_metadata === "object"
+    ? metadata.provider_metadata
+    : metadata;
+  const status = String(providerMetadata.download_status || providerMetadata.download?.status || "").toLowerCase();
+  return status === "ready" && Boolean(getStreamDownloadUrlFromProviderMetadata(metadata));
+}
+
+export function buildCloudflareStreamPlayback(streamUid, downloadUrl = null) {
   const uid = normalizeStreamUid(streamUid);
   if (!uid) return null;
   const encoded = encodeURIComponent(uid);
+  const safeDownloadUrl = isSafeCloudflareStreamPlaybackUrl(downloadUrl) ? String(downloadUrl) : null;
   return {
     iframe_url: `https://iframe.videodelivery.net/${encoded}`,
-    mp4_url: `https://videodelivery.net/${encoded}/downloads/default.mp4`,
+    mp4_url: safeDownloadUrl || `https://videodelivery.net/${encoded}/downloads/default.mp4`,
     hls_url: `https://videodelivery.net/${encoded}/manifest/video.m3u8`,
     dash_url: `https://videodelivery.net/${encoded}/manifest/video.mpd`,
     thumbnail_url: `https://videodelivery.net/${encoded}/thumbnails/thumbnail.jpg?time=1s`,
@@ -90,6 +141,7 @@ export function toPublicStreamPreview(row, env, effectiveConfig = null) {
   if (!row || !config.enabled) return null;
   const uid = normalizeStreamUid(row.stream_uid);
   if (!uid || row.status !== "ready") return null;
+  const downloadUrl = getStreamDownloadUrlFromProviderMetadata(row.provider_metadata_json);
   return {
     provider: "cloudflare_stream",
     uid,
@@ -104,18 +156,19 @@ export function toPublicStreamPreview(row, env, effectiveConfig = null) {
       min: 1,
       max: MAX_PREVIEW_MAX_LOOPS,
     }),
-    playback: buildCloudflareStreamPlayback(uid),
+    playback: buildCloudflareStreamPlayback(uid, downloadUrl),
   };
 }
 
 export function summarizeMemvidStreamPreviews(rows = [], events = [], env = {}) {
   const config = getMemvidStreamPreviewConfig(env);
+  const previewRows = Array.isArray(rows) ? rows : [];
   const statusCounts = {};
   let readyCount = 0;
   let failedCount = 0;
   let storedPreviewSeconds = 0;
 
-  for (const row of Array.isArray(rows) ? rows : []) {
+  for (const row of previewRows) {
     const status = String(row?.status || "unknown");
     statusCounts[status] = (statusCounts[status] || 0) + 1;
     if (status === "ready") {
@@ -143,6 +196,8 @@ export function summarizeMemvidStreamPreviews(rows = [], events = [], env = {}) 
     status_counts: statusCounts,
     ready_count: readyCount,
     failed_count: failedCount,
+    ready_with_download_url: previewRows.filter((row) => row?.status === "ready" && hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length,
+    ready_missing_download_url: previewRows.filter((row) => row?.status === "ready" && row?.stream_uid && !hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length,
     estimated_stored_preview_minutes: Math.round((storedPreviewSeconds / 60) * 100) / 100,
     max_loop_count: config.maxLoopCount,
     hover_starts: hoverStarts,

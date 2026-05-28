@@ -12676,6 +12676,7 @@ test.describe('Admin Control Plane', () => {
     const derivativeRequests = [];
     const slotRequests = [];
     const posterRetryRequests = [];
+    const streamRunRequests = [];
     const featureStatus = {
       features: {
         homepage_hero_external_ffmpeg: {
@@ -12771,8 +12772,13 @@ test.describe('Admin Control Plane', () => {
               provider_configured: true,
             },
             ready_count: 2,
+            ready_with_download_url: 1,
+            ready_missing_download_url: 1,
             failed_count: 0,
             estimated_delivered_minutes: 0,
+          },
+          stream_preview_processor_dispatch: {
+            configured: true,
           },
         },
       });
@@ -12815,6 +12821,32 @@ test.describe('Admin Control Plane', () => {
         },
       }, 202);
     });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/memvid-stream-previews\/run$/, async (route) => {
+      streamRunRequests.push({
+        idempotencyKey: route.request().headers()['idempotency-key'] || null,
+        body: route.request().postDataJSON(),
+      });
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          queued_count: 3,
+          repair_queued_count: 1,
+          processor_dispatch_configured: true,
+          processor_dispatch_started: true,
+          feature_status: featureStatus,
+          stream_preview_summary: {
+            feature_flags: {
+              provider_configured: true,
+            },
+            ready_count: 2,
+            ready_with_download_url: 1,
+            ready_missing_download_url: 1,
+            failed_count: 0,
+            estimated_delivered_minutes: 0,
+          },
+        },
+      }, 202);
+    });
     await page.route(/\/api\/admin\/homepage\/hero-videos\/slots\/[^/]+$/, async (route) => {
       const body = route.request().postDataJSON();
       slotRequests.push({
@@ -12854,6 +12886,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionHomepageHeroVideos')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Homepage Hero Videos');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Video Delivery Controls');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Generate / repair Memvid previews');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Hero Conversion Preset');
     await expect(page.locator('.admin-hero-videos__slot-card')).toHaveCount(4);
     await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
@@ -12866,6 +12899,14 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Retry poster');
 
     await page.locator('#homepageHeroVideosAdmin [data-field="reason"]').fill('Operator-approved homepage hero conversion');
+    await page.getByRole('button', { name: 'Generate / repair Memvid previews' }).click();
+    await expect.poll(() => streamRunRequests.length).toBe(1);
+    expect(streamRunRequests[0].idempotencyKey).toMatch(/^memvid-stream-preview-run-/);
+    expect(streamRunRequests[0].body).toMatchObject({
+      operator_reason: 'Operator-approved homepage hero conversion',
+    });
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Preview processing started.');
+
     await page.locator('.admin-hero-videos__candidate-card').getByRole('button', { name: 'Retry poster' }).click();
     await expect.poll(() => posterRetryRequests.length).toBe(1);
     expect(posterRetryRequests[0].idempotencyKey).toMatch(/^homepage-hero-video-poster-/);

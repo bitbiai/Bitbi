@@ -160,7 +160,9 @@ export function initVideoGallery() {
             if (url.protocol !== 'https:') return false;
             return url.hostname === 'videodelivery.net'
                 || url.hostname === 'iframe.videodelivery.net'
-                || url.hostname.endsWith('.videodelivery.net');
+                || url.hostname.endsWith('.videodelivery.net')
+                || url.hostname === 'cloudflarestream.com'
+                || url.hostname.endsWith('.cloudflarestream.com');
         } catch {
             return false;
         }

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const BASE_URL = String(process.env.AUTH_WORKER_BASE_URL || "").replace(/\/+$/, "");
 const SECRET = String(process.env.HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET
@@ -12,12 +13,15 @@ const DRY_RUN = process.env.DRY_RUN === "1" || process.env.DRY_RUN === "true";
 const PROCESS_HOMEPAGE_HERO = process.env.PROCESS_HOMEPAGE_HERO !== "0" && process.env.PROCESS_HOMEPAGE_HERO !== "false";
 const PROCESS_HOMEPAGE_SOURCE_POSTERS = process.env.PROCESS_HOMEPAGE_SOURCE_POSTERS !== "0" && process.env.PROCESS_HOMEPAGE_SOURCE_POSTERS !== "false";
 const PROCESS_MEMVID_STREAM_PREVIEWS = process.env.PROCESS_MEMVID_STREAM_PREVIEWS === "1" || process.env.PROCESS_MEMVID_STREAM_PREVIEWS === "true";
+const REPAIR_MEMVID_STREAM_DOWNLOADS = process.env.REPAIR_MEMVID_STREAM_DOWNLOADS === "1" || process.env.REPAIR_MEMVID_STREAM_DOWNLOADS === "true";
 const JOB_LIMIT = Math.max(1, Math.min(4, Number.parseInt(process.env.JOB_LIMIT || "1", 10) || 1));
 const WORK_DIR = process.env.WORK_DIR || tmpdir();
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
 const STREAM_ACCOUNT_ID = String(process.env.CLOUDFLARE_ACCOUNT_ID || process.env.STREAM_ACCOUNT_ID || "");
 const STREAM_API_TOKEN = String(process.env.CLOUDFLARE_STREAM_API_TOKEN || process.env.STREAM_API_TOKEN || "");
+const STREAM_DOWNLOAD_POLL_INTERVAL_MS = Math.max(1000, Math.min(30000, Number.parseInt(process.env.STREAM_DOWNLOAD_POLL_INTERVAL_MS || "5000", 10) || 5000));
+const STREAM_DOWNLOAD_MAX_WAIT_MS = Math.max(30000, Math.min(900000, Number.parseInt(process.env.STREAM_DOWNLOAD_MAX_WAIT_MS || "300000", 10) || 300000));
 const ENCODER_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower"]);
 
 function assertConfig() {
@@ -72,6 +76,18 @@ function run(command, args, { cwd } = {}) {
       reject(error);
     });
   });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sanitizeProcessorErrorCode(value, fallback = "cloudflare_stream_preview_failed") {
+  const normalized = String(value || fallback)
+    .toLowerCase()
+    .replace(/[^a-z0-9_:-]+/g, "_")
+    .slice(0, 80);
+  return normalized || fallback;
 }
 
 async function probeVideo(filePath) {
@@ -136,7 +152,7 @@ async function claimMemvidPreviewJobs() {
   const body = await requestJson("/api/internal/memvid-stream-previews/jobs/claim", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ limit: JOB_LIMIT }),
+    body: JSON.stringify({ limit: JOB_LIMIT, repair_downloads: REPAIR_MEMVID_STREAM_DOWNLOADS }),
   });
   return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
 }
@@ -286,6 +302,101 @@ async function uploadPreviewToStream(filePath, job) {
   };
 }
 
+function extractStreamDownloadState(body = {}) {
+  const result = body?.result || {};
+  const entry = result.default || result.downloads?.default || result;
+  return {
+    status: String(entry?.status || "").toLowerCase(),
+    url: entry?.url || null,
+    percent_complete: entry?.percentComplete ?? entry?.pctComplete ?? entry?.percent_complete ?? null,
+    raw: entry,
+  };
+}
+
+async function streamDownloadsRequest(uid, {
+  method = "GET",
+  fetchImpl = fetch,
+  accountId = STREAM_ACCOUNT_ID,
+  apiToken = STREAM_API_TOKEN,
+} = {}) {
+  if (!accountId || !apiToken) {
+    const error = new Error("Cloudflare Stream account/token is required for MP4 download preparation.");
+    error.code = "cloudflare_stream_not_configured";
+    throw error;
+  }
+  const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/stream/${encodeURIComponent(uid)}/downloads`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      Accept: "application/json",
+    },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || body?.success === false) {
+    const error = new Error(body?.errors?.[0]?.message || `Cloudflare Stream downloads ${method} failed with HTTP ${res.status}`);
+    error.status = res.status;
+    error.body = body;
+    throw error;
+  }
+  return body || {};
+}
+
+export async function ensureStreamDownloadReady(uid, {
+  fetchImpl = fetch,
+  accountId = STREAM_ACCOUNT_ID,
+  apiToken = STREAM_API_TOKEN,
+  pollIntervalMs = STREAM_DOWNLOAD_POLL_INTERVAL_MS,
+  maxWaitMs = STREAM_DOWNLOAD_MAX_WAIT_MS,
+  sleepImpl = sleep,
+} = {}) {
+  if (!uid) {
+    const error = new Error("Cloudflare Stream UID is required for MP4 download preparation.");
+    error.code = "cloudflare_stream_uid_required";
+    throw error;
+  }
+
+  try {
+    await streamDownloadsRequest(uid, { method: "POST", fetchImpl, accountId, apiToken });
+  } catch (error) {
+    try {
+      const stateAfterPostFailure = extractStreamDownloadState(
+        await streamDownloadsRequest(uid, { method: "GET", fetchImpl, accountId, apiToken })
+      );
+      if (!stateAfterPostFailure.status) throw error;
+    } catch {
+      throw error;
+    }
+  }
+
+  let lastState = null;
+  const maxPolls = Math.max(1, Math.ceil(maxWaitMs / Math.max(1, pollIntervalMs)) + 1);
+  for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+    const body = await streamDownloadsRequest(uid, { method: "GET", fetchImpl, accountId, apiToken });
+    const state = extractStreamDownloadState(body);
+    lastState = state;
+    if (state.status === "ready" && state.url) {
+      return {
+        status: "ready",
+        url: state.url,
+        percent_complete: state.percent_complete,
+        raw: state.raw,
+      };
+    }
+    if (state.status === "failed" || state.status === "error") {
+      const error = new Error("Cloudflare Stream MP4 download generation failed.");
+      error.code = "cloudflare_stream_download_failed";
+      error.downloadState = state;
+      throw error;
+    }
+    if (attempt === maxPolls - 1) break;
+    await sleepImpl(pollIntervalMs);
+  }
+  const error = new Error("Cloudflare Stream MP4 download was not ready before the timeout.");
+  error.code = "cloudflare_stream_download_not_ready";
+  error.downloadState = lastState;
+  throw error;
+}
+
 async function completeJob(job, result) {
   const form = new FormData();
   const videoBytes = await readFile(result.output);
@@ -354,6 +465,7 @@ async function failSourcePosterJob(job, error) {
 }
 
 async function completeMemvidPreviewJob(job, result, streamResult) {
+  const download = streamResult.download || {};
   return requestJson(job.completion.url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -368,6 +480,9 @@ async function completeMemvidPreviewJob(job, result, streamResult) {
       provider_metadata: {
         stream_status: streamResult.metadata?.status || null,
         uploaded: streamResult.metadata?.uploaded || null,
+        download_status: download.status || null,
+        download_url: download.url || null,
+        download_percent_complete: download.percent_complete ?? null,
       },
     }),
   });
@@ -378,7 +493,7 @@ async function failMemvidPreviewJob(job, error) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      error_code: "cloudflare_stream_preview_failed",
+      error_code: sanitizeProcessorErrorCode(error?.code),
       error_message: String(error?.message || error || "Stream preview failed").slice(0, 240),
     }),
   }).catch((callbackError) => {
@@ -434,11 +549,28 @@ async function processMemvidPreviewJob(job) {
     console.log(JSON.stringify({ dryRun: true, streamPreviewJob: job }, null, 2));
     return;
   }
+  if (job.repair_download && job.stream_uid) {
+    try {
+      const download = await ensureStreamDownloadReady(job.stream_uid);
+      await completeMemvidPreviewJob(job, { metadata: {} }, {
+        uid: job.stream_uid,
+        metadata: { status: "ready", uploaded: null },
+        download,
+      });
+      console.log(`Repaired Memvid Stream download metadata for job ${job.id}`);
+    } catch (error) {
+      console.error(`Failed Memvid Stream download repair for ${job.id}:`, error.message);
+      await failMemvidPreviewJob(job, error);
+      process.exitCode = 1;
+    }
+    return;
+  }
   await mkdir(WORK_DIR, { recursive: true });
   const dir = await mkdtemp(path.join(WORK_DIR, `bitbi-memvid-preview-${job.id}-`));
   try {
     const result = await convertMemvidPreviewJob(job, dir);
     const streamResult = await uploadPreviewToStream(result.output, job);
+    streamResult.download = await ensureStreamDownloadReady(streamResult.uid);
     await completeMemvidPreviewJob(job, result, streamResult);
     console.log(`Completed Memvid Stream preview job ${job.id}`);
   } catch (error) {
@@ -478,7 +610,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

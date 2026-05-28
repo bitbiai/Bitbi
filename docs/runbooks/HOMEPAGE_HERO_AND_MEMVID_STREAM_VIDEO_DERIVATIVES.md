@@ -39,6 +39,15 @@ Processor/provider secrets:
 - `MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET` or `HOMEPAGE_HERO_PROCESSOR_SECRET`
 - `MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS`
 - `MEMVID_STREAM_PREVIEW_MAX_LOOPS`
+- `STREAM_DOWNLOAD_POLL_INTERVAL_MS`, optional processor polling interval for Stream MP4 downloads; default 5000 ms
+- `STREAM_DOWNLOAD_MAX_WAIT_MS`, optional processor max wait for Stream MP4 downloads; default 300000 ms
+
+Optional GitHub Actions dispatch settings for the one-click Admin Memvid preview flow:
+
+- `GITHUB_ACTIONS_DISPATCH_TOKEN`
+- `GITHUB_REPOSITORY`, for example `bitbiai/Bitbi`
+- `GITHUB_MEMVID_STREAM_WORKFLOW_FILE`, default `memvid-stream-preview-processor.yml`
+- `GITHUB_MEMVID_STREAM_WORKFLOW_REF`, default `main`
 
 With provider secrets/config absent, provider work fails closed and the public site falls back to existing poster/full-play behavior. Missing provider secrets do not imply production readiness even when Worker flags and Admin switches are on.
 
@@ -90,15 +99,21 @@ The Worker validates and stores the preset in `app_settings` as `homepage_hero_f
 
 ## Memvid Stream Hover Flow
 
-1. A trusted processor/backfill path creates short preview clips for public Memvids.
-2. The clip is uploaded to Cloudflare Stream.
-3. `memvid_stream_previews` stores the safe Stream UID, duration, loop cap, and ready status.
-4. Public Memvid list responses include `stream_preview` only for ready rows when the Worker flag and Admin metadata switch are effectively enabled.
-5. Desktop hover/fine-pointer frontend code waits before loading playback, loops at most three times, and destroys the player on mouseleave.
+1. Admin clicks **Generate / repair Memvid previews** in Homepage Hero Videos.
+2. The Auth Worker queues missing public Memvid preview rows and marks existing ready rows that lack Cloudflare MP4 download metadata for repair.
+3. If GitHub dispatch settings are configured, the Worker dispatches `.github/workflows/memvid-stream-preview-processor.yml`; otherwise it returns a clear warning and leaves the jobs queued for the separately deployed processor.
+4. A trusted processor/backfill path creates short preview clips for public Memvids.
+5. The clip is uploaded to Cloudflare Stream.
+6. The processor calls Cloudflare Stream `/downloads`, polls until `result.default.status` is `ready`, and stores the real returned MP4 download URL in `provider_metadata_json`.
+7. `memvid_stream_previews` stores the safe Stream UID, duration, loop cap, ready status, and Stream download metadata.
+8. Public Memvid list responses include `stream_preview` only for ready rows when the Worker flag and Admin metadata switch are effectively enabled. The MP4 URL is exposed only if it is an HTTPS Cloudflare Stream delivery URL.
+9. Desktop hover/fine-pointer frontend code waits before loading playback, loops at most three times, and destroys the player on mouseleave.
 
 The public `stream_preview` contract may include `autoplay_enabled: false` when metadata is allowed but the Admin hover-autoplay switch is off. The frontend treats that as poster-only and does not create a hover media element.
 
 Mobile/touch and `prefers-reduced-motion` users get poster-only cards. Full click/tap playback continues to use the existing public Memvid file route.
+
+Manual Cloudflare `/downloads` curl calls are no longer part of the operator workflow. If old ready rows have a Stream UID but no stored MP4 download URL, the same Admin button plus processor repair mode (`REPAIR_MEMVID_STREAM_DOWNLOADS=1`) repairs them.
 
 ## Cost Safety
 
@@ -123,5 +138,5 @@ The Admin Homepage Hero Videos module shows Stream preview status counts, ready/
 
 - Failed homepage hero derivatives can be retried from Admin through the derivative retry route.
 - Manual hero uploads without source posters can be retried from Admin; the retry marks durable pending state for the external ffmpeg source-poster processor instead of requiring browser frame extraction.
-- Memvid Stream preview backfill should create or update `memvid_stream_previews` rows idempotently by asset/source fingerprint, upload only short preview clips to Stream, and mark old rows `superseded` instead of deleting evidence.
+- Memvid Stream preview one-click processing should create or update `memvid_stream_previews` rows idempotently by asset/source fingerprint, upload only short preview clips to Stream, prepare the Cloudflare MP4 download, and store the real ready download URL before public hover autoplay relies on the row.
 - Do not upload full original Memvids to Stream unless a future approved operator decision accepts the storage/delivered-minute impact.

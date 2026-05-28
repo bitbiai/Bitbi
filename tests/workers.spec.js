@@ -40667,6 +40667,13 @@ test.describe('Worker routes', () => {
         created_at: '2026-05-20T12:01:00.000Z',
         updated_at: '2026-05-20T12:02:00.000Z',
         completed_at: '2026-05-20T12:02:00.000Z',
+        provider_metadata_json: JSON.stringify({
+          provider: 'cloudflare_stream',
+          provider_metadata: {
+            download_status: 'ready',
+            download_url: 'https://customer-test.cloudflarestream.com/streamReadyUid001/downloads/default.mp4',
+          },
+        }),
       }, {
         id: 'msp_queued0000000001',
         asset_id: 'a11ce002',
@@ -40696,6 +40703,7 @@ test.describe('Worker routes', () => {
       uid: 'streamReadyUid001',
       max_loop_count: 3,
       playback: {
+        mp4_url: 'https://customer-test.cloudflarestream.com/streamReadyUid001/downloads/default.mp4',
         hls_url: 'https://videodelivery.net/streamReadyUid001/manifest/video.m3u8',
       },
     });
@@ -40704,6 +40712,253 @@ test.describe('Worker routes', () => {
     expect(serialized).not.toContain('users/memvid-owner/');
     expect(serialized).not.toContain('STREAM_API_TOKEN');
     expect(serialized).not.toContain('/api/admin/');
+  });
+
+  test('Memvid Stream preview completion stores ready MP4 download metadata and rejects unsafe URLs', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY: 'true',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      aiTextAssets: [{
+        id: 'a11ce0d1',
+        user_id: 'memvid-owner',
+        title: 'Stream completion source',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-owner/completion.mp4',
+      }],
+      memvidStreamPreviews: [{
+        id: 'msp_c0ffee0000000001',
+        asset_id: 'a11ce0d1',
+        user_id: 'memvid-owner',
+        source_r2_key: 'users/memvid-owner/completion.mp4',
+        source_fingerprint: 'fp-complete',
+        stream_uid: null,
+        status: 'processing',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:01:00.000Z',
+        updated_at: '2026-05-20T12:02:00.000Z',
+      }],
+    });
+
+    const unsafeRes = await authWorker.fetch(
+      authJsonRequest('/api/internal/memvid-stream-previews/jobs/msp_c0ffee0000000001/complete', 'POST', {
+        stream_uid: 'streamCompleteUid001',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        provider_metadata: {
+          download_status: 'ready',
+          download_url: 'https://evil.example/downloads/default.mp4',
+        },
+      }, {
+        Authorization: 'Bearer test-stream-processor-secret',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unsafeRes.status).toBe(400);
+
+    const completeRes = await authWorker.fetch(
+      authJsonRequest('/api/internal/memvid-stream-previews/jobs/msp_c0ffee0000000001/complete', 'POST', {
+        stream_uid: 'streamCompleteUid001',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        provider_metadata: {
+          stream_status: 'ready',
+          uploaded: '2026-05-20T12:03:00.000Z',
+          download_status: 'ready',
+          download_url: 'https://customer-test.cloudflarestream.com/streamCompleteUid001/downloads/default.mp4',
+          download_percent_complete: 100,
+        },
+      }, {
+        Authorization: 'Bearer test-stream-processor-secret',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(completeRes.status).toBe(200);
+    const row = env.DB.state.memvidStreamPreviews.find((preview) => preview.id === 'msp_c0ffee0000000001');
+    expect(row.status).toBe('ready');
+    expect(JSON.parse(row.provider_metadata_json).provider_metadata).toMatchObject({
+      download_status: 'ready',
+      download_url: 'https://customer-test.cloudflarestream.com/streamCompleteUid001/downloads/default.mp4',
+    });
+
+    const publicRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids?limit=1'),
+      env,
+      createExecutionContext().execCtx
+    );
+    const publicBody = await publicRes.json();
+    expect(publicBody.data.items[0].stream_preview.playback.mp4_url)
+      .toBe('https://customer-test.cloudflarestream.com/streamCompleteUid001/downloads/default.mp4');
+    expect(JSON.stringify(publicBody)).not.toContain('users/memvid-owner/');
+  });
+
+  test('Admin one-click Memvid Stream preview run queues missing previews, repairs downloads, and dispatches when configured', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('stream-run-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
+      GITHUB_REPOSITORY: 'bitbiai/Bitbi',
+      GITHUB_MEMVID_STREAM_WORKFLOW_FILE: 'memvid-stream-preview-processor.yml',
+      aiTextAssets: [{
+        id: 'a11ce101',
+        user_id: 'memvid-owner',
+        title: 'Needs preview',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-owner/needs-preview.mp4',
+      }, {
+        id: 'a11ce102',
+        user_id: 'memvid-owner',
+        title: 'Needs download repair',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-19T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-19T12:00:00.000Z',
+        r2_key: 'users/memvid-owner/needs-repair.mp4',
+      }],
+      memvidStreamPreviews: [{
+        id: 'msp_repair00000001',
+        asset_id: 'a11ce102',
+        user_id: 'memvid-owner',
+        source_r2_key: 'users/memvid-owner/needs-repair.mp4',
+        source_fingerprint: 'fp-repair',
+        stream_uid: 'streamRepairUid001',
+        status: 'ready',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-19T12:01:00.000Z',
+        updated_at: '2026-05-19T12:02:00.000Z',
+        completed_at: '2026-05-19T12:02:00.000Z',
+        provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const originalFetch = globalThis.fetch;
+    const dispatches = [];
+    globalThis.fetch = async (url, init = {}) => {
+      dispatches.push({ url: String(url), body: JSON.parse(String(init.body || '{}')) });
+      return new Response(null, { status: 204 });
+    };
+    try {
+      const missingIdempotencyRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/homepage/hero-videos/memvid-stream-previews/run', 'POST', {
+          operator_reason: 'Run Stream preview processing.',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingIdempotencyRes.status).toBe(428);
+
+      const runRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/homepage/hero-videos/memvid-stream-previews/run', 'POST', {
+          limit: 10,
+          operator_reason: 'Run Stream preview processing.',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'memvid-stream-preview-run-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(runRes.status).toBe(202);
+      const body = await runRes.json();
+      expect(body.data).toMatchObject({
+        queued_count: 1,
+        repair_queued_count: 1,
+        processor_dispatch_configured: true,
+        processor_dispatch_started: true,
+      });
+      expect(dispatches).toHaveLength(1);
+      expect(dispatches[0].url).toContain('/actions/workflows/memvid-stream-preview-processor.yml/dispatches');
+      expect(dispatches[0].body.inputs).toMatchObject({
+        repair_downloads: 'true',
+      });
+      expect(env.DB.state.memvidStreamPreviews.some((preview) => preview.asset_id === 'a11ce101' && preview.status === 'queued')).toBe(true);
+      const repair = env.DB.state.memvidStreamPreviews.find((preview) => preview.id === 'msp_repair00000001');
+      expect(JSON.parse(repair.provider_metadata_json).provider_metadata).toMatchObject({
+        download_repair_status: 'queued',
+      });
+      expect(env.ACTIVITY_INGEST_QUEUE.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: 'memvid_stream_preview_run_requested' }),
+      ]));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('Admin one-click Memvid Stream preview run degrades cleanly without processor dispatch config', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('stream-run-nodispatch-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      aiTextAssets: [{
+        id: 'a11ce103',
+        user_id: 'memvid-owner',
+        title: 'Needs preview no dispatch',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-owner/no-dispatch.mp4',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const runRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/memvid-stream-previews/run', 'POST', {
+        limit: 10,
+        operator_reason: 'Run Stream preview processing.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'memvid-stream-preview-run-no-dispatch',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(runRes.status).toBe(202);
+    const body = await runRes.json();
+    expect(body.data).toMatchObject({
+      queued_count: 1,
+      processor_dispatch_configured: false,
+      processor_dispatch_started: false,
+    });
+    expect(body.data.warnings[0]).toContain('automatic processor dispatch is not configured');
   });
 
   test('Memvid Stream preview Admin switches control public metadata and autoplay exposure', async () => {

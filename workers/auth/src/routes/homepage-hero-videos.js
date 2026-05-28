@@ -33,7 +33,11 @@ import {
 } from "../../../../js/shared/public-media-contract.mjs";
 import {
   getMemvidStreamPreviewConfig,
+  getStreamDownloadUrlFromProviderMetadata,
+  hasReadyStreamDownloadMetadata,
+  isSafeCloudflareStreamPlaybackUrl,
   normalizeStreamUid,
+  parseStreamProviderMetadata,
   summarizeMemvidStreamPreviews,
 } from "../lib/cloudflare-stream-previews.js";
 import {
@@ -915,8 +919,10 @@ async function getMemvidStreamPreviewSummary(env) {
     const [previewRows, eventRows] = await Promise.all([
       env.DB.prepare(
         `SELECT status,
+                stream_uid,
                 preview_duration_seconds,
-                max_loop_count
+                max_loop_count,
+                provider_metadata_json
          FROM memvid_stream_previews`
       ).all(),
       env.DB.prepare(
@@ -975,6 +981,173 @@ async function buildMemvidPreviewFingerprint(env, asset) {
       shortPreviewOnly: true,
     },
   }));
+}
+
+async function createMemvidStreamPreviewJobs(env, {
+  limit,
+  operatorReason,
+} = {}) {
+  const config = getMemvidStreamPreviewConfig(env);
+  const rows = await listMemvidsNeedingStreamPreview(env, limit);
+  const now = nowIso();
+  const created = [];
+  for (const asset of rows) {
+    const id = `msp_${randomTokenHex(16)}`;
+    const fingerprint = await buildMemvidPreviewFingerprint(env, asset);
+    await env.DB.prepare(
+      `INSERT INTO memvid_stream_previews (
+         id, asset_id, user_id, source_r2_key, source_fingerprint, stream_uid,
+         status, preview_duration_seconds, max_loop_count, created_at, updated_at,
+         completed_at, error_code, error_message, provider_metadata_json
+       ) VALUES (?, ?, ?, ?, ?, NULL, 'queued', ?, ?, ?, ?, NULL, NULL, NULL, ?)`
+    ).bind(
+      id,
+      asset.id,
+      asset.user_id,
+      asset.r2_key,
+      fingerprint,
+      config.previewDurationSeconds,
+      config.maxLoopCount,
+      now,
+      now,
+      JSON.stringify({
+        provider: "cloudflare_stream",
+        source_title: asset.title || null,
+        operator_reason_present: Boolean(operatorReason),
+      })
+    ).run();
+    created.push({ id, asset_id: asset.id, status: "queued" });
+  }
+  return created;
+}
+
+async function listRepairableMemvidStreamPreviewDownloads(env, limit = 50) {
+  const rows = await env.DB.prepare(
+    `SELECT id,
+            stream_uid,
+            provider_metadata_json
+     FROM memvid_stream_previews
+     WHERE status = 'ready'
+       AND stream_uid IS NOT NULL
+     ORDER BY completed_at DESC, updated_at DESC
+     LIMIT ?`
+  ).bind(Math.max(1, Math.min(200, Number(limit || 50) || 50))).all();
+  return (rows.results || [])
+    .filter((row) => !hasReadyStreamDownloadMetadata(row.provider_metadata_json));
+}
+
+async function markMemvidStreamPreviewDownloadRepairsRequested(env, rows = []) {
+  const now = nowIso();
+  for (const row of rows) {
+    const metadata = parseStreamProviderMetadata(row.provider_metadata_json);
+    const providerMetadata = metadata.provider_metadata && typeof metadata.provider_metadata === "object"
+      ? metadata.provider_metadata
+      : {};
+    await env.DB.prepare(
+      `UPDATE memvid_stream_previews
+       SET provider_metadata_json = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND status = 'ready'`
+    ).bind(
+      JSON.stringify({
+        ...metadata,
+        provider: "cloudflare_stream",
+        provider_metadata: {
+          ...providerMetadata,
+          download_repair_status: "queued",
+          download_repair_requested_at: now,
+        },
+      }),
+      now,
+      row.id
+    ).run();
+  }
+}
+
+function getMemvidStreamPreviewProcessorDispatchStatus(env) {
+  const token = String(env?.GITHUB_ACTIONS_DISPATCH_TOKEN || "").trim();
+  const repository = String(env?.GITHUB_REPOSITORY || "").trim();
+  const workflowFile = String(env?.GITHUB_MEMVID_STREAM_WORKFLOW_FILE || "memvid-stream-preview-processor.yml").trim();
+  const ref = String(env?.GITHUB_MEMVID_STREAM_WORKFLOW_REF || env?.GITHUB_REF_NAME || "main").trim();
+  const missing = [];
+  if (!token) missing.push("GITHUB_ACTIONS_DISPATCH_TOKEN");
+  if (!repository) missing.push("GITHUB_REPOSITORY");
+  if (!workflowFile) missing.push("GITHUB_MEMVID_STREAM_WORKFLOW_FILE");
+  if (!ref) missing.push("GITHUB_MEMVID_STREAM_WORKFLOW_REF");
+  return {
+    configured: missing.length === 0,
+    missing,
+    repository_configured: Boolean(repository),
+    workflow_file: workflowFile || null,
+    ref: ref || null,
+  };
+}
+
+async function dispatchMemvidStreamPreviewProcessorWorkflow(env, {
+  jobLimit = 4,
+  repairDownloads = true,
+} = {}) {
+  const status = getMemvidStreamPreviewProcessorDispatchStatus(env);
+  if (!status.configured) {
+    return {
+      configured: false,
+      started: false,
+      missing: status.missing,
+      warning: "Processor dispatch is not configured.",
+    };
+  }
+  const [owner, repo] = String(env.GITHUB_REPOSITORY || "").split("/");
+  if (!owner || !repo) {
+    return {
+      configured: false,
+      started: false,
+      missing: ["GITHUB_REPOSITORY"],
+      warning: "Processor dispatch repository is invalid.",
+    };
+  }
+  const workflowFile = encodeURIComponent(status.workflow_file);
+  let res;
+  try {
+    res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/${workflowFile}/dispatches`, {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${String(env.GITHUB_ACTIONS_DISPATCH_TOKEN || "").trim()}`,
+        "Content-Type": "application/json",
+        "User-Agent": "bitbi-auth-worker",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({
+        ref: status.ref,
+        inputs: {
+          job_limit: String(Math.max(1, Math.min(8, Number(jobLimit || 4) || 4))),
+          max_runs: "1",
+          repair_downloads: repairDownloads ? "true" : "false",
+        },
+      }),
+    });
+  } catch {
+    return {
+      configured: true,
+      started: false,
+      warning: "Processor dispatch request failed before GitHub accepted it.",
+    };
+  }
+  if (!res.ok) {
+    return {
+      configured: true,
+      started: false,
+      status: res.status,
+      warning: `Processor dispatch failed with HTTP ${res.status}.`,
+    };
+  }
+  return {
+    configured: true,
+    started: true,
+    workflow_file: status.workflow_file,
+    ref: status.ref,
+  };
 }
 
 async function enforceAdminHeroActionRateLimit(ctx) {
@@ -1172,6 +1345,7 @@ async function handleAdminCurrent(ctx) {
         manual_uploads_enabled: features[VIDEO_DELIVERY_FEATURE_KEYS.HERO_MANUAL_UPLOADS]?.effective_enabled === true,
         external_ffmpeg_enabled: features[VIDEO_DELIVERY_FEATURE_KEYS.HERO_EXTERNAL_FFMPEG]?.effective_enabled === true,
         stream_preview_summary: streamPreviewSummary,
+        stream_preview_processor_dispatch: getMemvidStreamPreviewProcessorDispatchStatus(env),
       },
     });
   } catch (error) {
@@ -1208,6 +1382,7 @@ async function handleAdminFeatureStatus(ctx) {
       feature_status: featureStatus,
       preset_status: presetStatus,
       stream_preview_summary: streamPreviewSummary,
+      stream_preview_processor_dispatch: getMemvidStreamPreviewProcessorDispatchStatus(env),
     },
   }, {
     headers: { "Cache-Control": "no-store" },
@@ -1757,37 +1932,8 @@ async function handleAdminMemvidStreamPreviewBackfill(ctx) {
     }
     return json({ ok: true, existing: true, data: { queued_count: Number(existing.queued_count || 0) } });
   }
-  const config = getMemvidStreamPreviewConfig(env);
-  const rows = await listMemvidsNeedingStreamPreview(env, limit);
   const now = nowIso();
-  const created = [];
-  for (const asset of rows) {
-    const id = `msp_${randomTokenHex(16)}`;
-    const fingerprint = await buildMemvidPreviewFingerprint(env, asset);
-    await env.DB.prepare(
-      `INSERT INTO memvid_stream_previews (
-         id, asset_id, user_id, source_r2_key, source_fingerprint, stream_uid,
-         status, preview_duration_seconds, max_loop_count, created_at, updated_at,
-         completed_at, error_code, error_message, provider_metadata_json
-       ) VALUES (?, ?, ?, ?, ?, NULL, 'queued', ?, ?, ?, ?, NULL, NULL, NULL, ?)`
-    ).bind(
-      id,
-      asset.id,
-      asset.user_id,
-      asset.r2_key,
-      fingerprint,
-      config.previewDurationSeconds,
-      config.maxLoopCount,
-      now,
-      now,
-      JSON.stringify({
-        provider: "cloudflare_stream",
-        source_title: asset.title || null,
-        operator_reason_present: true,
-      })
-    ).run();
-    created.push({ id, asset_id: asset.id, status: "queued" });
-  }
+  const created = await createMemvidStreamPreviewJobs(env, { limit, operatorReason });
   await env.DB.prepare(
     `INSERT INTO memvid_stream_preview_backfill_requests (
        id, idempotency_key_hash, request_hash, queued_count,
@@ -1811,6 +1957,123 @@ async function handleAdminMemvidStreamPreviewBackfill(ctx) {
   });
 
   return json({ ok: true, data: { queued: created, queued_count: created.length } }, { status: 202 });
+}
+
+async function handleAdminMemvidStreamPreviewRun(ctx) {
+  const { request, env, isSecure, correlationId } = ctx;
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
+  if (result instanceof Response) return result;
+
+  const limited = await enforceAdminHeroActionRateLimit(ctx);
+  if (limited) return limited;
+
+  const streamPreviews = await getVideoDeliveryFeature(env, VIDEO_DELIVERY_FEATURE_KEYS.MEMVID_STREAM_PREVIEWS);
+  if (!streamPreviews?.effective_enabled) {
+    return json({ ok: false, error: "Memvid Stream previews are disabled.", code: "stream_previews_disabled" }, { status: 503 });
+  }
+  const idempotency = idempotencyKeyOrResponse(request, "Idempotency-Key is required for Memvid Stream preview processing.");
+  if (idempotency.response) return idempotency.response;
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const operatorReason = normalizeOperatorReason(body.operator_reason || body.operatorReason || body.reason);
+  if (!operatorReason) {
+    return json({ ok: false, error: "operator_reason must be at least 8 characters.", code: "operator_reason_required" }, { status: 400 });
+  }
+  const limit = clampInteger(body.limit, { fallback: 25, min: 1, max: 100 });
+  const repairLimit = clampInteger(body.repair_limit || body.repairLimit, { fallback: 100, min: 1, max: 200 });
+  const requestHash = await sha256Hex(stableJson({
+    route: "/api/admin/homepage/hero-videos/memvid-stream-previews/run",
+    limit,
+    repairLimit,
+    operatorReason,
+  }));
+  const idempotencyKeyHash = await sha256Hex(idempotency.key);
+  const existing = await env.DB.prepare(
+    `SELECT id, request_hash, queued_count
+     FROM memvid_stream_preview_backfill_requests
+     WHERE idempotency_key_hash = ?
+     LIMIT 1`
+  ).bind(idempotencyKeyHash).first();
+  if (existing) {
+    if (existing.request_hash && existing.request_hash !== requestHash) {
+      return json({ ok: false, error: "Idempotency-Key was already used for a different Memvid Stream preview run.", code: "idempotency_key_conflict" }, { status: 409 });
+    }
+    const [featureStatus, streamPreviewSummary] = await Promise.all([
+      getVideoDeliveryFeatureStatus(env),
+      getMemvidStreamPreviewSummary(env),
+    ]);
+    return json({
+      ok: true,
+      existing: true,
+      data: {
+        queued_count: Number(existing.queued_count || 0),
+        repair_queued_count: streamPreviewSummary.ready_missing_download_url || 0,
+        processor_dispatch_configured: getMemvidStreamPreviewProcessorDispatchStatus(env).configured,
+        processor_dispatch_started: false,
+        feature_status: featureStatus,
+        stream_preview_summary: streamPreviewSummary,
+        warnings: ["This idempotent run request was already recorded."],
+      },
+    }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  const created = await createMemvidStreamPreviewJobs(env, { limit, operatorReason });
+  const repairRows = await listRepairableMemvidStreamPreviewDownloads(env, repairLimit);
+  await markMemvidStreamPreviewDownloadRepairsRequested(env, repairRows);
+  const now = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO memvid_stream_preview_backfill_requests (
+       id, idempotency_key_hash, request_hash, queued_count,
+       operator_user_id, operator_reason, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    `msp_bfr_${randomTokenHex(16)}`,
+    idempotencyKeyHash,
+    requestHash,
+    created.length,
+    result.user.id,
+    operatorReason,
+    now
+  ).run();
+
+  const dispatch = await dispatchMemvidStreamPreviewProcessorWorkflow(env, {
+    jobLimit: Math.min(8, Math.max(1, Number(body.job_limit || body.jobLimit || 4) || 4)),
+    repairDownloads: true,
+  });
+  const [featureStatus, streamPreviewSummary] = await Promise.all([
+    getVideoDeliveryFeatureStatus(env),
+    getMemvidStreamPreviewSummary(env),
+  ]);
+  const warnings = [];
+  if (!dispatch.configured) {
+    warnings.push("Preview jobs were queued, but automatic processor dispatch is not configured.");
+  } else if (!dispatch.started) {
+    warnings.push(dispatch.warning || "Preview jobs were queued, but automatic processor dispatch did not start.");
+  }
+
+  await auditHomepageHeroVideoEvent(ctx, result.user, "memvid_stream_preview_run_requested", {
+    queued_count: created.length,
+    repair_queued_count: repairRows.length,
+    processor_dispatch_configured: dispatch.configured === true,
+    processor_dispatch_started: dispatch.started === true,
+    operator_reason_present: true,
+    idempotency_key_hash_present: true,
+  });
+
+  return json({
+    ok: true,
+    data: {
+      queued: created,
+      queued_count: created.length,
+      repair_queued_count: repairRows.length,
+      processor_dispatch_configured: dispatch.configured === true,
+      processor_dispatch_started: dispatch.started === true,
+      feature_status: featureStatus,
+      stream_preview_summary: streamPreviewSummary,
+      warnings,
+    },
+  }, { status: 202, headers: { "Cache-Control": "no-store" } });
 }
 
 async function handleCreateDerivative(ctx) {
@@ -2622,16 +2885,18 @@ async function handleProcessorFail(ctx, derivativeIdFromPath) {
   });
 }
 
-async function listQueuedMemvidStreamPreviewJobs(env, limit) {
-  const rows = await env.DB.prepare(
+async function listQueuedMemvidStreamPreviewJobs(env, limit, { repairDownloads = false } = {}) {
+  const queuedRows = await env.DB.prepare(
     `SELECT previews.id,
             previews.asset_id,
             previews.user_id,
             previews.source_r2_key,
             previews.source_fingerprint,
+            previews.stream_uid,
             previews.status,
             previews.preview_duration_seconds,
             previews.max_loop_count,
+            previews.provider_metadata_json,
             assets.title,
             assets.mime_type,
             assets.size_bytes
@@ -2643,13 +2908,49 @@ async function listQueuedMemvidStreamPreviewJobs(env, limit) {
      ORDER BY previews.created_at ASC, previews.id ASC
      LIMIT ?`
   ).bind(limit).all();
-  return rows.results || [];
+  const queued = (queuedRows.results || []).map((row) => ({ ...row, repair_download: false }));
+  if (!repairDownloads || queued.length >= limit) return queued;
+
+  const repairLimit = limit - queued.length;
+  const repairRows = await env.DB.prepare(
+    `SELECT previews.id,
+            previews.asset_id,
+            previews.user_id,
+            previews.source_r2_key,
+            previews.source_fingerprint,
+            previews.stream_uid,
+            previews.status,
+            previews.preview_duration_seconds,
+            previews.max_loop_count,
+            previews.provider_metadata_json,
+            assets.title,
+            assets.mime_type,
+            assets.size_bytes
+     FROM memvid_stream_previews previews
+     JOIN ai_text_assets assets ON assets.id = previews.asset_id
+     WHERE previews.status = 'ready'
+       AND previews.stream_uid IS NOT NULL
+       AND assets.visibility = 'public'
+       AND assets.source_module = 'video'
+     ORDER BY previews.completed_at DESC, previews.updated_at DESC
+     LIMIT ?`
+  ).bind(Math.max(repairLimit * 4, repairLimit)).all();
+  const repairs = [];
+  for (const row of repairRows.results || []) {
+    if (hasReadyStreamDownloadMetadata(row.provider_metadata_json)) continue;
+    repairs.push({ ...row, repair_download: true });
+    if (repairs.length >= repairLimit) break;
+  }
+  return [...queued, ...repairs];
 }
 
 function serializeMemvidStreamPreviewJob(row) {
   return {
     id: row.id,
     asset_id: row.asset_id,
+    type: row.repair_download ? "memvid_stream_download_repair" : "memvid_stream_preview",
+    stream_uid: row.stream_uid || null,
+    repair_download: row.repair_download === true,
     source: {
       url: `/api/internal/memvid-stream-previews/jobs/${encodeURIComponent(row.id)}/source`,
       mime_type: row.mime_type || "video/mp4",
@@ -2701,9 +3002,13 @@ async function handleMemvidStreamPreviewClaimJobs(ctx) {
   });
   if (parsed.response) return parsed.response;
   const limit = clampInteger(parsed.body?.limit, { fallback: 1, min: 1, max: 8 });
-  const rows = await listQueuedMemvidStreamPreviewJobs(ctx.env, limit);
+  const repairDownloads = parsed.body?.repair_downloads === true
+    || parsed.body?.repairDownloads === true
+    || String(parsed.body?.repair_downloads || "").toLowerCase() === "true";
+  const rows = await listQueuedMemvidStreamPreviewJobs(ctx.env, limit, { repairDownloads });
   const now = nowIso();
   for (const row of rows) {
+    if (row.repair_download) continue;
     await ctx.env.DB.prepare(
       `UPDATE memvid_stream_previews
        SET status = 'processing',
@@ -2745,6 +3050,16 @@ async function handleMemvidStreamPreviewComplete(ctx, jobIdFromPath) {
   const body = parsed.body || {};
   const streamUid = normalizeStreamUid(body.stream_uid || body.streamUid);
   if (!streamUid) return json({ ok: false, error: "Valid Stream UID is required.", code: "invalid_stream_uid" }, { status: 400 });
+  const providerMetadata = body.provider_metadata || body.providerMetadata || {};
+  const downloadUrl = getStreamDownloadUrlFromProviderMetadata(providerMetadata);
+  const downloadStatus = String(providerMetadata.download_status || providerMetadata.download?.status || "").toLowerCase();
+  if (downloadStatus !== "ready" || !isSafeCloudflareStreamPlaybackUrl(downloadUrl)) {
+    return json({
+      ok: false,
+      error: "Cloudflare Stream MP4 download must be ready before marking a Memvid preview ready.",
+      code: "stream_download_url_required",
+    }, { status: 400 });
+  }
   const config = getMemvidStreamPreviewConfig(ctx.env);
   const duration = clampNumber(body.preview_duration_seconds || body.duration_seconds, {
     fallback: config.previewDurationSeconds,
@@ -2778,7 +3093,11 @@ async function handleMemvidStreamPreviewComplete(ctx, jobIdFromPath) {
     now,
     JSON.stringify({
       provider: "cloudflare_stream",
-      provider_metadata: body.provider_metadata || body.providerMetadata || {},
+      provider_metadata: {
+        ...providerMetadata,
+        download_status: "ready",
+        download_url: downloadUrl,
+      },
       source_fingerprint: sanitizeShortText(body.source_fingerprint, ""),
     }),
     jobId
@@ -2794,6 +3113,35 @@ async function handleMemvidStreamPreviewFail(ctx, jobIdFromPath) {
   const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
   if (parsed.response) return parsed.response;
   const now = nowIso();
+  const existing = await getMemvidStreamPreviewJob(ctx.env, jobId);
+  if (existing?.status === "ready") {
+    const metadata = parseStreamProviderMetadata(existing.provider_metadata_json);
+    const providerMetadata = metadata.provider_metadata && typeof metadata.provider_metadata === "object"
+      ? metadata.provider_metadata
+      : {};
+    await ctx.env.DB.prepare(
+      `UPDATE memvid_stream_previews
+       SET provider_metadata_json = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND status = 'ready'`
+    ).bind(
+      JSON.stringify({
+        ...metadata,
+        provider: "cloudflare_stream",
+        provider_metadata: {
+          ...providerMetadata,
+          download_repair_status: "failed",
+          download_repair_error_code: sanitizeErrorCode(parsed.body?.error_code || parsed.body?.code),
+          download_repair_error_message: sanitizeErrorMessage(parsed.body?.error_message || parsed.body?.message),
+          download_repair_failed_at: now,
+        },
+      }),
+      now,
+      jobId
+    ).run();
+    return json({ ok: true, data: { id: jobId, status: "ready", download_repair_status: "failed" } });
+  }
   await ctx.env.DB.prepare(
     `UPDATE memvid_stream_previews
      SET status = 'failed',
@@ -2928,6 +3276,11 @@ export async function handleAdminHomepageHeroVideos(ctx) {
   // route-policy: admin.homepage.hero-videos.memvid-stream-previews.backfill
   if (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill" && method === "POST") {
     return handleAdminMemvidStreamPreviewBackfill(ctx);
+  }
+
+  // route-policy: admin.homepage.hero-videos.memvid-stream-previews.run
+  if (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/run" && method === "POST") {
+    return handleAdminMemvidStreamPreviewRun(ctx);
   }
 
   // route-policy: admin.homepage.hero-videos.derivatives.create
