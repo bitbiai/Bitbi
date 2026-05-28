@@ -136,6 +136,15 @@ const baseManifest = {
         ],
       },
     },
+    services: {
+      "homepage-ffmpeg-processor": {
+        name: "homepage-ffmpeg-processor",
+        type: "processor/service",
+        path: "services/homepage-ffmpeg-processor",
+        documentation: "docs/runbooks/HOMEPAGE_HERO_AND_MEMVID_STREAM_VIDEO_DERIVATIVES.md",
+        summary: "External ffmpeg processor for optimized Homepage Hero derivatives.",
+      },
+    },
     deployOrder: [
       { id: "auth-migrations", type: "schema-checkpoint", checkpoint: "auth" },
       { id: "ai-worker", type: "worker", worker: "ai" },
@@ -151,9 +160,15 @@ const baseManifest = {
         worker: "contact",
       },
       {
+        id: "homepage-ffmpeg-processor",
+        type: "service",
+        service: "homepage-ffmpeg-processor",
+        dependsOn: ["auth-migrations", "auth-worker"],
+      },
+      {
         id: "static-site",
         type: "static",
-        dependsOn: ["auth-worker", "contact-worker"],
+        dependsOn: ["auth-worker", "contact-worker", "homepage-ffmpeg-processor"],
       },
     ],
     authAiCallerPolicy: {
@@ -673,6 +688,8 @@ function createValidContext() {
     "workers/auth/src/routes/ai/text-generate.js",
     "workers/shared/ai-caller-policy.mjs",
     "workers/contact/src/index.js",
+    "services/homepage-ffmpeg-processor",
+    "docs/runbooks/HOMEPAGE_HERO_AND_MEMVID_STREAM_VIDEO_DERIVATIVES.md",
     "docs/ai-image-derivatives-runbook.md",
     "docs/audits/archive/root-phase-reports/AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "docs/audits/archive/root-phase-reports/PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",

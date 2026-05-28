@@ -15,7 +15,7 @@ const repoRoot = path.resolve(__dirname, "..");
 
 function usage() {
   return [
-    "node scripts/check-static-deploy-safety.mjs [--file <path>] [--files a,b] [--base <git-ref>] [--head <git-ref>] [--plan-json <path>] [--event-name <name>] [--acknowledgement <text>]",
+    "node scripts/check-static-deploy-safety.mjs [--file <path>] [--files a,b] [--base <git-ref>] [--head <git-ref>] [--plan-json <path>] [--event-name <name>] [--acknowledgement <text>] [--github-output]",
     "",
     "Fails closed when the release plan requires Worker deploys, schema applies, required manual prerequisites, or non-static deploy steps before Pages deploy.",
     "In GitHub Actions push/workflow_dispatch contexts, a trusted base/head range is required unless workflow_dispatch uses the exact manual acknowledgement.",
@@ -34,6 +34,7 @@ function parseArgs(argv) {
     acknowledgement: process.env.BITBI_STATIC_DEPLOY_GUARD_ACK
       || process.env.STATIC_DEPLOY_ACK
       || "",
+    githubOutput: false,
     help: false,
   };
 
@@ -52,6 +53,10 @@ function parseArgs(argv) {
     if (arg === "--acknowledgement") {
       options.acknowledgement = argv[index + 1] || "";
       index += 1;
+      continue;
+    }
+    if (arg === "--github-output") {
+      options.githubOutput = true;
       continue;
     }
     if (arg === "--help" || arg === "-h") {
@@ -225,7 +230,7 @@ function printResult(plan, result, options) {
   console.log(`- Plan source: ${formatPlanSource(plan.source)}`);
   console.log(`- Base ref: ${options.releaseOptions.base || "not set"}`);
   console.log(`- Head ref: ${options.releaseOptions.head || "not set"}`);
-  console.log(`- Status: ${result.ok ? "allowed" : "blocked"}`);
+  console.log(`- Status: ${result.decision || (result.ok ? "allowed" : "blocked")}`);
   console.log(`- Mode: ${result.mode}`);
   console.log(`- Changed files: ${result.changedFiles.length}`);
   console.log(`- Static required: ${result.staticRequired ? "yes" : "no"}`);
@@ -241,11 +246,21 @@ function printResult(plan, result, options) {
     for (const warning of result.warnings) console.log(`  - ${warning}`);
   }
   if (result.reasons.length > 0) {
-    console.log("- Blocking reasons:");
+    console.log(`- ${result.skipped ? "Skip" : "Blocking"} reasons:`);
     for (const reason of result.reasons) console.log(`  - ${reason}`);
   }
 
-  if (!result.ok) {
+  if (result.skipped) {
+    console.log("");
+    console.log("Static deploy skipped because release plan requires non-static deploy steps first.");
+    console.log("Required deploy order:");
+    for (const step of plan.deploySteps || []) {
+      console.log(`  - ${step.id}`);
+    }
+    console.log("Workers, remote migrations, and processor services are not deployed by the GitHub Pages workflow.");
+    console.log("");
+    console.log(formatReleasePlan(plan));
+  } else if (!result.ok) {
     console.log("");
     console.log("Static Pages deploy blocked by release-plan-aware guard.");
     console.log("Run npm run release:plan and deploy affected units in release-plan order before manually dispatching or continuing static deploy.");
@@ -255,6 +270,47 @@ function printResult(plan, result, options) {
     console.log("");
     console.log(formatReleasePlan(plan));
   }
+}
+
+function appendLine(filePath, line) {
+  fs.appendFileSync(filePath, `${line}\n`, "utf8");
+}
+
+function writeGithubOutput(result) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) return;
+  appendLine(outputPath, `static_deploy_decision=${result.decision || (result.ok ? "allowed" : "blocked")}`);
+  appendLine(outputPath, `static_deploy_mode=${result.mode || ""}`);
+  appendLine(outputPath, `static_deploy_allowed=${result.ok ? "true" : "false"}`);
+  appendLine(outputPath, `static_deploy_skipped=${result.skipped ? "true" : "false"}`);
+}
+
+function writeGithubSummary(plan, result) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  const decision = result.decision || (result.ok ? "allowed" : "blocked");
+  const lines = [
+    "## Static Deploy Safety",
+    "",
+    `- Status: ${decision}`,
+    `- Mode: ${result.mode}`,
+    `- Static required: ${result.staticRequired ? "yes" : "no"}`,
+    `- Non-static deploy steps: ${summarizeList(result.nonStaticDeploySteps || [], (step) => step.id || step.type || "unknown")}`,
+  ];
+  if (result.skipped) {
+    lines.push("");
+    lines.push("Static deploy skipped because release plan requires non-static deploy steps first.");
+    lines.push("");
+    lines.push("Required deploy order:");
+    for (const step of plan.deploySteps || []) lines.push(`- ${step.id}`);
+  }
+  if (!result.ok && !result.skipped && result.reasons?.length) {
+    lines.push("");
+    lines.push("Blocking reasons:");
+    for (const reason of result.reasons) lines.push(`- ${reason}`);
+  }
+  lines.push("");
+  appendLine(summaryPath, lines.join("\n"));
 }
 
 try {
@@ -269,7 +325,11 @@ try {
     acknowledgement: options.acknowledgement,
   });
   printResult(plan, result, options);
-  process.exit(result.ok ? 0 : 1);
+  if (options.githubOutput) {
+    writeGithubOutput(result);
+    writeGithubSummary(plan, result);
+  }
+  process.exit(result.ok || result.skipped ? 0 : 1);
 } catch (error) {
   console.error("Static deploy safety check failed closed.");
   console.error(error?.message || String(error));

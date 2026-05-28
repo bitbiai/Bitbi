@@ -60,6 +60,7 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | Auth Worker | if `release:plan` reports runtime Auth changes |  |
 | AI Worker | if `release:plan` reports AI Worker changes or Auth/AI caller-policy pairing |  |
 | Contact Worker | if `release:plan` reports Contact Worker changes |  |
+| Homepage ffmpeg processor | if `release:plan` reports `homepage-ffmpeg-processor` service changes |  |
 | Static/pages | if `release:plan` reports static/Admin UI changes |  |
 | Auth schema checkpoint from `config/release-compat.json` | required before dependent Auth Worker code |  |
 | Stripe dashboard/API change | no, unless separately approved operator canary evidence exists |  |
@@ -67,7 +68,7 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 
 If `npm run release:plan` for the reviewed runtime diff reports unexpected deploy units, stop and reconcile before deploying.
 
-Static Pages auto-deploy is guarded by release-plan safety. The Pages workflow may continue automatically only for validation-only or static/pages-only release plans. Push runs compare `github.event.before` to `github.sha`; manual runs compare `release_plan_base_ref` to the workflow SHA. If Worker deploys, auth D1 schema applies, required manual prerequisites, binding/config/runtime-coupled changes, other non-static deploy steps, malformed release-plan output, or ambiguous base/head context are present, the workflow must block before Pages artifact upload.
+Static Pages auto-deploy is guarded by release-plan safety. The Pages workflow may continue automatically only for validation-only or static/pages-only release plans. Push runs compare `github.event.before` to `github.sha`; manual runs compare `release_plan_base_ref` to the workflow SHA. On push, mixed releases with Worker deploys, auth D1 schema applies, required manual prerequisites, binding/config/runtime-coupled changes, or other classified non-static deploy steps are intentionally skipped before Pages artifact upload, not deployed. Malformed release-plan output, uncategorized files, or ambiguous base/head context still fail closed.
 
 Manual `workflow_dispatch` acknowledgement, if used, must be exactly `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`, must happen only after the operator handles the release-plan deploy order, is ignored on push, and does not prove production readiness, live billing readiness, deploy approval, or live evidence.
 
@@ -119,7 +120,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Static/pages deployed from reviewed main commit |  | BLOCKED |
-| Release-plan static deploy guard allowed validation-only/static-only deploy or blocked until dependencies were handled |  | BLOCKED |
+| Release-plan static deploy guard allowed validation-only/static-only deploy, skipped push deploy until dependencies were handled, or blocked unsafe manual dispatch |  | BLOCKED |
 | If workflow_dispatch acknowledgement was used, exact acknowledgement and dependency evidence were recorded |  | BLOCKED |
 | Pages deployment/build id recorded if available |  | BLOCKED |
 | Admin Control Plane loads |  | BLOCKED |

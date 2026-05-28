@@ -2,6 +2,8 @@
 
 Status: production path is feature-flagged. `config/release-compat.json` is authoritative for the current auth D1 migration checkpoint.
 
+Deploy unit: `homepage-ffmpeg-processor`. The release planner classifies `services/homepage-ffmpeg-processor/**` as a non-static processor/service deploy concern. Static Pages does not deploy this processor.
+
 ## Scope
 
 This runbook covers two public video-delivery paths:
@@ -29,6 +31,17 @@ Processor/provider secrets:
 - `MEMVID_STREAM_PREVIEW_MAX_LOOPS`
 
 With flags or secrets absent, provider work fails closed and the public site falls back to existing poster/full-play behavior.
+
+## Deploy Order
+
+For mixed releases, use `npm run release:plan`. A typical Homepage Hero processor release order is:
+
+1. `auth-migrations`
+2. `auth-worker`
+3. `homepage-ffmpeg-processor`
+4. `static-site`, only after dependencies are handled
+
+On normal push events, the Static Pages workflow skips deployment cleanly when this non-static order is required. A manual `workflow_dispatch` may continue only after the operator uses the exact acknowledgement `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`; that acknowledgement is not production readiness or live evidence.
 
 ## Homepage Hero Flow
 

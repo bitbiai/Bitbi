@@ -56,6 +56,41 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
+    files: ["services/homepage-ffmpeg-processor/processor.mjs"],
+  });
+  assert.deepEqual(Object.keys(plan.impacts.services), ["homepage-ffmpeg-processor"]);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.equal(plan.impacts.static.required, false);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.id),
+    ["homepage-ffmpeg-processor"]
+  );
+  assert.equal(plan.deploySteps[0].type, "service");
+  assert(plan.remainingManualSteps.some((step) => step.includes("Deploy service: homepage-ffmpeg-processor")));
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
+    files: [
+      "workers/auth/migrations/0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql",
+      "workers/auth/src/routes/homepage-hero-videos.js",
+      "services/homepage-ffmpeg-processor/processor.mjs",
+      "js/pages/admin/homepage-hero-videos.js",
+    ],
+  });
+  assert.deepEqual(Object.keys(plan.impacts.schemaCheckpoints), ["auth"]);
+  assert.deepEqual(Object.keys(plan.impacts.workers), ["auth"]);
+  assert.deepEqual(Object.keys(plan.impacts.services), ["homepage-ffmpeg-processor"]);
+  assert.equal(plan.impacts.static.required, true);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.id),
+    ["auth-migrations", "auth-worker", "homepage-ffmpeg-processor", "static-site"]
+  );
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
     files: ["workers/auth/migrations/0030_harden_ai_video_jobs_phase1b.sql"],
   });
   assert.deepEqual(Object.keys(plan.impacts.schemaCheckpoints), ["auth"]);

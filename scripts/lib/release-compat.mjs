@@ -10,7 +10,7 @@ const MANUAL_PREREQUISITE_KINDS = new Set([
   "transform_rule",
   "dashboard_setting",
 ]);
-const DEPLOY_STEP_TYPES = new Set(["schema-checkpoint", "worker", "static"]);
+const DEPLOY_STEP_TYPES = new Set(["schema-checkpoint", "worker", "service", "static"]);
 
 function stripJsonComments(source) {
   return source
@@ -200,6 +200,11 @@ function getReleaseSection(manifest) {
 function getWorkers(manifest) {
   const workers = getReleaseSection(manifest).workers;
   return isPlainObject(workers) ? workers : {};
+}
+
+function getServices(manifest) {
+  const services = getReleaseSection(manifest).services;
+  return isPlainObject(services) ? services : {};
 }
 
 function getSchemaCheckpoints(manifest) {
@@ -592,6 +597,7 @@ function validateDeployOrder(manifest) {
   const stepIds = new Map();
   const stepIndexes = new Map();
   const workerStepIds = new Map();
+  const serviceStepIds = new Map();
   const checkpointStepIds = new Map();
   const staticStepIds = [];
 
@@ -650,6 +656,24 @@ function validateDeployOrder(manifest) {
       }
     }
 
+    if (step.type === "service") {
+      if (!step.service || typeof step.service !== "string") {
+        issues.push(`Release manifest deploy step "${step.id}" is missing service.`);
+        continue;
+      }
+      if (!getServices(manifest)[step.service]) {
+        issues.push(`Release manifest deploy step "${step.id}" references unknown service "${step.service}".`);
+        continue;
+      }
+      if (serviceStepIds.has(step.service)) {
+        issues.push(
+          `Release manifest deployOrder defines multiple deploy steps for service "${step.service}".`
+        );
+      } else {
+        serviceStepIds.set(step.service, step.id);
+      }
+    }
+
     if (step.type === "static") {
       staticStepIds.push(step.id);
     }
@@ -665,6 +689,11 @@ function validateDeployOrder(manifest) {
       issues.push(
         `Release manifest deployOrder is missing a deploy step for schema checkpoint "${checkpointId}".`
       );
+    }
+  }
+  for (const serviceId of Object.keys(getServices(manifest))) {
+    if (!serviceStepIds.has(serviceId)) {
+      issues.push(`Release manifest deployOrder is missing a deploy step for service "${serviceId}".`);
     }
   }
   if (staticStepIds.length === 0) {
@@ -733,6 +762,14 @@ function validateDeployOrder(manifest) {
     for (const dependencyStepId of workerStepIds.values()) {
       const workerIndex = stepIndexes.get(dependencyStepId) ?? -1;
       if (workerIndex >= staticIndex) {
+        issues.push(
+          `Release manifest deploy step "${staticStepId}" must appear after "${dependencyStepId}" so static deploy runs last.`
+        );
+      }
+    }
+    for (const dependencyStepId of serviceStepIds.values()) {
+      const serviceIndex = stepIndexes.get(dependencyStepId) ?? -1;
+      if (serviceIndex >= staticIndex) {
         issues.push(
           `Release manifest deploy step "${staticStepId}" must appear after "${dependencyStepId}" so static deploy runs last.`
         );

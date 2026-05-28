@@ -22,9 +22,11 @@ Confirmed legacy media reset readiness: BLOCKED.
 - Run `npm run release:preflight` before merge/release-sensitive work.
 - Apply required remote auth D1 migrations before dependent Auth Worker deploys.
 - Keep Auth/AI caller-policy changes paired: `config/release-compat.json` models the AI Worker before Auth Worker order for provider-cost internal AI route compatibility.
+- Treat `homepage-ffmpeg-processor` as a separate non-static deploy unit when `npm run release:plan` reports service changes; Static Pages does not deploy it.
 - Verify Worker secrets and bindings without printing values.
 - Verify Cloudflare D1, R2, Queues, Durable Objects, Images, service bindings, dashboard WAF/static headers/RUM, alerts, and routes.
 - Verify static Pages deploy requirements separately from Worker deploys.
+- Static Pages push runs skip, rather than deploy, when the release plan requires migrations, Workers, processor services, or other classified non-static dependencies first; uncategorized files and malformed plans still fail closed.
 
 ## Current Migration Preconditions
 

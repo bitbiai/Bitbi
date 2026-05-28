@@ -147,6 +147,15 @@
         ]
       }
     },
+    "services": {
+      "homepage-ffmpeg-processor": {
+        "name": "homepage-ffmpeg-processor",
+        "type": "processor/service",
+        "path": "services/homepage-ffmpeg-processor",
+        "documentation": "docs/runbooks/HOMEPAGE_HERO_AND_MEMVID_STREAM_VIDEO_DERIVATIVES.md",
+        "summary": "External ffmpeg processor for optimized Homepage Hero derivatives and optional short Memvid Stream preview preparation."
+      }
+    },
     "deployOrder": [
       {
         "id": "auth-migrations",
@@ -170,9 +179,15 @@
         "worker": "contact"
       },
       {
+        "id": "homepage-ffmpeg-processor",
+        "type": "service",
+        "service": "homepage-ffmpeg-processor",
+        "dependsOn": ["auth-migrations", "auth-worker"]
+      },
+      {
         "id": "static-site",
         "type": "static",
-        "dependsOn": ["auth-worker", "contact-worker"]
+        "dependsOn": ["auth-worker", "contact-worker", "homepage-ffmpeg-processor"]
       }
     ],
     "authAiCallerPolicy": {

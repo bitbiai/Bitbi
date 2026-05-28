@@ -80,6 +80,7 @@ Do not backfill ownership, switch access checks, rewrite source asset rows, muta
 - Static Pages deploy does not deploy Workers.
 - Worker deploys are separate.
 - Migrations first, then dependent Auth Worker deploy.
+- `homepage-ffmpeg-processor` is a separate processor/service deploy unit when `npm run release:plan` reports changes under `services/homepage-ffmpeg-processor/**`.
 - Deploy `workers/ai` before Auth only when Auth changes depend on AI Worker service-binding behavior.
 - Do not assume dashboard-managed WAF/static header/RUM/alerts exist; call out manual verification.
 

@@ -78,8 +78,51 @@ function writeJsonFixture(name, value) {
 {
   const { safety } = safetyFor(["workers/auth/src/index.js", "admin/index.html"]);
   assert.equal(safety.ok, false);
+  assert.equal(safety.skipped, false);
+  assert.equal(safety.decision, "blocked");
   assert(safety.reasons.some((reason) => reason.includes("Worker deploys are required")));
   assert(safety.reasons.some((reason) => reason.includes("Non-static deploy steps")));
+}
+
+{
+  const { plan, safety } = safetyFor(
+    ["workers/auth/migrations/0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql", "admin/index.html"],
+    { eventName: "push" }
+  );
+  assert.equal(safety.ok, false);
+  assert.equal(safety.skipped, true);
+  assert.equal(safety.decision, "skipped");
+  assert.equal(safety.mode, "push_skipped_non_static_dependencies");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.id),
+    ["auth-migrations", "auth-worker", "static-site"]
+  );
+}
+
+{
+  const { plan, safety } = safetyFor(
+    ["services/homepage-ffmpeg-processor/processor.mjs", "admin/index.html"],
+    { eventName: "push" }
+  );
+  assert.equal(safety.ok, false);
+  assert.equal(safety.skipped, true);
+  assert(safety.serviceDeploys.some((step) => step.service === "homepage-ffmpeg-processor"));
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.id),
+    ["homepage-ffmpeg-processor", "static-site"]
+  );
+}
+
+{
+  const { safety } = safetyFor(
+    ["services/homepage-ffmpeg-processor/processor.mjs"],
+    { eventName: "push" }
+  );
+  assert.equal(safety.ok, false);
+  assert.equal(safety.skipped, true);
+  assert.equal(safety.staticRequired, false);
+  assert(safety.serviceDeploys.some((step) => step.service === "homepage-ffmpeg-processor"));
 }
 
 {
@@ -161,6 +204,7 @@ function writeJsonFixture(name, value) {
     }
   );
   assert.equal(safety.ok, false);
+  assert.equal(safety.skipped, true);
   assert.equal(safety.bypassedByAcknowledgement, false);
 }
 
@@ -211,11 +255,26 @@ function writeJsonFixture(name, value) {
 }
 
 {
-  const result = guard(["--event-name", "push"]);
+  const result = guard(["--event-name", "push", "--files", "docs/production-readiness/README.md"]);
   assert.equal(result.status, 0);
   assert(result.stdout.includes("- Event: push"));
-  assert(result.stdout.includes("- Plan source: git-status"));
+  assert(result.stdout.includes("- Plan source: explicit files=1"));
   assert(result.stdout.includes("- Status: allowed"));
+}
+
+{
+  const result = guard([
+    "--event-name",
+    "push",
+    "--files",
+    "workers/auth/migrations/0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql,admin/index.html",
+  ]);
+  assert.equal(result.status, 0);
+  assert(result.stdout.includes("- Status: skipped"));
+  assert(result.stdout.includes("Static deploy skipped because release plan requires non-static deploy steps first."));
+  assert(result.stdout.includes("auth-migrations"));
+  assert(result.stdout.includes("auth-worker"));
+  assert(result.stdout.includes("static-site"));
 }
 
 {

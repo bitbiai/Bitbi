@@ -130,10 +130,11 @@ Operator action only. Deploy the reviewed `main` commit using the existing stati
 
 - validation-only changes: static workflow may continue;
 - static/pages-only changes: static workflow may continue;
-- Worker, schema, migration, binding/config, required manual prerequisite, or other non-static deploy steps: static workflow blocks before Pages artifact upload;
+- push with Worker, schema, migration, binding/config, required manual prerequisite, or other classified non-static deploy steps: static workflow skips Pages artifact upload/deploy cleanly and records the required deploy order;
+- manual `workflow_dispatch` with those same dependencies but without exact acknowledgement: static workflow blocks/fails before Pages artifact upload;
 - malformed or unparseable release-plan state: static workflow fails closed.
 
-If static deploy blocks, inspect the guard output, run `npm run release:plan`, deploy affected units in the reported order through the approved operator process, and record evidence. A manual `workflow_dispatch` rerun may acknowledge handled dependencies only with the exact phrase `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`; that acknowledgement is accepted only on `workflow_dispatch`, is ignored on push, is operator-owned, and is not production readiness, live billing readiness, deploy approval, or proof that live evidence exists.
+If static deploy skips or blocks, inspect the guard output, run `npm run release:plan`, deploy affected units in the reported order through the approved operator process, and record evidence. A manual `workflow_dispatch` rerun may acknowledge handled dependencies only with the exact phrase `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`; that acknowledgement is accepted only on `workflow_dispatch`, is ignored on push, is operator-owned, and is not production readiness, live billing readiness, deploy approval, or proof that live evidence exists.
 
 Record:
 

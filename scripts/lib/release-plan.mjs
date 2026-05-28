@@ -122,6 +122,11 @@ function getWorkers(context) {
   return getReleaseSection(context).workers || {};
 }
 
+function getServices(context) {
+  const services = getReleaseSection(context).services;
+  return services && typeof services === "object" && !Array.isArray(services) ? services : {};
+}
+
 function getSchemaCheckpoints(context) {
   return getReleaseSection(context).schemaCheckpoints || {};
 }
@@ -221,8 +226,21 @@ function buildUnitModel(context) {
     };
   }
 
+  const services = {};
+  for (const [serviceId, serviceManifest] of Object.entries(getServices(context))) {
+    services[serviceId] = {
+      serviceId,
+      name: serviceManifest.name || serviceId,
+      type: serviceManifest.type || "service",
+      path: normalizePathname(serviceManifest.path || ""),
+      documentation: serviceManifest.documentation || null,
+      summary: serviceManifest.summary || null,
+    };
+  }
+
   return {
     workers,
+    services,
     schemaCheckpoints,
     static: {
       id: "static-site",
@@ -248,6 +266,7 @@ export function classifyChangedFiles(context, changedFiles) {
   const units = buildUnitModel(context);
   const impacts = {
     workers: {},
+    services: {},
     schemaCheckpoints: {},
     static: { changedFiles: [], reasons: [] },
     validationOnlyFiles: [],
@@ -298,6 +317,13 @@ export function classifyChangedFiles(context, changedFiles) {
       }
     }
 
+    for (const [serviceId, service] of Object.entries(units.services)) {
+      if (service.path && (input === service.path || input.startsWith(`${service.path}/`))) {
+        addImpact(impacts.services, serviceId, input, "changes a non-static processor/service deploy unit");
+        matched = true;
+      }
+    }
+
     for (const [sharedPath, workerIds] of Object.entries(SHARED_WORKER_FILE_MAP)) {
       if (input === sharedPath) {
         for (const workerId of workerIds) {
@@ -327,6 +353,10 @@ export function classifyChangedFiles(context, changedFiles) {
     group.changedFiles = normalizeUnique(group.changedFiles);
     group.reasons = normalizeUnique(group.reasons);
   }
+  for (const group of Object.values(impacts.services)) {
+    group.changedFiles = normalizeUnique(group.changedFiles);
+    group.reasons = normalizeUnique(group.reasons);
+  }
   for (const group of Object.values(impacts.schemaCheckpoints)) {
     group.changedFiles = normalizeUnique(group.changedFiles);
     group.reasons = normalizeUnique(group.reasons);
@@ -338,10 +368,12 @@ export function classifyChangedFiles(context, changedFiles) {
 function buildDeploySteps(context, impacts) {
   const steps = [];
   const impactedWorkerIds = new Set(Object.keys(impacts.workers));
+  const impactedServiceIds = new Set(Object.keys(impacts.services));
   const impactedCheckpointIds = new Set(Object.keys(impacts.schemaCheckpoints));
   const staticRequired = impacts.static.changedFiles.length > 0;
   const deployOrder = getDeployOrder(context);
   const workers = getWorkers(context);
+  const services = getServices(context);
   const checkpoints = getSchemaCheckpoints(context);
 
   for (const step of deployOrder) {
@@ -377,6 +409,22 @@ function buildDeploySteps(context, impacts) {
         includesWranglerMigrations: Array.isArray(workerManifest?.migrations)
           ? workerManifest.migrations.map((entry) => entry.tag)
           : [],
+      });
+    }
+
+    if (step.type === "service" && impactedServiceIds.has(step.service)) {
+      const serviceManifest = services[step.service] || {};
+      steps.push({
+        id: step.id,
+        type: step.type,
+        service: step.service,
+        serviceName: serviceManifest.name || step.service,
+        serviceType: serviceManifest.type || "service",
+        path: normalizePathname(serviceManifest.path || ""),
+        documentation: serviceManifest.documentation || null,
+        summary: serviceManifest.summary || null,
+        command: null,
+        applySupported: false,
       });
     }
 
@@ -505,6 +553,7 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
   const impacts = classifyChangedFiles(context, normalizedFiles);
   const deploySteps = buildDeploySteps(context, impacts);
   const impactedWorkerIds = new Set(Object.keys(impacts.workers));
+  const impactedServiceIds = new Set(Object.keys(impacts.services));
   const manualPrerequisites = buildManualPrerequisites(
     context,
     impactedWorkerIds,
@@ -523,6 +572,17 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
           workerId,
           {
             workerName: getWorkers(context)[workerId]?.name || workerId,
+            ...data,
+          },
+        ])
+      ),
+      services: Object.fromEntries(
+        Object.entries(impacts.services).map(([serviceId, data]) => [
+          serviceId,
+          {
+            serviceName: getServices(context)[serviceId]?.name || serviceId,
+            serviceType: getServices(context)[serviceId]?.type || "service",
+            path: normalizePathname(getServices(context)[serviceId]?.path || ""),
             ...data,
           },
         ])
@@ -565,6 +625,10 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
     consistencyIssues,
     remainingManualSteps: [
       ...(impacts.static.changedFiles.length > 0 ? [STATIC_DEPLOY_MESSAGE] : []),
+      ...[...impactedServiceIds].map((serviceId) => {
+        const service = getServices(context)[serviceId] || {};
+        return `Deploy service: ${service.name || serviceId} — ${service.summary || "non-static processor/service deploy unit"}`;
+      }),
       ...compatibilityNotes,
       ...manualPrerequisites.required.map((entry) => `Manual prerequisite: ${entry.id} — ${entry.summary}`),
     ],
@@ -628,9 +692,15 @@ export function formatReleasePlan(plan) {
   }
 
   const impactedWorkers = Object.keys(plan.impacts.workers);
+  const impactedServices = Object.keys(plan.impacts.services || {});
   const impactedCheckpoints = Object.keys(plan.impacts.schemaCheckpoints);
   lines.push("- Impacted deploy units:");
-  if (impactedCheckpoints.length === 0 && impactedWorkers.length === 0 && !plan.impacts.static.required) {
+  if (
+    impactedCheckpoints.length === 0 &&
+    impactedWorkers.length === 0 &&
+    impactedServices.length === 0 &&
+    !plan.impacts.static.required
+  ) {
     lines.push("  - none");
   } else {
     for (const checkpointId of impactedCheckpoints) {
@@ -639,6 +709,10 @@ export function formatReleasePlan(plan) {
     }
     for (const workerId of impactedWorkers) {
       lines.push(`  - worker ${workerId} (${plan.impacts.workers[workerId].workerName})`);
+    }
+    for (const serviceId of impactedServices) {
+      const service = plan.impacts.services[serviceId];
+      lines.push(`  - service ${serviceId} (${service.serviceName || service.serviceType || "service"})`);
     }
     if (plan.impacts.static.required) {
       lines.push("  - static/pages deploy");
@@ -676,6 +750,8 @@ export function formatReleasePlan(plan) {
           ? ` (wrangler migrations included: ${step.includesWranglerMigrations.join(", ")})`
           : "";
         lines.push(`  - ${step.id}: deploy worker ${step.worker}${migrationNote}`);
+      } else if (step.type === "service") {
+        lines.push(`  - ${step.id}: deploy service ${step.service}`);
       } else if (step.type === "static") {
         lines.push(`  - ${step.id}: ${STATIC_DEPLOY_MESSAGE}`);
       }
@@ -874,6 +950,7 @@ export function evaluateStaticDeploySafety(plan, {
   const impacts = plan.impacts && typeof plan.impacts === "object" ? plan.impacts : {};
   const staticRequired = impacts.static?.required === true || deploySteps.some((step) => step?.type === "static");
   const impactedWorkers = Object.keys(impacts.workers || {});
+  const impactedServices = Object.keys(impacts.services || {});
   const impactedCheckpoints = Object.keys(impacts.schemaCheckpoints || {});
   const uncategorizedFiles = Array.isArray(impacts.uncategorizedFiles) ? impacts.uncategorizedFiles : [];
   const validationOnlyFiles = Array.isArray(impacts.validationOnlyFiles) ? impacts.validationOnlyFiles : [];
@@ -882,6 +959,7 @@ export function evaluateStaticDeploySafety(plan, {
   const requiredManualPrerequisites = Array.isArray(plan.manualPrerequisites?.required)
     ? plan.manualPrerequisites.required
     : [];
+  const serviceDeploys = deploySteps.filter((step) => step?.type === "service");
   const nonStaticDeploySteps = deploySteps.filter((step) => step?.type !== "static");
   const staticDeploySteps = deploySteps.filter((step) => step?.type === "static");
   const missingCoreFields = !plan.impacts || !Array.isArray(plan.deploySteps);
@@ -899,6 +977,9 @@ export function evaluateStaticDeploySafety(plan, {
   const runtimeReasons = [];
   if (workerDeploys.length > 0 || impactedWorkers.length > 0) {
     runtimeReasons.push(`Worker deploys are required: ${(workerDeploys.map((step) => step.worker || step.id).filter(Boolean).join(", ") || impactedWorkers.join(", "))}.`);
+  }
+  if (serviceDeploys.length > 0 || impactedServices.length > 0) {
+    runtimeReasons.push(`Service deploys are required: ${(serviceDeploys.map((step) => step.service || step.id).filter(Boolean).join(", ") || impactedServices.join(", "))}.`);
   }
   if (schemaApplies.length > 0 || impactedCheckpoints.length > 0) {
     runtimeReasons.push(`Schema applies are required: ${(schemaApplies.map((step) => step.checkpoint || step.id).filter(Boolean).join(", ") || impactedCheckpoints.join(", "))}.`);
@@ -920,6 +1001,7 @@ export function evaluateStaticDeploySafety(plan, {
     uncategorizedFiles.length === 0 &&
     consistencyIssues.length === 0 &&
     impactedWorkers.length === 0 &&
+    impactedServices.length === 0 &&
     impactedCheckpoints.length === 0;
   const validationOnly =
     !missingCoreFields &&
@@ -944,10 +1026,18 @@ export function evaluateStaticDeploySafety(plan, {
     uncategorizedFiles.length === 0 &&
     consistencyIssues.length === 0 &&
     runtimeReasons.length > 0;
+  const pushSkipEligible =
+    workflowEvent === "push" &&
+    !missingCoreFields &&
+    plan.source?.mode !== "untrusted-ci-context" &&
+    uncategorizedFiles.length === 0 &&
+    consistencyIssues.length === 0 &&
+    runtimeReasons.length > 0;
 
   let mode = "blocked";
   let allowed = false;
   let bypassedByAcknowledgement = false;
+  let skipped = false;
 
   if (validationOnly) {
     mode = "validation_only";
@@ -960,17 +1050,24 @@ export function evaluateStaticDeploySafety(plan, {
     allowed = true;
     bypassedByAcknowledgement = true;
     warnings.push("Manual workflow_dispatch acknowledgement accepted. This records operator ownership only and does not prove production readiness.");
+  } else if (pushSkipEligible) {
+    mode = "push_skipped_non_static_dependencies";
+    skipped = true;
+    warnings.push("Static deploy skipped because release plan requires non-static deploy steps first.");
   }
 
-  if (!allowed && reasons.length === 0) {
+  if (!allowed && !skipped && reasons.length === 0) {
     reasons.push("Release plan is neither validation-only nor static-only.");
   }
+  const decision = allowed ? "allowed" : skipped ? "skipped" : "blocked";
 
   return {
     ok: allowed,
     allowed,
+    skipped,
+    decision,
     mode,
-    failClosed: !allowed,
+    failClosed: decision === "blocked",
     bypassedByAcknowledgement,
     acknowledgementAccepted,
     acknowledgementRequired: STATIC_DEPLOY_DEPENDENCY_ACKNOWLEDGEMENT,
@@ -979,6 +1076,7 @@ export function evaluateStaticDeploySafety(plan, {
     changedFiles,
     staticRequired,
     workerDeploys,
+    serviceDeploys,
     schemaApplies,
     nonStaticDeploySteps,
     requiredManualPrerequisites,
