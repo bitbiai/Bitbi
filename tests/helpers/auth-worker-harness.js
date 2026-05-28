@@ -11459,6 +11459,35 @@ class MockD1 {
       return this.state.aiTextAssets.find((row) => row.id === assetId && row.user_id === userId && row.source_module === 'video') || null;
     }
 
+    if (query.startsWith('SELECT uploads.id AS upload_id') && query.includes('uploads.created_at AS upload_created_at')) {
+      if (query.includes('WHERE uploads.asset_id = ?')) {
+        const [assetId] = bindings;
+        const upload = this.state.homepageHeroVideoUploads.find((row) => row.asset_id === assetId);
+        if (!upload) return null;
+        const asset = this.state.aiTextAssets.find((row) => row.id === upload.asset_id && row.user_id === upload.user_id && row.source_module === 'video');
+        return asset ? {
+          upload_id: upload.id,
+          upload_created_at: upload.created_at ?? null,
+          ...asset,
+        } : null;
+      }
+      const [limit] = bindings;
+      const rows = this.state.homepageHeroVideoUploads
+        .map((upload) => {
+          const asset = this.state.aiTextAssets.find((row) => row.id === upload.asset_id && row.user_id === upload.user_id && row.source_module === 'video');
+          if (!asset || asset.poster_r2_key || !asset.r2_key) return null;
+          return {
+            upload_id: upload.id,
+            upload_created_at: upload.created_at ?? null,
+            ...asset,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => String(a.upload_created_at || '').localeCompare(String(b.upload_created_at || '')) || String(a.upload_id || '').localeCompare(String(b.upload_id || '')))
+        .slice(0, limit);
+      return { results: rows };
+    }
+
     if (query.startsWith('SELECT uploads.id AS upload_id')) {
       const [idempotencyKeyHash, adminUserId] = bindings;
       const upload = this.state.homepageHeroVideoUploads.find((row) => row.idempotency_key_hash === idempotencyKeyHash && row.user_id === adminUserId);

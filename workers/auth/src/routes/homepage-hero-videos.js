@@ -10,6 +10,7 @@ import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { buildPublicMediaHeaders } from "../lib/public-media.js";
 import { requireAdmin } from "../lib/session.js";
 import {
+  attachVideoPosterBytesToAiTextAsset,
   attachVideoPosterToAiTextAsset,
   copyVideoPosterToAiTextAsset,
   saveGeneratedVideoAsset,
@@ -61,6 +62,8 @@ const HERO_SOURCE_POSTER_MIME_TYPES = new Set(["image/webp", "image/png", "image
 const HERO_DERIVATIVE_VIDEO_MIME_TYPES = new Set(["video/mp4"]);
 const HERO_DERIVATIVE_POSTER_MIME_TYPES = new Set(["image/webp"]);
 const TARGET_PRESET = DEFAULT_HERO_FFMPEG_PRESET;
+const SOURCE_POSTER_PROCESSOR_JOB_LIMIT = 8;
+const SOURCE_POSTER_PROCESSOR_SCAN_LIMIT = 48;
 
 function stableJson(value) {
   if (Array.isArray(value)) {
@@ -479,6 +482,34 @@ function serializeProcessorJob(row) {
   };
 }
 
+function serializeSourcePosterProcessorJob(row, preset = TARGET_PRESET) {
+  const posterWidth = clampInteger(preset?.posterWidth, { fallback: TARGET_PRESET.posterWidth || 640, min: 320, max: 1080 });
+  return {
+    id: row.id,
+    upload_id: row.upload_id || null,
+    type: "homepage_hero_source_poster",
+    source_asset_id: row.id,
+    source_user_id: row.user_id,
+    source_title: row.title || row.file_name || null,
+    source: {
+      url: `/api/internal/homepage/hero-videos/source-posters/jobs/${encodeURIComponent(row.id)}/source`,
+      mime_type: row.mime_type || "video/mp4",
+      size_bytes: row.size_bytes ?? null,
+      fingerprint: row.source_fingerprint || null,
+    },
+    preset: {
+      posterFormat: "webp",
+      posterWidth,
+    },
+    completion: {
+      url: `/api/internal/homepage/hero-videos/source-posters/jobs/${encodeURIComponent(row.id)}/complete`,
+      failure_url: `/api/internal/homepage/hero-videos/source-posters/jobs/${encodeURIComponent(row.id)}/fail`,
+    },
+    created_at: row.upload_created_at || row.created_at,
+    updated_at: row.updated_at || row.created_at,
+  };
+}
+
 async function listAdminSlots(env) {
   const rows = await env.DB.prepare(
     `SELECT slots.slot,
@@ -599,6 +630,80 @@ async function listQueuedProcessorJobs(env, limit) {
      LIMIT ?`
   ).bind(limit).all();
   return rows.results || [];
+}
+
+function isSourcePosterProcessorClaimable(row) {
+  if (!row || row.poster_r2_key) return false;
+  const metadata = parseJson(row.metadata_json) || {};
+  const sourceState = metadata.homepage_hero_source && typeof metadata.homepage_hero_source === "object"
+    ? metadata.homepage_hero_source
+    : {};
+  const status = String(sourceState.poster_status || "").toLowerCase();
+  if (status === "ready") return false;
+  if (status === "failed" && sourceState.poster_retryable === false) return false;
+  return status !== "failed";
+}
+
+async function listQueuedSourcePosterJobs(env, limit) {
+  const scanLimit = Math.max(SOURCE_POSTER_PROCESSOR_SCAN_LIMIT, limit * 6);
+  const rows = await env.DB.prepare(
+    `SELECT uploads.id AS upload_id,
+            uploads.created_at AS upload_created_at,
+            assets.id,
+            assets.user_id,
+            assets.title,
+            assets.file_name,
+            assets.mime_type,
+            assets.size_bytes,
+            assets.metadata_json,
+            assets.created_at,
+            assets.r2_key,
+            assets.poster_r2_key
+     FROM homepage_hero_video_uploads uploads
+     JOIN ai_text_assets assets ON assets.id = uploads.asset_id
+      AND assets.user_id = uploads.user_id
+     WHERE assets.source_module = 'video'
+       AND assets.poster_r2_key IS NULL
+       AND assets.r2_key IS NOT NULL
+     ORDER BY uploads.created_at ASC, uploads.id ASC
+     LIMIT ?`
+  ).bind(scanLimit).all();
+  const jobs = [];
+  for (const row of rows.results || []) {
+    if (!isSourcePosterProcessorClaimable(row)) continue;
+    row.source_fingerprint = await sha256Hex(stableJson({
+      asset_id: row.id,
+      user_id: row.user_id,
+      size_bytes: row.size_bytes ?? null,
+      created_at: row.created_at || null,
+    }));
+    jobs.push(row);
+    if (jobs.length >= limit) break;
+  }
+  return jobs;
+}
+
+async function getSourcePosterJobAsset(env, assetId) {
+  return env.DB.prepare(
+    `SELECT uploads.id AS upload_id,
+            uploads.created_at AS upload_created_at,
+            assets.id,
+            assets.user_id,
+            assets.title,
+            assets.file_name,
+            assets.mime_type,
+            assets.size_bytes,
+            assets.metadata_json,
+            assets.created_at,
+            assets.r2_key,
+            assets.poster_r2_key
+     FROM homepage_hero_video_uploads uploads
+     JOIN ai_text_assets assets ON assets.id = uploads.asset_id
+      AND assets.user_id = uploads.user_id
+     WHERE uploads.asset_id = ?
+       AND assets.source_module = 'video'
+     LIMIT 1`
+  ).bind(assetId).first();
 }
 
 async function getSlotIdempotencyState(env, slot) {
@@ -774,6 +879,7 @@ async function updateHeroSourcePosterState(env, {
   retryable = true,
   errorCode = null,
   message = null,
+  extra = {},
 } = {}) {
   if (!assetId || !userId) return null;
   const existing = await env.DB.prepare(
@@ -792,6 +898,7 @@ async function updateHeroSourcePosterState(env, {
     poster_error_code: existing.poster_r2_key ? null : errorCode,
     poster_message: existing.poster_r2_key ? null : message,
     poster_checked_at: nowIso(),
+    ...(extra && typeof extra === "object" && !Array.isArray(extra) ? extra : {}),
   };
   const nextMetadata = {
     ...metadata,
@@ -1257,6 +1364,115 @@ async function handleAdminAttachUploadPoster(ctx, assetIdFromPath) {
       code: error?.code || "video_poster_attach_failed",
     }, { status: error?.status || 500 });
   }
+}
+
+async function handleAdminRetryUploadPoster(ctx, assetIdFromPath) {
+  const { request, env, isSecure, correlationId } = ctx;
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
+  if (result instanceof Response) return result;
+  const limited = await enforceAdminHeroActionRateLimit(ctx);
+  if (limited) return limited;
+
+  const manualUploads = await getVideoDeliveryFeature(env, VIDEO_DELIVERY_FEATURE_KEYS.HERO_MANUAL_UPLOADS);
+  if (!manualUploads?.effective_enabled) {
+    return json(
+      {
+        ok: false,
+        error: "Homepage hero manual uploads are disabled.",
+        code: "manual_uploads_disabled",
+      },
+      { status: 503 }
+    );
+  }
+
+  const idempotency = idempotencyKeyOrResponse(request, "Idempotency-Key is required for hero source poster retries.");
+  if (idempotency.response) return idempotency.response;
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const operatorReason = normalizeOperatorReason(body.operator_reason || body.operatorReason || body.reason);
+  if (!operatorReason) {
+    return json({ ok: false, error: "operator_reason must be at least 8 characters.", code: "operator_reason_required" }, { status: 400 });
+  }
+
+  const assetId = normalizeAssetId(assetIdFromPath);
+  if (!assetId) return json({ ok: false, error: "Invalid asset ID.", code: "invalid_asset_id" }, { status: 400 });
+  const upload = await getSourcePosterJobAsset(env, assetId);
+  if (!upload || upload.user_id !== result.user.id) {
+    return json({ ok: false, error: "Hero source upload not found.", code: "hero_upload_not_found" }, { status: 404 });
+  }
+
+  if (upload.poster_r2_key) {
+    await updateHeroSourcePosterState(env, {
+      assetId,
+      userId: result.user.id,
+      status: "ready",
+      retryable: false,
+    });
+    return json({
+      ok: true,
+      existing: true,
+      data: {
+        candidate: toAdminAssetCandidate(upload, result.user.id),
+        poster_status: "ready",
+      },
+    }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  const externalFfmpeg = await getVideoDeliveryFeature(env, VIDEO_DELIVERY_FEATURE_KEYS.HERO_EXTERNAL_FFMPEG);
+  if (!externalFfmpeg?.effective_enabled || !getProcessorSecret(env)) {
+    await updateHeroSourcePosterState(env, {
+      assetId,
+      userId: result.user.id,
+      status: "failed",
+      retryable: true,
+      errorCode: "source_poster_processor_not_configured",
+      message: "Poster preview processor is not configured. Enable/configure external_ffmpeg or upload a poster with the source video.",
+    });
+    return json(
+      {
+        ok: false,
+        error: "Poster preview processor is not configured.",
+        code: "source_poster_processor_not_configured",
+      },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  const state = await updateHeroSourcePosterState(env, {
+    assetId,
+    userId: result.user.id,
+    status: "pending",
+    retryable: true,
+    errorCode: null,
+    message: "Poster preview is queued for the external ffmpeg processor.",
+    extra: {
+      poster_processor: "external_ffmpeg",
+      poster_retry_requested_at: nowIso(),
+    },
+  });
+  if (state) {
+    const metadata = parseJson(upload.metadata_json) || {};
+    upload.metadata_json = JSON.stringify({
+      ...metadata,
+      homepage_hero_source: state,
+    });
+  }
+
+  await auditHomepageHeroVideoEvent(ctx, result.user, "homepage_hero_video_source_poster_retry_requested", {
+    source_asset_id: assetId,
+    source_upload_id: upload.upload_id || null,
+    operator_reason_present: true,
+    idempotency_key_hash_present: true,
+  });
+
+  return json({
+    ok: true,
+    data: {
+      candidate: toAdminAssetCandidate(upload, result.user.id),
+      poster_status: "pending",
+    },
+  }, { status: 202, headers: { "Cache-Control": "no-store" } });
 }
 
 async function handleAdminCandidates(ctx) {
@@ -2038,6 +2254,200 @@ async function handleProcessorSource(ctx, derivativeIdFromPath) {
   return new Response(object.body, { headers });
 }
 
+async function handleSourcePosterClaimJobs(ctx) {
+  const authResponse = await processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.homepageHeroProcessorJson,
+    requiredContentType: false,
+  });
+  if (parsed.response) return parsed.response;
+  const limit = clampInteger(parsed.body?.limit, { fallback: 1, min: 1, max: SOURCE_POSTER_PROCESSOR_JOB_LIMIT });
+
+  const rows = await listQueuedSourcePosterJobs(ctx.env, limit);
+  const now = nowIso();
+  for (const row of rows) {
+    const state = await updateHeroSourcePosterState(ctx.env, {
+      assetId: row.id,
+      userId: row.user_id,
+      status: "pending",
+      retryable: true,
+      errorCode: null,
+      message: "Poster preview is being prepared by the external ffmpeg processor.",
+      extra: {
+        poster_processor: "external_ffmpeg",
+        poster_attempted_at: now,
+      },
+    });
+    if (state) {
+      const metadata = parseJson(row.metadata_json) || {};
+      row.metadata_json = JSON.stringify({
+        ...metadata,
+        homepage_hero_source: state,
+      });
+    }
+  }
+  const presetStatus = await getHeroFfmpegPresetSetting(ctx.env);
+  const preset = presetStatus.preset || TARGET_PRESET;
+
+  return json(
+    {
+      ok: true,
+      data: {
+        jobs: rows.map((row) => serializeSourcePosterProcessorJob(row, preset)),
+      },
+    },
+    {
+      headers: { "Cache-Control": "no-store" },
+    }
+  );
+}
+
+async function handleSourcePosterSource(ctx, assetIdFromPath) {
+  const authResponse = await processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const assetId = normalizeAssetId(assetIdFromPath);
+  if (!assetId) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  const source = await getSourcePosterJobAsset(ctx.env, assetId);
+  if (!source?.r2_key) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+
+  const object = await ctx.env.USER_IMAGES.get(source.r2_key);
+  if (!object) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+
+  const headers = buildPublicMediaHeaders(
+    source.mime_type || object.httpMetadata?.contentType || "video/mp4",
+    object.size,
+    { immutable: false }
+  );
+  headers.set("Cache-Control", "no-store");
+  headers.set("Content-Disposition", "attachment; filename=\"homepage-hero-source.mp4\"");
+  return new Response(object.body, { headers });
+}
+
+async function handleSourcePosterComplete(ctx, assetIdFromPath) {
+  const authResponse = await processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const assetId = normalizeAssetId(assetIdFromPath);
+  if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  const source = await getSourcePosterJobAsset(ctx.env, assetId);
+  if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  if (source.poster_r2_key) {
+    await updateHeroSourcePosterState(ctx.env, {
+      assetId,
+      userId: source.user_id,
+      status: "ready",
+      retryable: false,
+    });
+    return json({
+      ok: true,
+      existing: true,
+      data: {
+        poster: {
+          id: assetId,
+          poster_url: `/api/ai/text-assets/${assetId}/poster`,
+        },
+      },
+    });
+  }
+
+  let formData;
+  try {
+    formData = await readFormDataLimited(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorUpload });
+  } catch (error) {
+    if (isRequestBodyError(error)) return requestBodyErrorResponse(error);
+    throw error;
+  }
+
+  const poster = formData.get("poster");
+  if (!poster || typeof poster.arrayBuffer !== "function") {
+    return json({ ok: false, error: "Source poster file is required.", code: "source_poster_required" }, { status: 400 });
+  }
+  const posterMimeType = normalizeSourcePosterMimeType(poster.type);
+  if (!posterMimeType) {
+    return json({ ok: false, error: "Source poster must be a PNG, JPEG, or WebP image.", code: "unsupported_source_poster_type" }, { status: 415 });
+  }
+  if (Number(poster.size || 0) <= 0 || Number(poster.size || 0) > 2 * 1024 * 1024) {
+    return json({ ok: false, error: "Source poster size is outside the allowed range.", code: "invalid_source_poster_size" }, { status: 400 });
+  }
+
+  try {
+    const saved = await attachVideoPosterBytesToAiTextAsset(ctx.env, {
+      userId: source.user_id,
+      assetId,
+      posterBytes: new Uint8Array(await poster.arrayBuffer()),
+      successEvent: "homepage_hero_source_poster_saved",
+      failureEvent: "homepage_hero_source_poster_save_failed",
+    });
+    await updateHeroSourcePosterState(ctx.env, {
+      assetId,
+      userId: source.user_id,
+      status: "ready",
+      retryable: false,
+      extra: {
+        poster_processor: "external_ffmpeg",
+        poster_completed_at: nowIso(),
+      },
+    });
+    return json({
+      ok: true,
+      existing: false,
+      data: {
+        poster: saved,
+      },
+    });
+  } catch (error) {
+    await updateHeroSourcePosterState(ctx.env, {
+      assetId,
+      userId: source.user_id,
+      status: "failed",
+      retryable: true,
+      errorCode: error?.code || "source_poster_processing_failed",
+      message: sanitizeErrorMessage(error?.message || "Source poster could not be processed."),
+      extra: {
+        poster_processor: "external_ffmpeg",
+        poster_failed_at: nowIso(),
+      },
+    });
+    return json({
+      ok: false,
+      error: error?.message || "Source poster could not be processed.",
+      code: error?.code || "source_poster_processing_failed",
+    }, { status: error?.status || 500 });
+  }
+}
+
+async function handleSourcePosterFail(ctx, assetIdFromPath) {
+  const authResponse = await processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const assetId = normalizeAssetId(assetIdFromPath);
+  if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  const source = await getSourcePosterJobAsset(ctx.env, assetId);
+  if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const errorCode = sanitizeErrorCode(body.error_code || body.code || "source_poster_external_ffmpeg_failed");
+  const errorMessage = sanitizeErrorMessage(body.error_message || body.message || "Source poster processor failed.");
+  await updateHeroSourcePosterState(ctx.env, {
+    assetId,
+    userId: source.user_id,
+    status: "failed",
+    retryable: true,
+    errorCode,
+    message: errorMessage,
+    extra: {
+      poster_processor: "external_ffmpeg",
+      poster_failed_at: nowIso(),
+    },
+  });
+  return json({ ok: true, data: { source_asset_id: assetId, status: "failed" } });
+}
+
 async function handleProcessorComplete(ctx, derivativeIdFromPath) {
   const authResponse = await processorAuthResponse(ctx);
   if (authResponse) return authResponse;
@@ -2509,6 +2919,12 @@ export async function handleAdminHomepageHeroVideos(ctx) {
     return handleAdminAttachUploadPoster(ctx, uploadPosterMatch[1]);
   }
 
+  const uploadPosterRetryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/uploads\/([^/]+)\/poster\/retry$/);
+  // route-policy: admin.homepage.hero-videos.uploads.poster.retry
+  if (uploadPosterRetryMatch && method === "POST") {
+    return handleAdminRetryUploadPoster(ctx, uploadPosterRetryMatch[1]);
+  }
+
   // route-policy: admin.homepage.hero-videos.memvid-stream-previews.backfill
   if (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill" && method === "POST") {
     return handleAdminMemvidStreamPreviewBackfill(ctx);
@@ -2562,6 +2978,28 @@ export async function handleHomepageHeroVideos(ctx) {
   // route-policy: internal.homepage.hero-videos.jobs.claim
   if (pathname === "/api/internal/homepage/hero-videos/jobs/claim" && method === "POST") {
     return handleProcessorClaimJobs(ctx);
+  }
+
+  // route-policy: internal.homepage.hero-videos.source-posters.jobs.claim
+  if (pathname === "/api/internal/homepage/hero-videos/source-posters/jobs/claim" && method === "POST") {
+    return handleSourcePosterClaimJobs(ctx);
+  }
+
+  const sourcePosterSourceMatch = pathname.match(/^\/api\/internal\/homepage\/hero-videos\/source-posters\/jobs\/([^/]+)\/source$/);
+  if (sourcePosterSourceMatch && method === "GET") {
+    return handleSourcePosterSource(ctx, sourcePosterSourceMatch[1]);
+  }
+
+  const sourcePosterCompleteMatch = pathname.match(/^\/api\/internal\/homepage\/hero-videos\/source-posters\/jobs\/([^/]+)\/complete$/);
+  // route-policy: internal.homepage.hero-videos.source-posters.jobs.complete
+  if (sourcePosterCompleteMatch && method === "POST") {
+    return handleSourcePosterComplete(ctx, sourcePosterCompleteMatch[1]);
+  }
+
+  const sourcePosterFailMatch = pathname.match(/^\/api\/internal\/homepage\/hero-videos\/source-posters\/jobs\/([^/]+)\/fail$/);
+  // route-policy: internal.homepage.hero-videos.source-posters.jobs.fail
+  if (sourcePosterFailMatch && method === "POST") {
+    return handleSourcePosterFail(ctx, sourcePosterFailMatch[1]);
   }
 
   const processorSourceMatch = pathname.match(/^\/api\/internal\/homepage\/hero-videos\/jobs\/([^/]+)\/source$/);

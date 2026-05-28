@@ -756,6 +756,16 @@ export function initVideoGallery() {
             if (item.poster.w) img.width = item.poster.w;
             if (item.poster.h) img.height = item.poster.h;
             poster.appendChild(img);
+        } else {
+            const fallback = document.createElement('div');
+            fallback.className = 'video-card__poster-state';
+            fallback.setAttribute('aria-hidden', 'true');
+            const title = document.createElement('strong');
+            title.textContent = localeText('browse.videoPosterPending');
+            const hint = document.createElement('span');
+            hint.textContent = localeText('browse.videoPosterPendingHint');
+            fallback.append(title, hint);
+            poster.appendChild(fallback);
         }
 
         const playIcon = document.createElement('div');

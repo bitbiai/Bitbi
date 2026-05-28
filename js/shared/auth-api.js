@@ -335,6 +335,12 @@ export function apiAdminAttachHomepageHeroVideoPoster(assetId, payload = {}, { i
     });
 }
 
+export function apiAdminRetryHomepageHeroVideoPoster(assetId, payload = {}, { idempotencyKey } = {}) {
+    return request('POST', `/admin/homepage/hero-videos/uploads/${encodeURIComponent(assetId)}/poster/retry`, payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminRetryHomepageHeroVideoDerivative(derivativeId, payload = {}, { idempotencyKey } = {}) {
     return request('POST', `/admin/homepage/hero-videos/derivatives/${encodeURIComponent(derivativeId)}/retry`, payload, {
         headers: { 'Idempotency-Key': idempotencyKey },

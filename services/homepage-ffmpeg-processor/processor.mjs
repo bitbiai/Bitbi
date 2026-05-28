@@ -10,6 +10,7 @@ const SECRET = String(process.env.HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET
   || "");
 const DRY_RUN = process.env.DRY_RUN === "1" || process.env.DRY_RUN === "true";
 const PROCESS_HOMEPAGE_HERO = process.env.PROCESS_HOMEPAGE_HERO !== "0" && process.env.PROCESS_HOMEPAGE_HERO !== "false";
+const PROCESS_HOMEPAGE_SOURCE_POSTERS = process.env.PROCESS_HOMEPAGE_SOURCE_POSTERS !== "0" && process.env.PROCESS_HOMEPAGE_SOURCE_POSTERS !== "false";
 const PROCESS_MEMVID_STREAM_PREVIEWS = process.env.PROCESS_MEMVID_STREAM_PREVIEWS === "1" || process.env.PROCESS_MEMVID_STREAM_PREVIEWS === "true";
 const JOB_LIMIT = Math.max(1, Math.min(4, Number.parseInt(process.env.JOB_LIMIT || "1", 10) || 1));
 const WORK_DIR = process.env.WORK_DIR || tmpdir();
@@ -122,6 +123,15 @@ async function claimJobs() {
   return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
 }
 
+async function claimSourcePosterJobs() {
+  const body = await requestJson("/api/internal/homepage/hero-videos/source-posters/jobs/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit: JOB_LIMIT }),
+  });
+  return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
+}
+
 async function claimMemvidPreviewJobs() {
   const body = await requestJson("/api/internal/memvid-stream-previews/jobs/claim", {
     method: "POST",
@@ -203,6 +213,23 @@ async function convertJob(job, dir) {
       ...(await probeVideo(output)),
       preset,
     },
+  };
+}
+
+async function convertSourcePosterJob(job, dir) {
+  const input = path.join(dir, "source");
+  const poster = path.join(dir, "source-poster.webp");
+  await downloadSource(job, input);
+  const posterWidth = clampNumber(job.preset?.posterWidth, { fallback: 640, min: 320, max: 1080 });
+  await run(FFMPEG_BIN, [
+    "-y",
+    "-i", input,
+    "-vf", `thumbnail,scale=${posterWidth}:-2`,
+    "-frames:v", "1",
+    poster,
+  ], { cwd: dir });
+  return {
+    poster,
   };
 }
 
@@ -298,6 +325,34 @@ async function failJob(job, error) {
   });
 }
 
+async function completeSourcePosterJob(job, result) {
+  const form = new FormData();
+  const posterBytes = await readFile(result.poster);
+  form.append("poster", new Blob([posterBytes], { type: "image/webp" }), "poster.webp");
+  if (job.source?.fingerprint) form.append("source_fingerprint", job.source.fingerprint);
+  const res = await fetch(`${BASE_URL}${job.completion.url}`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Source poster completion failed with HTTP ${res.status}`);
+  return body;
+}
+
+async function failSourcePosterJob(job, error) {
+  await requestJson(job.completion.failure_url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      error_code: "source_poster_external_ffmpeg_failed",
+      error_message: String(error?.message || error || "source poster ffmpeg failed").slice(0, 240),
+    }),
+  }).catch((callbackError) => {
+    console.error(`Failed to report source-poster job failure for ${job.id}:`, callbackError.message);
+  });
+}
+
 async function completeMemvidPreviewJob(job, result, streamResult) {
   return requestJson(job.completion.url, {
     method: "POST",
@@ -352,6 +407,27 @@ async function processJob(job) {
   }
 }
 
+async function processSourcePosterJob(job) {
+  console.log(`Processing homepage hero source-poster job ${job.id}`);
+  if (DRY_RUN) {
+    console.log(JSON.stringify({ dryRun: true, sourcePosterJob: job }, null, 2));
+    return;
+  }
+  await mkdir(WORK_DIR, { recursive: true });
+  const dir = await mkdtemp(path.join(WORK_DIR, `bitbi-hero-source-poster-${job.id}-`));
+  try {
+    const result = await convertSourcePosterJob(job, dir);
+    await completeSourcePosterJob(job, result);
+    console.log(`Completed homepage hero source-poster job ${job.id}`);
+  } catch (error) {
+    console.error(`Failed homepage hero source-poster job ${job.id}:`, error.message);
+    await failSourcePosterJob(job, error);
+    process.exitCode = 1;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function processMemvidPreviewJob(job) {
   console.log(`Processing Memvid Stream preview job ${job.id} (${job.asset_id})`);
   if (DRY_RUN) {
@@ -383,6 +459,15 @@ async function main() {
     }
     for (const job of jobs) {
       await processJob(job);
+    }
+  }
+  if (PROCESS_HOMEPAGE_SOURCE_POSTERS) {
+    const sourcePosterJobs = await claimSourcePosterJobs();
+    if (!sourcePosterJobs.length) {
+      console.log("No homepage hero source-poster jobs available.");
+    }
+    for (const job of sourcePosterJobs) {
+      await processSourcePosterJob(job);
     }
   }
   if (PROCESS_MEMVID_STREAM_PREVIEWS) {

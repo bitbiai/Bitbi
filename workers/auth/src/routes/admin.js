@@ -979,6 +979,11 @@ export async function handleAdmin(ctx) {
   if (homepageHeroUploadPosterMatch && method === "POST") {
     return handleAdminHomepageHeroVideos(ctx);
   }
+  const homepageHeroUploadPosterRetryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/uploads\/([^/]+)\/poster\/retry$/);
+  // route-policy: admin.homepage.hero-videos.uploads.poster.retry
+  if (homepageHeroUploadPosterRetryMatch && method === "POST") {
+    return handleAdminHomepageHeroVideos(ctx);
+  }
   const homepageHeroVideoDerivativeRetryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)\/retry$/);
   // route-policy: admin.homepage.hero-videos.derivatives.retry
   if (homepageHeroVideoDerivativeRetryMatch && method === "POST") {

@@ -5403,6 +5403,50 @@ test.describe('Homepage', () => {
     expect(favoriteAriaLabel).not.toContain(manualVideoTitle);
   });
 
+  test('published Memvid cards without ready posters show a pending placeholder instead of a blank preview', async ({ page }) => {
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'manual-upload-no-poster',
+                slug: 'manual-upload-no-poster',
+                title: 'Manual video without poster',
+                caption: 'Published by Ada Member on 2026-05-28.',
+                category: 'memvids',
+                publisher: {
+                  display_name: 'Ada Member',
+                },
+                file: {
+                  url: '/api/gallery/memvids/manual-upload-no-poster/file',
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.goto('/');
+    await switchHomepageCategory(page, 'video');
+
+    const videoCard = page.locator('#videoGrid .video-card').first();
+    await expect(videoCard.locator('.video-card__poster-state')).toBeVisible();
+    await expect(videoCard.locator('.video-card__poster-state')).toContainText('Preview pending');
+    await expect(videoCard.locator('.video-card__preview')).toHaveCount(0);
+  });
+
   test('desktop Video Explore cards lazy-play muted BITBI previews on hover', async ({ page }) => {
     const videoRequests = [];
     const heroSlots = ['right_top', 'right_bottom', 'left_top', 'left_bottom'].map((slot, index) => ({

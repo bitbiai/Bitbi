@@ -1,9 +1,9 @@
 import {
-    apiAdminAttachHomepageHeroVideoPoster,
     apiAdminBackfillMemvidStreamPreviews,
     apiAdminCreateHomepageHeroVideoDerivative,
     apiAdminHomepageHeroVideoCandidates,
     apiAdminHomepageHeroVideos,
+    apiAdminRetryHomepageHeroVideoPoster,
     apiAdminUpdateHomepageHeroVideoFeatureSwitch,
     apiAdminUpdateHomepageHeroVideoPreset,
     apiAdminUploadHomepageHeroVideoSource,
@@ -962,19 +962,6 @@ export function createHomepageHeroVideosAdmin({
         return generatePosterBlobFromVideoSource(file, { objectUrl: true });
     }
 
-    function generatePosterBlobFromVideoUrl(url) {
-        return generatePosterBlobFromVideoSource(url, { objectUrl: false });
-    }
-
-    function blobToDataUri(blob) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.addEventListener('error', () => reject(new Error('Poster frame could not be encoded.')), { once: true });
-            reader.addEventListener('load', () => resolve(String(reader.result || '')), { once: true });
-            reader.readAsDataURL(blob);
-        });
-    }
-
     async function prepareUploadPoster(file) {
         state.uploadPoster = null;
         state.uploadPosterWarning = '';
@@ -994,39 +981,35 @@ export function createHomepageHeroVideosAdmin({
 
     async function retryCandidatePoster(assetId) {
         const candidate = state.candidates.find((entry) => entry.source_asset_id === assetId && entry.source_type === 'admin_asset');
-        if (!candidate?.file_url || state.posterRetryAssetId) return;
+        if (!candidate || state.posterRetryAssetId) return;
         const reason = readReason();
         if (reason.length < 8) {
             setStatus('Enter an operator reason before retrying poster generation.', 'error');
             return;
         }
         state.posterRetryAssetId = assetId;
-        setStatus('Generating poster preview...');
+        setStatus('Queueing poster preview extraction...');
         renderShell();
         try {
-            const posterBlob = await generatePosterBlobFromVideoUrl(candidate.file_url);
-            if (!posterBlob) throw new Error('Poster frame could not be generated from this source.');
-            const posterBase64 = await blobToDataUri(posterBlob);
-            const res = await apiAdminAttachHomepageHeroVideoPoster(assetId, {
-                posterBase64,
+            const res = await apiAdminRetryHomepageHeroVideoPoster(assetId, {
                 operator_reason: reason,
             }, {
                 idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-poster'),
             });
             if (!res.ok) {
-                const message = formatApiError?.(res, 'Poster preview could not be attached.') || res.error;
+                const message = formatApiError?.(res, 'Poster preview could not be queued.') || res.error;
                 setStatus(message, 'error');
                 showToast?.(message, 'error');
                 return;
             }
             await loadCandidates('admin-assets');
             state.selectedCandidate = state.candidates.find((entry) => entry.source_asset_id === assetId) || state.selectedCandidate;
-            setStatus('Poster preview attached.', 'success');
-            showToast?.('Poster preview attached.', 'success');
+            setStatus('Poster preview queued for processor extraction.', 'success');
+            showToast?.('Poster preview queued.', 'success');
         } catch (error) {
             console.warn(error);
-            setStatus('Poster preview could not be generated from this source.', 'error');
-            showToast?.('Poster preview could not be generated from this source.', 'error');
+            setStatus('Poster preview could not be queued.', 'error');
+            showToast?.('Poster preview could not be queued.', 'error');
         } finally {
             state.posterRetryAssetId = '';
             renderShell();

@@ -40056,6 +40056,217 @@ test.describe('Worker routes', () => {
     expect(saved).not.toHaveProperty('poster_url');
   });
 
+  test('homepage hero source-poster processor claims manual uploads and stores private poster fields', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-source-poster-processor-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: 'true',
+      HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET: 'test-hero-source-poster-secret',
+      aiTextAssets: [{
+        id: 'face0aa1',
+        user_id: admin.id,
+        title: 'Processor Poster Source',
+        file_name: 'processor-source.mp4',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 4096,
+        metadata_json: JSON.stringify({
+          source: 'admin_homepage_hero_videos',
+          homepage_hero_source: {
+            is_manual_upload: true,
+            poster_status: 'pending',
+            poster_retryable: true,
+          },
+        }),
+        created_at: '2026-05-20T10:00:00.000Z',
+        r2_key: `users/${admin.id}/folders/unsorted/processor-source.mp4`,
+      }],
+      homepageHeroVideoUploads: [{
+        id: 'hhvu_source_poster_processor',
+        asset_id: 'face0aa1',
+        user_id: admin.id,
+        title: 'Processor Poster Source',
+        original_file_name: 'processor-source.mp4',
+        mime_type: 'video/mp4',
+        size_bytes: 4096,
+        r2_key: `users/${admin.id}/folders/unsorted/processor-source.mp4`,
+        created_by_user_id: admin.id,
+        created_at: '2026-05-20T10:01:00.000Z',
+      }],
+      userImages: {
+        [`users/${admin.id}/folders/unsorted/processor-source.mp4`]: {
+          body: new TextEncoder().encode('private-source-video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+      },
+    });
+
+    const unsignedClaim = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/internal/homepage/hero-videos/source-posters/jobs/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 1 }),
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unsignedClaim.status).toBe(403);
+
+    const claimRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/internal/homepage/hero-videos/source-posters/jobs/claim', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test-hero-source-poster-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ limit: 1 }),
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(claimRes.status).toBe(200);
+    const claim = await claimRes.json();
+    expect(claim.data.jobs).toHaveLength(1);
+    expect(claim.data.jobs[0]).toMatchObject({
+      id: 'face0aa1',
+      type: 'homepage_hero_source_poster',
+      source: {
+        url: '/api/internal/homepage/hero-videos/source-posters/jobs/face0aa1/source',
+      },
+      completion: {
+        url: '/api/internal/homepage/hero-videos/source-posters/jobs/face0aa1/complete',
+      },
+    });
+    expect(JSON.stringify(claim)).not.toContain(`users/${admin.id}/folders/unsorted/processor-source.mp4`);
+
+    const sourceRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/internal/homepage/hero-videos/source-posters/jobs/face0aa1/source', {
+        headers: { Authorization: 'Bearer test-hero-source-poster-secret' },
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(sourceRes.status).toBe(200);
+    expect(sourceRes.headers.get('cache-control')).toContain('no-store');
+
+    const completeForm = new FormData();
+    completeForm.append('poster', new Blob([Buffer.from('processor-poster-webp')], { type: 'image/webp' }), 'poster.webp');
+    const completeRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/internal/homepage/hero-videos/source-posters/jobs/face0aa1/complete', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer test-hero-source-poster-secret' },
+        body: completeForm,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(completeRes.status).toBe(200);
+    const completed = await completeRes.json();
+    expect(completed.data.poster.poster_url).toBe('/api/ai/text-assets/face0aa1/poster');
+    const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === 'face0aa1');
+    expect(sourceAsset.poster_r2_key).toContain('/derivatives/v1/face0aa1/poster.webp');
+    expect(JSON.parse(sourceAsset.metadata_json).homepage_hero_source).toMatchObject({
+      poster_status: 'ready',
+      poster_retryable: false,
+    });
+  });
+
+  test('homepage hero source-poster fail and admin retry use durable processor state', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-source-poster-fail-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: 'true',
+      ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS: 'true',
+      HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET: 'test-hero-source-poster-secret',
+      aiTextAssets: [{
+        id: 'face0aa2',
+        user_id: admin.id,
+        title: 'Processor Poster Failure Source',
+        file_name: 'processor-fail-source.mp4',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 4096,
+        metadata_json: JSON.stringify({
+          source: 'admin_homepage_hero_videos',
+          homepage_hero_source: {
+            is_manual_upload: true,
+            poster_status: 'pending',
+            poster_retryable: true,
+          },
+        }),
+        created_at: '2026-05-20T10:00:00.000Z',
+        r2_key: `users/${admin.id}/folders/unsorted/processor-fail-source.mp4`,
+      }],
+      homepageHeroVideoUploads: [{
+        id: 'hhvu_source_poster_fail',
+        asset_id: 'face0aa2',
+        user_id: admin.id,
+        title: 'Processor Poster Failure Source',
+        original_file_name: 'processor-fail-source.mp4',
+        mime_type: 'video/mp4',
+        size_bytes: 4096,
+        r2_key: `users/${admin.id}/folders/unsorted/processor-fail-source.mp4`,
+        created_by_user_id: admin.id,
+        created_at: '2026-05-20T10:01:00.000Z',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+
+    const failRes = await authWorker.fetch(
+      authJsonRequest('/api/internal/homepage/hero-videos/source-posters/jobs/face0aa2/fail', 'POST', {
+        error_code: 'ffmpeg_decode_failed',
+        error_message: 'Could not decode video frame.',
+      }, {
+        Authorization: 'Bearer test-hero-source-poster-secret',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(failRes.status).toBe(200);
+    let sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === 'face0aa2');
+    expect(JSON.parse(sourceAsset.metadata_json).homepage_hero_source).toMatchObject({
+      poster_status: 'failed',
+      poster_retryable: true,
+      poster_error_code: 'ffmpeg_decode_failed',
+    });
+
+    const missingIdempotencyRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/uploads/face0aa2/poster/retry', 'POST', {
+        operator_reason: 'Testing poster retry guard.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingIdempotencyRes.status).toBe(428);
+
+    const retryRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/uploads/face0aa2/poster/retry', 'POST', {
+        operator_reason: 'Testing poster retry queue.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'homepage-hero-source-poster-retry',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(retryRes.status).toBe(202);
+    sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === 'face0aa2');
+    expect(JSON.parse(sourceAsset.metadata_json).homepage_hero_source).toMatchObject({
+      poster_status: 'pending',
+      poster_retryable: true,
+      poster_processor: 'external_ffmpeg',
+    });
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'homepage_hero_video_source_poster_retry_requested' }),
+    ]));
+  });
+
   test('admin homepage hero poster retry updates source asset poster metadata', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('hero-poster-retry-admin');

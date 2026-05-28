@@ -880,6 +880,7 @@
       "PATCH /api/admin/homepage/hero-videos/feature-status/:id",
       "POST /api/admin/homepage/hero-videos/derivatives/:id/retry",
       "POST /api/admin/homepage/hero-videos/uploads/:id/poster",
+      "POST /api/admin/homepage/hero-videos/uploads/:id/poster/retry",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",

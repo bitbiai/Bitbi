@@ -1061,6 +1061,41 @@ export async function attachVideoPosterToAiTextAsset(env, { userId, assetId, pos
   };
 }
 
+export async function attachVideoPosterBytesToAiTextAsset(env, {
+  userId,
+  assetId,
+  posterBytes,
+  successEvent = "video_poster_saved",
+  failureEvent = "video_poster_save_failed",
+  propagateQuotaErrors = true,
+} = {}) {
+  const bytes = posterBytes instanceof Uint8Array ? posterBytes : new Uint8Array(posterBytes || []);
+  const posterResult = await processAiTextAssetPosterBytes(env, {
+    userId,
+    assetId,
+    posterBytes: bytes,
+    successEvent,
+    failureEvent,
+    propagateQuotaErrors,
+  });
+
+  if (!posterResult?.r2Key) {
+    const error = new Error("Video poster could not be processed.");
+    error.status = env.IMAGES ? 422 : 503;
+    error.code = env.IMAGES ? "validation_error" : "poster_service_unavailable";
+    throw error;
+  }
+
+  return {
+    id: assetId,
+    poster_r2_key: posterResult.r2Key,
+    poster_width: posterResult.width || null,
+    poster_height: posterResult.height || null,
+    poster_size_bytes: posterResult.sizeBytes ?? null,
+    poster_url: `/api/ai/text-assets/${assetId}/poster`,
+  };
+}
+
 export async function copyVideoPosterToAiTextAsset(env, { userId, assetId, sourceKey, contentType }) {
   return copyVideoPosterFromR2(env, {
     userId,

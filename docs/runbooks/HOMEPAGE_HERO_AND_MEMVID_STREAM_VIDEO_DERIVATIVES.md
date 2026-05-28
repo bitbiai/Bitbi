@@ -68,7 +68,7 @@ On normal push events, the Static Pages workflow skips deployment cleanly when t
 
 If fewer than four slots are ready, the homepage keeps using the existing public Memvid fallback.
 
-Manual uploads are saved as private admin-owned video assets using the same saved video asset/poster conventions as generated saved videos. The Admin UI attempts to create a WebP poster from the selected video before upload; if browser poster extraction fails, the UI shows a recoverable warning and a retry action. Public Homepage Hero playback never serves the uploaded source video or private source poster URL.
+Manual uploads are saved as private admin-owned video assets using the same saved video asset/poster conventions as generated saved videos. The Admin UI attempts to create a WebP poster from the selected video before upload as a fast path, but missing posters are durable processor work, not a browser-only best effort. Source-poster jobs are claimed through `/api/internal/homepage/hero-videos/source-posters/jobs/claim`, download the private source through signed internal URLs, and complete through signed callbacks that populate `ai_text_assets.poster_r2_key`, dimensions, and size. Until that completes, Admin and Assets Manager APIs return a persistent `homepage_hero_source.poster_status` of `pending` or `failed` with retry metadata. Public Homepage Hero playback never serves the uploaded source video or private source poster URL.
 
 ## Hero Conversion Preset
 
@@ -122,5 +122,6 @@ The Admin Homepage Hero Videos module shows Stream preview status counts, ready/
 ## Retry And Backfill
 
 - Failed homepage hero derivatives can be retried from Admin through the derivative retry route.
+- Manual hero uploads without source posters can be retried from Admin; the retry marks durable pending state for the external ffmpeg source-poster processor instead of requiring browser frame extraction.
 - Memvid Stream preview backfill should create or update `memvid_stream_previews` rows idempotently by asset/source fingerprint, upload only short preview clips to Stream, and mark old rows `superseded` instead of deleting evidence.
 - Do not upload full original Memvids to Stream unless a future approved operator decision accepts the storage/delivered-minute impact.

@@ -12675,6 +12675,7 @@ test.describe('Admin Control Plane', () => {
     }];
     const derivativeRequests = [];
     const slotRequests = [];
+    const posterRetryRequests = [];
     const featureStatus = {
       features: {
         homepage_hero_external_ffmpeg: {
@@ -12797,6 +12798,23 @@ test.describe('Admin Control Plane', () => {
         data: { derivative },
       }, 202);
     });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/uploads\/admin_hero_clip_1\/poster\/retry$/, async (route) => {
+      posterRetryRequests.push({
+        idempotencyKey: route.request().headers()['idempotency-key'] || null,
+        body: route.request().postDataJSON(),
+      });
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          candidate: {
+            ...adminCandidates[0],
+            poster_status: 'pending',
+            poster_message: 'Poster preview is queued for the external ffmpeg processor.',
+          },
+          poster_status: 'pending',
+        },
+      }, 202);
+    });
     await page.route(/\/api\/admin\/homepage\/hero-videos\/slots\/[^/]+$/, async (route) => {
       const body = route.request().postDataJSON();
       slotRequests.push({
@@ -12847,8 +12865,16 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Poster preview is being prepared');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Retry poster');
 
-    await page.locator('.admin-hero-videos__candidate-card').getByRole('button', { name: 'Select' }).first().click();
     await page.locator('#homepageHeroVideosAdmin [data-field="reason"]').fill('Operator-approved homepage hero conversion');
+    await page.locator('.admin-hero-videos__candidate-card').getByRole('button', { name: 'Retry poster' }).click();
+    await expect.poll(() => posterRetryRequests.length).toBe(1);
+    expect(posterRetryRequests[0].idempotencyKey).toMatch(/^homepage-hero-video-poster-/);
+    expect(posterRetryRequests[0].body).toMatchObject({
+      operator_reason: 'Operator-approved homepage hero conversion',
+    });
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Poster preview queued for processor extraction.');
+
+    await page.locator('.admin-hero-videos__candidate-card').getByRole('button', { name: 'Select' }).first().click();
     await page.getByRole('button', { name: 'Convert selected' }).click();
     await expect.poll(() => derivativeRequests.length).toBe(1);
     expect(derivativeRequests[0].idempotencyKey).toMatch(/^homepage-hero-video-convert-/);
