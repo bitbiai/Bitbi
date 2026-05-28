@@ -4734,7 +4734,8 @@
     }
 
     .admin-hero-videos__slot-grid,
-    .admin-hero-videos__candidate-grid {
+    .admin-hero-videos__candidate-grid,
+    .admin-hero-videos__ops {
         display: grid;
         grid-template-columns: repeat(1, minmax(0, 1fr));
         gap: var(--space-4);
@@ -4746,6 +4747,10 @@
         }
 
         .admin-hero-videos__candidate-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .admin-hero-videos__ops {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
@@ -4769,6 +4774,8 @@
 
     .admin-hero-videos__slot-card,
     .admin-hero-videos__candidate-card,
+    .admin-hero-videos__ops-card,
+    .admin-hero-videos__upload,
     .admin-hero-videos__browser,
     .admin-hero-videos__assign {
         min-width: 0;
@@ -4786,6 +4793,7 @@
 
     .admin-hero-videos__card-title,
     .admin-hero-videos__candidate-title,
+    .admin-hero-videos__upload-title,
     .admin-hero-videos__section-title {
         margin: 0;
         color: rgba(255, 255, 255, 0.82);
@@ -4906,7 +4914,9 @@
     }
 
     .admin-hero-videos__browser,
-    .admin-hero-videos__assign {
+    .admin-hero-videos__assign,
+    .admin-hero-videos__upload,
+    .admin-hero-videos__ops-card {
         display: grid;
         gap: var(--space-4);
     }

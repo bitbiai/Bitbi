@@ -1,0 +1,13 @@
+{
+  "name": "bitbi-homepage-ffmpeg-processor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node processor.mjs",
+    "dry-run": "DRY_RUN=1 node processor.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

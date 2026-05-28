@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0061_add_homepage_hero_video_slots.sql",
+        "latest": "0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -684,6 +684,8 @@
     "delegatedPrefixes": [
       "/api/public/news-pulse/thumbs/",
       "/api/homepage/hero-videos",
+      "/api/internal/homepage/hero-videos/",
+      "/api/internal/memvid-stream-previews/",
       "/api/admin/",
       "/api/ai/",
       "/api/gallery/",
@@ -818,6 +820,8 @@
       "POST /api/admin/registration/status",
       "GET /api/admin/homepage/hero-videos",
       "GET /api/admin/homepage/hero-videos/candidates",
+      "POST /api/admin/homepage/hero-videos/uploads",
+      "POST /api/admin/homepage/hero-videos/memvid-stream-previews/backfill",
       "POST /api/admin/homepage/hero-videos/derivatives",
       "GET /api/admin/readiness/status",
       "GET /api/admin/operations/timeline",
@@ -856,6 +860,7 @@
       "GET /api/admin/billing/reviews/:id",
       "POST /api/admin/billing/reviews/:id/resolution",
       "PUT /api/admin/homepage/hero-videos/slots/:id",
+      "POST /api/admin/homepage/hero-videos/derivatives/:id/retry",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
@@ -877,6 +882,8 @@
       "/admin/registration/status",
       "/admin/homepage/hero-videos",
       "/admin/homepage/hero-videos/candidates",
+      "/admin/homepage/hero-videos/uploads",
+      "/admin/homepage/hero-videos/memvid-stream-previews/backfill",
       "/admin/homepage/hero-videos/derivatives"
     ]
   }

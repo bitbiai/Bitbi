@@ -77,7 +77,7 @@ const ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT = "ERASURE WORKFLOW";
 const ADMIN_DELETE_ERASURE_DEFAULT_REASON = "Admin initiated GDPR/data erasure workflow from Admin user deletion.";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0061_add_homepage_hero_video_slots.sql";
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql";
 const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
 
 function adminSettingsIdempotencyKeyOrResponse(request) {
@@ -957,9 +957,18 @@ export async function handleAdmin(ctx) {
   if (
     (pathname === "/api/admin/homepage/hero-videos" && method === "GET") ||
     (pathname === "/api/admin/homepage/hero-videos/candidates" && method === "GET") ||
+    // route-policy: admin.homepage.hero-videos.uploads.create
+    (pathname === "/api/admin/homepage/hero-videos/uploads" && method === "POST") ||
+    // route-policy: admin.homepage.hero-videos.memvid-stream-previews.backfill
+    (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill" && method === "POST") ||
     // route-policy: admin.homepage.hero-videos.derivatives.create
     (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "POST")
   ) {
+    return handleAdminHomepageHeroVideos(ctx);
+  }
+  const homepageHeroVideoDerivativeRetryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)\/retry$/);
+  // route-policy: admin.homepage.hero-videos.derivatives.retry
+  if (homepageHeroVideoDerivativeRetryMatch && method === "POST") {
     return handleAdminHomepageHeroVideos(ctx);
   }
   const homepageHeroVideoSlotMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/slots\/([^/]+)$/);

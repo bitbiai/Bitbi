@@ -14,11 +14,7 @@ Production readiness remains **BLOCKED** unless all evidence gates are satisfied
 
 This runbook covers current direct-main release evidence for the static site, Auth Worker, AI Worker, Contact Worker, auth D1 migration checkpoint, Cloudflare bindings/resources, Admin readiness/evidence panels, billing review/reconciliation/evidence controls, AI budget controls, tenant asset evidence, operator timeline, production execution dossier, live-read-only verification, and rollback drill.
 
-Use `npm run release:plan` as the current deploy-unit source. The current auth migration checkpoint is:
-
-```text
-0060_add_app_settings.sql
-```
+Use `npm run release:plan` and `config/release-compat.json` as the current deploy-unit and auth migration checkpoint source.
 
 Static/pages, Auth Worker, AI Worker, Contact Worker, and remote auth migration requirements are release-plan dependent. Repo-supported readiness is not live readiness; Cloudflare resource declarations and Wrangler parity still require operator live evidence.
 

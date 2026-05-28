@@ -37,7 +37,9 @@ Important current dependencies:
 - `0058_add_legacy_media_reset_actions.sql` for reset action/event tracking.
 - `0059_add_data_lifecycle_completion_state.sql` for Data Lifecycle final completion, evidence status, retained-category, close/reject, and completion-note metadata.
 - `0060_add_app_settings.sql` for the Admin registration availability switch.
-- Later migrations are listed by the release contract; do not duplicate the current latest migration filename here.
+- `0061_add_homepage_hero_video_slots.sql` for Admin-managed public homepage hero video slots and optimized derivative job metadata.
+- `0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql` for signed homepage hero external_ffmpeg processing, private Admin hero-source uploads, and Memvid Cloudflare Stream hover-preview metadata/telemetry.
+- Later migrations are listed by the release contract; do not duplicate future current-latest migration filenames here.
 
 If Auth Worker code uses these tables/columns, remote migrations must be applied before deploying that Worker code.
 

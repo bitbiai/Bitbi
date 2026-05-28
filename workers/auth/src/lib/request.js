@@ -34,6 +34,10 @@ export const BODY_LIMITS = Object.freeze({
   openClawIngestRaw: 32 * 1024,
   avatarJson: 32 * 1024,
   avatarMultipart: 3 * 1024 * 1024,
+  homepageHeroVideoUpload: 80 * 1024 * 1024,
+  homepageHeroProcessorUpload: 12 * 1024 * 1024,
+  homepageHeroProcessorJson: 64 * 1024,
+  memvidStreamPreviewTelemetryJson: 8 * 1024,
 });
 
 export function requestBodyErrorResponse(error) {

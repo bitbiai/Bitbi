@@ -19,7 +19,6 @@ import {
     fetchPublicMemvidsPage,
     getPublicMemvidIdentity,
     orderPublicMemvidItems,
-    resolvePublicMemvidFileUrl,
 } from './public-memvids.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
@@ -33,6 +32,7 @@ const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOU
 const WIDE_INITIAL_MEMVIDS = 10;
 const WIDE_MEMVIDS_BATCH = 20;
 const WIDE_SCROLL_PRELOAD_PX = 720;
+const HOVER_PREVIEW_DELAY_MS = 320;
 
 let focusTrapCleanup = null;
 
@@ -153,8 +153,46 @@ export function initVideoGallery() {
         return getPublicMemvidIdentity(item);
     }
 
-    function getMemvidHoverPreviewSrc(item) {
-        return resolvePublicMemvidFileUrl(item?.file?.url);
+    function isSafeCloudflareStreamPlaybackUrl(value) {
+        if (!value) return false;
+        try {
+            const url = new URL(value, window.location.origin);
+            if (url.protocol !== 'https:') return false;
+            return url.hostname === 'videodelivery.net'
+                || url.hostname === 'iframe.videodelivery.net'
+                || url.hostname.endsWith('.videodelivery.net');
+        } catch {
+            return false;
+        }
+    }
+
+    function normalizeStreamPreviewUid(value) {
+        const uid = String(value || '').trim();
+        return /^[A-Za-z0-9_-]{8,128}$/.test(uid) ? uid : '';
+    }
+
+    function getMemvidHoverPreview(item) {
+        const preview = item?.stream_preview;
+        if (!preview || preview.provider !== 'cloudflare_stream') return null;
+        const uid = normalizeStreamPreviewUid(preview.uid);
+        if (!uid) return null;
+        const playback = preview.playback || {};
+        const src = isSafeCloudflareStreamPlaybackUrl(playback.mp4_url)
+            ? playback.mp4_url
+            : isSafeCloudflareStreamPlaybackUrl(playback.hls_url)
+            ? playback.hls_url
+            : `https://videodelivery.net/${encodeURIComponent(uid)}/manifest/video.m3u8`;
+        const fallbackSrc = src !== playback.hls_url && isSafeCloudflareStreamPlaybackUrl(playback.hls_url)
+            ? playback.hls_url
+            : '';
+        const maxLoopCount = Math.max(1, Math.min(3, Number(preview.max_loop_count || 3) || 3));
+        return {
+            uid,
+            src,
+            fallbackSrc,
+            maxLoopCount,
+            durationSeconds: Math.max(1, Number(preview.preview_duration_seconds || 5) || 5),
+        };
     }
 
     function canUseHoverPreview() {
@@ -177,9 +215,17 @@ export function initVideoGallery() {
     function stopActiveHoverPreview(card = null) {
         if (!activeHoverPreview) return;
         if (card && activeHoverPreview.card !== card) return;
-        const { card: activeCard, video } = activeHoverPreview;
+        const { card: activeCard, video, timerId, endedHandler, errorHandler } = activeHoverPreview;
+        window.clearTimeout(timerId);
         activeCard.classList.remove('video-card--hover-preview-active');
+        if (video && endedHandler) {
+            video.removeEventListener('ended', endedHandler);
+        }
+        if (video && errorHandler) {
+            video.removeEventListener('error', errorHandler);
+        }
         resetHoverPreviewVideo(video);
+        video?.remove();
         activeHoverPreview = null;
     }
 
@@ -202,45 +248,116 @@ export function initVideoGallery() {
         video.muted = true;
         video.defaultMuted = true;
         video.playsInline = true;
-        video.preload = 'metadata';
+        video.preload = 'none';
         if (posterUrl) video.poster = posterUrl;
         return video;
     }
 
-    function startHoverPreview(card, previewSrc, posterUrl = '') {
-        if (!canUseHoverPreview() || !previewSrc) return;
-        if (activeHoverPreview?.card && activeHoverPreview.card !== card) {
-            stopActiveHoverPreview();
+    function recordHoverPreviewStart(item, preview) {
+        const id = getMemvidIdentity(item);
+        if (!id || !preview?.uid) return;
+        const url = `/api/gallery/memvids/${encodeURIComponent(id)}/stream-preview/hover-start`;
+        const payload = JSON.stringify({
+            provider: 'cloudflare_stream',
+            uid: preview.uid,
+            loop_count: preview.maxLoopCount,
+            preview_duration_seconds: preview.durationSeconds,
+        });
+        try {
+            if (navigator.sendBeacon) {
+                const blob = new Blob([payload], { type: 'application/json' });
+                navigator.sendBeacon(url, blob);
+                return;
+            }
+        } catch { /* Fall through to fetch. */ }
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            keepalive: true,
+            body: payload,
+        }).catch(() => {});
+    }
+
+    function startHoverPreview(card, item, preview, posterUrl = '') {
+        if (!activeHoverPreview || activeHoverPreview.card !== card || !preview?.src) return;
+        if (!canUseHoverPreview()) {
+            stopActiveHoverPreview(card);
+            return;
         }
 
         const video = ensureHoverPreviewVideo(card, posterUrl);
-        if (!video) return;
-        if (video.dataset.previewSrc !== previewSrc) {
-            resetHoverPreviewVideo(video);
-            video.src = previewSrc;
-            video.dataset.previewSrc = previewSrc;
+        if (!video) {
+            stopActiveHoverPreview(card);
+            return;
         }
-
-        activeHoverPreview = { card, video };
+        let loopCount = 0;
+        const endedHandler = () => {
+            loopCount += 1;
+            video.dataset.loopCount = String(loopCount);
+            if (loopCount >= preview.maxLoopCount) {
+                stopActiveHoverPreview(card);
+                return;
+            }
+            try { video.currentTime = 0; } catch { /* noop */ }
+            const replay = video.play();
+            if (replay && typeof replay.catch === 'function') replay.catch(() => stopActiveHoverPreview(card));
+        };
+        let fallbackAttempted = false;
+        const errorHandler = () => {
+            if (fallbackAttempted || !preview.fallbackSrc || video.src === preview.fallbackSrc) {
+                stopActiveHoverPreview(card);
+                return;
+            }
+            fallbackAttempted = true;
+            video.src = preview.fallbackSrc;
+            video.dataset.previewSrc = preview.fallbackSrc;
+            const fallbackPlay = video.play();
+            if (fallbackPlay && typeof fallbackPlay.catch === 'function') {
+                fallbackPlay.catch(() => stopActiveHoverPreview(card));
+            }
+        };
+        video.addEventListener('ended', endedHandler);
+        video.addEventListener('error', errorHandler);
+        video.src = preview.src;
+        video.dataset.previewSrc = preview.src;
+        video.dataset.previewProvider = 'cloudflare_stream';
+        video.dataset.maxLoopCount = String(preview.maxLoopCount);
+        activeHoverPreview.video = video;
+        activeHoverPreview.endedHandler = endedHandler;
+        activeHoverPreview.errorHandler = errorHandler;
         card.classList.add('video-card--hover-preview-active');
+        recordHoverPreviewStart(item, preview);
         const playPromise = video.play();
         if (playPromise && typeof playPromise.catch === 'function') {
             playPromise.catch(() => {
-                if (activeHoverPreview?.video === video) {
-                    stopActiveHoverPreview(card);
-                }
+                if (activeHoverPreview?.video === video) stopActiveHoverPreview(card);
             });
         }
     }
 
+    function scheduleHoverPreview(card, item, preview, posterUrl = '') {
+        if (!canUseHoverPreview() || !preview?.src) return;
+        if (activeHoverPreview?.card && activeHoverPreview.card !== card) {
+            stopActiveHoverPreview();
+        }
+        if (activeHoverPreview?.card === card) {
+            stopActiveHoverPreview(card);
+        }
+        const timerId = window.setTimeout(() => {
+            startHoverPreview(card, item, preview, posterUrl);
+        }, HOVER_PREVIEW_DELAY_MS);
+        activeHoverPreview = { card, video: null, timerId, endedHandler: null, errorHandler: null };
+    }
+
     function bindHoverPreview(card, item) {
-        const previewSrc = getMemvidHoverPreviewSrc(item);
-        if (!previewSrc) return;
+        const preview = getMemvidHoverPreview(item);
+        if (!preview) return;
         const posterUrl = item?.poster?.url || '';
 
         card.addEventListener('pointerenter', (event) => {
             if (!isMouseHoverPointer(event)) return;
-            startHoverPreview(card, previewSrc, posterUrl);
+            scheduleHoverPreview(card, item, preview, posterUrl);
         });
         card.addEventListener('pointerleave', () => {
             stopActiveHoverPreview(card);

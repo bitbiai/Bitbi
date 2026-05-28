@@ -106,6 +106,18 @@ function requiresTrustedRequestContext(pathname, method) {
   ) {
     return false;
   }
+  if (
+    pathname.startsWith("/api/internal/homepage/hero-videos/") &&
+    String(method || "").toUpperCase() === "POST"
+  ) {
+    return false;
+  }
+  if (
+    pathname.startsWith("/api/internal/memvid-stream-previews/") &&
+    String(method || "").toUpperCase() === "POST"
+  ) {
+    return false;
+  }
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
@@ -236,6 +248,14 @@ export default {
     if (pathname.startsWith("/api/public/news-pulse/thumbs/") && method === "GET") return handlePublicNewsPulseThumb(ctx);
     if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse(ctx);
     if (pathname.startsWith("/api/homepage/hero-videos") && method === "GET") {
+      const result = await handleHomepageHeroVideos(ctx);
+      if (result) return result;
+    }
+    if (pathname.startsWith("/api/internal/homepage/hero-videos/")) {
+      const result = await handleHomepageHeroVideos(ctx);
+      if (result) return result;
+    }
+    if (pathname.startsWith("/api/internal/memvid-stream-previews/")) {
       const result = await handleHomepageHeroVideos(ctx);
       if (result) return result;
     }

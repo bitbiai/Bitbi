@@ -61,7 +61,7 @@ This checklist is for direct deployment from `main`. It is not staging. It is no
 | AI Worker | if `release:plan` reports AI Worker changes or Auth/AI caller-policy pairing |  |
 | Contact Worker | if `release:plan` reports Contact Worker changes |  |
 | Static/pages | if `release:plan` reports static/Admin UI changes |  |
-| Auth schema checkpoint from `config/release-compat.json` (`0060_add_app_settings.sql` currently) | required before dependent Auth Worker code |  |
+| Auth schema checkpoint from `config/release-compat.json` | required before dependent Auth Worker code |  |
 | Stripe dashboard/API change | no, unless separately approved operator canary evidence exists |  |
 | Cloudflare dashboard/settings/secrets change | no, unless separately approved and recorded |  |
 
@@ -85,11 +85,7 @@ Manual `workflow_dispatch` acknowledgement, if used, must be exactly `I_CONFIRM_
 
 ## 5. Required Production D1 Migration Evidence Through Latest Release Contract
 
-Required latest auth migration:
-
-```text
-0060_add_app_settings.sql
-```
+Required latest auth migration: read `release.schemaCheckpoints.auth.latest` from `config/release-compat.json` and confirm the same checkpoint in `npm run release:plan`.
 
 | Check | Evidence | Result |
 | --- | --- | --- |

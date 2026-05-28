@@ -278,6 +278,7 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (ACTIVE_RUNBOOK_POLICY_DOCS.has(normalized)) return "active_runbook_policy";
   if (isOperatorLiveEvidencePackagePath(normalized)) return "historical_phase_report";
   if (normalized.startsWith(".agents/skills/") && normalized.endsWith("/SKILL.md")) return "active_runbook_policy";
+  if (normalized.startsWith("services/") && normalized.endsWith("/README.md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/runbooks/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/ops/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (ACTIVE_DOMAIN_DESIGN_DOCS.has(normalized)) return "active_domain_design";

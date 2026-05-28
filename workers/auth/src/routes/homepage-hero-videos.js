@@ -1,11 +1,15 @@
 import { json } from "../lib/response.js";
 import {
   BODY_LIMITS,
+  isRequestBodyError,
+  readFormDataLimited,
   readJsonBodyOrResponse,
+  requestBodyErrorResponse,
 } from "../lib/request.js";
 import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { buildPublicMediaHeaders } from "../lib/public-media.js";
 import { requireAdmin } from "../lib/session.js";
+import { saveGeneratedVideoAsset } from "../lib/ai-text-assets.js";
 import {
   nowIso,
   randomTokenHex,
@@ -22,6 +26,11 @@ import {
   buildPublicMemvidUrl,
   buildPublicMemvidVersion,
 } from "../../../../js/shared/public-media-contract.mjs";
+import {
+  getMemvidStreamPreviewConfig,
+  normalizeStreamUid,
+  summarizeMemvidStreamPreviews,
+} from "../lib/cloudflare-stream-previews.js";
 
 const HERO_VIDEO_SLOTS = Object.freeze(["right_top", "right_bottom", "left_top", "left_bottom"]);
 const HERO_VIDEO_SLOT_SET = new Set(HERO_VIDEO_SLOTS);
@@ -30,7 +39,15 @@ const MAX_CANDIDATE_LIMIT = 60;
 const MIN_OPERATOR_REASON_LENGTH = 8;
 const MAX_OPERATOR_REASON_LENGTH = 500;
 const HERO_DERIVATIVE_VERSION = "v1";
+const HERO_SOURCE_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const HERO_DERIVATIVE_VIDEO_MIME_TYPES = new Set(["video/mp4"]);
+const HERO_DERIVATIVE_POSTER_MIME_TYPES = new Set(["image/webp"]);
+const HERO_PROCESSOR_SECRET_HEADERS = Object.freeze([
+  "HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET",
+  "HOMEPAGE_HERO_PROCESSOR_SECRET",
+]);
 const TARGET_PRESET = Object.freeze({
+  name: "hero_desktop_mp4_720p_v1",
   container: "mp4",
   videoCodec: "h264",
   audio: "removed",
@@ -41,6 +58,23 @@ const TARGET_PRESET = Object.freeze({
   faststart: true,
   idealSizeBytes: [1_000_000, 3_000_000],
 });
+
+function featureFlagEnabled(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
+}
+
+function isHeroExternalFfmpegEnabled(env) {
+  return featureFlagEnabled(env?.ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG);
+}
+
+function isHeroManualUploadsEnabled(env) {
+  return featureFlagEnabled(env?.ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS);
+}
+
+function isMemvidStreamPreviewsEnabled(env) {
+  return featureFlagEnabled(env?.ENABLE_MEMVID_STREAM_PREVIEWS);
+}
 
 function stableJson(value) {
   if (Array.isArray(value)) {
@@ -75,6 +109,40 @@ function normalizeProvider(env, value) {
   return "external_ffmpeg";
 }
 
+function normalizeVideoMimeType(value) {
+  const mimeType = String(value || "").split(";")[0].trim().toLowerCase();
+  return HERO_SOURCE_VIDEO_MIME_TYPES.has(mimeType) ? mimeType : null;
+}
+
+function normalizeDerivativeVideoMimeType(value) {
+  const mimeType = String(value || "").split(";")[0].trim().toLowerCase();
+  return HERO_DERIVATIVE_VIDEO_MIME_TYPES.has(mimeType) ? mimeType : null;
+}
+
+function normalizeDerivativePosterMimeType(value) {
+  const mimeType = String(value || "").split(";")[0].trim().toLowerCase();
+  return HERO_DERIVATIVE_POSTER_MIME_TYPES.has(mimeType) ? mimeType : null;
+}
+
+function sanitizeHeroFileName(value, fallback = "homepage-hero-source.mp4") {
+  const cleaned = String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[\\/]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 140);
+  return cleaned || fallback;
+}
+
+function sanitizeShortText(value, fallback = "") {
+  const cleaned = String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 140);
+  return cleaned || fallback;
+}
+
 function normalizeOperatorReason(value) {
   const reason = String(value || "").replace(/\s+/g, " ").trim();
   if (reason.length < MIN_OPERATOR_REASON_LENGTH) return null;
@@ -85,6 +153,62 @@ function normalizeAssetId(value) {
   const id = String(value || "").trim();
   if (!/^[A-Za-z0-9._:-]{3,160}$/.test(id)) return null;
   return id;
+}
+
+function normalizeDerivativeJobId(value) {
+  const id = String(value || "").trim();
+  if (!/^hhvd_[A-Fa-f0-9]{16,64}$/.test(id)) return null;
+  return id;
+}
+
+function getProcessorSecret(env) {
+  for (const name of HERO_PROCESSOR_SECRET_HEADERS) {
+    const value = String(env?.[name] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function processorAuthResponse(ctx) {
+  const expected = getProcessorSecret(ctx.env);
+  if (!isHeroExternalFfmpegEnabled(ctx.env) || !expected) {
+    return json(
+      {
+        ok: false,
+        error: "Homepage hero external_ffmpeg processor is not configured.",
+        code: "processor_not_configured",
+      },
+      { status: 503 }
+    );
+  }
+  const auth = String(ctx.request.headers.get("Authorization") || "").trim();
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const explicit = String(ctx.request.headers.get("X-BITBI-Processor-Secret") || "").trim();
+  if (bearer !== expected && explicit !== expected) {
+    return json({ ok: false, error: "Forbidden", code: "processor_auth_failed" }, { status: 403 });
+  }
+  return null;
+}
+
+function memvidStreamProcessorAuthResponse(ctx) {
+  const expected = String(ctx.env?.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET || getProcessorSecret(ctx.env) || "").trim();
+  if (!isMemvidStreamPreviewsEnabled(ctx.env) || !expected) {
+    return json(
+      {
+        ok: false,
+        error: "Memvid Stream preview processor is not configured.",
+        code: "stream_preview_processor_not_configured",
+      },
+      { status: 503 }
+    );
+  }
+  const auth = String(ctx.request.headers.get("Authorization") || "").trim();
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const explicit = String(ctx.request.headers.get("X-BITBI-Processor-Secret") || "").trim();
+  if (bearer !== expected && explicit !== expected) {
+    return json({ ok: false, error: "Forbidden", code: "processor_auth_failed" }, { status: 403 });
+  }
+  return null;
 }
 
 function normalizeCandidateLimit(value) {
@@ -144,8 +268,12 @@ function serializeDerivative(row) {
     poster_size_bytes: row.poster_size_bytes ?? null,
     original_size_bytes: row.original_size_bytes ?? null,
     original_mime_type: row.original_mime_type || null,
+    source_fingerprint: row.source_fingerprint || null,
     target_preset: parseJson(row.target_preset_json) || TARGET_PRESET,
+    error_code: row.error_code || null,
     error_message: row.error_message || null,
+    processing_started_at: row.processing_started_at || null,
+    processing_completed_at: row.processing_completed_at || null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     completed_at: row.completed_at || null,
@@ -185,8 +313,12 @@ function serializeAdminSlot(row) {
       poster_size_bytes: row.derivative_poster_size_bytes,
       original_size_bytes: row.derivative_original_size_bytes,
       original_mime_type: row.derivative_original_mime_type,
+      source_fingerprint: row.derivative_source_fingerprint,
       target_preset_json: row.derivative_target_preset_json,
+      error_code: row.derivative_error_code,
       error_message: row.derivative_error_message,
+      processing_started_at: row.derivative_processing_started_at,
+      processing_completed_at: row.derivative_processing_completed_at,
       created_at: row.derivative_created_at,
       updated_at: row.derivative_updated_at,
       completed_at: row.derivative_completed_at,
@@ -274,6 +406,55 @@ function toAdminAssetCandidate(row, adminUserId) {
   };
 }
 
+function clampInteger(value, { fallback = null, min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function clampNumber(value, { fallback = null, min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function sanitizeErrorCode(value) {
+  const code = String(value || "").trim().toLowerCase().replace(/[^a-z0-9_.-]/g, "_").slice(0, 80);
+  return code || "processor_failed";
+}
+
+function sanitizeErrorMessage(value) {
+  return String(value || "Hero video processor failed.")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240) || "Hero video processor failed.";
+}
+
+function serializeProcessorJob(row) {
+  return {
+    id: row.id,
+    slot: row.slot,
+    source_type: row.source_type,
+    source_asset_id: row.source_asset_id,
+    source_title: row.source_title || null,
+    status: row.status,
+    source: {
+      url: `/api/internal/homepage/hero-videos/jobs/${encodeURIComponent(row.id)}/source`,
+      mime_type: row.original_mime_type || "video/mp4",
+      size_bytes: row.original_size_bytes ?? null,
+      fingerprint: row.source_fingerprint || null,
+    },
+    preset: parseJson(row.target_preset_json) || TARGET_PRESET,
+    completion: {
+      url: `/api/internal/homepage/hero-videos/jobs/${encodeURIComponent(row.id)}/complete`,
+      failure_url: `/api/internal/homepage/hero-videos/jobs/${encodeURIComponent(row.id)}/fail`,
+    },
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 async function listAdminSlots(env) {
   const rows = await env.DB.prepare(
     `SELECT slots.slot,
@@ -305,8 +486,12 @@ async function listAdminSlots(env) {
             derivatives.poster_size_bytes AS derivative_poster_size_bytes,
             derivatives.original_size_bytes AS derivative_original_size_bytes,
             derivatives.original_mime_type AS derivative_original_mime_type,
+            derivatives.source_fingerprint AS derivative_source_fingerprint,
             derivatives.target_preset_json AS derivative_target_preset_json,
+            derivatives.error_code AS derivative_error_code,
             derivatives.error_message AS derivative_error_message,
+            derivatives.processing_started_at AS derivative_processing_started_at,
+            derivatives.processing_completed_at AS derivative_processing_completed_at,
             derivatives.created_at AS derivative_created_at,
             derivatives.updated_at AS derivative_updated_at,
             derivatives.completed_at AS derivative_completed_at
@@ -337,8 +522,9 @@ async function getDerivativeById(env, derivativeId) {
     `SELECT id, slot, source_type, source_asset_id, source_user_id, source_title,
             provider, status, version, file_mime_type, poster_mime_type, width,
             height, duration_seconds, fps, size_bytes, poster_size_bytes,
-            original_size_bytes, original_mime_type, target_preset_json,
-            error_message, created_at, updated_at, completed_at
+            original_size_bytes, original_mime_type, source_r2_key, source_fingerprint,
+            target_preset_json, provider_payload_json, error_code, error_message,
+            processing_started_at, processing_completed_at, created_at, updated_at, completed_at
      FROM homepage_hero_video_derivatives
      WHERE id = ?`
   ).bind(derivativeId).first();
@@ -349,12 +535,46 @@ async function getDerivativeByIdempotency(env, idempotencyKeyHash) {
     `SELECT id, slot, source_type, source_asset_id, source_user_id, source_title,
             provider, status, version, file_mime_type, poster_mime_type, width,
             height, duration_seconds, fps, size_bytes, poster_size_bytes,
-            original_size_bytes, original_mime_type, target_preset_json,
-            error_message, request_hash, created_at, updated_at, completed_at
+            original_size_bytes, original_mime_type, source_r2_key, source_fingerprint,
+            target_preset_json, provider_payload_json, error_code, error_message,
+            processing_started_at, processing_completed_at, request_hash,
+            created_at, updated_at, completed_at
      FROM homepage_hero_video_derivatives
      WHERE idempotency_key_hash = ?
      LIMIT 1`
   ).bind(idempotencyKeyHash).first();
+}
+
+async function getProcessorDerivativeById(env, derivativeId) {
+  return env.DB.prepare(
+    `SELECT id, slot, source_type, source_asset_id, source_user_id, source_title,
+            provider, status, version, file_r2_key, poster_r2_key,
+            file_mime_type, poster_mime_type, width, height, duration_seconds,
+            fps, size_bytes, poster_size_bytes, original_size_bytes,
+            original_mime_type, source_r2_key, source_fingerprint,
+            target_preset_json, provider_payload_json, error_code, error_message,
+            processing_started_at, processing_completed_at, created_at, updated_at, completed_at
+     FROM homepage_hero_video_derivatives
+     WHERE id = ?
+       AND provider = 'external_ffmpeg'
+     LIMIT 1`
+  ).bind(derivativeId).first();
+}
+
+async function listQueuedProcessorJobs(env, limit) {
+  const rows = await env.DB.prepare(
+    `SELECT id, slot, source_type, source_asset_id, source_user_id, source_title,
+            provider, status, original_size_bytes, original_mime_type,
+            source_r2_key, source_fingerprint, target_preset_json,
+            provider_payload_json, created_at, updated_at
+     FROM homepage_hero_video_derivatives
+     WHERE provider = 'external_ffmpeg'
+       AND status = 'queued'
+       AND source_r2_key IS NOT NULL
+     ORDER BY created_at ASC, id ASC
+     LIMIT ?`
+  ).bind(limit).all();
+  return rows.results || [];
 }
 
 async function getSlotIdempotencyState(env, slot) {
@@ -416,7 +636,7 @@ async function getPublicHeroMediaRow(env, slot, version) {
 async function findSourceAsset(env, sourceType, assetId, adminUserId = null) {
   if (sourceType === "public") {
     return env.DB.prepare(
-      `SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json,
+      `SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key,
               created_at, published_at, poster_r2_key, poster_width, poster_height
        FROM ai_text_assets
        WHERE id = ?
@@ -427,7 +647,7 @@ async function findSourceAsset(env, sourceType, assetId, adminUserId = null) {
   }
 
   return env.DB.prepare(
-    `SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json,
+    `SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key,
             created_at, published_at, poster_r2_key, poster_width, poster_height
      FROM ai_text_assets
      WHERE id = ?
@@ -461,6 +681,129 @@ async function listAdminAssetCandidates(env, adminUserId, limit) {
      LIMIT ?`
   ).bind(adminUserId, limit).all();
   return (rows.results || []).map((row) => toAdminAssetCandidate(row, adminUserId));
+}
+
+async function getHeroUploadByIdempotency(env, idempotencyKeyHash, adminUserId) {
+  return env.DB.prepare(
+    `SELECT uploads.id AS upload_id,
+            uploads.request_hash,
+            assets.id,
+            assets.user_id,
+            assets.title,
+            assets.file_name,
+            assets.mime_type,
+            assets.size_bytes,
+            assets.metadata_json,
+            assets.created_at,
+            assets.published_at,
+            assets.poster_r2_key,
+            assets.poster_width,
+            assets.poster_height
+     FROM homepage_hero_video_uploads uploads
+     JOIN ai_text_assets assets ON assets.id = uploads.asset_id
+     WHERE uploads.idempotency_key_hash = ?
+       AND uploads.user_id = ?
+     LIMIT 1`
+  ).bind(idempotencyKeyHash, adminUserId).first();
+}
+
+async function insertHeroUploadRecord(env, {
+  uploadId,
+  asset,
+  adminUserId,
+  originalFileName,
+  idempotencyKeyHash,
+  requestHash,
+  operatorReason,
+}) {
+  await env.DB.prepare(
+    `INSERT INTO homepage_hero_video_uploads (
+       id, asset_id, user_id, title, original_file_name, mime_type, size_bytes,
+       r2_key, idempotency_key_hash, request_hash, operator_reason,
+       created_by_user_id, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    uploadId,
+    asset.id,
+    adminUserId,
+    asset.title || null,
+    originalFileName,
+    asset.mime_type || "video/mp4",
+    Number(asset.size_bytes || 0) || 0,
+    asset.r2_key || null,
+    idempotencyKeyHash,
+    requestHash,
+    operatorReason,
+    adminUserId,
+    asset.created_at || nowIso()
+  ).run();
+}
+
+async function getMemvidStreamPreviewSummary(env) {
+  try {
+    const [previewRows, eventRows] = await Promise.all([
+      env.DB.prepare(
+        `SELECT status,
+                preview_duration_seconds,
+                max_loop_count
+         FROM memvid_stream_previews`
+      ).all(),
+      env.DB.prepare(
+        `SELECT event_count,
+                estimated_delivered_seconds
+         FROM memvid_stream_preview_events
+         WHERE event_type = 'hover_start'`
+      ).all(),
+    ]);
+    return summarizeMemvidStreamPreviews(previewRows.results || [], eventRows.results || [], env);
+  } catch (error) {
+    if (String(error?.message || error).includes("no such table")
+      && String(error?.message || error).includes("memvid_stream_preview")) {
+      return summarizeMemvidStreamPreviews([], [], env);
+    }
+    throw error;
+  }
+}
+
+async function listMemvidsNeedingStreamPreview(env, limit) {
+  const rows = await env.DB.prepare(
+    `SELECT assets.id,
+            assets.user_id,
+            assets.r2_key,
+            assets.mime_type,
+            assets.size_bytes,
+            assets.title,
+            assets.created_at,
+            assets.published_at
+     FROM ai_text_assets assets
+     LEFT JOIN memvid_stream_previews ready
+       ON ready.asset_id = assets.id
+      AND ready.status IN ('queued', 'uploading', 'processing', 'ready')
+     WHERE assets.visibility = 'public'
+       AND assets.source_module = 'video'
+       AND assets.r2_key IS NOT NULL
+       AND ready.id IS NULL
+     ORDER BY COALESCE(assets.published_at, assets.created_at) DESC, assets.created_at DESC, assets.id DESC
+     LIMIT ?`
+  ).bind(limit).all();
+  return rows.results || [];
+}
+
+async function buildMemvidPreviewFingerprint(env, asset) {
+  const config = getMemvidStreamPreviewConfig(env);
+  return sha256Hex(stableJson({
+    assetId: asset.id,
+    userId: asset.user_id,
+    sourceR2Key: asset.r2_key,
+    sourceSizeBytes: Number(asset.size_bytes || 0) || 0,
+    sourceMimeType: asset.mime_type || null,
+    preset: {
+      provider: "cloudflare_stream",
+      maxDurationSeconds: config.previewDurationSeconds,
+      maxLoopCount: config.maxLoopCount,
+      shortPreviewOnly: true,
+    },
+  }));
 }
 
 async function enforceAdminHeroActionRateLimit(ctx) {
@@ -504,6 +847,17 @@ async function auditHomepageHeroVideoEvent(ctx, adminUser, action, meta = {}) {
   );
 }
 
+async function buildSourceFingerprint({ sourceType, source }) {
+  return sha256Hex(stableJson({
+    sourceType,
+    assetId: source?.id || null,
+    r2Key: source?.r2_key || null,
+    mimeType: source?.mime_type || null,
+    sizeBytes: Number(source?.size_bytes || 0) || 0,
+    preset: TARGET_PRESET,
+  }));
+}
+
 async function insertDerivativeJob(env, {
   derivativeId,
   slot,
@@ -518,13 +872,15 @@ async function insertDerivativeJob(env, {
   providerPayload,
 }) {
   const now = nowIso();
+  const sourceFingerprint = await buildSourceFingerprint({ sourceType, source });
   await env.DB.prepare(
     `INSERT INTO homepage_hero_video_derivatives (
        id, slot, source_type, source_asset_id, source_user_id, source_title,
-       provider, status, original_size_bytes, original_mime_type,
+       provider, status, source_r2_key, source_fingerprint,
+       original_size_bytes, original_mime_type,
        target_preset_json, provider_payload_json, idempotency_key_hash,
        request_hash, created_by_user_id, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     derivativeId,
     slot,
@@ -534,6 +890,8 @@ async function insertDerivativeJob(env, {
     source.title || source.file_name || null,
     provider,
     status,
+    source.r2_key || null,
+    sourceFingerprint,
     Number(source.size_bytes || 0) || null,
     source.mime_type || "video/mp4",
     JSON.stringify(TARGET_PRESET),
@@ -608,9 +966,13 @@ function conversionProviderPayload(provider) {
   }
   return {
     provider: "external_ffmpeg",
-    mode: "adapter-placeholder",
+    mode: "external_processor",
     preset: TARGET_PRESET,
     expectedOutput: "mp4/h264/no-audio",
+    jobClaimEndpoint: "/api/internal/homepage/hero-videos/jobs/claim",
+    sourceEndpointTemplate: "/api/internal/homepage/hero-videos/jobs/{id}/source",
+    completionEndpointTemplate: "/api/internal/homepage/hero-videos/jobs/{id}/complete",
+    failureEndpointTemplate: "/api/internal/homepage/hero-videos/jobs/{id}/fail",
   };
 }
 
@@ -620,13 +982,19 @@ async function handleAdminCurrent(ctx) {
   if (result instanceof Response) return result;
 
   try {
-    const slots = await listAdminSlots(env);
+    const [slots, streamPreviewSummary] = await Promise.all([
+      listAdminSlots(env),
+      getMemvidStreamPreviewSummary(env),
+    ]);
     return json({
       ok: true,
       data: {
         slots,
         slot_order: HERO_VIDEO_SLOTS,
         target_preset: TARGET_PRESET,
+        manual_uploads_enabled: isHeroManualUploadsEnabled(env),
+        external_ffmpeg_enabled: isHeroExternalFfmpegEnabled(env),
+        stream_preview_summary: streamPreviewSummary,
       },
     });
   } catch (error) {
@@ -680,6 +1048,257 @@ async function handleAdminCandidates(ctx) {
   }
 }
 
+async function handleAdminUploadSource(ctx) {
+  const { request, env, isSecure, correlationId } = ctx;
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
+  if (result instanceof Response) return result;
+
+  const limited = await enforceAdminHeroActionRateLimit(ctx);
+  if (limited) return limited;
+
+  if (!isHeroManualUploadsEnabled(env)) {
+    return json(
+      {
+        ok: false,
+        error: "Homepage hero manual uploads are disabled.",
+        code: "manual_uploads_disabled",
+      },
+      { status: 503 }
+    );
+  }
+
+  const idempotency = idempotencyKeyOrResponse(request, "Idempotency-Key is required for homepage hero video uploads.");
+  if (idempotency.response) return idempotency.response;
+
+  let formData;
+  try {
+    formData = await readFormDataLimited(request, { maxBytes: BODY_LIMITS.homepageHeroVideoUpload });
+  } catch (error) {
+    if (isRequestBodyError(error)) return requestBodyErrorResponse(error);
+    throw error;
+  }
+
+  const operatorReason = normalizeOperatorReason(
+    formData.get("operator_reason")
+      || formData.get("operatorReason")
+      || formData.get("reason")
+  );
+  if (!operatorReason) {
+    return json(
+      {
+        ok: false,
+        error: "operator_reason must be at least 8 characters.",
+        code: "operator_reason_required",
+      },
+      { status: 400 }
+    );
+  }
+
+  const file = formData.get("video") || formData.get("file");
+  if (!file || typeof file.arrayBuffer !== "function") {
+    return json({ ok: false, error: "A video file is required.", code: "video_file_required" }, { status: 400 });
+  }
+
+  const originalFileName = sanitizeHeroFileName(file.name || "homepage-hero-source.mp4");
+  const mimeType = normalizeVideoMimeType(file.type);
+  if (!mimeType) {
+    return json({ ok: false, error: "Unsupported hero source video type.", code: "unsupported_video_type" }, { status: 415 });
+  }
+  const sizeBytes = Number(file.size || 0);
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return json({ ok: false, error: "Uploaded video is empty.", code: "empty_video_file" }, { status: 400 });
+  }
+  if (sizeBytes > BODY_LIMITS.homepageHeroVideoUpload) {
+    return json({ ok: false, error: "Uploaded video is too large.", code: "payload_too_large" }, { status: 413 });
+  }
+
+  const title = sanitizeShortText(formData.get("title"), originalFileName.replace(/\.[^.]+$/, ""));
+  const requestHash = await sha256Hex(stableJson({
+    route: "/api/admin/homepage/hero-videos/uploads",
+    title,
+    originalFileName,
+    mimeType,
+    sizeBytes,
+    operatorReason,
+  }));
+  const idempotencyKeyHash = await sha256Hex(idempotency.key);
+
+  try {
+    const existing = await getHeroUploadByIdempotency(env, idempotencyKeyHash, result.user.id);
+    if (existing) {
+      if (existing.request_hash && existing.request_hash !== requestHash) {
+        return json(
+          {
+            ok: false,
+            error: "Idempotency-Key was already used for a different homepage hero video upload.",
+            code: "idempotency_key_conflict",
+          },
+          { status: 409 }
+        );
+      }
+      return json({
+        ok: true,
+        existing: true,
+        data: {
+          candidate: toAdminAssetCandidate(existing, result.user.id),
+        },
+      });
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const saved = await saveGeneratedVideoAsset(env, {
+      userId: result.user.id,
+      title,
+      videoBytes: bytes,
+      mimeType,
+      payload: {
+        prompt: "Homepage hero manual source upload",
+        source: "admin_homepage_hero_videos",
+        original_file_name: originalFileName,
+        operator_reason_present: true,
+      },
+    });
+    const asset = await findSourceAsset(env, "admin_asset", saved.id, result.user.id);
+    if (!asset?.r2_key) {
+      return json({ ok: false, error: "Uploaded hero video source could not be recorded.", code: "upload_record_failed" }, { status: 500 });
+    }
+
+    await insertHeroUploadRecord(env, {
+      uploadId: `hhvu_${randomTokenHex(16)}`,
+      asset,
+      adminUserId: result.user.id,
+      originalFileName,
+      idempotencyKeyHash,
+      requestHash,
+      operatorReason,
+    });
+
+    await auditHomepageHeroVideoEvent(ctx, result.user, "homepage_hero_video_source_uploaded", {
+      source_type: "admin_asset",
+      source_asset_id: asset.id,
+      size_bytes: Number(asset.size_bytes || 0) || null,
+      mime_type: asset.mime_type || null,
+      operator_reason_present: true,
+      idempotency_key_hash_present: true,
+    });
+
+    return json({
+      ok: true,
+      existing: false,
+      data: {
+        candidate: toAdminAssetCandidate(asset, result.user.id),
+      },
+    }, { status: 201 });
+  } catch (error) {
+    if (isMissingHomepageHeroTableError(error)) {
+      return json(
+        {
+          ok: false,
+          error: "Homepage hero video upload migration is not applied.",
+          code: "homepage_hero_video_schema_missing",
+        },
+        { status: 503 }
+      );
+    }
+    throw error;
+  }
+}
+
+async function handleAdminMemvidStreamPreviewBackfill(ctx) {
+  const { request, env, isSecure, correlationId } = ctx;
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
+  if (result instanceof Response) return result;
+
+  const limited = await enforceAdminHeroActionRateLimit(ctx);
+  if (limited) return limited;
+
+  if (!isMemvidStreamPreviewsEnabled(env)) {
+    return json({ ok: false, error: "Memvid Stream previews are disabled.", code: "stream_previews_disabled" }, { status: 503 });
+  }
+  const idempotency = idempotencyKeyOrResponse(request, "Idempotency-Key is required for Memvid Stream preview backfill.");
+  if (idempotency.response) return idempotency.response;
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const operatorReason = normalizeOperatorReason(body.operator_reason || body.operatorReason || body.reason);
+  if (!operatorReason) {
+    return json({ ok: false, error: "operator_reason must be at least 8 characters.", code: "operator_reason_required" }, { status: 400 });
+  }
+  const limit = clampInteger(body.limit, { fallback: 10, min: 1, max: 50 });
+  const requestHash = await sha256Hex(stableJson({
+    route: "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill",
+    limit,
+    operatorReason,
+  }));
+  const idempotencyKeyHash = await sha256Hex(idempotency.key);
+  const existing = await env.DB.prepare(
+    `SELECT id, request_hash, queued_count
+     FROM memvid_stream_preview_backfill_requests
+     WHERE idempotency_key_hash = ?
+     LIMIT 1`
+  ).bind(idempotencyKeyHash).first();
+  if (existing) {
+    if (existing.request_hash && existing.request_hash !== requestHash) {
+      return json({ ok: false, error: "Idempotency-Key was already used for a different Memvid Stream preview backfill.", code: "idempotency_key_conflict" }, { status: 409 });
+    }
+    return json({ ok: true, existing: true, data: { queued_count: Number(existing.queued_count || 0) } });
+  }
+  const config = getMemvidStreamPreviewConfig(env);
+  const rows = await listMemvidsNeedingStreamPreview(env, limit);
+  const now = nowIso();
+  const created = [];
+  for (const asset of rows) {
+    const id = `msp_${randomTokenHex(16)}`;
+    const fingerprint = await buildMemvidPreviewFingerprint(env, asset);
+    await env.DB.prepare(
+      `INSERT INTO memvid_stream_previews (
+         id, asset_id, user_id, source_r2_key, source_fingerprint, stream_uid,
+         status, preview_duration_seconds, max_loop_count, created_at, updated_at,
+         completed_at, error_code, error_message, provider_metadata_json
+       ) VALUES (?, ?, ?, ?, ?, NULL, 'queued', ?, ?, ?, ?, NULL, NULL, NULL, ?)`
+    ).bind(
+      id,
+      asset.id,
+      asset.user_id,
+      asset.r2_key,
+      fingerprint,
+      config.previewDurationSeconds,
+      config.maxLoopCount,
+      now,
+      now,
+      JSON.stringify({
+        provider: "cloudflare_stream",
+        source_title: asset.title || null,
+        operator_reason_present: true,
+      })
+    ).run();
+    created.push({ id, asset_id: asset.id, status: "queued" });
+  }
+  await env.DB.prepare(
+    `INSERT INTO memvid_stream_preview_backfill_requests (
+       id, idempotency_key_hash, request_hash, queued_count,
+       operator_user_id, operator_reason, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    `msp_bfr_${randomTokenHex(16)}`,
+    idempotencyKeyHash,
+    requestHash,
+    created.length,
+    result.user.id,
+    operatorReason,
+    now
+  ).run();
+
+  await auditHomepageHeroVideoEvent(ctx, result.user, "memvid_stream_preview_backfill_queued", {
+    queued_count: created.length,
+    requested_limit: limit,
+    operator_reason_present: true,
+    idempotency_key_hash_present: true,
+  });
+
+  return json({ ok: true, data: { queued: created, queued_count: created.length } }, { status: 202 });
+}
+
 async function handleCreateDerivative(ctx) {
   const { request, env, isSecure, correlationId } = ctx;
   const result = await requireAdmin(request, env, { isSecure, correlationId });
@@ -711,6 +1330,16 @@ async function handleCreateDerivative(ctx) {
         code: "operator_reason_required",
       },
       { status: 400 }
+    );
+  }
+  if (provider === "external_ffmpeg" && (!isHeroExternalFfmpegEnabled(env) || !getProcessorSecret(env))) {
+    return json(
+      {
+        ok: false,
+        error: "external_ffmpeg hero processing is disabled or missing its processor secret.",
+        code: "external_ffmpeg_not_configured",
+      },
+      { status: 503 }
     );
   }
 
@@ -749,6 +1378,9 @@ async function handleCreateDerivative(ctx) {
     const source = await findSourceAsset(env, sourceType, sourceAssetId, result.user.id);
     if (!source) {
       return json({ ok: false, error: "Source video asset was not found.", code: "source_video_not_found" }, { status: 404 });
+    }
+    if (!source.r2_key) {
+      return json({ ok: false, error: "Source video storage pointer is missing.", code: "source_video_unavailable" }, { status: 409 });
     }
 
     const derivativeId = `hhvd_${randomTokenHex(16)}`;
@@ -956,6 +1588,486 @@ async function handleUpdateSlot(ctx, slotFromPath) {
   }
 }
 
+async function handleRetryDerivative(ctx, derivativeIdFromPath) {
+  const { request, env, isSecure, correlationId } = ctx;
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
+  if (result instanceof Response) return result;
+
+  const limited = await enforceAdminHeroActionRateLimit(ctx);
+  if (limited) return limited;
+
+  const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
+  if (!derivativeId) return json({ ok: false, error: "Invalid derivative id.", code: "invalid_derivative_id" }, { status: 400 });
+
+  const idempotency = idempotencyKeyOrResponse(request, "Idempotency-Key is required for homepage hero video derivative retries.");
+  if (idempotency.response) return idempotency.response;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const operatorReason = normalizeOperatorReason(body.operator_reason || body.operatorReason || body.reason);
+  if (!operatorReason) {
+    return json(
+      {
+        ok: false,
+        error: "operator_reason must be at least 8 characters.",
+        code: "operator_reason_required",
+      },
+      { status: 400 }
+    );
+  }
+  if (!isHeroExternalFfmpegEnabled(env) || !getProcessorSecret(env)) {
+    return json(
+      {
+        ok: false,
+        error: "external_ffmpeg hero processing is disabled or missing its processor secret.",
+        code: "external_ffmpeg_not_configured",
+      },
+      { status: 503 }
+    );
+  }
+
+  const derivative = await getProcessorDerivativeById(env, derivativeId);
+  if (!derivative) return json({ ok: false, error: "Derivative job not found.", code: "derivative_not_found" }, { status: 404 });
+  if (!["failed", "queued"].includes(derivative.status)) {
+    return json({ ok: false, error: "Only failed or queued external_ffmpeg derivatives can be retried.", code: "derivative_not_retryable" }, { status: 409 });
+  }
+
+  const now = nowIso();
+  await env.DB.prepare(
+    `UPDATE homepage_hero_video_derivatives
+     SET status = 'queued',
+         error_code = NULL,
+         error_message = NULL,
+         processing_started_at = NULL,
+         processing_completed_at = NULL,
+         updated_at = ?
+     WHERE id = ?
+       AND provider = 'external_ffmpeg'`
+  ).bind(now, derivativeId).run();
+
+  await auditHomepageHeroVideoEvent(ctx, result.user, "homepage_hero_video_derivative_retry_requested", {
+    derivative_id: derivativeId,
+    slot: derivative.slot,
+    operator_reason_present: true,
+    idempotency_key_hash_present: true,
+  });
+
+  return json({
+    ok: true,
+    data: {
+      derivative: serializeDerivative(await getDerivativeById(env, derivativeId)),
+    },
+  });
+}
+
+async function handleProcessorClaimJobs(ctx) {
+  const authResponse = processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.homepageHeroProcessorJson,
+    requiredContentType: false,
+  });
+  if (parsed.response) return parsed.response;
+  const limit = clampInteger(parsed.body?.limit, { fallback: 1, min: 1, max: 4 });
+
+  const rows = await listQueuedProcessorJobs(ctx.env, limit);
+  const now = nowIso();
+  for (const row of rows) {
+    await ctx.env.DB.prepare(
+      `UPDATE homepage_hero_video_derivatives
+       SET status = 'processing',
+           processing_started_at = COALESCE(processing_started_at, ?),
+           updated_at = ?
+       WHERE id = ?
+         AND provider = 'external_ffmpeg'
+         AND status = 'queued'`
+    ).bind(now, now, row.id).run();
+    row.status = "processing";
+    row.updated_at = now;
+  }
+
+  return json(
+    {
+      ok: true,
+      data: {
+        jobs: rows.map(serializeProcessorJob),
+      },
+    },
+    {
+      headers: { "Cache-Control": "no-store" },
+    }
+  );
+}
+
+async function handleProcessorSource(ctx, derivativeIdFromPath) {
+  const authResponse = processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
+  if (!derivativeId) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  const derivative = await getProcessorDerivativeById(ctx.env, derivativeId);
+  if (!derivative?.source_r2_key || !["queued", "processing"].includes(derivative.status)) {
+    return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  }
+
+  const object = await ctx.env.USER_IMAGES.get(derivative.source_r2_key);
+  if (!object) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+
+  const headers = buildPublicMediaHeaders(
+    derivative.original_mime_type || object.httpMetadata?.contentType || "video/mp4",
+    object.size,
+    { immutable: false }
+  );
+  headers.set("Cache-Control", "no-store");
+  headers.set("Content-Disposition", "attachment; filename=\"homepage-hero-source.mp4\"");
+  return new Response(object.body, { headers });
+}
+
+async function handleProcessorComplete(ctx, derivativeIdFromPath) {
+  const authResponse = processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
+  if (!derivativeId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  const derivative = await getProcessorDerivativeById(ctx.env, derivativeId);
+  if (!derivative) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  if (derivative.status === "succeeded") {
+    return json({ ok: true, existing: true, data: { derivative: serializeDerivative(derivative) } });
+  }
+  if (!["queued", "processing", "failed"].includes(derivative.status)) {
+    return json({ ok: false, error: "Job cannot be completed from its current state.", code: "job_not_completable" }, { status: 409 });
+  }
+
+  let formData;
+  try {
+    formData = await readFormDataLimited(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorUpload });
+  } catch (error) {
+    if (isRequestBodyError(error)) return requestBodyErrorResponse(error);
+    throw error;
+  }
+
+  const file = formData.get("file") || formData.get("video");
+  const poster = formData.get("poster");
+  if (!file || typeof file.arrayBuffer !== "function" || !poster || typeof poster.arrayBuffer !== "function") {
+    return json({ ok: false, error: "Derivative file and poster are required.", code: "derivative_files_required" }, { status: 400 });
+  }
+
+  const fileMimeType = normalizeDerivativeVideoMimeType(file.type);
+  const posterMimeType = normalizeDerivativePosterMimeType(poster.type);
+  if (!fileMimeType || !posterMimeType) {
+    return json({ ok: false, error: "Derivative outputs must be MP4 video and WebP poster files.", code: "unsupported_derivative_type" }, { status: 415 });
+  }
+  if (Number(file.size || 0) <= 0 || Number(file.size || 0) > 8 * 1024 * 1024) {
+    return json({ ok: false, error: "Derivative video size is outside the allowed range.", code: "invalid_derivative_size" }, { status: 400 });
+  }
+  if (Number(poster.size || 0) <= 0 || Number(poster.size || 0) > 2 * 1024 * 1024) {
+    return json({ ok: false, error: "Derivative poster size is outside the allowed range.", code: "invalid_poster_size" }, { status: 400 });
+  }
+
+  const version = buildHomepageHeroVersion(derivativeId);
+  const fileKey = `homepage/hero-videos/${derivative.slot}/${version}/hero.mp4`;
+  const posterKey = `homepage/hero-videos/${derivative.slot}/${version}/poster.webp`;
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  const posterBytes = new Uint8Array(await poster.arrayBuffer());
+
+  await ctx.env.USER_IMAGES.put(fileKey, fileBytes, {
+    httpMetadata: { contentType: "video/mp4", contentDisposition: "inline; filename=\"hero.mp4\"" },
+  });
+  await ctx.env.USER_IMAGES.put(posterKey, posterBytes, {
+    httpMetadata: { contentType: "image/webp", contentDisposition: "inline; filename=\"poster.webp\"" },
+  });
+
+  const metadata = {
+    provider: "external_ffmpeg",
+    optimized: true,
+    audio_removed: true,
+    preset: TARGET_PRESET,
+    processor_metadata: parseJson(formData.get("metadata_json")) || {},
+    source_fingerprint: sanitizeShortText(formData.get("source_fingerprint"), derivative.source_fingerprint || ""),
+  };
+  const width = clampInteger(formData.get("width"), { fallback: null, min: 1, max: 4096 });
+  const height = clampInteger(formData.get("height"), { fallback: null, min: 1, max: 4096 });
+  const durationSeconds = clampNumber(formData.get("duration_seconds"), { fallback: TARGET_PRESET.targetDurationSeconds, min: 0.1, max: TARGET_PRESET.maxDurationSeconds });
+  const fps = clampNumber(formData.get("fps"), { fallback: 24, min: 1, max: 60 });
+  const now = nowIso();
+
+  await ctx.env.DB.prepare(
+    `UPDATE homepage_hero_video_derivatives
+     SET status = 'succeeded',
+         version = ?,
+         file_r2_key = ?,
+         poster_r2_key = ?,
+         file_mime_type = 'video/mp4',
+         poster_mime_type = 'image/webp',
+         width = ?,
+         height = ?,
+         duration_seconds = ?,
+         fps = ?,
+         size_bytes = ?,
+         poster_size_bytes = ?,
+         source_fingerprint = COALESCE(?, source_fingerprint),
+         provider_payload_json = ?,
+         error_code = NULL,
+         error_message = NULL,
+         processing_completed_at = ?,
+         updated_at = ?,
+         completed_at = ?
+     WHERE id = ?
+       AND provider = 'external_ffmpeg'`
+  ).bind(
+    version,
+    fileKey,
+    posterKey,
+    width,
+    height,
+    durationSeconds,
+    fps,
+    fileBytes.byteLength,
+    posterBytes.byteLength,
+    metadata.source_fingerprint || null,
+    JSON.stringify(metadata),
+    now,
+    now,
+    now,
+    derivativeId
+  ).run();
+
+  return json({
+    ok: true,
+    existing: false,
+    data: {
+      derivative: serializeDerivative(await getDerivativeById(ctx.env, derivativeId)),
+    },
+  });
+}
+
+async function handleProcessorFail(ctx, derivativeIdFromPath) {
+  const authResponse = processorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+
+  const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
+  if (!derivativeId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const now = nowIso();
+  await ctx.env.DB.prepare(
+    `UPDATE homepage_hero_video_derivatives
+     SET status = 'failed',
+         error_code = ?,
+         error_message = ?,
+         processing_completed_at = ?,
+         updated_at = ?
+     WHERE id = ?
+       AND provider = 'external_ffmpeg'
+       AND status IN ('queued', 'processing', 'failed')`
+  ).bind(
+    sanitizeErrorCode(body.error_code || body.code),
+    sanitizeErrorMessage(body.error_message || body.message),
+    now,
+    now,
+    derivativeId
+  ).run();
+
+  return json({
+    ok: true,
+    data: {
+      derivative: serializeDerivative(await getDerivativeById(ctx.env, derivativeId)),
+    },
+  });
+}
+
+async function listQueuedMemvidStreamPreviewJobs(env, limit) {
+  const rows = await env.DB.prepare(
+    `SELECT previews.id,
+            previews.asset_id,
+            previews.user_id,
+            previews.source_r2_key,
+            previews.source_fingerprint,
+            previews.status,
+            previews.preview_duration_seconds,
+            previews.max_loop_count,
+            assets.title,
+            assets.mime_type,
+            assets.size_bytes
+     FROM memvid_stream_previews previews
+     JOIN ai_text_assets assets ON assets.id = previews.asset_id
+     WHERE previews.status = 'queued'
+       AND assets.visibility = 'public'
+       AND assets.source_module = 'video'
+     ORDER BY previews.created_at ASC, previews.id ASC
+     LIMIT ?`
+  ).bind(limit).all();
+  return rows.results || [];
+}
+
+function serializeMemvidStreamPreviewJob(row) {
+  return {
+    id: row.id,
+    asset_id: row.asset_id,
+    source: {
+      url: `/api/internal/memvid-stream-previews/jobs/${encodeURIComponent(row.id)}/source`,
+      mime_type: row.mime_type || "video/mp4",
+      size_bytes: row.size_bytes ?? null,
+      fingerprint: row.source_fingerprint || null,
+    },
+    preset: {
+      provider: "cloudflare_stream",
+      maxDurationSeconds: row.preview_duration_seconds ?? getMemvidStreamPreviewConfig({}).previewDurationSeconds,
+      maxLoopCount: row.max_loop_count ?? getMemvidStreamPreviewConfig({}).maxLoopCount,
+      shortPreviewOnly: true,
+    },
+    completion: {
+      url: `/api/internal/memvid-stream-previews/jobs/${encodeURIComponent(row.id)}/complete`,
+      failure_url: `/api/internal/memvid-stream-previews/jobs/${encodeURIComponent(row.id)}/fail`,
+    },
+  };
+}
+
+async function getMemvidStreamPreviewJob(env, jobId) {
+  return env.DB.prepare(
+    `SELECT previews.id,
+            previews.asset_id,
+            previews.user_id,
+            previews.source_r2_key,
+            previews.source_fingerprint,
+            previews.stream_uid,
+            previews.status,
+            previews.preview_duration_seconds,
+            previews.max_loop_count,
+            previews.provider_metadata_json,
+            assets.visibility,
+            assets.source_module,
+            assets.mime_type,
+            assets.size_bytes
+     FROM memvid_stream_previews previews
+     JOIN ai_text_assets assets ON assets.id = previews.asset_id
+     WHERE previews.id = ?
+     LIMIT 1`
+  ).bind(jobId).first();
+}
+
+async function handleMemvidStreamPreviewClaimJobs(ctx) {
+  const authResponse = memvidStreamProcessorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.homepageHeroProcessorJson,
+    requiredContentType: false,
+  });
+  if (parsed.response) return parsed.response;
+  const limit = clampInteger(parsed.body?.limit, { fallback: 1, min: 1, max: 8 });
+  const rows = await listQueuedMemvidStreamPreviewJobs(ctx.env, limit);
+  const now = nowIso();
+  for (const row of rows) {
+    await ctx.env.DB.prepare(
+      `UPDATE memvid_stream_previews
+       SET status = 'processing',
+           updated_at = ?
+       WHERE id = ?
+         AND status = 'queued'`
+    ).bind(now, row.id).run();
+    row.status = "processing";
+  }
+  return json({ ok: true, data: { jobs: rows.map(serializeMemvidStreamPreviewJob) } }, {
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+async function handleMemvidStreamPreviewSource(ctx, jobIdFromPath) {
+  const authResponse = memvidStreamProcessorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+  const jobId = String(jobIdFromPath || "").trim();
+  if (!/^msp_[A-Fa-f0-9]{16,64}$/.test(jobId)) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  const job = await getMemvidStreamPreviewJob(ctx.env, jobId);
+  if (!job?.source_r2_key || job.visibility !== "public" || job.source_module !== "video" || !["queued", "processing"].includes(job.status)) {
+    return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  }
+  const object = await ctx.env.USER_IMAGES.get(job.source_r2_key);
+  if (!object) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  const headers = buildPublicMediaHeaders(job.mime_type || object.httpMetadata?.contentType || "video/mp4", object.size);
+  headers.set("Cache-Control", "no-store");
+  headers.set("Content-Disposition", "attachment; filename=\"memvid-source.mp4\"");
+  return new Response(object.body, { headers });
+}
+
+async function handleMemvidStreamPreviewComplete(ctx, jobIdFromPath) {
+  const authResponse = memvidStreamProcessorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+  const jobId = String(jobIdFromPath || "").trim();
+  if (!/^msp_[A-Fa-f0-9]{16,64}$/.test(jobId)) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const streamUid = normalizeStreamUid(body.stream_uid || body.streamUid);
+  if (!streamUid) return json({ ok: false, error: "Valid Stream UID is required.", code: "invalid_stream_uid" }, { status: 400 });
+  const config = getMemvidStreamPreviewConfig(ctx.env);
+  const duration = clampNumber(body.preview_duration_seconds || body.duration_seconds, {
+    fallback: config.previewDurationSeconds,
+    min: 1,
+    max: config.previewDurationSeconds,
+  });
+  const maxLoops = clampInteger(body.max_loop_count || body.maxLoopCount, {
+    fallback: config.maxLoopCount,
+    min: 1,
+    max: config.maxLoopCount,
+  });
+  const now = nowIso();
+  await ctx.env.DB.prepare(
+    `UPDATE memvid_stream_previews
+     SET status = 'ready',
+         stream_uid = ?,
+         preview_duration_seconds = ?,
+         max_loop_count = ?,
+         completed_at = ?,
+         updated_at = ?,
+         error_code = NULL,
+         error_message = NULL,
+         provider_metadata_json = ?
+     WHERE id = ?
+       AND status IN ('queued', 'uploading', 'processing', 'ready')`
+  ).bind(
+    streamUid,
+    duration,
+    maxLoops,
+    now,
+    now,
+    JSON.stringify({
+      provider: "cloudflare_stream",
+      provider_metadata: body.provider_metadata || body.providerMetadata || {},
+      source_fingerprint: sanitizeShortText(body.source_fingerprint, ""),
+    }),
+    jobId
+  ).run();
+  return json({ ok: true, data: { id: jobId, status: "ready", stream_uid: streamUid } });
+}
+
+async function handleMemvidStreamPreviewFail(ctx, jobIdFromPath) {
+  const authResponse = memvidStreamProcessorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+  const jobId = String(jobIdFromPath || "").trim();
+  if (!/^msp_[A-Fa-f0-9]{16,64}$/.test(jobId)) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
+  if (parsed.response) return parsed.response;
+  const now = nowIso();
+  await ctx.env.DB.prepare(
+    `UPDATE memvid_stream_previews
+     SET status = 'failed',
+         error_code = ?,
+         error_message = ?,
+         updated_at = ?
+     WHERE id = ?
+       AND status IN ('queued', 'uploading', 'processing', 'failed')`
+  ).bind(
+    sanitizeErrorCode(parsed.body?.error_code || parsed.body?.code),
+    sanitizeErrorMessage(parsed.body?.error_message || parsed.body?.message),
+    now,
+    jobId
+  ).run();
+  return json({ ok: true, data: { id: jobId, status: "failed" } });
+}
+
 async function handlePublicHeroVideos(ctx) {
   const { env } = ctx;
   try {
@@ -1038,9 +2150,25 @@ export async function handleAdminHomepageHeroVideos(ctx) {
     return handleAdminCandidates(ctx);
   }
 
+  // route-policy: admin.homepage.hero-videos.uploads.create
+  if (pathname === "/api/admin/homepage/hero-videos/uploads" && method === "POST") {
+    return handleAdminUploadSource(ctx);
+  }
+
+  // route-policy: admin.homepage.hero-videos.memvid-stream-previews.backfill
+  if (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill" && method === "POST") {
+    return handleAdminMemvidStreamPreviewBackfill(ctx);
+  }
+
   // route-policy: admin.homepage.hero-videos.derivatives.create
   if (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "POST") {
     return handleCreateDerivative(ctx);
+  }
+
+  const retryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)\/retry$/);
+  // route-policy: admin.homepage.hero-videos.derivatives.retry
+  if (retryMatch && method === "POST") {
+    return handleRetryDerivative(ctx, retryMatch[1]);
   }
 
   const slotMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/slots\/([^/]+)$/);
@@ -1054,6 +2182,50 @@ export async function handleAdminHomepageHeroVideos(ctx) {
 
 export async function handleHomepageHeroVideos(ctx) {
   const { pathname, method } = ctx;
+
+  // route-policy: internal.memvid-stream-previews.jobs.claim
+  if (pathname === "/api/internal/memvid-stream-previews/jobs/claim" && method === "POST") {
+    return handleMemvidStreamPreviewClaimJobs(ctx);
+  }
+
+  const streamPreviewSourceMatch = pathname.match(/^\/api\/internal\/memvid-stream-previews\/jobs\/([^/]+)\/source$/);
+  if (streamPreviewSourceMatch && method === "GET") {
+    return handleMemvidStreamPreviewSource(ctx, streamPreviewSourceMatch[1]);
+  }
+
+  const streamPreviewCompleteMatch = pathname.match(/^\/api\/internal\/memvid-stream-previews\/jobs\/([^/]+)\/complete$/);
+  // route-policy: internal.memvid-stream-previews.jobs.complete
+  if (streamPreviewCompleteMatch && method === "POST") {
+    return handleMemvidStreamPreviewComplete(ctx, streamPreviewCompleteMatch[1]);
+  }
+
+  const streamPreviewFailMatch = pathname.match(/^\/api\/internal\/memvid-stream-previews\/jobs\/([^/]+)\/fail$/);
+  // route-policy: internal.memvid-stream-previews.jobs.fail
+  if (streamPreviewFailMatch && method === "POST") {
+    return handleMemvidStreamPreviewFail(ctx, streamPreviewFailMatch[1]);
+  }
+
+  // route-policy: internal.homepage.hero-videos.jobs.claim
+  if (pathname === "/api/internal/homepage/hero-videos/jobs/claim" && method === "POST") {
+    return handleProcessorClaimJobs(ctx);
+  }
+
+  const processorSourceMatch = pathname.match(/^\/api\/internal\/homepage\/hero-videos\/jobs\/([^/]+)\/source$/);
+  if (processorSourceMatch && method === "GET") {
+    return handleProcessorSource(ctx, processorSourceMatch[1]);
+  }
+
+  const processorCompleteMatch = pathname.match(/^\/api\/internal\/homepage\/hero-videos\/jobs\/([^/]+)\/complete$/);
+  // route-policy: internal.homepage.hero-videos.jobs.complete
+  if (processorCompleteMatch && method === "POST") {
+    return handleProcessorComplete(ctx, processorCompleteMatch[1]);
+  }
+
+  const processorFailMatch = pathname.match(/^\/api\/internal\/homepage\/hero-videos\/jobs\/([^/]+)\/fail$/);
+  // route-policy: internal.homepage.hero-videos.jobs.fail
+  if (processorFailMatch && method === "POST") {
+    return handleProcessorFail(ctx, processorFailMatch[1]);
+  }
 
   if (pathname === "/api/homepage/hero-videos" && method === "GET") {
     return handlePublicHeroVideos(ctx);

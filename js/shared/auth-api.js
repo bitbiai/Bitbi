@@ -280,6 +280,49 @@ export function apiAdminCreateHomepageHeroVideoDerivative(payload = {}, { idempo
     });
 }
 
+export async function apiAdminUploadHomepageHeroVideoSource(file, {
+    title = '',
+    operatorReason = '',
+    idempotencyKey,
+    signal,
+} = {}) {
+    try {
+        const formData = new FormData();
+        const path = '/admin/homepage/hero-videos/uploads';
+        formData.append('video', file);
+        if (title) formData.append('title', title);
+        formData.append('operator_reason', operatorReason);
+        const headers = {};
+        if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+        const res = await fetch(BASE + path, {
+            method: 'POST',
+            credentials: 'include',
+            headers,
+            body: formData,
+            signal,
+        });
+        let data;
+        try { data = await res.json(); } catch { data = null; }
+        if (res.ok) return { ok: true, data, status: res.status };
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+    } catch (e) {
+        if (e?.name === 'AbortError') return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
+}
+
+export function apiAdminRetryHomepageHeroVideoDerivative(derivativeId, payload = {}, { idempotencyKey } = {}) {
+    return request('POST', `/admin/homepage/hero-videos/derivatives/${encodeURIComponent(derivativeId)}/retry`, payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminBackfillMemvidStreamPreviews(payload = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/homepage/hero-videos/memvid-stream-previews/backfill', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminUpdateHomepageHeroVideoSlot(slot, payload = {}, { idempotencyKey } = {}) {
     return request('PUT', `/admin/homepage/hero-videos/slots/${encodeURIComponent(slot)}`, payload, {
         headers: { 'Idempotency-Key': idempotencyKey },

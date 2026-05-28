@@ -980,6 +980,10 @@ class MockD1 {
       appSettings: [],
       homepageHeroVideoSlots: [],
       homepageHeroVideoDerivatives: [],
+      homepageHeroVideoUploads: [],
+      memvidStreamPreviews: [],
+      memvidStreamPreviewEvents: [],
+      memvidStreamPreviewBackfillRequests: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -1047,7 +1051,13 @@ class MockD1 {
       original_mime_type: null,
       target_preset_json: '{}',
       provider_payload_json: '{}',
+      source_r2_key: null,
+      source_fingerprint: null,
+      error_code: null,
       error_message: null,
+      processing_started_at: null,
+      processing_completed_at: null,
+      superseded_at: null,
       idempotency_key_hash: null,
       request_hash: null,
       completed_at: null,
@@ -1126,9 +1136,17 @@ class MockD1 {
     }
     if (
       (this.missingTables.has('homepage_hero_video_slots') && query.includes('homepage_hero_video_slots')) ||
-      (this.missingTables.has('homepage_hero_video_derivatives') && query.includes('homepage_hero_video_derivatives'))
+      (this.missingTables.has('homepage_hero_video_derivatives') && query.includes('homepage_hero_video_derivatives')) ||
+      (this.missingTables.has('homepage_hero_video_uploads') && query.includes('homepage_hero_video_uploads'))
     ) {
       throw new Error('no such table: homepage_hero_video_slots');
+    }
+    if (
+      (this.missingTables.has('memvid_stream_previews') && query.includes('memvid_stream_previews')) ||
+      (this.missingTables.has('memvid_stream_preview_events') && query.includes('memvid_stream_preview_events')) ||
+      (this.missingTables.has('memvid_stream_preview_backfill_requests') && query.includes('memvid_stream_preview_backfill_requests'))
+    ) {
+      throw new Error('no such table: memvid_stream_previews');
     }
     if (
       (this.missingTables.has('ai_asset_manual_review_items') && query.includes('ai_asset_manual_review_items')) ||
@@ -11156,8 +11174,12 @@ class MockD1 {
             derivative_poster_size_bytes: derivative.poster_size_bytes ?? null,
             derivative_original_size_bytes: derivative.original_size_bytes ?? null,
             derivative_original_mime_type: derivative.original_mime_type ?? null,
+            derivative_source_fingerprint: derivative.source_fingerprint ?? null,
             derivative_target_preset_json: derivative.target_preset_json ?? '{}',
+            derivative_error_code: derivative.error_code ?? null,
             derivative_error_message: derivative.error_message ?? null,
+            derivative_processing_started_at: derivative.processing_started_at ?? null,
+            derivative_processing_completed_at: derivative.processing_completed_at ?? null,
             derivative_created_at: derivative.created_at ?? null,
             derivative_updated_at: derivative.updated_at ?? null,
             derivative_completed_at: derivative.completed_at ?? null,
@@ -11255,14 +11277,183 @@ class MockD1 {
       return { results: rows };
     }
 
-    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, created_at, published_at, poster_r2_key') && query.includes("WHERE id = ? AND source_module = 'video' AND visibility = 'public'")) {
+    if (query.startsWith('SELECT id, asset_id, stream_uid, status, preview_duration_seconds, max_loop_count') && query.includes('WHERE asset_id = ?')) {
+      const [assetId] = bindings;
+      return this.state.memvidStreamPreviews
+        .filter((row) => row.asset_id === assetId && row.status === 'ready' && row.stream_uid)
+        .sort((a, b) => String(b.completed_at || b.updated_at || '').localeCompare(String(a.completed_at || a.updated_at || '')))[0] || null;
+    }
+
+    if (query.startsWith('SELECT id, asset_id, stream_uid, status, preview_duration_seconds, max_loop_count')) {
+      const assetIds = bindings;
+      return {
+        results: this.state.memvidStreamPreviews
+          .filter((row) => row.status === 'ready' && row.stream_uid && assetIds.includes(row.asset_id))
+          .sort((a, b) => String(b.completed_at || b.updated_at || '').localeCompare(String(a.completed_at || a.updated_at || ''))),
+      };
+    }
+
+    if (query.startsWith('SELECT status, preview_duration_seconds, max_loop_count FROM memvid_stream_previews')) {
+      return { results: this.state.memvidStreamPreviews.slice() };
+    }
+
+    if (query.startsWith("SELECT event_count, estimated_delivered_seconds FROM memvid_stream_preview_events WHERE event_type = 'hover_start'")) {
+      return {
+        results: this.state.memvidStreamPreviewEvents.filter((row) => row.event_type === 'hover_start'),
+      };
+    }
+
+    if (query.startsWith('INSERT INTO memvid_stream_preview_events (')) {
+      const [
+        id,
+        previewId,
+        assetId,
+        eventType,
+        eventCount,
+        previewDurationSeconds,
+        maxLoopCount,
+        estimatedDeliveredSeconds,
+        providerMetadataJson,
+        createdAt,
+      ] = bindings;
+      this.state.memvidStreamPreviewEvents.push({
+        id,
+        preview_id: previewId,
+        asset_id: assetId,
+        event_type: eventType,
+        event_count: eventCount,
+        preview_duration_seconds: previewDurationSeconds,
+        max_loop_count: maxLoopCount,
+        estimated_delivered_seconds: estimatedDeliveredSeconds,
+        provider_metadata_json: providerMetadataJson,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT assets.id, assets.user_id, assets.r2_key')) {
+      const [limit] = bindings;
+      const rows = this.state.aiTextAssets
+        .filter((asset) => asset.visibility === 'public' && asset.source_module === 'video' && asset.r2_key)
+        .filter((asset) => !this.state.memvidStreamPreviews.some((preview) => (
+          preview.asset_id === asset.id && ['queued', 'uploading', 'processing', 'ready'].includes(preview.status)
+        )))
+        .sort((a, b) => String(b.published_at || b.created_at || '').localeCompare(String(a.published_at || a.created_at || '')))
+        .slice(0, limit);
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT id, request_hash, queued_count FROM memvid_stream_preview_backfill_requests')) {
+      const [idempotencyKeyHash] = bindings;
+      return this.state.memvidStreamPreviewBackfillRequests.find((row) => row.idempotency_key_hash === idempotencyKeyHash) || null;
+    }
+
+    if (query.startsWith('INSERT INTO memvid_stream_previews (')) {
+      const [
+        id,
+        assetId,
+        userId,
+        sourceR2Key,
+        sourceFingerprint,
+        previewDurationSeconds,
+        maxLoopCount,
+        createdAt,
+        updatedAt,
+        providerMetadataJson,
+      ] = bindings;
+      this.state.memvidStreamPreviews.push({
+        id,
+        asset_id: assetId,
+        user_id: userId,
+        source_r2_key: sourceR2Key,
+        source_fingerprint: sourceFingerprint,
+        stream_uid: null,
+        status: 'queued',
+        preview_duration_seconds: previewDurationSeconds,
+        max_loop_count: maxLoopCount,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: null,
+        error_code: null,
+        error_message: null,
+        provider_metadata_json: providerMetadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO memvid_stream_preview_backfill_requests (')) {
+      const [id, idempotencyKeyHash, requestHash, queuedCount, operatorUserId, operatorReason, createdAt] = bindings;
+      this.state.memvidStreamPreviewBackfillRequests.push({
+        id,
+        idempotency_key_hash: idempotencyKeyHash,
+        request_hash: requestHash,
+        queued_count: queuedCount,
+        operator_user_id: operatorUserId,
+        operator_reason: operatorReason,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json') && query.includes("WHERE id = ? AND source_module = 'video' AND visibility = 'public'")) {
       const [assetId] = bindings;
       return this.state.aiTextAssets.find((row) => row.id === assetId && row.source_module === 'video' && row.visibility === 'public') || null;
     }
 
-    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, created_at, published_at, poster_r2_key') && query.includes("WHERE id = ? AND user_id = ? AND source_module = 'video'")) {
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json') && query.includes("WHERE id = ? AND user_id = ? AND source_module = 'video'")) {
       const [assetId, userId] = bindings;
       return this.state.aiTextAssets.find((row) => row.id === assetId && row.user_id === userId && row.source_module === 'video') || null;
+    }
+
+    if (query.startsWith('SELECT uploads.id AS upload_id')) {
+      const [idempotencyKeyHash, adminUserId] = bindings;
+      const upload = this.state.homepageHeroVideoUploads.find((row) => row.idempotency_key_hash === idempotencyKeyHash && row.user_id === adminUserId);
+      if (!upload) return null;
+      const asset = this.state.aiTextAssets.find((row) => row.id === upload.asset_id);
+      return asset ? {
+        upload_id: upload.id,
+        request_hash: upload.request_hash,
+        ...asset,
+      } : null;
+    }
+
+    if (query.startsWith('INSERT INTO homepage_hero_video_uploads (')) {
+      const [
+        id,
+        assetId,
+        userId,
+        title,
+        originalFileName,
+        mimeType,
+        sizeBytes,
+        r2Key,
+        idempotencyKeyHash,
+        requestHash,
+        operatorReason,
+        createdByUserId,
+        createdAt,
+      ] = bindings;
+      if (this.state.homepageHeroVideoUploads.some((row) => row.idempotency_key_hash === idempotencyKeyHash)) {
+        const error = new Error('UNIQUE constraint failed: homepage_hero_video_uploads.idempotency_key_hash');
+        error.code = 'SQLITE_CONSTRAINT';
+        throw error;
+      }
+      this.state.homepageHeroVideoUploads.push({
+        id,
+        asset_id: assetId,
+        user_id: userId,
+        title,
+        original_file_name: originalFileName,
+        mime_type: mimeType,
+        size_bytes: sizeBytes,
+        r2_key: r2Key,
+        idempotency_key_hash: idempotencyKeyHash,
+        request_hash: requestHash,
+        operator_reason: operatorReason,
+        created_by_user_id: createdByUserId,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('INSERT INTO homepage_hero_video_derivatives (')) {
@@ -11275,6 +11466,8 @@ class MockD1 {
         sourceTitle,
         provider,
         status,
+        sourceR2Key,
+        sourceFingerprint,
         originalSizeBytes,
         originalMimeType,
         targetPresetJson,
@@ -11299,6 +11492,8 @@ class MockD1 {
         source_title: sourceTitle,
         provider,
         status,
+        source_r2_key: sourceR2Key,
+        source_fingerprint: sourceFingerprint,
         version: null,
         file_r2_key: null,
         poster_r2_key: null,
@@ -11325,8 +11520,36 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query.startsWith("SELECT id, slot, source_type, source_asset_id, source_user_id, source_title") && query.includes("WHERE provider = 'external_ffmpeg'") && query.includes("status = 'queued'")) {
+      const [limit] = bindings;
+      return {
+        results: this.state.homepageHeroVideoDerivatives
+          .filter((row) => row.provider === 'external_ffmpeg' && row.status === 'queued' && row.source_r2_key)
+          .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id)))
+          .slice(0, limit),
+      };
+    }
+
+    if (query.startsWith("UPDATE homepage_hero_video_derivatives SET status = 'processing'")) {
+      const [startedAt, updatedAt, derivativeId] = bindings;
+      const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId && item.provider === 'external_ffmpeg' && item.status === 'queued');
+      if (row) {
+        row.status = 'processing';
+        row.processing_started_at = row.processing_started_at || startedAt;
+        row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
     if (query.startsWith("UPDATE homepage_hero_video_derivatives SET status = 'succeeded'")) {
-      const [version, fileKey, posterKey, sizeBytes, posterSizeBytes, providerPayloadJson, updatedAt, completedAt, derivativeId] = bindings;
+      const isProcessorCompletion = query.includes('source_fingerprint = COALESCE');
+      const [version, fileKey, posterKey] = bindings;
+      const sizeBytes = isProcessorCompletion ? bindings[7] : bindings[3];
+      const posterSizeBytes = isProcessorCompletion ? bindings[8] : bindings[4];
+      const providerPayloadJson = isProcessorCompletion ? bindings[10] : bindings[5];
+      const updatedAt = isProcessorCompletion ? bindings[12] : bindings[6];
+      const completedAt = isProcessorCompletion ? bindings[13] : bindings[7];
+      const derivativeId = isProcessorCompletion ? bindings[14] : bindings[8];
       const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId);
       if (row) {
         Object.assign(row, {
@@ -11336,17 +11559,116 @@ class MockD1 {
           poster_r2_key: posterKey,
           file_mime_type: 'video/mp4',
           poster_mime_type: 'image/webp',
-          width: 720,
-          height: 405,
-          duration_seconds: 6,
-          fps: 24,
+          width: isProcessorCompletion ? bindings[3] : 720,
+          height: isProcessorCompletion ? bindings[4] : 405,
+          duration_seconds: isProcessorCompletion ? bindings[5] : 6,
+          fps: isProcessorCompletion ? bindings[6] : 24,
           size_bytes: sizeBytes,
           poster_size_bytes: posterSizeBytes,
+          source_fingerprint: isProcessorCompletion ? (bindings[9] || row.source_fingerprint) : row.source_fingerprint,
           provider_payload_json: providerPayloadJson,
+          error_code: null,
           error_message: null,
+          processing_completed_at: isProcessorCompletion ? bindings[11] : row.processing_completed_at,
           updated_at: updatedAt,
           completed_at: completedAt,
         });
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith("UPDATE homepage_hero_video_derivatives SET status = 'failed'")) {
+      const [errorCode, errorMessage, processingCompletedAt, updatedAt, derivativeId] = bindings;
+      const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId && item.provider === 'external_ffmpeg');
+      if (row) {
+        row.status = 'failed';
+        row.error_code = errorCode;
+        row.error_message = errorMessage;
+        row.processing_completed_at = processingCompletedAt;
+        row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith("UPDATE homepage_hero_video_derivatives SET status = 'queued'")) {
+      const [updatedAt, derivativeId] = bindings;
+      const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId && item.provider === 'external_ffmpeg');
+      if (row) {
+        row.status = 'queued';
+        row.error_code = null;
+        row.error_message = null;
+        row.processing_started_at = null;
+        row.processing_completed_at = null;
+        row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('SELECT previews.id, previews.asset_id, previews.user_id')) {
+      const [limitOrJobId] = bindings;
+      if (query.includes('WHERE previews.id = ?')) {
+        const preview = this.state.memvidStreamPreviews.find((row) => row.id === limitOrJobId);
+        if (!preview) return null;
+        const asset = this.state.aiTextAssets.find((row) => row.id === preview.asset_id) || {};
+        return {
+          ...preview,
+          visibility: asset.visibility,
+          source_module: asset.source_module,
+          mime_type: asset.mime_type,
+          size_bytes: asset.size_bytes,
+          title: asset.title,
+        };
+      }
+      const rows = this.state.memvidStreamPreviews
+        .filter((preview) => preview.status === 'queued')
+        .map((preview) => {
+          const asset = this.state.aiTextAssets.find((row) => row.id === preview.asset_id) || {};
+          return {
+            ...preview,
+            title: asset.title,
+            mime_type: asset.mime_type,
+            size_bytes: asset.size_bytes,
+          };
+        })
+        .slice(0, limitOrJobId);
+      return { results: rows };
+    }
+
+    if (query.startsWith("UPDATE memvid_stream_previews SET status = 'processing'")) {
+      const [updatedAt, previewId] = bindings;
+      const row = this.state.memvidStreamPreviews.find((item) => item.id === previewId && item.status === 'queued');
+      if (row) {
+        row.status = 'processing';
+        row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith("UPDATE memvid_stream_previews SET status = 'ready'")) {
+      const [streamUid, duration, maxLoopCount, completedAt, updatedAt, providerMetadataJson, previewId] = bindings;
+      const row = this.state.memvidStreamPreviews.find((item) => item.id === previewId);
+      if (row) {
+        row.status = 'ready';
+        row.stream_uid = streamUid;
+        row.preview_duration_seconds = duration;
+        row.max_loop_count = maxLoopCount;
+        row.completed_at = completedAt;
+        row.updated_at = updatedAt;
+        row.error_code = null;
+        row.error_message = null;
+        row.provider_metadata_json = providerMetadataJson;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith("UPDATE memvid_stream_previews SET status = 'failed'")) {
+      const [errorCode, errorMessage, updatedAt, previewId] = bindings;
+      const row = this.state.memvidStreamPreviews.find((item) => item.id === previewId);
+      if (row) {
+        row.status = 'failed';
+        row.error_code = errorCode;
+        row.error_message = errorMessage;
+        row.updated_at = updatedAt;
       }
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
@@ -11447,6 +11769,15 @@ function createAuthTestEnv(seed = {}) {
     ENABLE_ADMIN_AI_COMPARE_BUDGET: budgetFlag('ENABLE_ADMIN_AI_COMPARE_BUDGET'),
     ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET: budgetFlag('ENABLE_ADMIN_AI_LIVE_AGENT_BUDGET'),
     ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION: seed.ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION,
+    ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: seed.ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG,
+    ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS: seed.ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS,
+    HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET: seed.HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET,
+    HOMEPAGE_HERO_PROCESSOR_SECRET: seed.HOMEPAGE_HERO_PROCESSOR_SECRET,
+    ENABLE_MEMVID_STREAM_PREVIEWS: seed.ENABLE_MEMVID_STREAM_PREVIEWS,
+    ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY: seed.ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY,
+    MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: seed.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET,
+    MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS: seed.MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS,
+    MEMVID_STREAM_PREVIEW_MAX_LOOPS: seed.MEMVID_STREAM_PREVIEW_MAX_LOOPS,
     STRIPE_MODE: seed.STRIPE_MODE,
     STRIPE_SECRET_KEY: seed.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: seed.STRIPE_WEBHOOK_SECRET,

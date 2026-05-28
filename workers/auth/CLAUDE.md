@@ -42,6 +42,7 @@ Current high-impact migration dependencies:
 - `0059_add_data_lifecycle_completion_state.sql` for Data Lifecycle final completion, evidence status, retained-category, close/reject, and completion-note metadata.
 - `0060_add_app_settings.sql` for the Admin registration availability switch. Missing settings default to registration enabled until the migration is applied.
 - `0061_add_homepage_hero_video_slots.sql` for Admin-managed public homepage hero video slots and optimized derivative job metadata. Missing hero-video tables make the public homepage API return an unconfigured state so the existing Memvid fallback can continue.
+- `0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql` for signed homepage hero external_ffmpeg processing, private admin hero-source uploads, and Memvid Cloudflare Stream hover-preview metadata/telemetry. Provider operations remain feature-flagged and fail closed when secrets are absent.
 
 Apply remote migrations before deploying Auth Worker code that depends on those columns/tables. Do not run remote migrations without explicit operator approval/evidence.
 

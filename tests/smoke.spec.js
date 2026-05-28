@@ -57,6 +57,7 @@ const FOOTER_COPY_PATHS = [
 const FOOTER_COPY_TEXT = 'BITBI Studio • Built with love & code • © 2026';
 const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
 const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
+const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, '..', 'assets/images/hero/hero-flow-mobile.mp4'));
 
 const expectedModelCatalogs = new Map();
 const REMOVED_MODELS_OVERLAY_MODEL_IDS = new Set([
@@ -543,6 +544,27 @@ async function routeHomepageVideoHoverFixtures(page, { items, videoRequests = []
     });
   });
 
+  await page.route('https://videodelivery.net/**', async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.pathname.endsWith('/downloads/default.mp4')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: TEST_MP4_BYTES,
+      });
+      return;
+    }
+    if (requestUrl.pathname.endsWith('/manifest/video.m3u8')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/vnd.apple.mpegurl',
+        body: '#EXTM3U\n#EXT-X-ENDLIST\n',
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, body: '' });
+  });
+
   await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
@@ -640,6 +662,14 @@ async function routeHomepageVideoHoverFixtures(page, { items, videoRequests = []
       status: 404,
       contentType: 'application/json',
       body: JSON.stringify({ ok: false, error: 'not_found' }),
+    });
+  });
+
+  await page.route('https://videodelivery.net/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/vnd.apple.mpegurl',
+      body: '#EXTM3U\n#EXT-X-ENDLIST\n',
     });
   });
 }
@@ -5375,6 +5405,27 @@ test.describe('Homepage', () => {
 
   test('desktop Video Explore cards lazy-play muted BITBI previews on hover', async ({ page }) => {
     const videoRequests = [];
+    const heroSlots = ['right_top', 'right_bottom', 'left_top', 'left_bottom'].map((slot, index) => ({
+      slot,
+      version: `vhoverhero${index + 1}`,
+      title: `Hover fixture ${slot}`,
+      source_type: 'admin_asset',
+      file: {
+        url: `/api/homepage/hero-videos/${slot}/vhoverhero${index + 1}/file`,
+        mime_type: 'video/mp4',
+        width: 720,
+        height: 405,
+        size_bytes: 1400000,
+        duration_seconds: 6,
+      },
+      poster: {
+        url: `/api/homepage/hero-videos/${slot}/vhoverhero${index + 1}/poster`,
+        mime_type: 'image/webp',
+        width: 720,
+        height: 405,
+        size_bytes: 90000,
+      },
+    }));
     const items = Array.from({ length: 3 }, (_, index) => {
       const id = `hover-memvid-${index + 1}`;
       return {
@@ -5392,8 +5443,19 @@ test.describe('Homepage', () => {
           w: 1280,
           h: 720,
         },
+        stream_preview: {
+          provider: 'cloudflare_stream',
+          uid: `hoverStreamUid${index + 1}`,
+          preview_duration_seconds: 5,
+          max_loop_count: 3,
+          playback: {
+            mp4_url: `https://videodelivery.net/hoverStreamUid${index + 1}/downloads/default.mp4`,
+            hls_url: `https://videodelivery.net/hoverStreamUid${index + 1}/manifest/video.m3u8`,
+          },
+        },
       };
     });
+    const memvidFileRequests = () => videoRequests.filter((pathname) => pathname.startsWith('/api/gallery/memvids/'));
 
     await page.addInitScript(() => {
       HTMLMediaElement.prototype.play = function playMock() {
@@ -5403,8 +5465,27 @@ test.describe('Homepage', () => {
       HTMLMediaElement.prototype.pause = function pauseMock() {
         this.dataset.playState = 'paused';
       };
+      const nativeAddEventListener = HTMLMediaElement.prototype.addEventListener;
+      HTMLMediaElement.prototype.addEventListener = function addEventListenerMock(type, listener, options) {
+        if (type === 'error') {
+          this.dataset.mockErrorHandlerSuppressed = 'true';
+          return undefined;
+        }
+        return nativeAddEventListener.call(this, type, listener, options);
+      };
     });
-    await routeHomepageVideoHoverFixtures(page, { items, videoRequests });
+    await routeHomepageVideoHoverFixtures(page, {
+      items,
+      videoRequests,
+      homepageHeroVideos: {
+        ok: true,
+        data: {
+          configured: true,
+          slots: heroSlots,
+          slot_order: ['right_top', 'right_bottom', 'left_top', 'left_bottom'],
+        },
+      },
+    });
 
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
@@ -5420,7 +5501,7 @@ test.describe('Homepage', () => {
       await expect(firstCard.locator('.video-card__hover-preview')).toHaveCount(0);
       await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
     }
-    await firstCard.hover();
+    await firstCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
     const firstPreview = firstCard.locator('.video-card__hover-preview');
     await expect(firstPreview).toHaveCount(1);
     await expect(firstCard).toHaveClass(/video-card--hover-preview-active/);
@@ -5430,6 +5511,8 @@ test.describe('Homepage', () => {
       muted: video.muted,
       playsInline: video.playsInline,
       preload: video.preload,
+      provider: video.dataset.previewProvider || '',
+      maxLoopCount: video.dataset.maxLoopCount || '',
       playState: video.dataset.playState || '',
       src: video.getAttribute('src') || '',
     }));
@@ -5438,33 +5521,41 @@ test.describe('Homepage', () => {
       controls: false,
       muted: true,
       playsInline: true,
-      preload: 'metadata',
+      preload: 'none',
+      provider: 'cloudflare_stream',
+      maxLoopCount: '3',
       playState: 'playing',
-      src: '/api/gallery/memvids/hover-memvid-1/vpub/file',
+      src: 'https://videodelivery.net/hoverStreamUid1/downloads/default.mp4',
     });
-    expect(firstState.src).toMatch(/^\/api\/gallery\/memvids\/[^/]+\/[^/]+\/file$/);
-    expect(firstState.src).not.toMatch(/^https?:\/\//);
+    expect(firstState.src).not.toMatch(/\/api\/gallery\/memvids\/[^/]+\/[^/]+\/file$/);
+    expect(memvidFileRequests()).toEqual([]);
+
+    for (let loop = 0; loop < 3; loop += 1) {
+      await firstPreview.dispatchEvent('ended');
+    }
+    await expect(firstCard.locator('.video-card__hover-preview')).toHaveCount(0);
+    await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
 
     const secondCard = cards.nth(1);
-    await secondCard.hover();
+    await secondCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
     const secondPreview = secondCard.locator('.video-card__hover-preview');
     await expect(secondPreview).toHaveCount(1);
     await expect(secondCard).toHaveClass(/video-card--hover-preview-active/);
     await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
-    await expect(firstPreview).not.toHaveAttribute('src', /./);
-    await expect(secondPreview).toHaveAttribute('src', '/api/gallery/memvids/hover-memvid-2/vpub/file');
+    await expect(secondPreview).toHaveAttribute('src', 'https://videodelivery.net/hoverStreamUid2/downloads/default.mp4');
 
-    await page.mouse.move(20, 20);
+    await secondCard.dispatchEvent('pointerleave', { pointerType: 'mouse' });
     await expect(secondCard).not.toHaveClass(/video-card--hover-preview-active/);
-    await expect(secondPreview).not.toHaveAttribute('src', /./);
+    await expect(secondCard.locator('.video-card__hover-preview')).toHaveCount(0);
+    expect(memvidFileRequests()).toEqual([]);
 
-    await firstCard.hover();
+    await firstCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
     await firstCard.click();
     await expect(page.locator('#videoModal')).toHaveClass(/active/);
     await expect(page.locator('#videoModalTitle')).toHaveText('Hover Cut 1');
     await expect(page.locator('#videoModal video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/hover-memvid-1\/vpub\/file$/);
     await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
-    await expect(firstPreview).not.toHaveAttribute('src', /./);
+    await expect(firstCard.locator('.video-card__hover-preview')).toHaveCount(0);
   });
 
   test('mobile Video Explore cards do not activate hover preview playback', async ({ page }) => {
@@ -5483,6 +5574,16 @@ test.describe('Homepage', () => {
           url: '/api/gallery/memvids/mobile-hover-memvid/vpub/poster',
           w: 1280,
           h: 720,
+        },
+        stream_preview: {
+          provider: 'cloudflare_stream',
+          uid: 'mobileHoverStreamUid',
+          preview_duration_seconds: 5,
+          max_loop_count: 3,
+          playback: {
+            mp4_url: 'https://videodelivery.net/mobileHoverStreamUid/downloads/default.mp4',
+            hls_url: 'https://videodelivery.net/mobileHoverStreamUid/manifest/video.m3u8',
+          },
         },
       },
     ];

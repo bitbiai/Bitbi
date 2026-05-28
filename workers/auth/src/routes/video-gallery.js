@@ -12,6 +12,16 @@ import {
   buildPublicMemvidUrl,
   buildPublicMemvidVersion,
 } from "../../../../js/shared/public-media-contract.mjs";
+import {
+  getMemvidStreamPreviewConfig,
+  isMemvidStreamPreviewMetadataEnabled,
+  toPublicStreamPreview,
+} from "../lib/cloudflare-stream-previews.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
+import { nowIso, randomTokenHex } from "../lib/tokens.js";
 
 const DEFAULT_MEMVIDS_LIMIT = 60;
 const MAX_MEMVIDS_LIMIT = 120;
@@ -39,7 +49,7 @@ function getPublicMemvidCaption(displayName, publishedAt) {
   return `Published by ${ownerLabel}.`;
 }
 
-function toPublicMemvidRecord(row) {
+function toPublicMemvidRecord(row, streamPreview = null) {
   const meta = parseMetadataJson(row.metadata_json);
   const version = buildPublicMemvidVersion(row);
   const avatarVersion = Number(row.owner_has_avatar) ? buildPublicPublisherAvatarVersion(row.owner_avatar_updated_at) : null;
@@ -71,6 +81,9 @@ function toPublicMemvidRecord(row) {
       h: row.poster_height ?? null,
     };
   }
+  if (streamPreview) {
+    record.stream_preview = streamPreview;
+  }
   return record;
 }
 
@@ -101,6 +114,43 @@ const PUBLIC_MEMVID_AVATAR_SELECT = `SELECT ai_text_assets.user_id,
                                      WHERE ai_text_assets.id = ?
                                        AND ai_text_assets.visibility = 'public'
                                        AND ai_text_assets.source_module = 'video'`;
+
+function isMissingStreamPreviewTable(error) {
+  return String(error?.message || error).includes("no such table")
+    && String(error?.message || error).includes("memvid_stream_preview");
+}
+
+async function listReadyStreamPreviewsForAssets(env, assetIds) {
+  if (!isMemvidStreamPreviewMetadataEnabled(env) || !assetIds.length) return new Map();
+  const placeholders = assetIds.map(() => "?").join(", ");
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT id,
+              asset_id,
+              stream_uid,
+              status,
+              preview_duration_seconds,
+              max_loop_count,
+              completed_at,
+              updated_at
+       FROM memvid_stream_previews
+       WHERE status = 'ready'
+         AND stream_uid IS NOT NULL
+         AND asset_id IN (${placeholders})
+       ORDER BY completed_at DESC, updated_at DESC`
+    ).bind(...assetIds).all();
+    const byAsset = new Map();
+    for (const row of rows.results || []) {
+      if (byAsset.has(row.asset_id)) continue;
+      const preview = toPublicStreamPreview(row, env);
+      if (preview) byAsset.set(row.asset_id, preview);
+    }
+    return byAsset;
+  } catch (error) {
+    if (isMissingStreamPreviewTable(error)) return new Map();
+    throw error;
+  }
+}
 
 async function handleListMemvids(ctx) {
   const { env, url } = ctx;
@@ -183,11 +233,12 @@ async function handleListMemvids(ctx) {
   const hasMore = resultRows.length > appliedLimit;
   const items = hasMore ? resultRows.slice(0, appliedLimit) : resultRows;
   const last = items[items.length - 1];
+  const streamPreviews = await listReadyStreamPreviewsForAssets(env, items.map((row) => row.id).filter(Boolean));
 
   return json({
     ok: true,
     data: {
-      items: items.map((row) => toPublicMemvidRecord(row)),
+      items: items.map((row) => toPublicMemvidRecord(row, streamPreviews.get(row.id) || null)),
       next_cursor: hasMore
         ? await encodePaginationCursor(env, PUBLIC_MEMVIDS_CURSOR_TYPE, {
             o: last.order_at,
@@ -308,11 +359,95 @@ async function handleGetMemvidAvatar(ctx, videoId, version) {
   );
 }
 
+async function handleStreamPreviewHoverStart(ctx, videoId) {
+  if (!isMemvidStreamPreviewMetadataEnabled(ctx.env)) {
+    return json({ ok: true, data: { recorded: false, reason: "stream_previews_disabled" } });
+  }
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.memvidStreamPreviewTelemetryJson,
+    requiredContentType: false,
+  });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body || {};
+  const row = await getPublicMemvidRouteRow(ctx.env, videoId);
+  if (!row?.r2_key) return json({ ok: false, error: "Video not found." }, { status: 404 });
+
+  let preview = null;
+  try {
+    preview = await ctx.env.DB.prepare(
+      `SELECT id,
+              asset_id,
+              stream_uid,
+              status,
+              preview_duration_seconds,
+              max_loop_count
+       FROM memvid_stream_previews
+       WHERE asset_id = ?
+         AND status = 'ready'
+         AND stream_uid IS NOT NULL
+       ORDER BY completed_at DESC, updated_at DESC
+       LIMIT 1`
+    ).bind(videoId).first();
+  } catch (error) {
+    if (isMissingStreamPreviewTable(error)) {
+      return json({ ok: true, data: { recorded: false, reason: "stream_preview_schema_missing" } });
+    }
+    throw error;
+  }
+  if (!preview) return json({ ok: true, data: { recorded: false, reason: "stream_preview_not_ready" } });
+
+  const config = getMemvidStreamPreviewConfig(ctx.env);
+  const previewDurationSeconds = Math.min(
+    config.previewDurationSeconds,
+    Math.max(1, Number(preview.preview_duration_seconds || config.previewDurationSeconds) || config.previewDurationSeconds)
+  );
+  const maxLoopCount = Math.min(
+    config.maxLoopCount,
+    Math.max(1, Number(preview.max_loop_count || config.maxLoopCount) || config.maxLoopCount)
+  );
+  const loopCount = Math.min(
+    maxLoopCount,
+    Math.max(1, Number(body.loop_count || body.loopCount || maxLoopCount) || maxLoopCount)
+  );
+  const estimatedDeliveredSeconds = previewDurationSeconds * loopCount;
+
+  await ctx.env.DB.prepare(
+    `INSERT INTO memvid_stream_preview_events (
+       id, preview_id, asset_id, event_type, event_count,
+       preview_duration_seconds, max_loop_count, estimated_delivered_seconds,
+       provider_metadata_json, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    `msp_evt_${randomTokenHex(16)}`,
+    preview.id,
+    videoId,
+    "hover_start",
+    1,
+    previewDurationSeconds,
+    maxLoopCount,
+    estimatedDeliveredSeconds,
+    JSON.stringify({
+      autoplay_requested: true,
+      user_agent_family: String(ctx.request.headers.get("User-Agent") || "").slice(0, 80),
+    }),
+    nowIso()
+  ).run();
+
+  return json({ ok: true, data: { recorded: true } });
+}
+
 export async function handleVideoGallery(ctx) {
   const { pathname, method } = ctx;
 
   if (pathname === "/api/gallery/memvids" && method === "GET") {
     return handleListMemvids(ctx);
+  }
+
+  const hoverStartMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/stream-preview\/hover-start$/);
+  // route-policy: gallery.memvids.stream-preview.hover-start
+  if (hoverStartMatch && method === "POST") {
+    return handleStreamPreviewHoverStart(ctx, hoverStartMatch[1]);
   }
 
   const versionedAvatarMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/([^/]+)\/avatar$/);
