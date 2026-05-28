@@ -18432,7 +18432,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0060_add_app_settings.sql',
+        latestAuthMigration: '0061_add_homepage_hero_video_slots.sql',
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });
@@ -39367,6 +39367,315 @@ test.describe('Worker routes', () => {
     expect(secondBody.data.items.map((item) => item.id)).toEqual(['a0000001']);
     expect(secondBody.data.has_more).toBe(false);
     expect(secondBody.data.next_cursor).toBeNull();
+  });
+
+  test('homepage hero videos return an unconfigured public state when migration data is absent', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      missingTables: ['homepage_hero_video_slots'],
+    });
+
+    const res = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/homepage/hero-videos'),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        configured: false,
+        slots: [],
+        slot_order: ['right_top', 'right_bottom', 'left_top', 'left_bottom'],
+      },
+    });
+  });
+
+  test('homepage hero videos expose only optimized derivative URLs and preserve slot mapping', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const slots = ['right_top', 'right_bottom', 'left_top', 'left_bottom'];
+    const env = createAuthTestEnv({
+      homepageHeroVideoSlots: slots.map((slot, index) => ({
+        slot,
+        display_order: (index + 1) * 10,
+        enabled: 1,
+        derivative_id: `hero-derivative-${index + 1}`,
+        source_type: 'admin_asset',
+        source_asset_id: `private-source-${index + 1}`,
+        source_user_id: 'hero-admin',
+        title: `Hero slot ${index + 1}`,
+        updated_at: `2026-05-2${index}T10:00:00.000Z`,
+      })),
+      homepageHeroVideoDerivatives: slots.map((slot, index) => ({
+        id: `hero-derivative-${index + 1}`,
+        slot,
+        source_type: 'admin_asset',
+        source_asset_id: `private-source-${index + 1}`,
+        source_user_id: 'hero-admin',
+        source_title: `Private source ${index + 1}`,
+        provider: 'external_ffmpeg',
+        status: 'succeeded',
+        version: `v1-slot-${index + 1}`,
+        file_r2_key: `homepage/hero-videos/${slot}/file.mp4`,
+        poster_r2_key: `homepage/hero-videos/${slot}/poster.webp`,
+        file_mime_type: 'video/mp4',
+        poster_mime_type: 'image/webp',
+        width: 720,
+        height: 405,
+        duration_seconds: 6,
+        fps: 24,
+        size_bytes: 123456 + index,
+        poster_size_bytes: 2048 + index,
+        original_size_bytes: 12000000,
+        original_mime_type: 'video/mp4',
+      })),
+      userImages: Object.fromEntries(slots.flatMap((slot) => ([
+        [`homepage/hero-videos/${slot}/file.mp4`, {
+          body: new TextEncoder().encode(`optimized-${slot}`).buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        }],
+        [`homepage/hero-videos/${slot}/poster.webp`, {
+          body: new TextEncoder().encode(`poster-${slot}`).buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        }],
+      ]))),
+    });
+
+    const res = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/homepage/hero-videos'),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.configured).toBe(true);
+    expect(body.data.slots.map((slot) => slot.slot)).toEqual(slots);
+    expect(body.data.slots[0].file.url).toBe('/api/homepage/hero-videos/right_top/v1-slot-1/file');
+    expect(body.data.slots[1].file.url).toBe('/api/homepage/hero-videos/right_bottom/v1-slot-2/file');
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('file_r2_key');
+    expect(serialized).not.toContain('poster_r2_key');
+    expect(serialized).not.toContain('homepage/hero-videos/right_top/file.mp4');
+    expect(serialized).not.toContain('homepage/hero-videos/right_top/poster.webp');
+    expect(serialized).not.toContain('/api/ai/text-assets/');
+    expect(serialized).not.toContain('/api/admin/users/');
+    expect(serialized).not.toContain('private-source-');
+
+    const fileRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/homepage/hero-videos/right_top/v1-slot-1/file'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(fileRes.status).toBe(200);
+    expect(fileRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(fileRes.headers.get('content-type')).toBe('video/mp4');
+
+    const posterRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/homepage/hero-videos/right_top/v1-slot-1/poster'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(posterRes.status).toBe(200);
+    expect(posterRes.headers.get('content-type')).toBe('image/webp');
+  });
+
+  test('admin homepage hero derivative jobs require admin auth and are idempotent', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-video-admin');
+    const member = createContractUser({ id: 'hero-video-member', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      aiTextAssets: [{
+        id: 'facefeed1',
+        user_id: member.id,
+        title: 'Published source',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 9000000,
+        metadata_json: JSON.stringify({ duration_seconds: 12 }),
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/hero-video-member/source.mp4',
+        poster_r2_key: 'users/hero-video-member/poster.webp',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const memberToken = await seedSession(env, member.id);
+    const payload = {
+      slot: 'right_top',
+      source_type: 'public',
+      source_asset_id: 'facefeed1',
+      provider: 'mock',
+      operator_reason: 'Testing homepage hero video conversion.',
+    };
+
+    const memberRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives', 'POST', payload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberToken}`,
+        'Idempotency-Key': 'homepage-hero-denied-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(memberRes.status).toBe(403);
+
+    const missingIdempotencyRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives', 'POST', payload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingIdempotencyRes.status).toBe(428);
+
+    const idempotencyKey = 'homepage-hero-video-idempotent-1';
+    const createRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives', 'POST', payload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': idempotencyKey,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createRes.status).toBe(202);
+    const created = await createRes.json();
+    expect(created.existing).toBe(false);
+    expect(created.data.derivative.status).toBe('succeeded');
+    expect(created.data.derivative.source_asset_id).toBe('facefeed1');
+    expect(JSON.stringify(created)).not.toContain('r2_key');
+    expect(env.DB.state.homepageHeroVideoDerivatives).toHaveLength(1);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(2);
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'homepage_hero_video_derivative_requested' }),
+    ]));
+
+    const repeatRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives', 'POST', payload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': idempotencyKey,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeatRes.status).toBe(200);
+    await expect(repeatRes.json()).resolves.toMatchObject({
+      ok: true,
+      existing: true,
+      data: {
+        derivative: {
+          status: 'succeeded',
+          source_asset_id: 'facefeed1',
+        },
+      },
+    });
+    expect(env.DB.state.homepageHeroVideoDerivatives).toHaveLength(1);
+
+    const slotPayload = {
+      enabled: true,
+      derivative_id: created.data.derivative.id,
+      operator_reason: 'Assign optimized derivative to homepage hero slot.',
+    };
+
+    const memberSlotRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/slots/right_top', 'PUT', slotPayload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberToken}`,
+        'Idempotency-Key': 'homepage-hero-slot-denied-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(memberSlotRes.status).toBe(403);
+
+    const missingSlotIdempotencyRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/slots/right_top', 'PUT', slotPayload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingSlotIdempotencyRes.status).toBe(428);
+
+    const slotIdempotencyKey = 'homepage-hero-slot-idempotent-1';
+    const assignSlotRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/slots/right_top', 'PUT', slotPayload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': slotIdempotencyKey,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(assignSlotRes.status).toBe(200);
+    await expect(assignSlotRes.json()).resolves.toMatchObject({
+      ok: true,
+      existing: false,
+      data: {
+        slot: {
+          slot: 'right_top',
+          enabled: true,
+          derivative_id: created.data.derivative.id,
+        },
+      },
+    });
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'homepage_hero_video_slot_enabled' }),
+    ]));
+
+    const repeatSlotRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/slots/right_top', 'PUT', slotPayload, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': slotIdempotencyKey,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeatSlotRes.status).toBe(200);
+    await expect(repeatSlotRes.json()).resolves.toMatchObject({
+      ok: true,
+      existing: true,
+      data: {
+        slot: {
+          slot: 'right_top',
+          enabled: true,
+        },
+      },
+    });
+
+    const disableSlotRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/slots/right_top', 'PUT', {
+        enabled: false,
+        operator_reason: 'Disable homepage hero slot for fallback test.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'homepage-hero-slot-disable-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(disableSlotRes.status).toBe(200);
+    await expect(disableSlotRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        slot: {
+          slot: 'right_top',
+          enabled: false,
+        },
+      },
+    });
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'homepage_hero_video_slot_disabled' }),
+    ]));
   });
 
   function createSharedBulkMoveEnv() {

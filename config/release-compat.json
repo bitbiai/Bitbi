@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0060_add_app_settings.sql",
+        "latest": "0061_add_homepage_hero_video_slots.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -683,6 +683,7 @@
     ],
     "delegatedPrefixes": [
       "/api/public/news-pulse/thumbs/",
+      "/api/homepage/hero-videos",
       "/api/admin/",
       "/api/ai/",
       "/api/gallery/",
@@ -815,6 +816,9 @@
       "GET /api/admin/users",
       "GET /api/admin/registration/status",
       "POST /api/admin/registration/status",
+      "GET /api/admin/homepage/hero-videos",
+      "GET /api/admin/homepage/hero-videos/candidates",
+      "POST /api/admin/homepage/hero-videos/derivatives",
       "GET /api/admin/readiness/status",
       "GET /api/admin/operations/timeline",
       "GET /api/admin/stats",
@@ -851,6 +855,7 @@
       "GET /api/admin/billing/events/:id",
       "GET /api/admin/billing/reviews/:id",
       "POST /api/admin/billing/reviews/:id/resolution",
+      "PUT /api/admin/homepage/hero-videos/slots/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
@@ -869,7 +874,10 @@
       "/admin/mfa/verify",
       "/admin/mfa/disable",
       "/admin/mfa/recovery-codes/regenerate",
-      "/admin/registration/status"
+      "/admin/registration/status",
+      "/admin/homepage/hero-videos",
+      "/admin/homepage/hero-videos/candidates",
+      "/admin/homepage/hero-videos/derivatives"
     ]
   }
 }

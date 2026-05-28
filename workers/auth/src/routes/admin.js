@@ -63,6 +63,7 @@ import { handleAdminMfa } from "./admin-mfa.js";
 import { handleAdminOrgs } from "./admin-orgs.js";
 import { handleAdminStorage } from "./admin-storage.js";
 import { handleAdminTenantAssets } from "./admin-tenant-assets.js";
+import { handleAdminHomepageHeroVideos } from "./homepage-hero-videos.js";
 import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js";
 
 const ADMIN_USERS_CURSOR_TYPE = "admin_users";
@@ -76,7 +77,7 @@ const ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT = "ERASURE WORKFLOW";
 const ADMIN_DELETE_ERASURE_DEFAULT_REASON = "Admin initiated GDPR/data erasure workflow from Admin user deletion.";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0060_add_app_settings.sql";
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0061_add_homepage_hero_video_slots.sql";
 const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
 
 function adminSettingsIdempotencyKeyOrResponse(request) {
@@ -951,6 +952,20 @@ export async function handleAdmin(ctx) {
   const adminStorageResult = await handleAdminStorage(ctx);
   if (adminStorageResult) {
     return adminStorageResult;
+  }
+
+  if (
+    (pathname === "/api/admin/homepage/hero-videos" && method === "GET") ||
+    (pathname === "/api/admin/homepage/hero-videos/candidates" && method === "GET") ||
+    // route-policy: admin.homepage.hero-videos.derivatives.create
+    (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "POST")
+  ) {
+    return handleAdminHomepageHeroVideos(ctx);
+  }
+  const homepageHeroVideoSlotMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/slots\/([^/]+)$/);
+  // route-policy: admin.homepage.hero-videos.slots.update
+  if (homepageHeroVideoSlotMatch && method === "PUT") {
+    return handleAdminHomepageHeroVideos(ctx);
   }
 
   const adminOrgsResult = await handleAdminOrgs(ctx);

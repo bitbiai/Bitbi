@@ -12553,6 +12553,173 @@ test.describe('Admin Control Plane', () => {
     await mockAdminAiLab(page);
   });
 
+  test('renders homepage hero video admin slots and sends guarded conversion assignments', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, {});
+
+    const slotOrder = ['right_top', 'right_bottom', 'left_top', 'left_bottom'];
+    const slots = slotOrder.map((slot, index) => ({
+      slot,
+      enabled: false,
+      display_order: (index + 1) * 10,
+      derivative_id: null,
+      source_type: null,
+      source_asset_id: null,
+      source_user_id: null,
+      title: null,
+      updated_at: null,
+      derivative: null,
+    }));
+    const publicCandidates = [{
+      source_type: 'public',
+      source_asset_id: 'pub_memvid_hero_1',
+      title: 'Published Hero Candidate',
+      file_url: null,
+      poster_url: `data:image/png;base64,${ONE_PX_PNG_BASE64}`,
+      size_bytes: 2_100_000,
+      duration_seconds: 7,
+    }];
+    const adminCandidates = [{
+      source_type: 'admin_asset',
+      source_asset_id: 'admin_hero_clip_1',
+      title: 'Private Admin Clip',
+      file_url: null,
+      poster_url: `data:image/png;base64,${ONE_PX_PNG_BASE64}`,
+      size_bytes: 3_200_000,
+      duration_seconds: 6,
+    }];
+    const derivativeRequests = [];
+    const slotRequests = [];
+    const derivative = {
+      id: 'hhvd_static_admin_ui_1',
+      slot: 'right_top',
+      source_type: 'admin_asset',
+      source_asset_id: 'admin_hero_clip_1',
+      source_user_id: 'admin-1',
+      source_title: 'Private Admin Clip',
+      provider: 'external_ffmpeg',
+      status: 'succeeded',
+      version: 'v1-admin-ui',
+      mime_type: 'video/mp4',
+      poster_mime_type: 'image/webp',
+      width: 720,
+      height: 405,
+      duration_seconds: 6,
+      fps: 24,
+      size_bytes: 1_700_000,
+      poster_size_bytes: 18_000,
+      original_size_bytes: 3_200_000,
+      original_mime_type: 'video/mp4',
+      target_preset: { maxWidth: 720, audio: 'removed' },
+      error_message: null,
+      created_at: '2026-05-28T10:00:00.000Z',
+      updated_at: '2026-05-28T10:01:00.000Z',
+      completed_at: '2026-05-28T10:01:00.000Z',
+    };
+
+    await page.route(/\/api\/admin\/homepage\/hero-videos$/, async (route) => {
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          slots,
+          slot_order: slotOrder,
+          target_preset: { maxWidth: 720, audio: 'removed' },
+        },
+      });
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/candidates(?:\?.*)?$/, async (route) => {
+      const url = new URL(route.request().url());
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          source: url.searchParams.get('source') || 'public',
+          candidates: url.searchParams.get('source') === 'admin-assets' ? adminCandidates : publicCandidates,
+          applied_limit: 24,
+        },
+      });
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/derivatives$/, async (route) => {
+      derivativeRequests.push({
+        idempotencyKey: route.request().headers()['idempotency-key'] || null,
+        body: route.request().postDataJSON(),
+      });
+      await fulfillJson(route, {
+        ok: true,
+        data: { derivative },
+      }, 202);
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/slots\/[^/]+$/, async (route) => {
+      const body = route.request().postDataJSON();
+      slotRequests.push({
+        idempotencyKey: route.request().headers()['idempotency-key'] || null,
+        body,
+      });
+      slots[0] = {
+        ...slots[0],
+        enabled: body.enabled === true,
+        derivative_id: derivative.id,
+        source_type: derivative.source_type,
+        source_asset_id: derivative.source_asset_id,
+        source_user_id: derivative.source_user_id,
+        title: derivative.source_title,
+        updated_at: '2026-05-28T10:02:00.000Z',
+        derivative,
+      };
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          slot: slots[0],
+          slots,
+        },
+      });
+    });
+    await page.route(/\/api\/homepage\/hero-videos\/[^/]+\/[^/]+\/file$/, fulfillTestMp4);
+    await page.route(/\/api\/homepage\/hero-videos\/[^/]+\/[^/]+\/poster$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+      });
+    });
+
+    const response = await page.goto('/admin/index.html#homepage-hero-videos');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#sectionHomepageHeroVideos')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Homepage Hero Videos');
+    await expect(page.locator('.admin-hero-videos__slot-card')).toHaveCount(4);
+    await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');
+
+    await page.getByRole('tab', { name: 'Admin Assets' }).click();
+    await expect(page.getByRole('tab', { name: 'Admin Assets' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Private Admin Clip');
+
+    await page.locator('.admin-hero-videos__candidate-card').getByRole('button', { name: 'Select' }).first().click();
+    await page.locator('#homepageHeroVideosAdmin [data-field="reason"]').fill('Operator-approved homepage hero conversion');
+    await page.getByRole('button', { name: 'Convert selected' }).click();
+    await expect.poll(() => derivativeRequests.length).toBe(1);
+    expect(derivativeRequests[0].idempotencyKey).toMatch(/^homepage-hero-video-convert-/);
+    expect(derivativeRequests[0].body).toMatchObject({
+      slot: 'right_top',
+      source_type: 'admin_asset',
+      source_asset_id: 'admin_hero_clip_1',
+      operator_reason: 'Operator-approved homepage hero conversion',
+    });
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Conversion job succeeded.');
+
+    await page.getByRole('button', { name: 'Assign converted derivative' }).click();
+    await expect.poll(() => slotRequests.length).toBe(1);
+    expect(slotRequests[0].idempotencyKey).toMatch(/^homepage-hero-video-slot-/);
+    expect(slotRequests[0].body).toMatchObject({
+      enabled: true,
+      derivative_id: 'hhvd_static_admin_ui_1',
+      operator_reason: 'Operator-approved homepage hero conversion',
+    });
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Slot assignment saved.');
+    await expect(page.locator('.admin-hero-videos__slot-card[data-slot="right_top"]')).toContainText('Enabled');
+  });
+
   test('renders command center, tenant isolation execution, and major admin sections from existing APIs', async ({
     page,
   }) => {

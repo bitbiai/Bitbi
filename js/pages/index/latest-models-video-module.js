@@ -11,6 +11,7 @@ import {
 
 const DESKTOP_MODELS_VIDEO_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
 const REDUCED_MOTION_MEDIA = '(prefers-reduced-motion: reduce)';
+const HOMEPAGE_HERO_VIDEO_SLOTS = ['right_top', 'right_bottom', 'left_top', 'left_bottom'];
 const LATEST_MEMVID_LIMIT = 60;
 const CYCLE_MS = 4000;
 const BOTTOM_START_OFFSET_MS = 2000;
@@ -56,6 +57,68 @@ function getPreviewItems(items) {
         });
 }
 
+function resolvePublicHeroVideoUrl(value) {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (!raw) return '';
+    try {
+        const url = new URL(raw, window.location.origin);
+        if (url.origin !== window.location.origin) return '';
+        if (!url.pathname.startsWith('/api/homepage/hero-videos/')) return '';
+        if (!url.pathname.endsWith('/file')) return '';
+        return `${url.pathname}${url.search}`;
+    } catch {
+        return '';
+    }
+}
+
+function resolvePublicHeroPosterUrl(value) {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (!raw) return '';
+    try {
+        const url = new URL(raw, window.location.origin);
+        if (url.origin !== window.location.origin) return '';
+        if (!url.pathname.startsWith('/api/homepage/hero-videos/')) return '';
+        if (!url.pathname.endsWith('/poster')) return '';
+        return `${url.pathname}${url.search}`;
+    } catch {
+        return '';
+    }
+}
+
+function getConfiguredHeroEntries(slots) {
+    if (!Array.isArray(slots)) return null;
+    const bySlot = new Map();
+    slots.forEach((slot) => {
+        const slotName = typeof slot?.slot === 'string' ? slot.slot : '';
+        if (!HOMEPAGE_HERO_VIDEO_SLOTS.includes(slotName)) return;
+        const src = resolvePublicHeroVideoUrl(slot?.file?.url);
+        const poster = resolvePublicHeroPosterUrl(slot?.poster?.url);
+        const version = typeof slot?.version === 'string' ? slot.version.trim() : '';
+        if (!src || !poster || !version) return;
+        bySlot.set(slotName, {
+            item: slot,
+            id: `homepage-hero-${slotName}-${version}`,
+            src,
+            poster,
+            sortTime: 0,
+            originalIndex: HOMEPAGE_HERO_VIDEO_SLOTS.indexOf(slotName),
+            slot: slotName,
+        });
+    });
+    if (!HOMEPAGE_HERO_VIDEO_SLOTS.every((slot) => bySlot.has(slot))) return null;
+    return bySlot;
+}
+
+async function fetchConfiguredHomepageHeroVideos() {
+    const res = await fetch('/api/homepage/hero-videos', {
+        credentials: 'same-origin',
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) return null;
+    if (data?.data?.configured !== true) return null;
+    return getConfiguredHeroEntries(data?.data?.slots);
+}
+
 function getItemSortTime(item) {
     const candidates = [
         item?.published_at,
@@ -80,6 +143,11 @@ function getEntriesForSide(entries, side) {
     const nextEntries = entries.slice(5, 10);
     const selected = side === 'left' ? nextEntries : latestEntries;
     return selected.length ? selected : latestEntries;
+}
+
+function getConfiguredEntryForSlot(configuredEntries, side, position) {
+    const slot = `${side}_${position}`;
+    return configuredEntries?.get?.(slot) || null;
 }
 
 function createFallback() {
@@ -303,6 +371,22 @@ export function initLatestModelsVideoModule(root = document) {
         bottomController.schedule(BOTTOM_START_OFFSET_MS);
     }
 
+    function startConfiguredModule(entry, configuredEntries, reducedMotion) {
+        const topEntry = getConfiguredEntryForSlot(configuredEntries, entry.side, 'top');
+        const bottomEntry = getConfiguredEntryForSlot(configuredEntries, entry.side, 'bottom');
+        if (!topEntry || !bottomEntry) {
+            entry.module.dataset.videoModuleState = 'fallback';
+            clearModule(entry);
+            return;
+        }
+
+        entry.module.dataset.videoModuleState = 'ready';
+        entry.module.dataset.latestModelsVideoPool = `homepage-hero-${entry.side}`;
+        const topController = makeSlotController(entry.slots.top, [topEntry], 0, { reducedMotion });
+        const bottomController = makeSlotController(entry.slots.bottom, [bottomEntry], 0, { reducedMotion });
+        entry.controllers = [topController, bottomController];
+    }
+
     async function start() {
         if (!desktopQuery?.matches) {
             stop();
@@ -315,6 +399,23 @@ export function initLatestModelsVideoModule(root = document) {
             entry.module.dataset.videoModuleState = 'loading';
         });
         try {
+            let configuredEntries = null;
+            try {
+                configuredEntries = await fetchConfiguredHomepageHeroVideos();
+            } catch {
+                configuredEntries = null;
+            }
+            if (token !== loadToken || !desktopQuery.matches) return;
+            if (configuredEntries) {
+                stop();
+                enabled = true;
+                const reducedMotion = !!reducedMotionQuery?.matches;
+                modules.forEach((entry) => {
+                    startConfiguredModule(entry, configuredEntries, reducedMotion);
+                });
+                return;
+            }
+
             const page = await fetchPublicMemvidsPage({ limit: LATEST_MEMVID_LIMIT });
             if (token !== loadToken || !desktopQuery.matches) return;
             const entries = getPreviewItems(page.items);

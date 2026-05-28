@@ -17,6 +17,7 @@ import { handleBillingWebhooks } from "./routes/billing-webhooks.js";
 import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleAudioGallery } from "./routes/audio-gallery.js";
+import { handleHomepageHeroVideos } from "./routes/homepage-hero-videos.js";
 import { handlePublicNewsPulse, handlePublicNewsPulseThumb } from "./routes/public-news-pulse.js";
 import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
@@ -234,6 +235,10 @@ export default {
     if (pathname === "/api/health" && method === "GET") return handleHealth();
     if (pathname.startsWith("/api/public/news-pulse/thumbs/") && method === "GET") return handlePublicNewsPulseThumb(ctx);
     if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse(ctx);
+    if (pathname.startsWith("/api/homepage/hero-videos") && method === "GET") {
+      const result = await handleHomepageHeroVideos(ctx);
+      if (result) return result;
+    }
     // route-policy: openclaw.news_pulse.ingest
     if (pathname === "/api/openclaw/news-pulse/ingest" && method === "POST") return handleOpenClawNewsPulseIngest(ctx);
     if (pathname === "/api/me" && method === "GET") return handleMe(ctx);

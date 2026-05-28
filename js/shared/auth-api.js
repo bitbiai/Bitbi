@@ -262,6 +262,30 @@ export function apiAdminSetRegistrationStatus(payload = {}, { idempotencyKey } =
     });
 }
 
+export function apiAdminHomepageHeroVideos(options) {
+    return request('GET', '/admin/homepage/hero-videos', undefined, options);
+}
+
+export function apiAdminHomepageHeroVideoCandidates(source = 'public', { limit, signal } = {}) {
+    const path = '/admin/homepage/hero-videos/candidates';
+    const params = new URLSearchParams();
+    params.set('source', source);
+    if (limit) params.set('limit', String(limit));
+    return request('GET', `${path}?${params}`, undefined, { signal });
+}
+
+export function apiAdminCreateHomepageHeroVideoDerivative(payload = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/homepage/hero-videos/derivatives', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminUpdateHomepageHeroVideoSlot(slot, payload = {}, { idempotencyKey } = {}) {
+    return request('PUT', `/admin/homepage/hero-videos/slots/${encodeURIComponent(slot)}`, payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminChangeRole(userId, role) {
     return request('PATCH', `/admin/users/${userId}/role`, { role });
 }

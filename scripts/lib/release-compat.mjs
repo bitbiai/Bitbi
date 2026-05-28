@@ -1084,6 +1084,7 @@ function validateAdminAuthCompatibility(manifest, context) {
     [
       ...extractPathLiterals(context.authApiSource || "", "/admin/mfa/"),
       ...extractPathLiterals(context.authApiSource || "", "/admin/registration/"),
+      ...extractPathLiterals(context.authApiSource || "", "/admin/homepage/"),
     ],
     "Admin MFA static auth API path contract",
     issues

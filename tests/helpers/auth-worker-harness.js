@@ -978,6 +978,8 @@ class MockD1 {
       tenantAssetMediaResetActions: [],
       tenantAssetMediaResetActionEvents: [],
       appSettings: [],
+      homepageHeroVideoSlots: [],
+      homepageHeroVideoDerivatives: [],
       creditLedger: [],
       usageEvents: [],
       adminAiUsageAttempts: [],
@@ -1009,6 +1011,48 @@ class MockD1 {
       poster_height: null,
       poster_size_bytes: null,
       metadata_json: '{}',
+      ...row,
+    }));
+    this.state.homepageHeroVideoSlots = (this.state.homepageHeroVideoSlots || []).map((row, index) => ({
+      slot: row.slot,
+      display_order: row.display_order ?? ((index + 1) * 10),
+      enabled: Number(row.enabled || 0),
+      derivative_id: row.derivative_id ?? null,
+      source_type: row.source_type ?? null,
+      source_asset_id: row.source_asset_id ?? null,
+      source_user_id: row.source_user_id ?? null,
+      title: row.title ?? null,
+      operator_reason: row.operator_reason ?? null,
+      updated_by_user_id: row.updated_by_user_id ?? null,
+      last_idempotency_key_hash: row.last_idempotency_key_hash ?? null,
+      last_request_hash: row.last_request_hash ?? null,
+      created_at: row.created_at ?? nowIso(),
+      updated_at: row.updated_at ?? nowIso(),
+    }));
+    this.state.homepageHeroVideoDerivatives = (this.state.homepageHeroVideoDerivatives || []).map((row) => ({
+      source_user_id: null,
+      source_title: null,
+      version: null,
+      file_r2_key: null,
+      poster_r2_key: null,
+      file_mime_type: null,
+      poster_mime_type: null,
+      width: null,
+      height: null,
+      duration_seconds: null,
+      fps: null,
+      size_bytes: null,
+      poster_size_bytes: null,
+      original_size_bytes: null,
+      original_mime_type: null,
+      target_preset_json: '{}',
+      provider_payload_json: '{}',
+      error_message: null,
+      idempotency_key_hash: null,
+      request_hash: null,
+      completed_at: null,
+      created_at: nowIso(),
+      updated_at: nowIso(),
       ...row,
     }));
     this.state.userAssetStorageUsage = (this.state.userAssetStorageUsage || []).map((row) => ({
@@ -1079,6 +1123,12 @@ class MockD1 {
     }
     if (this.missingTables.has('ai_text_assets') && query.includes('ai_text_assets')) {
       throw new Error('no such table: ai_text_assets');
+    }
+    if (
+      (this.missingTables.has('homepage_hero_video_slots') && query.includes('homepage_hero_video_slots')) ||
+      (this.missingTables.has('homepage_hero_video_derivatives') && query.includes('homepage_hero_video_derivatives'))
+    ) {
+      throw new Error('no such table: homepage_hero_video_slots');
     }
     if (
       (this.missingTables.has('ai_asset_manual_review_items') && query.includes('ai_asset_manual_review_items')) ||
@@ -11077,6 +11127,266 @@ class MockD1 {
         created_at: createdAt,
         expires_at: expiresAt,
       });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT slots.slot, slots.display_order, slots.enabled, slots.derivative_id')) {
+      const rows = this.state.homepageHeroVideoSlots
+        .slice()
+        .sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0))
+        .map((slot) => {
+          const derivative = this.state.homepageHeroVideoDerivatives.find((row) => row.id === slot.derivative_id) || {};
+          return {
+            ...slot,
+            derivative_slot: derivative.slot ?? null,
+            derivative_source_type: derivative.source_type ?? null,
+            derivative_source_asset_id: derivative.source_asset_id ?? null,
+            derivative_source_user_id: derivative.source_user_id ?? null,
+            derivative_source_title: derivative.source_title ?? null,
+            derivative_provider: derivative.provider ?? null,
+            derivative_status: derivative.status ?? null,
+            derivative_version: derivative.version ?? null,
+            derivative_file_mime_type: derivative.file_mime_type ?? null,
+            derivative_poster_mime_type: derivative.poster_mime_type ?? null,
+            derivative_width: derivative.width ?? null,
+            derivative_height: derivative.height ?? null,
+            derivative_duration_seconds: derivative.duration_seconds ?? null,
+            derivative_fps: derivative.fps ?? null,
+            derivative_size_bytes: derivative.size_bytes ?? null,
+            derivative_poster_size_bytes: derivative.poster_size_bytes ?? null,
+            derivative_original_size_bytes: derivative.original_size_bytes ?? null,
+            derivative_original_mime_type: derivative.original_mime_type ?? null,
+            derivative_target_preset_json: derivative.target_preset_json ?? '{}',
+            derivative_error_message: derivative.error_message ?? null,
+            derivative_created_at: derivative.created_at ?? null,
+            derivative_updated_at: derivative.updated_at ?? null,
+            derivative_completed_at: derivative.completed_at ?? null,
+          };
+        });
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT id, slot, source_type, source_asset_id, source_user_id, source_title') && query.includes('FROM homepage_hero_video_derivatives') && query.includes('WHERE id = ?')) {
+      const [derivativeId] = bindings;
+      return this.state.homepageHeroVideoDerivatives.find((row) => row.id === derivativeId) || null;
+    }
+
+    if (query.startsWith('SELECT id, slot, source_type, source_asset_id, source_user_id, source_title') && query.includes('FROM homepage_hero_video_derivatives') && query.includes('WHERE idempotency_key_hash = ?')) {
+      const [idempotencyKeyHash] = bindings;
+      return this.state.homepageHeroVideoDerivatives.find((row) => row.idempotency_key_hash === idempotencyKeyHash) || null;
+    }
+
+    if (query === 'SELECT slot, last_idempotency_key_hash, last_request_hash FROM homepage_hero_video_slots WHERE slot = ?') {
+      const [slot] = bindings;
+      const row = this.state.homepageHeroVideoSlots.find((item) => item.slot === slot);
+      return row ? {
+        slot: row.slot,
+        last_idempotency_key_hash: row.last_idempotency_key_hash ?? null,
+        last_request_hash: row.last_request_hash ?? null,
+      } : null;
+    }
+
+    if (query.startsWith('SELECT slots.slot, slots.title, slots.updated_at, derivatives.source_type')) {
+      const rows = this.state.homepageHeroVideoSlots
+        .filter((slot) => Number(slot.enabled) === 1)
+        .map((slot) => {
+          const derivative = this.state.homepageHeroVideoDerivatives.find((row) => row.id === slot.derivative_id);
+          if (!derivative || derivative.status !== 'succeeded' || !derivative.version || !derivative.file_r2_key || !derivative.poster_r2_key) return null;
+          return {
+            slot: slot.slot,
+            title: slot.title ?? null,
+            updated_at: slot.updated_at,
+            source_type: derivative.source_type,
+            source_title: derivative.source_title ?? null,
+            version: derivative.version,
+            file_r2_key: derivative.file_r2_key,
+            poster_r2_key: derivative.poster_r2_key,
+            file_mime_type: derivative.file_mime_type,
+            poster_mime_type: derivative.poster_mime_type,
+            width: derivative.width,
+            height: derivative.height,
+            duration_seconds: derivative.duration_seconds,
+            fps: derivative.fps,
+            size_bytes: derivative.size_bytes,
+            poster_size_bytes: derivative.poster_size_bytes,
+            display_order: slot.display_order,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT derivatives.file_r2_key, derivatives.poster_r2_key')) {
+      const [slotName, version] = bindings;
+      const slot = this.state.homepageHeroVideoSlots.find((row) => row.slot === slotName && Number(row.enabled) === 1);
+      const derivative = slot
+        ? this.state.homepageHeroVideoDerivatives.find((row) => row.id === slot.derivative_id && row.status === 'succeeded' && row.version === version)
+        : null;
+      return derivative ? {
+        file_r2_key: derivative.file_r2_key,
+        poster_r2_key: derivative.poster_r2_key,
+        file_mime_type: derivative.file_mime_type,
+        poster_mime_type: derivative.poster_mime_type,
+        size_bytes: derivative.size_bytes,
+        poster_size_bytes: derivative.poster_size_bytes,
+      } : null;
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, created_at, published_at, r2_key, poster_r2_key')) {
+      const limit = bindings[0];
+      const rows = this.state.aiTextAssets
+        .filter((row) => row.visibility === 'public' && row.source_module === 'video')
+        .slice()
+        .sort((a, b) => String(b.published_at || b.created_at || '').localeCompare(String(a.published_at || a.created_at || ''))
+          || String(b.created_at || '').localeCompare(String(a.created_at || ''))
+          || String(b.id || '').localeCompare(String(a.id || '')))
+        .slice(0, limit);
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, created_at, published_at, poster_r2_key') && query.includes("WHERE user_id = ? AND source_module = 'video'")) {
+      const [userId, limit] = bindings;
+      const rows = this.state.aiTextAssets
+        .filter((row) => row.user_id === userId && row.source_module === 'video')
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+        .slice(0, limit);
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, created_at, published_at, poster_r2_key') && query.includes("WHERE id = ? AND source_module = 'video' AND visibility = 'public'")) {
+      const [assetId] = bindings;
+      return this.state.aiTextAssets.find((row) => row.id === assetId && row.source_module === 'video' && row.visibility === 'public') || null;
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, created_at, published_at, poster_r2_key') && query.includes("WHERE id = ? AND user_id = ? AND source_module = 'video'")) {
+      const [assetId, userId] = bindings;
+      return this.state.aiTextAssets.find((row) => row.id === assetId && row.user_id === userId && row.source_module === 'video') || null;
+    }
+
+    if (query.startsWith('INSERT INTO homepage_hero_video_derivatives (')) {
+      const [
+        id,
+        slot,
+        sourceType,
+        sourceAssetId,
+        sourceUserId,
+        sourceTitle,
+        provider,
+        status,
+        originalSizeBytes,
+        originalMimeType,
+        targetPresetJson,
+        providerPayloadJson,
+        idempotencyKeyHash,
+        requestHash,
+        createdByUserId,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (idempotencyKeyHash && this.state.homepageHeroVideoDerivatives.some((row) => row.idempotency_key_hash === idempotencyKeyHash)) {
+        const error = new Error('UNIQUE constraint failed: homepage_hero_video_derivatives.idempotency_key_hash');
+        error.code = 'SQLITE_CONSTRAINT';
+        throw error;
+      }
+      this.state.homepageHeroVideoDerivatives.push({
+        id,
+        slot,
+        source_type: sourceType,
+        source_asset_id: sourceAssetId,
+        source_user_id: sourceUserId,
+        source_title: sourceTitle,
+        provider,
+        status,
+        version: null,
+        file_r2_key: null,
+        poster_r2_key: null,
+        file_mime_type: null,
+        poster_mime_type: null,
+        width: null,
+        height: null,
+        duration_seconds: null,
+        fps: null,
+        size_bytes: null,
+        poster_size_bytes: null,
+        original_size_bytes: originalSizeBytes,
+        original_mime_type: originalMimeType,
+        target_preset_json: targetPresetJson,
+        provider_payload_json: providerPayloadJson,
+        error_message: null,
+        idempotency_key_hash: idempotencyKeyHash,
+        request_hash: requestHash,
+        created_by_user_id: createdByUserId,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE homepage_hero_video_derivatives SET status = 'succeeded'")) {
+      const [version, fileKey, posterKey, sizeBytes, posterSizeBytes, providerPayloadJson, updatedAt, completedAt, derivativeId] = bindings;
+      const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId);
+      if (row) {
+        Object.assign(row, {
+          status: 'succeeded',
+          version,
+          file_r2_key: fileKey,
+          poster_r2_key: posterKey,
+          file_mime_type: 'video/mp4',
+          poster_mime_type: 'image/webp',
+          width: 720,
+          height: 405,
+          duration_seconds: 6,
+          fps: 24,
+          size_bytes: sizeBytes,
+          poster_size_bytes: posterSizeBytes,
+          provider_payload_json: providerPayloadJson,
+          error_message: null,
+          updated_at: updatedAt,
+          completed_at: completedAt,
+        });
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('INSERT INTO homepage_hero_video_slots (')) {
+      const [
+        slot,
+        displayOrder,
+        enabled,
+        derivativeId,
+        sourceType,
+        sourceAssetId,
+        sourceUserId,
+        title,
+        operatorReason,
+        updatedByUserId,
+        lastIdempotencyKeyHash,
+        lastRequestHash,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      const existing = this.state.homepageHeroVideoSlots.find((row) => row.slot === slot);
+      const next = {
+        slot,
+        display_order: displayOrder,
+        enabled,
+        derivative_id: derivativeId,
+        source_type: sourceType,
+        source_asset_id: sourceAssetId,
+        source_user_id: sourceUserId,
+        title,
+        operator_reason: operatorReason,
+        updated_by_user_id: updatedByUserId,
+        last_idempotency_key_hash: lastIdempotencyKeyHash,
+        last_request_hash: lastRequestHash,
+        created_at: existing?.created_at || createdAt,
+        updated_at: updatedAt,
+      };
+      if (existing) Object.assign(existing, next);
+      else this.state.homepageHeroVideoSlots.push(next);
       return { success: true, meta: { changes: 1 } };
     }
 

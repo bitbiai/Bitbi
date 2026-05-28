@@ -101,6 +101,27 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "USER_IMAGES"],
     rateLimit: { noneReason: "Read-only public thumbnail route; object keys are looked up from ready D1 rows and never accepted from the request." },
   }),
+  safeRead("homepage.hero-videos.read", "GET", "/api/homepage/hero-videos", "homepage", {
+    auth: "anonymous",
+    sensitivity: "low",
+    config: ["DB"],
+    rateLimit: { noneReason: "Read-only public homepage hero-video config; incomplete or missing configuration returns an empty configured set so the homepage falls back." },
+    notes: "Returns only slot, version, and public derivative URLs. It never returns source asset URLs, private /api/ai/text-assets URLs, admin storage URLs, or R2 object keys.",
+  }),
+  safeRead("homepage.hero-videos.file", "GET", "/api/homepage/hero-videos/:slot/:version/file", "homepage", {
+    auth: "anonymous",
+    sensitivity: "low",
+    config: ["DB", "USER_IMAGES"],
+    rateLimit: { noneReason: "Read-only immutable public derivative media; object keys are selected from enabled succeeded slot rows only." },
+    notes: "Serves optimized no-audio hero derivatives only; original source videos are not addressable through this route.",
+  }),
+  safeRead("homepage.hero-videos.poster", "GET", "/api/homepage/hero-videos/:slot/:version/poster", "homepage", {
+    auth: "anonymous",
+    sensitivity: "low",
+    config: ["DB", "USER_IMAGES"],
+    rateLimit: { noneReason: "Read-only immutable public derivative poster media; object keys are selected from enabled succeeded slot rows only." },
+    notes: "Serves generated hero derivative posters only; original source asset keys are never returned.",
+  }),
   policy({
     id: "openclaw.news_pulse.ingest",
     method: "POST",
@@ -1201,6 +1222,24 @@ export const ROUTE_POLICIES = Object.freeze([
   userJsonWrite("ai.text-assets.rename", "PATCH", "/api/ai/text-assets/:id/rename", "ai-studio", "smallJson", "ai-text-asset-write-user"),
   userJsonWrite("ai.text-assets.delete", "DELETE", "/api/ai/text-assets/:id", "ai-studio", null, "ai-text-asset-write-user", {
     body: { kind: "none", noneReason: "Text asset delete uses the path id only." },
+  }),
+  adminRead("admin.homepage.hero-videos.read", "/api/admin/homepage/hero-videos", "homepage", {
+    config: ["DB"],
+    notes: "Admin-only current homepage hero slot config. Sanitizes derivative records and does not return R2 keys.",
+  }),
+  adminRead("admin.homepage.hero-videos.candidates", "/api/admin/homepage/hero-videos/candidates", "homepage", {
+    config: ["DB"],
+    notes: "Admin-only candidate browser for published Memvids and the current admin user's saved video assets. Candidate responses expose route URLs only, never R2 object keys.",
+  }),
+  adminJsonWrite("admin.homepage.hero-videos.derivatives.create", "POST", "/api/admin/homepage/hero-videos/derivatives", "homepage", "adminJson", "admin-action-ip", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "homepage_hero_video_derivative_requested" },
+    notes: "Requires Admin/MFA in production, same-origin mutation guard, Idempotency-Key, and operator_reason. Creates a queued/processed derivative job through a provider adapter; public output is available only after succeeded derivative assignment.",
+  }),
+  adminJsonWrite("admin.homepage.hero-videos.slots.update", "PUT", "/api/admin/homepage/hero-videos/slots/:slot", "homepage", "smallJson", "admin-action-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "homepage_hero_video_slot_updated" },
+    notes: "Requires Admin/MFA in production, same-origin mutation guard, Idempotency-Key, and operator_reason. Only succeeded derivatives can be assigned to enabled public slots.",
   }),
 
 ]);

@@ -518,7 +518,7 @@ async function routeDefaultMemtracks(page, {
   });
 }
 
-async function routeHomepageVideoHoverFixtures(page, { items, videoRequests = [] }) {
+async function routeHomepageVideoHoverFixtures(page, { items, videoRequests = [], homepageHeroVideos = null }) {
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
       status: 200,
@@ -556,6 +556,47 @@ async function routeHomepageVideoHoverFixtures(page, { items, videoRequests = []
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ ok: true, data: { items: [], has_more: false, next_cursor: null } }),
+    });
+  });
+
+  await page.route(/\/api\/homepage\/hero-videos$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(homepageHeroVideos || {
+        ok: true,
+        data: {
+          configured: false,
+          slots: [],
+          slot_order: ['right_top', 'right_bottom', 'left_top', 'left_bottom'],
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/homepage/hero-videos/**', async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.pathname.endsWith('/poster')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/webp',
+        body: Buffer.from('mock-hero-poster'),
+      });
+      return;
+    }
+    if (requestUrl.pathname.endsWith('/file')) {
+      videoRequests.push(requestUrl.pathname);
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-hero-video'),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: 'not_found' }),
     });
   });
 
@@ -2083,6 +2124,77 @@ test.describe('Homepage', () => {
     await leftModelsButton.click();
     await expectPathUnchanged(page, '/');
     await expectModelsOverlayOpenState(page, { homepage: true });
+  });
+
+  test('homepage Models video module prefers configured hero derivative slots before Memvid fallback', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    const videoRequests = [];
+    const heroSlots = ['right_top', 'right_bottom', 'left_top', 'left_bottom'].map((slot, index) => ({
+      slot,
+      version: `vhero${index + 1}`,
+      title: `Configured ${slot}`,
+      source_type: 'admin_asset',
+      file: {
+        url: `/api/homepage/hero-videos/${slot}/vhero${index + 1}/file`,
+        mime_type: 'video/mp4',
+        width: 720,
+        height: 405,
+        size_bytes: 1400000,
+        duration_seconds: 6,
+      },
+      poster: {
+        url: `/api/homepage/hero-videos/${slot}/vhero${index + 1}/poster`,
+        mime_type: 'image/webp',
+        width: 720,
+        height: 405,
+        size_bytes: 90000,
+      },
+    }));
+    await routeHomepageVideoHoverFixtures(page, {
+      videoRequests,
+      homepageHeroVideos: {
+        ok: true,
+        data: {
+          configured: true,
+          slots: heroSlots,
+          slot_order: ['right_top', 'right_bottom', 'left_top', 'left_bottom'],
+        },
+      },
+      items: Array.from({ length: 10 }, (_, index) => {
+        const id = `fallback-module-${index + 1}`;
+        return {
+          id,
+          slug: id,
+          published_at: `2026-05-${(12 - index).toString().padStart(2, '0')}T08:00:00.000Z`,
+          category: 'memvids',
+          file: { url: `/api/gallery/memvids/${id}/vpub/file` },
+          poster: { url: `/api/gallery/memvids/${id}/vpub/poster`, w: 1280, h: 720 },
+        };
+      }),
+    });
+    await page.goto('/');
+
+    const rightModule = page.locator('#hero .hero__models-cta--right .latest-models-video-module');
+    const leftModule = page.locator('#hero .hero__models-cta--left .latest-models-video-module');
+    const rightTop = rightModule.locator('[data-latest-models-slot="top"]');
+    const rightBottom = rightModule.locator('[data-latest-models-slot="bottom"]');
+    const leftTop = leftModule.locator('[data-latest-models-slot="top"]');
+    const leftBottom = leftModule.locator('[data-latest-models-slot="bottom"]');
+
+    await expect(rightModule).toHaveAttribute('data-video-module-state', 'ready');
+    await expect(leftModule).toHaveAttribute('data-video-module-state', 'ready');
+    await expect(rightTop.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/right_top\/vhero1\/file$/);
+    await expect(rightBottom.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/right_bottom\/vhero2\/file$/);
+    await expect(leftTop.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/left_top\/vhero3\/file$/);
+    await expect(leftBottom.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/left_bottom\/vhero4\/file$/);
+    await expect(rightTop).toHaveAttribute('data-active-video-id', /homepage-hero-right_top-vhero1/);
+    await expect(leftBottom).toHaveAttribute('data-active-video-id', /homepage-hero-left_bottom-vhero4/);
+    expect(videoRequests).toEqual(expect.arrayContaining([
+      '/api/homepage/hero-videos/right_top/vhero1/file',
+      '/api/homepage/hero-videos/right_bottom/vhero2/file',
+      '/api/homepage/hero-videos/left_top/vhero3/file',
+      '/api/homepage/hero-videos/left_bottom/vhero4/file',
+    ]));
   });
 
   for (const { path, galleryLabel } of [

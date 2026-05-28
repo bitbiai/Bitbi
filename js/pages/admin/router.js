@@ -15,6 +15,7 @@ const SECTION_DOM_IDS = {
     media: 'sectionMedia',
     access: 'sectionAccess',
     'ai-lab': 'sectionAiLab',
+    'homepage-hero-videos': 'sectionHomepageHeroVideos',
     activity: 'sectionActivity',
     settings: 'sectionSettings',
 };
@@ -36,6 +37,7 @@ const SECTION_META = {
     media: { title: 'Media Reference', desc: 'Read-only codebase media inventory, not live R2 listing' },
     access: { title: 'Access Reference', desc: 'Read-only codebase access map, not live authorization proof' },
     'ai-lab': { title: 'AI Lab', desc: 'Admin-only AI tests, previews, and model comparisons' },
+    'homepage-hero-videos': { title: 'Homepage Hero Videos', desc: 'Operator-managed optimized hero video slots for the public homepage' },
     activity: { title: 'Activity', desc: 'Audit trail and admin actions' },
     settings: { title: 'Admin Settings', desc: 'Safe settings boundaries and deployment-owned configuration' },
 };
