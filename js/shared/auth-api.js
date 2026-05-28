@@ -266,6 +266,22 @@ export function apiAdminHomepageHeroVideos(options) {
     return request('GET', '/admin/homepage/hero-videos', undefined, options);
 }
 
+export function apiAdminHomepageHeroVideoFeatureStatus(options) {
+    return request('GET', '/admin/homepage/hero-videos/feature-status', undefined, options);
+}
+
+export function apiAdminUpdateHomepageHeroVideoFeatureSwitch(key, payload = {}, { idempotencyKey } = {}) {
+    return request('PATCH', `/admin/homepage/hero-videos/feature-status/${encodeURIComponent(key)}`, payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminUpdateHomepageHeroVideoPreset(payload = {}, { idempotencyKey } = {}) {
+    return request('PATCH', '/admin/homepage/hero-videos/preset', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAdminHomepageHeroVideoCandidates(source = 'public', { limit, signal } = {}) {
     const path = '/admin/homepage/hero-videos/candidates';
     const params = new URLSearchParams();
@@ -283,6 +299,7 @@ export function apiAdminCreateHomepageHeroVideoDerivative(payload = {}, { idempo
 export async function apiAdminUploadHomepageHeroVideoSource(file, {
     title = '',
     operatorReason = '',
+    poster = null,
     idempotencyKey,
     signal,
 } = {}) {
@@ -290,6 +307,7 @@ export async function apiAdminUploadHomepageHeroVideoSource(file, {
         const formData = new FormData();
         const path = '/admin/homepage/hero-videos/uploads';
         formData.append('video', file);
+        if (poster) formData.append('poster', poster, 'hero-source-poster.webp');
         if (title) formData.append('title', title);
         formData.append('operator_reason', operatorReason);
         const headers = {};
@@ -309,6 +327,12 @@ export async function apiAdminUploadHomepageHeroVideoSource(file, {
         if (e?.name === 'AbortError') return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
         return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
     }
+}
+
+export function apiAdminAttachHomepageHeroVideoPoster(assetId, payload = {}, { idempotencyKey } = {}) {
+    return request('POST', `/admin/homepage/hero-videos/uploads/${encodeURIComponent(assetId)}/poster`, payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
 }
 
 export function apiAdminRetryHomepageHeroVideoDerivative(derivativeId, payload = {}, { idempotencyKey } = {}) {

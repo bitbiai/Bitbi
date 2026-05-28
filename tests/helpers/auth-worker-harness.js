@@ -11417,6 +11417,16 @@ class MockD1 {
       } : null;
     }
 
+    if (query.startsWith('SELECT id, asset_id, user_id FROM homepage_hero_video_uploads')) {
+      const [assetId, userId] = bindings;
+      const upload = this.state.homepageHeroVideoUploads.find((row) => row.asset_id === assetId && row.user_id === userId);
+      return upload ? {
+        id: upload.id,
+        asset_id: upload.asset_id,
+        user_id: upload.user_id,
+      } : null;
+    }
+
     if (query.startsWith('INSERT INTO homepage_hero_video_uploads (')) {
       const [
         id,
@@ -11591,12 +11601,18 @@ class MockD1 {
     }
 
     if (query.startsWith("UPDATE homepage_hero_video_derivatives SET status = 'queued'")) {
-      const [updatedAt, derivativeId] = bindings;
+      const hasPresetUpdate = query.includes('target_preset_json = ?');
+      const updatedAt = hasPresetUpdate ? bindings[2] : bindings[0];
+      const derivativeId = hasPresetUpdate ? bindings[3] : bindings[1];
       const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId && item.provider === 'external_ffmpeg');
       if (row) {
         row.status = 'queued';
         row.error_code = null;
         row.error_message = null;
+        if (hasPresetUpdate) {
+          row.target_preset_json = bindings[0];
+          row.provider_payload_json = bindings[1];
+        }
         row.processing_started_at = null;
         row.processing_completed_at = null;
         row.updated_at = updatedAt;
@@ -11778,6 +11794,10 @@ function createAuthTestEnv(seed = {}) {
     MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: seed.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET,
     MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS: seed.MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS,
     MEMVID_STREAM_PREVIEW_MAX_LOOPS: seed.MEMVID_STREAM_PREVIEW_MAX_LOOPS,
+    CLOUDFLARE_ACCOUNT_ID: seed.CLOUDFLARE_ACCOUNT_ID,
+    STREAM_ACCOUNT_ID: seed.STREAM_ACCOUNT_ID,
+    CLOUDFLARE_STREAM_API_TOKEN: seed.CLOUDFLARE_STREAM_API_TOKEN,
+    STREAM_API_TOKEN: seed.STREAM_API_TOKEN,
     STRIPE_MODE: seed.STRIPE_MODE,
     STRIPE_SECRET_KEY: seed.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: seed.STRIPE_WEBHOOK_SECRET,

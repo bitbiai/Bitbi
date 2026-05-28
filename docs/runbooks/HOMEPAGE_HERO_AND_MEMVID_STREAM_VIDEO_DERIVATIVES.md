@@ -1,6 +1,6 @@
 # Homepage Hero And Memvid Stream Video Derivatives
 
-Status: production path is feature-flagged. `config/release-compat.json` is authoritative for the current auth D1 migration checkpoint.
+Status: production path is enabled by default at the Worker capability layer, with Admin runtime switches for test/rollout control. `config/release-compat.json` is authoritative for the current auth D1 migration checkpoint.
 
 Deploy unit: `homepage-ffmpeg-processor`. The release planner classifies `services/homepage-ffmpeg-processor/**` as a non-static processor/service deploy concern. Static Pages does not deploy this processor.
 
@@ -15,22 +15,32 @@ Original AI, user-uploaded, or Admin-uploaded source videos are never returned b
 
 ## Feature Flags And Secrets
 
-Auth Worker feature flags:
+Auth Worker feature flags default to enabled when omitted. Operators may explicitly set any flag to `false`, `0`, `off`, or `disabled` to hard-disable that capability at the Worker layer:
 
 - `ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG`
 - `ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS`
 - `ENABLE_MEMVID_STREAM_PREVIEWS`
 - `ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY`
 
+Admin runtime switches are stored in `app_settings` and are layered below the Worker flags:
+
+- `homepage_hero_external_ffmpeg_enabled`
+- `homepage_hero_manual_uploads_enabled`
+- `memvid_stream_previews_enabled`
+- `memvid_stream_preview_autoplay_enabled`
+
+Effective behavior is `Worker flag enabled + Admin switch enabled + provider configured when required`. The Admin Homepage Hero Videos section shows Worker state, Admin switch state, effective state, provider readiness, missing config names, and last update metadata without exposing secrets.
+
 Processor/provider secrets:
 
 - `HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET` or `HOMEPAGE_HERO_PROCESSOR_SECRET`
 - `CLOUDFLARE_ACCOUNT_ID` or `STREAM_ACCOUNT_ID`
 - `CLOUDFLARE_STREAM_API_TOKEN` or `STREAM_API_TOKEN`
+- `MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET` or `HOMEPAGE_HERO_PROCESSOR_SECRET`
 - `MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS`
 - `MEMVID_STREAM_PREVIEW_MAX_LOOPS`
 
-With flags or secrets absent, provider work fails closed and the public site falls back to existing poster/full-play behavior.
+With provider secrets/config absent, provider work fails closed and the public site falls back to existing poster/full-play behavior. Missing provider secrets do not imply production readiness even when Worker flags and Admin switches are on.
 
 ## Deploy Order
 
@@ -58,13 +68,35 @@ On normal push events, the Static Pages workflow skips deployment cleanly when t
 
 If fewer than four slots are ready, the homepage keeps using the existing public Memvid fallback.
 
+Manual uploads are saved as private admin-owned video assets using the same saved video asset/poster conventions as generated saved videos. The Admin UI attempts to create a WebP poster from the selected video before upload; if browser poster extraction fails, the UI shows a recoverable warning and a retry action. Public Homepage Hero playback never serves the uploaded source video or private source poster URL.
+
+## Hero Conversion Preset
+
+The default derivative preset remains MP4/H.264, max 720px wide, 24 fps, no audio, up to 8 seconds, `+faststart`, CRF 30, and WebP poster around 640px wide.
+
+Operators can adjust bounded structured preset fields in Admin:
+
+- format/container: `mp4`
+- codec: `h264`
+- max width: 320-1080
+- fps: 12-30
+- duration cap: 3-12 seconds
+- audio: default off
+- CRF quality: 24-36
+- encoder preset: allowed named presets only
+- poster format/width: WebP, bounded width
+
+The Worker validates and stores the preset in `app_settings` as `homepage_hero_ffmpeg_preset`. Raw ffmpeg CLI fragments are not accepted. The signed processor job payload includes the effective preset JSON, and each derivative row stores the preset used for reproducibility. Changing the preset affects new/retried derivative jobs only; succeeded derivatives are not rewritten in place.
+
 ## Memvid Stream Hover Flow
 
 1. A trusted processor/backfill path creates short preview clips for public Memvids.
 2. The clip is uploaded to Cloudflare Stream.
 3. `memvid_stream_previews` stores the safe Stream UID, duration, loop cap, and ready status.
-4. Public Memvid list responses include `stream_preview` only for ready rows.
+4. Public Memvid list responses include `stream_preview` only for ready rows when the Worker flag and Admin metadata switch are effectively enabled.
 5. Desktop hover/fine-pointer frontend code waits before loading playback, loops at most three times, and destroys the player on mouseleave.
+
+The public `stream_preview` contract may include `autoplay_enabled: false` when metadata is allowed but the Admin hover-autoplay switch is off. The frontend treats that as poster-only and does not create a hover media element.
 
 Mobile/touch and `prefers-reduced-motion` users get poster-only cards. Full click/tap playback continues to use the existing public Memvid file route.
 

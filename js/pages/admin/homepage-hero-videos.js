@@ -3,6 +3,8 @@ import {
     apiAdminCreateHomepageHeroVideoDerivative,
     apiAdminHomepageHeroVideoCandidates,
     apiAdminHomepageHeroVideos,
+    apiAdminUpdateHomepageHeroVideoFeatureSwitch,
+    apiAdminUpdateHomepageHeroVideoPreset,
     apiAdminUploadHomepageHeroVideoSource,
     apiAdminUpdateHomepageHeroVideoSlot,
     createAdminIdempotencyKey,
@@ -18,6 +20,12 @@ const SLOT_LABELS = {
 const CANDIDATE_SOURCES = {
     public: 'Published Videos',
     'admin-assets': 'Admin Assets',
+};
+const FEATURE_LABELS = {
+    homepage_hero_external_ffmpeg: 'Hero external ffmpeg derivatives',
+    homepage_hero_manual_uploads: 'Hero manual uploads',
+    memvid_stream_previews: 'Memvid Stream previews',
+    memvid_stream_preview_autoplay: 'Memvid hover autoplay',
 };
 
 function el(tag, className, text = null) {
@@ -211,10 +219,18 @@ export function createHomepageHeroVideosAdmin({
         candidates: [],
         manualUploadsEnabled: false,
         externalFfmpegEnabled: false,
+        featureStatus: null,
+        presetStatus: null,
+        presetDraft: null,
         streamPreviewSummary: null,
         uploadFile: null,
+        uploadPoster: null,
+        uploadPosterWarning: '',
+        uploadPosterBusy: false,
         uploadTitle: '',
         uploadBusy: false,
+        savingFeatureKey: '',
+        presetSaving: false,
         streamBackfillBusy: false,
         status: 'Loading homepage hero videos...',
         statusState: 'neutral',
@@ -232,6 +248,32 @@ export function createHomepageHeroVideosAdmin({
 
     function selectedSlotRecord() {
         return state.slots.find((slot) => slot.slot === state.selectedSlot) || null;
+    }
+
+    function getFeature(key) {
+        return state.featureStatus?.features?.[key] || null;
+    }
+
+    function getPresetDraft() {
+        if (!state.presetDraft) {
+            state.presetDraft = { ...(state.presetStatus?.preset || {}) };
+        }
+        return state.presetDraft;
+    }
+
+    function syncFeatureState(configData = {}) {
+        state.featureStatus = configData.feature_status || state.featureStatus || null;
+        state.presetStatus = configData.preset_status || state.presetStatus || null;
+        state.presetDraft = state.presetStatus?.preset ? { ...state.presetStatus.preset } : state.presetDraft;
+        const manualFeature = state.featureStatus?.features?.homepage_hero_manual_uploads || null;
+        const ffmpegFeature = state.featureStatus?.features?.homepage_hero_external_ffmpeg || null;
+        state.manualUploadsEnabled = typeof configData.manual_uploads_enabled === 'boolean'
+            ? configData.manual_uploads_enabled === true
+            : manualFeature?.effective_enabled === true;
+        state.externalFfmpegEnabled = typeof configData.external_ffmpeg_enabled === 'boolean'
+            ? configData.external_ffmpeg_enabled === true
+            : ffmpegFeature?.effective_enabled === true;
+        state.streamPreviewSummary = configData.stream_preview_summary || state.streamPreviewSummary;
     }
 
     function renderShell() {
@@ -280,18 +322,18 @@ export function createHomepageHeroVideosAdmin({
         const summary = el('section', 'admin-hero-videos__ops');
         summary.setAttribute('aria-label', 'Hero and stream preview operations');
         const hero = el('div', 'admin-hero-videos__ops-card');
-        hero.append(el('h3', 'admin-hero-videos__section-title', 'Hero processing'));
-        hero.append(createMetaRow('Manual uploads', state.manualUploadsEnabled ? 'Enabled' : 'Disabled'));
-        hero.append(createMetaRow('external_ffmpeg', state.externalFfmpegEnabled ? 'Enabled' : 'Disabled'));
-        hero.append(createMetaRow('Target preset', 'MP4/H.264, 720px max, no audio, 6-8s'));
+        hero.append(el('h3', 'admin-hero-videos__section-title', 'Video Delivery Controls'));
+        hero.append(el('p', 'admin-shell__desc', 'Worker capabilities default on. These Admin switches are runtime rollout controls and do not prove provider readiness.'));
+        hero.append(renderFeatureControl('homepage_hero_external_ffmpeg'));
+        hero.append(renderFeatureControl('homepage_hero_manual_uploads'));
         summary.append(hero);
 
         const preview = el('div', 'admin-hero-videos__ops-card');
         preview.append(el('h3', 'admin-hero-videos__section-title', 'Memvid Stream previews'));
+        preview.append(renderFeatureControl('memvid_stream_previews'));
+        preview.append(renderFeatureControl('memvid_stream_preview_autoplay'));
         const stream = state.streamPreviewSummary || {};
         const flags = stream.feature_flags || {};
-        preview.append(createMetaRow('Metadata flag', flags.metadata_enabled ? 'Enabled' : 'Disabled'));
-        preview.append(createMetaRow('Autoplay flag', flags.autoplay_enabled ? 'Enabled' : 'Disabled'));
         preview.append(createMetaRow('Provider config', flags.provider_configured ? 'Configured' : 'Missing'));
         preview.append(createMetaRow('Ready previews', String(stream.ready_count ?? 0)));
         preview.append(createMetaRow('Failed previews', String(stream.failed_count ?? 0)));
@@ -300,11 +342,104 @@ export function createHomepageHeroVideosAdmin({
         const backfillBtn = el('button', 'btn-action admin-hero-videos__button--ghost', state.streamBackfillBusy ? 'Queueing...' : 'Queue preview backfill');
         backfillBtn.type = 'button';
         backfillBtn.dataset.action = 'queue-stream-preview-backfill';
-        backfillBtn.disabled = !flags.metadata_enabled || state.streamBackfillBusy;
+        backfillBtn.disabled = !getFeature('memvid_stream_previews')?.effective_enabled || state.streamBackfillBusy;
         actions.append(backfillBtn);
         preview.append(actions);
         summary.append(preview);
+        summary.append(renderPresetPanel());
         return summary;
+    }
+
+    function renderFeatureControl(key) {
+        const feature = getFeature(key);
+        const row = el('div', 'admin-hero-videos__feature');
+        row.dataset.feature = key;
+        const text = el('div');
+        text.append(el('strong', 'admin-hero-videos__feature-title', FEATURE_LABELS[key] || feature?.label || key));
+        const provider = feature?.provider_required
+            ? `Provider ${feature.provider_configured ? 'configured' : 'missing'}`
+            : 'No provider secret required';
+        text.append(el('span', 'admin-hero-videos__feature-meta', [
+            `Worker ${feature?.worker_enabled ? 'on' : 'off'}`,
+            `Admin ${feature?.admin_enabled ? 'on' : 'off'}`,
+            `Effective ${feature?.effective_enabled ? 'on' : 'off'}`,
+            provider,
+        ].join(' · ')));
+        if (feature?.provider?.missing?.length) {
+            text.append(el('span', 'admin-hero-videos__feature-warning', `Missing: ${feature.provider.missing.join(', ')}`));
+        }
+        row.append(text);
+        const btn = el('button', 'btn-action admin-hero-videos__button--ghost', feature?.admin_enabled ? 'Turn off' : 'Turn on');
+        btn.type = 'button';
+        btn.dataset.action = 'toggle-feature';
+        btn.dataset.feature = key;
+        btn.dataset.enabled = feature?.admin_enabled ? 'false' : 'true';
+        btn.disabled = state.savingFeatureKey === key || !feature;
+        row.append(btn);
+        return row;
+    }
+
+    function renderPresetNumberField(label, field, { min, max, step = '1' } = {}) {
+        const draft = getPresetDraft();
+        const labelNode = el('label', 'admin-hero-videos__field');
+        labelNode.append(el('span', null, label));
+        const input = document.createElement('input');
+        input.className = 'admin-search__input';
+        input.type = 'number';
+        input.min = String(min);
+        input.max = String(max);
+        input.step = step;
+        input.dataset.presetField = field;
+        input.value = draft[field] ?? '';
+        input.disabled = state.presetSaving;
+        labelNode.append(input);
+        return labelNode;
+    }
+
+    function renderPresetPanel() {
+        const panel = el('div', 'admin-hero-videos__ops-card admin-hero-videos__ops-card--wide');
+        panel.append(el('h3', 'admin-hero-videos__section-title', 'Hero Conversion Preset'));
+        panel.append(el('p', 'admin-shell__desc', 'Structured safe preset fields only. New values apply to new or retried derivative jobs; existing succeeded derivatives are not changed.'));
+        const grid = el('div', 'admin-hero-videos__preset-grid');
+        grid.append(renderPresetNumberField('Max width', 'maxWidth', { min: 320, max: 1080 }));
+        grid.append(renderPresetNumberField('FPS', 'fps', { min: 12, max: 30 }));
+        grid.append(renderPresetNumberField('Duration seconds', 'durationSeconds', { min: 3, max: 12 }));
+        grid.append(renderPresetNumberField('CRF quality', 'crf', { min: 24, max: 36 }));
+        grid.append(renderPresetNumberField('Poster width', 'posterWidth', { min: 320, max: 1080 }));
+        const presetLabel = el('label', 'admin-hero-videos__field');
+        presetLabel.append(el('span', null, 'Encoder preset'));
+        const select = document.createElement('select');
+        select.className = 'admin-search__input';
+        select.dataset.presetField = 'encoderPreset';
+        ['veryfast', 'fast', 'medium', 'slow', 'slower'].forEach((value) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            option.selected = (getPresetDraft().encoderPreset || 'slow') === value;
+            select.append(option);
+        });
+        presetLabel.append(select);
+        grid.append(presetLabel);
+        panel.append(grid);
+        const audioLabel = el('label', 'admin-hero-videos__check');
+        const audio = document.createElement('input');
+        audio.type = 'checkbox';
+        audio.dataset.presetField = 'audio';
+        audio.checked = getPresetDraft().audio === true;
+        audio.disabled = state.presetSaving;
+        audioLabel.append(audio, el('span', null, 'Enable audio in derivative output'));
+        panel.append(audioLabel);
+        if (state.presetStatus?.warnings?.length) {
+            panel.append(el('p', 'admin-hero-videos__feature-warning', state.presetStatus.warnings.join(' ')));
+        }
+        const actions = el('div', 'admin-hero-videos__actions');
+        const save = el('button', 'btn-action', state.presetSaving ? 'Saving preset...' : 'Save preset');
+        save.type = 'button';
+        save.dataset.action = 'save-preset';
+        save.disabled = state.presetSaving;
+        actions.append(save);
+        panel.append(actions);
+        return panel;
     }
 
     function renderCandidateBrowser() {
@@ -371,14 +506,26 @@ export function createHomepageHeroVideosAdmin({
         const uploadBtn = el('button', 'btn-action', state.uploadBusy ? 'Uploading...' : 'Upload source');
         uploadBtn.type = 'button';
         uploadBtn.dataset.action = 'upload-source';
-        uploadBtn.disabled = !state.manualUploadsEnabled || state.uploadBusy || !state.uploadFile;
+        uploadBtn.disabled = !state.manualUploadsEnabled || state.uploadBusy || state.uploadPosterBusy || !state.uploadFile;
         actions.append(uploadBtn);
         panel.append(actions);
 
         if (!state.manualUploadsEnabled) {
-            panel.append(el('p', 'admin-shell__desc', 'Manual uploads are disabled by feature flag.'));
+            panel.append(el('p', 'admin-shell__desc', 'Manual uploads are disabled by the Admin switch or Worker hard-disable.'));
+        } else if (state.uploadPosterBusy) {
+            panel.append(el('p', 'admin-shell__desc', 'Generating poster preview from the selected video...'));
+        } else if (state.uploadPosterWarning) {
+            panel.append(el('p', 'admin-hero-videos__feature-warning', state.uploadPosterWarning));
+            const retryActions = el('div', 'admin-hero-videos__actions');
+            const retryPoster = el('button', 'btn-action admin-hero-videos__button--ghost', 'Retry poster preview');
+            retryPoster.type = 'button';
+            retryPoster.dataset.action = 'retry-upload-poster';
+            retryPoster.disabled = !state.uploadFile || state.uploadBusy;
+            retryActions.append(retryPoster);
+            panel.append(retryActions);
         } else if (state.uploadFile) {
             panel.append(createMetaRow('Selected file', `${state.uploadFile.name} (${formatBytes(state.uploadFile.size)})`));
+            panel.append(createMetaRow('Generated poster', state.uploadPoster ? 'Ready' : 'Not generated'));
         }
         return panel;
     }
@@ -430,7 +577,7 @@ export function createHomepageHeroVideosAdmin({
         const convertBtn = el('button', 'btn-action', 'Convert selected');
         convertBtn.type = 'button';
         convertBtn.dataset.action = 'convert';
-        convertBtn.disabled = !state.selectedCandidate || !state.selectedSlot;
+        convertBtn.disabled = !state.selectedCandidate || !state.selectedSlot || (state.provider === 'external_ffmpeg' && !state.externalFfmpegEnabled);
         actions.append(convertBtn);
 
         const assignBtn = el('button', 'btn-action', 'Assign converted derivative');
@@ -477,9 +624,7 @@ export function createHomepageHeroVideosAdmin({
                 return;
             }
             state.slots = Array.isArray(config.data?.data?.slots) ? config.data.data.slots : [];
-            state.manualUploadsEnabled = config.data?.data?.manual_uploads_enabled === true;
-            state.externalFfmpegEnabled = config.data?.data?.external_ffmpeg_enabled === true;
-            state.streamPreviewSummary = config.data?.data?.stream_preview_summary || null;
+            syncFeatureState(config.data?.data || {});
             setStatus('Homepage hero video configuration loaded.', 'success');
         } finally {
             state.loading = false;
@@ -536,6 +681,7 @@ export function createHomepageHeroVideosAdmin({
         const res = await apiAdminUploadHomepageHeroVideoSource(state.uploadFile, {
             title: state.uploadTitle,
             operatorReason: reason,
+            poster: state.uploadPoster,
             idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-upload'),
         });
         state.uploadBusy = false;
@@ -547,11 +693,16 @@ export function createHomepageHeroVideosAdmin({
             return;
         }
         const candidate = res.data?.data?.candidate || null;
+        if (res.data?.data?.poster_warning) {
+            showToast?.(res.data.data.poster_warning, 'warning');
+        }
         state.currentSource = 'admin-assets';
         await loadCandidates('admin-assets');
         state.selectedCandidate = candidate
             || state.candidates.find((entry) => entry.source_asset_id === candidate?.source_asset_id) || null;
         state.uploadFile = null;
+        state.uploadPoster = null;
+        state.uploadPosterWarning = '';
         state.uploadTitle = '';
         setStatus('Private hero source uploaded. Convert it before assigning a public slot.', 'success');
         showToast?.('Hero source uploaded.', 'success');
@@ -647,11 +798,137 @@ export function createHomepageHeroVideosAdmin({
         const res = await apiAdminHomepageHeroVideos();
         if (res.ok) {
             state.slots = Array.isArray(res.data?.data?.slots) ? res.data.data.slots : state.slots;
-            state.manualUploadsEnabled = res.data?.data?.manual_uploads_enabled === true;
-            state.externalFfmpegEnabled = res.data?.data?.external_ffmpeg_enabled === true;
-            state.streamPreviewSummary = res.data?.data?.stream_preview_summary || state.streamPreviewSummary;
+            syncFeatureState(res.data?.data || {});
         }
         renderShell();
+    }
+
+    async function toggleFeature(key, enabled) {
+        const reason = readReason();
+        if (reason.length < 8) {
+            setStatus('Enter an operator reason before changing video delivery controls.', 'error');
+            return;
+        }
+        state.savingFeatureKey = key;
+        setStatus('Saving video delivery switch...');
+        renderShell();
+        const res = await apiAdminUpdateHomepageHeroVideoFeatureSwitch(key, {
+            enabled,
+            operator_reason: reason,
+        }, {
+            idempotencyKey: createAdminIdempotencyKey(`video-delivery-${key}`),
+        });
+        state.savingFeatureKey = '';
+        if (!res.ok) {
+            const message = formatApiError?.(res, 'Video delivery switch could not be saved.') || res.error;
+            setStatus(message, 'error');
+            showToast?.(message, 'error');
+            renderShell();
+            return;
+        }
+        syncFeatureState({
+            feature_status: res.data?.data?.status,
+        });
+        const feature = res.data?.data?.feature;
+        if (feature?.key === 'homepage_hero_manual_uploads') state.manualUploadsEnabled = feature.effective_enabled === true;
+        if (feature?.key === 'homepage_hero_external_ffmpeg') state.externalFfmpegEnabled = feature.effective_enabled === true;
+        setStatus('Video delivery switch saved.', 'success');
+        showToast?.('Video delivery switch saved.', 'success');
+        await refreshConfigOnly();
+    }
+
+    async function savePreset() {
+        const reason = readReason();
+        if (reason.length < 8) {
+            setStatus('Enter an operator reason before saving the conversion preset.', 'error');
+            return;
+        }
+        state.presetSaving = true;
+        setStatus('Saving hero conversion preset...');
+        renderShell();
+        const res = await apiAdminUpdateHomepageHeroVideoPreset({
+            preset: getPresetDraft(),
+            operator_reason: reason,
+        }, {
+            idempotencyKey: createAdminIdempotencyKey('homepage-hero-ffmpeg-preset'),
+        });
+        state.presetSaving = false;
+        if (!res.ok) {
+            const message = formatApiError?.(res, 'Hero conversion preset could not be saved.') || res.error;
+            setStatus(message, 'error');
+            showToast?.(message, 'error');
+            renderShell();
+            return;
+        }
+        state.presetStatus = res.data?.data?.preset_status || state.presetStatus;
+        state.presetDraft = state.presetStatus?.preset ? { ...state.presetStatus.preset } : state.presetDraft;
+        setStatus('Hero conversion preset saved.', 'success');
+        showToast?.('Hero conversion preset saved.', 'success');
+        renderShell();
+    }
+
+    function generatePosterBlobFromVideoFile(file) {
+        return new Promise((resolve, reject) => {
+            if (!file) {
+                resolve(null);
+                return;
+            }
+            const video = document.createElement('video');
+            const url = URL.createObjectURL(file);
+            const cleanup = () => {
+                URL.revokeObjectURL(url);
+                video.removeAttribute('src');
+                try { video.load(); } catch { /* noop */ }
+            };
+            const fail = () => {
+                cleanup();
+                reject(new Error('Poster frame could not be generated from this video.'));
+            };
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.addEventListener('error', fail, { once: true });
+            video.addEventListener('loadeddata', () => {
+                const width = video.videoWidth || 640;
+                const height = video.videoHeight || 360;
+                const canvas = document.createElement('canvas');
+                const ratio = Math.min(640 / width, 640 / height, 1);
+                canvas.width = Math.max(1, Math.round(width * ratio));
+                canvas.height = Math.max(1, Math.round(height * ratio));
+                const context = canvas.getContext('2d');
+                if (!context) {
+                    fail();
+                    return;
+                }
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob((blob) => {
+                    cleanup();
+                    if (!blob) {
+                        reject(new Error('Poster frame could not be encoded.'));
+                        return;
+                    }
+                    resolve(blob);
+                }, 'image/webp', 0.82);
+            }, { once: true });
+            video.src = url;
+        });
+    }
+
+    async function prepareUploadPoster(file) {
+        state.uploadPoster = null;
+        state.uploadPosterWarning = '';
+        if (!file) return;
+        state.uploadPosterBusy = true;
+        renderShell();
+        try {
+            state.uploadPoster = await generatePosterBlobFromVideoFile(file);
+        } catch (error) {
+            console.warn(error);
+            state.uploadPosterWarning = 'Poster preview could not be generated automatically. Upload can continue, but retry poster generation before using this source in Admin asset views.';
+        } finally {
+            state.uploadPosterBusy = false;
+            renderShell();
+        }
     }
 
     function selectCandidate(assetId, sourceType) {
@@ -714,11 +991,35 @@ export function createHomepageHeroVideosAdmin({
                     renderShell();
                 });
             }
+            if (action === 'retry-upload-poster') {
+                prepareUploadPoster(state.uploadFile).catch((error) => {
+                    console.warn(error);
+                    state.uploadPosterBusy = false;
+                    state.uploadPosterWarning = 'Poster preview could not be generated automatically.';
+                    renderShell();
+                });
+            }
             if (action === 'queue-stream-preview-backfill') {
                 queueStreamPreviewBackfill().catch((error) => {
                     console.warn(error);
                     state.streamBackfillBusy = false;
                     setStatus('Stream preview backfill could not be queued.', 'error');
+                    renderShell();
+                });
+            }
+            if (action === 'toggle-feature') {
+                toggleFeature(target.dataset.feature, target.dataset.enabled === 'true').catch((error) => {
+                    console.warn(error);
+                    state.savingFeatureKey = '';
+                    setStatus('Video delivery switch could not be saved.', 'error');
+                    renderShell();
+                });
+            }
+            if (action === 'save-preset') {
+                savePreset().catch((error) => {
+                    console.warn(error);
+                    state.presetSaving = false;
+                    setStatus('Hero conversion preset could not be saved.', 'error');
                     renderShell();
                 });
             }
@@ -733,6 +1034,13 @@ export function createHomepageHeroVideosAdmin({
             if (event.target?.dataset?.field === 'provider') {
                 state.provider = event.target.value || 'external_ffmpeg';
             }
+            if (event.target?.dataset?.presetField) {
+                const draft = getPresetDraft();
+                const field = event.target.dataset.presetField;
+                draft[field] = event.target.type === 'checkbox'
+                    ? event.target.checked
+                    : event.target.value;
+            }
         });
         refs.container.addEventListener('input', (event) => {
             if (event.target?.dataset?.field === 'reason' && refs.container) {
@@ -741,6 +1049,13 @@ export function createHomepageHeroVideosAdmin({
             if (event.target?.dataset?.field === 'upload-title') {
                 state.uploadTitle = event.target.value || '';
             }
+            if (event.target?.dataset?.presetField) {
+                const draft = getPresetDraft();
+                const field = event.target.dataset.presetField;
+                draft[field] = event.target.type === 'number'
+                    ? Number(event.target.value)
+                    : event.target.value;
+            }
         });
         refs.container.addEventListener('change', (event) => {
             if (event.target?.dataset?.field === 'upload-file') {
@@ -748,7 +1063,12 @@ export function createHomepageHeroVideosAdmin({
                 if (!state.uploadTitle && state.uploadFile?.name) {
                     state.uploadTitle = state.uploadFile.name.replace(/\.[^.]+$/, '');
                 }
-                renderShell();
+                prepareUploadPoster(state.uploadFile).catch((error) => {
+                    console.warn(error);
+                    state.uploadPosterBusy = false;
+                    state.uploadPosterWarning = 'Poster preview could not be generated automatically.';
+                    renderShell();
+                });
             }
         });
     }

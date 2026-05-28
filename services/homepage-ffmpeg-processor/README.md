@@ -26,3 +26,5 @@ npm --prefix services/homepage-ffmpeg-processor run dry-run
 ```
 
 The processor downloads sources only through signed internal Auth Worker URLs, writes optimized MP4/WebP outputs locally, uploads the derivatives through the signed completion endpoint, and reports sanitized failures through the signed fail endpoint.
+
+Homepage Hero jobs include a validated structured preset from the Auth Worker. The processor constructs ffmpeg arguments from those bounded fields only; it does not accept raw ffmpeg command fragments from Admin/browser input.

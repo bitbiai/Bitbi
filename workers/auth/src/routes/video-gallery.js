@@ -13,8 +13,8 @@ import {
   buildPublicMemvidVersion,
 } from "../../../../js/shared/public-media-contract.mjs";
 import {
+  getEffectiveMemvidStreamPreviewConfig,
   getMemvidStreamPreviewConfig,
-  isMemvidStreamPreviewMetadataEnabled,
   toPublicStreamPreview,
 } from "../lib/cloudflare-stream-previews.js";
 import {
@@ -120,8 +120,8 @@ function isMissingStreamPreviewTable(error) {
     && String(error?.message || error).includes("memvid_stream_preview");
 }
 
-async function listReadyStreamPreviewsForAssets(env, assetIds) {
-  if (!isMemvidStreamPreviewMetadataEnabled(env) || !assetIds.length) return new Map();
+async function listReadyStreamPreviewsForAssets(env, assetIds, streamPreviewConfig) {
+  if (!streamPreviewConfig?.enabled || !assetIds.length) return new Map();
   const placeholders = assetIds.map(() => "?").join(", ");
   try {
     const rows = await env.DB.prepare(
@@ -142,7 +142,7 @@ async function listReadyStreamPreviewsForAssets(env, assetIds) {
     const byAsset = new Map();
     for (const row of rows.results || []) {
       if (byAsset.has(row.asset_id)) continue;
-      const preview = toPublicStreamPreview(row, env);
+      const preview = toPublicStreamPreview(row, env, streamPreviewConfig);
       if (preview) byAsset.set(row.asset_id, preview);
     }
     return byAsset;
@@ -233,7 +233,12 @@ async function handleListMemvids(ctx) {
   const hasMore = resultRows.length > appliedLimit;
   const items = hasMore ? resultRows.slice(0, appliedLimit) : resultRows;
   const last = items[items.length - 1];
-  const streamPreviews = await listReadyStreamPreviewsForAssets(env, items.map((row) => row.id).filter(Boolean));
+  const streamPreviewConfig = await getEffectiveMemvidStreamPreviewConfig(env);
+  const streamPreviews = await listReadyStreamPreviewsForAssets(
+    env,
+    items.map((row) => row.id).filter(Boolean),
+    streamPreviewConfig
+  );
 
   return json({
     ok: true,
@@ -360,7 +365,8 @@ async function handleGetMemvidAvatar(ctx, videoId, version) {
 }
 
 async function handleStreamPreviewHoverStart(ctx, videoId) {
-  if (!isMemvidStreamPreviewMetadataEnabled(ctx.env)) {
+  const effectiveConfig = await getEffectiveMemvidStreamPreviewConfig(ctx.env);
+  if (!effectiveConfig.enabled || !effectiveConfig.autoplayEnabled) {
     return json({ ok: true, data: { recorded: false, reason: "stream_previews_disabled" } });
   }
 
@@ -397,7 +403,7 @@ async function handleStreamPreviewHoverStart(ctx, videoId) {
   }
   if (!preview) return json({ ok: true, data: { recorded: false, reason: "stream_preview_not_ready" } });
 
-  const config = getMemvidStreamPreviewConfig(ctx.env);
+  const config = effectiveConfig || getMemvidStreamPreviewConfig(ctx.env);
   const previewDurationSeconds = Math.min(
     config.previewDurationSeconds,
     Math.max(1, Number(preview.preview_duration_seconds || config.previewDurationSeconds) || config.previewDurationSeconds)

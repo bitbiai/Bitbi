@@ -1,12 +1,13 @@
+import {
+  VIDEO_DELIVERY_FEATURE_KEYS,
+  getVideoDeliveryFeatureStatus,
+  parseVideoFeatureFlag,
+} from "./video-delivery-settings.js";
+
 const DEFAULT_PREVIEW_DURATION_SECONDS = 5;
 const DEFAULT_PREVIEW_MAX_LOOPS = 3;
 const MAX_PREVIEW_DURATION_SECONDS = 8;
 const MAX_PREVIEW_MAX_LOOPS = 3;
-
-function flagEnabled(value) {
-  return String(value || "").trim().toLowerCase() === "true"
-    || String(value || "").trim() === "1";
-}
 
 function clampNumber(value, { fallback, min, max }) {
   const parsed = Number(value);
@@ -15,11 +16,11 @@ function clampNumber(value, { fallback, min, max }) {
 }
 
 export function isMemvidStreamPreviewMetadataEnabled(env) {
-  return flagEnabled(env?.ENABLE_MEMVID_STREAM_PREVIEWS);
+  return parseVideoFeatureFlag(env?.ENABLE_MEMVID_STREAM_PREVIEWS, true);
 }
 
 export function isMemvidStreamPreviewAutoplayEnabled(env) {
-  return flagEnabled(env?.ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY);
+  return parseVideoFeatureFlag(env?.ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY, true);
 }
 
 export function getMemvidStreamPreviewConfig(env) {
@@ -49,6 +50,22 @@ export function getMemvidStreamPreviewConfig(env) {
   };
 }
 
+export async function getEffectiveMemvidStreamPreviewConfig(env) {
+  const [config, status] = await Promise.all([
+    Promise.resolve(getMemvidStreamPreviewConfig(env)),
+    getVideoDeliveryFeatureStatus(env),
+  ]);
+  const metadata = status.features[VIDEO_DELIVERY_FEATURE_KEYS.MEMVID_STREAM_PREVIEWS];
+  const autoplay = status.features[VIDEO_DELIVERY_FEATURE_KEYS.MEMVID_STREAM_PREVIEW_AUTOPLAY];
+  return {
+    ...config,
+    enabled: metadata?.effective_enabled === true,
+    autoplayEnabled: autoplay?.effective_enabled === true && metadata?.effective_enabled === true,
+    providerConfigured: metadata?.provider_configured === true,
+    featureStatus: status,
+  };
+}
+
 export function normalizeStreamUid(value) {
   const uid = String(value || "").trim();
   if (!/^[A-Za-z0-9_-]{8,128}$/.test(uid)) return null;
@@ -68,14 +85,15 @@ export function buildCloudflareStreamPlayback(streamUid) {
   };
 }
 
-export function toPublicStreamPreview(row, env) {
-  if (!row || !isMemvidStreamPreviewMetadataEnabled(env)) return null;
+export function toPublicStreamPreview(row, env, effectiveConfig = null) {
+  const config = effectiveConfig || getMemvidStreamPreviewConfig(env);
+  if (!row || !config.enabled) return null;
   const uid = normalizeStreamUid(row.stream_uid);
   if (!uid || row.status !== "ready") return null;
-  const config = getMemvidStreamPreviewConfig(env);
   return {
     provider: "cloudflare_stream",
     uid,
+    autoplay_enabled: config.autoplayEnabled === true,
     preview_duration_seconds: clampNumber(row.preview_duration_seconds, {
       fallback: config.previewDurationSeconds,
       min: 1,

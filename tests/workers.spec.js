@@ -39678,6 +39678,243 @@ test.describe('Worker routes', () => {
     ]));
   });
 
+  test('video delivery feature defaults are enabled at Worker level and Admin switches can disable effective behavior', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('video-delivery-switch-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET: 'test-hero-processor-secret',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const adminHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${adminToken}`,
+    };
+
+    const statusRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/feature-status', 'GET', undefined, adminHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(statusRes.status).toBe(200);
+    const status = await statusRes.json();
+    for (const key of [
+      'homepage_hero_external_ffmpeg',
+      'homepage_hero_manual_uploads',
+      'memvid_stream_previews',
+      'memvid_stream_preview_autoplay',
+    ]) {
+      expect(status.data.feature_status.features[key]).toMatchObject({
+        worker_default_enabled: true,
+        worker_enabled: true,
+        admin_enabled: true,
+      });
+    }
+    expect(status.data.feature_status.features.homepage_hero_external_ffmpeg.effective_enabled).toBe(true);
+    expect(status.data.feature_status.features.memvid_stream_previews.effective_enabled).toBe(true);
+
+    const missingReasonRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/feature-status/homepage_hero_manual_uploads', 'PATCH', {
+        enabled: false,
+      }, {
+        ...adminHeaders,
+        'Idempotency-Key': 'video-delivery-switch-missing-reason',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingReasonRes.status).toBe(400);
+
+    const disableManualRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/feature-status/homepage_hero_manual_uploads', 'PATCH', {
+        enabled: false,
+        operator_reason: 'Disable manual uploads for runtime switch test.',
+      }, {
+        ...adminHeaders,
+        'Idempotency-Key': 'video-delivery-switch-manual-off',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(disableManualRes.status).toBe(200);
+    const disabled = await disableManualRes.json();
+    expect(disabled.data.feature).toMatchObject({
+      key: 'homepage_hero_manual_uploads',
+      worker_enabled: true,
+      admin_enabled: false,
+      effective_enabled: false,
+    });
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'video_delivery_feature_switch_updated' }),
+    ]));
+
+    const form = new FormData();
+    form.append('title', 'Blocked Hero Source');
+    form.append('operator_reason', 'Testing disabled manual uploads.');
+    form.append('video', new Blob([Buffer.from('mock-video-source')], { type: 'video/mp4' }), 'hero-source.mp4');
+    const blockedUploadRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/admin/homepage/hero-videos/uploads', {
+        method: 'POST',
+        headers: {
+          ...adminHeaders,
+          'Idempotency-Key': 'video-delivery-switch-upload-blocked',
+        },
+        body: form,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(blockedUploadRes.status).toBe(503);
+  });
+
+  test('explicit Worker false hard-disables video delivery features even when provider secrets exist', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('video-delivery-env-off-admin');
+    const member = createContractUser({ id: 'video-delivery-env-off-member', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: 'false',
+      HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET: 'test-hero-processor-secret',
+      aiTextAssets: [{
+        id: 'env0ff01',
+        user_id: member.id,
+        title: 'Published source',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 9000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/video-delivery-env-off/source.mp4',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives', 'POST', {
+        slot: 'right_top',
+        source_type: 'public',
+        source_asset_id: 'env0ff01',
+        provider: 'external_ffmpeg',
+        operator_reason: 'Testing Worker hard-disable for external ffmpeg.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'video-delivery-env-off-derivative',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.code).toBe('external_ffmpeg_not_configured');
+  });
+
+  test('homepage hero ffmpeg preset is bounded, persisted, and stored on new derivative jobs only', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-preset-admin');
+    const member = createContractUser({ id: 'hero-preset-member', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      aiTextAssets: [{
+        id: 'facefeedpreset',
+        user_id: member.id,
+        title: 'Published preset source',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 9000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/hero-preset-member/source.mp4',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const adminHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${adminToken}`,
+    };
+
+    const invalidRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/preset', 'PATCH', {
+        preset: {
+          maxWidth: 240,
+          encoderPreset: 'slow -y /tmp/inject',
+        },
+        operator_reason: 'Testing unsafe preset rejection.',
+      }, {
+        ...adminHeaders,
+        'Idempotency-Key': 'hero-preset-invalid',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidRes.status).toBe(400);
+
+    const updateRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/preset', 'PATCH', {
+        preset: {
+          maxWidth: 640,
+          fps: 24,
+          durationSeconds: 6,
+          crf: 31,
+          encoderPreset: 'medium',
+          posterWidth: 480,
+          audio: false,
+        },
+        operator_reason: 'Testing safe hero conversion preset update.',
+      }, {
+        ...adminHeaders,
+        'Idempotency-Key': 'hero-preset-valid',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(updateRes.status).toBe(200);
+    const updateBody = await updateRes.json();
+    expect(updateBody.data.preset_status.preset).toMatchObject({
+      format: 'mp4',
+      codec: 'h264',
+      maxWidth: 640,
+      durationSeconds: 6,
+      audio: false,
+      encoderPreset: 'medium',
+    });
+
+    const createRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives', 'POST', {
+        slot: 'left_bottom',
+        source_type: 'public',
+        source_asset_id: 'facefeedpreset',
+        provider: 'mock',
+        operator_reason: 'Testing preset stored with derivative job.',
+      }, {
+        ...adminHeaders,
+        'Idempotency-Key': 'hero-preset-derivative',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createRes.status).toBe(202);
+    const derivative = env.DB.state.homepageHeroVideoDerivatives[0];
+    expect(JSON.parse(derivative.target_preset_json)).toMatchObject({
+      maxWidth: 640,
+      durationSeconds: 6,
+      encoderPreset: 'medium',
+    });
+    expect(JSON.parse(derivative.provider_payload_json).preset).toMatchObject({
+      maxWidth: 640,
+      durationSeconds: 6,
+    });
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'homepage_hero_ffmpeg_preset_updated' }),
+    ]));
+  });
+
   test('admin homepage hero manual upload is private and requires guarded mutation headers', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('hero-upload-admin');
@@ -39692,6 +39929,7 @@ test.describe('Worker routes', () => {
       form.append('title', 'Uploaded Hero Source');
       form.append('operator_reason', 'Testing private hero source upload.');
       form.append('video', new Blob([Buffer.from('mock-video-source')], { type: mimeType }), 'hero-source.mp4');
+      form.append('poster', new Blob([Buffer.from('mock-poster-image')], { type: 'image/png' }), 'hero-source-poster.png');
       const headers = {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${adminToken}`,
@@ -39730,15 +39968,17 @@ test.describe('Worker routes', () => {
       title: 'Uploaded Hero Source',
       mime_type: 'video/mp4',
     });
+    expect(uploaded.data.candidate.poster_url).toMatch(/^\/api\/ai\/text-assets\/[a-f0-9]+\/poster$/);
     expect(JSON.stringify(uploaded)).not.toContain('r2_key');
-    expect(JSON.stringify(uploaded)).not.toContain('/api/ai/text-assets/');
     expect(env.DB.state.homepageHeroVideoUploads).toHaveLength(1);
     const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === uploaded.data.candidate.source_asset_id);
     expect(sourceAsset).toMatchObject({
       user_id: admin.id,
       source_module: 'video',
       visibility: 'private',
+      poster_r2_key: expect.stringContaining(`/derivatives/v1/${uploaded.data.candidate.source_asset_id}/poster.webp`),
     });
+    expect(sourceAsset.poster_size_bytes).toBeGreaterThan(0);
 
     const publicHeroRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/homepage/hero-videos'),
@@ -39880,6 +40120,9 @@ test.describe('Worker routes', () => {
       ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
       ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY: 'true',
       MEMVID_STREAM_PREVIEW_MAX_LOOPS: '3',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
       aiTextAssets: [{
         id: 'a11ce001',
         user_id: 'memvid-owner',
@@ -39957,6 +40200,94 @@ test.describe('Worker routes', () => {
     expect(serialized).not.toContain('users/memvid-owner/');
     expect(serialized).not.toContain('STREAM_API_TOKEN');
     expect(serialized).not.toContain('/api/admin/');
+  });
+
+  test('Memvid Stream preview Admin switches control public metadata and autoplay exposure', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('stream-switch-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      aiTextAssets: [{
+        id: 'a11ce003',
+        user_id: 'memvid-owner',
+        title: 'Ready Stream Preview',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-owner/ready.mp4',
+      }],
+      memvidStreamPreviews: [{
+        id: 'msp_ready000000000003',
+        asset_id: 'a11ce003',
+        user_id: 'memvid-owner',
+        source_r2_key: 'users/memvid-owner/ready.mp4',
+        source_fingerprint: 'fp-ready',
+        stream_uid: 'streamReadyUid003',
+        status: 'ready',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:01:00.000Z',
+        updated_at: '2026-05-20T12:02:00.000Z',
+        completed_at: '2026-05-20T12:02:00.000Z',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const adminHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${adminToken}`,
+    };
+
+    const disableAutoplayRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/feature-status/memvid_stream_preview_autoplay', 'PATCH', {
+        enabled: false,
+        operator_reason: 'Disable Stream autoplay for public metadata test.',
+      }, {
+        ...adminHeaders,
+        'Idempotency-Key': 'stream-autoplay-switch-off',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(disableAutoplayRes.status).toBe(200);
+
+    const autoplayOffRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids?limit=1'),
+      env,
+      createExecutionContext().execCtx
+    );
+    const autoplayOff = await autoplayOffRes.json();
+    expect(autoplayOff.data.items[0].stream_preview).toMatchObject({
+      uid: 'streamReadyUid003',
+      autoplay_enabled: false,
+    });
+
+    const disableMetadataRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/feature-status/memvid_stream_previews', 'PATCH', {
+        enabled: false,
+        operator_reason: 'Disable Stream metadata for public omission test.',
+      }, {
+        ...adminHeaders,
+        'Idempotency-Key': 'stream-metadata-switch-off',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(disableMetadataRes.status).toBe(200);
+
+    const metadataOffRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids?limit=1'),
+      env,
+      createExecutionContext().execCtx
+    );
+    const metadataOff = await metadataOffRes.json();
+    expect(metadataOff.data.items[0].stream_preview).toBeUndefined();
   });
 
   function createSharedBulkMoveEnv() {

@@ -12593,6 +12593,58 @@ test.describe('Admin Control Plane', () => {
     }];
     const derivativeRequests = [];
     const slotRequests = [];
+    const featureStatus = {
+      features: {
+        homepage_hero_external_ffmpeg: {
+          key: 'homepage_hero_external_ffmpeg',
+          worker_enabled: true,
+          admin_enabled: true,
+          effective_enabled: true,
+          provider_required: true,
+          provider_configured: true,
+          provider: { configured: true, missing: [] },
+        },
+        homepage_hero_manual_uploads: {
+          key: 'homepage_hero_manual_uploads',
+          worker_enabled: true,
+          admin_enabled: true,
+          effective_enabled: true,
+          provider_required: false,
+          provider_configured: true,
+        },
+        memvid_stream_previews: {
+          key: 'memvid_stream_previews',
+          worker_enabled: true,
+          admin_enabled: true,
+          effective_enabled: true,
+          provider_required: true,
+          provider_configured: true,
+          provider: { configured: true, missing: [] },
+        },
+        memvid_stream_preview_autoplay: {
+          key: 'memvid_stream_preview_autoplay',
+          worker_enabled: true,
+          admin_enabled: true,
+          effective_enabled: true,
+          provider_required: false,
+          provider_configured: true,
+        },
+      },
+    };
+    const presetStatus = {
+      preset: {
+        format: 'mp4',
+        codec: 'h264',
+        maxWidth: 720,
+        fps: 24,
+        durationSeconds: 8,
+        audio: false,
+        crf: 30,
+        encoderPreset: 'slow',
+        posterWidth: 640,
+      },
+      warnings: [],
+    };
     const derivative = {
       id: 'hhvd_static_admin_ui_1',
       slot: 'right_top',
@@ -12626,7 +12678,19 @@ test.describe('Admin Control Plane', () => {
         data: {
           slots,
           slot_order: slotOrder,
-          target_preset: { maxWidth: 720, audio: 'removed' },
+          target_preset: presetStatus.preset,
+          preset_status: presetStatus,
+          feature_status: featureStatus,
+          manual_uploads_enabled: true,
+          external_ffmpeg_enabled: true,
+          stream_preview_summary: {
+            feature_flags: {
+              provider_configured: true,
+            },
+            ready_count: 2,
+            failed_count: 0,
+            estimated_delivered_minutes: 0,
+          },
         },
       });
     });
@@ -12689,6 +12753,8 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#sectionHomepageHeroVideos')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Homepage Hero Videos');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Video Delivery Controls');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Hero Conversion Preset');
     await expect(page.locator('.admin-hero-videos__slot-card')).toHaveCount(4);
     await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');

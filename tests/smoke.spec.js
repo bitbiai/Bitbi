@@ -5446,6 +5446,7 @@ test.describe('Homepage', () => {
         stream_preview: {
           provider: 'cloudflare_stream',
           uid: `hoverStreamUid${index + 1}`,
+          autoplay_enabled: index !== 2,
           preview_duration_seconds: 5,
           max_loop_count: 3,
           playback: {
@@ -5547,6 +5548,12 @@ test.describe('Homepage', () => {
     await secondCard.dispatchEvent('pointerleave', { pointerType: 'mouse' });
     await expect(secondCard).not.toHaveClass(/video-card--hover-preview-active/);
     await expect(secondCard.locator('.video-card__hover-preview')).toHaveCount(0);
+    expect(memvidFileRequests()).toEqual([]);
+
+    const thirdCard = cards.nth(2);
+    await thirdCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
+    await expect(thirdCard.locator('.video-card__hover-preview')).toHaveCount(0);
+    await expect(thirdCard).not.toHaveClass(/video-card--hover-preview-active/);
     expect(memvidFileRequests()).toEqual([]);
 
     await firstCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });

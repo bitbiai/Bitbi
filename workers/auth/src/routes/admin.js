@@ -956,6 +956,9 @@ export async function handleAdmin(ctx) {
 
   if (
     (pathname === "/api/admin/homepage/hero-videos" && method === "GET") ||
+    (pathname === "/api/admin/homepage/hero-videos/feature-status" && method === "GET") ||
+    // route-policy: admin.homepage.hero-videos.preset.update
+    (pathname === "/api/admin/homepage/hero-videos/preset" && method === "PATCH") ||
     (pathname === "/api/admin/homepage/hero-videos/candidates" && method === "GET") ||
     // route-policy: admin.homepage.hero-videos.uploads.create
     (pathname === "/api/admin/homepage/hero-videos/uploads" && method === "POST") ||
@@ -964,6 +967,16 @@ export async function handleAdmin(ctx) {
     // route-policy: admin.homepage.hero-videos.derivatives.create
     (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "POST")
   ) {
+    return handleAdminHomepageHeroVideos(ctx);
+  }
+  const homepageHeroFeatureStatusMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/feature-status\/([^/]+)$/);
+  // route-policy: admin.homepage.hero-videos.feature-status.update
+  if (homepageHeroFeatureStatusMatch && method === "PATCH") {
+    return handleAdminHomepageHeroVideos(ctx);
+  }
+  const homepageHeroUploadPosterMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/uploads\/([^/]+)\/poster$/);
+  // route-policy: admin.homepage.hero-videos.uploads.poster
+  if (homepageHeroUploadPosterMatch && method === "POST") {
     return handleAdminHomepageHeroVideos(ctx);
   }
   const homepageHeroVideoDerivativeRetryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)\/retry$/);

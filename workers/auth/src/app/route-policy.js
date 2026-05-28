@@ -1241,6 +1241,20 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB"],
     notes: "Admin-only current homepage hero slot config. Sanitizes derivative records and does not return R2 keys.",
   }),
+  adminRead("admin.homepage.hero-videos.feature-status.read", "/api/admin/homepage/hero-videos/feature-status", "homepage", {
+    config: ["DB", "ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG", "ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS", "ENABLE_MEMVID_STREAM_PREVIEWS", "ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY"],
+    notes: "Admin-only runtime video delivery control status. Reports Worker defaults, Admin app_settings overrides, effective state, and provider readiness without exposing secret values.",
+  }),
+  adminJsonWrite("admin.homepage.hero-videos.feature-status.update", "PATCH", "/api/admin/homepage/hero-videos/feature-status/:key", "homepage", "smallJson", "admin-action-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "video_delivery_feature_switch_updated" },
+    notes: "Requires Admin/MFA in production, same-origin JSON, Idempotency-Key, operator_reason, fail-closed rate limiting, and audit logging. Updates runtime app_settings rollout switches only; Worker env hard-disables still win.",
+  }),
+  adminJsonWrite("admin.homepage.hero-videos.preset.update", "PATCH", "/api/admin/homepage/hero-videos/preset", "homepage", "smallJson", "admin-action-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "homepage_hero_ffmpeg_preset_updated" },
+    notes: "Requires Admin/MFA in production, same-origin JSON, Idempotency-Key, operator_reason, bounded structured preset validation, and audit logging. Raw ffmpeg arguments are not accepted.",
+  }),
   adminRead("admin.homepage.hero-videos.candidates", "/api/admin/homepage/hero-videos/candidates", "homepage", {
     config: ["DB"],
     notes: "Admin-only candidate browser for published Memvids and the current admin user's saved video assets. Candidate responses expose route URLs only, never R2 object keys.",
@@ -1259,6 +1273,11 @@ export const ROUTE_POLICIES = Object.freeze([
     owner: "homepage",
     sensitivity: "high",
     notes: "Requires Admin/MFA in production, same-origin mutation guard, Idempotency-Key, operator_reason, MIME and size validation, and audit logging. Uploaded originals remain private admin assets and are never served by the public homepage.",
+  }),
+  adminJsonWrite("admin.homepage.hero-videos.uploads.poster", "POST", "/api/admin/homepage/hero-videos/uploads/:assetId/poster", "homepage", "aiSaveVideoPosterJson", "admin-action-ip", {
+    config: ["DB", "USER_IMAGES", "IMAGES", "PUBLIC_RATE_LIMITER", "ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS"],
+    audit: { event: "homepage_hero_video_source_poster_attached" },
+    notes: "Requires Admin/MFA in production, same-origin JSON, Idempotency-Key, operator_reason, enabled manual uploads, and bounded poster data URI. Attaches a private poster to an admin-owned hero source upload without exposing source R2 keys.",
   }),
   adminJsonWrite("admin.homepage.hero-videos.memvid-stream-previews.backfill", "POST", "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill", "homepage", "smallJson", "admin-action-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_MEMVID_STREAM_PREVIEWS"],

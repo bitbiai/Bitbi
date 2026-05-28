@@ -174,6 +174,7 @@ export function initVideoGallery() {
     function getMemvidHoverPreview(item) {
         const preview = item?.stream_preview;
         if (!preview || preview.provider !== 'cloudflare_stream') return null;
+        if (preview.autoplay_enabled === false) return null;
         const uid = normalizeStreamPreviewUid(preview.uid);
         if (!uid) return null;
         const playback = preview.playback || {};

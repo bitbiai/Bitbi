@@ -17,6 +17,7 @@ const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
 const STREAM_ACCOUNT_ID = String(process.env.CLOUDFLARE_ACCOUNT_ID || process.env.STREAM_ACCOUNT_ID || "");
 const STREAM_API_TOKEN = String(process.env.CLOUDFLARE_STREAM_API_TOKEN || process.env.STREAM_API_TOKEN || "");
+const ENCODER_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower"]);
 
 function assertConfig() {
   if (!BASE_URL) throw new Error("AUTH_WORKER_BASE_URL is required.");
@@ -140,29 +141,56 @@ async function downloadSource(job, sourcePath) {
   await writeFile(sourcePath, bytes);
 }
 
+function clampNumber(value, { fallback, min, max, integer = true }) {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  const clamped = Math.max(min, Math.min(max, parsed));
+  return integer ? Math.round(clamped) : clamped;
+}
+
+function normalizeHeroPreset(raw = {}) {
+  const preset = raw && typeof raw === "object" ? raw : {};
+  const encoderPreset = String(preset.encoderPreset || "slow").toLowerCase();
+  return {
+    name: String(preset.name || "hero_desktop_mp4_720p_v1").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80),
+    maxWidth: clampNumber(preset.maxWidth, { fallback: 720, min: 320, max: 1080 }),
+    fps: clampNumber(preset.fps, { fallback: 24, min: 12, max: 30 }),
+    durationSeconds: clampNumber(
+      preset.durationSeconds ?? preset.maxDurationSeconds,
+      { fallback: 8, min: 3, max: 12 }
+    ),
+    audio: preset.audio === true,
+    crf: clampNumber(preset.crf, { fallback: 30, min: 24, max: 36 }),
+    encoderPreset: ENCODER_PRESETS.has(encoderPreset) ? encoderPreset : "slow",
+    posterWidth: clampNumber(preset.posterWidth, { fallback: 640, min: 320, max: 1080 }),
+  };
+}
+
 async function convertJob(job, dir) {
   const input = path.join(dir, "source");
   const output = path.join(dir, "hero.mp4");
   const poster = path.join(dir, "poster.webp");
+  const preset = normalizeHeroPreset(job.preset);
   await downloadSource(job, input);
 
+  const videoFilter = `scale='min(${preset.maxWidth},iw)':-2,fps=${preset.fps}`;
   await run(FFMPEG_BIN, [
     "-y",
     "-i", input,
-    "-an",
-    "-vf", "scale='min(720,iw)':-2,fps=24",
+    ...(preset.audio ? [] : ["-an"]),
+    "-vf", videoFilter,
     "-c:v", "libx264",
-    "-preset", "slow",
-    "-crf", "30",
+    "-preset", preset.encoderPreset,
+    "-crf", String(preset.crf),
     "-movflags", "+faststart",
-    "-t", "8",
+    "-t", String(preset.durationSeconds),
     output,
   ], { cwd: dir });
 
   await run(FFMPEG_BIN, [
     "-y",
     "-i", input,
-    "-vf", "thumbnail,scale=640:-2",
+    "-vf", `thumbnail,scale=${preset.posterWidth}:-2`,
     "-frames:v", "1",
     poster,
   ], { cwd: dir });
@@ -171,7 +199,10 @@ async function convertJob(job, dir) {
     input,
     output,
     poster,
-    metadata: await probeVideo(output),
+    metadata: {
+      ...(await probeVideo(output)),
+      preset,
+    },
   };
 }
 
@@ -241,7 +272,7 @@ async function completeJob(job, result) {
   if (job.source?.fingerprint) form.append("source_fingerprint", job.source.fingerprint);
   form.append("metadata_json", JSON.stringify({
     processor: "services/homepage-ffmpeg-processor",
-    preset: job.preset?.name || "hero_desktop_mp4_720p_v1",
+    preset: result.metadata.preset || normalizeHeroPreset(job.preset),
   }));
 
   const res = await fetch(`${BASE_URL}${job.completion.url}`, {
