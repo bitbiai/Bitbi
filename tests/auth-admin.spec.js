@@ -6,6 +6,8 @@ const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 const ASSET_STORAGE_LIMIT_BYTES = 50 * 1024 * 1024;
 const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, '..', 'assets/images/hero/hero-flow-mobile.mp4'));
+const RELEASE_COMPAT = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config/release-compat.json'), 'utf8'));
+const CURRENT_AUTH_MIGRATION = RELEASE_COMPAT.release.schemaCheckpoints.auth.latest;
 const MOBILE_CHROME_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
 
@@ -2186,7 +2188,7 @@ async function mockAdminControlPlane(page, captures = {}) {
       generatedAt: '2026-05-18T10:00:00.000Z',
       releaseTruth: {
         source: 'config/release-compat.json',
-        latestAuthMigration: '0060_add_app_settings.sql',
+        latestAuthMigration: CURRENT_AUTH_MIGRATION,
         migrationDirectory: 'workers/auth/migrations',
         databaseName: 'bitbi-auth-db',
         staticDeploySeparateFromWorkers: true,
@@ -13275,7 +13277,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionReadiness')).toContainText('Release evidence workflow');
     await expect(page.locator('#sectionReadiness')).toContainText('Next Safe Action');
     await expect(page.locator('#sectionReadiness')).toContainText('Keep claims blocked');
-    await expect(page.locator('#sectionReadiness')).toContainText('0060_add_app_settings.sql');
+    await expect(page.locator('#sectionReadiness')).toContainText(CURRENT_AUTH_MIGRATION);
     await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Confirmed legacy media reset readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Admin, data, observability, and scale hardening');
@@ -13724,7 +13726,7 @@ test.describe('Admin Control Plane', () => {
     const readiness = page.locator('#sectionReadiness');
     await expect(readiness).toBeVisible();
     await expect(readiness).toContainText('Current Release Truth');
-    await expect(readiness).toContainText('0060_add_app_settings.sql');
+    await expect(readiness).toContainText(CURRENT_AUTH_MIGRATION);
     await expect(readiness).toContainText('not live deploy proof');
     await expect(readiness).toContainText('Repo evidence only');
     await expect(readiness).toContainText('Live Evidence State');

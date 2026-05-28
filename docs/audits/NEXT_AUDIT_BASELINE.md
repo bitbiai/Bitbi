@@ -27,7 +27,7 @@ This baseline is not production readiness, live billing readiness, tenant isolat
 ## Release And Deploy Safety
 
 - Release contract source: `config/release-compat.json`.
-- Latest auth D1 migration from that contract: `0060_add_app_settings.sql`.
+- Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from that contract; current docs must not duplicate the filename.
 - Deploy units and ordering must come from `npm run release:plan`.
 - Static Pages deploy is release-plan-aware in `.github/workflows/static.yml`; it does not deploy Workers or apply migrations.
 - Expected deploy model: auth migrations first when required, then AI Worker before dependent Auth Worker changes, then Auth Worker, Contact Worker, and static site as reported by the release plan.

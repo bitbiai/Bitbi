@@ -2,7 +2,7 @@
 
 Last reconciled: 2026-05-21
 
-Current release truth: `config/release-compat.json` declares latest auth D1 migration `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; current docs should reference that contract instead of duplicating the filename.
 
 `docs/audits/NEXT_AUDIT_BASELINE.md` is the only active audit baseline. Historical audit docs are archive/background only; they are not an active backlog unless a future fresh audit reconfirms an item from current repo state.
 
@@ -62,7 +62,6 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 | `docs/runbooks/*.md`, `docs/ops/*.md` | Incident/operator runbooks. |
 | `docs/BACKUP_RESTORE_DRILL.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/SLO_ALERT_BASELINE.md` | Operational readiness baselines. |
 | `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`, `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` | Current release/evidence checklist and runbook. |
-| `docs/production-readiness/evidence/operator-live-evidence-*/` | Operator-owned live evidence package templates; commit templates only, not raw live evidence. |
 | `docs/ai-image-derivatives-runbook.md` | AI derivative operational runbook. |
 
 ## Historical / Frozen Evidence
@@ -77,6 +76,7 @@ These files are not current source of truth. They may mention older migration nu
 | `docs/audits/archive/retired-audit-root-docs/` | Retired legacy root audit docs. |
 | dated `docs/tenant-assets/evidence/*.md` summaries | Evidence records; use current decision files for present status. |
 | `docs/audits/archive/root-phase-reports/PHASE1_COMPLETION_HANDOFF.md`, `docs/audits/archive/root-phase-reports/PHASE2A_ENTRYPOINT.md` | Historical handoffs. |
+| dated `docs/production-readiness/evidence/operator-live-evidence-*/` packages | Historical/operator evidence snapshots unless a future package is explicitly promoted into the active runbook list. |
 
 ## Superseded Or Stale Context
 
@@ -99,7 +99,7 @@ This matrix is the conservative cleanup baseline for future documentation work. 
 
 | Classification | Current decision | Files |
 | --- | --- | --- |
-| Keep active | Keep concise and aligned to `config/release-compat.json`, `0060_add_app_settings.sql`, and `docs/audits/NEXT_AUDIT_BASELINE.md`. | Files listed in [Active Current Source Of Truth](#active-current-source-of-truth), [Active Domain Docs](#active-domain-docs), and [Active Runbooks And Policies](#active-runbooks-and-policies). |
+| Keep active | Keep concise and aligned to `config/release-compat.json` and `docs/audits/NEXT_AUDIT_BASELINE.md`; do not hardcode the latest auth migration filename in current docs. | Files listed in [Active Current Source Of Truth](#active-current-source-of-truth), [Active Domain Docs](#active-domain-docs), and [Active Runbooks And Policies](#active-runbooks-and-policies). |
 | Keep frozen historical | Preserve as evidence/background. Do not modernize old migration numbers or old phase labels. | `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and dated tenant evidence. |
 | Superseded/stale context | Keep unless a future operator-approved cleanup proves no unique evidence would be lost. Treat as context, not active backlog or release truth. | The eight files listed in [Superseded Or Stale Context](#superseded-or-stale-context). |
 | Archive candidate | None approved in this baseline. Existing superseded/stale files may become archive candidates only after link/reference review and evidence-preservation proof. | None. |
@@ -108,6 +108,7 @@ This matrix is the conservative cleanup baseline for future documentation work. 
 ## Documentation Rules
 
 - Current docs explain current state, blockers, migration/deploy prerequisites, and next actions.
+- `config/release-compat.json` is the authoritative source for the latest auth D1 migration; use generated release/readiness outputs when a concrete filename is required for operator evidence.
 - Historical phase-by-phase narrative belongs in frozen historical docs only.
 - The repository root is for active top-level docs only. Historical phase reports belong in `docs/audits/archive/root-phase-reports/`.
 - Audit-specific plans/reports belong under `docs/audits/` or an archive. Do not create new root-level `AUDIT_*.md`, `ALPHA_AUDIT_*.md`, or `PHASE*.md` files.
@@ -116,4 +117,5 @@ This matrix is the conservative cleanup baseline for future documentation work. 
 - Active domain roadmaps are candidate design context only; future audit findings should be newly numbered or newly classified.
 - Do not delete unique evidence files.
 - Do not update frozen historical reports just to modernize migration numbers.
+- Historical evidence docs remain historically accurate and are not retroactively updated when the latest migration changes.
 - New Markdown must be classified by doc-currentness tooling.

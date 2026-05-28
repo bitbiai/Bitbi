@@ -4,7 +4,7 @@ Date: 2026-05-21
 
 Purpose: compact current-state summary for restarting future audit work. Use `docs/audits/NEXT_AUDIT_BASELINE.md` as the only active audit baseline.
 
-Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 This report is not production readiness, live billing readiness, legal compliance certification, full tenant isolation, or full SaaS maturity evidence.
 
@@ -50,7 +50,7 @@ This report is not production readiness, live billing readiness, legal complianc
 ## Current Deployment Requirements
 
 - Verify whether the current branch is deployed; repo files alone do not prove live state.
-- Apply remote auth migrations through `0060_add_app_settings.sql` before dependent Auth Worker deployment.
+- Apply remote auth migrations through the latest auth schema checkpoint in `config/release-compat.json` before dependent Auth Worker deployment.
 - Admin Users now includes a registration availability switch backed by `app_settings`. It affects new account creation only; existing login, sessions, admin access, password reset, MFA, and profile/account access remain unaffected.
 - Tenant isolation remains unclaimed. The Ownership Backfill executor can now target exact safe candidate IDs, but Access-Switch enforced mode and Legacy Media Reset remain blocked.
 - Deploy paired Auth/AI caller-policy changes in the release-planned order: AI Worker before Auth Worker.

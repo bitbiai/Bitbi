@@ -82,7 +82,9 @@ const TENANT_REVIEW_STATUS_TRANSITIONS = {
 };
 
 export const TENANT_REVIEW_SUPERSEDE_CONFIRMATION = 'SUPERSEDE STALE REVIEW ITEMS';
-export const CURRENT_AUTH_SCHEMA_CHECKPOINT = '0060_add_app_settings.sql';
+export const AUTH_SCHEMA_CHECKPOINT_SOURCE = 'config/release-compat.json';
+// Browser-only fallback must not hardcode the migration filename; the backend readiness payload carries the exact release-contract value.
+export const CURRENT_AUTH_SCHEMA_CHECKPOINT = `See ${AUTH_SCHEMA_CHECKPOINT_SOURCE}`;
 
 const SENSITIVE_KEY_PATTERN = /secret|token|password|hash|signature|raw|payload|request_?fingerprint|idempotency|r2_?key|private_?key|mfa|recovery|webhook_?secret|stripe_?secret|service_?auth|card|payment_?method|credential|authorization|cookie|session/i;
 const SENSITIVE_VALUE_PATTERN = /\b(?:sk_(?:live|test)|rk_(?:live|test)|whsec|Bearer\s+|Stripe-Signature|authorization=|secret=|token=|password=|pm_[A-Za-z0-9]|card=)[A-Za-z0-9_:=+./-]*/i;

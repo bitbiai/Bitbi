@@ -2,7 +2,7 @@
 
 Date: 2026-05-21
 
-Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 Purpose: current schema and safety baseline for manual-review state. This is not a historical phase narrative.
 
@@ -59,7 +59,7 @@ Admin status writes require an `Idempotency-Key`; import dry-runs create no revi
 
 Remote migration `0057_add_ai_asset_manual_review_state.sql` must be applied before deploying Auth Worker code that depends on manual-review tables.
 
-Remote migrations through `0060_add_app_settings.sql` are current release truth. Current post-cleanup supersession support does not add a migration.
+Remote migrations through the latest auth schema checkpoint in `config/release-compat.json` are current release truth. Current post-cleanup supersession support does not add a migration.
 
 ## Next Audit Questions
 

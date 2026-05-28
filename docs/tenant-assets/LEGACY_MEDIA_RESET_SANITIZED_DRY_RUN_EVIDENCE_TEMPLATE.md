@@ -8,7 +8,7 @@ Repo commit or deployed Auth Worker reference:
 
 Evidence file name:
 
-Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 Purpose: provide a safe evidence package for the legacy media reset executor dry-run. This template does not authorize confirmed reset execution, deletion, R2 cleanup, ownership backfill, access-check switching, tenant isolation, production readiness, or live billing readiness.
 

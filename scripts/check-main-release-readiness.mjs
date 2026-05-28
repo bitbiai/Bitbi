@@ -1,31 +1,14 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  getLatestAuthMigrationFromManifest,
+  loadReleaseCompatibilityManifest,
+} from "./lib/release-compat.mjs";
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
-
-function readReleaseCompatibilityManifest(filePath) {
-  try {
-    return readJson(filePath);
-  } catch (error) {
-    throw new Error(
-      `Unable to read release compatibility manifest at ${filePath}: ${error.message}`
-    );
-  }
-}
-
-export function getLatestAuthMigrationFromManifest(manifest) {
-  const latest = manifest?.release?.schemaCheckpoints?.auth?.latest;
-  if (typeof latest !== "string" || latest.trim() === "") {
-    return null;
-  }
-  return latest.trim();
-}
+export { getLatestAuthMigrationFromManifest };
 
 export function buildMainReleaseDeployUnits(latestAuthMigration) {
   const authCheckpointLabel = latestAuthMigration
@@ -89,8 +72,7 @@ export function collectMainReleaseReadiness(options = {}) {
   const repoRoot = options.repoRoot || process.cwd();
   const allowDirty = options.allowDirty === true;
   const gitRunner = options.gitRunner || defaultGitRunner;
-  const releaseCompatPath = path.join(repoRoot, "config", "release-compat.json");
-  const manifest = readReleaseCompatibilityManifest(releaseCompatPath);
+  const manifest = loadReleaseCompatibilityManifest(repoRoot);
   const latestAuthMigration = getLatestAuthMigrationFromManifest(manifest);
 
   const branch = runGit(repoRoot, ["branch", "--show-current"], gitRunner) || "unknown";

@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-21
 
-Latest auth migration: `0060_add_app_settings.sql`
+Latest auth migration: read `release.schemaCheckpoints.auth.latest` in `config/release-compat.json`
 
 Only active restart baseline: `docs/audits/NEXT_AUDIT_BASELINE.md`
 
@@ -27,7 +27,7 @@ This is the short operator-facing audit summary. The old alpha/audit naming is h
 
 ## Current Open Blockers
 
-- Remote migrations through `0060` must be applied before dependent Auth Worker deploys.
+- Remote migrations through the latest auth schema checkpoint in `config/release-compat.json` must be applied before dependent Auth Worker deploys.
 - Live Cloudflare resources, Worker secrets, D1/R2/Queue/DO bindings, WAF/static headers/RUM/alerts, restore drill, rollback evidence, and Stripe canaries are not verified here.
 - RC tooling is repo/local evidence only and does not prove live production readiness or live billing readiness.
 - Live Stripe credit packs and BITBI Pro remain gated canary scaffolding, not live billing readiness.

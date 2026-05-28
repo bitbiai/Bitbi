@@ -2,7 +2,7 @@
 
 Date: 2026-05-21
 
-Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 Purpose: current-state roadmap for expanding tenant asset ownership evidence beyond folders/images. This is not approval for backfill, access-switching, confirmed reset, deletion, tenant isolation, live billing, or production readiness.
 

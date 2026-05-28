@@ -5,6 +5,7 @@ import path from "node:path";
 import { scanDocCurrentness } from "./lib/doc-currentness.mjs";
 
 const latest = "0060_add_app_settings.sql";
+const releaseContract = "config/release-compat.json";
 
 function makeRepo(latestMigration = latest) {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-doc-currentness-"));
@@ -170,6 +171,16 @@ function writeFile(repo, relativePath, text) {
 
 {
   const repo = makeRepo("0061_future_release_contract.sql");
+  writeFile(repo, "README.md", `Current release truth lives in ${releaseContract}; do not duplicate the latest auth migration filename.\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.equal(result.latest, "0061_future_release_contract.sql");
+  assert.deepEqual(result.violations, []);
+}
+
+{
+  const repo = makeRepo("0061_future_release_contract.sql");
   writeFile(repo, "README.md", "Latest auth D1 migration: `0060_add_app_settings.sql`\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
@@ -221,7 +232,7 @@ function writeFile(repo, relativePath, text) {
   writeFile(
     repo,
     "docs/production-readiness/evidence/operator-live-evidence-2026-05-21/README.md",
-    `Operator evidence package template. Latest auth D1 migration is ${latest}. Production readiness remains BLOCKED.\n`
+    "Operator evidence package. Latest auth D1 migration was `0048_add_member_ai_usage_attempts.sql` when this snapshot was captured. Production readiness remains BLOCKED.\n"
   );
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
@@ -229,7 +240,7 @@ function writeFile(repo, relativePath, text) {
   assert.deepEqual(result.violations, []);
   assert.equal(
     result.markdownInventory.find((entry) => entry.path === "docs/production-readiness/evidence/operator-live-evidence-2026-05-21/README.md")?.category,
-    "active_runbook_policy"
+    "historical_phase_report"
   );
 }
 
@@ -295,7 +306,7 @@ function writeFile(repo, relativePath, text) {
     currentDocs: ["README.md"],
   });
   assert.equal(result.violations.length, 1);
-  assert.equal(result.violations[0].type, "missing-current-latest");
+  assert.equal(result.violations[0].type, "missing-release-truth-reference");
 }
 
 {
@@ -445,6 +456,9 @@ function writeFile(repo, relativePath, text) {
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],
   });
+  assert(result.violations.some((violation) => violation.type === "frontend-hardcoded-auth-schema-checkpoint"
+    && violation.file === "js/pages/admin/control-plane/core.js"
+    && violation.rule === "admin-control-plane-uses-release-contract"));
   assert(result.violations.some((violation) => violation.type === "stale-latest-migration"
     && violation.file === "js/pages/admin/control-plane/core.js"
     && violation.rule === "current-auth-schema-checkpoint"));
@@ -454,6 +468,21 @@ function writeFile(repo, relativePath, text) {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "js/pages/admin/control-plane/core.js", `const CURRENT_AUTH_SCHEMA_CHECKPOINT = '${latest}';\n`);
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert(result.violations.some((violation) => violation.type === "frontend-hardcoded-auth-schema-checkpoint"
+    && violation.file === "js/pages/admin/control-plane/core.js"));
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "js/pages/admin/control-plane/core.js", [
+    `const AUTH_SCHEMA_CHECKPOINT_SOURCE = '${releaseContract}';`,
+    "const CURRENT_AUTH_SCHEMA_CHECKPOINT = `See ${AUTH_SCHEMA_CHECKPOINT_SOURCE}`;",
+    "",
+  ].join("\n"));
   writeFile(repo, "js/pages/admin/control-plane.js", "export * from './control-plane/core.js';\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],

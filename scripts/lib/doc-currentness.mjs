@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { loadLatestAuthMigration as loadLatestAuthMigrationFromReleaseContract } from "./release-compat.mjs";
 
 export const CURRENT_SOURCE_DOC_PATHS = Object.freeze([
   "README.md",
@@ -34,6 +35,7 @@ export const CURRENT_DOC_PHASE_MENTION_LIMITS = Object.freeze({
 });
 
 const ACTIVE_BASELINE_REFERENCE_PATH = "docs/audits/NEXT_AUDIT_BASELINE.md";
+const RELEASE_COMPAT_CONTRACT_PATH = "config/release-compat.json";
 
 const ACTIVE_BASELINE_REFERENCE_DOCS = new Set([
   "README.md",
@@ -217,18 +219,8 @@ const ACTIVE_STALE_MIGRATION_SCAN_CATEGORIES = new Set([
   "active_runbook_policy",
 ]);
 
-function readJsonFile(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
-
 export function loadLatestAuthMigration(repoRoot) {
-  const releaseCompatPath = path.join(repoRoot, "config", "release-compat.json");
-  const manifest = readJsonFile(releaseCompatPath);
-  const latest = manifest?.release?.schemaCheckpoints?.auth?.latest;
-  if (!latest || typeof latest !== "string") {
-    throw new Error("config/release-compat.json is missing release.schemaCheckpoints.auth.latest");
-  }
-  return latest;
+  return loadLatestAuthMigrationFromReleaseContract(repoRoot);
 }
 
 function normalizePathname(value) {
@@ -284,7 +276,7 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (isIgnoredMarkdownPath(normalized)) return "ignored";
   if (currentDocs.has(normalized)) return "active_current";
   if (ACTIVE_RUNBOOK_POLICY_DOCS.has(normalized)) return "active_runbook_policy";
-  if (isOperatorLiveEvidencePackagePath(normalized)) return "active_runbook_policy";
+  if (isOperatorLiveEvidencePackagePath(normalized)) return "historical_phase_report";
   if (normalized.startsWith(".agents/skills/") && normalized.endsWith("/SKILL.md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/runbooks/") && normalized.endsWith(".md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/ops/") && normalized.endsWith(".md")) return "active_runbook_policy";
@@ -333,6 +325,10 @@ function findStaleCurrentAuthMigrationClaim(line, latest) {
   return null;
 }
 
+function hasCurrentReleaseTruthReference(text, latest) {
+  return String(text || "").includes(latest) || String(text || "").includes(RELEASE_COMPAT_CONTRACT_PATH);
+}
+
 function scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violations) {
   const lines = String(text || "").split(/\r?\n/);
   lines.forEach((line, index) => {
@@ -344,6 +340,24 @@ function scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violati
       line: index + 1,
       rule: staleClaim.rule,
       message: `Current source appears to claim ${staleClaim.staleReferences.join(", ")} as the latest/current auth migration; expected ${latest} from config/release-compat.json.`,
+      excerpt: safeExcerpt(line),
+    });
+  });
+}
+
+function scanAdminControlPlaneSchemaCheckpointBridge(relativePath, text, violations) {
+  if (relativePath !== "js/pages/admin/control-plane/core.js") return;
+  const lines = String(text || "").split(/\r?\n/);
+  lines.forEach((line, index) => {
+    if (!/\bCURRENT_AUTH_SCHEMA_CHECKPOINT\b/.test(line)) return;
+    const references = findAuthMigrationReferences(line);
+    if (!references.length) return;
+    violations.push({
+      type: "frontend-hardcoded-auth-schema-checkpoint",
+      file: relativePath,
+      line: index + 1,
+      rule: "admin-control-plane-uses-release-contract",
+      message: `Admin frontend fallback must not hardcode auth migration ${references.join(", ")}; current release truth belongs in ${RELEASE_COMPAT_CONTRACT_PATH} and the backend readiness payload.`,
       excerpt: safeExcerpt(line),
     });
   });
@@ -456,13 +470,13 @@ export function scanDocCurrentness(repoRoot, options = {}) {
       }
     }
 
-    if (requireLatest && !text.includes(latest)) {
+    if (requireLatest && !hasCurrentReleaseTruthReference(text, latest)) {
       violations.push({
-        type: "missing-current-latest",
+        type: "missing-release-truth-reference",
         file: relativePath,
         line: null,
-        rule: "current-doc-mentions-latest-auth-migration",
-        message: `Current source-of-truth doc must mention latest auth migration ${latest}.`,
+        rule: "current-doc-points-to-release-contract",
+        message: `Current source-of-truth doc must point to ${RELEASE_COMPAT_CONTRACT_PATH} or include generated latest auth migration ${latest}.`,
       });
     }
 
@@ -534,6 +548,7 @@ export function scanDocCurrentness(repoRoot, options = {}) {
     const absolutePath = path.join(repoRoot, relativePath);
     if (!fs.existsSync(absolutePath)) continue;
     const text = fs.readFileSync(absolutePath, "utf8");
+    scanAdminControlPlaneSchemaCheckpointBridge(relativePath, text, violations);
     scanStaleCurrentAuthMigrationClaims(relativePath, text, latest, violations);
   }
 

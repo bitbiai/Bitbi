@@ -26,6 +26,27 @@ export function parseJsonc(source, label = "JSONC document") {
   }
 }
 
+export function loadReleaseCompatibilityManifest(repoRoot) {
+  const manifestPath = path.join(repoRoot, "config", "release-compat.json");
+  return parseJsonc(fs.readFileSync(manifestPath, "utf8"), "config/release-compat.json");
+}
+
+export function getLatestAuthMigrationFromManifest(manifest) {
+  const latest = manifest?.release?.schemaCheckpoints?.auth?.latest;
+  if (typeof latest !== "string" || latest.trim() === "") {
+    return null;
+  }
+  return latest.trim();
+}
+
+export function loadLatestAuthMigration(repoRoot) {
+  const latest = getLatestAuthMigrationFromManifest(loadReleaseCompatibilityManifest(repoRoot));
+  if (!latest) {
+    throw new Error("config/release-compat.json is missing release.schemaCheckpoints.auth.latest");
+  }
+  return latest;
+}
+
 export function extractLatestMigrationFilename(files) {
   const sorted = [...files].sort();
   return sorted[sorted.length - 1] || null;
@@ -1206,9 +1227,7 @@ function loadWorkerConfigContext(repoRoot, manifest) {
 }
 
 export function loadReleaseCompatibilityContext(repoRoot) {
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(repoRoot, "config/release-compat.json"), "utf8")
-  );
+  const manifest = loadReleaseCompatibilityManifest(repoRoot);
   const sourceFilePaths = new Set([
     "workers/shared/ai-caller-policy.mjs",
     "workers/ai/src/lib/caller-policy.js",

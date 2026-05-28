@@ -201,7 +201,7 @@ function makeGitRunner({ status = "" } = {}) {
         repoRoot,
         gitRunner: makeGitRunner(),
       }),
-    /Unable to read release compatibility manifest/
+    /config\/release-compat\.json/
   );
 }
 
@@ -214,7 +214,7 @@ function makeGitRunner({ status = "" } = {}) {
         repoRoot,
         gitRunner: makeGitRunner(),
       }),
-    /Unable to read release compatibility manifest/
+    /config\/release-compat\.json/
   );
 }
 

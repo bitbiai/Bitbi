@@ -6,7 +6,7 @@ Operator:
 
 Commit SHA:
 
-Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 This template records current evidence only. It does not approve production readiness, live billing readiness, tenant isolation, ownership backfill, access switching, or confirmed legacy media reset by itself.
 
@@ -63,13 +63,13 @@ This template records current evidence only. It does not approve production read
 
 ## Migration State
 
-- Remote auth migrations applied through:
+- Remote auth migrations applied through latest checkpoint from `config/release-compat.json`:
 - Evidence path or screenshot reference:
 - `0056_add_ai_folder_image_ownership_metadata.sql` applied: yes/no/unknown
 - `0057_add_ai_asset_manual_review_state.sql` applied: yes/no/unknown
 - `0058_add_legacy_media_reset_actions.sql` applied: yes/no/unknown
 - `0059_add_data_lifecycle_completion_state.sql` applied: yes/no/unknown
-- `0060_add_app_settings.sql` applied: yes/no/unknown
+- Latest release-contract auth migration applied: yes/no/unknown
 - Notes:
 
 ## Cloudflare Resource Verification

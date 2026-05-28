@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  getLatestAuthMigrationFromManifest,
+  loadReleaseCompatibilityManifest,
+} from "./release-compat.mjs";
 
 const DEFAULT_LOCAL_CHECKS = Object.freeze([
   ["npm", "run", "check:doc-currentness"],
@@ -46,10 +50,6 @@ const SAFE_HEADER_NAMES = Object.freeze([
 ]);
 
 const EVIDENCE_OUTPUT_DIR = "docs/production-readiness/evidence";
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
 
 function readTextIfExists(repoRoot, relativePath) {
   try {
@@ -580,9 +580,8 @@ async function collectLiveChecks(options) {
 export async function collectReadinessEvidence(options = {}) {
   const repoRoot = options.repoRoot || process.cwd();
   const env = options.env || process.env;
-  const releaseCompatPath = path.join(repoRoot, "config", "release-compat.json");
-  const manifest = readJson(releaseCompatPath);
-  const latestAuthMigration = manifest?.release?.schemaCheckpoints?.auth?.latest || "unknown";
+  const manifest = loadReleaseCompatibilityManifest(repoRoot);
+  const latestAuthMigration = getLatestAuthMigrationFromManifest(manifest) || "unknown";
   const requiredSecretNames = collectRequiredSecrets(manifest);
   const runChecks = options.runLocalChecks === true;
   const liveChecks = await collectLiveChecks({ ...options, env });

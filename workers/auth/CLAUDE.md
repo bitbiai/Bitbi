@@ -2,7 +2,7 @@
 
 Date: 2026-05-21
 
-Current release truth: latest auth D1 migration is `0061_add_homepage_hero_video_slots.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 Purpose: concise current-state guide for work under `workers/auth`. Historical phase detail is frozen in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, `docs/audits/archive/retired-audit-root-docs/`, and domain evidence docs.
 
@@ -32,7 +32,7 @@ Current auth Worker resource classes:
 
 ## Current Migration State
 
-Latest auth D1 migration: `0061_add_homepage_hero_video_slots.sql`.
+Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `config/release-compat.json`.
 
 Current high-impact migration dependencies:
 

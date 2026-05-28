@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createReleasePlanFromRepo } from "./release-plan.mjs";
+import {
+  getLatestAuthMigrationFromManifest,
+  loadReleaseCompatibilityManifest,
+} from "./release-compat.mjs";
 
 export const CUTOVER_EVIDENCE_OUTPUT_DIR = "docs/production-readiness/evidence";
 
@@ -33,10 +37,6 @@ const ROLLBACK_PLACEHOLDERS = Object.freeze([
   "Rollback time window:",
   "Post-rollback smoke test:",
 ]);
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
 
 function runGit(repoRoot, args) {
   const result = spawnSync("git", args, {
@@ -181,8 +181,8 @@ export function collectReleaseCutoverEvidence(options = {}) {
   const repoRoot = options.repoRoot || process.cwd();
   const generatedAt = options.generatedAt || new Date().toISOString();
   const allowDirtyPlanning = options.allowDirtyPlanning === true;
-  const manifest = readJson(path.join(repoRoot, "config", "release-compat.json"));
-  const latestAuthMigration = manifest?.release?.schemaCheckpoints?.auth?.latest || null;
+  const manifest = loadReleaseCompatibilityManifest(repoRoot);
+  const latestAuthMigration = getLatestAuthMigrationFromManifest(manifest);
   const authDatabaseName = manifest?.release?.schemaCheckpoints?.auth?.databaseName || null;
   const plan = options.releasePlan || createReleasePlanFromRepo(repoRoot, options.releasePlanOptions || {});
   const status = getStatusSummary(repoRoot);

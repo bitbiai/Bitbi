@@ -15,7 +15,8 @@ if (result.markdownInventory?.length) {
 }
 
 if (result.violations.length > 0) {
-  console.error("Doc currentness check failed.");
+  console.error(`Doc currentness check failed with ${result.violations.length} blocking currentness issue(s).`);
+  console.error("Historical/evidence-only migration references are non-blocking unless they are classified as active current truth.");
   for (const violation of result.violations) {
     const location = violation.line ? `${violation.file}:${violation.line}` : violation.file;
     console.error(`- ${location} [${violation.rule}] ${violation.message}`);

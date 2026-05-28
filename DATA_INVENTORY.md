@@ -2,7 +2,7 @@
 
 Date: 2026-05-21
 
-Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 Purpose: current engineering data inventory for audit restart. This is not legal advice or production-readiness approval.
 

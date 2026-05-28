@@ -4,7 +4,7 @@ Date: 2026-05-21
 
 Purpose: short restart guide for future Codex sessions. The active baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
-Current release truth: latest auth D1 migration is `0060_add_app_settings.sql`.
+Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
 This handoff is not production approval, live billing approval, legal compliance certification, full tenant-isolation evidence, access-switch readiness, ownership backfill readiness, or confirmed media reset readiness.
 
@@ -33,7 +33,7 @@ This handoff is not production approval, live billing approval, legal compliance
 
 - Production readiness and live billing readiness remain blocked.
 - Live deployment state is not proven by repo files; operator verification is required.
-- Remote auth migrations through `0060_add_app_settings.sql` must be applied before dependent Auth Worker deploys.
+- Remote auth migrations through the latest auth schema checkpoint in `config/release-compat.json` must be applied before dependent Auth Worker deploys.
 - Tenant isolation, global ownership-backfill readiness, Access-Switch enforcement, and confirmed reset/deletion remain blocked.
 - The single current safe `ai_images` ownership candidate is exact-candidate operator-execution pending only.
 - Manual-review idempotency evidence remains incomplete.
