@@ -20,7 +20,12 @@ import {
 import { initLocaleSwitcher, localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
 
 const HOME_CATEGORY_NAV_STATE_KEY = 'bitbi:pending-home-category';
-const HOME_DESKTOP_STAGE_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const HOME_DESKTOP_HOVER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const HOME_TABLET_DESKTOP_LAYOUT_MEDIA = [
+    '(min-width: 768px) and (max-width: 1023px) and (min-height: 700px)',
+    '(min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)',
+].join(', ');
+const HOME_STAGED_LAYOUT_MEDIA = `${HOME_DESKTOP_HOVER_MEDIA}, ${HOME_TABLET_DESKTOP_LAYOUT_MEDIA}`;
 const GENERATE_LAB_MAIN_PATHS = new Set([
     '/generate-lab',
     '/generate-lab/',
@@ -100,6 +105,14 @@ function isGenerateLabMainPath(pathname) {
     return GENERATE_LAB_MAIN_PATHS.has(normalized);
 }
 
+function isLocalizedHomePath(pathname) {
+    const normalized = String(pathname || '/').replace(/\/{2,}/g, '/');
+    return normalized === '/'
+        || normalized === '/index.html'
+        || normalized === '/de/'
+        || normalized === '/de/index.html';
+}
+
 export function initSiteHeader(options = {}) {
     const isGenerateLabPage = options.isGenerateLabPage === true || document.body.classList.contains('generate-lab-page');
     const generateLabContext = !isGenerateLabPage && options.generateLabContext !== false && isGenerateLabContextActive();
@@ -118,7 +131,7 @@ export function initSiteHeader(options = {}) {
         : (generateLabContext ? (document.documentElement.lang === 'de' ? 'Erstellungsbereich' : 'Creation Workspace') : '');
     const header = document.querySelector('header');
     if (!header) return;
-    const desktopStageQuery = window.matchMedia?.(HOME_DESKTOP_STAGE_MEDIA);
+    const stagedLayoutQuery = window.matchMedia?.(HOME_STAGED_LAYOUT_MEDIA);
 
     /* 1. Replace header innerHTML with full nav */
     header.innerHTML = NAV_HTML;
@@ -227,9 +240,9 @@ export function initSiteHeader(options = {}) {
         if (!anchor) return;
         try {
             const url = new URL(anchor.href, window.location.href);
-            if (url.origin !== window.location.origin || url.pathname !== '/' || !url.hash) return;
+            if (url.origin !== window.location.origin || !isLocalizedHomePath(url.pathname) || !url.hash) return;
             window.sessionStorage?.setItem(HOME_CATEGORY_NAV_STATE_KEY, url.hash);
-            if (window.location.pathname !== '/' && desktopStageQuery?.matches) {
+            if (!isLocalizedHomePath(window.location.pathname) && stagedLayoutQuery?.matches) {
                 event.preventDefault();
                 window.location.assign(`${url.pathname}${url.search}`);
             }

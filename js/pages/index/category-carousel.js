@@ -6,6 +6,12 @@
 
 const CATEGORY_ORDER = ['gallery', 'video', 'sound'];
 const HOME_CATEGORY_NAV_STATE_KEY = 'bitbi:pending-home-category';
+const DESKTOP_HOVER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const TABLET_DESKTOP_LAYOUT_MEDIA = [
+    '(min-width: 768px) and (max-width: 1023px) and (min-height: 700px)',
+    '(min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)',
+].join(', ');
+const STAGED_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOUT_MEDIA}`;
 
 const CATEGORY_META = {
     gallery: {
@@ -23,7 +29,6 @@ const CATEGORY_META = {
 };
 
 const TRANSITION_MS = 560;
-const DESKTOP_STAGE_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
@@ -72,7 +77,7 @@ export function initCategoryCarousel() {
     const prevButton = stage?.querySelector('[data-category-nav="prev"]');
     const nextButton = stage?.querySelector('[data-category-nav="next"]');
     const navbar = document.getElementById('navbar');
-    const desktopStageQuery = window.matchMedia?.(DESKTOP_STAGE_MEDIA);
+    const stagedLayoutQuery = window.matchMedia?.(STAGED_LAYOUT_MEDIA);
     const categoryLinks = new Map(
         CATEGORY_ORDER.map((key) => [key, Array.from(document.querySelectorAll(`[data-category-link="${key}"]`))]),
     );
@@ -94,7 +99,7 @@ export function initCategoryCarousel() {
     let transitionTimer = 0;
     let scrollFrame = 0;
     let contentAlignmentFrame = 0;
-    let desktopStageEnabled = false;
+    let stagedLayoutEnabled = false;
 
     function getPanel(category) {
         return panels.get(category) || null;
@@ -125,7 +130,7 @@ export function initCategoryCarousel() {
     }
 
     function updateArrowState() {
-        if (!desktopStageEnabled) {
+        if (!stagedLayoutEnabled) {
             if (prevButton) {
                 prevButton.hidden = true;
                 prevButton.disabled = true;
@@ -213,7 +218,7 @@ export function initCategoryCarousel() {
         stopContentAlignmentWatch();
         const stopAt = performance.now() + durationMs;
         const step = () => {
-            if (!desktopStageEnabled) {
+            if (!stagedLayoutEnabled) {
                 contentAlignmentFrame = 0;
                 return;
             }
@@ -278,7 +283,7 @@ export function initCategoryCarousel() {
     }
 
     function updateCategoryLinkState() {
-        if (!desktopStageEnabled) {
+        if (!stagedLayoutEnabled) {
             categoryLinks.forEach((links) => {
                 links.forEach((link) => {
                     link.classList.remove('is-active-category');
@@ -317,7 +322,7 @@ export function initCategoryCarousel() {
         transitionTimer = 0;
         isTransitioning = false;
         pendingCategory = null;
-        desktopStageEnabled = false;
+        stagedLayoutEnabled = false;
         document.body.classList.remove('home-categories-desktop-stage');
         stage.classList.remove('is-ready', 'is-transitioning');
         stage.dataset.stageMode = 'stacked';
@@ -334,8 +339,8 @@ export function initCategoryCarousel() {
         updateCategoryLinkState();
     }
 
-    function setDesktopStageState() {
-        desktopStageEnabled = true;
+    function setStagedLayoutState() {
+        stagedLayoutEnabled = true;
         document.body.classList.add('home-categories-desktop-stage');
         stage.classList.add('is-ready');
         stage.classList.remove('is-transitioning');
@@ -351,9 +356,9 @@ export function initCategoryCarousel() {
     }
 
     function syncStageMode() {
-        const shouldUseDesktopStage = !!desktopStageQuery?.matches;
-        if (shouldUseDesktopStage) {
-            setDesktopStageState();
+        const shouldUseStagedLayout = !!stagedLayoutQuery?.matches;
+        if (shouldUseStagedLayout) {
+            setStagedLayoutState();
             return;
         }
         setStackedStageState();
@@ -379,7 +384,7 @@ export function initCategoryCarousel() {
             return;
         }
 
-        if (!desktopStageEnabled) {
+        if (!stagedLayoutEnabled) {
             activeCategory = nextCategory;
             stage.dataset.activeCategory = nextCategory;
             if (clearHash) clearCategoryHash();
@@ -468,18 +473,18 @@ export function initCategoryCarousel() {
     }
 
     prevButton?.addEventListener('click', () => {
-        if (!desktopStageEnabled) return;
+        if (!stagedLayoutEnabled) return;
         move(-1);
     });
     nextButton?.addEventListener('click', () => {
-        if (!desktopStageEnabled) return;
+        if (!stagedLayoutEnabled) return;
         move(1);
     });
 
     document.addEventListener('click', (event) => {
         const anchor = event.target.closest('a[data-category-link]');
         if (!anchor) return;
-        if (!desktopStageEnabled) return;
+        if (!stagedLayoutEnabled) return;
 
         const nextCategory = anchor.dataset.categoryLink;
         if (!nextCategory) return;
@@ -489,14 +494,14 @@ export function initCategoryCarousel() {
     }, true);
 
     window.addEventListener('hashchange', () => {
-        if (!desktopStageEnabled) return;
+        if (!stagedLayoutEnabled) return;
         const nextCategory = resolveCategoryFromHash(window.location.hash);
         if (!nextCategory) return;
         setActiveCategory(nextCategory, { alignStage: true });
     });
 
     const alignActiveCategoryAfterContentReady = () => {
-        if (!desktopStageEnabled) return;
+        if (!stagedLayoutEnabled) return;
         startContentAlignmentWatch();
     };
 
@@ -505,7 +510,7 @@ export function initCategoryCarousel() {
         alignActiveCategoryAfterContentReady();
     });
 
-    bindMediaQueryChange(desktopStageQuery, syncStageMode);
+    bindMediaQueryChange(stagedLayoutQuery, syncStageMode);
     syncStageMode();
 
     if (activeCategory === 'sound' && document.querySelector('#soundLabTracks .snd-card--memtrack')) {
@@ -524,7 +529,7 @@ export function initCategoryCarousel() {
 
         const alignInitialCategory = () => {
             if (!initialCategory) return;
-            if (desktopStageEnabled) {
+            if (stagedLayoutEnabled) {
                 setActiveCategory(initialCategory, { alignStage: false });
                 alignStageToHeaderEdge();
             }
@@ -555,7 +560,7 @@ export function initCategoryCarousel() {
             ].filter(Boolean);
             if (!observedElements.length) return;
             initialAlignmentObserver = new window.ResizeObserver(() => {
-                if (!desktopStageEnabled) return;
+                if (!stagedLayoutEnabled) return;
                 alignInitialCategory();
             });
             observedElements.forEach((element) => {
@@ -571,7 +576,7 @@ export function initCategoryCarousel() {
             let stableFrames = 0;
             const minWatchUntil = performance.now() + 1800;
             const step = () => {
-                if (!desktopStageEnabled) {
+                if (!stagedLayoutEnabled) {
                     stableFrames = 0;
                     initialAlignmentFrame = window.requestAnimationFrame(step);
                     return;
@@ -606,7 +611,7 @@ export function initCategoryCarousel() {
             window.setTimeout(startInitialAlignmentWatch, 120);
         };
         const handleInitialAuthUiReady = () => {
-            if (!initialCategory || !desktopStageEnabled) return;
+            if (!initialCategory || !stagedLayoutEnabled) return;
             startInitialAlignmentWatch();
         };
         const finalizePendingHash = () => {

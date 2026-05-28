@@ -21,10 +21,15 @@ import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMPICS_CATEGORY = 'mempics';
 const MEMPICS_PAGE_LIMIT = 60;
-const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
-const DESKTOP_INITIAL_MEMPICS = 10;
-const DESKTOP_MEMPICS_BATCH = 20;
-const DESKTOP_SCROLL_PRELOAD_PX = 720;
+const DESKTOP_HOVER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const TABLET_DESKTOP_LAYOUT_MEDIA = [
+    '(min-width: 768px) and (max-width: 1023px) and (min-height: 700px)',
+    '(min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)',
+].join(', ');
+const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOUT_MEDIA}`;
+const WIDE_INITIAL_MEMPICS = 10;
+const WIDE_MEMPICS_BATCH = 20;
+const WIDE_SCROLL_PRELOAD_PX = 720;
 
 let focusTrapCleanup = null;
 
@@ -35,7 +40,7 @@ export function initGallery() {
     if (!grid || !modal) return;
     let renderSeq = 0;
     let mempicsPromise = null;
-    const desktopDrawerQuery = window.matchMedia?.(DESKTOP_PUBLIC_DRAWER_MEDIA);
+    const publicWideLayoutQuery = window.matchMedia?.(PUBLIC_WIDE_LAYOUT_MEDIA);
     const mempicsState = {
         items: [],
         nextCursor: null,
@@ -45,7 +50,7 @@ export function initGallery() {
     };
     let currentFilter = MEMPICS_CATEGORY;
     let mempicsProgressiveMode = false;
-    let mempicsVisibleLimit = DESKTOP_INITIAL_MEMPICS;
+    let mempicsVisibleLimit = WIDE_INITIAL_MEMPICS;
     let mempicsRevealPromise = null;
     let mempicsObserver = null;
     let mempicsUserScrolledSinceBatch = false;
@@ -83,25 +88,25 @@ export function initGallery() {
         }
     }
 
-    function isDesktopDrawerEnabled() {
-        return !!desktopDrawerQuery?.matches;
+    function isPublicWideLayoutEnabled() {
+        return !!publicWideLayoutQuery?.matches;
     }
 
     function getVisibleMempicsCount() {
-        if (!isDesktopDrawerEnabled()) return mempicsState.items.length;
+        if (!isPublicWideLayoutEnabled()) return mempicsState.items.length;
         return Math.min(mempicsVisibleLimit, mempicsState.items.length);
     }
 
     function canRevealMoreMempics() {
-        return isDesktopDrawerEnabled()
+        return isPublicWideLayoutEnabled()
             && currentFilter === MEMPICS_CATEGORY
             && (mempicsState.items.length > getVisibleMempicsCount() || mempicsState.hasMore);
     }
 
-    function resetMempicsDesktopWindow() {
+    function resetMempicsWideWindow() {
         mempicsProgressiveMode = false;
-        mempicsVisibleLimit = isDesktopDrawerEnabled()
-            ? DESKTOP_INITIAL_MEMPICS
+        mempicsVisibleLimit = isPublicWideLayoutEnabled()
+            ? WIDE_INITIAL_MEMPICS
             : mempicsState.items.length;
         mempicsUserScrolledSinceBatch = false;
         mempicsScrollBatchSettling = false;
@@ -240,8 +245,8 @@ export function initGallery() {
         }
         const visibleCount = getVisibleMempicsCount();
         const canRevealMore = canRevealMoreMempics();
-        const showDrawerToggle = isDesktopDrawerEnabled() && canRevealMore && !mempicsProgressiveMode;
-        const showLoadMore = !isDesktopDrawerEnabled() && mempicsState.hasMore;
+        const showDrawerToggle = isPublicWideLayoutEnabled() && canRevealMore && !mempicsProgressiveMode;
+        const showLoadMore = !isPublicWideLayoutEnabled() && mempicsState.hasMore;
         $pagination.style.display = '';
         if (canRevealMore) {
             $paginationStatus.textContent = localeText('browse.showingMempicsComplete', { count: visibleCount });
@@ -265,7 +270,7 @@ export function initGallery() {
         $loadMore.textContent = showLoadMore
             ? (mempicsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
             : '';
-        $scrollSentinel.hidden = !(isDesktopDrawerEnabled() && mempicsProgressiveMode && canRevealMore);
+        $scrollSentinel.hidden = !(isPublicWideLayoutEnabled() && mempicsProgressiveMode && canRevealMore);
         syncMempicsScrollLoading();
     }
 
@@ -306,7 +311,7 @@ export function initGallery() {
         mempicsState.nextCursor = page.nextCursor;
         mempicsState.hasMore = page.hasMore;
         mempicsState.loaded = true;
-        resetMempicsDesktopWindow();
+        resetMempicsWideWindow();
     }
 
     async function fetchNextMempicsPage() {
@@ -330,7 +335,7 @@ export function initGallery() {
         try {
             const loaded = await fetchNextMempicsPage();
             if (!loaded) return;
-            if (!isDesktopDrawerEnabled()) {
+            if (!isPublicWideLayoutEnabled()) {
                 mempicsVisibleLimit = mempicsState.items.length;
             }
             render(MEMPICS_CATEGORY);
@@ -343,11 +348,11 @@ export function initGallery() {
     }
 
     async function revealNextMempicsBatch() {
-        if (!isDesktopDrawerEnabled() || currentFilter !== MEMPICS_CATEGORY) return;
+        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY) return;
         if (!canRevealMoreMempics()) return;
         if (mempicsRevealPromise) return mempicsRevealPromise;
         mempicsProgressiveMode = true;
-        const nextLimit = mempicsVisibleLimit + DESKTOP_MEMPICS_BATCH;
+        const nextLimit = mempicsVisibleLimit + WIDE_MEMPICS_BATCH;
         mempicsRevealPromise = (async () => {
             let errorMessage = '';
             try {
@@ -374,7 +379,7 @@ export function initGallery() {
     }
 
     function shouldUseScrollLoading() {
-        return isDesktopDrawerEnabled()
+        return isPublicWideLayoutEnabled()
             && currentFilter === MEMPICS_CATEGORY
             && mempicsProgressiveMode
             && canRevealMoreMempics();
@@ -384,7 +389,7 @@ export function initGallery() {
         if (mempicsScrollBatchSettling) return;
         if (!mempicsUserScrolledSinceBatch || !shouldUseScrollLoading()) return;
         const rect = $scrollSentinel.getBoundingClientRect();
-        const sentinelIsNear = rect.top <= window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX;
+        const sentinelIsNear = rect.top <= window.innerHeight + WIDE_SCROLL_PRELOAD_PX;
         if (mempicsScrollSentinelNeedsReset) {
             if (!sentinelIsNear) mempicsScrollSentinelNeedsReset = false;
             return;
@@ -422,7 +427,7 @@ export function initGallery() {
         window.addEventListener('scroll', handleMempicsProgressiveScroll, { passive: true });
         if ('IntersectionObserver' in window) {
             mempicsObserver = new IntersectionObserver(handleMempicsIntersection, {
-                rootMargin: `${DESKTOP_SCROLL_PRELOAD_PX}px 0px`,
+                rootMargin: `${WIDE_SCROLL_PRELOAD_PX}px 0px`,
             });
             mempicsObserver.observe($scrollSentinel);
         }
@@ -751,8 +756,8 @@ export function initGallery() {
         galBuildDots();
     }
 
-    bindMediaQueryChange(desktopDrawerQuery, () => {
-        resetMempicsDesktopWindow();
+    bindMediaQueryChange(publicWideLayoutQuery, () => {
+        resetMempicsWideWindow();
         render(currentFilter);
     });
     bindMediaQueryChange(mobileMediaQuery, () => {

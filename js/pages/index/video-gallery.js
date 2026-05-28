@@ -24,10 +24,15 @@ import {
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
-const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
-const DESKTOP_INITIAL_MEMVIDS = 10;
-const DESKTOP_MEMVIDS_BATCH = 20;
-const DESKTOP_SCROLL_PRELOAD_PX = 720;
+const DESKTOP_HOVER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const TABLET_DESKTOP_LAYOUT_MEDIA = [
+    '(min-width: 768px) and (max-width: 1023px) and (min-height: 700px)',
+    '(min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)',
+].join(', ');
+const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOUT_MEDIA}`;
+const WIDE_INITIAL_MEMVIDS = 10;
+const WIDE_MEMVIDS_BATCH = 20;
+const WIDE_SCROLL_PRELOAD_PX = 720;
 
 let focusTrapCleanup = null;
 
@@ -36,7 +41,8 @@ export function initVideoGallery() {
     const $pagination = document.getElementById('videoPagination');
     if (!container) return;
 
-    const desktopDrawerQuery = window.matchMedia?.(DESKTOP_PUBLIC_DRAWER_MEDIA);
+    const publicWideLayoutQuery = window.matchMedia?.(PUBLIC_WIDE_LAYOUT_MEDIA);
+    const desktopHoverQuery = window.matchMedia?.(DESKTOP_HOVER_MEDIA);
     const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     const mobileMediaQuery = getMobileMediaGridQuery();
     const memvidsState = {
@@ -47,7 +53,7 @@ export function initVideoGallery() {
         loadingMore: false,
     };
     let memvidsProgressiveMode = false;
-    let memvidsVisibleLimit = DESKTOP_INITIAL_MEMVIDS;
+    let memvidsVisibleLimit = WIDE_INITIAL_MEMVIDS;
     let memvidsRevealPromise = null;
     let memvidsObserver = null;
     let memvidsUserScrolledSinceBatch = false;
@@ -103,27 +109,27 @@ export function initVideoGallery() {
         }
     }
 
-    function isDesktopDrawerEnabled() {
-        return !!desktopDrawerQuery?.matches;
+    function isPublicWideLayoutEnabled() {
+        return !!publicWideLayoutQuery?.matches;
     }
 
     function getVisibleMemvidsCount() {
-        if (!isDesktopDrawerEnabled()) return memvidsState.items.length;
+        if (!isPublicWideLayoutEnabled()) return memvidsState.items.length;
         return Math.min(memvidsVisibleLimit, memvidsState.items.length);
     }
 
     function canRevealMoreMemvids() {
-        return isDesktopDrawerEnabled()
+        return isPublicWideLayoutEnabled()
             && (
                 memvidsState.items.length > getVisibleMemvidsCount()
-                || (memvidsState.items.length >= DESKTOP_INITIAL_MEMVIDS && memvidsState.hasMore)
+                || (memvidsState.items.length >= WIDE_INITIAL_MEMVIDS && memvidsState.hasMore)
             );
     }
 
-    function resetMemvidsDesktopWindow() {
+    function resetMemvidsWideWindow() {
         memvidsProgressiveMode = false;
-        memvidsVisibleLimit = isDesktopDrawerEnabled()
-            ? DESKTOP_INITIAL_MEMVIDS
+        memvidsVisibleLimit = isPublicWideLayoutEnabled()
+            ? WIDE_INITIAL_MEMVIDS
             : memvidsState.items.length;
         memvidsUserScrolledSinceBatch = false;
         memvidsScrollBatchSettling = false;
@@ -152,7 +158,7 @@ export function initVideoGallery() {
     }
 
     function canUseHoverPreview() {
-        return !!desktopDrawerQuery?.matches && !reducedMotionQuery?.matches;
+        return !!desktopHoverQuery?.matches && !reducedMotionQuery?.matches;
     }
 
     function isMouseHoverPointer(event) {
@@ -446,10 +452,10 @@ export function initVideoGallery() {
         }
         const visibleCount = getVisibleMemvidsCount();
         const canRevealMore = canRevealMoreMemvids();
-        const showDrawerToggle = isDesktopDrawerEnabled() && canRevealMore && !memvidsProgressiveMode;
+        const showDrawerToggle = isPublicWideLayoutEnabled() && canRevealMore && !memvidsProgressiveMode;
         const showLoadMore = memvidsState.hasMore && (
-            !isDesktopDrawerEnabled()
-            || (!showDrawerToggle && !memvidsProgressiveMode && memvidsState.items.length < DESKTOP_INITIAL_MEMVIDS)
+            !isPublicWideLayoutEnabled()
+            || (!showDrawerToggle && !memvidsProgressiveMode && memvidsState.items.length < WIDE_INITIAL_MEMVIDS)
         );
         $pagination.style.display = '';
         if (canRevealMore) {
@@ -474,7 +480,7 @@ export function initVideoGallery() {
         $loadMore.textContent = showLoadMore
             ? (memvidsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
             : '';
-        $scrollSentinel.hidden = !(isDesktopDrawerEnabled() && memvidsProgressiveMode && canRevealMore);
+        $scrollSentinel.hidden = !(isPublicWideLayoutEnabled() && memvidsProgressiveMode && canRevealMore);
         syncMemvidsScrollLoading();
     }
 
@@ -494,7 +500,7 @@ export function initVideoGallery() {
         memvidsState.nextCursor = page.nextCursor;
         memvidsState.hasMore = page.hasMore;
         memvidsState.loaded = true;
-        resetMemvidsDesktopWindow();
+        resetMemvidsWideWindow();
     }
 
     async function fetchNextMemvidsPage() {
@@ -514,11 +520,11 @@ export function initVideoGallery() {
     }
 
     async function revealNextMemvidsBatch() {
-        if (!isDesktopDrawerEnabled()) return;
+        if (!isPublicWideLayoutEnabled()) return;
         if (!canRevealMoreMemvids()) return;
         if (memvidsRevealPromise) return memvidsRevealPromise;
         memvidsProgressiveMode = true;
-        const nextLimit = memvidsVisibleLimit + DESKTOP_MEMVIDS_BATCH;
+        const nextLimit = memvidsVisibleLimit + WIDE_MEMVIDS_BATCH;
         memvidsRevealPromise = (async () => {
             let errorMessage = '';
             try {
@@ -545,7 +551,7 @@ export function initVideoGallery() {
     }
 
     function shouldUseMemvidsScrollLoading() {
-        return isDesktopDrawerEnabled()
+        return isPublicWideLayoutEnabled()
             && memvidsProgressiveMode
             && canRevealMoreMemvids();
     }
@@ -554,7 +560,7 @@ export function initVideoGallery() {
         if (memvidsScrollBatchSettling) return;
         if (!memvidsUserScrolledSinceBatch || !shouldUseMemvidsScrollLoading()) return;
         const rect = $scrollSentinel.getBoundingClientRect();
-        const sentinelIsNear = rect.top <= window.innerHeight + DESKTOP_SCROLL_PRELOAD_PX;
+        const sentinelIsNear = rect.top <= window.innerHeight + WIDE_SCROLL_PRELOAD_PX;
         if (memvidsScrollSentinelNeedsReset) {
             if (!sentinelIsNear) memvidsScrollSentinelNeedsReset = false;
             return;
@@ -592,7 +598,7 @@ export function initVideoGallery() {
         window.addEventListener('scroll', handleMemvidsProgressiveScroll, { passive: true });
         if ('IntersectionObserver' in window) {
             memvidsObserver = new IntersectionObserver(handleMemvidsIntersection, {
-                rootMargin: `${DESKTOP_SCROLL_PRELOAD_PX}px 0px`,
+                rootMargin: `${WIDE_SCROLL_PRELOAD_PX}px 0px`,
             });
             memvidsObserver.observe($scrollSentinel);
         }
@@ -739,7 +745,7 @@ export function initVideoGallery() {
         try {
             const loaded = await fetchNextMemvidsPage();
             if (!loaded) return;
-            if (!isDesktopDrawerEnabled()) {
+            if (!isPublicWideLayoutEnabled()) {
                 memvidsVisibleLimit = memvidsState.items.length;
             }
             render();
@@ -885,10 +891,13 @@ export function initVideoGallery() {
         });
     });
 
-    bindMediaQueryChange(desktopDrawerQuery, () => {
+    bindMediaQueryChange(publicWideLayoutQuery, () => {
         stopActiveHoverPreview();
-        resetMemvidsDesktopWindow();
+        resetMemvidsWideWindow();
         render();
+    });
+    bindMediaQueryChange(desktopHoverQuery, () => {
+        stopActiveHoverPreview();
     });
     bindMediaQueryChange(reducedMotionQuery, () => {
         stopActiveHoverPreview();

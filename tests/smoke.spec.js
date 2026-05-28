@@ -766,6 +766,61 @@ async function expectHomepageHeaderCategoryGlow(page, expectedCategory) {
   }
 }
 
+async function readHomepageResponsiveStageState(page) {
+  return page.evaluate(() => {
+    const stage = document.getElementById('homeCategories');
+    const panels = ['gallery', 'video', 'sound'].map((category) => {
+      const selector = category === 'video' ? '#video-creations' : category === 'sound' ? '#soundlab' : '#gallery';
+      const panel = document.querySelector(selector);
+      const style = panel ? window.getComputedStyle(panel) : null;
+      const rect = panel?.getBoundingClientRect();
+      return {
+        category,
+        id: panel?.id || '',
+        ariaHidden: panel?.getAttribute('aria-hidden') || '',
+        inert: Boolean(panel?.inert),
+        display: style?.display || '',
+        position: style?.position || '',
+        pointerEvents: style?.pointerEvents || '',
+        visible: Boolean(rect && rect.width > 0 && rect.height > 0 && style?.visibility !== 'hidden'),
+      };
+    });
+    const mobileMenu = document.getElementById('mobileMenuBtn');
+    const desktopLinks = document.querySelector('#navbar .site-nav__links');
+    return {
+      activeCategory: stage?.dataset.activeCategory || '',
+      stageMode: stage?.dataset.stageMode || '',
+      ready: stage?.classList.contains('is-ready') || false,
+      bodyStageClass: document.body.classList.contains('home-categories-desktop-stage'),
+      overflowX: Math.max(
+        0,
+        document.documentElement.scrollWidth - window.innerWidth,
+        document.body.scrollWidth - window.innerWidth,
+      ),
+      media: {
+        desktopHover: window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)').matches,
+        tabletDesktopLayout: window.matchMedia('(min-width: 768px) and (max-width: 1023px) and (min-height: 700px), (min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)').matches,
+        stagedLayout: window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine), (min-width: 768px) and (max-width: 1023px) and (min-height: 700px), (min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)').matches,
+        hoverPreview: window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)').matches,
+      },
+      mobileMenuVisible: mobileMenu ? window.getComputedStyle(mobileMenu).display !== 'none' : false,
+      desktopLinksVisible: desktopLinks ? window.getComputedStyle(desktopLinks).display !== 'none' : false,
+      panels,
+    };
+  });
+}
+
+function expectSingleInteractiveHomepagePanel(state, expectedCategory) {
+  expect(state.activeCategory).toBe(expectedCategory);
+  for (const panel of state.panels) {
+    const isActive = panel.category === expectedCategory;
+    expect(panel.ariaHidden, `${panel.category} aria-hidden`).toBe(isActive ? 'false' : 'true');
+    expect(panel.inert, `${panel.category} inert`).toBe(!isActive);
+    expect(panel.visible, `${panel.category} visible`).toBe(isActive);
+    expect(panel.pointerEvents, `${panel.category} pointer-events`).toBe(isActive ? 'auto' : 'none');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Homepage
 // ---------------------------------------------------------------------------
@@ -1734,6 +1789,7 @@ test.describe('Homepage', () => {
     await expect(stage).toHaveAttribute('data-stage-mode', 'stacked');
     await expect(stage).not.toHaveClass(/is-ready/);
     await expect(stage.locator('[data-category-nav]')).toHaveCount(0);
+    await expect(page.locator('#mobileMenuBtn')).toBeVisible();
 
     const layout = await page.evaluate(() => {
       return ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
@@ -1755,44 +1811,154 @@ test.describe('Homepage', () => {
     expect(layout.every((entry) => entry.position !== 'absolute')).toBe(true);
     expect(layout[0].bottom).toBeLessThanOrEqual(layout[1].top);
     expect(layout[1].bottom).toBeLessThanOrEqual(layout[2].top);
+
+    const overflowX = await page.evaluate(() => Math.max(
+      0,
+      document.documentElement.scrollWidth - window.innerWidth,
+      document.body.scrollWidth - window.innerWidth,
+    ));
+    expect(overflowX).toBeLessThanOrEqual(1);
   });
 
-  test('iPad-class touch devices remain stacked with no desktop carousel controls', async ({ browser }) => {
-    const context = await browser.newContext({
-      ...devices['iPad Pro 11 landscape'],
-    });
-    const tabletPage = await context.newPage();
+  test('phone landscape does not activate tablet desktop layout', async ({ page }) => {
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.goto('/');
 
-    try {
-      await tabletPage.goto('/');
+    const state = await readHomepageResponsiveStageState(page);
+    expect(state.media.stagedLayout).toBe(false);
+    expect(state.stageMode).toBe('stacked');
+    expect(state.ready).toBe(false);
+    expect(state.bodyStageClass).toBe(false);
+    expect(state.overflowX).toBeLessThanOrEqual(1);
+    expect(state.panels.every((panel) => panel.display !== 'none')).toBe(true);
+    expect(state.panels.every((panel) => panel.position !== 'absolute')).toBe(true);
+  });
 
-      const stage = tabletPage.locator('#homeCategories');
-      await expect(stage).toHaveAttribute('data-stage-mode', 'stacked');
-      await expect(stage).not.toHaveClass(/is-ready/);
-      await expect(stage.locator('[data-category-nav]')).toHaveCount(0);
+  test('tablet desktop layout stages homepage categories without desktop hover media', async ({ browser }) => {
+    const contexts = [
+      {
+        label: '768 portrait',
+        options: { viewport: { width: 768, height: 1024 } },
+        useMobileMenu: true,
+        expectedColumns: 3,
+      },
+      {
+        label: '820 portrait',
+        options: { viewport: { width: 820, height: 1180 } },
+        useMobileMenu: true,
+        expectedColumns: 3,
+      },
+      {
+        label: '1024 touch portrait',
+        options: { viewport: { width: 1024, height: 1366 }, hasTouch: true, isMobile: true },
+        useMobileMenu: false,
+        expectedColumns: 4,
+      },
+    ];
 
-      const layout = await tabletPage.evaluate(() => {
-        return ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
-          const element = document.querySelector(selector);
-          const rect = element.getBoundingClientRect();
-          const styles = window.getComputedStyle(element);
+    for (const { label, options, useMobileMenu, expectedColumns } of contexts) {
+      const context = await browser.newContext(options);
+      const tabletPage = await context.newPage();
+
+      try {
+        await tabletPage.goto('/');
+
+        await expect(tabletPage.locator('#homeCategories')).toHaveAttribute('data-stage-mode', 'desktop');
+        await waitForHomepageCategoryStage(tabletPage);
+        let state = await readHomepageResponsiveStageState(tabletPage);
+        expect(state.media.stagedLayout, label).toBe(true);
+        expect(state.media.tabletDesktopLayout, label).toBe(true);
+        expect(state.media.desktopHover, label).toBe(false);
+        expect(state.media.hoverPreview, label).toBe(false);
+        expect(state.ready, label).toBe(true);
+        expect(state.bodyStageClass, label).toBe(true);
+        expect(state.overflowX, label).toBeLessThanOrEqual(2);
+        expectSingleInteractiveHomepagePanel(state, 'video');
+
+        const categoryLinkRoot = useMobileMenu
+          ? tabletPage.locator('#mobileNav')
+          : tabletPage.locator('#navbar .site-nav__links');
+
+        if (useMobileMenu) {
+          await expect(tabletPage.locator('#mobileMenuBtn')).toBeVisible();
+          await tabletPage.locator('#mobileMenuBtn').click();
+          await expect(categoryLinkRoot).toHaveClass(/open/);
+        } else {
+          await expect(tabletPage.locator('#navbar .site-nav__links')).toBeVisible();
+        }
+
+        await categoryLinkRoot.getByRole('link', { name: 'Gallery' }).click();
+        await expectActiveHomepageCategory(tabletPage, 'gallery');
+        await waitForHomepageCategoryStage(tabletPage);
+        state = await readHomepageResponsiveStageState(tabletPage);
+        expect(state.overflowX, `${label} gallery overflow`).toBeLessThanOrEqual(2);
+        expectSingleInteractiveHomepagePanel(state, 'gallery');
+
+        if (useMobileMenu) {
+          await expect(tabletPage.locator('#mobileMenuBtn')).toBeVisible();
+          await tabletPage.locator('#mobileMenuBtn').click();
+        }
+        await categoryLinkRoot.getByRole('link', { name: 'Video' }).click();
+        await expectActiveHomepageCategory(tabletPage, 'video');
+        await waitForHomepageCategoryStage(tabletPage);
+        state = await readHomepageResponsiveStageState(tabletPage);
+        expectSingleInteractiveHomepagePanel(state, 'video');
+
+        const columns = await tabletPage.evaluate(() => {
+          const readColumnCount = (selector) => {
+            const grid = document.querySelector(selector);
+            const style = grid ? window.getComputedStyle(grid) : null;
+            return Number.parseInt(style?.columnCount || '', 10) || 0;
+          };
           return {
-            id: element.id,
-            top: Math.round(rect.top),
-            bottom: Math.round(rect.bottom),
-            display: styles.display,
-            position: styles.position,
+            gallery: readColumnCount('#galleryGrid'),
+            video: readColumnCount('#videoGrid'),
           };
         });
-      });
+        expect(columns.gallery, `${label} gallery columns`).toBe(expectedColumns);
+        expect(columns.video, `${label} video columns`).toBe(expectedColumns);
+      } finally {
+        await context.close();
+      }
+    }
+  });
 
-      expect(layout.map((entry) => entry.id)).toEqual(['gallery', 'video-creations', 'soundlab']);
-      expect(layout.every((entry) => entry.display !== 'none')).toBe(true);
-      expect(layout.every((entry) => entry.position !== 'absolute')).toBe(true);
-      expect(layout[0].bottom).toBeLessThanOrEqual(layout[1].top);
-      expect(layout[1].bottom).toBeLessThanOrEqual(layout[2].top);
-    } finally {
-      await context.close();
+  test('desktop homepage staged layout remains on the true desktop hover media path', async ({ browser }) => {
+    for (const viewport of [
+      { width: 1366, height: 1024 },
+      { width: 1440, height: 900 },
+    ]) {
+      const context = await browser.newContext({ viewport });
+      const desktopPage = await context.newPage();
+
+      try {
+        await desktopPage.goto('/');
+        await expect(desktopPage.locator('#homeCategories')).toHaveAttribute('data-stage-mode', 'desktop');
+        await waitForHomepageCategoryStage(desktopPage);
+
+        const initialState = await readHomepageResponsiveStageState(desktopPage);
+        expect(initialState.media.desktopHover, `${viewport.width} desktop hover`).toBe(true);
+        expect(initialState.media.tabletDesktopLayout, `${viewport.width} tablet media`).toBe(false);
+        expect(initialState.media.stagedLayout, `${viewport.width} staged media`).toBe(true);
+        expect(initialState.desktopLinksVisible, `${viewport.width} nav links`).toBe(true);
+        expect(initialState.mobileMenuVisible, `${viewport.width} mobile menu`).toBe(false);
+        expect(initialState.overflowX, `${viewport.width} overflow`).toBeLessThanOrEqual(2);
+        expectSingleInteractiveHomepagePanel(initialState, 'video');
+
+        await desktopPage.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+        await expectActiveHomepageCategory(desktopPage, 'gallery');
+        await waitForHomepageCategoryStage(desktopPage);
+        await expectHomepageHeaderCategoryGlow(desktopPage, 'gallery');
+
+        const columns = await desktopPage.evaluate(() => ({
+          gallery: Number.parseInt(window.getComputedStyle(document.getElementById('galleryGrid')).columnCount, 10),
+          video: Number.parseInt(window.getComputedStyle(document.getElementById('videoGrid')).columnCount, 10),
+        }));
+        expect(columns.gallery, `${viewport.width} gallery columns`).toBe(5);
+        expect(columns.video, `${viewport.width} video columns`).toBe(5);
+      } finally {
+        await context.close();
+      }
     }
   });
 
