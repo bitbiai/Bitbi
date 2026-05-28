@@ -51,6 +51,23 @@ Optional GitHub Actions dispatch settings for the one-click Admin Memvid preview
 
 With provider secrets/config absent, provider work fails closed and the public site falls back to existing poster/full-play behavior. Missing provider secrets do not imply production readiness even when Worker flags and Admin switches are on.
 
+### Auth Worker Wrangler Deploy Safety
+
+The Memvid Stream Preview plain-text Worker vars are tracked in `workers/auth/wrangler.jsonc` so future `wrangler deploy` runs do not remove them from the `bitbi-auth` Worker:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `ENABLE_MEMVID_STREAM_PREVIEWS`
+- `ENABLE_MEMVID_STREAM_PREVIEW_AUTOPLAY`
+- `MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS`
+- `MEMVID_STREAM_PREVIEW_MAX_LOOPS`
+
+`workers/auth/wrangler.jsonc` also uses `keep_vars: true` to preserve dashboard-managed vars that are not represented in the local config. Future Wrangler deploy diffs must not show removal of the Memvid Stream Preview vars above. The Cloudflare Stream API token and Memvid preview processor secret remain Worker secrets and must never be committed. If Wrangler or repo validation reports missing required secrets, set them from `workers/auth` without printing or committing values:
+
+```bash
+npx wrangler secret put CLOUDFLARE_STREAM_API_TOKEN
+npx wrangler secret put MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET
+```
+
 ## Deploy Order
 
 For mixed releases, use `npm run release:plan`. A typical Homepage Hero processor release order is:
