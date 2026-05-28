@@ -39993,6 +39993,299 @@ test.describe('Worker routes', () => {
     expect(serialized).not.toContain(sourceAsset.r2_key);
   });
 
+  test('admin homepage hero manual upload without poster records retryable poster state in saved assets', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-upload-pending-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS: 'true',
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const form = new FormData();
+    form.append('title', 'Pending Poster Source');
+    form.append('operator_reason', 'Testing pending poster state.');
+    form.append('video', new Blob([Buffer.from('mock-video-source')], { type: 'video/mp4' }), 'pending-source.mp4');
+
+    const uploadRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/admin/homepage/hero-videos/uploads', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'homepage-hero-upload-pending-poster',
+        },
+        body: form,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(uploadRes.status).toBe(201);
+    const uploaded = await uploadRes.json();
+    expect(uploaded.data.candidate).toMatchObject({
+      source_type: 'admin_asset',
+      title: 'Pending Poster Source',
+      poster_url: null,
+      poster_status: 'pending',
+      poster_retryable: true,
+    });
+    expect(uploaded.data.poster_warning).toContain('Poster preview is pending');
+
+    const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === uploaded.data.candidate.source_asset_id);
+    expect(JSON.parse(sourceAsset.metadata_json).homepage_hero_source).toMatchObject({
+      is_manual_upload: true,
+      poster_status: 'pending',
+      poster_retryable: true,
+    });
+
+    const assetsRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets?limit=10', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(assetsRes.status).toBe(200);
+    const assets = await assetsRes.json();
+    const saved = assets.data.assets.find((asset) => asset.id === sourceAsset.id);
+    expect(saved).toMatchObject({
+      asset_type: 'video',
+      poster_status: 'pending',
+      poster_retryable: true,
+    });
+    expect(saved).not.toHaveProperty('poster_url');
+  });
+
+  test('admin homepage hero poster retry updates source asset poster metadata', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-poster-retry-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS: 'true',
+      aiTextAssets: [{
+        id: 'face0ff1',
+        user_id: admin.id,
+        title: 'Retry Poster Source',
+        file_name: 'retry-source.mp4',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 1234,
+        metadata_json: JSON.stringify({
+          source: 'admin_homepage_hero_videos',
+          homepage_hero_source: {
+            is_manual_upload: true,
+            poster_status: 'pending',
+            poster_retryable: true,
+          },
+        }),
+        created_at: nowIso(),
+        r2_key: `users/${admin.id}/folders/unsorted/retry-source.mp4`,
+      }],
+      homepageHeroVideoUploads: [{
+        id: 'hhvu_retry_poster',
+        asset_id: 'face0ff1',
+        user_id: admin.id,
+        title: 'Retry Poster Source',
+        original_file_name: 'retry-source.mp4',
+        mime_type: 'video/mp4',
+        size_bytes: 1234,
+        r2_key: `users/${admin.id}/folders/unsorted/retry-source.mp4`,
+        created_by_user_id: admin.id,
+        created_at: nowIso(),
+      }],
+      userImages: {
+        [`users/${admin.id}/folders/unsorted/retry-source.mp4`]: {
+          body: new TextEncoder().encode('mock-video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+      },
+    });
+    const adminToken = await seedSession(env, admin.id);
+
+    const retryRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/uploads/face0ff1/poster', 'POST', {
+        posterBase64: ONE_PIXEL_PNG_DATA_URI,
+        operator_reason: 'Testing manual poster retry.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'homepage-hero-poster-retry-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(retryRes.status).toBe(200);
+    const body = await retryRes.json();
+    expect(body.data.poster.poster_url).toBe('/api/ai/text-assets/face0ff1/poster');
+    const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === 'face0ff1');
+    expect(sourceAsset.poster_r2_key).toContain('/derivatives/v1/face0ff1/poster.webp');
+    expect(sourceAsset.poster_size_bytes).toBeGreaterThan(0);
+    expect(JSON.parse(sourceAsset.metadata_json).homepage_hero_source).toMatchObject({
+      poster_status: 'ready',
+      poster_retryable: false,
+    });
+  });
+
+  test('manual homepage hero upload delete succeeds when unassigned and blocks when active slot uses it', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-delete-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      aiTextAssets: [{
+        id: 'face0de1',
+        user_id: admin.id,
+        title: 'Unassigned Hero Source',
+        file_name: 'unassigned.mp4',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 3000,
+        poster_size_bytes: 400,
+        metadata_json: JSON.stringify({ source: 'admin_homepage_hero_videos' }),
+        created_at: nowIso(),
+        r2_key: `users/${admin.id}/folders/unsorted/unassigned.mp4`,
+        poster_r2_key: `users/${admin.id}/derivatives/v1/face0de1/poster.webp`,
+      }, {
+        id: 'face0de2',
+        user_id: admin.id,
+        title: 'Assigned Hero Source',
+        file_name: 'assigned.mp4',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 3000,
+        metadata_json: JSON.stringify({ source: 'admin_homepage_hero_videos' }),
+        created_at: nowIso(),
+        r2_key: `users/${admin.id}/folders/unsorted/assigned.mp4`,
+      }],
+      homepageHeroVideoUploads: [{
+        id: 'hhvu_delete_unassigned',
+        asset_id: 'face0de1',
+        user_id: admin.id,
+      }, {
+        id: 'hhvu_delete_assigned',
+        asset_id: 'face0de2',
+        user_id: admin.id,
+      }],
+      homepageHeroVideoSlots: [{
+        slot: 'right_top',
+        enabled: 1,
+        source_type: 'admin_asset',
+        source_asset_id: 'face0de2',
+        source_user_id: admin.id,
+      }],
+      memvidStreamPreviews: [{
+        id: 'msp_delete_source',
+        asset_id: 'face0de1',
+        user_id: admin.id,
+        source_r2_key: `users/${admin.id}/folders/unsorted/unassigned.mp4`,
+        status: 'queued',
+      }],
+      memvidStreamPreviewEvents: [{
+        id: 'mspe_delete_source',
+        preview_id: 'msp_delete_source',
+        asset_id: 'face0de1',
+        event_type: 'hover_start',
+        event_count: 2,
+      }],
+      userImages: {
+        [`users/${admin.id}/folders/unsorted/unassigned.mp4`]: {
+          body: new TextEncoder().encode('unassigned-video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+        [`users/${admin.id}/derivatives/v1/face0de1/poster.webp`]: {
+          body: new TextEncoder().encode('poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        [`users/${admin.id}/folders/unsorted/assigned.mp4`]: {
+          body: new TextEncoder().encode('assigned-video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+      },
+    });
+    const adminToken = await seedSession(env, admin.id);
+
+    const unassignedRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/face0de1', 'DELETE', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unassignedRes.status).toBe(200);
+    await expect(unassignedRes.json()).resolves.toMatchObject({
+      ok: true,
+      code: 'deleted',
+      data: { deleted: true },
+    });
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'face0de1')).toBeUndefined();
+    expect(env.DB.state.homepageHeroVideoUploads.find((row) => row.asset_id === 'face0de1')).toBeUndefined();
+    expect(env.DB.state.memvidStreamPreviews.find((row) => row.asset_id === 'face0de1')).toBeUndefined();
+    expect(env.DB.state.memvidStreamPreviewEvents.find((row) => row.asset_id === 'face0de1')).toBeUndefined();
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === admin.id)?.used_bytes || 0).toBe(0);
+
+    const assignedRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/face0de2', 'DELETE', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(assignedRes.status).toBe(409);
+    await expect(assignedRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'hero_source_in_use',
+    });
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'face0de2')).toBeTruthy();
+  });
+
+  test('AI text asset delete treats missing D1 change count as success when final state is gone', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'text-delete-final-state-user', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      aiTextAssets: [{
+        id: 'face0fd1',
+        user_id: user.id,
+        title: 'Final State Delete',
+        file_name: 'final-state.mp4',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 2000,
+        metadata_json: '{}',
+        created_at: nowIso(),
+        r2_key: `users/${user.id}/folders/unsorted/final-state.mp4`,
+        delete_changes_override: 0,
+      }],
+      userImages: {
+        [`users/${user.id}/folders/unsorted/final-state.mp4`]: {
+          body: new TextEncoder().encode('video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const deleteRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/face0fd1', 'DELETE', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(deleteRes.status).toBe(200);
+    await expect(deleteRes.json()).resolves.toMatchObject({
+      ok: true,
+      code: 'deleted_final_state',
+      data: {
+        deleted: true,
+        already_deleted: false,
+      },
+    });
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'face0fd1')).toBeUndefined();
+  });
+
   test('homepage hero external_ffmpeg processor uses signed callbacks and optimized derivative outputs only', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('hero-processor-admin');

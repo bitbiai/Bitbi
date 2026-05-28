@@ -13,6 +13,7 @@ import {
   isBulkStateGuardError,
   isMissingTextAssetTableError,
 } from "./helpers.js";
+import { logDiagnostic } from "../../../../../js/shared/worker-observability.mjs";
 
 const CLEANUP_QUEUE_BATCH_SIZE = 100;
 
@@ -22,6 +23,7 @@ export class AiAssetLifecycleError extends Error {
     this.name = "AiAssetLifecycleError";
     this.status = status;
     this.branch = options.branch || null;
+    this.code = options.code || options.branch || null;
     this.details = options.details || null;
     this.cause = options.cause;
   }
@@ -263,6 +265,105 @@ function buildAiTextAssetDeleteStatement(env, userId, assetId) {
   return env.DB.prepare(
     "DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?"
   ).bind(assetId, userId);
+}
+
+function isMissingHomepageHeroVideoTableError(error) {
+  const message = String(error?.message || error || "");
+  return message.includes("no such table") && message.includes("homepage_hero_video_");
+}
+
+function isMissingMemvidStreamPreviewTableError(error) {
+  const message = String(error?.message || error || "");
+  return message.includes("no such table") && message.includes("memvid_stream_preview");
+}
+
+async function loadHomepageHeroTextAssetLinks(env, { userId, assetId }) {
+  const empty = {
+    available: false,
+    linkedUploadCount: 0,
+    activeSlotCount: 0,
+    derivativeCounts: {},
+  };
+  try {
+    const [uploadRow, activeSlotRow, derivativeRows] = await Promise.all([
+      env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM homepage_hero_video_uploads WHERE asset_id = ? AND user_id = ?"
+      ).bind(assetId, userId).first(),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS count
+         FROM homepage_hero_video_slots slots
+         LEFT JOIN homepage_hero_video_derivatives derivatives ON derivatives.id = slots.derivative_id
+         WHERE slots.enabled = 1
+           AND (
+             (slots.source_type = 'admin_asset'
+              AND slots.source_asset_id = ?
+              AND (slots.source_user_id IS NULL OR slots.source_user_id = ?))
+             OR
+             (derivatives.source_type = 'admin_asset'
+              AND derivatives.source_asset_id = ?
+              AND (derivatives.source_user_id IS NULL OR derivatives.source_user_id = ?))
+           )`
+      ).bind(assetId, userId, assetId, userId).first(),
+      env.DB.prepare(
+        `SELECT status, COUNT(*) AS count
+         FROM homepage_hero_video_derivatives
+         WHERE source_type = 'admin_asset'
+           AND source_asset_id = ?
+           AND (source_user_id IS NULL OR source_user_id = ?)
+         GROUP BY status`
+      ).bind(assetId, userId).all(),
+    ]);
+    return {
+      available: true,
+      linkedUploadCount: Number(uploadRow?.count || 0),
+      activeSlotCount: Number(activeSlotRow?.count || 0),
+      derivativeCounts: Object.fromEntries((derivativeRows.results || []).map((row) => [
+        row.status || "unknown",
+        Number(row.count || 0),
+      ])),
+    };
+  } catch (error) {
+    if (isMissingHomepageHeroVideoTableError(error)) return empty;
+    throw error;
+  }
+}
+
+function buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links }) {
+  if (!links?.available) return [];
+  return [
+    env.DB.prepare(
+      `UPDATE homepage_hero_video_derivatives
+       SET status = 'failed',
+           error_code = COALESCE(error_code, 'source_deleted'),
+           error_message = COALESCE(error_message, 'Source asset was deleted.'),
+           updated_at = ?
+       WHERE source_type = 'admin_asset'
+         AND source_asset_id = ?
+         AND (source_user_id IS NULL OR source_user_id = ?)
+         AND status IN ('queued', 'processing')`
+    ).bind(nowIso(), assetId, userId),
+    env.DB.prepare(
+      "DELETE FROM homepage_hero_video_uploads WHERE asset_id = ? AND user_id = ?"
+    ).bind(assetId, userId),
+  ];
+}
+
+function buildMemvidStreamPreviewCleanupStatements(env, { userId, assetId }) {
+  return [
+    env.DB.prepare(
+      "DELETE FROM memvid_stream_preview_events WHERE asset_id = ?"
+    ).bind(assetId),
+    env.DB.prepare(
+      "DELETE FROM memvid_stream_previews WHERE asset_id = ? AND user_id = ?"
+    ).bind(assetId, userId),
+  ];
+}
+
+async function textAssetStillExists(env, { userId, assetId }) {
+  const row = await env.DB.prepare(
+    "SELECT id FROM ai_text_assets WHERE id = ? AND user_id = ?"
+  ).bind(assetId, userId).first();
+  return Boolean(row);
 }
 
 async function loadOwnedAiImageRowsByIds(env, userId, imageIds) {
@@ -521,28 +622,121 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
   }
 
   if (!row) {
-    throw new AiAssetLifecycleError("Text asset not found.", 404, {
-      branch: "asset_not_found",
+    return { code: "already_deleted", already_deleted: true, deleted: false };
+  }
+
+  const heroLinks = await loadHomepageHeroTextAssetLinks(env, { userId, assetId });
+  if (heroLinks.activeSlotCount > 0) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-asset-delete",
+      event: "manual_hero_source_delete_blocked",
+      level: "warn",
+      asset_id: assetId,
+      user_id: userId,
+      linked_upload_count: heroLinks.linkedUploadCount,
+      active_slot_count: heroLinks.activeSlotCount,
+      derivative_counts: heroLinks.derivativeCounts,
+      final_row_exists: true,
+    });
+    throw new AiAssetLifecycleError(
+      "This video is currently assigned to a Homepage Hero slot. Remove or replace it in Homepage Hero Videos before deleting.",
+      409,
+      {
+        branch: "hero_source_in_use",
+        code: "hero_source_in_use",
+        details: {
+          linked_upload_count: heroLinks.linkedUploadCount,
+          active_slot_count: heroLinks.activeSlotCount,
+          derivative_counts: heroLinks.derivativeCounts,
+        },
+      }
+    );
+  }
+
+  const mutationStatements = [
+    ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
+    ...buildMemvidStreamPreviewCleanupStatements(env, { userId, assetId }),
+    buildAiTextAssetDeleteStatement(env, userId, assetId),
+  ];
+
+  let mutationResults = [];
+  let cleanupKeys = [];
+  try {
+    const result = await executeLifecycleBatch({
+      env,
+      cleanupKeys: collectCleanupKeys([], [row]),
+      mutationStatements,
+      unavailableMessage: "Text asset service unavailable. Please try again later.",
+      failureMessage: "Delete failed. Please try again.",
+    });
+    mutationResults = result.mutationResults;
+    cleanupKeys = result.cleanupKeys;
+  } catch (error) {
+    if (!isMissingMemvidStreamPreviewTableError(error?.cause || error)) throw error;
+    const result = await executeLifecycleBatch({
+      env,
+      cleanupKeys: collectCleanupKeys([], [row]),
+      mutationStatements: [
+        ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
+        buildAiTextAssetDeleteStatement(env, userId, assetId),
+      ],
+      unavailableMessage: "Text asset service unavailable. Please try again later.",
+      failureMessage: "Delete failed. Please try again.",
+    });
+    mutationResults = result.mutationResults;
+    cleanupKeys = result.cleanupKeys;
+  }
+
+  const deleteResult = mutationResults[mutationResults.length - 1];
+  const deleted = deleteResult?.meta?.changes || 0;
+  const finalRowExists = await textAssetStillExists(env, { userId, assetId });
+  if (deleted !== 1 && finalRowExists) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-asset-delete",
+      event: "manual_hero_source_delete_conflict",
+      level: "warn",
+      asset_id: assetId,
+      user_id: userId,
+      linked_upload_count: heroLinks.linkedUploadCount,
+      active_slot_count: heroLinks.activeSlotCount,
+      derivative_counts: heroLinks.derivativeCounts,
+      final_row_exists: true,
+      d1_delete_changes: deleted,
+    });
+    throw new AiAssetLifecycleError("Delete did not complete. Refresh the library and retry.", 409, {
+      branch: "delete_conflict",
+      code: "delete_conflict",
+      details: {
+        linked_upload_count: heroLinks.linkedUploadCount,
+        active_slot_count: heroLinks.activeSlotCount,
+        derivative_counts: heroLinks.derivativeCounts,
+        final_row_exists: true,
+        d1_delete_changes: deleted,
+      },
     });
   }
 
-  const { mutationResults, cleanupKeys } = await executeLifecycleBatch({
-    env,
-    cleanupKeys: collectCleanupKeys([], [row]),
-    mutationStatements: [buildAiTextAssetDeleteStatement(env, userId, assetId)],
-    unavailableMessage: "Text asset service unavailable. Please try again later.",
-    failureMessage: "Delete failed. Please try again.",
-  });
-
-  const deleted = mutationResults[0]?.meta?.changes || 0;
   if (deleted !== 1) {
-    throw new AiAssetLifecycleError("Delete failed. Text asset may have already been removed.", 409, {
-      branch: "delete_conflict",
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-asset-delete",
+      event: "text_asset_delete_confirmed_by_final_state",
+      level: "info",
+      asset_id: assetId,
+      user_id: userId,
+      linked_upload_count: heroLinks.linkedUploadCount,
+      active_slot_count: heroLinks.activeSlotCount,
+      derivative_counts: heroLinks.derivativeCounts,
+      final_row_exists: false,
+      d1_delete_changes: deleted,
     });
   }
 
   await attemptInlineCleanup(env, cleanupKeys);
   await releaseDeletedAssetStorage(env, userId, [], [row]);
+  return { code: deleted === 1 ? "deleted" : "deleted_final_state", deleted: true, already_deleted: false };
 }
 
 export async function moveUserAiAssets({ env, userId, assetIds, folderId = null }) {

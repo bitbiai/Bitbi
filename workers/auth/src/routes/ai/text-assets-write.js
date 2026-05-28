@@ -357,20 +357,28 @@ export async function handleDeleteTextAsset(ctx, assetId) {
   if (limited) return limited;
 
   try {
-    await deleteUserAiTextAsset({
+    const result = await deleteUserAiTextAsset({
       env,
       userId: session.user.id,
       assetId,
+    });
+    return json({
+      ok: true,
+      code: result?.code || "deleted",
+      data: result || { code: "deleted", deleted: true },
     });
   } catch (error) {
     if (!(error instanceof AiAssetLifecycleError)) {
       throw error;
     }
     return json(
-      { ok: false, error: error.message },
+      {
+        ok: false,
+        error: error.message,
+        code: error.code || error.branch || "delete_failed",
+        details: error.details || undefined,
+      },
       { status: error.status }
     );
   }
-
-  return json({ ok: true });
 }

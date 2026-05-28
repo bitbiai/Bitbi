@@ -1633,6 +1633,10 @@ async function mockAdminAiLab(page, captures = {}) {
       return;
     }
     const assetId = route.request().url().split('/').pop();
+    if (typeof options.deleteTextAssetHandler === 'function') {
+      const handled = await options.deleteTextAssetHandler(route, assetId, assetStore);
+      if (handled !== false) return;
+    }
     assetStore.deleteAssets([assetId]);
     await route.fulfill({
       status: 200,
@@ -4945,6 +4949,10 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
       return;
     }
     const assetId = route.request().url().split('/').pop();
+    if (typeof options.deleteTextAssetHandler === 'function') {
+      const handled = await options.deleteTextAssetHandler(route, assetId, assetStore);
+      if (handled !== false) return;
+    }
     assetStore.deleteAssets([assetId]);
     await route.fulfill({
       status: 200,
@@ -9655,6 +9663,9 @@ test.describe('Assets Manager (authenticated)', () => {
               preview_text: 'A cinematic walkthrough of the launch scene stored in owned R2.',
               created_at: '2026-04-10T12:07:00.000Z',
               file_url: '/api/ai/text-assets/vid-1/file',
+              poster_status: 'pending',
+              poster_retryable: true,
+              poster_message: 'Poster preview is being prepared.',
             },
           ],
         },
@@ -9679,6 +9690,8 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioImageGrid .studio__asset-open')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-preview')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-video-trigger')).toHaveCount(1);
+    await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"]')).toContainText('Poster preview pending');
+    await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"]')).toContainText('Poster preview is being prepared.');
 
     const desktopVideoLayout = await page.locator('#studioImageGrid [data-asset-id="vid-1"]').evaluate((card) => {
       const title = card.querySelector('.studio__asset-title')?.getBoundingClientRect();
@@ -10584,6 +10597,72 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioActionResult')).not.toContainText('Undo');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
     await expect(page.locator('#studioImageGrid')).toContainText('Shared Poster');
+  });
+
+  test('account Assets Manager gives precise feedback for hero-linked video delete blocks', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page, [], {
+      folderPayload: {
+        folders: [],
+        counts: {},
+        unfolderedCount: 1,
+      },
+      assetsPayload: {
+        all: [{
+          id: 'hero-used-video',
+          asset_type: 'video',
+          folder_id: null,
+          title: 'Assigned Hero Source',
+          file_name: 'assigned-hero-source.mp4',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: 4096000,
+          created_at: '2026-04-10T12:00:00.000Z',
+          file_url: '/api/ai/text-assets/hero-used-video/file',
+          poster_status: 'pending',
+          poster_retryable: true,
+          poster_message: 'Poster preview is being prepared.',
+        }],
+        unfoldered: [{
+          id: 'hero-used-video',
+          asset_type: 'video',
+          folder_id: null,
+          title: 'Assigned Hero Source',
+          file_name: 'assigned-hero-source.mp4',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: 4096000,
+          created_at: '2026-04-10T12:00:00.000Z',
+          file_url: '/api/ai/text-assets/hero-used-video/file',
+          poster_status: 'pending',
+          poster_retryable: true,
+          poster_message: 'Poster preview is being prepared.',
+        }],
+        folders: {},
+      },
+      deleteTextAssetHandler: async (route) => {
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'hero_source_in_use',
+            error: 'This video is currently assigned to a Homepage Hero slot. Remove or replace it in Homepage Hero Videos before deleting.',
+          }),
+        });
+      },
+    });
+
+    await page.goto('/account/assets-manager.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Open All Assets, 1 asset' }).click();
+    await expect(page.locator('#studioImageGrid [data-asset-id="hero-used-video"]')).toContainText('Poster preview pending');
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#studioImageGrid [data-asset-id="hero-used-video"] .studio__image-delete--inline').click();
+    await expect(page.locator('#studioActionResult')).toContainText('Homepage Hero video is in use');
+    await expect(page.locator('#studioActionResult')).toContainText('Remove or replace it in Homepage Hero Videos before deleting.');
+    await expect(page.locator('#studioImageGrid [data-asset-id="hero-used-video"]')).toHaveCount(1);
   });
 
   test('account Assets Manager keeps selection and recovery guidance when bulk move fails', async ({
@@ -12586,8 +12665,11 @@ test.describe('Admin Control Plane', () => {
       source_type: 'admin_asset',
       source_asset_id: 'admin_hero_clip_1',
       title: 'Private Admin Clip',
-      file_url: null,
-      poster_url: `data:image/png;base64,${ONE_PX_PNG_BASE64}`,
+      file_url: '/api/admin/users/admin-1/assets/admin_hero_clip_1/file',
+      poster_url: null,
+      poster_status: 'pending',
+      poster_retryable: true,
+      poster_message: 'Poster preview is being prepared.',
       size_bytes: 3_200_000,
       duration_seconds: 6,
     }];
@@ -12762,6 +12844,8 @@ test.describe('Admin Control Plane', () => {
     await page.getByRole('tab', { name: 'Admin Assets' }).click();
     await expect(page.getByRole('tab', { name: 'Admin Assets' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Private Admin Clip');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Poster preview is being prepared');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Retry poster');
 
     await page.locator('.admin-hero-videos__candidate-card').getByRole('button', { name: 'Select' }).first().click();
     await page.locator('#homepageHeroVideosAdmin [data-field="reason"]').fill('Operator-approved homepage hero conversion');

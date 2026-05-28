@@ -1,4 +1,5 @@
 import {
+    apiAdminAttachHomepageHeroVideoPoster,
     apiAdminBackfillMemvidStreamPreviews,
     apiAdminCreateHomepageHeroVideoDerivative,
     apiAdminHomepageHeroVideoCandidates,
@@ -96,8 +97,37 @@ function createStatusBadge(status, enabled = false) {
     return badge;
 }
 
-function renderPreview({ fileUrl, posterUrl, title }) {
+function getPosterState({ posterUrl, posterStatus, posterMessage } = {}) {
+    if (posterUrl) return null;
+    const status = String(posterStatus || '').toLowerCase();
+    if (status === 'pending' || status === 'queued' || status === 'processing') {
+        return {
+            state: 'pending',
+            label: 'Poster preview is being prepared',
+            message: posterMessage || 'Retry poster generation if this source remains pending.',
+        };
+    }
+    if (status === 'failed') {
+        return {
+            state: 'failed',
+            label: 'Poster preview failed',
+            message: posterMessage || 'Retry poster generation before relying on Admin preview cards.',
+        };
+    }
+    return null;
+}
+
+function renderPreview({ fileUrl, posterUrl, title, posterStatus, posterMessage }) {
     const preview = el('div', 'admin-hero-videos__preview');
+    const posterState = getPosterState({ posterUrl, posterStatus, posterMessage });
+    if (posterState) {
+        const state = el('div', 'admin-hero-videos__preview-state');
+        state.dataset.state = posterState.state;
+        state.append(el('strong', null, posterState.label));
+        state.append(el('span', null, posterState.message));
+        preview.append(state);
+        return preview;
+    }
     if (fileUrl) {
         const video = document.createElement('video');
         video.className = 'admin-hero-videos__video';
@@ -181,6 +211,8 @@ function renderCandidateCard(candidate, state) {
         fileUrl: candidate.file_url || null,
         posterUrl: candidate.poster_url || null,
         title: candidate.title,
+        posterStatus: candidate.poster_status,
+        posterMessage: candidate.poster_message,
     }));
 
     const body = el('div', 'admin-hero-videos__candidate-body');
@@ -188,12 +220,23 @@ function renderCandidateCard(candidate, state) {
     body.append(createMetaRow('Source', candidate.source_type === 'public' ? 'Published video' : 'Admin asset'));
     body.append(createMetaRow('Original size', formatBytes(candidate.size_bytes)));
     body.append(createMetaRow('Duration', candidate.duration_seconds ? `${candidate.duration_seconds}s` : 'Not recorded'));
+    if (candidate.poster_status && !candidate.poster_url) {
+        body.append(createMetaRow('Poster', candidate.poster_status));
+    }
     const selectBtn = el('button', 'btn-action admin-hero-videos__button', 'Select');
     selectBtn.type = 'button';
     selectBtn.dataset.action = 'select-candidate';
     selectBtn.dataset.assetId = candidate.source_asset_id;
     selectBtn.dataset.sourceType = candidate.source_type;
     body.append(selectBtn);
+    if (candidate.source_type === 'admin_asset' && candidate.poster_retryable && !candidate.poster_url) {
+        const retryPoster = el('button', 'btn-action admin-hero-videos__button admin-hero-videos__button--ghost', state.posterRetryAssetId === candidate.source_asset_id ? 'Retrying poster...' : 'Retry poster');
+        retryPoster.type = 'button';
+        retryPoster.dataset.action = 'retry-candidate-poster';
+        retryPoster.dataset.assetId = candidate.source_asset_id;
+        retryPoster.disabled = state.posterRetryAssetId === candidate.source_asset_id || !candidate.file_url;
+        body.append(retryPoster);
+    }
     card.append(body);
 
     return card;
@@ -229,6 +272,7 @@ export function createHomepageHeroVideosAdmin({
         uploadPosterBusy: false,
         uploadTitle: '',
         uploadBusy: false,
+        posterRetryAssetId: '',
         savingFeatureKey: '',
         presetSaving: false,
         streamBackfillBusy: false,
@@ -867,16 +911,16 @@ export function createHomepageHeroVideosAdmin({
         renderShell();
     }
 
-    function generatePosterBlobFromVideoFile(file) {
+    function generatePosterBlobFromVideoSource(source, { objectUrl = false } = {}) {
         return new Promise((resolve, reject) => {
-            if (!file) {
+            if (!source) {
                 resolve(null);
                 return;
             }
             const video = document.createElement('video');
-            const url = URL.createObjectURL(file);
+            const url = objectUrl ? URL.createObjectURL(source) : String(source);
             const cleanup = () => {
-                URL.revokeObjectURL(url);
+                if (objectUrl) URL.revokeObjectURL(url);
                 video.removeAttribute('src');
                 try { video.load(); } catch { /* noop */ }
             };
@@ -914,6 +958,23 @@ export function createHomepageHeroVideosAdmin({
         });
     }
 
+    function generatePosterBlobFromVideoFile(file) {
+        return generatePosterBlobFromVideoSource(file, { objectUrl: true });
+    }
+
+    function generatePosterBlobFromVideoUrl(url) {
+        return generatePosterBlobFromVideoSource(url, { objectUrl: false });
+    }
+
+    function blobToDataUri(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.addEventListener('error', () => reject(new Error('Poster frame could not be encoded.')), { once: true });
+            reader.addEventListener('load', () => resolve(String(reader.result || '')), { once: true });
+            reader.readAsDataURL(blob);
+        });
+    }
+
     async function prepareUploadPoster(file) {
         state.uploadPoster = null;
         state.uploadPosterWarning = '';
@@ -927,6 +988,47 @@ export function createHomepageHeroVideosAdmin({
             state.uploadPosterWarning = 'Poster preview could not be generated automatically. Upload can continue, but retry poster generation before using this source in Admin asset views.';
         } finally {
             state.uploadPosterBusy = false;
+            renderShell();
+        }
+    }
+
+    async function retryCandidatePoster(assetId) {
+        const candidate = state.candidates.find((entry) => entry.source_asset_id === assetId && entry.source_type === 'admin_asset');
+        if (!candidate?.file_url || state.posterRetryAssetId) return;
+        const reason = readReason();
+        if (reason.length < 8) {
+            setStatus('Enter an operator reason before retrying poster generation.', 'error');
+            return;
+        }
+        state.posterRetryAssetId = assetId;
+        setStatus('Generating poster preview...');
+        renderShell();
+        try {
+            const posterBlob = await generatePosterBlobFromVideoUrl(candidate.file_url);
+            if (!posterBlob) throw new Error('Poster frame could not be generated from this source.');
+            const posterBase64 = await blobToDataUri(posterBlob);
+            const res = await apiAdminAttachHomepageHeroVideoPoster(assetId, {
+                posterBase64,
+                operator_reason: reason,
+            }, {
+                idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-poster'),
+            });
+            if (!res.ok) {
+                const message = formatApiError?.(res, 'Poster preview could not be attached.') || res.error;
+                setStatus(message, 'error');
+                showToast?.(message, 'error');
+                return;
+            }
+            await loadCandidates('admin-assets');
+            state.selectedCandidate = state.candidates.find((entry) => entry.source_asset_id === assetId) || state.selectedCandidate;
+            setStatus('Poster preview attached.', 'success');
+            showToast?.('Poster preview attached.', 'success');
+        } catch (error) {
+            console.warn(error);
+            setStatus('Poster preview could not be generated from this source.', 'error');
+            showToast?.('Poster preview could not be generated from this source.', 'error');
+        } finally {
+            state.posterRetryAssetId = '';
             renderShell();
         }
     }
@@ -976,6 +1078,14 @@ export function createHomepageHeroVideosAdmin({
             }
             if (action === 'select-candidate') {
                 selectCandidate(target.dataset.assetId, target.dataset.sourceType);
+            }
+            if (action === 'retry-candidate-poster') {
+                retryCandidatePoster(target.dataset.assetId).catch((error) => {
+                    console.warn(error);
+                    state.posterRetryAssetId = '';
+                    setStatus('Poster preview could not be retried.', 'error');
+                    renderShell();
+                });
             }
             if (action === 'convert') {
                 convertSelected().catch((error) => {

@@ -208,6 +208,26 @@ function getImagePreviewState(asset) {
     };
 }
 
+function getVideoPosterPreviewState(asset) {
+    if (asset?.poster_url) return null;
+    const status = String(asset?.poster_status || '').toLowerCase();
+    if (status === 'failed') {
+        return {
+            variant: 'failed',
+            label: localeText('assets.videoPosterFailed'),
+            hint: asset?.poster_message || localeText('assets.videoPosterFailedHint'),
+        };
+    }
+    if (status === 'pending' || status === 'queued' || status === 'processing') {
+        return {
+            variant: 'pending',
+            label: localeText('assets.videoPosterPending'),
+            hint: asset?.poster_message || localeText('assets.videoPosterPendingHint'),
+        };
+    }
+    return null;
+}
+
 function buildImagePreviewPlaceholder(asset) {
     const state = getImagePreviewState(asset);
     const placeholder = document.createElement('div');
@@ -229,6 +249,40 @@ function buildImagePreviewPlaceholder(asset) {
     placeholder.appendChild(hint);
 
     return placeholder;
+}
+
+function buildVideoPosterPlaceholder(asset) {
+    const state = getVideoPosterPreviewState(asset);
+    const fallback = document.createElement('div');
+    fallback.className = `studio__asset-video-fallback${state ? ` studio__asset-video-fallback--${state.variant}` : ''}`;
+
+    const fallbackIcon = document.createElement('span');
+    fallbackIcon.className = 'studio__asset-video-fallback-icon';
+    fallbackIcon.setAttribute('aria-hidden', 'true');
+    fallbackIcon.textContent = state ? 'i' : '\u25B6';
+
+    const fallbackLabel = document.createElement('span');
+    fallbackLabel.className = 'studio__asset-video-fallback-label';
+    fallbackLabel.textContent = state?.label || localeText('assets.playVideo');
+
+    fallback.append(fallbackIcon, fallbackLabel);
+    if (state?.hint) {
+        const fallbackHint = document.createElement('span');
+        fallbackHint.className = 'studio__asset-video-fallback-hint';
+        fallbackHint.textContent = state.hint;
+        fallback.appendChild(fallbackHint);
+    }
+    return fallback;
+}
+
+function getDeleteResultPayload(result) {
+    if (result?.data?.data && typeof result.data.data === 'object') return result.data.data;
+    if (result?.data && typeof result.data === 'object') return result.data;
+    return {};
+}
+
+function getDeleteResultCode(result) {
+    return getDeleteResultPayload(result)?.code || result?.data?.code || result?.code || '';
 }
 
 function buildSoundPlayIndicator() {
@@ -1510,6 +1564,89 @@ export function createSavedAssetsBrowser({
         return apiAiDeleteTextAsset(asset.id);
     }
 
+    async function refreshAndCheckAssetPresent(assetId) {
+        await refresh({ preserveView: true });
+        return currentAssets.some((entry) => String(entry.id) === String(assetId));
+    }
+
+    async function handleSingleDeleteResult(result, asset, {
+        deleteButton = null,
+        restoreLabel = localeText('assets.delete'),
+        successToast = localeText('assets.assetDeleted'),
+    } = {}) {
+        const code = getDeleteResultCode(result);
+        if (result.ok) {
+            await refresh({ preserveView: true });
+            const alreadyDeleted = code === 'already_deleted' || getDeleteResultPayload(result)?.already_deleted === true;
+            setActionResult({
+                type: 'success',
+                title: alreadyDeleted
+                    ? localeText('assets.actionSingleDeleteAlreadyRemovedTitle')
+                    : localeText('assets.actionSingleDeleteSuccessTitle'),
+                copy: alreadyDeleted
+                    ? localeText('assets.actionSingleDeleteAlreadyRemovedCopy')
+                    : localeText('assets.actionSingleDeleteSuccessCopy'),
+                meta: localeText('assets.actionDeleteSuccessMeta'),
+                toast: alreadyDeleted ? localeText('assets.deleteAlreadyRemoved') : successToast,
+                actions: [getShowAllResultAction(), getRefreshResultAction()],
+            });
+            return true;
+        }
+
+        if (deleteButton) {
+            deleteButton.disabled = false;
+            deleteButton.textContent = restoreLabel;
+        }
+
+        if (code === 'hero_source_in_use') {
+            setActionResult({
+                type: 'error',
+                title: localeText('assets.deleteHeroSourceInUseTitle'),
+                copy: result?.error || result?.data?.error || localeText('assets.deleteHeroSourceInUseCopy'),
+                toast: localeText('assets.deleteHeroSourceInUseToast'),
+                actions: [getRefreshResultAction()],
+            });
+            return false;
+        }
+
+        if (code === 'delete_conflict') {
+            let stillPresent = true;
+            try {
+                stillPresent = await refreshAndCheckAssetPresent(asset.id);
+            } catch (error) {
+                console.warn('Saved assets refresh after delete conflict failed:', error);
+            }
+            if (!stillPresent) {
+                setActionResult({
+                    type: 'success',
+                    title: localeText('assets.actionSingleDeleteAlreadyRemovedTitle'),
+                    copy: localeText('assets.actionSingleDeleteAlreadyRemovedCopy'),
+                    meta: localeText('assets.actionDeleteSuccessMeta'),
+                    toast: localeText('assets.deleteAlreadyRemoved'),
+                    actions: [getShowAllResultAction(), getRefreshResultAction()],
+                });
+                return true;
+            }
+            setActionResult({
+                type: 'error',
+                title: localeText('assets.actionSingleDeleteConflictTitle'),
+                copy: localeText('assets.actionSingleDeleteConflictCopy'),
+                toast: localeText('assets.deleteFailedHelp'),
+                actions: [getRefreshResultAction()],
+            });
+            return false;
+        }
+
+        setActionResult({
+            type: 'error',
+            title: localeText('assets.actionSingleDeleteFailedTitle'),
+            copy: localeText('assets.actionSingleDeleteFailedCopy'),
+            toast: localeText('assets.deleteFailedHelp'),
+            actions: [getRefreshResultAction()],
+        });
+        return false;
+    }
+
     async function updateAssetPublication(asset, visibility) {
         if (isImageAsset(asset)) {
             return apiAiSetImagePublication(asset.id, visibility);
@@ -1768,26 +1905,10 @@ export function createSavedAssetsBrowser({
                 copy: localeText('assets.actionSingleDeletePendingCopy'),
             });
             const result = await deleteSingleAsset(asset);
-            if (!result.ok) {
-                deleteButton.disabled = false;
-                deleteButton.textContent = localeText('assets.delete');
-                setActionResult({
-                    type: 'error',
-                    title: localeText('assets.actionSingleDeleteFailedTitle'),
-                    copy: localeText('assets.actionSingleDeleteFailedCopy'),
-                    toast: localeText('assets.deleteFailedHelp'),
-                    actions: [getRefreshResultAction()],
-                });
-                return;
-            }
-            await refresh();
-            setActionResult({
-                type: 'success',
-                title: localeText('assets.actionSingleDeleteSuccessTitle'),
-                copy: localeText('assets.actionSingleDeleteSuccessCopy'),
-                meta: localeText('assets.actionDeleteSuccessMeta'),
-                toast: localeText('assets.imageDeleted'),
-                actions: [getShowAllResultAction(), getRefreshResultAction()],
+            await handleSingleDeleteResult(result, asset, {
+                deleteButton,
+                restoreLabel: localeText('assets.delete'),
+                successToast: localeText('assets.imageDeleted'),
             });
         });
 
@@ -1876,20 +1997,7 @@ export function createSavedAssetsBrowser({
                 if (asset.poster_height) posterImg.height = asset.poster_height;
                 videoTrigger.appendChild(posterImg);
             } else {
-                const fallback = document.createElement('div');
-                fallback.className = 'studio__asset-video-fallback';
-
-                const fallbackIcon = document.createElement('span');
-                fallbackIcon.className = 'studio__asset-video-fallback-icon';
-                fallbackIcon.setAttribute('aria-hidden', 'true');
-                fallbackIcon.textContent = '\u25B6';
-
-                const fallbackLabel = document.createElement('span');
-                fallbackLabel.className = 'studio__asset-video-fallback-label';
-                fallbackLabel.textContent = localeText('assets.playVideo');
-
-                fallback.append(fallbackIcon, fallbackLabel);
-                videoTrigger.appendChild(fallback);
+                videoTrigger.appendChild(buildVideoPosterPlaceholder(asset));
             }
 
             item.appendChild(videoTrigger);
@@ -1985,26 +2093,10 @@ export function createSavedAssetsBrowser({
                 copy: localeText('assets.actionSingleDeletePendingCopy'),
             });
             const result = await deleteSingleAsset(asset);
-            if (!result.ok) {
-                deleteButton.disabled = false;
-                deleteButton.textContent = localeText('assets.delete');
-                setActionResult({
-                    type: 'error',
-                    title: localeText('assets.actionSingleDeleteFailedTitle'),
-                    copy: localeText('assets.actionSingleDeleteFailedCopy'),
-                    toast: localeText('assets.deleteFailedHelp'),
-                    actions: [getRefreshResultAction()],
-                });
-                return;
-            }
-            await refresh();
-            setActionResult({
-                type: 'success',
-                title: localeText('assets.actionSingleDeleteSuccessTitle'),
-                copy: localeText('assets.actionSingleDeleteSuccessCopy'),
-                meta: localeText('assets.actionDeleteSuccessMeta'),
-                toast: isSound ? localeText('assets.soundDeleted') : isVideo ? localeText('assets.videoDeleted') : localeText('assets.assetDeleted'),
-                actions: [getShowAllResultAction(), getRefreshResultAction()],
+            await handleSingleDeleteResult(result, asset, {
+                deleteButton,
+                restoreLabel: localeText('assets.delete'),
+                successToast: isSound ? localeText('assets.soundDeleted') : isVideo ? localeText('assets.videoDeleted') : localeText('assets.assetDeleted'),
             });
         });
         actions.appendChild(deleteButton);

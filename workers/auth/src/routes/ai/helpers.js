@@ -106,6 +106,15 @@ export function inferAiFileAssetType(mimeType) {
 }
 
 export function toAiFileAssetRecord(row) {
+  let metadata = null;
+  try {
+    metadata = row.metadata_json ? JSON.parse(row.metadata_json) : null;
+  } catch {
+    metadata = null;
+  }
+  const heroSource = metadata?.homepage_hero_source && typeof metadata.homepage_hero_source === "object"
+    ? metadata.homepage_hero_source
+    : null;
   const record = {
     id: row.id,
     asset_type: inferAiFileAssetType(row.mime_type),
@@ -127,6 +136,18 @@ export function toAiFileAssetRecord(row) {
     record.poster_width = row.poster_width ?? null;
     record.poster_height = row.poster_height ?? null;
     record.poster_size_bytes = row.poster_size_bytes ?? null;
+    if (inferAiFileAssetType(row.mime_type) === "video") {
+      record.poster_status = "ready";
+      record.poster_retryable = false;
+    }
+  } else if (inferAiFileAssetType(row.mime_type) === "video" && (heroSource?.poster_status || metadata?.source === "admin_homepage_hero_videos")) {
+    record.poster_status = String(heroSource?.poster_status || "pending");
+    record.poster_retryable = heroSource?.poster_retryable !== false;
+    record.poster_error_code = heroSource?.poster_error_code || null;
+    record.poster_message = heroSource?.poster_message
+      || (metadata?.source === "admin_homepage_hero_videos"
+        ? "Poster preview is being prepared. Retry from Homepage Hero Videos if it stays pending."
+        : null);
   }
   return record;
 }

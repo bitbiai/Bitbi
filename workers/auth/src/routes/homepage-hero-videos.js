@@ -9,7 +9,11 @@ import {
 import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { buildPublicMediaHeaders } from "../lib/public-media.js";
 import { requireAdmin } from "../lib/session.js";
-import { attachVideoPosterToAiTextAsset, saveGeneratedVideoAsset } from "../lib/ai-text-assets.js";
+import {
+  attachVideoPosterToAiTextAsset,
+  copyVideoPosterToAiTextAsset,
+  saveGeneratedVideoAsset,
+} from "../lib/ai-text-assets.js";
 import {
   nowIso,
   randomTokenHex,
@@ -320,6 +324,33 @@ function parseJson(raw) {
   }
 }
 
+function getHeroSourcePosterState(row) {
+  const metadata = parseJson(row?.metadata_json) || {};
+  const state = metadata.homepage_hero_source && typeof metadata.homepage_hero_source === "object"
+    ? metadata.homepage_hero_source
+    : {};
+  if (row?.poster_r2_key) {
+    return {
+      status: "ready",
+      retryable: false,
+      error_code: null,
+      message: null,
+    };
+  }
+  const isManualUpload = state.is_manual_upload
+    || row?.upload_id
+    || Number(row?.homepage_hero_upload_count || 0) > 0;
+  const status = ["pending", "failed"].includes(String(state.poster_status || ""))
+    ? String(state.poster_status)
+    : (isManualUpload ? "pending" : null);
+  return status ? {
+    status,
+    retryable: state.poster_retryable !== false,
+    error_code: state.poster_error_code || null,
+    message: state.poster_message || null,
+  } : null;
+}
+
 function buildPublicHeroVideoUrl(slot, version, kind) {
   return `/api/homepage/hero-videos/${encodeURIComponent(slot)}/${encodeURIComponent(version)}/${kind}`;
 }
@@ -374,6 +405,7 @@ function toPublicCandidate(row) {
 }
 
 function toAdminAssetCandidate(row, adminUserId) {
+  const posterState = getHeroSourcePosterState(row);
   return {
     source_type: "admin_asset",
     source_asset_id: row.id,
@@ -389,6 +421,12 @@ function toAdminAssetCandidate(row, adminUserId) {
     poster_width: row.poster_width ?? null,
     poster_height: row.poster_height ?? null,
     poster_size_bytes: row.poster_size_bytes ?? null,
+    ...(posterState ? {
+      poster_status: posterState.status,
+      poster_retryable: posterState.retryable,
+      poster_error_code: posterState.error_code,
+      poster_message: posterState.message,
+    } : {}),
   };
 }
 
@@ -659,7 +697,10 @@ async function listPublicCandidates(env, limit) {
 async function listAdminAssetCandidates(env, adminUserId, limit) {
   const rows = await env.DB.prepare(
     `SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json,
-            created_at, published_at, poster_r2_key, poster_width, poster_height, poster_size_bytes
+            created_at, published_at, poster_r2_key, poster_width, poster_height, poster_size_bytes,
+            (SELECT COUNT(*) FROM homepage_hero_video_uploads uploads
+             WHERE uploads.asset_id = ai_text_assets.id
+               AND uploads.user_id = ai_text_assets.user_id) AS homepage_hero_upload_count
      FROM ai_text_assets
      WHERE user_id = ?
        AND source_module = 'video'
@@ -724,6 +765,42 @@ async function insertHeroUploadRecord(env, {
     adminUserId,
     asset.created_at || nowIso()
   ).run();
+}
+
+async function updateHeroSourcePosterState(env, {
+  assetId,
+  userId,
+  status,
+  retryable = true,
+  errorCode = null,
+  message = null,
+} = {}) {
+  if (!assetId || !userId) return null;
+  const existing = await env.DB.prepare(
+    "SELECT metadata_json, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ? AND source_module = 'video'"
+  ).bind(assetId, userId).first();
+  if (!existing) return null;
+
+  const metadata = parseJson(existing.metadata_json) || {};
+  const nextSource = {
+    ...(metadata.homepage_hero_source && typeof metadata.homepage_hero_source === "object"
+      ? metadata.homepage_hero_source
+      : {}),
+    is_manual_upload: true,
+    poster_status: existing.poster_r2_key ? "ready" : status,
+    poster_retryable: existing.poster_r2_key ? false : retryable !== false,
+    poster_error_code: existing.poster_r2_key ? null : errorCode,
+    poster_message: existing.poster_r2_key ? null : message,
+    poster_checked_at: nowIso(),
+  };
+  const nextMetadata = {
+    ...metadata,
+    homepage_hero_source: nextSource,
+  };
+  await env.DB.prepare(
+    "UPDATE ai_text_assets SET metadata_json = ? WHERE id = ? AND user_id = ?"
+  ).bind(JSON.stringify(nextMetadata), assetId, userId).run();
+  return nextSource;
 }
 
 async function getMemvidStreamPreviewSummary(env) {
@@ -1160,6 +1237,12 @@ async function handleAdminAttachUploadPoster(ctx, assetIdFromPath) {
       assetId,
       posterBase64: body.posterBase64 || body.poster_base64,
     });
+    await updateHeroSourcePosterState(env, {
+      assetId,
+      userId: result.user.id,
+      status: "ready",
+      retryable: false,
+    });
     await auditHomepageHeroVideoEvent(ctx, result.user, "homepage_hero_video_source_poster_attached", {
       source_asset_id: assetId,
       poster_size_bytes: saved.poster_size_bytes ?? null,
@@ -1290,7 +1373,7 @@ async function handleAdminUploadSource(ctx) {
     }
     posterBytes = new Uint8Array(await poster.arrayBuffer());
   } else {
-    posterWarning = "No poster frame was attached. Generate or retry a poster before relying on this source in Admin asset views.";
+    posterWarning = "Poster preview is pending. Retry poster generation or complete a derivative conversion before relying on this source in Admin asset views.";
   }
 
   const title = sanitizeShortText(formData.get("title"), originalFileName.replace(/\.[^.]+$/, ""));
@@ -1338,6 +1421,14 @@ async function handleAdminUploadSource(ctx) {
         source: "admin_homepage_hero_videos",
         original_file_name: originalFileName,
         operator_reason_present: true,
+        homepage_hero_source: {
+          is_manual_upload: true,
+          poster_status: "pending",
+          poster_retryable: true,
+          poster_message: posterBytes?.byteLength
+            ? "Poster preview is being validated."
+            : "Poster preview is being prepared. Attach a poster or complete a hero derivative conversion to fill this source preview.",
+        },
       },
       posterBytes,
     });
@@ -1355,6 +1446,25 @@ async function handleAdminUploadSource(ctx) {
       requestHash,
       operatorReason,
     });
+    const posterState = await updateHeroSourcePosterState(env, {
+      assetId: asset.id,
+      userId: result.user.id,
+      status: asset.poster_r2_key ? "ready" : (posterBytes?.byteLength ? "failed" : "pending"),
+      retryable: !asset.poster_r2_key,
+      errorCode: asset.poster_r2_key ? null : (posterBytes?.byteLength ? "poster_processing_failed" : "poster_pending_processor"),
+      message: asset.poster_r2_key
+        ? null
+        : (posterBytes?.byteLength
+          ? "Poster preview could not be processed. Retry poster generation from Homepage Hero Videos."
+          : "Poster preview is being prepared. Convert this source or retry with a poster frame before relying on preview cards."),
+    });
+    if (posterState) {
+      const metadata = parseJson(asset.metadata_json) || {};
+      asset.metadata_json = JSON.stringify({
+        ...metadata,
+        homepage_hero_source: posterState,
+      });
+    }
 
     await auditHomepageHeroVideoEvent(ctx, result.user, "homepage_hero_video_source_uploaded", {
       source_type: "admin_asset",
@@ -1370,7 +1480,7 @@ async function handleAdminUploadSource(ctx) {
       existing: false,
       data: {
         candidate: toAdminAssetCandidate(asset, result.user.id),
-        poster_warning: asset.poster_r2_key ? null : posterWarning || "Poster processing did not produce a saved preview. Retry poster generation before relying on this source in Admin asset views.",
+        poster_warning: asset.poster_r2_key ? null : posterWarning || "Poster preview is pending. Retry poster generation or complete a derivative conversion before relying on this source in Admin asset views.",
       },
     }, { status: 201 });
   } catch (error) {
@@ -2037,6 +2147,25 @@ async function handleProcessorComplete(ctx, derivativeIdFromPath) {
     now,
     derivativeId
   ).run();
+
+  if (derivative.source_type === "admin_asset" && derivative.source_asset_id && derivative.source_user_id) {
+    const sourcePoster = await copyVideoPosterToAiTextAsset(ctx.env, {
+      userId: derivative.source_user_id,
+      assetId: derivative.source_asset_id,
+      sourceKey: posterKey,
+      contentType: "image/webp",
+    });
+    await updateHeroSourcePosterState(ctx.env, {
+      assetId: derivative.source_asset_id,
+      userId: derivative.source_user_id,
+      status: sourcePoster?.r2Key ? "ready" : "failed",
+      retryable: !sourcePoster?.r2Key,
+      errorCode: sourcePoster?.r2Key ? null : "source_poster_copy_failed",
+      message: sourcePoster?.r2Key
+        ? null
+        : "Optimized derivative completed, but the private source preview could not be copied. Retry poster generation from Homepage Hero Videos.",
+    });
+  }
 
   return json({
     ok: true,

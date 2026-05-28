@@ -402,6 +402,12 @@ function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
     metadata.has_end_image_input = payload.hasEndImageInput;
   }
   if (payload.workflow) metadata.workflow = payload.workflow;
+  if (payload.homepageHeroSource && typeof payload.homepageHeroSource === "object" && !Array.isArray(payload.homepageHeroSource)) {
+    metadata.homepage_hero_source = payload.homepageHeroSource;
+  }
+  if (payload.homepage_hero_source && typeof payload.homepage_hero_source === "object" && !Array.isArray(payload.homepage_hero_source)) {
+    metadata.homepage_hero_source = payload.homepage_hero_source;
+  }
   if (payload.pricing && typeof payload.pricing === "object" && !Array.isArray(payload.pricing)) {
     metadata.pricing = payload.pricing;
   }
@@ -1053,6 +1059,15 @@ export async function attachVideoPosterToAiTextAsset(env, { userId, assetId, pos
     poster_size_bytes: posterResult.sizeBytes ?? null,
     poster_url: `/api/ai/text-assets/${assetId}/poster`,
   };
+}
+
+export async function copyVideoPosterToAiTextAsset(env, { userId, assetId, sourceKey, contentType }) {
+  return copyVideoPosterFromR2(env, {
+    userId,
+    assetId,
+    sourceKey,
+    contentType,
+  });
 }
 
 async function copyVideoPosterFromR2(env, { userId, assetId, sourceKey, contentType }) {

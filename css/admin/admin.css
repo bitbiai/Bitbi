@@ -4858,6 +4858,29 @@
         font-size: 0.82rem;
     }
 
+    .admin-hero-videos__preview-state {
+        display: grid;
+        gap: 0.35rem;
+        max-inline-size: 22rem;
+        padding: var(--space-4);
+        text-align: center;
+        color: rgba(255, 255, 255, 0.74);
+    }
+
+    .admin-hero-videos__preview-state strong {
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 0.88rem;
+    }
+
+    .admin-hero-videos__preview-state span {
+        font-size: 0.78rem;
+        line-height: 1.45;
+    }
+
+    .admin-hero-videos__preview-state[data-state="failed"] strong {
+        color: rgba(255, 179, 0, 0.94);
+    }
+
     .admin-hero-videos__meta {
         display: grid;
         gap: var(--space-2);

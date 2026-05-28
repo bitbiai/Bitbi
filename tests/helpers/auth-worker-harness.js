@@ -6408,6 +6408,27 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
+    if (query === "SELECT metadata_json, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ? AND source_module = 'video'") {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId && item.source_module === 'video');
+      return row ? {
+        metadata_json: row.metadata_json || '{}',
+        poster_r2_key: row.poster_r2_key ?? null,
+      } : null;
+    }
+
+    if (query === 'UPDATE ai_text_assets SET metadata_json = ? WHERE id = ? AND user_id = ?') {
+      const [metadataJson, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (row.id === assetId && row.user_id === userId) {
+          row.metadata_json = metadataJson;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
     if (query === 'SELECT used_bytes FROM user_asset_storage_usage WHERE user_id = ?') {
       const [userId] = bindings;
       const row = this.state.userAssetStorageUsage.find((item) => item.user_id === userId);
@@ -6885,8 +6906,9 @@ class MockD1 {
           source_module: null,
           mime_type: null,
           size_bytes: row.size_bytes ?? null,
-          preview_text: null,
-          poster_r2_key: null,
+	          preview_text: null,
+	          metadata_json: null,
+	          poster_r2_key: null,
           poster_width: null,
           poster_height: null,
           poster_size_bytes: null,
@@ -6927,9 +6949,10 @@ class MockD1 {
             file_name: row.file_name,
             source_module: row.source_module,
             mime_type: row.mime_type,
-            size_bytes: row.size_bytes,
-            preview_text: row.preview_text,
-            poster_r2_key: row.poster_r2_key ?? null,
+	            size_bytes: row.size_bytes,
+	            preview_text: row.preview_text,
+	            metadata_json: row.metadata_json || '{}',
+	            poster_r2_key: row.poster_r2_key ?? null,
             poster_width: row.poster_width ?? null,
             poster_height: row.poster_height ?? null,
             poster_size_bytes: row.poster_size_bytes ?? null,
@@ -8272,12 +8295,14 @@ class MockD1 {
           mime_type: row.mime_type,
           size_bytes: row.size_bytes,
           preview_text: row.preview_text,
+          metadata_json: row.metadata_json || '{}',
           created_at: row.created_at,
           visibility: row.visibility || 'private',
           published_at: row.published_at ?? null,
           poster_r2_key: row.poster_r2_key ?? null,
           poster_width: row.poster_width ?? null,
           poster_height: row.poster_height ?? null,
+          poster_size_bytes: row.poster_size_bytes ?? null,
         })),
       };
     }
@@ -8671,6 +8696,12 @@ class MockD1 {
         : null;
     }
 
+    if (query === 'SELECT id FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
+      return row ? { id: row.id } : null;
+    }
+
     if (query === 'SELECT poster_r2_key, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?') {
       const [assetId, userId] = bindings;
       const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
@@ -8692,9 +8723,11 @@ class MockD1 {
 
     if (query === 'DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?') {
       const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
       const before = this.state.aiTextAssets.length;
       this.state.aiTextAssets = this.state.aiTextAssets.filter((row) => !(row.id === assetId && row.user_id === userId));
-      return { success: true, meta: { changes: before - this.state.aiTextAssets.length } };
+      const changes = before - this.state.aiTextAssets.length;
+      return { success: true, meta: { changes: row?.delete_changes_override ?? changes } };
     }
 
     if (query === "UPDATE ai_folders SET status = 'deleting' WHERE id = ? AND user_id = ? AND status IN ('active', 'deleting')") {
@@ -11271,6 +11304,11 @@ class MockD1 {
       const [userId, limit] = bindings;
       const rows = this.state.aiTextAssets
         .filter((row) => row.user_id === userId && row.source_module === 'video')
+        .map((row) => ({
+          ...row,
+          homepage_hero_upload_count: this.state.homepageHeroVideoUploads
+            .filter((upload) => upload.asset_id === row.id && upload.user_id === row.user_id).length,
+        }))
         .slice()
         .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
         .slice(0, limit);
@@ -11329,6 +11367,22 @@ class MockD1 {
         created_at: createdAt,
       });
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM memvid_stream_preview_events WHERE asset_id = ?') {
+      const [assetId] = bindings;
+      const before = this.state.memvidStreamPreviewEvents.length;
+      this.state.memvidStreamPreviewEvents = this.state.memvidStreamPreviewEvents
+        .filter((row) => row.asset_id !== assetId);
+      return { success: true, meta: { changes: before - this.state.memvidStreamPreviewEvents.length } };
+    }
+
+    if (query === 'DELETE FROM memvid_stream_previews WHERE asset_id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const before = this.state.memvidStreamPreviews.length;
+      this.state.memvidStreamPreviews = this.state.memvidStreamPreviews
+        .filter((row) => !(row.asset_id === assetId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.memvidStreamPreviews.length } };
     }
 
     if (query.startsWith('SELECT assets.id, assets.user_id, assets.r2_key')) {
@@ -11425,6 +11479,73 @@ class MockD1 {
         asset_id: upload.asset_id,
         user_id: upload.user_id,
       } : null;
+    }
+
+    if (query === 'SELECT COUNT(*) AS count FROM homepage_hero_video_uploads WHERE asset_id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      return {
+        count: this.state.homepageHeroVideoUploads.filter((row) => row.asset_id === assetId && row.user_id === userId).length,
+      };
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS count') && query.includes('FROM homepage_hero_video_slots slots')) {
+      const [assetIdA, userIdA, assetIdB, userIdB] = bindings;
+      const count = this.state.homepageHeroVideoSlots.filter((slot) => {
+        if (Number(slot.enabled || 0) !== 1) return false;
+        const slotMatches = slot.source_type === 'admin_asset'
+          && slot.source_asset_id === assetIdA
+          && (slot.source_user_id == null || slot.source_user_id === userIdA);
+        const derivative = this.state.homepageHeroVideoDerivatives.find((row) => row.id === slot.derivative_id);
+        const derivativeMatches = derivative?.source_type === 'admin_asset'
+          && derivative.source_asset_id === assetIdB
+          && (derivative.source_user_id == null || derivative.source_user_id === userIdB);
+        return slotMatches || derivativeMatches;
+      }).length;
+      return { count };
+    }
+
+    if (query.startsWith('SELECT status, COUNT(*) AS count') && query.includes('FROM homepage_hero_video_derivatives')) {
+      const [assetId, userId] = bindings;
+      const counts = new Map();
+      for (const row of this.state.homepageHeroVideoDerivatives) {
+        if (
+          row.source_type === 'admin_asset'
+          && row.source_asset_id === assetId
+          && (row.source_user_id == null || row.source_user_id === userId)
+        ) {
+          counts.set(row.status || 'unknown', (counts.get(row.status || 'unknown') || 0) + 1);
+        }
+      }
+      return {
+        results: Array.from(counts.entries()).map(([status, count]) => ({ status, count })),
+      };
+    }
+
+    if (query.startsWith("UPDATE homepage_hero_video_derivatives") && query.includes("status IN ('queued', 'processing')")) {
+      const [updatedAt, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.homepageHeroVideoDerivatives) {
+        if (
+          row.source_type === 'admin_asset'
+          && row.source_asset_id === assetId
+          && (row.source_user_id == null || row.source_user_id === userId)
+          && ['queued', 'processing'].includes(row.status)
+        ) {
+          row.status = 'failed';
+          row.error_code = row.error_code || 'source_deleted';
+          row.error_message = row.error_message || 'Source asset was deleted.';
+          row.updated_at = updatedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'DELETE FROM homepage_hero_video_uploads WHERE asset_id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const before = this.state.homepageHeroVideoUploads.length;
+      this.state.homepageHeroVideoUploads = this.state.homepageHeroVideoUploads.filter((row) => !(row.asset_id === assetId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.homepageHeroVideoUploads.length } };
     }
 
     if (query.startsWith('INSERT INTO homepage_hero_video_uploads (')) {
