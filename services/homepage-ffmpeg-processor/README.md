@@ -23,6 +23,7 @@ Optional environment:
 - `WORK_DIR`, default OS temp directory
 - `FFMPEG_BIN`, default `ffmpeg`
 - `FFPROBE_BIN`, default `ffprobe`
+- `CWEBP_BIN`, default `cwebp`
 
 Run locally:
 
@@ -37,13 +38,14 @@ non-secret GitHub owner/repo/workflow/ref vars, and the
 `GITHUB_ACTIONS_DISPATCH_TOKEN` secret configured. The same processor command
 still works manually for local development and emergency fallback.
 
-The processor downloads sources only through signed internal Auth Worker URLs, writes optimized MP4/WebP outputs locally, uploads derivatives or private source posters through signed completion endpoints, and reports sanitized failures through signed fail endpoints.
+The processor downloads sources only through signed internal Auth Worker URLs, writes optimized MP4/WebP outputs locally, uploads derivatives or private source posters through signed completion endpoints, and reports sanitized failures through signed fail endpoints. At startup it logs whether ffmpeg can encode WebP directly and whether `cwebp` is available. If ffmpeg lacks a WebP encoder, poster generation extracts a PNG frame with ffmpeg and converts it to WebP with `cwebp`; if neither WebP path is available, the job fails with an actionable encoder message.
 
 Homepage Hero jobs include a validated structured preset from the Auth Worker. The processor constructs ffmpeg arguments from those bounded fields only; it does not accept raw ffmpeg command fragments from Admin/browser input.
 
 Manual Homepage Hero source uploads without a browser-provided poster are exposed
 as source-poster jobs at `/api/internal/homepage/hero-videos/source-posters/jobs/claim`.
-Those jobs extract a WebP frame and store it on the private `ai_text_assets`
+Those jobs extract a WebP frame through the same ffmpeg WebP or PNG + `cwebp`
+fallback path and store it on the private `ai_text_assets`
 poster fields through the Auth Worker. The public homepage still serves only
 ready optimized hero derivatives, never these private source originals.
 

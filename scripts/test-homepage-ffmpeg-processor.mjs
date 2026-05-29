@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  convertJob,
+  convertSourcePosterJob,
+  createWebpPoster,
+  detectFfmpegWebpEncoderFromOutput,
+  detectFfmpegWebpEncoderNameFromOutput,
   ensureStreamDownloadReady,
   ensureStreamVideoReady,
 } from "../services/homepage-ffmpeg-processor/processor.mjs";
@@ -205,11 +210,155 @@ async function testCloudflareErrorDetailsAreSanitizedWithPhase() {
   );
 }
 
+async function testFfmpegWebpEncoderDetection() {
+  assert.equal(detectFfmpegWebpEncoderFromOutput(" V..... libwebp             libwebp WebP image (codec webp)"), true);
+  assert.equal(detectFfmpegWebpEncoderFromOutput(" V..... libx264             libx264 H.264 / AVC"), false);
+  assert.equal(detectFfmpegWebpEncoderNameFromOutput([
+    " V..... libwebp_anim        libwebp animated WebP image (codec webp)",
+    " V..... libwebp             libwebp WebP image (codec webp)",
+  ].join("\n")), "libwebp");
+}
+
+async function testPosterUsesFfmpegWebpWhenAvailable() {
+  const calls = [];
+  const result = await createWebpPoster({
+    input: "/tmp/input.mp4",
+    poster: "/tmp/poster.webp",
+    posterWidth: 640,
+    dir: "/tmp",
+    ffmpegBin: "ffmpeg-test",
+    cwebpBin: "cwebp-test",
+    capabilities: { ffmpegWebpEncoderAvailable: true, cwebpAvailable: false },
+    runImpl: async (command, args) => {
+      calls.push({ command, args });
+      return { stdout: "", stderr: "" };
+    },
+  });
+  assert.equal(result.encoder, "ffmpeg_webp");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, "ffmpeg-test");
+  assert(calls[0].args.includes("/tmp/poster.webp"));
+  assert(calls[0].args.includes("-c:v"));
+  assert(calls[0].args.includes("libwebp"));
+}
+
+async function testPosterFallsBackToPngPlusCwebp() {
+  const calls = [];
+  const result = await createWebpPoster({
+    input: "/tmp/input.mp4",
+    poster: "/tmp/poster.webp",
+    posterWidth: 640,
+    dir: "/tmp",
+    ffmpegBin: "ffmpeg-test",
+    cwebpBin: "cwebp-test",
+    capabilities: { ffmpegWebpEncoderAvailable: false, cwebpAvailable: true },
+    runImpl: async (command, args) => {
+      calls.push({ command, args });
+      return { stdout: "", stderr: "" };
+    },
+  });
+  assert.equal(result.encoder, "cwebp");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].command, "ffmpeg-test");
+  assert(calls[0].args.includes("-update"));
+  assert(calls[0].args.includes("-c:v"));
+  assert(calls[0].args.includes("png"));
+  assert(calls[0].args.includes("/tmp/poster.png"));
+  assert.equal(calls[1].command, "cwebp-test");
+  assert.deepEqual(calls[1].args.slice(0, 2), ["-q", "82"]);
+  assert(calls[1].args.includes("/tmp/poster.webp"));
+}
+
+async function testPosterFailsClearlyWithoutWebpEncoder() {
+  await assert.rejects(
+    () => createWebpPoster({
+      input: "/tmp/input.mp4",
+      poster: "/tmp/poster.webp",
+      posterWidth: 640,
+      dir: "/tmp",
+      capabilities: { ffmpegWebpEncoderAvailable: false, cwebpAvailable: false },
+      runImpl: async () => {
+        throw new Error("run should not be called");
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "webp_poster_encoder_unavailable");
+      assert.equal(error.message, "No WebP poster encoder available. Install cwebp or build ffmpeg with WebP encoder support.");
+      return true;
+    }
+  );
+}
+
+async function testHeroAndSourcePosterJobsUseSharedPosterFallback() {
+  const heroPosterCalls = [];
+  const hero = await convertJob({ id: "hero-job", source: {}, preset: { posterWidth: 720 } }, "/tmp/hero-dir", {
+    downloadSourceImpl: async (job, destination) => {
+      assert.equal(job.id, "hero-job");
+      assert.equal(destination, "/tmp/hero-dir/source");
+    },
+    runImpl: async (command, args) => {
+      assert.equal(command, "ffmpeg");
+      assert(args.some((arg) => String(arg).endsWith("/hero.mp4")));
+      return { stdout: "", stderr: "" };
+    },
+    createWebpPosterImpl: async (params) => {
+      heroPosterCalls.push(params);
+      return { poster: params.poster, encoder: "cwebp" };
+    },
+    probeVideoImpl: async () => ({ width: 720, height: 406, duration_seconds: 8, fps: 24 }),
+  });
+  assert.equal(hero.poster, "/tmp/hero-dir/poster.webp");
+  assert.equal(hero.metadata.poster_encoder, "cwebp");
+  assert.equal(heroPosterCalls[0].posterWidth, 720);
+
+  const sourcePosterCalls = [];
+  const sourcePoster = await convertSourcePosterJob({ id: "source-poster-job", source: {}, preset: { posterWidth: 480 } }, "/tmp/source-dir", {
+    downloadSourceImpl: async (job, destination) => {
+      assert.equal(job.id, "source-poster-job");
+      assert.equal(destination, "/tmp/source-dir/source");
+    },
+    createWebpPosterImpl: async (params) => {
+      sourcePosterCalls.push(params);
+      return { poster: params.poster, encoder: "cwebp" };
+    },
+  });
+  assert.equal(sourcePoster.poster, "/tmp/source-dir/source-poster.webp");
+  assert.equal(sourcePoster.poster_encoder, "cwebp");
+  assert.equal(sourcePosterCalls[0].posterWidth, 480);
+}
+
+async function testPosterProcessErrorsIncludeStderrDiagnostics() {
+  await assert.rejects(
+    () => createWebpPoster({
+      input: "/tmp/input.mp4",
+      poster: "/tmp/poster.webp",
+      posterWidth: 640,
+      dir: "/tmp",
+      capabilities: { ffmpegWebpEncoderAvailable: false, cwebpAvailable: true },
+      runImpl: async (command) => {
+        const error = new Error(`${command} exited with 8: Encoder not found`);
+        error.stderr = "Default encoder for format webp is probably disabled. Encoder not found.";
+        throw error;
+      },
+    }),
+    (error) => {
+      assert(error.message.includes("Encoder not found"));
+      return true;
+    }
+  );
+}
+
 await testDownloadReadyPolling();
 await testAlreadyInProgressPostFailureContinuesWithGetState();
 await testDownloadsPost400WaitsForStreamReadyAndRetries();
 await testDownloadTimeoutUsesSanitizedCode();
 await testStreamVideoTimeoutUsesDistinctCode();
 await testCloudflareErrorDetailsAreSanitizedWithPhase();
+await testFfmpegWebpEncoderDetection();
+await testPosterUsesFfmpegWebpWhenAvailable();
+await testPosterFallsBackToPngPlusCwebp();
+await testPosterFailsClearlyWithoutWebpEncoder();
+await testHeroAndSourcePosterJobsUseSharedPosterFallback();
+await testPosterProcessErrorsIncludeStderrDiagnostics();
 
 console.log("homepage ffmpeg processor tests passed");

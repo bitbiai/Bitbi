@@ -18,11 +18,15 @@ const JOB_LIMIT = Math.max(1, Math.min(8, Number.parseInt(process.env.JOB_LIMIT 
 const WORK_DIR = process.env.WORK_DIR || tmpdir();
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
+const CWEBP_BIN = process.env.CWEBP_BIN || "cwebp";
 const STREAM_ACCOUNT_ID = String(process.env.CLOUDFLARE_ACCOUNT_ID || process.env.STREAM_ACCOUNT_ID || "");
 const STREAM_API_TOKEN = String(process.env.CLOUDFLARE_STREAM_API_TOKEN || process.env.STREAM_API_TOKEN || "");
 const STREAM_DOWNLOAD_POLL_INTERVAL_MS = Math.max(1000, Math.min(30000, Number.parseInt(process.env.STREAM_DOWNLOAD_POLL_INTERVAL_MS || "5000", 10) || 5000));
 const STREAM_DOWNLOAD_MAX_WAIT_MS = Math.max(30000, Math.min(900000, Number.parseInt(process.env.STREAM_DOWNLOAD_MAX_WAIT_MS || "300000", 10) || 300000));
 const ENCODER_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower"]);
+const PROCESS_OUTPUT_LOG_LIMIT = 2400;
+
+let posterEncoderCapabilities = null;
 
 function assertConfig() {
   if (!BASE_URL) throw new Error("AUTH_WORKER_BASE_URL is required.");
@@ -57,10 +61,24 @@ async function requestJson(pathname, init = {}) {
   return body;
 }
 
-function run(command, args, { cwd } = {}) {
+function sanitizeProcessOutput(value, limit = PROCESS_OUTPUT_LOG_LIMIT) {
+  return String(value || "")
+    .replace(/[\u001b\u009b][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
+function run(command, args, { cwd, logFailure = true } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
     let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+      if (stdout.length > 8000) stdout = stdout.slice(-8000);
+    });
     child.stderr.on("data", (chunk) => {
       stderr += String(chunk);
       if (stderr.length > 8000) stderr = stderr.slice(-8000);
@@ -68,11 +86,24 @@ function run(command, args, { cwd } = {}) {
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) {
-        resolve({ stderr });
+        resolve({ stdout, stderr });
         return;
       }
-      const error = new Error(`${command} exited with ${code}`);
+      const stderrExcerpt = sanitizeProcessOutput(stderr);
+      const stdoutExcerpt = sanitizeProcessOutput(stdout);
+      if (logFailure) {
+        if (stderrExcerpt) console.error(`${path.basename(command)} stderr: ${stderrExcerpt}`);
+        if (stdoutExcerpt) console.error(`${path.basename(command)} stdout: ${stdoutExcerpt}`);
+      }
+      const excerpt = stderrExcerpt || stdoutExcerpt;
+      const error = new Error(excerpt
+        ? `${path.basename(command)} exited with ${code}: ${excerpt}`
+        : `${path.basename(command)} exited with ${code}`);
+      error.code = `${path.basename(command).replace(/[^A-Za-z0-9_-]+/g, "_").toLowerCase()}_process_failed`;
+      error.stdout = stdout;
       error.stderr = stderr;
+      error.stdout_excerpt = stdoutExcerpt;
+      error.stderr_excerpt = stderrExcerpt;
       reject(error);
     });
   });
@@ -192,15 +223,143 @@ function normalizeHeroPreset(raw = {}) {
   };
 }
 
-async function convertJob(job, dir) {
+export function detectFfmpegWebpEncoderNameFromOutput(output) {
+  const candidates = String(output || "")
+    .split(/\r?\n/)
+    .map((line) => {
+      const normalized = line.trim().toLowerCase();
+      if (!normalized.startsWith("v") || !/\s(?:lib)?webp(?:[\s_]|$)/.test(normalized)) return null;
+      return line.trim().split(/\s+/)[1] || null;
+    })
+    .filter(Boolean);
+  return candidates.find((name) => ["libwebp", "webp"].includes(String(name).toLowerCase()))
+    || candidates[0]
+    || null;
+}
+
+export function detectFfmpegWebpEncoderFromOutput(output) {
+  return Boolean(detectFfmpegWebpEncoderNameFromOutput(output));
+}
+
+export async function detectPosterEncoderCapabilities({
+  runImpl = run,
+  ffmpegBin = FFMPEG_BIN,
+  cwebpBin = CWEBP_BIN,
+} = {}) {
+  let ffmpegWebpEncoderAvailable = false;
+  let cwebpAvailable = false;
+  try {
+    const encoders = await runImpl(ffmpegBin, ["-encoders"], { logFailure: false });
+    const webpEncoder = detectFfmpegWebpEncoderNameFromOutput(`${encoders.stdout || ""}\n${encoders.stderr || ""}`);
+    ffmpegWebpEncoderAvailable = Boolean(webpEncoder);
+    if (webpEncoder) {
+      return {
+        ffmpegWebpEncoderAvailable,
+        ffmpegWebpEncoder: webpEncoder,
+        cwebpAvailable: await detectCwebpAvailable({ runImpl, cwebpBin }),
+      };
+    }
+  } catch {}
+  cwebpAvailable = await detectCwebpAvailable({ runImpl, cwebpBin });
+  return {
+    ffmpegWebpEncoderAvailable,
+    ffmpegWebpEncoder: null,
+    cwebpAvailable,
+  };
+}
+
+async function detectCwebpAvailable({ runImpl = run, cwebpBin = CWEBP_BIN } = {}) {
+  try {
+    await runImpl(cwebpBin, ["-version"], { logFailure: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getPosterEncoderCapabilities() {
+  if (!posterEncoderCapabilities) {
+    posterEncoderCapabilities = await detectPosterEncoderCapabilities();
+  }
+  return posterEncoderCapabilities;
+}
+
+async function logPosterEncoderCapabilities() {
+  const capabilities = await getPosterEncoderCapabilities();
+  console.log("Poster encoder capabilities:", JSON.stringify(capabilities));
+  return capabilities;
+}
+
+export async function createWebpPoster({
+  input,
+  poster,
+  posterWidth,
+  dir,
+  quality = 82,
+  capabilities,
+  runImpl = run,
+  ffmpegBin = FFMPEG_BIN,
+  cwebpBin = CWEBP_BIN,
+} = {}) {
+  const resolvedCapabilities = capabilities || await getPosterEncoderCapabilities();
+  if (resolvedCapabilities.ffmpegWebpEncoderAvailable) {
+    const webpEncoder = resolvedCapabilities.ffmpegWebpEncoder || "libwebp";
+    await runImpl(ffmpegBin, [
+      "-y",
+      "-i", input,
+      "-vf", `thumbnail,scale=${posterWidth}:-2`,
+      "-frames:v", "1",
+      "-c:v", webpEncoder,
+      poster,
+    ], { cwd: dir });
+    return {
+      poster,
+      encoder: "ffmpeg_webp",
+    };
+  }
+
+  if (resolvedCapabilities.cwebpAvailable) {
+    const pngPoster = path.join(dir || path.dirname(poster), `${path.basename(poster, path.extname(poster))}.png`);
+    await runImpl(ffmpegBin, [
+      "-y",
+      "-i", input,
+      "-vf", `thumbnail,scale=${posterWidth}:-2`,
+      "-frames:v", "1",
+      "-update", "1",
+      "-c:v", "png",
+      pngPoster,
+    ], { cwd: dir });
+    await runImpl(cwebpBin, [
+      "-q", String(quality),
+      pngPoster,
+      "-o", poster,
+    ], { cwd: dir });
+    return {
+      poster,
+      encoder: "cwebp",
+      intermediate: pngPoster,
+    };
+  }
+
+  const error = new Error("No WebP poster encoder available. Install cwebp or build ffmpeg with WebP encoder support.");
+  error.code = "webp_poster_encoder_unavailable";
+  throw error;
+}
+
+export async function convertJob(job, dir, {
+  downloadSourceImpl = downloadSource,
+  runImpl = run,
+  createWebpPosterImpl = createWebpPoster,
+  probeVideoImpl = probeVideo,
+} = {}) {
   const input = path.join(dir, "source");
   const output = path.join(dir, "hero.mp4");
   const poster = path.join(dir, "poster.webp");
   const preset = normalizeHeroPreset(job.preset);
-  await downloadSource(job, input);
+  await downloadSourceImpl(job, input);
 
   const videoFilter = `scale='min(${preset.maxWidth},iw)':-2,fps=${preset.fps}`;
-  await run(FFMPEG_BIN, [
+  await runImpl(FFMPEG_BIN, [
     "-y",
     "-i", input,
     ...(preset.audio ? [] : ["-an"]),
@@ -213,39 +372,42 @@ async function convertJob(job, dir) {
     output,
   ], { cwd: dir });
 
-  await run(FFMPEG_BIN, [
-    "-y",
-    "-i", input,
-    "-vf", `thumbnail,scale=${preset.posterWidth}:-2`,
-    "-frames:v", "1",
+  const posterResult = await createWebpPosterImpl({
+    input,
     poster,
-  ], { cwd: dir });
+    posterWidth: preset.posterWidth,
+    dir,
+  });
 
   return {
     input,
     output,
     poster,
     metadata: {
-      ...(await probeVideo(output)),
+      ...(await probeVideoImpl(output)),
       preset,
+      poster_encoder: posterResult.encoder,
     },
   };
 }
 
-async function convertSourcePosterJob(job, dir) {
+export async function convertSourcePosterJob(job, dir, {
+  downloadSourceImpl = downloadSource,
+  createWebpPosterImpl = createWebpPoster,
+} = {}) {
   const input = path.join(dir, "source");
   const poster = path.join(dir, "source-poster.webp");
-  await downloadSource(job, input);
+  await downloadSourceImpl(job, input);
   const posterWidth = clampNumber(job.preset?.posterWidth, { fallback: 640, min: 320, max: 1080 });
-  await run(FFMPEG_BIN, [
-    "-y",
-    "-i", input,
-    "-vf", `thumbnail,scale=${posterWidth}:-2`,
-    "-frames:v", "1",
+  const posterResult = await createWebpPosterImpl({
+    input,
     poster,
-  ], { cwd: dir });
+    posterWidth,
+    dir,
+  });
   return {
     poster,
+    poster_encoder: posterResult.encoder,
   };
 }
 
@@ -615,7 +777,7 @@ async function failJob(job, error) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      error_code: "external_ffmpeg_failed",
+      error_code: sanitizeProcessorErrorCode(error?.code, "external_ffmpeg_failed"),
       error_message: String(error?.message || error || "ffmpeg failed").slice(0, 240),
     }),
   }).catch((callbackError) => {
@@ -643,7 +805,7 @@ async function failSourcePosterJob(job, error) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      error_code: "source_poster_external_ffmpeg_failed",
+      error_code: sanitizeProcessorErrorCode(error?.code, "source_poster_external_ffmpeg_failed"),
       error_message: String(error?.message || error || "source poster ffmpeg failed").slice(0, 240),
     }),
   }).catch((callbackError) => {
@@ -777,6 +939,7 @@ async function processMemvidPreviewJob(job) {
 
 async function main() {
   assertConfig();
+  await logPosterEncoderCapabilities();
   if (PROCESS_HOMEPAGE_HERO) {
     const jobs = await claimJobs();
     if (!jobs.length) {
