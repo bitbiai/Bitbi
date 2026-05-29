@@ -1964,6 +1964,17 @@ test.describe('Homepage', () => {
         state = await readHomepageResponsiveStageState(tabletPage);
         expect(state.overflowX, `${label} gallery overflow`).toBeLessThanOrEqual(2);
         expectSingleInteractiveHomepagePanel(state, 'gallery');
+        const galleryColumns = await tabletPage.evaluate(() => {
+          const grid = document.querySelector('#galleryGrid');
+          const style = grid ? window.getComputedStyle(grid) : null;
+          const rect = grid?.getBoundingClientRect();
+          const gap = Number.parseFloat(style?.columnGap || '') || 8;
+          const columnWidth = Number.parseFloat(style?.columnWidth || '') || 212;
+          return rect?.width
+            ? Math.max(1, Math.floor((rect.width + gap) / (columnWidth + gap)))
+            : 0;
+        });
+        expect(galleryColumns, `${label} gallery columns`).toBe(expectedColumns);
 
         if (useMobileMenu) {
           await expect(tabletPage.locator('#mobileMenuBtn')).toBeVisible();
@@ -1975,19 +1986,17 @@ test.describe('Homepage', () => {
         state = await readHomepageResponsiveStageState(tabletPage);
         expectSingleInteractiveHomepagePanel(state, 'video');
 
-        const columns = await tabletPage.evaluate(() => {
-          const readColumnCount = (selector) => {
-            const grid = document.querySelector(selector);
-            const style = grid ? window.getComputedStyle(grid) : null;
-            return Number.parseInt(style?.columnCount || '', 10) || 0;
-          };
-          return {
-            gallery: readColumnCount('#galleryGrid'),
-            video: readColumnCount('#videoGrid'),
-          };
+        const videoColumns = await tabletPage.evaluate(() => {
+          const grid = document.querySelector('#videoGrid');
+          const style = grid ? window.getComputedStyle(grid) : null;
+          const rect = grid?.getBoundingClientRect();
+          const gap = Number.parseFloat(style?.columnGap || '') || 8;
+          const columnWidth = Number.parseFloat(style?.columnWidth || '') || 212;
+          return rect?.width
+            ? Math.max(1, Math.floor((rect.width + gap) / (columnWidth + gap)))
+            : 0;
         });
-        expect(columns.gallery, `${label} gallery columns`).toBe(expectedColumns);
-        expect(columns.video, `${label} video columns`).toBe(expectedColumns);
+        expect(videoColumns, `${label} video columns`).toBe(expectedColumns);
       } finally {
         await context.close();
       }
@@ -2021,12 +2030,26 @@ test.describe('Homepage', () => {
         await waitForHomepageCategoryStage(desktopPage);
         await expectHomepageHeaderCategoryGlow(desktopPage, 'gallery');
 
-        const columns = await desktopPage.evaluate(() => ({
-          gallery: Number.parseInt(window.getComputedStyle(document.getElementById('galleryGrid')).columnCount, 10),
-          video: Number.parseInt(window.getComputedStyle(document.getElementById('videoGrid')).columnCount, 10),
-        }));
-        expect(columns.gallery, `${viewport.width} gallery columns`).toBe(5);
-        expect(columns.video, `${viewport.width} video columns`).toBe(5);
+        const galleryColumns = await desktopPage.evaluate(() => {
+          const grid = document.getElementById('galleryGrid');
+          const style = window.getComputedStyle(grid);
+          const gap = Number.parseFloat(style.columnGap) || 8;
+          const columnWidth = Number.parseFloat(style.columnWidth) || 216;
+          return Math.max(1, Math.floor((grid.getBoundingClientRect().width + gap) / (columnWidth + gap)));
+        });
+        expect(galleryColumns, `${viewport.width} gallery columns`).toBeGreaterThanOrEqual(5);
+
+        await desktopPage.locator('#navbar .site-nav__links').getByRole('link', { name: 'Video' }).click();
+        await expectActiveHomepageCategory(desktopPage, 'video');
+        await waitForHomepageCategoryStage(desktopPage);
+        const videoColumns = await desktopPage.evaluate(() => {
+          const grid = document.getElementById('videoGrid');
+          const style = window.getComputedStyle(grid);
+          const gap = Number.parseFloat(style.columnGap) || 8;
+          const columnWidth = Number.parseFloat(style.columnWidth) || 216;
+          return Math.max(1, Math.floor((grid.getBoundingClientRect().width + gap) / (columnWidth + gap)));
+        });
+        expect(videoColumns, `${viewport.width} video columns`).toBeGreaterThanOrEqual(5);
       } finally {
         await context.close();
       }
@@ -5921,36 +5944,48 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await switchHomepageCategory(page, 'gallery');
 
-    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing 10 Mempics.');
     await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
-    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(10);
+    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBeGreaterThanOrEqual(10);
+    const galleryInitialCount = await page.locator('#galleryGrid .gallery-item:visible').count();
+    expect(galleryInitialCount).toBeLessThanOrEqual(12);
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText(
+      galleryInitialCount >= 12 ? 'Showing all 12 Mempics.' : `Showing ${galleryInitialCount} Mempics.`,
+    );
     await expect(page.locator('#galleryGrid .gallery-item:visible').first().locator('.public-media-meta__avatar')).toHaveCount(0);
 
     const galleryToggle = page.locator('#galleryPagination .browse-pagination__toggle');
-    await expect(galleryToggle).toHaveAttribute('aria-expanded', 'false');
-    await galleryToggle.scrollIntoViewIfNeeded();
-    const galleryScrollBefore = await page.evaluate(() => window.scrollY);
-    await galleryToggle.click();
-    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(12);
-    const galleryScrollAfter = await page.evaluate(() => window.scrollY);
-    expect(galleryScrollAfter).toBeGreaterThanOrEqual(galleryScrollBefore - 1);
+    if (galleryInitialCount < 12) {
+      await expect(galleryToggle).toHaveAttribute('aria-expanded', 'false');
+      await galleryToggle.scrollIntoViewIfNeeded();
+      const galleryScrollBefore = await page.evaluate(() => window.scrollY);
+      await galleryToggle.click();
+      await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(12);
+      const galleryScrollAfter = await page.evaluate(() => window.scrollY);
+      expect(galleryScrollAfter).toBeGreaterThanOrEqual(galleryScrollBefore - 1);
+    }
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 12 Mempics.');
     await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
     await expect(galleryToggle).toBeHidden();
 
     await switchHomepageCategory(page, 'video');
-    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing 10 Memvids.');
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
-    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(10);
+    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBeGreaterThanOrEqual(10);
+    const videoInitialCount = await page.locator('#videoGrid .video-card:visible').count();
+    expect(videoInitialCount).toBeLessThanOrEqual(12);
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText(
+      videoInitialCount >= 12 ? 'Showing all 12 Memvids.' : `Showing ${videoInitialCount} Memvids.`,
+    );
 
     const videoToggle = page.locator('#videoPagination .browse-pagination__toggle');
-    await expect(videoToggle).toHaveAttribute('aria-expanded', 'false');
-    await videoToggle.scrollIntoViewIfNeeded();
-    const videoScrollBefore = await page.evaluate(() => window.scrollY);
-    await videoToggle.click();
-    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(12);
-    const videoScrollAfter = await page.evaluate(() => window.scrollY);
-    expect(videoScrollAfter).toBeGreaterThanOrEqual(videoScrollBefore - 1);
+    if (videoInitialCount < 12) {
+      await expect(videoToggle).toHaveAttribute('aria-expanded', 'false');
+      await videoToggle.scrollIntoViewIfNeeded();
+      const videoScrollBefore = await page.evaluate(() => window.scrollY);
+      await videoToggle.click();
+      await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(12);
+      const videoScrollAfter = await page.evaluate(() => window.scrollY);
+      expect(videoScrollAfter).toBeGreaterThanOrEqual(videoScrollBefore - 1);
+    }
     await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 12 Memvids.');
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
     await expect(videoToggle).toBeHidden();
@@ -6012,7 +6047,7 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-grid-overlay__close').click();
   });
 
-  test('homepage Gallery and Video use five-column masonry media walls on wide desktop while preserving the mobile layout', async ({ page }) => {
+  test('homepage Gallery and Video use stable masonry media walls on wide desktop while preserving the mobile layout', async ({ page }) => {
     const dimensions = [
       { w: 360, h: 540 },
       { w: 720, h: 405 },
@@ -6143,7 +6178,7 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'gallery');
 
     const galleryCards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
-    await expect(galleryCards).toHaveCount(10);
+    await expect.poll(() => galleryCards.count()).toBeGreaterThanOrEqual(10);
     await expect(galleryCards.first()).toBeVisible();
 
     const wideLayout = await page.evaluate(() => {
@@ -6212,9 +6247,10 @@ test.describe('Homepage', () => {
     });
 
     expect(wideLayout.display).toBe('block');
-    expect(wideLayout.cssColumnCount).toBe(5);
+    expect(wideLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
-    expect(wideLayout.renderedCount).toBe(10);
+    expect(wideLayout.renderedCount).toBeGreaterThanOrEqual(10);
+    expect(wideLayout.renderedCount).toBeLessThanOrEqual(items.length);
     expect(wideLayout.orderedIds.slice(0, 10)).toEqual([
       'mempic-11',
       'mempic-10',
@@ -6228,7 +6264,7 @@ test.describe('Homepage', () => {
       'mempic-2',
     ]);
     expect(wideLayout.topLeftId).toBe('mempic-11');
-    expect(wideLayout.columnCounts).toHaveLength(5);
+    expect(wideLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
     expect(Math.min(...wideLayout.columnCounts)).toBeGreaterThanOrEqual(1);
     expect(Math.max(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(16);
     expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(3);
@@ -6244,7 +6280,7 @@ test.describe('Homepage', () => {
 
     await switchHomepageCategory(page, 'video');
     const videoCards = page.locator('#videoGrid .video-card');
-    await expect(videoCards).toHaveCount(10);
+    await expect.poll(() => videoCards.count()).toBeGreaterThanOrEqual(10);
 
     const videoLayout = await page.evaluate(() => {
       const grid = document.getElementById('videoGrid');
@@ -6312,7 +6348,7 @@ test.describe('Homepage', () => {
     });
 
     expect(videoLayout.display).toBe('block');
-    expect(videoLayout.cssColumnCount).toBe(5);
+    expect(videoLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
     expect(videoLayout.overflow).toBeLessThanOrEqual(2);
     expect(videoLayout.orderedIds.slice(0, 10)).toEqual([
       'memvid-11',
@@ -6327,9 +6363,9 @@ test.describe('Homepage', () => {
       'memvid-2',
     ]);
     expect(videoLayout.topLeftId).toBe('memvid-11');
-    expect(videoLayout.columnCounts).toHaveLength(5);
+    expect(videoLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
     expect(Math.min(...videoLayout.columnCounts)).toBeGreaterThanOrEqual(1);
-    expect(videoLayout.columnCounts[4]).toBeGreaterThanOrEqual(1);
+    expect(videoLayout.columnCounts.at(-1)).toBeGreaterThanOrEqual(1);
     expect(videoLayout.lastColumn.width).toBeGreaterThan(150);
     expect(videoLayout.lastColumn.left).toBeLessThan(videoLayout.viewportWidth - 180);
     expect(videoLayout.lastColumn.right).toBeLessThanOrEqual(videoLayout.viewportWidth + 2);
@@ -6425,12 +6461,15 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'gallery');
 
     const cards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
-    await expect.poll(() => cards.count()).toBe(10);
+    await expect.poll(() => cards.count()).toBeGreaterThanOrEqual(10);
+    const initialCount = await cards.count();
+    expect(initialCount).toBeLessThanOrEqual(24);
 
     const showMore = page.locator('#galleryPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
-    await expect.poll(() => cards.count()).toBe(30);
+    const afterClickTarget = Math.min(initialCount + 20, 48);
+    await expect.poll(() => cards.count()).toBe(afterClickTarget);
     await expect(showMore).toBeHidden();
 
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
@@ -6444,16 +6483,17 @@ test.describe('Homepage', () => {
     });
     await page.waitForTimeout(80);
     await page.mouse.move(720, 640);
+    const afterScrollTarget = Math.min(afterClickTarget + 20, 60);
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      if (await cards.count() >= 50) break;
+      if (await cards.count() >= afterScrollTarget) break;
       await page.mouse.wheel(0, 2400);
       await page.waitForTimeout(140);
     }
-    await expect.poll(() => cards.count()).toBe(50);
+    await expect.poll(() => cards.count()).toBe(afterScrollTarget);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
     expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
-    expect(idsAfterScroll).toContain('progressive-mempic-50');
+    expect(idsAfterScroll).toContain(`progressive-mempic-${afterScrollTarget}`);
     expect(idsAfterScroll).not.toContain('progressive-mempic-60');
   });
 
@@ -6520,12 +6560,15 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'video');
 
     const cards = page.locator('#videoGrid .video-card');
-    await expect.poll(() => cards.count()).toBe(10);
+    await expect.poll(() => cards.count()).toBeGreaterThanOrEqual(10);
+    const initialCount = await cards.count();
+    expect(initialCount).toBeLessThanOrEqual(24);
 
     const showMore = page.locator('#videoPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
-    await expect.poll(() => cards.count()).toBe(30);
+    const afterClickTarget = Math.min(initialCount + 20, 48);
+    await expect.poll(() => cards.count()).toBe(afterClickTarget);
     await expect(showMore).toBeHidden();
 
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
@@ -6539,16 +6582,17 @@ test.describe('Homepage', () => {
     });
     await page.waitForTimeout(80);
     await page.mouse.move(720, 640);
+    const afterScrollTarget = Math.min(afterClickTarget + 20, 60);
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      if (await cards.count() >= 50) break;
+      if (await cards.count() >= afterScrollTarget) break;
       await page.mouse.wheel(0, 2400);
       await page.waitForTimeout(140);
     }
-    await expect.poll(() => cards.count()).toBe(50);
+    await expect.poll(() => cards.count()).toBe(afterScrollTarget);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
     expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
-    expect(idsAfterScroll).toContain('progressive-memvid-50');
+    expect(idsAfterScroll).toContain(`progressive-memvid-${afterScrollTarget}`);
     expect(idsAfterScroll).not.toContain('progressive-memvid-60');
   });
 
@@ -7164,6 +7208,219 @@ test.describe('Homepage', () => {
     });
 
     expect(laptopLayout).toBeLessThanOrEqual(4);
+  });
+
+  test('public media walls add columns on large monitors without materially enlarging cards or hero modules', async ({ page }) => {
+    const imagePixel = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const dimensions = [
+      { w: 360, h: 540 },
+      { w: 720, h: 405 },
+      { w: 440, h: 440 },
+      { w: 420, h: 620 },
+      { w: 640, h: 420 },
+      { w: 520, h: 700 },
+      { w: 560, h: 560 },
+      { w: 800, h: 450 },
+      { w: 380, h: 580 },
+      { w: 700, h: 430 },
+    ];
+    const mempics = Array.from({ length: 30 }, (_, index) => {
+      const size = dimensions[index % dimensions.length];
+      const id = `large-wall-mempic-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Large Wall Mempic ${index + 1}`,
+        created_at: `2026-05-${String((index % 25) + 1).padStart(2, '0')}T12:00:00.000Z`,
+        caption: 'Published by Ada Member.',
+        category: 'mempics',
+        thumb: { url: `/api/gallery/mempics/${id}/thumb`, w: size.w, h: size.h },
+        preview: { url: `/api/gallery/mempics/${id}/medium`, w: size.w * 2, h: size.h * 2 },
+        full: { url: `/api/gallery/mempics/${id}/file` },
+      };
+    });
+    const memvids = Array.from({ length: 30 }, (_, index) => {
+      const size = dimensions[(index + 3) % dimensions.length];
+      const id = `large-wall-memvid-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Large Wall Memvid ${index + 1}`,
+        created_at: `2026-05-${String((index % 25) + 1).padStart(2, '0')}T12:00:00.000Z`,
+        caption: 'Published by Ada Member.',
+        category: 'memvids',
+        file: { url: `/api/gallery/memvids/${id}/file` },
+        poster: { url: `/api/gallery/memvids/${id}/poster`, w: size.w, h: size.h },
+      };
+    });
+    const memtracks = Array.from({ length: 18 }, (_, index) => {
+      const id = `large-wall-memtrack-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Large Wall Memtrack ${index + 1}`,
+        caption: 'Published by Ada Member.',
+        category: 'memtracks',
+        model_label: 'Music 2.6',
+        publisher: { display_name: 'Ada Member' },
+        file: { url: `/api/gallery/memtracks/${id}/file` },
+        poster: { url: `/api/gallery/memtracks/${id}/poster`, w: 640, h: 360 },
+      };
+    });
+
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: mempics, has_more: false, next_cursor: null } }),
+      });
+    });
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: imagePixel });
+    });
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: memvids, has_more: false, next_cursor: null } }),
+      });
+    });
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({ status: 200, contentType: 'image/png', body: imagePixel });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.from('mock-video') });
+    });
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { items: memtracks, has_more: false, next_cursor: null, applied_limit: 60 },
+        }),
+      });
+    });
+    await page.route('**/api/gallery/memtracks/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({ status: 200, contentType: 'image/png', body: imagePixel });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('mock-audio') });
+    });
+
+    const measureViewport = async (width, height) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/');
+      await switchHomepageCategory(page, 'gallery');
+      await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
+      const gallery = await page.evaluate(() => {
+        const rects = Array.from(document.querySelectorAll('#galleryGrid .gallery-item:not(.locked-area)'))
+          .filter((node) => node.offsetParent !== null)
+          .map((node) => {
+            const rect = node.getBoundingClientRect();
+            return { left: rect.left, width: rect.width };
+          });
+        const columns = [];
+        rects.forEach((rect) => {
+          let column = columns.find((candidate) => Math.abs(candidate - rect.left) <= 3);
+          if (typeof column !== 'number') {
+            columns.push(rect.left);
+          }
+        });
+        return {
+          renderedCount: rects.length,
+          columnCount: columns.length,
+          averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+        };
+      });
+
+      await switchHomepageCategory(page, 'video');
+      await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
+      const video = await page.evaluate(() => {
+        const rects = Array.from(document.querySelectorAll('#videoGrid .video-card'))
+          .filter((node) => node.offsetParent !== null)
+          .map((node) => {
+            const rect = node.getBoundingClientRect();
+            return { left: rect.left, width: rect.width };
+          });
+        const columns = [];
+        rects.forEach((rect) => {
+          let column = columns.find((candidate) => Math.abs(candidate - rect.left) <= 3);
+          if (typeof column !== 'number') {
+            columns.push(rect.left);
+          }
+        });
+        return {
+          renderedCount: rects.length,
+          columnCount: columns.length,
+          averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+        };
+      });
+
+      await switchHomepageCategory(page, 'sound');
+      await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
+      const rest = await page.evaluate(() => {
+        const summarizeRows = (selector) => {
+          const rects = Array.from(document.querySelectorAll(selector))
+            .filter((node) => node.offsetParent !== null)
+            .map((node) => {
+              const rect = node.getBoundingClientRect();
+              return { left: rect.left, top: rect.top, width: rect.width };
+            });
+          const rows = [];
+          rects.forEach((rect) => {
+            let row = rows.find((candidate) => Math.abs(candidate.top - rect.top) <= 3);
+            if (!row) {
+              row = { top: rect.top, rects: [] };
+              rows.push(row);
+            }
+            row.rects.push(rect);
+          });
+          rows.sort((a, b) => a.top - b.top);
+          return {
+            renderedCount: rects.length,
+            firstRowCount: rows[0]?.rects.length || 0,
+            averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+          };
+        };
+        const heroModule = Array.from(document.querySelectorAll('.hero__models-cta'))
+          .map((node) => node.getBoundingClientRect())
+          .find((rect) => rect.width > 0 && rect.height > 0);
+        return {
+          sound: summarizeRows('#soundLabTracks .snd-card--memtrack'),
+          heroModuleWidth: heroModule?.width || 0,
+          overflowX: Math.max(
+            0,
+            document.documentElement.scrollWidth - window.innerWidth,
+            document.body.scrollWidth - window.innerWidth,
+          ),
+        };
+      });
+      return { gallery, video, ...rest };
+    };
+
+    const normal = await measureViewport(1440, 900);
+    const large = await measureViewport(2560, 1440);
+
+    expect(large.gallery.columnCount).toBeGreaterThan(normal.gallery.columnCount);
+    expect(large.gallery.renderedCount).toBeGreaterThan(normal.gallery.renderedCount);
+    expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
+    expect(large.gallery.averageWidth).toBeGreaterThanOrEqual(normal.gallery.averageWidth * 0.78);
+    expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
+    expect(large.video.renderedCount).toBeGreaterThan(normal.video.renderedCount);
+    expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
+    expect(large.video.averageWidth).toBeGreaterThanOrEqual(normal.video.averageWidth * 0.78);
+    expect(large.sound.firstRowCount).toBeGreaterThan(normal.sound.firstRowCount);
+    expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
+    expect(large.sound.averageWidth).toBeGreaterThanOrEqual(normal.sound.averageWidth * 0.88);
+    expect(large.heroModuleWidth).toBeGreaterThan(0);
+    expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.15);
+    expect(large.overflowX).toBeLessThanOrEqual(2);
   });
 
   test('homepage Sound Lab renders published member tracks directly without Free or Exclusive categories', async ({ page }) => {

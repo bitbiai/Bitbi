@@ -30,6 +30,7 @@ const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOU
 const WIDE_INITIAL_MEMPICS = 10;
 const WIDE_MEMPICS_BATCH = 20;
 const WIDE_SCROLL_PRELOAD_PX = 720;
+const WIDE_COLUMN_FALLBACK_PX = 216;
 
 let focusTrapCleanup = null;
 
@@ -58,6 +59,8 @@ export function initGallery() {
     let mempicsScrollBatchSettlingTimer = 0;
     let mempicsLastRevealScrollY = Number.NaN;
     let mempicsScrollSentinelNeedsReset = false;
+    let mempicsResizeObserver = null;
+    let mempicsResizeFrame = 0;
 
     const mobileMediaQuery = getMobileMediaGridQuery();
     const $paginationStatus = document.createElement('button');
@@ -97,6 +100,45 @@ export function initGallery() {
         return Math.min(mempicsVisibleLimit, mempicsState.items.length);
     }
 
+    function parsePixelValue(value, fallback) {
+        const parsed = Number.parseFloat(value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    }
+
+    function estimateWideColumnCount(fallbackColumnWidth = WIDE_COLUMN_FALLBACK_PX) {
+        if (!grid || typeof window.getComputedStyle !== 'function') return 1;
+        const rect = grid.getBoundingClientRect();
+        if (!rect.width) return 1;
+        const style = window.getComputedStyle(grid);
+        const gap = parsePixelValue(style.columnGap, 10);
+        const columnWidth = parsePixelValue(style.columnWidth, fallbackColumnWidth);
+        return Math.max(1, Math.floor((rect.width + gap) / (columnWidth + gap)));
+    }
+
+    function getWideMempicsInitialLimit() {
+        return Math.max(WIDE_INITIAL_MEMPICS, estimateWideColumnCount() * 2);
+    }
+
+    function getWideMempicsBatchSize() {
+        return Math.max(WIDE_MEMPICS_BATCH, estimateWideColumnCount() * 2);
+    }
+
+    function syncMempicsWideLimitForLayout() {
+        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || mempicsProgressiveMode || !mempicsState.loaded) return;
+        const nextLimit = Math.min(Math.max(mempicsVisibleLimit, getWideMempicsInitialLimit()), mempicsState.items.length);
+        if (nextLimit <= mempicsVisibleLimit) return;
+        mempicsVisibleLimit = nextLimit;
+        render(currentFilter);
+    }
+
+    function scheduleMempicsWideLimitSync() {
+        if (mempicsResizeFrame) return;
+        mempicsResizeFrame = window.requestAnimationFrame(() => {
+            mempicsResizeFrame = 0;
+            syncMempicsWideLimitForLayout();
+        });
+    }
+
     function canRevealMoreMempics() {
         return isPublicWideLayoutEnabled()
             && currentFilter === MEMPICS_CATEGORY
@@ -106,7 +148,7 @@ export function initGallery() {
     function resetMempicsWideWindow() {
         mempicsProgressiveMode = false;
         mempicsVisibleLimit = isPublicWideLayoutEnabled()
-            ? WIDE_INITIAL_MEMPICS
+            ? getWideMempicsInitialLimit()
             : mempicsState.items.length;
         mempicsUserScrolledSinceBatch = false;
         mempicsScrollBatchSettling = false;
@@ -352,7 +394,7 @@ export function initGallery() {
         if (!canRevealMoreMempics()) return;
         if (mempicsRevealPromise) return mempicsRevealPromise;
         mempicsProgressiveMode = true;
-        const nextLimit = mempicsVisibleLimit + WIDE_MEMPICS_BATCH;
+        const nextLimit = mempicsVisibleLimit + getWideMempicsBatchSize();
         mempicsRevealPromise = (async () => {
             let errorMessage = '';
             try {
@@ -764,6 +806,13 @@ export function initGallery() {
         updateMempicsPagination(currentFilter);
     });
 
+    if ('ResizeObserver' in window) {
+        mempicsResizeObserver = new ResizeObserver(scheduleMempicsWideLimitSync);
+        mempicsResizeObserver.observe(grid);
+    } else {
+        window.addEventListener('resize', scheduleMempicsWideLimitSync, { passive: true });
+    }
+
     function galEngage() {
         if (galIsDeck) return;
         galIsDeck = true;
@@ -878,8 +927,11 @@ export function initGallery() {
 
     window.addEventListener('pagehide', () => {
         if (galGridObserver) { galGridObserver.disconnect(); galGridObserver = null; }
+        if (mempicsResizeObserver) { mempicsResizeObserver.disconnect(); mempicsResizeObserver = null; }
+        window.removeEventListener('resize', scheduleMempicsWideLimitSync);
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
         window.clearTimeout(mempicsScrollBatchSettlingTimer);
+        window.cancelAnimationFrame(mempicsResizeFrame);
         disconnectMempicsObserver();
     });
 }

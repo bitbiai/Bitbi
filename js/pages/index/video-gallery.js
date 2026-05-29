@@ -32,6 +32,7 @@ const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOU
 const WIDE_INITIAL_MEMVIDS = 10;
 const WIDE_MEMVIDS_BATCH = 20;
 const WIDE_SCROLL_PRELOAD_PX = 720;
+const WIDE_COLUMN_FALLBACK_PX = 216;
 // Small non-zero intent delay avoids accidental Stream minute usage across dense grids.
 const HOVER_PREVIEW_DELAY_MS = 100;
 
@@ -62,6 +63,8 @@ export function initVideoGallery() {
     let memvidsScrollBatchSettlingTimer = 0;
     let memvidsLastRevealScrollY = Number.NaN;
     let memvidsScrollSentinelNeedsReset = false;
+    let memvidsResizeObserver = null;
+    let memvidsResizeFrame = 0;
     let activeHoverPreview = null;
 
     /* Replace the teaser placeholder with a live grid */
@@ -119,18 +122,58 @@ export function initVideoGallery() {
         return Math.min(memvidsVisibleLimit, memvidsState.items.length);
     }
 
+    function parsePixelValue(value, fallback) {
+        const parsed = Number.parseFloat(value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    }
+
+    function estimateWideColumnCount(fallbackColumnWidth = WIDE_COLUMN_FALLBACK_PX) {
+        if (!grid || typeof window.getComputedStyle !== 'function') return 1;
+        const rect = grid.getBoundingClientRect();
+        if (!rect.width) return 1;
+        const style = window.getComputedStyle(grid);
+        const gap = parsePixelValue(style.columnGap, 10);
+        const columnWidth = parsePixelValue(style.columnWidth, fallbackColumnWidth);
+        return Math.max(1, Math.floor((rect.width + gap) / (columnWidth + gap)));
+    }
+
+    function getWideMemvidsInitialLimit() {
+        return Math.max(WIDE_INITIAL_MEMVIDS, estimateWideColumnCount() * 2);
+    }
+
+    function getWideMemvidsBatchSize() {
+        return Math.max(WIDE_MEMVIDS_BATCH, estimateWideColumnCount() * 2);
+    }
+
+    function syncMemvidsWideLimitForLayout() {
+        if (!isPublicWideLayoutEnabled() || memvidsProgressiveMode || !memvidsState.loaded) return;
+        const nextLimit = Math.min(Math.max(memvidsVisibleLimit, getWideMemvidsInitialLimit()), memvidsState.items.length);
+        if (nextLimit <= memvidsVisibleLimit) return;
+        memvidsVisibleLimit = nextLimit;
+        render();
+    }
+
+    function scheduleMemvidsWideLimitSync() {
+        if (memvidsResizeFrame) return;
+        memvidsResizeFrame = window.requestAnimationFrame(() => {
+            memvidsResizeFrame = 0;
+            syncMemvidsWideLimitForLayout();
+        });
+    }
+
     function canRevealMoreMemvids() {
+        const initialLimit = getWideMemvidsInitialLimit();
         return isPublicWideLayoutEnabled()
             && (
                 memvidsState.items.length > getVisibleMemvidsCount()
-                || (memvidsState.items.length >= WIDE_INITIAL_MEMVIDS && memvidsState.hasMore)
+                || (memvidsState.items.length >= initialLimit && memvidsState.hasMore)
             );
     }
 
     function resetMemvidsWideWindow() {
         memvidsProgressiveMode = false;
         memvidsVisibleLimit = isPublicWideLayoutEnabled()
-            ? WIDE_INITIAL_MEMVIDS
+            ? getWideMemvidsInitialLimit()
             : memvidsState.items.length;
         memvidsUserScrolledSinceBatch = false;
         memvidsScrollBatchSettling = false;
@@ -592,7 +635,7 @@ export function initVideoGallery() {
         const showDrawerToggle = isPublicWideLayoutEnabled() && canRevealMore && !memvidsProgressiveMode;
         const showLoadMore = memvidsState.hasMore && (
             !isPublicWideLayoutEnabled()
-            || (!showDrawerToggle && !memvidsProgressiveMode && memvidsState.items.length < WIDE_INITIAL_MEMVIDS)
+            || (!showDrawerToggle && !memvidsProgressiveMode && memvidsState.items.length < getWideMemvidsInitialLimit())
         );
         $pagination.style.display = '';
         if (canRevealMore) {
@@ -661,7 +704,7 @@ export function initVideoGallery() {
         if (!canRevealMoreMemvids()) return;
         if (memvidsRevealPromise) return memvidsRevealPromise;
         memvidsProgressiveMode = true;
-        const nextLimit = memvidsVisibleLimit + WIDE_MEMVIDS_BATCH;
+        const nextLimit = memvidsVisibleLimit + getWideMemvidsBatchSize();
         memvidsRevealPromise = (async () => {
             let errorMessage = '';
             try {
@@ -1013,8 +1056,11 @@ export function initVideoGallery() {
     window.addEventListener('pagehide', () => {
         stopActiveHoverPreview();
         deck.destroy();
+        if (memvidsResizeObserver) { memvidsResizeObserver.disconnect(); memvidsResizeObserver = null; }
+        window.removeEventListener('resize', scheduleMemvidsWideLimitSync);
         window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
         window.clearTimeout(memvidsScrollBatchSettlingTimer);
+        window.cancelAnimationFrame(memvidsResizeFrame);
         disconnectMemvidsObserver();
     }, { once: true });
 
@@ -1052,6 +1098,13 @@ export function initVideoGallery() {
     bindMediaQueryChange(mobileMediaQuery, () => {
         updateMemvidsPagination();
     });
+
+    if ('ResizeObserver' in window) {
+        memvidsResizeObserver = new ResizeObserver(scheduleMemvidsWideLimitSync);
+        memvidsResizeObserver.observe(grid);
+    } else {
+        window.addEventListener('resize', scheduleMemvidsWideLimitSync, { passive: true });
+    }
 
     render();
 }

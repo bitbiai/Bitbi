@@ -5,6 +5,15 @@
    ============================================================ */
 
 @layer pages {
+    :root {
+        --bitbi-public-media-gap: clamp(0.38rem, 0.5vw, 0.62rem);
+        --bitbi-public-gallery-column-width: 13.5rem;
+        --bitbi-public-gallery-column-width-tablet: 13.25rem;
+        --bitbi-public-video-column-width: 13.5rem;
+        --bitbi-public-video-column-width-tablet: 13.25rem;
+        --bitbi-public-sound-card-width: 16.5rem;
+        --bitbi-public-sound-gap: clamp(0.75rem, 1vw, 1rem);
+    }
 
     /* --- Tilt Card --- */
     .tilt-card {
@@ -183,16 +192,18 @@
 
         #galleryGrid.grid-gallery {
             display: block;
-            column-count: 4;
-            column-gap: clamp(0.38rem, 0.5vw, 0.62rem);
+            column-width: var(--bitbi-public-gallery-column-width);
+            column-count: auto;
+            column-gap: var(--bitbi-public-media-gap);
             column-fill: balance;
+            inline-size: 100%;
         }
 
         #galleryGrid .gallery-item {
             position: relative;
             display: inline-block;
             inline-size: 100%;
-            margin: 0 0 clamp(0.38rem, 0.5vw, 0.62rem);
+            margin: 0 0 var(--bitbi-public-media-gap);
             aspect-ratio: var(--gallery-item-aspect, 1.333);
             min-inline-size: 0;
             overflow: hidden;
@@ -255,13 +266,13 @@
 
     @media (min-width: 768px) and (max-width: 1023px) and (min-height: 700px) {
         #galleryGrid.grid-gallery {
-            column-count: 3;
+            column-width: var(--bitbi-public-gallery-column-width-tablet);
         }
     }
 
-    @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+    @media (min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px) {
         #galleryGrid.grid-gallery {
-            column-count: 5;
+            column-width: var(--bitbi-public-gallery-column-width-tablet);
         }
     }
 
@@ -2644,8 +2655,9 @@
 
         #videoGrid.grid-video {
             display: block;
-            column-count: 4;
-            column-gap: clamp(0.38rem, 0.5vw, 0.62rem);
+            column-width: var(--bitbi-public-video-column-width);
+            column-count: auto;
+            column-gap: var(--bitbi-public-media-gap);
             column-fill: balance;
             inline-size: 100%;
         }
@@ -2653,7 +2665,7 @@
         #videoGrid .video-card {
             display: inline-block;
             inline-size: 100%;
-            margin: 0 0 clamp(0.38rem, 0.5vw, 0.62rem);
+            margin: 0 0 var(--bitbi-public-media-gap);
             border-radius: 0.62rem;
             background: transparent;
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
@@ -2700,13 +2712,13 @@
 
     @media (min-width: 768px) and (max-width: 1023px) and (min-height: 700px) {
         #videoGrid.grid-video {
-            column-count: 3;
+            column-width: var(--bitbi-public-video-column-width-tablet);
         }
     }
 
-    @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+    @media (min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px) {
         #videoGrid.grid-video {
-            column-count: 5;
+            column-width: var(--bitbi-public-video-column-width-tablet);
         }
     }
 
@@ -3316,8 +3328,13 @@
     @media (min-width: 640px) {
         #soundLabTracks {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: var(--space-4);
+            grid-template-columns: repeat(
+                auto-fill,
+                minmax(min(100%, var(--bitbi-public-sound-card-width)), var(--bitbi-public-sound-card-width))
+            );
+            justify-content: center;
+            align-items: start;
+            gap: var(--bitbi-public-sound-gap);
         }
 
         .snd-card {
@@ -3339,24 +3356,6 @@
 
         #playlistPlayer {
             display: none !important;
-        }
-    }
-
-    @media (min-width: 768px) {
-        #soundLabTracks {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-    }
-
-    @media (min-width: 1024px) {
-        #soundLabTracks {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-        }
-    }
-
-    @media (min-width: 1280px) {
-        #soundLabTracks {
-            grid-template-columns: repeat(5, minmax(0, 1fr));
         }
     }
 
@@ -4980,7 +4979,7 @@
 
         @media (min-width: 1600px) {
             .hero__models-cta {
-                --latest-models-module-width: clamp(21rem, 24vw, 27rem);
+                --latest-models-module-width: 21.5rem;
             }
         }
     }
