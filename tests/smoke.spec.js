@@ -6468,8 +6468,9 @@ test.describe('Homepage', () => {
     const showMore = page.locator('#galleryPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
-    const afterClickTarget = Math.min(initialCount + 20, 48);
-    await expect.poll(() => cards.count()).toBe(afterClickTarget);
+    await expect.poll(() => cards.count()).toBeGreaterThan(initialCount);
+    const afterClickTarget = await cards.count();
+    expect(afterClickTarget).toBeLessThan(60);
     await expect(showMore).toBeHidden();
 
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
@@ -6483,13 +6484,14 @@ test.describe('Homepage', () => {
     });
     await page.waitForTimeout(80);
     await page.mouse.move(720, 640);
-    const afterScrollTarget = Math.min(afterClickTarget + 20, 60);
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      if (await cards.count() >= afterScrollTarget) break;
+      if (await cards.count() > afterClickTarget) break;
       await page.mouse.wheel(0, 2400);
       await page.waitForTimeout(140);
     }
-    await expect.poll(() => cards.count()).toBe(afterScrollTarget);
+    await expect.poll(() => cards.count()).toBeGreaterThan(afterClickTarget);
+    const afterScrollTarget = await cards.count();
+    expect(afterScrollTarget).toBeLessThan(60);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
     expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
@@ -6567,8 +6569,9 @@ test.describe('Homepage', () => {
     const showMore = page.locator('#videoPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
-    const afterClickTarget = Math.min(initialCount + 20, 48);
-    await expect.poll(() => cards.count()).toBe(afterClickTarget);
+    await expect.poll(() => cards.count()).toBeGreaterThan(initialCount);
+    const afterClickTarget = await cards.count();
+    expect(afterClickTarget).toBeLessThan(60);
     await expect(showMore).toBeHidden();
 
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
@@ -6582,13 +6585,14 @@ test.describe('Homepage', () => {
     });
     await page.waitForTimeout(80);
     await page.mouse.move(720, 640);
-    const afterScrollTarget = Math.min(afterClickTarget + 20, 60);
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      if (await cards.count() >= afterScrollTarget) break;
+      if (await cards.count() > afterClickTarget) break;
       await page.mouse.wheel(0, 2400);
       await page.waitForTimeout(140);
     }
-    await expect.poll(() => cards.count()).toBe(afterScrollTarget);
+    await expect.poll(() => cards.count()).toBeGreaterThan(afterClickTarget);
+    const afterScrollTarget = await cards.count();
+    expect(afterScrollTarget).toBeLessThan(60);
 
     const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
     expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
@@ -7227,7 +7231,7 @@ test.describe('Homepage', () => {
       { w: 380, h: 580 },
       { w: 700, h: 430 },
     ];
-    const mempics = Array.from({ length: 30 }, (_, index) => {
+    const mempics = Array.from({ length: 60 }, (_, index) => {
       const size = dimensions[index % dimensions.length];
       const id = `large-wall-mempic-${index + 1}`;
       return {
@@ -7242,7 +7246,7 @@ test.describe('Homepage', () => {
         full: { url: `/api/gallery/mempics/${id}/file` },
       };
     });
-    const memvids = Array.from({ length: 30 }, (_, index) => {
+    const memvids = Array.from({ length: 60 }, (_, index) => {
       const size = dimensions[(index + 3) % dimensions.length];
       const id = `large-wall-memvid-${index + 1}`;
       return {
@@ -7256,7 +7260,7 @@ test.describe('Homepage', () => {
         poster: { url: `/api/gallery/memvids/${id}/poster`, w: size.w, h: size.h },
       };
     });
-    const memtracks = Array.from({ length: 18 }, (_, index) => {
+    const memtracks = Array.from({ length: 60 }, (_, index) => {
       const id = `large-wall-memtrack-${index + 1}`;
       return {
         id,
@@ -7358,11 +7362,14 @@ test.describe('Homepage', () => {
       await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
       await waitForWideColumnCount('#galleryGrid', '--bitbi-public-gallery-column-count');
       const gallery = await page.evaluate(() => {
+        const grid = document.getElementById('galleryGrid');
+        const gridRect = grid.getBoundingClientRect();
+        const style = window.getComputedStyle(grid);
         const rects = Array.from(document.querySelectorAll('#galleryGrid .gallery-item:not(.locked-area)'))
           .filter((node) => node.offsetParent !== null)
           .map((node) => {
             const rect = node.getBoundingClientRect();
-            return { left: rect.left, width: rect.width };
+            return { left: rect.left, right: rect.right, width: rect.width };
           });
         const columns = [];
         rects.forEach((rect) => {
@@ -7375,6 +7382,8 @@ test.describe('Homepage', () => {
           renderedCount: rects.length,
           columnCount: columns.length,
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+          gap: Number.parseFloat(style.columnGap) || 0,
+          rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
       });
 
@@ -7382,11 +7391,14 @@ test.describe('Homepage', () => {
       await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
       await waitForWideColumnCount('#videoGrid', '--bitbi-public-video-column-count');
       const video = await page.evaluate(() => {
+        const grid = document.getElementById('videoGrid');
+        const gridRect = grid.getBoundingClientRect();
+        const style = window.getComputedStyle(grid);
         const rects = Array.from(document.querySelectorAll('#videoGrid .video-card'))
           .filter((node) => node.offsetParent !== null)
           .map((node) => {
             const rect = node.getBoundingClientRect();
-            return { left: rect.left, width: rect.width };
+            return { left: rect.left, right: rect.right, width: rect.width };
           });
         const columns = [];
         rects.forEach((rect) => {
@@ -7399,6 +7411,8 @@ test.describe('Homepage', () => {
           renderedCount: rects.length,
           columnCount: columns.length,
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+          gap: Number.parseFloat(style.columnGap) || 0,
+          rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
       });
 
@@ -7407,6 +7421,9 @@ test.describe('Homepage', () => {
       await waitForSoundWallReady();
       const rest = await page.evaluate(() => {
         const summarizeRows = (selector) => {
+          const grid = document.getElementById('soundLabTracks');
+          const gridRect = grid.getBoundingClientRect();
+          const style = window.getComputedStyle(grid);
           const rects = Array.from(document.querySelectorAll(selector))
             .filter((node) => node.offsetParent !== null)
             .map((node) => {
@@ -7427,6 +7444,8 @@ test.describe('Homepage', () => {
             renderedCount: rects.length,
             firstRowCount: rows[0]?.rects.length || 0,
             averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+            gap: Number.parseFloat(style.columnGap || style.gap) || 0,
+            rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.left + rect.width)),
           };
         };
         const heroModule = Array.from(document.querySelectorAll('.hero__models-cta'))
@@ -7452,13 +7471,16 @@ test.describe('Homepage', () => {
     expect(large.gallery.renderedCount).toBeGreaterThan(normal.gallery.renderedCount);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
     expect(large.gallery.averageWidth).toBeGreaterThanOrEqual(normal.gallery.averageWidth * 0.78);
+    expect(large.gallery.rightUnused).toBeLessThanOrEqual(large.gallery.averageWidth + (large.gallery.gap * 2) + 2);
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThan(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
     expect(large.video.averageWidth).toBeGreaterThanOrEqual(normal.video.averageWidth * 0.78);
+    expect(large.video.rightUnused).toBeLessThanOrEqual(large.video.averageWidth + (large.video.gap * 2) + 2);
     expect(large.sound.firstRowCount).toBeGreaterThan(normal.sound.firstRowCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
     expect(large.sound.averageWidth).toBeGreaterThanOrEqual(normal.sound.averageWidth * 0.88);
+    expect(large.sound.rightUnused).toBeLessThanOrEqual(large.sound.averageWidth + (large.sound.gap * 2) + 2);
     expect(large.heroModuleWidth).toBeGreaterThan(0);
     expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.15);
     expect(large.overflowX).toBeLessThanOrEqual(2);

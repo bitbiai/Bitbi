@@ -187,6 +187,8 @@
         }
 
         #galleryExplore {
+            inline-size: 100%;
+            max-inline-size: 100%;
             margin-block-start: calc(var(--space-2) * -1);
         }
 
@@ -2651,6 +2653,8 @@
         }
 
         #videoExplore {
+            inline-size: 100%;
+            max-inline-size: 100%;
             margin-block-start: calc(var(--space-2) * -1);
         }
 

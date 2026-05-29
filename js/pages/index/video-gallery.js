@@ -30,7 +30,9 @@ const TABLET_DESKTOP_LAYOUT_MEDIA = [
 ].join(', ');
 const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOUT_MEDIA}`;
 const WIDE_INITIAL_MEMVIDS = 10;
-const WIDE_MEMVIDS_BATCH = 20;
+const WIDE_MEMVIDS_BATCH = 12;
+const WIDE_INITIAL_ROWS = 3;
+const WIDE_REVEAL_ROWS = 2;
 const WIDE_SCROLL_PRELOAD_PX = 720;
 const WIDE_COLUMN_FALLBACK_PX = 216;
 // Small non-zero intent delay avoids accidental Stream minute usage across dense grids.
@@ -64,6 +66,7 @@ export function initVideoGallery() {
     let memvidsLastRevealScrollY = Number.NaN;
     let memvidsScrollSentinelNeedsReset = false;
     let memvidsResizeObserver = null;
+    let memvidsStageObserver = null;
     let memvidsResizeFrame = 0;
     let activeHoverPreview = null;
 
@@ -161,11 +164,11 @@ export function initVideoGallery() {
     }
 
     function getWideMemvidsInitialLimit() {
-        return Math.max(WIDE_INITIAL_MEMVIDS, syncWideColumnCount() * 2);
+        return Math.max(WIDE_INITIAL_MEMVIDS, syncWideColumnCount() * WIDE_INITIAL_ROWS);
     }
 
     function getWideMemvidsBatchSize() {
-        return Math.max(WIDE_MEMVIDS_BATCH, syncWideColumnCount() * 2);
+        return Math.max(WIDE_MEMVIDS_BATCH, syncWideColumnCount() * WIDE_REVEAL_ROWS);
     }
 
     function syncMemvidsWideLimitForLayout() {
@@ -1081,6 +1084,7 @@ export function initVideoGallery() {
         stopActiveHoverPreview();
         deck.destroy();
         if (memvidsResizeObserver) { memvidsResizeObserver.disconnect(); memvidsResizeObserver = null; }
+        if (memvidsStageObserver) { memvidsStageObserver.disconnect(); memvidsStageObserver = null; }
         window.removeEventListener('resize', scheduleMemvidsWideLimitSync);
         window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
         window.clearTimeout(memvidsScrollBatchSettlingTimer);
@@ -1129,6 +1133,15 @@ export function initVideoGallery() {
     } else {
         window.addEventListener('resize', scheduleMemvidsWideLimitSync, { passive: true });
     }
+    const categoryStage = document.getElementById('homeCategories');
+    if (categoryStage && 'MutationObserver' in window) {
+        memvidsStageObserver = new MutationObserver(scheduleMemvidsWideLimitSync);
+        memvidsStageObserver.observe(categoryStage, {
+            attributes: true,
+            attributeFilter: ['class', 'data-active-category', 'data-stage-mode'],
+        });
+    }
+    document.fonts?.ready?.then(scheduleMemvidsWideLimitSync).catch(() => {});
 
     render();
 }
