@@ -966,6 +966,7 @@ export async function handleAdmin(ctx) {
     (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/backfill" && method === "POST") ||
     // route-policy: admin.homepage.hero-videos.memvid-stream-previews.run
     (pathname === "/api/admin/homepage/hero-videos/memvid-stream-previews/run" && method === "POST") ||
+    (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "GET") ||
     // route-policy: admin.homepage.hero-videos.derivatives.create
     (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "POST")
   ) {
@@ -989,6 +990,10 @@ export async function handleAdmin(ctx) {
   const homepageHeroVideoDerivativeRetryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)\/retry$/);
   // route-policy: admin.homepage.hero-videos.derivatives.retry
   if (homepageHeroVideoDerivativeRetryMatch && method === "POST") {
+    return handleAdminHomepageHeroVideos(ctx);
+  }
+  const homepageHeroVideoDerivativeDetailMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)$/);
+  if (homepageHeroVideoDerivativeDetailMatch && method === "GET") {
     return handleAdminHomepageHeroVideos(ctx);
   }
   const homepageHeroVideoSlotMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/slots\/([^/]+)$/);

@@ -44,6 +44,8 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/admin/ai/video-jobs/job-123", "admin.ai.video-jobs.status"],
   ["GET", "/api/admin/ai/video-jobs/job-123/output", "admin.ai.video-jobs.output"],
   ["POST", "/api/admin/ai/test-video", "admin.ai.test-video-debug"],
+  ["GET", "/api/admin/homepage/hero-videos/derivatives", "admin.homepage.hero-videos.derivatives.list"],
+  ["GET", "/api/admin/homepage/hero-videos/derivatives/hhvd_1234567890abcdef", "admin.homepage.hero-videos.derivatives.detail"],
   ["GET", "/api/admin/data-lifecycle/requests", "admin.data-lifecycle.requests.list"],
   ["POST", "/api/admin/data-lifecycle/requests", "admin.data-lifecycle.requests.create"],
   ["GET", "/api/admin/data-lifecycle/requests/dlr_123", "admin.data-lifecycle.requests.read"],

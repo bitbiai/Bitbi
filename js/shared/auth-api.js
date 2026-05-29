@@ -303,6 +303,30 @@ export function apiAdminHomepageHeroVideoCandidates(source = 'public', { limit, 
     return request('GET', `${path}?${params}`, undefined, { signal });
 }
 
+export function apiAdminHomepageHeroVideoDerivatives({
+    slot,
+    sourceType,
+    sourceAssetId,
+    status,
+    includeUnassigned = true,
+    limit,
+    signal,
+} = {}) {
+    const params = new URLSearchParams();
+    if (slot) params.set('slot', slot);
+    if (sourceType) params.set('source_type', sourceType);
+    if (sourceAssetId) params.set('source_asset_id', sourceAssetId);
+    if (status) params.set('status', status);
+    if (includeUnassigned !== undefined) params.set('include_unassigned', includeUnassigned ? 'true' : 'false');
+    if (limit) params.set('limit', String(limit));
+    const suffix = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/homepage/hero-videos/derivatives${suffix}`, undefined, { signal });
+}
+
+export function apiAdminHomepageHeroVideoDerivative(derivativeId, { signal } = {}) {
+    return request('GET', `/admin/homepage/hero-videos/derivatives/${encodeURIComponent(derivativeId)}`, undefined, { signal });
+}
+
 export function apiAdminCreateHomepageHeroVideoDerivative(payload = {}, { idempotencyKey } = {}) {
     return request('POST', '/admin/homepage/hero-videos/derivatives', payload, {
         headers: { 'Idempotency-Key': idempotencyKey },

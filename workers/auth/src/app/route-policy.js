@@ -1315,6 +1315,16 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "memvid_stream_preview_run_requested" },
     notes: "Requires Admin/MFA in production, same-origin JSON, Idempotency-Key, operator_reason, fail-closed rate limiting, and audit logging. It queues missing public Memvid previews, marks ready previews missing MP4 download metadata for repair, and optionally dispatches the processor workflow without exposing tokens.",
   }),
+  adminRead("admin.homepage.hero-videos.derivatives.list", "/api/admin/homepage/hero-videos/derivatives", "homepage", {
+    config: ["DB"],
+    rateLimit: { noneReason: "Read-only Admin derivative recovery listing. The response is bounded by limit and never returns R2 keys, source file URLs, processor URLs, or secrets." },
+    notes: "Lists recent Homepage Hero derivative records, including completed unassigned derivatives, so Admins can recover asynchronous processor output without rerunning conversion.",
+  }),
+  adminRead("admin.homepage.hero-videos.derivatives.detail", "/api/admin/homepage/hero-videos/derivatives/:id", "homepage", {
+    config: ["DB"],
+    rateLimit: { noneReason: "Read-only Admin derivative detail lookup used for bounded status polling after a conversion job is queued." },
+    notes: "Returns safe derivative metadata only. It does not expose R2 keys, private source URLs, internal processor endpoints, or secrets.",
+  }),
   adminJsonWrite("admin.homepage.hero-videos.derivatives.create", "POST", "/api/admin/homepage/hero-videos/derivatives", "homepage", "adminJson", "admin-action-ip", {
     config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
     audit: { event: "homepage_hero_video_derivative_requested" },

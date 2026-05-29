@@ -225,6 +225,19 @@ function normalizeCandidateLimit(value) {
   return Math.max(1, Math.min(MAX_CANDIDATE_LIMIT, parsed));
 }
 
+function normalizeDerivativeListLimit(value) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (!Number.isFinite(parsed)) return 20;
+  return Math.max(1, Math.min(100, parsed));
+}
+
+function normalizeDerivativeStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (!status) return null;
+  if (!["queued", "processing", "succeeded", "failed"].includes(status)) return null;
+  return status;
+}
+
 function idempotencyKeyOrResponse(request, message = "Idempotency-Key is required for homepage hero video changes.") {
   const key = String(request.headers.get("Idempotency-Key") || "").trim();
   if (!key) {
@@ -266,6 +279,7 @@ function serializeDerivative(row) {
     provider: row.provider,
     status: row.status,
     version: row.version || null,
+    file_mime_type: row.file_mime_type || null,
     mime_type: row.file_mime_type || null,
     poster_mime_type: row.poster_mime_type || null,
     width: row.width ?? null,
@@ -285,6 +299,15 @@ function serializeDerivative(row) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     completed_at: row.completed_at || null,
+  };
+}
+
+function serializeAdminDerivative(row) {
+  if (!row) return null;
+  return {
+    ...serializeDerivative(row),
+    assigned_slot: row.assigned_slot || null,
+    is_assigned: Boolean(row.assigned_slot),
   };
 }
 
@@ -599,6 +622,116 @@ async function getDerivativeById(env, derivativeId) {
      FROM homepage_hero_video_derivatives
      WHERE id = ?`
   ).bind(derivativeId).first();
+}
+
+async function listAdminDerivatives(env, {
+  slot = null,
+  sourceType = null,
+  sourceAssetId = null,
+  status = null,
+  includeUnassigned = true,
+  limit = 20,
+} = {}) {
+  const where = [];
+  const bindings = [];
+  if (slot) {
+    where.push("d.slot = ?");
+    bindings.push(slot);
+  }
+  if (sourceType) {
+    where.push("d.source_type = ?");
+    bindings.push(sourceType);
+  }
+  if (sourceAssetId) {
+    where.push("d.source_asset_id = ?");
+    bindings.push(sourceAssetId);
+  }
+  if (status) {
+    where.push("d.status = ?");
+    bindings.push(status);
+  }
+  if (!includeUnassigned) {
+    where.push("slots.slot IS NOT NULL");
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const rows = await env.DB.prepare(
+    `SELECT d.id,
+            d.slot,
+            d.source_type,
+            d.source_asset_id,
+            d.source_user_id,
+            d.source_title,
+            d.provider,
+            d.status,
+            d.version,
+            d.file_mime_type,
+            d.poster_mime_type,
+            d.width,
+            d.height,
+            d.duration_seconds,
+            d.fps,
+            d.size_bytes,
+            d.poster_size_bytes,
+            d.original_size_bytes,
+            d.original_mime_type,
+            d.source_fingerprint,
+            d.target_preset_json,
+            d.error_code,
+            d.error_message,
+            d.processing_started_at,
+            d.processing_completed_at,
+            d.created_at,
+            d.updated_at,
+            d.completed_at,
+            slots.slot AS assigned_slot
+     FROM homepage_hero_video_derivatives d
+     LEFT JOIN homepage_hero_video_slots slots ON slots.derivative_id = d.id
+     ${whereSql}
+     ORDER BY COALESCE(d.completed_at, d.processing_completed_at, d.updated_at, d.created_at) DESC,
+              d.created_at DESC,
+              d.id DESC
+     LIMIT ?`
+  ).bind(...bindings, limit).all();
+  return (rows.results || []).map(serializeAdminDerivative);
+}
+
+async function getAdminDerivativeDetail(env, derivativeId) {
+  const row = await env.DB.prepare(
+    `SELECT d.id,
+            d.slot,
+            d.source_type,
+            d.source_asset_id,
+            d.source_user_id,
+            d.source_title,
+            d.provider,
+            d.status,
+            d.version,
+            d.file_mime_type,
+            d.poster_mime_type,
+            d.width,
+            d.height,
+            d.duration_seconds,
+            d.fps,
+            d.size_bytes,
+            d.poster_size_bytes,
+            d.original_size_bytes,
+            d.original_mime_type,
+            d.source_fingerprint,
+            d.target_preset_json,
+            d.error_code,
+            d.error_message,
+            d.processing_started_at,
+            d.processing_completed_at,
+            d.created_at,
+            d.updated_at,
+            d.completed_at,
+            slots.slot AS assigned_slot
+     FROM homepage_hero_video_derivatives d
+     LEFT JOIN homepage_hero_video_slots slots ON slots.derivative_id = d.id
+     WHERE d.id = ?
+     LIMIT 1`
+  ).bind(derivativeId).first();
+  return serializeAdminDerivative(row);
 }
 
 async function getDerivativeByIdempotency(env, idempotencyKeyHash) {
@@ -1417,6 +1550,108 @@ async function handleAdminCurrent(ctx) {
     if (error instanceof VideoDeliverySettingsError) {
       return json({ ok: false, error: error.message, code: error.code, fields: error.fields }, { status: error.status || 400 });
     }
+    if (isMissingHomepageHeroTableError(error)) {
+      return json(
+        {
+          ok: false,
+          error: "Homepage hero video configuration migration is not applied.",
+          code: "homepage_hero_video_schema_missing",
+        },
+        { status: 503 }
+      );
+    }
+    throw error;
+  }
+}
+
+async function handleAdminListDerivatives(ctx) {
+  const { request, env, isSecure, correlationId } = ctx;
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
+  if (result instanceof Response) return result;
+
+  const url = new URL(request.url);
+  const slot = url.searchParams.has("slot") ? normalizeSlot(url.searchParams.get("slot")) : null;
+  const sourceType = url.searchParams.has("source_type") ? normalizeSourceType(url.searchParams.get("source_type")) : null;
+  const sourceAssetId = url.searchParams.has("source_asset_id") ? normalizeAssetId(url.searchParams.get("source_asset_id")) : null;
+  const status = url.searchParams.has("status") ? normalizeDerivativeStatus(url.searchParams.get("status")) : null;
+  const includeUnassigned = url.searchParams.get("include_unassigned") !== "false";
+  const limit = normalizeDerivativeListLimit(url.searchParams.get("limit"));
+
+  if (url.searchParams.has("slot") && !slot) {
+    return json({ ok: false, error: "Invalid homepage hero video slot.", code: "invalid_slot" }, { status: 400 });
+  }
+  if (url.searchParams.has("source_type") && !sourceType) {
+    return json({ ok: false, error: "Invalid hero video source type.", code: "invalid_source_type" }, { status: 400 });
+  }
+  if (url.searchParams.has("source_asset_id") && !sourceAssetId) {
+    return json({ ok: false, error: "Invalid source asset ID.", code: "invalid_source_asset" }, { status: 400 });
+  }
+  if (url.searchParams.has("status") && !status) {
+    return json({ ok: false, error: "Invalid derivative status.", code: "invalid_derivative_status" }, { status: 400 });
+  }
+
+  try {
+    const derivatives = await listAdminDerivatives(env, {
+      slot,
+      sourceType,
+      sourceAssetId,
+      status,
+      includeUnassigned,
+      limit,
+    });
+    return json({
+      ok: true,
+      data: {
+        derivatives,
+        filters: {
+          slot,
+          source_type: sourceType,
+          source_asset_id: sourceAssetId,
+          status,
+          include_unassigned: includeUnassigned,
+          limit,
+        },
+      },
+    }, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (error) {
+    if (isMissingHomepageHeroTableError(error)) {
+      return json(
+        {
+          ok: false,
+          error: "Homepage hero video configuration migration is not applied.",
+          code: "homepage_hero_video_schema_missing",
+        },
+        { status: 503 }
+      );
+    }
+    throw error;
+  }
+}
+
+async function handleAdminDerivativeDetail(ctx, derivativeIdFromPath) {
+  const { request, env, isSecure, correlationId } = ctx;
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
+  if (result instanceof Response) return result;
+
+  const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
+  if (!derivativeId) {
+    return json({ ok: false, error: "Invalid derivative ID.", code: "invalid_derivative_id" }, { status: 400 });
+  }
+
+  try {
+    const derivative = await getAdminDerivativeDetail(env, derivativeId);
+    if (!derivative) {
+      return json({ ok: false, error: "Derivative not found.", code: "derivative_not_found" }, { status: 404 });
+    }
+    return json({
+      ok: true,
+      data: { derivative },
+    }, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (error) {
     if (isMissingHomepageHeroTableError(error)) {
       return json(
         {
@@ -3401,9 +3636,20 @@ export async function handleAdminHomepageHeroVideos(ctx) {
     return handleAdminMemvidStreamPreviewRun(ctx);
   }
 
+  // route-policy: admin.homepage.hero-videos.derivatives.list
+  if (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "GET") {
+    return handleAdminListDerivatives(ctx);
+  }
+
   // route-policy: admin.homepage.hero-videos.derivatives.create
   if (pathname === "/api/admin/homepage/hero-videos/derivatives" && method === "POST") {
     return handleCreateDerivative(ctx);
+  }
+
+  const derivativeDetailMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)$/);
+  // route-policy: admin.homepage.hero-videos.derivatives.detail
+  if (derivativeDetailMatch && method === "GET") {
+    return handleAdminDerivativeDetail(ctx, derivativeDetailMatch[1]);
   }
 
   const retryMatch = pathname.match(/^\/api\/admin\/homepage\/hero-videos\/derivatives\/([^/]+)\/retry$/);

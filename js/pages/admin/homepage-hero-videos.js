@@ -1,7 +1,10 @@
 import {
     apiAdminCreateHomepageHeroVideoDerivative,
+    apiAdminHomepageHeroVideoDerivative,
     apiAdminHomepageHeroVideoCandidates,
+    apiAdminHomepageHeroVideoDerivatives,
     apiAdminHomepageHeroVideos,
+    apiAdminRetryHomepageHeroVideoDerivative,
     apiAdminRetryHomepageHeroVideoPoster,
     apiAdminRunMemvidStreamPreviews,
     apiAdminUpdateHomepageHeroVideoFeatureSwitch,
@@ -28,6 +31,7 @@ const FEATURE_LABELS = {
     memvid_stream_previews: 'Memvid Stream previews',
     memvid_stream_preview_autoplay: 'Memvid hover autoplay',
 };
+const DERIVATIVE_POLL_INTERVAL_MS = 4000;
 
 function el(tag, className, text = null) {
     const node = document.createElement(tag);
@@ -60,6 +64,42 @@ function formatCompressionRatio(originalBytes, derivativeBytes) {
         return 'Not recorded';
     }
     return `${Math.max(1, Math.round((original / derivative) * 10) / 10)}x smaller`;
+}
+
+function stableStringify(value) {
+    if (value === null || value === undefined || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+}
+
+function normalizeCandidateSourceType(value) {
+    return value === 'admin_asset' ? 'admin-assets' : value;
+}
+
+function derivativeMatchesCandidate(derivative, candidate) {
+    if (!derivative || !candidate) return false;
+    return derivative.source_asset_id === candidate.source_asset_id
+        && normalizeCandidateSourceType(derivative.source_type) === normalizeCandidateSourceType(candidate.source_type);
+}
+
+function derivativeMatchesCurrentPreset(derivative, presetStatus) {
+    if (!derivative?.target_preset || !presetStatus?.preset) return true;
+    return stableStringify(derivative.target_preset) === stableStringify(presetStatus.preset);
+}
+
+function isDerivativeTerminal(derivative) {
+    return ['succeeded', 'failed'].includes(String(derivative?.status || '').toLowerCase());
+}
+
+function sortDerivativesForCurrentSelection(derivatives, state) {
+    return [...derivatives].sort((a, b) => {
+        const aSelected = a.slot === state.selectedSlot && derivativeMatchesCandidate(a, state.selectedCandidate) ? 1 : 0;
+        const bSelected = b.slot === state.selectedSlot && derivativeMatchesCandidate(b, state.selectedCandidate) ? 1 : 0;
+        if (aSelected !== bSelected) return bSelected - aSelected;
+        const aTime = Date.parse(a.completed_at || a.processing_completed_at || a.updated_at || a.created_at || '') || 0;
+        const bTime = Date.parse(b.completed_at || b.processing_completed_at || b.updated_at || b.created_at || '') || 0;
+        return bTime - aTime;
+    });
 }
 
 function formatDate(value, formatDate) {
@@ -269,6 +309,9 @@ export function createHomepageHeroVideosAdmin({
         currentSource: 'public',
         slots: [],
         candidates: [],
+        recentDerivatives: [],
+        derivativePollTimer: 0,
+        derivativePollInFlight: false,
         manualUploadsEnabled: false,
         externalFfmpegEnabled: false,
         featureStatus: null,
@@ -366,7 +409,10 @@ export function createHomepageHeroVideosAdmin({
         shell.append(grid);
 
         const workbench = el('div', 'admin-hero-videos__workbench');
-        workbench.append(renderCandidateBrowser());
+        const workbenchMain = el('div', 'admin-hero-videos__workbench-main');
+        workbenchMain.append(renderCandidateBrowser());
+        workbenchMain.append(renderRecentConversionsPanel());
+        workbench.append(workbenchMain);
         workbench.append(renderAssignmentPanel());
         shell.append(workbench);
 
@@ -548,6 +594,90 @@ export function createHomepageHeroVideosAdmin({
         return browser;
     }
 
+    function renderRecentConversionsPanel() {
+        const panel = el('section', 'admin-hero-videos__recent');
+        panel.setAttribute('aria-labelledby', 'homepageHeroRecentConversionsTitle');
+
+        const top = el('div', 'admin-hero-videos__section-top');
+        top.append(el('h3', 'admin-hero-videos__section-title', 'Recent conversions'));
+        top.querySelector('h3').id = 'homepageHeroRecentConversionsTitle';
+        const refresh = el('button', 'btn-action admin-hero-videos__button--ghost', 'Refresh conversions');
+        refresh.type = 'button';
+        refresh.dataset.action = 'refresh-derivatives';
+        top.append(refresh);
+        panel.append(top);
+        panel.append(el('p', 'admin-shell__desc', 'Completed unassigned derivatives stay recoverable here after the external processor finishes.'));
+
+        const grid = el('div', 'admin-hero-videos__candidate-grid admin-hero-videos__recent-grid');
+        const derivatives = sortDerivativesForCurrentSelection(state.recentDerivatives || [], state);
+        if (!derivatives.length) {
+            grid.append(el('div', 'admin-shell__empty', 'No recent conversion jobs found yet.'));
+        } else {
+            derivatives.forEach((derivative) => {
+                const card = el('article', 'admin-hero-videos__candidate-card admin-hero-videos__derivative-card');
+                card.dataset.derivativeId = derivative.id;
+                if (state.pendingDerivative?.id === derivative.id) {
+                    card.classList.add('admin-hero-videos__candidate-card--selected');
+                }
+                const header = el('div', 'admin-hero-videos__card-top');
+                const title = el('div');
+                title.append(el('h4', 'admin-hero-videos__candidate-title', derivative.source_title || 'Untitled source'));
+                title.append(el('p', 'admin-hero-videos__card-subtitle', `${SLOT_LABELS[derivative.slot] || derivative.slot} · ${derivative.provider || 'provider not recorded'}`));
+                header.append(title);
+                header.append(createStatusBadge(derivative.status || 'unknown'));
+                card.append(header);
+
+                const meta = el('div', 'admin-hero-videos__meta');
+                meta.append(createMetaRow('Original size', formatBytes(derivative.original_size_bytes)));
+                meta.append(createMetaRow('Derivative size', formatBytes(derivative.size_bytes)));
+                meta.append(createMetaRow('Compression', formatCompressionRatio(derivative.original_size_bytes, derivative.size_bytes)));
+                meta.append(createMetaRow('Updated', formatDateValue(derivative.completed_at || derivative.updated_at, formatDate)));
+                meta.append(createMetaRow('Assignment', derivative.is_assigned ? `Assigned to ${SLOT_LABELS[derivative.assigned_slot] || derivative.assigned_slot}` : 'Unassigned'));
+                if (derivative.status === 'failed' && derivative.error_message) {
+                    meta.append(createMetaRow('Error', derivative.error_message));
+                }
+                card.append(meta);
+
+                const actions = el('div', 'admin-hero-videos__actions');
+                const select = el('button', 'btn-action admin-hero-videos__button--ghost', 'Select derivative');
+                select.type = 'button';
+                select.dataset.action = 'select-derivative';
+                select.dataset.derivativeId = derivative.id;
+                actions.append(select);
+
+                const canAssign = derivative.status === 'succeeded'
+                    && derivative.slot === state.selectedSlot
+                    && !derivative.is_assigned;
+                if (derivative.status === 'succeeded') {
+                    const assign = el('button', 'btn-action', canAssign ? 'Assign this derivative' : (derivative.is_assigned ? `Assigned to ${SLOT_LABELS[derivative.assigned_slot] || derivative.assigned_slot}` : 'Select matching slot to assign'));
+                    assign.type = 'button';
+                    assign.dataset.action = 'assign-derivative';
+                    assign.dataset.derivativeId = derivative.id;
+                    assign.disabled = !canAssign;
+                    actions.append(assign);
+                }
+                if (['queued', 'processing'].includes(String(derivative.status || '').toLowerCase())) {
+                    const poll = el('button', 'btn-action admin-hero-videos__button--ghost', 'Check status');
+                    poll.type = 'button';
+                    poll.dataset.action = 'poll-derivative';
+                    poll.dataset.derivativeId = derivative.id;
+                    actions.append(poll);
+                }
+                if (derivative.status === 'failed') {
+                    const retry = el('button', 'btn-action admin-hero-videos__button--ghost', 'Retry conversion');
+                    retry.type = 'button';
+                    retry.dataset.action = 'retry-derivative';
+                    retry.dataset.derivativeId = derivative.id;
+                    actions.append(retry);
+                }
+                card.append(actions);
+                grid.append(card);
+            });
+        }
+        panel.append(grid);
+        return panel;
+    }
+
     function renderManualUploadPanel() {
         const panel = el('div', 'admin-hero-videos__upload');
         panel.append(el('h4', 'admin-hero-videos__upload-title', 'Manual source upload'));
@@ -672,6 +802,104 @@ export function createHomepageHeroVideosAdmin({
         return panel;
     }
 
+    function upsertRecentDerivative(derivative) {
+        if (!derivative?.id) return;
+        const next = state.recentDerivatives.filter((entry) => entry.id !== derivative.id);
+        next.unshift(derivative);
+        state.recentDerivatives = sortDerivativesForCurrentSelection(next.slice(0, 100), state);
+    }
+
+    function stopDerivativePolling() {
+        if (state.derivativePollTimer) {
+            window.clearInterval(state.derivativePollTimer);
+            state.derivativePollTimer = 0;
+        }
+    }
+
+    async function refreshDerivativeById(derivativeId, { render = true } = {}) {
+        if (!derivativeId || state.derivativePollInFlight) return null;
+        state.derivativePollInFlight = true;
+        try {
+            const res = await apiAdminHomepageHeroVideoDerivative(derivativeId);
+            if (!res.ok) {
+                setStatus(formatApiError?.(res, 'Derivative status could not be refreshed.') || res.error, 'error');
+                return null;
+            }
+            const derivative = res.data?.data?.derivative || null;
+            if (derivative) {
+                upsertRecentDerivative(derivative);
+                if (state.pendingDerivative?.id === derivative.id) {
+                    state.pendingDerivative = derivative;
+                    if (derivative.status === 'succeeded') {
+                        setStatus('Conversion job succeeded. Assign it to the selected slot when ready.', 'success');
+                    } else if (derivative.status === 'failed') {
+                        setStatus('Conversion job failed. Review the error and retry if needed.', 'error');
+                    } else {
+                        setStatus(`Conversion job ${derivative.status || 'queued'}.`, 'neutral');
+                    }
+                }
+                if (isDerivativeTerminal(derivative)) stopDerivativePolling();
+            }
+            return derivative;
+        } finally {
+            state.derivativePollInFlight = false;
+            if (render) renderShell();
+        }
+    }
+
+    function startDerivativePolling(derivativeId, { immediate = false } = {}) {
+        if (!derivativeId) return;
+        stopDerivativePolling();
+        if (immediate) {
+            refreshDerivativeById(derivativeId).catch((error) => {
+                console.warn(error);
+                setStatus('Derivative status could not be refreshed.', 'error');
+                renderShell();
+            });
+        }
+        state.derivativePollTimer = window.setInterval(() => {
+            const section = refs.container?.closest('[hidden]');
+            if (document.visibilityState === 'hidden' || section || !refs.container?.isConnected) return;
+            refreshDerivativeById(derivativeId).catch((error) => {
+                console.warn(error);
+                setStatus('Derivative status could not be refreshed.', 'error');
+                renderShell();
+            });
+        }, DERIVATIVE_POLL_INTERVAL_MS);
+    }
+
+    function findReusableDerivative() {
+        if (!state.selectedCandidate || !state.selectedSlot) return null;
+        const matching = state.recentDerivatives.filter((derivative) => (
+            derivative.slot === state.selectedSlot
+            && derivativeMatchesCandidate(derivative, state.selectedCandidate)
+            && derivativeMatchesCurrentPreset(derivative, state.presetStatus)
+            && !derivative.is_assigned
+        ));
+        return matching.find((derivative) => derivative.status === 'succeeded')
+            || matching.find((derivative) => ['queued', 'processing'].includes(String(derivative.status || '').toLowerCase()))
+            || null;
+    }
+
+    async function loadRecentDerivatives({ render = false } = {}) {
+        const res = await apiAdminHomepageHeroVideoDerivatives({
+            includeUnassigned: true,
+            limit: 50,
+        });
+        if (!res.ok) {
+            state.recentDerivatives = [];
+            setStatus(formatApiError?.(res, 'Recent conversions could not be loaded.') || res.error, 'error');
+            return;
+        }
+        state.recentDerivatives = Array.isArray(res.data?.data?.derivatives) ? res.data.data.derivatives : [];
+        if (state.pendingDerivative?.id) {
+            const match = state.recentDerivatives.find((entry) => entry.id === state.pendingDerivative.id);
+            if (match) state.pendingDerivative = match;
+            if (match && !isDerivativeTerminal(match)) startDerivativePolling(match.id);
+        }
+        if (render) renderShell();
+    }
+
     async function loadCandidates(source = state.currentSource) {
         const res = await apiAdminHomepageHeroVideoCandidates(source, { limit: 24 });
         if (!res.ok) {
@@ -692,6 +920,7 @@ export function createHomepageHeroVideosAdmin({
             const [config] = await Promise.all([
                 apiAdminHomepageHeroVideos(),
                 loadCandidates(state.currentSource),
+                loadRecentDerivatives(),
             ]);
             if (!config.ok) {
                 setStatus(formatApiError?.(config, 'Homepage hero video config could not be loaded.') || config.error, 'error');
@@ -699,6 +928,9 @@ export function createHomepageHeroVideosAdmin({
             }
             state.slots = Array.isArray(config.data?.data?.slots) ? config.data.data.slots : [];
             syncFeatureState(config.data?.data || {});
+            if (state.pendingDerivative?.id) {
+                await refreshDerivativeById(state.pendingDerivative.id, { render: false });
+            }
             setStatus('Homepage hero video configuration loaded.', 'success');
         } finally {
             state.loading = false;
@@ -719,6 +951,22 @@ export function createHomepageHeroVideosAdmin({
             setStatus('Enter an operator reason before converting.', 'error');
             return;
         }
+        await loadRecentDerivatives();
+        const reusable = findReusableDerivative();
+        if (reusable) {
+            state.pendingDerivative = reusable;
+            upsertRecentDerivative(reusable);
+            if (!isDerivativeTerminal(reusable)) {
+                startDerivativePolling(reusable.id, { immediate: true });
+            }
+            const message = reusable.status === 'succeeded'
+                ? 'Existing completed conversion selected. Assign it to the selected slot.'
+                : `Existing ${reusable.status || 'queued'} conversion selected. Status polling is active.`;
+            setStatus(message, reusable.status === 'succeeded' ? 'success' : 'neutral');
+            showToast?.(message, reusable.status === 'succeeded' ? 'success' : 'info');
+            renderShell();
+            return;
+        }
         setStatus('Creating conversion job...');
         const res = await apiAdminCreateHomepageHeroVideoDerivative({
             slot: state.selectedSlot,
@@ -736,9 +984,13 @@ export function createHomepageHeroVideosAdmin({
             return;
         }
         state.pendingDerivative = res.data?.data?.derivative || null;
+        upsertRecentDerivative(state.pendingDerivative);
         const status = state.pendingDerivative?.status || 'queued';
         setStatus(`Conversion job ${status}.`, status === 'succeeded' ? 'success' : 'neutral');
         showToast?.(`Hero video conversion job ${status}.`, status === 'succeeded' ? 'success' : 'info');
+        if (state.pendingDerivative?.id && !isDerivativeTerminal(state.pendingDerivative)) {
+            startDerivativePolling(state.pendingDerivative.id, { immediate: true });
+        }
         await refreshConfigOnly();
     }
 
@@ -828,17 +1080,22 @@ export function createHomepageHeroVideosAdmin({
         await refreshConfigOnly();
     }
 
-    async function assignPending() {
-        if (!state.pendingDerivative || state.pendingDerivative.status !== 'succeeded') return;
+    async function assignDerivative(derivative = state.pendingDerivative) {
+        if (!derivative || derivative.status !== 'succeeded') return;
+        if (derivative.slot !== state.selectedSlot) {
+            setStatus('Select the matching slot before assigning this derivative.', 'error');
+            return;
+        }
         const reason = readReason();
         if (reason.length < 8) {
             setStatus('Enter an operator reason before assigning a derivative.', 'error');
             return;
         }
+        state.pendingDerivative = derivative;
         setStatus('Saving slot assignment...');
         const res = await apiAdminUpdateHomepageHeroVideoSlot(state.selectedSlot, {
             enabled: true,
-            derivative_id: state.pendingDerivative.id,
+            derivative_id: derivative.id,
             operator_reason: reason,
         }, {
             idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-slot'),
@@ -851,8 +1108,38 @@ export function createHomepageHeroVideosAdmin({
         }
         state.slots = Array.isArray(res.data?.data?.slots) ? res.data.data.slots : state.slots;
         state.pendingDerivative = null;
+        await loadRecentDerivatives();
         setStatus('Slot assignment saved.', 'success');
         showToast?.('Homepage hero video slot saved.', 'success');
+        renderShell();
+    }
+
+    async function retryDerivative(derivativeId) {
+        const reason = readReason();
+        if (reason.length < 8) {
+            setStatus('Enter an operator reason before retrying a derivative.', 'error');
+            return;
+        }
+        setStatus('Retrying conversion job...');
+        const res = await apiAdminRetryHomepageHeroVideoDerivative(derivativeId, {
+            operator_reason: reason,
+        }, {
+            idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-derivative-retry'),
+        });
+        if (!res.ok) {
+            const message = formatApiError?.(res, 'Conversion retry could not be queued.') || res.error;
+            setStatus(message, 'error');
+            showToast?.(message, 'error');
+            return;
+        }
+        const derivative = res.data?.data?.derivative || null;
+        if (derivative) {
+            state.pendingDerivative = derivative;
+            upsertRecentDerivative(derivative);
+            startDerivativePolling(derivative.id, { immediate: true });
+        }
+        setStatus('Conversion retry queued.', 'success');
+        showToast?.('Conversion retry queued.', 'success');
         renderShell();
     }
 
@@ -884,10 +1171,16 @@ export function createHomepageHeroVideosAdmin({
     }
 
     async function refreshConfigOnly() {
-        const res = await apiAdminHomepageHeroVideos();
+        const [res] = await Promise.all([
+            apiAdminHomepageHeroVideos(),
+            loadRecentDerivatives(),
+        ]);
         if (res.ok) {
             state.slots = Array.isArray(res.data?.data?.slots) ? res.data.data.slots : state.slots;
             syncFeatureState(res.data?.data || {});
+        }
+        if (state.pendingDerivative?.id) {
+            await refreshDerivativeById(state.pendingDerivative.id, { render: false });
         }
         renderShell();
     }
@@ -1107,6 +1400,39 @@ export function createHomepageHeroVideosAdmin({
             if (action === 'select-candidate') {
                 selectCandidate(target.dataset.assetId, target.dataset.sourceType);
             }
+            if (action === 'refresh-derivatives') {
+                loadRecentDerivatives({ render: true }).catch((error) => {
+                    console.warn(error);
+                    setStatus('Recent conversions could not be refreshed.', 'error');
+                });
+            }
+            if (action === 'select-derivative') {
+                const derivative = state.recentDerivatives.find((entry) => entry.id === target.dataset.derivativeId) || null;
+                state.pendingDerivative = derivative;
+                if (derivative && !isDerivativeTerminal(derivative)) {
+                    startDerivativePolling(derivative.id, { immediate: true });
+                }
+                renderShell();
+            }
+            if (action === 'assign-derivative') {
+                const derivative = state.recentDerivatives.find((entry) => entry.id === target.dataset.derivativeId) || null;
+                assignDerivative(derivative).catch((error) => {
+                    console.warn(error);
+                    setStatus('Slot assignment could not be saved.', 'error');
+                });
+            }
+            if (action === 'poll-derivative') {
+                const derivativeId = target.dataset.derivativeId;
+                const derivative = state.recentDerivatives.find((entry) => entry.id === derivativeId) || null;
+                state.pendingDerivative = derivative || state.pendingDerivative;
+                startDerivativePolling(derivativeId, { immediate: true });
+            }
+            if (action === 'retry-derivative') {
+                retryDerivative(target.dataset.derivativeId).catch((error) => {
+                    console.warn(error);
+                    setStatus('Conversion retry could not be queued.', 'error');
+                });
+            }
             if (action === 'retry-candidate-poster') {
                 retryCandidatePoster(target.dataset.assetId).catch((error) => {
                     console.warn(error);
@@ -1162,7 +1488,7 @@ export function createHomepageHeroVideosAdmin({
                 });
             }
             if (action === 'assign' || action === 'save') {
-                assignPending().catch((error) => {
+                assignDerivative().catch((error) => {
                     console.warn(error);
                     setStatus('Slot assignment could not be saved.', 'error');
                 });

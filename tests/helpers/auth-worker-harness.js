@@ -11231,6 +11231,75 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query.startsWith('SELECT d.id,') && query.includes('FROM homepage_hero_video_derivatives d')) {
+      const mapDerivative = (row) => {
+        const assigned = this.state.homepageHeroVideoSlots.find((slot) => slot.derivative_id === row.id);
+        return {
+          id: row.id,
+          slot: row.slot,
+          source_type: row.source_type,
+          source_asset_id: row.source_asset_id,
+          source_user_id: row.source_user_id ?? null,
+          source_title: row.source_title ?? null,
+          provider: row.provider,
+          status: row.status,
+          version: row.version ?? null,
+          file_mime_type: row.file_mime_type ?? null,
+          poster_mime_type: row.poster_mime_type ?? null,
+          width: row.width ?? null,
+          height: row.height ?? null,
+          duration_seconds: row.duration_seconds ?? null,
+          fps: row.fps ?? null,
+          size_bytes: row.size_bytes ?? null,
+          poster_size_bytes: row.poster_size_bytes ?? null,
+          original_size_bytes: row.original_size_bytes ?? null,
+          original_mime_type: row.original_mime_type ?? null,
+          source_fingerprint: row.source_fingerprint ?? null,
+          target_preset_json: row.target_preset_json ?? '{}',
+          error_code: row.error_code ?? null,
+          error_message: row.error_message ?? null,
+          processing_started_at: row.processing_started_at ?? null,
+          processing_completed_at: row.processing_completed_at ?? null,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          completed_at: row.completed_at ?? null,
+          assigned_slot: assigned?.slot ?? null,
+        };
+      };
+      if (query.includes('WHERE d.id = ?')) {
+        const [derivativeId] = bindings;
+        const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId);
+        return row ? mapDerivative(row) : null;
+      }
+      let index = 0;
+      let rows = this.state.homepageHeroVideoDerivatives.slice();
+      if (query.includes('d.slot = ?')) {
+        const slot = bindings[index++];
+        rows = rows.filter((row) => row.slot === slot);
+      }
+      if (query.includes('d.source_type = ?')) {
+        const sourceType = bindings[index++];
+        rows = rows.filter((row) => row.source_type === sourceType);
+      }
+      if (query.includes('d.source_asset_id = ?')) {
+        const sourceAssetId = bindings[index++];
+        rows = rows.filter((row) => row.source_asset_id === sourceAssetId);
+      }
+      if (query.includes('d.status = ?')) {
+        const status = bindings[index++];
+        rows = rows.filter((row) => row.status === status);
+      }
+      if (query.includes('slots.slot IS NOT NULL')) {
+        rows = rows.filter((row) => this.state.homepageHeroVideoSlots.some((slot) => slot.derivative_id === row.id));
+      }
+      const limit = Number(bindings[bindings.length - 1] || rows.length);
+      rows = rows
+        .sort((a, b) => String(b.completed_at || b.processing_completed_at || b.updated_at || b.created_at || '').localeCompare(String(a.completed_at || a.processing_completed_at || a.updated_at || a.created_at || '')))
+        .slice(0, limit)
+        .map(mapDerivative);
+      return { results: rows };
+    }
+
     if (query.startsWith('SELECT id, slot, source_type, source_asset_id, source_user_id, source_title') && query.includes('FROM homepage_hero_video_derivatives') && query.includes('WHERE id = ?')) {
       const [derivativeId] = bindings;
       return this.state.homepageHeroVideoDerivatives.find((row) => row.id === derivativeId) || null;

@@ -39914,6 +39914,166 @@ test.describe('Worker routes', () => {
     ]));
   });
 
+  test('admin can list and recover completed unassigned homepage hero derivatives without leaking private storage', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-derivative-recovery-admin');
+    const member = createContractUser({ id: 'hero-derivative-recovery-member', role: 'user' });
+    const completedDerivativeId = 'hhvd_aaaaaaaaaaaaaaaa';
+    const assignedDerivativeId = 'hhvd_bbbbbbbbbbbbbbbb';
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      homepageHeroVideoDerivatives: [
+        {
+          id: completedDerivativeId,
+          slot: 'right_top',
+          source_type: 'public',
+          source_asset_id: 'pubrecov1',
+          source_user_id: member.id,
+          source_title: 'Recovered public source',
+          provider: 'external_ffmpeg',
+          status: 'succeeded',
+          version: 'v_recovered_1',
+          file_r2_key: 'homepage-hero/private/file.mp4',
+          poster_r2_key: 'homepage-hero/private/poster.webp',
+          source_r2_key: 'users/private/source.mp4',
+          file_mime_type: 'video/mp4',
+          poster_mime_type: 'image/webp',
+          width: 720,
+          height: 406,
+          duration_seconds: 8,
+          fps: 24,
+          size_bytes: 1800000,
+          poster_size_bytes: 80000,
+          original_size_bytes: 12000000,
+          original_mime_type: 'video/mp4',
+          target_preset_json: JSON.stringify({ format: 'mp4', codec: 'h264', maxWidth: 720, durationSeconds: 8 }),
+          provider_payload_json: JSON.stringify({ internal_source_url: '/api/internal/homepage/hero-videos/jobs/x/source' }),
+          processing_started_at: '2026-05-28T10:00:00.000Z',
+          processing_completed_at: '2026-05-28T10:01:00.000Z',
+          created_at: '2026-05-28T09:59:00.000Z',
+          updated_at: '2026-05-28T10:01:00.000Z',
+          completed_at: '2026-05-28T10:01:00.000Z',
+        },
+        {
+          id: assignedDerivativeId,
+          slot: 'left_top',
+          source_type: 'public',
+          source_asset_id: 'pubrecov2',
+          source_user_id: member.id,
+          source_title: 'Assigned public source',
+          provider: 'external_ffmpeg',
+          status: 'succeeded',
+          version: 'v_assigned_1',
+          file_r2_key: 'homepage-hero/private/assigned.mp4',
+          poster_r2_key: 'homepage-hero/private/assigned.webp',
+          file_mime_type: 'video/mp4',
+          poster_mime_type: 'image/webp',
+          size_bytes: 1600000,
+          poster_size_bytes: 70000,
+          original_size_bytes: 9000000,
+          original_mime_type: 'video/mp4',
+          target_preset_json: '{}',
+          created_at: '2026-05-28T08:00:00.000Z',
+          updated_at: '2026-05-28T08:01:00.000Z',
+          completed_at: '2026-05-28T08:01:00.000Z',
+        },
+      ],
+      homepageHeroVideoSlots: [{
+        slot: 'left_top',
+        display_order: 30,
+        enabled: 1,
+        derivative_id: assignedDerivativeId,
+        source_type: 'public',
+        source_asset_id: 'pubrecov2',
+        source_user_id: member.id,
+        title: 'Assigned public source',
+        updated_at: '2026-05-28T08:02:00.000Z',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const memberToken = await seedSession(env, member.id);
+
+    const deniedRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives?include_unassigned=true', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(deniedRes.status).toBe(403);
+
+    const listRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/derivatives?include_unassigned=true&limit=20', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    const completed = listBody.data.derivatives.find((row) => row.id === completedDerivativeId);
+    const assigned = listBody.data.derivatives.find((row) => row.id === assignedDerivativeId);
+    expect(completed).toMatchObject({
+      status: 'succeeded',
+      is_assigned: false,
+      assigned_slot: null,
+      file_mime_type: 'video/mp4',
+      source_title: 'Recovered public source',
+    });
+    expect(assigned).toMatchObject({
+      is_assigned: true,
+      assigned_slot: 'left_top',
+    });
+    const serializedList = JSON.stringify(listBody);
+    expect(serializedList).not.toContain('r2_key');
+    expect(serializedList).not.toContain('homepage-hero/private');
+    expect(serializedList).not.toContain('/api/internal/');
+
+    const detailRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/homepage/hero-videos/derivatives/${completedDerivativeId}`, 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(detailRes.status).toBe(200);
+    await expect(detailRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        derivative: {
+          id: completedDerivativeId,
+          status: 'succeeded',
+          is_assigned: false,
+          size_bytes: 1800000,
+        },
+      },
+    });
+
+    const assignRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos/slots/right_top', 'PUT', {
+        enabled: true,
+        derivative_id: completedDerivativeId,
+        operator_reason: 'Assign completed unassigned derivative from recovery list.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'homepage-hero-recovered-assign',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(assignRes.status).toBe(200);
+    const assignedBody = await assignRes.json();
+    expect(assignedBody.data.slot).toMatchObject({
+      slot: 'right_top',
+      enabled: true,
+      derivative_id: completedDerivativeId,
+    });
+  });
+
   test('video delivery feature defaults are enabled at Worker level and Admin switches can disable effective behavior', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('video-delivery-switch-admin');

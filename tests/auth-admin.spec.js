@@ -12677,6 +12677,7 @@ test.describe('Admin Control Plane', () => {
     const slotRequests = [];
     const posterRetryRequests = [];
     const streamRunRequests = [];
+    let recentDerivatives = [];
     const featureStatus = {
       features: {
         homepage_hero_external_ffmpeg: {
@@ -12807,15 +12808,34 @@ test.describe('Admin Control Plane', () => {
         },
       });
     });
-    await page.route(/\/api\/admin\/homepage\/hero-videos\/derivatives$/, async (route) => {
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/derivatives(?:\?.*)?$/, async (route) => {
+      if (route.request().method() === 'GET') {
+        await fulfillJson(route, {
+          ok: true,
+          data: {
+            derivatives: recentDerivatives,
+          },
+        });
+        return;
+      }
       derivativeRequests.push({
         idempotencyKey: route.request().headers()['idempotency-key'] || null,
         body: route.request().postDataJSON(),
       });
+      recentDerivatives = [{ ...derivative, is_assigned: false, assigned_slot: null }];
       await fulfillJson(route, {
         ok: true,
         data: { derivative },
       }, 202);
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/derivatives\/hhvd_static_admin_ui_1$/, async (route) => {
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          derivative: recentDerivatives.find((entry) => entry.id === derivative.id)
+            || { ...derivative, is_assigned: false, assigned_slot: null },
+        },
+      });
     });
     await page.route(/\/api\/admin\/homepage\/hero-videos\/uploads\/admin_hero_clip_1\/poster\/retry$/, async (route) => {
       posterRetryRequests.push({
@@ -12884,6 +12904,9 @@ test.describe('Admin Control Plane', () => {
         updated_at: '2026-05-28T10:02:00.000Z',
         derivative,
       };
+      recentDerivatives = recentDerivatives.map((entry) => entry.id === derivative.id
+        ? { ...entry, is_assigned: true, assigned_slot: 'right_top' }
+        : entry);
       await fulfillJson(route, {
         ok: true,
         data: {
@@ -12908,6 +12931,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Video Delivery Controls');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Generate / repair Memvid previews');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Hero Conversion Preset');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Recent conversions');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Queued previews');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Total processor backlog');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Last dispatch status');
@@ -12958,6 +12982,141 @@ test.describe('Admin Control Plane', () => {
       derivative_id: 'hhvd_static_admin_ui_1',
       operator_reason: 'Operator-approved homepage hero conversion',
     });
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Slot assignment saved.');
+    await expect(page.locator('.admin-hero-videos__slot-card[data-slot="right_top"]')).toContainText('Enabled');
+  });
+
+  test('homepage hero admin recovers completed unassigned derivatives after refresh', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, {});
+
+    const slotOrder = ['right_top', 'right_bottom', 'left_top', 'left_bottom'];
+    let slots = slotOrder.map((slot, index) => ({
+      slot,
+      enabled: false,
+      display_order: (index + 1) * 10,
+      derivative_id: null,
+      source_type: null,
+      source_asset_id: null,
+      source_user_id: null,
+      title: null,
+      updated_at: null,
+      derivative: null,
+    }));
+    const derivative = {
+      id: 'hhvd_recovered_static_ui_1',
+      slot: 'right_top',
+      source_type: 'admin_asset',
+      source_asset_id: 'admin_hero_clip_recovered',
+      source_user_id: 'admin-1',
+      source_title: 'Recovered Admin Clip',
+      provider: 'external_ffmpeg',
+      status: 'succeeded',
+      version: 'v1-recovered-ui',
+      file_mime_type: 'video/mp4',
+      poster_mime_type: 'image/webp',
+      size_bytes: 1_400_000,
+      poster_size_bytes: 16_000,
+      original_size_bytes: 4_200_000,
+      original_mime_type: 'video/mp4',
+      target_preset: { format: 'mp4', codec: 'h264', maxWidth: 720, durationSeconds: 8 },
+      created_at: '2026-05-28T11:00:00.000Z',
+      updated_at: '2026-05-28T11:02:00.000Z',
+      completed_at: '2026-05-28T11:02:00.000Z',
+      assigned_slot: null,
+      is_assigned: false,
+    };
+    const featureStatus = {
+      features: {
+        homepage_hero_external_ffmpeg: { effective_enabled: true, admin_enabled: true, worker_enabled: true, provider_configured: true },
+        homepage_hero_manual_uploads: { effective_enabled: true, admin_enabled: true, worker_enabled: true, provider_configured: true },
+        memvid_stream_previews: { effective_enabled: true, admin_enabled: true, worker_enabled: true, provider_configured: true, provider: { missing: [] } },
+        memvid_stream_preview_autoplay: { effective_enabled: true, admin_enabled: true, worker_enabled: true, provider_configured: true },
+      },
+    };
+    const presetStatus = {
+      preset: { format: 'mp4', codec: 'h264', maxWidth: 720, fps: 24, durationSeconds: 8, audio: false, crf: 30, encoderPreset: 'slow', posterWidth: 640 },
+      warnings: [],
+    };
+    const derivativeRequests = [];
+    const slotRequests = [];
+
+    await page.route(/\/api\/admin\/homepage\/hero-videos$/, async (route) => {
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          slots,
+          slot_order: slotOrder,
+          target_preset: presetStatus.preset,
+          preset_status: presetStatus,
+          feature_status: featureStatus,
+          manual_uploads_enabled: true,
+          external_ffmpeg_enabled: true,
+          stream_preview_summary: { queued_count: 0, repair_count: 0, total_backlog_count: 0 },
+          stream_preview_processor_dispatch: { configured: true },
+        },
+      });
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/candidates(?:\?.*)?$/, async (route) => {
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          candidates: [],
+        },
+      });
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/derivatives(?:\?.*)?$/, async (route) => {
+      if (route.request().method() === 'POST') {
+        derivativeRequests.push(route.request().postDataJSON());
+      }
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          derivatives: [derivative],
+        },
+      });
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/slots\/right_top$/, async (route) => {
+      const body = route.request().postDataJSON();
+      slotRequests.push(body);
+      const assigned = { ...derivative, assigned_slot: 'right_top', is_assigned: true };
+      slots = slots.map((slot) => slot.slot === 'right_top'
+        ? {
+            ...slot,
+            enabled: true,
+            derivative_id: assigned.id,
+            source_type: assigned.source_type,
+            source_asset_id: assigned.source_asset_id,
+            source_user_id: assigned.source_user_id,
+            title: assigned.source_title,
+            derivative: assigned,
+          }
+        : slot);
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          slot: slots[0],
+          slots,
+        },
+      });
+    });
+
+    const response = await page.goto('/admin/index.html#homepage-hero-videos');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Recent conversions');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Recovered Admin Clip');
+    await expect(page.getByRole('button', { name: 'Assign this derivative' })).toBeEnabled();
+
+    await page.locator('#homepageHeroVideosAdmin [data-field="reason"]').fill('Assign recovered completed derivative');
+    await page.getByRole('button', { name: 'Assign this derivative' }).click();
+    await expect.poll(() => slotRequests.length).toBe(1);
+    expect(slotRequests[0]).toMatchObject({
+      enabled: true,
+      derivative_id: derivative.id,
+      operator_reason: 'Assign recovered completed derivative',
+    });
+    expect(derivativeRequests).toHaveLength(0);
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Slot assignment saved.');
     await expect(page.locator('.admin-hero-videos__slot-card[data-slot="right_top"]')).toContainText('Enabled');
   });
