@@ -100,30 +100,54 @@ export function initGallery() {
         return Math.min(mempicsVisibleLimit, mempicsState.items.length);
     }
 
-    function parsePixelValue(value, fallback) {
-        const parsed = Number.parseFloat(value);
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    function parseCssLengthToPixels(value, fallback, basisElement = grid) {
+        const text = String(value || '').trim();
+        const parsed = Number.parseFloat(text);
+        if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+        if (text.endsWith('rem')) {
+            const rootStyle = window.getComputedStyle?.(document.documentElement);
+            const rootSize = Number.parseFloat(rootStyle?.fontSize);
+            return parsed * (Number.isFinite(rootSize) && rootSize > 0 ? rootSize : 16);
+        }
+        if (text.endsWith('em')) {
+            const basisStyle = window.getComputedStyle?.(basisElement);
+            const basisSize = Number.parseFloat(basisStyle?.fontSize);
+            return parsed * (Number.isFinite(basisSize) && basisSize > 0 ? basisSize : 16);
+        }
+        return parsed;
     }
 
-    function estimateWideColumnCount(fallbackColumnWidth = WIDE_COLUMN_FALLBACK_PX) {
+    function syncWideColumnCount(fallbackColumnWidth = WIDE_COLUMN_FALLBACK_PX) {
         if (!grid || typeof window.getComputedStyle !== 'function') return 1;
         const rect = grid.getBoundingClientRect();
-        if (!rect.width) return 1;
+        if (!rect.width) {
+            const current = Number.parseInt(grid.style.getPropertyValue('--bitbi-public-gallery-column-count'), 10);
+            return Number.isFinite(current) && current > 0 ? current : 1;
+        }
         const style = window.getComputedStyle(grid);
-        const gap = parsePixelValue(style.columnGap, 10);
-        const columnWidth = parsePixelValue(style.columnWidth, fallbackColumnWidth);
-        return Math.max(1, Math.floor((rect.width + gap) / (columnWidth + gap)));
+        const gap = parseCssLengthToPixels(style.columnGap, 10);
+        const targetColumnWidth = parseCssLengthToPixels(
+            style.getPropertyValue('--bitbi-public-gallery-active-column-width') || style.columnWidth,
+            fallbackColumnWidth,
+        );
+        const nextColumnCount = Math.max(1, Math.floor((rect.width + gap) / (targetColumnWidth + gap)));
+        const currentColumnCount = grid.style.getPropertyValue('--bitbi-public-gallery-column-count');
+        if (currentColumnCount !== String(nextColumnCount)) {
+            grid.style.setProperty('--bitbi-public-gallery-column-count', String(nextColumnCount));
+        }
+        return nextColumnCount;
     }
 
     function getWideMempicsInitialLimit() {
-        return Math.max(WIDE_INITIAL_MEMPICS, estimateWideColumnCount() * 2);
+        return Math.max(WIDE_INITIAL_MEMPICS, syncWideColumnCount() * 2);
     }
 
     function getWideMempicsBatchSize() {
-        return Math.max(WIDE_MEMPICS_BATCH, estimateWideColumnCount() * 2);
+        return Math.max(WIDE_MEMPICS_BATCH, syncWideColumnCount() * 2);
     }
 
     function syncMempicsWideLimitForLayout() {
+        if (isPublicWideLayoutEnabled()) syncWideColumnCount();
         if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || mempicsProgressiveMode || !mempicsState.loaded) return;
         const nextLimit = Math.min(Math.max(mempicsVisibleLimit, getWideMempicsInitialLimit()), mempicsState.items.length);
         if (nextLimit <= mempicsVisibleLimit) return;

@@ -191,9 +191,10 @@
         }
 
         #galleryGrid.grid-gallery {
+            --bitbi-public-gallery-active-column-width: var(--bitbi-public-gallery-column-width);
             display: block;
-            column-width: var(--bitbi-public-gallery-column-width);
-            column-count: auto;
+            column-width: var(--bitbi-public-gallery-active-column-width);
+            column-count: var(--bitbi-public-gallery-column-count, auto);
             column-gap: var(--bitbi-public-media-gap);
             column-fill: balance;
             inline-size: 100%;
@@ -266,13 +267,13 @@
 
     @media (min-width: 768px) and (max-width: 1023px) and (min-height: 700px) {
         #galleryGrid.grid-gallery {
-            column-width: var(--bitbi-public-gallery-column-width-tablet);
+            --bitbi-public-gallery-active-column-width: var(--bitbi-public-gallery-column-width-tablet);
         }
     }
 
     @media (min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px) {
         #galleryGrid.grid-gallery {
-            column-width: var(--bitbi-public-gallery-column-width-tablet);
+            --bitbi-public-gallery-active-column-width: var(--bitbi-public-gallery-column-width-tablet);
         }
     }
 
@@ -2654,9 +2655,10 @@
         }
 
         #videoGrid.grid-video {
+            --bitbi-public-video-active-column-width: var(--bitbi-public-video-column-width);
             display: block;
-            column-width: var(--bitbi-public-video-column-width);
-            column-count: auto;
+            column-width: var(--bitbi-public-video-active-column-width);
+            column-count: var(--bitbi-public-video-column-count, auto);
             column-gap: var(--bitbi-public-media-gap);
             column-fill: balance;
             inline-size: 100%;
@@ -2712,13 +2714,13 @@
 
     @media (min-width: 768px) and (max-width: 1023px) and (min-height: 700px) {
         #videoGrid.grid-video {
-            column-width: var(--bitbi-public-video-column-width-tablet);
+            --bitbi-public-video-active-column-width: var(--bitbi-public-video-column-width-tablet);
         }
     }
 
     @media (min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px) {
         #videoGrid.grid-video {
-            column-width: var(--bitbi-public-video-column-width-tablet);
+            --bitbi-public-video-active-column-width: var(--bitbi-public-video-column-width-tablet);
         }
     }
 
@@ -3326,6 +3328,15 @@
 
     /* --- Desktop Sound Lab Grid --- */
     @media (min-width: 640px) {
+        #homeCategories[data-active-category="sound"] #soundlab > .section__inner {
+            max-inline-size: min(100%, calc(100vw - clamp(1.25rem, 3vw, 3.5rem)));
+        }
+
+        #homeCategories[data-active-category="sound"] #soundLabExplore {
+            inline-size: 100%;
+            max-inline-size: 100%;
+        }
+
         #soundLabTracks {
             display: grid;
             grid-template-columns: repeat(
