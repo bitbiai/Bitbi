@@ -3984,7 +3984,7 @@
     }
 
     .hero--homepage .hero__title-img {
-        width: clamp(281.03px, 55.2032vw, 602.22px);
+        width: clamp(309.133px, 60.72352vw, 662.442px);
     }
 
     .hero__creation-stream {
@@ -4270,31 +4270,33 @@
             vector-effect: non-scaling-stroke;
         }
 
+        .hero__creation-stream-layer--halo {
+            filter: none;
+        }
+
         .hero__creation-stream-halo {
-            opacity: 0.15;
-            animation: heroCreationStreamShimmer 8.6s ease-in-out infinite;
+            /* Keep only a hairline color echo; strands/highlights carry the visible neon arc. */
+            opacity: 0.075;
+            animation: none;
         }
 
         .hero__creation-stream-halo--main {
-            stroke-width: clamp(10px, 1.08vw, 18px);
+            stroke-width: clamp(2.4px, 0.2vw, 3.4px);
         }
 
         .hero__creation-stream-halo--upper {
-            stroke-width: clamp(7px, 0.8vw, 14px);
-            opacity: 0.11;
-            animation-delay: -2.6s;
+            stroke-width: clamp(1.6px, 0.16vw, 2.4px);
+            opacity: 0.055;
         }
 
         .hero__creation-stream-halo--lower {
-            stroke-width: clamp(10px, 1.08vw, 18px);
-            opacity: 0.14;
-            animation-delay: -4s;
+            stroke-width: clamp(2.2px, 0.19vw, 3.2px);
+            opacity: 0.07;
         }
 
         .hero__creation-stream-halo--violet {
-            stroke-width: clamp(7px, 0.8vw, 14px);
-            opacity: 0.11;
-            animation-delay: -1.5s;
+            stroke-width: clamp(1.6px, 0.16vw, 2.5px);
+            opacity: 0.06;
         }
 
         .hero__creation-stream-strand {
@@ -4642,9 +4644,9 @@
 
         .latest-models-video-module__edge-glow-path--halo {
             stroke: url("#latestModelsEdgeGlowGradient");
-            stroke-width: 54px;
-            opacity: 0.74;
-            filter: url("#latestModelsEdgeGlowSoft");
+            stroke-width: 0;
+            opacity: 0;
+            filter: none;
         }
 
         .latest-models-video-module__edge-glow-path--core {
@@ -4663,7 +4665,7 @@
 
         .latest-models-video-module--left .latest-models-video-module__edge-glow-path--halo {
             stroke: url("#latestModelsLeftEdgeGlowGradient");
-            filter: url("#latestModelsLeftEdgeGlowSoft");
+            filter: none;
         }
 
         .latest-models-video-module--left .latest-models-video-module__edge-glow-path--core {

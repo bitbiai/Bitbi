@@ -2399,8 +2399,11 @@ test.describe('Homepage', () => {
           edgeGlowPathD: edgeGlowPathNode?.getAttribute('d') || '',
           leftEdgeGlowPathD: leftEdgeGlowPathNode?.getAttribute('d') || '',
           edgeGlowPathStroke: edgeGlowPathStyle.stroke,
+          edgeGlowHaloFilter: edgeGlowHaloStyle.filter,
           leftEdgeGlowHaloStroke: leftEdgeGlowHaloStyle.stroke,
           leftEdgeGlowHaloFilter: leftEdgeGlowHaloStyle.filter,
+          leftEdgeGlowHaloStrokeWidth: Number.parseFloat(leftEdgeGlowHaloStyle.strokeWidth || '0'),
+          leftEdgeGlowHaloOpacity: Number.parseFloat(leftEdgeGlowHaloStyle.opacity || '0'),
           leftEdgeGlowPathStroke: leftEdgeGlowPathStyle.stroke,
           leftEdgeGlowHighlightStroke: leftEdgeGlowHighlightStyle.stroke,
           edgeGlowFilterX: edgeGlowFilterNode?.getAttribute('x') || '',
@@ -2516,7 +2519,8 @@ test.describe('Homepage', () => {
         expect(layout.leftEdgeGlowHaloStroke).toContain('latestModelsLeftEdgeGlowGradient');
         expect(layout.leftEdgeGlowPathStroke).toContain('latestModelsLeftEdgeGlowGradient');
         expect(layout.leftEdgeGlowHighlightStroke).toContain('latestModelsLeftEdgeHighlightGradient');
-        expect(layout.leftEdgeGlowHaloFilter).toContain('latestModelsLeftEdgeGlowSoft');
+        expect(layout.edgeGlowHaloFilter).toBe('none');
+        expect(layout.leftEdgeGlowHaloFilter).toBe('none');
         expect(layout.edgeGlowFilterX).toBe('-80%');
         expect(layout.edgeGlowFilterWidth).toBe('190%');
         expect(layout.leftEdgeGlowFilterUnits).toBe('userSpaceOnUse');
@@ -2528,8 +2532,10 @@ test.describe('Homepage', () => {
         expect(layout.leftEdgeGlowGradientX2).toBe('80');
         expect(layout.leftEdgeHighlightGradientX1).toBe('90');
         expect(layout.leftEdgeHighlightGradientX2).toBe('80');
-        expect(layout.edgeGlowHaloStrokeWidth).toBeGreaterThanOrEqual(54);
-        expect(layout.edgeGlowHaloOpacity).toBeGreaterThanOrEqual(0.74);
+        expect(layout.edgeGlowHaloStrokeWidth).toBeLessThanOrEqual(0.01);
+        expect(layout.edgeGlowHaloOpacity).toBe(0);
+        expect(layout.leftEdgeGlowHaloStrokeWidth).toBeLessThanOrEqual(0.01);
+        expect(layout.leftEdgeGlowHaloOpacity).toBe(0);
         expect(layout.edgeGlowCoreStrokeWidth).toBeGreaterThanOrEqual(16.8);
         expect(layout.edgeGlowCoreOpacity).toBeGreaterThanOrEqual(0.99);
         expect(layout.edgeGlowHighlightStrokeWidth).toBeGreaterThanOrEqual(6);
@@ -2947,12 +2953,12 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.actionJustifyContent).toBe('center');
     expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
     expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
-    expect(teaserMetrics.titleWidth).toBeGreaterThanOrEqual(600);
-    expect(teaserMetrics.titleWidth).toBeLessThanOrEqual(604);
+    expect(teaserMetrics.titleWidth).toBeGreaterThanOrEqual(660);
+    expect(teaserMetrics.titleWidth).toBeLessThanOrEqual(664);
     expect(teaserMetrics.titleHeight).toBeGreaterThan(320);
     expect(teaserMetrics.titleCenterOffset).toBeLessThanOrEqual(2);
     expect(teaserMetrics.titleHeaderGap).toBeGreaterThanOrEqual(0);
-    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(96);
+    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(60);
     expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(34);
     expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);
     expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
@@ -2988,6 +2994,7 @@ test.describe('Homepage', () => {
         const topSlot = module?.querySelector('[data-latest-models-slot="top"]');
         const bottomSlot = module?.querySelector('[data-latest-models-slot="bottom"]');
         const edgeGlowPath = module?.querySelector('.latest-models-video-module__edge-glow-path--core');
+        const haloLayer = stream?.querySelector('.hero__creation-stream-layer--halo');
         const haloPaths = Array.from(stream?.querySelectorAll('.hero__creation-stream-halo') || []);
         const strandPaths = Array.from(stream?.querySelectorAll('.hero__creation-stream-strand') || []);
         const highlightPaths = Array.from(stream?.querySelectorAll('.hero__creation-stream-highlight') || []);
@@ -3014,6 +3021,7 @@ test.describe('Homepage', () => {
           : null;
         const streamStyle = stream ? window.getComputedStyle(stream) : null;
         const actionsStyle = actions ? window.getComputedStyle(actions) : null;
+        const haloLayerStyle = haloLayer ? window.getComputedStyle(haloLayer) : null;
         const particleLayerStyle = particleLayer ? window.getComputedStyle(particleLayer) : null;
 
         const toScreenPoint = (element, point) => {
@@ -3154,6 +3162,15 @@ test.describe('Homepage', () => {
             },
           ];
         }));
+        const haloMetrics = haloPaths.map((path) => {
+          const style = window.getComputedStyle(path);
+          return {
+            className: path.getAttribute('class') || '',
+            strokeWidth: Number.parseFloat(style.strokeWidth || '0'),
+            opacity: Number.parseFloat(style.opacity || '0'),
+            animationName: style.animationName || '',
+          };
+        });
         const visibleParticleCount = particles.filter((particle) => {
           const style = window.getComputedStyle(particle);
           return style.display !== 'none'
@@ -3212,6 +3229,8 @@ test.describe('Homepage', () => {
           haloPathCount: haloPaths.length,
           strandPathCount: strandPaths.length,
           highlightPathCount: highlightPaths.length,
+          haloLayerFilter: haloLayerStyle?.filter || '',
+          haloMetrics,
           flareCount: flares.length,
           particleCount: particles.length,
           visibleParticleCount,
@@ -3267,6 +3286,12 @@ test.describe('Homepage', () => {
           expect(metrics.haloPathCount, `stream halo path count for ${context}`).toBe(4);
           expect(metrics.strandPathCount, `stream strand path count for ${context}`).toBe(15);
           expect(metrics.highlightPathCount, `stream highlight path count for ${context}`).toBe(7);
+          expect(metrics.haloLayerFilter, `stream halo filter for ${context}`).toBe('none');
+          for (const halo of metrics.haloMetrics) {
+            expect(halo.strokeWidth, `slim halo stroke for ${context} ${halo.className}`).toBeLessThanOrEqual(3.5);
+            expect(halo.opacity, `subtle halo opacity for ${context} ${halo.className}`).toBeLessThanOrEqual(0.08);
+            expect(halo.animationName, `halo animation disabled for ${context} ${halo.className}`).toBe('none');
+          }
           expect(metrics.flareCount, `stream flare count for ${context}`).toBe(3);
           expect(metrics.particleLayerDisplay, `stream particles visible for ${context}`).toBe('none');
           expect(metrics.visibleParticleCount, `stream visible particle count for ${context}`).toBe(0);
