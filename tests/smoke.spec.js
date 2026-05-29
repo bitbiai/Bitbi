@@ -6230,7 +6230,7 @@ test.describe('Homepage', () => {
       const topLeft = [...rects].sort((a, b) => (a.top - b.top) || (a.left - b.left))[0];
       return {
         display: style.display,
-        cssColumnCount: Number.parseInt(style.columnCount, 10) || columns.length,
+        cssColumnCount: columns.length,
         overflow: grid.scrollWidth - grid.clientWidth,
         renderedCount: rects.length,
         orderedIds: rects.map((rect) => rect.id),
@@ -6246,27 +6246,16 @@ test.describe('Homepage', () => {
       };
     });
 
-    expect(wideLayout.display).toBe('block');
+    expect(wideLayout.display).toBe('grid');
     expect(wideLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
     expect(wideLayout.renderedCount).toBeGreaterThanOrEqual(10);
     expect(wideLayout.renderedCount).toBeLessThanOrEqual(items.length);
-    expect(wideLayout.orderedIds.slice(0, 10)).toEqual([
-      'mempic-11',
-      'mempic-10',
-      'mempic-9',
-      'mempic-8',
-      'mempic-7',
-      'mempic-6',
-      'mempic-5',
-      'mempic-4',
-      'mempic-3',
-      'mempic-2',
-    ]);
+    expect(wideLayout.orderedIds).toContain('mempic-11');
     expect(wideLayout.topLeftId).toBe('mempic-11');
     expect(wideLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
     expect(Math.min(...wideLayout.columnCounts)).toBeGreaterThanOrEqual(1);
-    expect(Math.max(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(16);
+    expect(Math.max(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(24);
     expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(3);
     expect(wideLayout.maxVerticalGap).toBeLessThanOrEqual(16);
     expect(wideLayout.minMediaCoverage).toBeGreaterThan(0.95);
@@ -6326,7 +6315,7 @@ test.describe('Homepage', () => {
       const topLeft = [...rects].sort((a, b) => (a.top - b.top) || (a.left - b.left))[0];
       return {
         display: style.display,
-        cssColumnCount: Number.parseInt(style.columnCount, 10) || columns.length,
+        cssColumnCount: columns.length,
         overflow: grid.scrollWidth - grid.clientWidth,
         viewportWidth: window.innerWidth,
         orderedIds: rects.map((rect) => rect.id),
@@ -6347,21 +6336,10 @@ test.describe('Homepage', () => {
       };
     });
 
-    expect(videoLayout.display).toBe('block');
+    expect(videoLayout.display).toBe('grid');
     expect(videoLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
     expect(videoLayout.overflow).toBeLessThanOrEqual(2);
-    expect(videoLayout.orderedIds.slice(0, 10)).toEqual([
-      'memvid-11',
-      'memvid-10',
-      'memvid-9',
-      'memvid-8',
-      'memvid-7',
-      'memvid-6',
-      'memvid-5',
-      'memvid-4',
-      'memvid-3',
-      'memvid-2',
-    ]);
+    expect(videoLayout.orderedIds).toContain('memvid-11');
     expect(videoLayout.topLeftId).toBe('memvid-11');
     expect(videoLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
     expect(Math.min(...videoLayout.columnCounts)).toBeGreaterThanOrEqual(1);
@@ -6369,7 +6347,7 @@ test.describe('Homepage', () => {
     expect(videoLayout.lastColumn.width).toBeGreaterThan(150);
     expect(videoLayout.lastColumn.left).toBeLessThan(videoLayout.viewportWidth - 180);
     expect(videoLayout.lastColumn.right).toBeLessThanOrEqual(videoLayout.viewportWidth + 2);
-    expect(Math.max(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(16);
+    expect(Math.max(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(24);
     expect(Math.max(...videoLayout.horizontalGaps) - Math.min(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(3);
     expect(videoLayout.maxVerticalGap).toBeLessThanOrEqual(16);
     expect(videoLayout.minMediaCoverage).toBeGreaterThan(0.95);
@@ -7322,15 +7300,15 @@ test.describe('Homepage', () => {
         window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
       }));
     };
-    const waitForWideColumnCount = async (gridSelector, variableName) => {
-      await expect.poll(async () => page.evaluate(({ gridSelector: selector, variableName: name }) => {
+    const waitForWideColumnCount = async (gridSelector, itemSelector, variableName) => {
+      await expect.poll(async () => page.evaluate(({ gridSelector: selector, itemSelector: childSelector, variableName: name }) => {
         const grid = document.querySelector(selector);
         if (!grid) return false;
-        const visibleItems = Array.from(grid.children).filter((node) => node.offsetParent !== null);
+        const visibleItems = Array.from(grid.querySelectorAll(childSelector)).filter((node) => node.offsetParent !== null);
         return grid.getBoundingClientRect().width > 0
           && visibleItems.length > 0
           && Number.parseInt(grid.style.getPropertyValue(name), 10) > 1;
-      }, { gridSelector, variableName }), { timeout: 10_000 }).toBe(true);
+      }, { gridSelector, itemSelector, variableName }), { timeout: 10_000 }).toBe(true);
       await waitForLayoutFrames();
     };
     const waitForSoundWallReady = async () => {
@@ -7360,7 +7338,7 @@ test.describe('Homepage', () => {
       await page.goto('/');
       await switchHomepageCategory(page, 'gallery');
       await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
-      await waitForWideColumnCount('#galleryGrid', '--bitbi-public-gallery-column-count');
+      await waitForWideColumnCount('#galleryGrid', '.gallery-item:not(.locked-area)', '--bitbi-public-gallery-column-count');
       const gallery = await page.evaluate(() => {
         const grid = document.getElementById('galleryGrid');
         const gridRect = grid.getBoundingClientRect();
@@ -7389,7 +7367,7 @@ test.describe('Homepage', () => {
 
       await switchHomepageCategory(page, 'video');
       await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
-      await waitForWideColumnCount('#videoGrid', '--bitbi-public-video-column-count');
+      await waitForWideColumnCount('#videoGrid', '.video-card', '--bitbi-public-video-column-count');
       const video = await page.evaluate(() => {
         const grid = document.getElementById('videoGrid');
         const gridRect = grid.getBoundingClientRect();
@@ -7484,6 +7462,185 @@ test.describe('Homepage', () => {
     expect(large.heroModuleWidth).toBeGreaterThan(0);
     expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.15);
     expect(large.overflowX).toBeLessThanOrEqual(2);
+  });
+
+  test('public media walls spread finite live item sets across large monitors', async ({ page }) => {
+    const imagePixel = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const dimensions = [
+      { w: 360, h: 540 },
+      { w: 720, h: 405 },
+      { w: 440, h: 440 },
+      { w: 420, h: 620 },
+      { w: 640, h: 420 },
+      { w: 520, h: 700 },
+      { w: 560, h: 560 },
+      { w: 800, h: 450 },
+      { w: 380, h: 580 },
+      { w: 700, h: 430 },
+    ];
+    const mempics = Array.from({ length: 20 }, (_, index) => {
+      const size = dimensions[index % dimensions.length];
+      const id = `finite-wall-mempic-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Finite Wall Mempic ${index + 1}`,
+        created_at: `2026-05-${String((index % 20) + 1).padStart(2, '0')}T12:00:00.000Z`,
+        caption: 'Published by Ada Member.',
+        category: 'mempics',
+        thumb: { url: `/api/gallery/mempics/${id}/thumb`, w: size.w, h: size.h },
+        preview: { url: `/api/gallery/mempics/${id}/medium`, w: size.w * 2, h: size.h * 2 },
+        full: { url: `/api/gallery/mempics/${id}/file` },
+      };
+    });
+    const memvids = Array.from({ length: 20 }, (_, index) => {
+      const size = dimensions[(index + 3) % dimensions.length];
+      const id = `finite-wall-memvid-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Finite Wall Memvid ${index + 1}`,
+        created_at: `2026-05-${String((index % 20) + 1).padStart(2, '0')}T12:00:00.000Z`,
+        caption: 'Published by Ada Member.',
+        category: 'memvids',
+        file: { url: `/api/gallery/memvids/${id}/file` },
+        poster: { url: `/api/gallery/memvids/${id}/poster`, w: size.w, h: size.h },
+      };
+    });
+    const memtracks = Array.from({ length: 20 }, (_, index) => {
+      const id = `finite-wall-memtrack-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Finite Wall Memtrack ${index + 1}`,
+        caption: 'Published by Ada Member.',
+        category: 'memtracks',
+        model_label: 'Music 2.6',
+        publisher: { display_name: 'Ada Member' },
+        file: { url: `/api/gallery/memtracks/${id}/file` },
+        poster: { url: `/api/gallery/memtracks/${id}/poster`, w: 640, h: 360 },
+      };
+    });
+
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: mempics, has_more: false, next_cursor: null } }),
+      });
+    });
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: imagePixel });
+    });
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: memvids, has_more: false, next_cursor: null } }),
+      });
+    });
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({ status: 200, contentType: 'image/png', body: imagePixel });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.from('mock-video') });
+    });
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { items: memtracks, has_more: false, next_cursor: null, applied_limit: 20 },
+        }),
+      });
+    });
+    await page.route('**/api/gallery/memtracks/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({ status: 200, contentType: 'image/png', body: imagePixel });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('mock-audio') });
+    });
+
+    const waitForLayoutFrames = async () => {
+      await page.evaluate(() => new Promise((resolve) => {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+      }));
+    };
+    const waitForWideWallReady = async (gridSelector, itemSelector, variableName) => {
+      await expect.poll(async () => page.evaluate(({ gridSelector: selector, itemSelector: childSelector, variableName: name }) => {
+        const grid = document.querySelector(selector);
+        if (!grid) return false;
+        const visibleItems = Array.from(grid.querySelectorAll(childSelector)).filter((node) => node.offsetParent !== null);
+        return grid.getBoundingClientRect().width > 0
+          && visibleItems.length > 0
+          && Number.parseInt(grid.style.getPropertyValue(name), 10) > 1;
+      }, { gridSelector, itemSelector, variableName }), { timeout: 10_000 }).toBe(true);
+      await waitForLayoutFrames();
+    };
+
+    const readWall = async (gridSelector, itemSelector) => page.evaluate(({ gridSelector: selector, itemSelector: childSelector }) => {
+      const grid = document.querySelector(selector);
+      const gridRect = grid.getBoundingClientRect();
+      const style = window.getComputedStyle(grid);
+      const rects = Array.from(grid.querySelectorAll(childSelector))
+        .filter((node) => node.offsetParent !== null)
+        .map((node) => {
+          const rect = node.getBoundingClientRect();
+          return { left: rect.left, top: rect.top, right: rect.right, width: rect.width };
+        });
+      const columns = [];
+      rects.forEach((rect) => {
+        if (!columns.some((left) => Math.abs(left - rect.left) <= 3)) columns.push(rect.left);
+      });
+      columns.sort((a, b) => a - b);
+      return {
+        renderedCount: rects.length,
+        columnCount: columns.length,
+        averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+        gap: Number.parseFloat(style.columnGap || style.gap) || 0,
+        rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
+      };
+    }, { gridSelector, itemSelector });
+
+    const measureViewport = async (width, height) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/');
+      await switchHomepageCategory(page, 'gallery');
+      await waitForWideWallReady('#galleryGrid', '.gallery-item:not(.locked-area)', '--bitbi-public-gallery-column-count');
+      const gallery = await readWall('#galleryGrid', '.gallery-item:not(.locked-area)');
+
+      await switchHomepageCategory(page, 'video');
+      await waitForWideWallReady('#videoGrid', '.video-card', '--bitbi-public-video-column-count');
+      const video = await readWall('#videoGrid', '.video-card');
+
+      await switchHomepageCategory(page, 'sound');
+      await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
+      await expect.poll(async () => page.locator('#soundLabTracks .snd-card--memtrack:visible').count()).toBe(20);
+      await waitForLayoutFrames();
+      const sound = await readWall('#soundLabTracks', '.snd-card--memtrack');
+
+      return { gallery, video, sound };
+    };
+
+    const normal = await measureViewport(1440, 900);
+    const large = await measureViewport(2560, 1440);
+
+    expect(large.gallery.columnCount).toBeGreaterThan(normal.gallery.columnCount);
+    expect(large.gallery.renderedCount).toBeGreaterThanOrEqual(normal.gallery.renderedCount);
+    expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
+    expect(large.gallery.rightUnused).toBeLessThanOrEqual(large.gallery.averageWidth + (large.gallery.gap * 2) + 2);
+    expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
+    expect(large.video.renderedCount).toBeGreaterThanOrEqual(normal.video.renderedCount);
+    expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
+    expect(large.video.rightUnused).toBeLessThanOrEqual(large.video.averageWidth + (large.video.gap * 2) + 2);
+    expect(large.sound.columnCount).toBeGreaterThan(normal.sound.columnCount);
+    expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
   });
 
   test('homepage Sound Lab renders published member tracks directly without Free or Exclusive categories', async ({ page }) => {

@@ -194,28 +194,33 @@
 
         #galleryGrid.grid-gallery {
             --bitbi-public-gallery-active-column-width: var(--bitbi-public-gallery-column-width);
-            display: block;
-            column-width: var(--bitbi-public-gallery-active-column-width);
-            column-count: var(--bitbi-public-gallery-column-count, auto);
+            display: grid;
+            grid-template-columns: repeat(var(--bitbi-public-gallery-column-count, 1), minmax(0, var(--bitbi-public-gallery-active-column-width)));
+            align-items: start;
+            justify-content: space-between;
             column-gap: var(--bitbi-public-media-gap);
-            column-fill: balance;
+            row-gap: 0;
             inline-size: 100%;
+        }
+
+        .public-media-wall__column {
+            display: flex;
+            flex-direction: column;
+            gap: var(--bitbi-public-media-gap);
+            min-inline-size: 0;
         }
 
         #galleryGrid .gallery-item {
             position: relative;
-            display: inline-block;
+            display: block;
             inline-size: 100%;
-            margin: 0 0 var(--bitbi-public-media-gap);
+            margin: 0;
             aspect-ratio: var(--gallery-item-aspect, 1.333);
             min-inline-size: 0;
             overflow: hidden;
             border-radius: 0.62rem;
             background: transparent;
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
-            vertical-align: top;
-            break-inside: avoid;
-            page-break-inside: avoid;
         }
 
         #galleryGrid .gallery-item--square {
@@ -2660,24 +2665,22 @@
 
         #videoGrid.grid-video {
             --bitbi-public-video-active-column-width: var(--bitbi-public-video-column-width);
-            display: block;
-            column-width: var(--bitbi-public-video-active-column-width);
-            column-count: var(--bitbi-public-video-column-count, auto);
+            display: grid;
+            grid-template-columns: repeat(var(--bitbi-public-video-column-count, 1), minmax(0, var(--bitbi-public-video-active-column-width)));
+            align-items: start;
+            justify-content: space-between;
             column-gap: var(--bitbi-public-media-gap);
-            column-fill: balance;
+            row-gap: 0;
             inline-size: 100%;
         }
 
         #videoGrid .video-card {
-            display: inline-block;
+            display: block;
             inline-size: 100%;
-            margin: 0 0 var(--bitbi-public-media-gap);
+            margin: 0;
             border-radius: 0.62rem;
             background: transparent;
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
-            vertical-align: top;
-            break-inside: avoid;
-            page-break-inside: avoid;
         }
 
         #videoGrid .video-card--portrait {
@@ -5539,7 +5542,7 @@
         body.home-categories-desktop-stage .site-footer::before {
             content: '';
             display: block;
-            block-size: clamp(16.25rem, 30vh, 23rem);
+            block-size: clamp(20rem, 36vh, 28rem);
         }
 
         body.home-categories-desktop-stage .site-footer::after {

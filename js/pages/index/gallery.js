@@ -16,6 +16,10 @@ import {
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
 import { syncCategoryGhostModels } from './category-ghost-models.js?v=__ASSET_VERSION__';
 import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
+import {
+    renderFixedMediaWallColumns,
+    syncFixedMediaWallColumnCount,
+} from './public-media-wall.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 
@@ -103,57 +107,41 @@ export function initGallery() {
         return Math.min(mempicsVisibleLimit, mempicsState.items.length);
     }
 
-    function parseCssLengthToPixels(value, fallback, basisElement = grid) {
-        const text = String(value || '').trim();
-        const parsed = Number.parseFloat(text);
-        if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-        if (text.endsWith('rem')) {
-            const rootStyle = window.getComputedStyle?.(document.documentElement);
-            const rootSize = Number.parseFloat(rootStyle?.fontSize);
-            return parsed * (Number.isFinite(rootSize) && rootSize > 0 ? rootSize : 16);
-        }
-        if (text.endsWith('em')) {
-            const basisStyle = window.getComputedStyle?.(basisElement);
-            const basisSize = Number.parseFloat(basisStyle?.fontSize);
-            return parsed * (Number.isFinite(basisSize) && basisSize > 0 ? basisSize : 16);
-        }
-        return parsed;
+    function syncWideColumnCount(itemCount = 0) {
+        return syncFixedMediaWallColumnCount(grid, {
+            countProperty: '--bitbi-public-gallery-column-count',
+            targetWidthProperty: '--bitbi-public-gallery-active-column-width',
+            fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
+            itemCount,
+        });
     }
 
-    function syncWideColumnCount(fallbackColumnWidth = WIDE_COLUMN_FALLBACK_PX) {
-        if (!grid || typeof window.getComputedStyle !== 'function') return 1;
-        const rect = grid.getBoundingClientRect();
-        if (!rect.width) {
-            const current = Number.parseInt(grid.style.getPropertyValue('--bitbi-public-gallery-column-count'), 10);
-            return Number.isFinite(current) && current > 0 ? current : 1;
-        }
-        const style = window.getComputedStyle(grid);
-        const gap = parseCssLengthToPixels(style.columnGap, 10);
-        const targetColumnWidth = parseCssLengthToPixels(
-            style.getPropertyValue('--bitbi-public-gallery-active-column-width') || style.columnWidth,
-            fallbackColumnWidth,
-        );
-        const nextColumnCount = Math.max(1, Math.floor((rect.width + gap) / (targetColumnWidth + gap)));
-        const currentColumnCount = grid.style.getPropertyValue('--bitbi-public-gallery-column-count');
-        if (currentColumnCount !== String(nextColumnCount)) {
-            grid.style.setProperty('--bitbi-public-gallery-column-count', String(nextColumnCount));
-        }
-        return nextColumnCount;
+    function getWideColumnCapacity() {
+        return syncFixedMediaWallColumnCount(grid, {
+            countProperty: '',
+            targetWidthProperty: '--bitbi-public-gallery-active-column-width',
+            fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
+        });
     }
 
     function getWideMempicsInitialLimit() {
-        return Math.max(WIDE_INITIAL_MEMPICS, syncWideColumnCount() * WIDE_INITIAL_ROWS);
+        return Math.max(WIDE_INITIAL_MEMPICS, getWideColumnCapacity() * WIDE_INITIAL_ROWS);
     }
 
     function getWideMempicsBatchSize() {
-        return Math.max(WIDE_MEMPICS_BATCH, syncWideColumnCount() * WIDE_REVEAL_ROWS);
+        return Math.max(WIDE_MEMPICS_BATCH, getWideColumnCapacity() * WIDE_REVEAL_ROWS);
     }
 
     function syncMempicsWideLimitForLayout() {
-        if (isPublicWideLayoutEnabled()) syncWideColumnCount();
+        const previousColumnCount = grid.style.getPropertyValue('--bitbi-public-gallery-column-count');
+        const visibleCount = getVisibleMempicsCount();
+        const nextColumnCount = isPublicWideLayoutEnabled() ? syncWideColumnCount(visibleCount) : 1;
+        const columnCountChanged = isPublicWideLayoutEnabled()
+            && !!previousColumnCount
+            && previousColumnCount !== String(nextColumnCount);
         if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || mempicsProgressiveMode || !mempicsState.loaded) return;
         const nextLimit = Math.min(Math.max(mempicsVisibleLimit, getWideMempicsInitialLimit()), mempicsState.items.length);
-        if (nextLimit <= mempicsVisibleLimit) return;
+        if (nextLimit <= mempicsVisibleLimit && !columnCountChanged) return;
         mempicsVisibleLimit = nextLimit;
         render(currentFilter);
     }
@@ -608,6 +596,21 @@ export function initGallery() {
         return card;
     }
 
+    function renderGalleryCards(items) {
+        const cards = items.map(buildGalleryCard);
+        if (!isPublicWideLayoutEnabled()) {
+            grid.append(...cards);
+            return;
+        }
+        renderFixedMediaWallColumns(grid, cards, {
+            countProperty: '--bitbi-public-gallery-column-count',
+            targetWidthProperty: '--bitbi-public-gallery-active-column-width',
+            fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
+            aspectProperty: '--gallery-item-aspect',
+            fallbackAspectRatio: 1.333,
+        });
+    }
+
     async function render(filter) {
         currentFilter = filter;
         const seq = ++renderSeq;
@@ -639,10 +642,7 @@ export function initGallery() {
             return;
         }
 
-        list.forEach((item) => {
-            const card = buildGalleryCard(item);
-            grid.appendChild(card);
-        });
+        renderGalleryCards(list);
         syncCategoryGhostModels('gallery', list);
         updateMempicsPagination(filter);
     }
