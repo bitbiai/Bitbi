@@ -5547,8 +5547,12 @@ test.describe('Homepage', () => {
       await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
     }
     await firstCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
+    await page.waitForTimeout(50);
+    expect(await firstCard.locator('.video-card__hover-preview').count()).toBe(0);
     const firstPreview = firstCard.locator('.video-card__hover-preview');
     await expect(firstPreview).toHaveCount(1);
+    await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
+    await firstPreview.dispatchEvent('loadeddata');
     await expect(firstCard).toHaveClass(/video-card--hover-preview-active/);
     const firstState = await firstPreview.evaluate((video) => ({
       ariaHidden: video.getAttribute('aria-hidden'),
@@ -5585,6 +5589,8 @@ test.describe('Homepage', () => {
     await secondCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
     const secondPreview = secondCard.locator('.video-card__hover-preview');
     await expect(secondPreview).toHaveCount(1);
+    await expect(secondCard).not.toHaveClass(/video-card--hover-preview-active/);
+    await secondPreview.dispatchEvent('loadeddata');
     await expect(secondCard).toHaveClass(/video-card--hover-preview-active/);
     await expect(firstCard).not.toHaveClass(/video-card--hover-preview-active/);
     await expect(secondPreview).toHaveAttribute('src', 'https://videodelivery.net/hoverStreamUid2/downloads/default.mp4');

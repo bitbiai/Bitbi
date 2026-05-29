@@ -32,7 +32,8 @@ const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOU
 const WIDE_INITIAL_MEMVIDS = 10;
 const WIDE_MEMVIDS_BATCH = 20;
 const WIDE_SCROLL_PRELOAD_PX = 720;
-const HOVER_PREVIEW_DELAY_MS = 320;
+// Small non-zero intent delay avoids accidental Stream minute usage across dense grids.
+const HOVER_PREVIEW_DELAY_MS = 100;
 
 let focusTrapCleanup = null;
 
@@ -218,7 +219,7 @@ export function initVideoGallery() {
     function stopActiveHoverPreview(card = null) {
         if (!activeHoverPreview) return;
         if (card && activeHoverPreview.card !== card) return;
-        const { card: activeCard, video, timerId, endedHandler, errorHandler } = activeHoverPreview;
+        const { card: activeCard, video, timerId, endedHandler, errorHandler, readyHandler } = activeHoverPreview;
         window.clearTimeout(timerId);
         activeCard.classList.remove('video-card--hover-preview-active');
         if (video && endedHandler) {
@@ -226,6 +227,11 @@ export function initVideoGallery() {
         }
         if (video && errorHandler) {
             video.removeEventListener('error', errorHandler);
+        }
+        if (video && readyHandler) {
+            video.removeEventListener('loadeddata', readyHandler);
+            video.removeEventListener('canplay', readyHandler);
+            video.removeEventListener('playing', readyHandler);
         }
         resetHoverPreviewVideo(video);
         video?.remove();
@@ -295,6 +301,15 @@ export function initVideoGallery() {
             return;
         }
         let loopCount = 0;
+        let startRecorded = false;
+        const revealPreview = () => {
+            if (!activeHoverPreview || activeHoverPreview.card !== card || activeHoverPreview.video !== video) return;
+            card.classList.add('video-card--hover-preview-active');
+            if (!startRecorded) {
+                startRecorded = true;
+                recordHoverPreviewStart(item, preview);
+            }
+        };
         const endedHandler = () => {
             loopCount += 1;
             video.dataset.loopCount = String(loopCount);
@@ -322,6 +337,9 @@ export function initVideoGallery() {
         };
         video.addEventListener('ended', endedHandler);
         video.addEventListener('error', errorHandler);
+        video.addEventListener('loadeddata', revealPreview);
+        video.addEventListener('canplay', revealPreview);
+        video.addEventListener('playing', revealPreview);
         video.src = preview.src;
         video.dataset.previewSrc = preview.src;
         video.dataset.previewProvider = 'cloudflare_stream';
@@ -329,8 +347,7 @@ export function initVideoGallery() {
         activeHoverPreview.video = video;
         activeHoverPreview.endedHandler = endedHandler;
         activeHoverPreview.errorHandler = errorHandler;
-        card.classList.add('video-card--hover-preview-active');
-        recordHoverPreviewStart(item, preview);
+        activeHoverPreview.readyHandler = revealPreview;
         const playPromise = video.play();
         if (playPromise && typeof playPromise.catch === 'function') {
             playPromise.catch(() => {
@@ -350,7 +367,7 @@ export function initVideoGallery() {
         const timerId = window.setTimeout(() => {
             startHoverPreview(card, item, preview, posterUrl);
         }, HOVER_PREVIEW_DELAY_MS);
-        activeHoverPreview = { card, video: null, timerId, endedHandler: null, errorHandler: null };
+        activeHoverPreview = { card, video: null, timerId, endedHandler: null, errorHandler: null, readyHandler: null };
     }
 
     function bindHoverPreview(card, item) {

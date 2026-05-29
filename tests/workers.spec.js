@@ -41035,6 +41035,397 @@ test.describe('Worker routes', () => {
     }
   });
 
+  test('publishing a Memvid queues one Stream preview without dispatching below threshold or duplicating active work', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'memvid-publish-user', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'true',
+      MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD: '3',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER: 'github_actions',
+      GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
+      GITHUB_ACTIONS_DISPATCH_OWNER: 'bitbiai',
+      GITHUB_ACTIONS_DISPATCH_REPO: 'Bitbi',
+      GITHUB_ACTIONS_DISPATCH_WORKFLOW: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_REF: 'main',
+      aiTextAssets: [{
+        id: 'feed0101',
+        user_id: user.id,
+        title: 'Publish queues preview',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'private',
+        published_at: null,
+        r2_key: 'users/memvid-publish-user/publish-one.mp4',
+      }],
+    });
+    const token = await seedSession(env, user.id);
+    const originalFetch = globalThis.fetch;
+    const dispatches = [];
+    globalThis.fetch = async (url, init = {}) => {
+      dispatches.push({ url: String(url), body: String(init.body || '') });
+      return new Response(null, { status: 204 });
+    };
+    try {
+      const publishRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/text-assets/feed0101/publication', 'PATCH', {
+          visibility: 'public',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(publishRes.status).toBe(200);
+      const body = await publishRes.json();
+      expect(body.data.stream_preview_lifecycle).toMatchObject({
+        action: 'publish_queue',
+        queued_count: 1,
+        backlog_count: 1,
+        dispatch_attempted: false,
+        dispatch_skipped_reason: 'below_dispatch_threshold',
+      });
+      expect(env.DB.state.memvidStreamPreviews.filter((row) => row.asset_id === 'feed0101' && row.status === 'queued')).toHaveLength(1);
+      expect(dispatches).toHaveLength(0);
+
+      const republishRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/text-assets/feed0101/publication', 'PATCH', {
+          visibility: 'public',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(republishRes.status).toBe(200);
+      expect(env.DB.state.memvidStreamPreviews.filter((row) => row.asset_id === 'feed0101')).toHaveLength(1);
+      expect(dispatches).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('publish-trigger dispatch starts at threshold and cooldown prevents workflow storms', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'memvid-threshold-user', role: 'user' });
+    const assets = Array.from({ length: 4 }, (_, index) => ({
+      id: `feed02${index + 1}0`,
+      user_id: user.id,
+      title: `Threshold Memvid ${index + 1}`,
+      source_module: 'video',
+      mime_type: 'video/mp4',
+      size_bytes: 7000000,
+      metadata_json: '{}',
+      created_at: `2026-05-20T10:0${index}:00.000Z`,
+      visibility: 'private',
+      published_at: null,
+      r2_key: `users/memvid-threshold-user/threshold-${index + 1}.mp4`,
+    }));
+    const env = createAuthTestEnv({
+      users: [user],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'true',
+      MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD: '3',
+      MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_COOLDOWN_SECONDS: '600',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER: 'github_actions',
+      GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
+      GITHUB_ACTIONS_DISPATCH_OWNER: 'bitbiai',
+      GITHUB_ACTIONS_DISPATCH_REPO: 'Bitbi',
+      GITHUB_ACTIONS_DISPATCH_WORKFLOW: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_REF: 'main',
+      aiTextAssets: assets,
+    });
+    const token = await seedSession(env, user.id);
+    const originalFetch = globalThis.fetch;
+    const dispatches = [];
+    globalThis.fetch = async (url, init = {}) => {
+      dispatches.push({ url: String(url), body: JSON.parse(String(init.body || '{}')) });
+      return new Response(null, { status: 204 });
+    };
+    try {
+      for (const asset of assets.slice(0, 3)) {
+        const res = await authWorker.fetch(
+          authJsonRequest(`/api/ai/text-assets/${asset.id}/publication`, 'PATCH', {
+            visibility: 'public',
+          }, {
+            Origin: 'https://bitbi.ai',
+            Cookie: `bitbi_session=${token}`,
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(200);
+      }
+      expect(dispatches).toHaveLength(1);
+      expect(dispatches[0].body.inputs).toMatchObject({
+        job_limit: '5',
+        repair_downloads: 'true',
+        dispatch_reason: 'Published Memvid Stream preview auto-dispatch.',
+      });
+
+      const cooldownRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/text-assets/feed0240/publication', 'PATCH', {
+          visibility: 'public',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(cooldownRes.status).toBe(200);
+      const cooldownBody = await cooldownRes.json();
+      expect(cooldownBody.data.stream_preview_lifecycle.dispatch_skipped_reason).toBe('dispatch_cooldown_active');
+      expect(dispatches).toHaveLength(1);
+      expect(JSON.stringify(cooldownBody)).not.toContain('test-dispatch-token');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('scheduled Memvid Stream catch-up dispatches a below-threshold backlog', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'true',
+      MEMVID_STREAM_PREVIEW_SCHEDULED_CATCHUP_LIMIT: '10',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER: 'github_actions',
+      GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
+      GITHUB_ACTIONS_DISPATCH_OWNER: 'bitbiai',
+      GITHUB_ACTIONS_DISPATCH_REPO: 'Bitbi',
+      GITHUB_ACTIONS_DISPATCH_WORKFLOW: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_REF: 'main',
+      aiTextAssets: [{
+        id: 'feed0301',
+        user_id: 'memvid-owner',
+        title: 'Scheduled preview',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-owner/scheduled.mp4',
+      }],
+    });
+    const originalFetch = globalThis.fetch;
+    const dispatches = [];
+    globalThis.fetch = async (url, init = {}) => {
+      dispatches.push({ url: String(url), body: JSON.parse(String(init.body || '{}')) });
+      return new Response(null, { status: 204 });
+    };
+    try {
+      await authWorker.scheduled({ cron: '*/30 * * * *' }, env, createExecutionContext().execCtx);
+      expect(env.DB.state.memvidStreamPreviews.filter((row) => row.asset_id === 'feed0301' && row.status === 'queued')).toHaveLength(1);
+      expect(dispatches).toHaveLength(1);
+      expect(dispatches[0].body.inputs.dispatch_reason).toBe('Scheduled Memvid Stream preview catch-up.');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('unpublishing disables Stream previews and records idempotent Cloudflare delete success including 404', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'memvid-unpublish-user', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      aiTextAssets: [{
+        id: 'feed0401',
+        user_id: user.id,
+        title: 'Unpublish preview',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-unpublish-user/unpublish.mp4',
+      }, {
+        id: 'feed0402',
+        user_id: user.id,
+        title: 'Unpublish missing provider asset',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:01:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:01:00.000Z',
+        r2_key: 'users/memvid-unpublish-user/unpublish-missing.mp4',
+      }],
+      memvidStreamPreviews: [{
+        id: 'msp_unpub000000001',
+        asset_id: 'feed0401',
+        user_id: user.id,
+        source_r2_key: 'users/memvid-unpublish-user/unpublish.mp4',
+        source_fingerprint: 'fp-unpub',
+        stream_uid: 'streamDeleteUid001',
+        status: 'ready',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:01:00.000Z',
+        updated_at: '2026-05-20T12:02:00.000Z',
+        completed_at: '2026-05-20T12:02:00.000Z',
+        provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+      }, {
+        id: 'msp_unpub000000002',
+        asset_id: 'feed0402',
+        user_id: user.id,
+        source_r2_key: 'users/memvid-unpublish-user/unpublish-missing.mp4',
+        source_fingerprint: 'fp-unpub-2',
+        stream_uid: 'streamDeleteUid002',
+        status: 'ready',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:01:00.000Z',
+        updated_at: '2026-05-20T12:02:00.000Z',
+        completed_at: '2026-05-20T12:02:00.000Z',
+        provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+      }],
+    });
+    const token = await seedSession(env, user.id);
+    const originalFetch = globalThis.fetch;
+    const deleteCalls = [];
+    globalThis.fetch = async (url) => {
+      deleteCalls.push(String(url));
+      if (String(url).includes('streamDeleteUid002')) {
+        return new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: 'not found' }] }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ success: true, result: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    try {
+      for (const id of ['feed0401', 'feed0402']) {
+        const res = await authWorker.fetch(
+          authJsonRequest(`/api/ai/text-assets/${id}/publication`, 'PATCH', {
+            visibility: 'private',
+          }, {
+            Origin: 'https://bitbi.ai',
+            Cookie: `bitbi_session=${token}`,
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(200);
+      }
+      expect(deleteCalls).toHaveLength(2);
+      for (const id of ['msp_unpub000000001', 'msp_unpub000000002']) {
+        const row = env.DB.state.memvidStreamPreviews.find((preview) => preview.id === id);
+        expect(row.status).toBe('disabled');
+        const metadata = JSON.parse(row.provider_metadata_json).provider_metadata;
+        expect(metadata.delete_status).toBe('deleted');
+      }
+      expect(JSON.stringify(env.DB.state.memvidStreamPreviews)).not.toContain('test-stream-token');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('unpublish delete failures are retryable by scheduled cleanup without blocking privacy state', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'memvid-delete-retry-user', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'false',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      aiTextAssets: [{
+        id: 'feed0501',
+        user_id: user.id,
+        title: 'Retry delete preview',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-delete-retry-user/retry.mp4',
+      }],
+      memvidStreamPreviews: [{
+        id: 'msp_retry000000001',
+        asset_id: 'feed0501',
+        user_id: user.id,
+        source_r2_key: 'users/memvid-delete-retry-user/retry.mp4',
+        source_fingerprint: 'fp-retry',
+        stream_uid: 'streamRetryUid001',
+        status: 'ready',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:01:00.000Z',
+        updated_at: '2026-05-20T12:02:00.000Z',
+        completed_at: '2026-05-20T12:02:00.000Z',
+        provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+      }],
+    });
+    const token = await seedSession(env, user.id);
+    const originalFetch = globalThis.fetch;
+    let failDelete = true;
+    globalThis.fetch = async () => {
+      if (failDelete) {
+        return new Response(JSON.stringify({ success: false, errors: [{ code: 1001, message: 'temporary failure' }] }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ success: true, result: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    try {
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/text-assets/feed0501/publication', 'PATCH', {
+          visibility: 'private',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      let row = env.DB.state.memvidStreamPreviews.find((preview) => preview.id === 'msp_retry000000001');
+      expect(row.status).toBe('disabled');
+      expect(JSON.parse(row.provider_metadata_json).provider_metadata.delete_status).toBe('delete_pending');
+
+      failDelete = false;
+      await authWorker.scheduled({ cron: '*/30 * * * *' }, env, createExecutionContext().execCtx);
+      row = env.DB.state.memvidStreamPreviews.find((preview) => preview.id === 'msp_retry000000001');
+      expect(JSON.parse(row.provider_metadata_json).provider_metadata.delete_status).toBe('deleted');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('Memvid Stream preview Admin switches control public metadata and autoplay exposure', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('stream-switch-admin');

@@ -8557,14 +8557,24 @@ class MockD1 {
         : null;
     }
 
-    if (query === 'SELECT id, visibility, published_at FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+    if (query === 'SELECT id, visibility, published_at FROM ai_text_assets WHERE id = ? AND user_id = ?'
+      || (query.startsWith('SELECT id, user_id, visibility, published_at, source_module, r2_key, mime_type, size_bytes, title, metadata_json')
+        && query.includes('FROM ai_text_assets')
+        && query.includes('WHERE id = ?'))) {
       const [assetId, userId] = bindings;
       const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
       return row
         ? {
             id: row.id,
+            user_id: row.user_id,
             visibility: row.visibility,
             published_at: row.published_at,
+            source_module: row.source_module,
+            r2_key: row.r2_key,
+            mime_type: row.mime_type,
+            size_bytes: row.size_bytes,
+            title: row.title,
+            metadata_json: row.metadata_json,
           }
         : null;
     }
@@ -11322,6 +11332,15 @@ class MockD1 {
         .sort((a, b) => String(b.completed_at || b.updated_at || '').localeCompare(String(a.completed_at || a.updated_at || '')))[0] || null;
     }
 
+    if (query.startsWith('SELECT id, source_fingerprint, status, stream_uid, provider_metadata_json FROM memvid_stream_previews')) {
+      const [assetId, userId] = bindings;
+      return {
+        results: this.state.memvidStreamPreviews
+          .filter((row) => row.asset_id === assetId && row.user_id === userId && ['queued', 'uploading', 'processing', 'ready'].includes(row.status))
+          .sort((a, b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || ''))),
+      };
+    }
+
     if (query.startsWith('SELECT id, asset_id, stream_uid, status, preview_duration_seconds, max_loop_count')) {
       const assetIds = bindings;
       return {
@@ -11339,6 +11358,15 @@ class MockD1 {
     if (query.startsWith("SELECT event_count, estimated_delivered_seconds FROM memvid_stream_preview_events WHERE event_type = 'hover_start'")) {
       return {
         results: this.state.memvidStreamPreviewEvents.filter((row) => row.event_type === 'hover_start'),
+      };
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS count FROM memvid_stream_previews previews JOIN ai_text_assets assets')) {
+      return {
+        count: this.state.memvidStreamPreviews.filter((preview) => {
+          const asset = this.state.aiTextAssets.find((row) => row.id === preview.asset_id);
+          return preview.status === 'queued' && asset?.visibility === 'public' && asset?.source_module === 'video';
+        }).length,
       };
     }
 
@@ -11402,6 +11430,17 @@ class MockD1 {
       if (row) {
         row.provider_metadata_json = providerMetadataJson;
         row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith("UPDATE memvid_stream_previews SET status = 'superseded'")) {
+      const [updatedAt, providerMetadataJson, previewId] = bindings;
+      const row = this.state.memvidStreamPreviews.find((item) => item.id === previewId && ['queued', 'uploading', 'processing', 'ready'].includes(item.status));
+      if (row) {
+        row.status = 'superseded';
+        row.updated_at = updatedAt;
+        row.provider_metadata_json = providerMetadataJson;
       }
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
@@ -11836,6 +11875,34 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query.startsWith('SELECT id, asset_id, user_id, stream_uid, status, provider_metadata_json FROM memvid_stream_previews')) {
+      if (query.includes("WHERE asset_id = ?")) {
+        const [assetId, userId] = bindings;
+        return {
+          results: this.state.memvidStreamPreviews
+            .filter((row) => row.asset_id === assetId && row.user_id === userId && ['queued', 'uploading', 'processing', 'ready', 'failed'].includes(row.status)),
+        };
+      }
+      const [limit] = bindings;
+      return {
+        results: this.state.memvidStreamPreviews
+          .filter((row) => ['disabled', 'superseded'].includes(row.status) && row.stream_uid)
+          .sort((a, b) => String(a.updated_at || a.created_at || '').localeCompare(String(b.updated_at || b.created_at || '')))
+          .slice(0, limit),
+      };
+    }
+
+    if (query.startsWith('UPDATE memvid_stream_previews SET status = ?, updated_at = ?, provider_metadata_json = ?')) {
+      const [status, updatedAt, providerMetadataJson, previewId] = bindings;
+      const row = this.state.memvidStreamPreviews.find((item) => item.id === previewId);
+      if (row) {
+        row.status = status;
+        row.updated_at = updatedAt;
+        row.provider_metadata_json = providerMetadataJson;
+      }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
     if (query.startsWith("UPDATE memvid_stream_previews SET status = 'processing'")) {
       const [updatedAt, previewId] = bindings;
       const row = this.state.memvidStreamPreviews.find((item) => item.id === previewId && item.status === 'queued');
@@ -11980,6 +12047,12 @@ function createAuthTestEnv(seed = {}) {
     MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: seed.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET,
     MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS: seed.MEMVID_STREAM_PREVIEW_MAX_DURATION_SECONDS,
     MEMVID_STREAM_PREVIEW_MAX_LOOPS: seed.MEMVID_STREAM_PREVIEW_MAX_LOOPS,
+    ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: seed.ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH,
+    MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD: seed.MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD,
+    MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_COOLDOWN_SECONDS: seed.MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_COOLDOWN_SECONDS,
+    MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_JOB_LIMIT: seed.MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_JOB_LIMIT,
+    MEMVID_STREAM_PREVIEW_SCHEDULED_CATCHUP_LIMIT: seed.MEMVID_STREAM_PREVIEW_SCHEDULED_CATCHUP_LIMIT,
+    MEMVID_STREAM_PREVIEW_DELETE_RETRY_LIMIT: seed.MEMVID_STREAM_PREVIEW_DELETE_RETRY_LIMIT,
     CLOUDFLARE_ACCOUNT_ID: seed.CLOUDFLARE_ACCOUNT_ID,
     STREAM_ACCOUNT_ID: seed.STREAM_ACCOUNT_ID,
     CLOUDFLARE_STREAM_API_TOKEN: seed.CLOUDFLARE_STREAM_API_TOKEN,

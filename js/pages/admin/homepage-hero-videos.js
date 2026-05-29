@@ -71,6 +71,15 @@ function formatDate(value, formatDate) {
     }
 }
 
+function formatDateValue(value, formatter) {
+    if (!value) return 'Not recorded';
+    try {
+        return formatter ? formatter(value) : new Date(value).toLocaleString('en-GB');
+    } catch {
+        return 'Not recorded';
+    }
+}
+
 function getPublicSlotMedia(slot) {
     const version = slot?.derivative?.version;
     if (!slot?.enabled || !version) return null;
@@ -386,9 +395,15 @@ export function createHomepageHeroVideosAdmin({
             ? `Configured${dispatch.provider ? ` (${dispatch.provider})` : ''}`
             : 'Not configured';
         preview.append(createMetaRow('Processor dispatch', dispatchLabel));
+        preview.append(createMetaRow('Auto dispatch', dispatch.auto_dispatch_enabled ? 'Enabled' : 'Disabled'));
+        preview.append(createMetaRow('Dispatch threshold', String(dispatch.threshold ?? 3)));
+        preview.append(createMetaRow('Last dispatch', dispatch.last_dispatch_at ? formatDateValue(dispatch.last_dispatch_at, formatDate) : 'Never'));
+        preview.append(createMetaRow('Next dispatch after', dispatch.next_dispatch_after ? formatDateValue(dispatch.next_dispatch_after, formatDate) : 'Now'));
         preview.append(createMetaRow('Ready previews', String(stream.ready_count ?? 0)));
         preview.append(createMetaRow('Ready MP4 downloads', String(stream.ready_with_download_url ?? 0)));
         preview.append(createMetaRow('Needs MP4 repair', String(stream.ready_missing_download_url ?? 0)));
+        preview.append(createMetaRow('Pending deletes', String(stream.pending_delete_count ?? 0)));
+        preview.append(createMetaRow('Failed deletes', String(stream.failed_delete_count ?? 0)));
         preview.append(createMetaRow('Failed previews', String(stream.failed_count ?? 0)));
         preview.append(createMetaRow('Estimated delivered minutes', String(stream.estimated_delivered_minutes ?? 0)));
         const actions = el('div', 'admin-hero-videos__actions');

@@ -7,6 +7,16 @@ import {
 import { nowIso } from "../../lib/tokens.js";
 import { isMissingTextAssetTableError } from "./helpers.js";
 import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
+import {
+  getMemvidStreamPreviewBacklogCounts,
+  queueMemvidStreamPreviewForPublishedAsset,
+} from "../../lib/memvid-stream-preview-jobs.js";
+import {
+  maybeDispatchMemvidStreamPreviewProcessor,
+} from "../../lib/memvid-stream-preview-dispatch.js";
+import {
+  disableAndDeleteMemvidStreamPreviewsForUnpublishedAsset,
+} from "../../lib/memvid-stream-preview-cleanup.js";
 
 export async function handleUpdateImagePublication(ctx, imageId) {
   const { request, env } = ctx;
@@ -82,7 +92,19 @@ export async function handleUpdateTextAssetPublication(ctx, assetId) {
   let existing;
   try {
     existing = await env.DB.prepare(
-      "SELECT id, visibility, published_at FROM ai_text_assets WHERE id = ? AND user_id = ?"
+      `SELECT id,
+              user_id,
+              visibility,
+              published_at,
+              source_module,
+              r2_key,
+              mime_type,
+              size_bytes,
+              title,
+              metadata_json
+       FROM ai_text_assets
+       WHERE id = ?
+         AND user_id = ?`
     ).bind(assetId, session.user.id).first();
   } catch (error) {
     if (isMissingTextAssetTableError(error)) {
@@ -103,6 +125,70 @@ export async function handleUpdateTextAssetPublication(ctx, assetId) {
     "UPDATE ai_text_assets SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
   ).bind(visibility, publishedAt, assetId, session.user.id).run();
 
+  let streamPreviewLifecycle = null;
+  const wasPublic = existing.visibility === "public";
+  const isVideo = existing.source_module === "video";
+  if (isVideo && !wasPublic && visibility === "public") {
+    const asset = {
+      ...existing,
+      visibility: "public",
+      published_at: publishedAt,
+    };
+    try {
+      const queued = await queueMemvidStreamPreviewForPublishedAsset(env, asset, {
+        source: "publish",
+      });
+      const backlog = await getMemvidStreamPreviewBacklogCounts(env);
+      const dispatch = await maybeDispatchMemvidStreamPreviewProcessor(env, {
+        reason: "publish_threshold",
+        dispatchReason: "Published Memvid Stream preview auto-dispatch.",
+        queuedNewCount: backlog.queued_count,
+        queuedRepairCount: backlog.repair_count,
+      });
+      streamPreviewLifecycle = {
+        action: "publish_queue",
+        queued_count: queued.queued_count,
+        backlog_count: backlog.total_count,
+        skipped_reason: queued.skipped_reason || dispatch.dispatch_skipped_reason || null,
+        dispatch_configured: dispatch.dispatch_configured ?? dispatch.configured ?? false,
+        dispatch_attempted: dispatch.dispatch_attempted ?? dispatch.attempted ?? false,
+        dispatch_succeeded: dispatch.dispatch_succeeded ?? dispatch.succeeded ?? false,
+        dispatch_provider: dispatch.dispatch_provider ?? dispatch.provider ?? null,
+        dispatch_skipped_reason: dispatch.dispatch_skipped_reason || null,
+        next_dispatch_after: dispatch.next_dispatch_after || null,
+      };
+    } catch (error) {
+      streamPreviewLifecycle = {
+        action: "publish_queue",
+        queued_count: 0,
+        warning: "stream_preview_queue_failed",
+        error_code: error?.code || "stream_preview_queue_failed",
+      };
+    }
+  } else if (isVideo && wasPublic && visibility === "private") {
+    const asset = {
+      ...existing,
+      visibility: "private",
+      published_at: null,
+    };
+    try {
+      const cleanup = await disableAndDeleteMemvidStreamPreviewsForUnpublishedAsset(env, asset, {
+        source: "unpublish",
+        unpublishedAt: nowIso(),
+      });
+      streamPreviewLifecycle = {
+        action: "unpublish_cleanup",
+        ...cleanup,
+      };
+    } catch (error) {
+      streamPreviewLifecycle = {
+        action: "unpublish_cleanup",
+        warning: "stream_preview_cleanup_failed",
+        error_code: error?.code || "stream_preview_cleanup_failed",
+      };
+    }
+  }
+
   return json({
     ok: true,
     data: {
@@ -110,6 +196,7 @@ export async function handleUpdateTextAssetPublication(ctx, assetId) {
       visibility,
       is_public: visibility === "public",
       published_at: publishedAt,
+      stream_preview_lifecycle: streamPreviewLifecycle,
     },
   });
 }

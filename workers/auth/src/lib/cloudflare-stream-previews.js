@@ -173,11 +173,17 @@ export function summarizeMemvidStreamPreviews(rows = [], events = [], env = {}) 
   const statusCounts = {};
   let readyCount = 0;
   let failedCount = 0;
+  let pendingDeleteCount = 0;
+  let failedDeleteCount = 0;
   let storedPreviewSeconds = 0;
 
   for (const row of previewRows) {
     const status = String(row?.status || "unknown");
     statusCounts[status] = (statusCounts[status] || 0) + 1;
+    const providerMetadata = parseStreamProviderMetadata(row?.provider_metadata_json)?.provider_metadata || {};
+    const deleteStatus = String(providerMetadata.delete_status || "").toLowerCase();
+    if (deleteStatus === "delete_pending" || deleteStatus === "not_configured") pendingDeleteCount += 1;
+    if (deleteStatus === "delete_failed") failedDeleteCount += 1;
     if (status === "ready") {
       readyCount += 1;
       storedPreviewSeconds += Number(row.preview_duration_seconds || config.previewDurationSeconds) || 0;
@@ -203,6 +209,8 @@ export function summarizeMemvidStreamPreviews(rows = [], events = [], env = {}) 
     status_counts: statusCounts,
     ready_count: readyCount,
     failed_count: failedCount,
+    pending_delete_count: pendingDeleteCount,
+    failed_delete_count: failedDeleteCount,
     ready_with_download_url: previewRows.filter((row) => row?.status === "ready" && hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length,
     ready_missing_download_url: previewRows.filter((row) => row?.status === "ready" && row?.stream_uid && !hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length,
     estimated_stored_preview_minutes: Math.round((storedPreviewSeconds / 60) * 100) / 100,

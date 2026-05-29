@@ -70,6 +70,16 @@ import {
   WorkerConfigError,
 } from "./lib/config.js";
 import {
+  queueMemvidStreamPreviewRepairJobs,
+  queueMissingMemvidStreamPreviewJobs,
+} from "./lib/memvid-stream-preview-jobs.js";
+import {
+  maybeDispatchMemvidStreamPreviewProcessor,
+} from "./lib/memvid-stream-preview-dispatch.js";
+import {
+  retryPendingMemvidStreamPreviewProviderDeletes,
+} from "./lib/memvid-stream-preview-cleanup.js";
+import {
   AI_VIDEO_JOBS_QUEUE_NAME,
   getAiVideoJobRetryDelaySeconds,
   processAiVideoJobMessage,
@@ -78,6 +88,7 @@ import { getRoutePolicy } from "./app/route-policy.js";
 export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
 
 const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
+const MEMVID_STREAM_PREVIEW_CATCHUP_CRON = "*/30 * * * *";
 
 function getAllowedOrigins(env) {
   const base = env.APP_BASE_URL || "https://bitbi.ai";
@@ -191,6 +202,48 @@ async function isLinkedAiUsageReplayObject(env, key) {
     if (String(error?.message || error).includes("no such table")) return false;
     throw error;
   }
+}
+
+function scheduledInteger(env, key, fallback, { min = 1, max = 100 } = {}) {
+  const parsed = Number.parseInt(String(env?.[key] || ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+async function runMemvidStreamPreviewScheduledCatchup(env, {
+  reason = "scheduled_catchup",
+} = {}) {
+  const missingLimit = scheduledInteger(env, "MEMVID_STREAM_PREVIEW_SCHEDULED_CATCHUP_LIMIT", 10, { max: 100 });
+  const repairLimit = scheduledInteger(env, "MEMVID_STREAM_PREVIEW_SCHEDULED_CATCHUP_LIMIT", 10, { max: 100 });
+  const deleteRetryLimit = scheduledInteger(env, "MEMVID_STREAM_PREVIEW_DELETE_RETRY_LIMIT", 10, { max: 100 });
+  const [missing, repair, deletes] = await Promise.all([
+    queueMissingMemvidStreamPreviewJobs(env, {
+      limit: missingLimit,
+      source: reason,
+    }),
+    queueMemvidStreamPreviewRepairJobs(env, {
+      limit: repairLimit,
+      source: reason,
+    }),
+    retryPendingMemvidStreamPreviewProviderDeletes(env, {
+      limit: deleteRetryLimit,
+    }),
+  ]);
+  const dispatch = await maybeDispatchMemvidStreamPreviewProcessor(env, {
+    reason,
+    dispatchReason: "Scheduled Memvid Stream preview catch-up.",
+    queuedNewCount: missing.queued_count,
+    queuedRepairCount: repair.queued_count,
+    repairDownloads: true,
+  });
+  return {
+    queued_new_count: missing.queued_count,
+    queued_repair_count: repair.queued_count,
+    pending_delete_count: deletes.delete_pending_count,
+    delete_attempt_count: deletes.delete_attempt_count,
+    delete_succeeded_count: deletes.delete_succeeded_count,
+    dispatch,
+  };
 }
 
 export default {
@@ -391,6 +444,54 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    if (event?.cron === MEMVID_STREAM_PREVIEW_CATCHUP_CRON) {
+      try {
+        const catchup = await runMemvidStreamPreviewScheduledCatchup(env, { reason: "scheduled_catchup" });
+        if (
+          catchup.queued_new_count > 0 ||
+          catchup.queued_repair_count > 0 ||
+          catchup.delete_attempt_count > 0 ||
+          catchup.dispatch?.attempted
+        ) {
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "scheduled-memvid-stream-previews",
+            event: "memvid_stream_preview_catchup_completed",
+            level: catchup.dispatch?.succeeded === false && catchup.dispatch?.attempted ? "warn" : "info",
+            queued_new_count: catchup.queued_new_count,
+            queued_repair_count: catchup.queued_repair_count,
+            delete_attempt_count: catchup.delete_attempt_count,
+            delete_succeeded_count: catchup.delete_succeeded_count,
+            pending_delete_count: catchup.pending_delete_count,
+            dispatch_provider: catchup.dispatch?.provider || null,
+            dispatch_attempted: catchup.dispatch?.attempted === true,
+            dispatch_succeeded: catchup.dispatch?.succeeded === true,
+            dispatch_skipped_reason: catchup.dispatch?.dispatch_skipped_reason || null,
+          });
+        }
+      } catch (error) {
+        if (String(error?.message || error).includes("memvid_stream_preview")
+          && String(error?.message || error).includes("no such table")) {
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "scheduled-memvid-stream-previews",
+            event: "memvid_stream_preview_catchup_skipped",
+            level: "warn",
+            ...getErrorFields(error, { includeMessage: false }),
+          });
+          return;
+        }
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-memvid-stream-previews",
+          event: "memvid_stream_preview_catchup_failed",
+          level: "error",
+          ...getErrorFields(error, { includeMessage: false }),
+        });
+      }
+      return;
+    }
+
     const now = nowIso();
     const dayStart = now.slice(0, 10) + "T00:00:00.000Z";
     await env.DB.batch([

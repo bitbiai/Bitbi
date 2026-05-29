@@ -41,6 +41,18 @@ import {
   summarizeMemvidStreamPreviews,
 } from "../lib/cloudflare-stream-previews.js";
 import {
+  getMemvidStreamPreviewSummary as getSharedMemvidStreamPreviewSummary,
+  listQueuedMemvidStreamPreviewJobs as listSharedQueuedMemvidStreamPreviewJobs,
+  queueMemvidStreamPreviewRepairJobs,
+  queueMissingMemvidStreamPreviewJobs,
+  serializeMemvidStreamPreviewJob as serializeSharedMemvidStreamPreviewJob,
+} from "../lib/memvid-stream-preview-jobs.js";
+import {
+  getMemvidStreamPreviewDispatchState,
+  getMemvidStreamPreviewProcessorDispatchStatus as getSharedMemvidStreamPreviewProcessorDispatchStatus,
+  maybeDispatchMemvidStreamPreviewProcessor,
+} from "../lib/memvid-stream-preview-dispatch.js";
+import {
   DEFAULT_HERO_FFMPEG_PRESET,
   VIDEO_DELIVERY_FEATURE_KEYS,
   VideoDeliverySettingsError,
@@ -1379,11 +1391,12 @@ async function handleAdminCurrent(ctx) {
   if (result instanceof Response) return result;
 
   try {
-    const [slots, streamPreviewSummary, featureStatus, presetStatus] = await Promise.all([
+    const [slots, streamPreviewSummary, featureStatus, presetStatus, dispatchState] = await Promise.all([
       listAdminSlots(env),
-      getMemvidStreamPreviewSummary(env),
+      getSharedMemvidStreamPreviewSummary(env),
       getVideoDeliveryFeatureStatus(env),
       getHeroFfmpegPresetSetting(env),
+      getMemvidStreamPreviewDispatchState(env),
     ]);
     const features = featureStatus.features || {};
     return json({
@@ -1397,7 +1410,7 @@ async function handleAdminCurrent(ctx) {
         manual_uploads_enabled: features[VIDEO_DELIVERY_FEATURE_KEYS.HERO_MANUAL_UPLOADS]?.effective_enabled === true,
         external_ffmpeg_enabled: features[VIDEO_DELIVERY_FEATURE_KEYS.HERO_EXTERNAL_FFMPEG]?.effective_enabled === true,
         stream_preview_summary: streamPreviewSummary,
-        stream_preview_processor_dispatch: getMemvidStreamPreviewProcessorDispatchStatus(env),
+        stream_preview_processor_dispatch: dispatchState,
       },
     });
   } catch (error) {
@@ -1423,10 +1436,11 @@ async function handleAdminFeatureStatus(ctx) {
   const result = await requireAdmin(request, env, { isSecure, correlationId });
   if (result instanceof Response) return result;
 
-  const [featureStatus, presetStatus, streamPreviewSummary] = await Promise.all([
+  const [featureStatus, presetStatus, streamPreviewSummary, dispatchState] = await Promise.all([
     getVideoDeliveryFeatureStatus(env),
     getHeroFfmpegPresetSetting(env),
-    getMemvidStreamPreviewSummary(env),
+    getSharedMemvidStreamPreviewSummary(env),
+    getMemvidStreamPreviewDispatchState(env),
   ]);
   return json({
     ok: true,
@@ -1434,7 +1448,7 @@ async function handleAdminFeatureStatus(ctx) {
       feature_status: featureStatus,
       preset_status: presetStatus,
       stream_preview_summary: streamPreviewSummary,
-      stream_preview_processor_dispatch: getMemvidStreamPreviewProcessorDispatchStatus(env),
+      stream_preview_processor_dispatch: dispatchState,
     },
   }, {
     headers: { "Cache-Control": "no-store" },
@@ -1985,7 +1999,11 @@ async function handleAdminMemvidStreamPreviewBackfill(ctx) {
     return json({ ok: true, existing: true, data: { queued_count: Number(existing.queued_count || 0) } });
   }
   const now = nowIso();
-  const created = await createMemvidStreamPreviewJobs(env, { limit, operatorReason });
+  const queued = await queueMissingMemvidStreamPreviewJobs(env, {
+    limit,
+    operatorReason,
+    source: "admin_backfill",
+  });
   await env.DB.prepare(
     `INSERT INTO memvid_stream_preview_backfill_requests (
        id, idempotency_key_hash, request_hash, queued_count,
@@ -1995,20 +2013,20 @@ async function handleAdminMemvidStreamPreviewBackfill(ctx) {
     `msp_bfr_${randomTokenHex(16)}`,
     idempotencyKeyHash,
     requestHash,
-    created.length,
+    queued.queued_count,
     result.user.id,
     operatorReason,
     now
   ).run();
 
   await auditHomepageHeroVideoEvent(ctx, result.user, "memvid_stream_preview_backfill_queued", {
-    queued_count: created.length,
+    queued_count: queued.queued_count,
     requested_limit: limit,
     operator_reason_present: true,
     idempotency_key_hash_present: true,
   });
 
-  return json({ ok: true, data: { queued: created, queued_count: created.length } }, { status: 202 });
+  return json({ ok: true, data: { queued: queued.queued, queued_count: queued.queued_count } }, { status: 202 });
 }
 
 async function handleAdminMemvidStreamPreviewRun(ctx) {
@@ -2051,9 +2069,10 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
     if (existing.request_hash && existing.request_hash !== requestHash) {
       return json({ ok: false, error: "Idempotency-Key was already used for a different Memvid Stream preview run.", code: "idempotency_key_conflict" }, { status: 409 });
     }
-    const [featureStatus, streamPreviewSummary] = await Promise.all([
+    const [featureStatus, streamPreviewSummary, dispatchState] = await Promise.all([
       getVideoDeliveryFeatureStatus(env),
-      getMemvidStreamPreviewSummary(env),
+      getSharedMemvidStreamPreviewSummary(env),
+      getMemvidStreamPreviewDispatchState(env),
     ]);
     return json({
       ok: true,
@@ -2063,12 +2082,16 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
         queued_count: Number(existing.queued_count || 0),
         queued_repair_count: streamPreviewSummary.ready_missing_download_url || 0,
         repair_queued_count: streamPreviewSummary.ready_missing_download_url || 0,
-        dispatch_configured: getMemvidStreamPreviewProcessorDispatchStatus(env).configured,
+        dispatch_configured: dispatchState.configured,
         dispatch_attempted: false,
         dispatch_succeeded: false,
-        dispatch_provider: getMemvidStreamPreviewProcessorDispatchStatus(env).provider,
+        dispatch_provider: dispatchState.provider,
         dispatch_message: "This idempotent run request was already recorded; processor dispatch was not re-attempted.",
-        processor_dispatch_configured: getMemvidStreamPreviewProcessorDispatchStatus(env).configured,
+        dispatch_skipped_reason: "idempotent_replay",
+        auto_dispatch_enabled: dispatchState.auto_dispatch_enabled,
+        last_dispatch_at: dispatchState.last_dispatch_at,
+        next_dispatch_after: dispatchState.next_dispatch_after,
+        processor_dispatch_configured: dispatchState.configured,
         processor_dispatch_started: false,
         feature_status: featureStatus,
         stream_preview_summary: streamPreviewSummary,
@@ -2077,9 +2100,15 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
     }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  const created = await createMemvidStreamPreviewJobs(env, { limit, operatorReason });
-  const repairRows = await listRepairableMemvidStreamPreviewDownloads(env, repairLimit);
-  await markMemvidStreamPreviewDownloadRepairsRequested(env, repairRows);
+  const queued = await queueMissingMemvidStreamPreviewJobs(env, {
+    limit,
+    operatorReason,
+    source: "admin_manual",
+  });
+  const repair = await queueMemvidStreamPreviewRepairJobs(env, {
+    limit: repairLimit,
+    source: "admin_manual",
+  });
   const now = nowIso();
   await env.DB.prepare(
     `INSERT INTO memvid_stream_preview_backfill_requests (
@@ -2090,20 +2119,24 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
     `msp_bfr_${randomTokenHex(16)}`,
     idempotencyKeyHash,
     requestHash,
-    created.length,
+    queued.queued_count,
     result.user.id,
     operatorReason,
     now
   ).run();
 
-  const dispatch = await dispatchMemvidStreamPreviewProcessorWorkflow(env, {
+  const dispatch = await maybeDispatchMemvidStreamPreviewProcessor(env, {
+    reason: "admin_manual",
+    force: true,
     jobLimit: Math.min(8, Math.max(1, Number(body.job_limit || body.jobLimit || 5) || 5)),
     repairDownloads: true,
     dispatchReason: operatorReason,
+    queuedNewCount: queued.queued_count,
+    queuedRepairCount: repair.queued_count,
   });
   const [featureStatus, streamPreviewSummary] = await Promise.all([
     getVideoDeliveryFeatureStatus(env),
-    getMemvidStreamPreviewSummary(env),
+    getSharedMemvidStreamPreviewSummary(env),
   ]);
   const warnings = [];
   if (!dispatch.configured) {
@@ -2113,8 +2146,8 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
   }
 
   await auditHomepageHeroVideoEvent(ctx, result.user, "memvid_stream_preview_run_requested", {
-    queued_count: created.length,
-    repair_queued_count: repairRows.length,
+    queued_count: queued.queued_count,
+    repair_queued_count: repair.queued_count,
     dispatch_provider: dispatch.provider || null,
     dispatch_configured: dispatch.configured === true,
     dispatch_attempted: dispatch.attempted === true,
@@ -2126,16 +2159,20 @@ async function handleAdminMemvidStreamPreviewRun(ctx) {
   return json({
     ok: true,
     data: {
-      queued: created,
-      queued_new_count: created.length,
-      queued_count: created.length,
-      queued_repair_count: repairRows.length,
-      repair_queued_count: repairRows.length,
+      queued: queued.queued,
+      queued_new_count: queued.queued_count,
+      queued_count: queued.queued_count,
+      queued_repair_count: repair.queued_count,
+      repair_queued_count: repair.queued_count,
       dispatch_configured: dispatch.configured === true,
       dispatch_attempted: dispatch.attempted === true,
       dispatch_succeeded: dispatch.succeeded === true,
       dispatch_provider: dispatch.provider || null,
       dispatch_message: dispatch.message || dispatch.warning || null,
+      dispatch_skipped_reason: dispatch.dispatch_skipped_reason || null,
+      auto_dispatch_enabled: dispatch.auto_dispatch_enabled === true,
+      last_dispatch_at: dispatch.last_dispatch_at || null,
+      next_dispatch_after: dispatch.next_dispatch_after || null,
       processor_dispatch_configured: dispatch.configured === true,
       processor_dispatch_started: dispatch.succeeded === true,
       feature_status: featureStatus,
@@ -3074,7 +3111,7 @@ async function handleMemvidStreamPreviewClaimJobs(ctx) {
   const repairDownloads = parsed.body?.repair_downloads === true
     || parsed.body?.repairDownloads === true
     || String(parsed.body?.repair_downloads || "").toLowerCase() === "true";
-  const rows = await listQueuedMemvidStreamPreviewJobs(ctx.env, limit, { repairDownloads });
+  const rows = await listSharedQueuedMemvidStreamPreviewJobs(ctx.env, limit, { repairDownloads });
   const now = nowIso();
   for (const row of rows) {
     if (row.repair_download) continue;
@@ -3087,7 +3124,7 @@ async function handleMemvidStreamPreviewClaimJobs(ctx) {
     ).bind(now, row.id).run();
     row.status = "processing";
   }
-  return json({ ok: true, data: { jobs: rows.map(serializeMemvidStreamPreviewJob) } }, {
+  return json({ ok: true, data: { jobs: rows.map(serializeSharedMemvidStreamPreviewJob) } }, {
     headers: { "Cache-Control": "no-store" },
   });
 }
