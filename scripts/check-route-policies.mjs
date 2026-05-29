@@ -33,6 +33,7 @@ const MUTATING_DISPATCH_FILES = [
 
 const REQUIRED_LOOKUPS = [
   ["POST", "/api/admin/ai/video-jobs", "admin.ai.video-jobs.create"],
+  ["POST", "/api/admin/ai/video-jobs/job-123/recover", "admin.ai.video-jobs.recover"],
   ["GET", "/api/admin/ai/video-jobs/poison", "admin.ai.video-jobs.poison.list"],
   ["GET", "/api/admin/ai/video-jobs/poison/poison-123", "admin.ai.video-jobs.poison.read"],
   ["GET", "/api/admin/ai/video-jobs/failed", "admin.ai.video-jobs.failed.list"],

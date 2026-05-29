@@ -16443,6 +16443,172 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoSave')).toBeHidden();
   });
 
+  test('pauses Video AI status polling on rate limits and can resume the saved async job', async ({
+    page,
+  }) => {
+    const catalog = createMockAiCatalog();
+    let statusMode = 'rate_limited';
+
+    await page.addInitScript(() => {
+      const nativeSetTimeout = window.setTimeout.bind(window);
+      window.setTimeout = (fn, delay, ...args) => {
+        const nextDelay = typeof delay === 'number' && delay > 1000 && delay < 60_000 ? 30 : delay;
+        return nativeSetTimeout(fn, nextDelay, ...args);
+      };
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.unroute('**/api/admin/ai/video-jobs');
+    await page.unroute('**/api/admin/ai/video-jobs/*');
+    await page.route('**/api/admin/ai/video-jobs/rate-limit-job', async (route) => {
+      if (statusMode === 'rate_limited') {
+        await route.fulfill({
+          status: 429,
+          headers: { 'retry-after': '2' },
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            error: 'Too many requests. Please try again later.',
+            code: 'rate_limited',
+            retryAfterSeconds: 2,
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          job: {
+            jobId: 'rate-limit-job',
+            status: 'succeeded',
+            provider: 'workers-ai',
+            model: catalog.models.video[0].id,
+            createdAt: '2026-05-29T00:00:00.000Z',
+            updatedAt: '2026-05-29T00:01:00.000Z',
+            completedAt: '2026-05-29T00:01:00.000Z',
+            statusUrl: '/api/admin/ai/video-jobs/rate-limit-job',
+            outputUrl: '/api/admin/ai/video-jobs/rate-limit-job/output',
+          },
+        }),
+      });
+    });
+    await page.route('**/api/admin/ai/video-jobs/rate-limit-job/output', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from([0, 0, 0, 0]),
+      });
+    });
+    await page.route('**/api/admin/ai/video-jobs', async (route) => {
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          existing: false,
+          job: {
+            jobId: 'rate-limit-job',
+            status: 'queued',
+            provider: 'workers-ai',
+            model: catalog.models.video[0].id,
+            createdAt: '2026-05-29T00:00:00.000Z',
+            updatedAt: '2026-05-29T00:00:00.000Z',
+            completedAt: null,
+            statusUrl: '/api/admin/ai/video-jobs/rate-limit-job',
+          },
+        }),
+      });
+    });
+
+    await clickAiLabMode(page, 'video');
+    await page.locator('#aiVideoPrompt').fill('Long Seedance style job');
+    await page.locator('#aiVideoRun').click();
+
+    await expect(page.locator('#aiVideoState')).toContainText('Status polling is rate limited');
+    await expect(page.locator('#aiVideoState')).toContainText('video job is still running');
+    await expect(page.locator('#aiVideoState')).not.toContainText('Video generation failed');
+    await expect(page.locator('#aiVideoResumeJob')).toBeVisible();
+
+    statusMode = 'succeeded';
+    await page.locator('#aiVideoResumeJob').click();
+    await expect(page.locator('#aiLabStatus')).toContainText('Video generation completed.');
+    await expect(page.locator('#aiVideoDownload')).toBeVisible();
+  });
+
+  test('imports a provider response through the Admin Video AI recovery console and displays the protected job output', async ({
+    page,
+  }) => {
+    let recoverRequest = null;
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.unroute('**/api/admin/ai/video-jobs');
+    await page.unroute('**/api/admin/ai/video-jobs/*');
+    await page.route('**/api/admin/ai/video-jobs/recovery-job/recover', async (route) => {
+      recoverRequest = {
+        body: route.request().postDataJSON(),
+        idempotencyKey: route.request().headers()['idempotency-key'],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          job: {
+            jobId: 'recovery-job',
+            status: 'succeeded',
+            provider: 'workers-ai',
+            model: 'bytedance/seedance-2.0',
+            createdAt: '2026-05-29T00:00:00.000Z',
+            updatedAt: '2026-05-29T00:01:00.000Z',
+            completedAt: '2026-05-29T00:01:00.000Z',
+            statusUrl: '/api/admin/ai/video-jobs/recovery-job',
+            outputUrl: '/api/admin/ai/video-jobs/recovery-job/output',
+          },
+          recovery: {
+            previous_status: 'failed',
+            recovered_url_host: 'provider.example.com',
+          },
+        }),
+      });
+    });
+    await page.route('**/api/admin/ai/video-jobs/recovery-job/output', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from([0, 0, 0, 0]),
+      });
+    });
+
+    await clickAiLabMode(page, 'video');
+    await page.locator('#aiVideoRecovery summary').click();
+    await page.locator('#aiVideoRecoveryJobId').fill('recovery-job');
+    await page.locator('#aiVideoRecoveryRaw').fill(JSON.stringify({
+      state: 'Completed',
+      result: {
+        video: 'https://provider.example.com/out.mp4?token=secret',
+      },
+    }));
+    await page.locator('#aiVideoRecoveryReason').fill('Seedance completed after frontend rate limiting.');
+    await page.locator('#aiVideoRecoveryImport').click();
+
+    await expect(page.locator('#aiVideoRecoveryState')).toContainText('Recovered provider video imported and stored.');
+    await expect(page.locator('#aiLabStatus')).toContainText('Recovered provider video imported and stored.');
+    await expect(page.locator('#aiVideoDownload')).toBeVisible();
+    await expect.poll(() => recoverRequest).toMatchObject({
+      body: {
+        providerResponseRaw: expect.stringContaining('provider.example.com'),
+        operatorReason: 'Seedance completed after frontend rate limiting.',
+      },
+      idempotencyKey: expect.stringMatching(/^admin-video-recover:recovery-job:/),
+    });
+  });
+
   test('keeps the Video AI image input preview in a designed empty state before selection, after clear, and after load failure', async ({
     page,
   }) => {

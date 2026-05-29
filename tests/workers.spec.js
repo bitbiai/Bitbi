@@ -689,6 +689,29 @@ function createVideoAssetFetchStub(overrides = {}) {
   return fetchStub;
 }
 
+async function createAdminVideoJobForTest(authWorker, env, authHeaders, {
+  idempotencyKey = 'video-job-test-create-1',
+  payload = {},
+} = {}) {
+  const res = await authWorker.fetch(
+    authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+      model: 'bytedance/seedance-2.0',
+      prompt: 'Seedance recovery test job',
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      ...payload,
+    }, {
+      ...authHeaders,
+      'Idempotency-Key': idempotencyKey,
+    }),
+    env,
+    createExecutionContext().execCtx
+  );
+  expect(res.status).toBe(202);
+  return res.json();
+}
+
 async function createAdminAiContractHarness(options = {}) {
   const authWorker = await loadWorker('workers/auth/src/index.js');
   const aiWorker = await loadWorker('workers/ai/src/index.js');
@@ -5012,6 +5035,16 @@ test.describe('Phase 1-E auth route policy registry', () => {
         idempotency: expect.stringContaining('Idempotency-Key'),
       }),
     }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/video-jobs/job-123/recover')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-jobs.recover',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ maxBytesName: 'smallJson' }),
+      rateLimit: expect.objectContaining({
+        id: 'admin-ai-video-job-recover-ip',
+        failClosed: true,
+      }),
+    }));
     expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/poison')).toEqual(expect.objectContaining({
       id: 'admin.ai.video-jobs.poison.list',
       auth: 'admin',
@@ -5418,6 +5451,11 @@ test.describe('Phase 1-E auth route policy registry', () => {
     expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/job-123/output')).toEqual(expect.objectContaining({
       id: 'admin.ai.video-jobs.output',
       auth: 'admin',
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/video-jobs/job-123/recover')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-jobs.recover',
+      auth: 'admin',
+      csrf: 'same-origin-required',
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/test-video')).toEqual(expect.objectContaining({
       id: 'admin.ai.test-video-debug',
@@ -22439,6 +22477,24 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('admin video recovery extracts completed provider video URLs from common response shapes', async () => {
+      const { extractAdminAiVideoRecoveryProviderOutput } = await loadAiVideoJobsModule();
+
+      expect(extractAdminAiVideoRecoveryProviderOutput({
+        state: 'Completed',
+        result: { video: 'https://example.com/out.mp4' },
+      })).toEqual(expect.objectContaining({
+        videoUrl: 'https://example.com/out.mp4',
+      }));
+
+      expect(extractAdminAiVideoRecoveryProviderOutput({
+        status: 'succeeded',
+        data: { video_url: 'https://example.com/out-2.mp4' },
+      })).toEqual(expect.objectContaining({
+        videoUrl: 'https://example.com/out-2.mp4',
+      }));
+    });
+
     test('POST /api/admin/ai/video-jobs creates a queued job and does not call the provider in the request path', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-admin');
@@ -22980,6 +23036,186 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.aiVideoJobs).toHaveLength(0);
       expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
       expect(service.calls).toHaveLength(0);
+    });
+
+    test('POST /api/admin/ai/video-jobs/:id/recover imports a completed provider response through R2 output storage', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-recover-admin');
+      const assetFetch = createVideoAssetFetchStub({
+        'https://provider.example.com/out.mp4?token=secret': () => new Response(new Uint8Array([1, 2, 3, 4, 5]), {
+          status: 200,
+          headers: { 'content-type': 'video/mp4', 'content-length': '5' },
+        }),
+      });
+      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const token = await seedSession(env, admin.id);
+      const authHeaders = {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      };
+      const createBody = await createAdminVideoJobForTest(authWorker, env, authHeaders, {
+        idempotencyKey: 'video-job-recover-create-1',
+      });
+      env.DB.state.aiVideoJobs[0].status = 'failed';
+      env.DB.state.aiVideoJobs[0].error_code = 'status_poll_rate_limited';
+      env.DB.state.aiVideoJobs[0].error_message = 'Frontend status polling was rate limited.';
+
+      const res = await authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/video-jobs/${createBody.job.jobId}/recover`, 'POST', {
+          providerResponseRaw: JSON.stringify({
+            state: 'Completed',
+            result: {
+              video: 'https://provider.example.com/out.mp4?token=secret',
+            },
+          }),
+          operatorReason: 'Seedance completed after frontend polling stopped.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'video-job-recover-import-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        ok: true,
+        job: {
+          jobId: createBody.job.jobId,
+          status: 'succeeded',
+          outputUrl: `/api/admin/ai/video-jobs/${createBody.job.jobId}/output`,
+        },
+        recovery: {
+          previous_status: 'failed',
+          recovered_url_host: 'provider.example.com',
+        },
+      });
+      expect(JSON.stringify(body)).not.toContain('token=secret');
+      expect(assetFetch.calls).toEqual(['https://provider.example.com/out.mp4?token=secret']);
+      expect(env.USER_IMAGES.putCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          key: `users/${admin.id}/video-jobs/${createBody.job.jobId}/output.mp4`,
+        }),
+      ]));
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        id: createBody.job.jobId,
+        status: 'succeeded',
+        output_url: `/api/admin/ai/video-jobs/${createBody.job.jobId}/output`,
+        provider_state: 'recovered_provider_response',
+      });
+      const auditPayload = JSON.stringify(env.ACTIVITY_INGEST_QUEUE.messages);
+      expect(auditPayload).toContain('admin_ai_video_job_recovered_from_provider_response');
+      expect(auditPayload).not.toContain('token=secret');
+      expect(auditPayload).not.toContain('https://provider.example.com/out.mp4');
+    });
+
+    test('POST /api/admin/ai/video-jobs/:id/recover rejects invalid provider responses and unsafe URLs', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-recover-invalid-admin');
+      const env = createAuthTestEnv({ users: [admin], fetch: createVideoAssetFetchStub() });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const token = await seedSession(env, admin.id);
+      const authHeaders = {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      };
+      const createBody = await createAdminVideoJobForTest(authWorker, env, authHeaders, {
+        idempotencyKey: 'video-job-recover-invalid-create-1',
+      });
+      env.DB.state.aiVideoJobs[0].status = 'failed';
+
+      const cases = [
+        {
+          key: 'bad-json',
+          raw: '{not json',
+          status: 400,
+          code: 'validation_error',
+        },
+        {
+          key: 'missing-video',
+          raw: JSON.stringify({ state: 'Completed', result: { image: 'https://example.com/out.png' } }),
+          status: 400,
+          code: 'provider_video_url_missing',
+        },
+        {
+          key: 'private-url',
+          raw: JSON.stringify({ state: 'Completed', result: { video: 'http://127.0.0.1/out.mp4' } }),
+          status: 400,
+          code: 'video_output_url_not_allowed',
+        },
+      ];
+
+      for (const testCase of cases) {
+        const res = await authWorker.fetch(
+          authJsonRequest(`/api/admin/ai/video-jobs/${createBody.job.jobId}/recover`, 'POST', {
+            providerResponseRaw: testCase.raw,
+          }, {
+            ...authHeaders,
+            'Idempotency-Key': `video-job-recover-${testCase.key}`,
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(testCase.status);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: false,
+          code: testCase.code,
+        }));
+      }
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        status: 'failed',
+      });
+    });
+
+    test('POST /api/admin/ai/video-jobs/:id/recover returns succeeded jobs idempotently without another provider download', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-recover-succeeded-admin');
+      const assetFetch = createVideoAssetFetchStub();
+      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const token = await seedSession(env, admin.id);
+      const authHeaders = {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      };
+      const createBody = await createAdminVideoJobForTest(authWorker, env, authHeaders, {
+        idempotencyKey: 'video-job-recover-succeeded-create-1',
+      });
+      env.DB.state.aiVideoJobs[0].status = 'succeeded';
+      env.DB.state.aiVideoJobs[0].output_url = `/api/admin/ai/video-jobs/${createBody.job.jobId}/output`;
+      env.DB.state.aiVideoJobs[0].output_r2_key = `users/${admin.id}/video-jobs/${createBody.job.jobId}/output.mp4`;
+      env.DB.state.aiVideoJobs[0].output_content_type = 'video/mp4';
+
+      const res = await authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/video-jobs/${createBody.job.jobId}/recover`, 'POST', {
+          providerResponseRaw: JSON.stringify({
+            state: 'Completed',
+            result: { video: 'https://provider.example.com/out.mp4?token=secret' },
+          }),
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'video-job-recover-succeeded-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        job: {
+          status: 'succeeded',
+          outputUrl: `/api/admin/ai/video-jobs/${createBody.job.jobId}/output`,
+        },
+        recovery: {
+          already_succeeded: true,
+        },
+      });
+      expect(assetFetch.calls).toHaveLength(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
     });
 
     test('POST /api/admin/ai/video-jobs requires a valid Idempotency-Key', async () => {

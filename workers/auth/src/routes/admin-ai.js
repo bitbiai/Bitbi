@@ -58,6 +58,7 @@ import {
   listAdminAiVideoFailedJobs,
   listAdminAiVideoPoisonMessages,
   normalizeAiVideoIdempotencyKey,
+  recoverAdminAiVideoJobFromProviderResponse,
   serializeAiVideoJob,
 } from "../lib/ai-video-jobs.js";
 import {
@@ -3401,6 +3402,89 @@ export async function handleAdminAI(ctx) {
           correlationId,
           requestInfo,
           component: "admin-ai-video-jobs",
+        });
+        return workerConfigUnavailableResponse(correlationId);
+      }
+      throw error;
+    }
+  }
+
+  const videoJobRecoverMatch = pathname.match(/^\/api\/admin\/ai\/video-jobs\/([^/]+)\/recover$/);
+  // route-policy: admin.ai.video-jobs.recover
+  if (videoJobRecoverMatch && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-job-recover-ip", 8, 600_000, correlationId);
+    if (limited) return limited;
+
+    const jobId = decodePathSegment(videoJobRecoverMatch[1]);
+    if (!jobId || jobId.includes("/")) {
+      return notFoundResponse(correlationId);
+    }
+
+    try {
+      const idempotencyKey = normalizeAiVideoIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const body = parsed.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) return badJsonResponse(correlationId);
+      const providerResponseRaw =
+        body.providerResponseRaw ??
+        body.provider_response_raw ??
+        body.rawProviderResponse ??
+        body.raw_provider_response ??
+        body.providerResponse ??
+        body.provider_response;
+      const recoveryResult = await recoverAdminAiVideoJobFromProviderResponse({
+        env,
+        adminUser: result.user,
+        jobId,
+        providerResponseRaw,
+        operatorReason: body.operatorReason ?? body.operator_reason ?? body.reason,
+        idempotencyKey,
+        correlationId,
+      });
+      if (!recoveryResult.recovery?.idempotencyReplayed) {
+        await auditAdminAiMaintenanceEvent(
+          ctx,
+          result.user,
+          "admin_ai_video_job_recovered_from_provider_response",
+          {
+            job_id: recoveryResult.job?.id || jobId,
+            model: recoveryResult.job?.model || null,
+            provider: recoveryResult.job?.provider || null,
+            previous_status: recoveryResult.recovery?.previousStatus || null,
+            recovered_url_host: recoveryResult.recovery?.recoveredUrlHost || null,
+            recovered_url_hash: recoveryResult.recovery?.recoveredUrlHash || null,
+            idempotency_replayed: false,
+            operator_reason: String(body.operatorReason ?? body.operator_reason ?? body.reason ?? "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 240),
+          }
+        );
+      }
+      return withCorrelationId(json({
+        ok: true,
+        job: serializeAiVideoJob(recoveryResult.job),
+        recovery: {
+          already_succeeded: recoveryResult.recovery?.alreadySucceeded === true,
+          idempotency_replayed: recoveryResult.recovery?.idempotencyReplayed === true,
+          previous_status: recoveryResult.recovery?.previousStatus || null,
+          recovered_url_host: recoveryResult.recovery?.recoveredUrlHost || null,
+          recovered_url_hash: recoveryResult.recovery?.recoveredUrlHash || null,
+        },
+      }), correlationId);
+    } catch (error) {
+      if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId,
+          requestInfo,
+          component: "admin-ai-video-job-recovery",
         });
         return workerConfigUnavailableResponse(correlationId);
       }

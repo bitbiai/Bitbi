@@ -2360,6 +2360,7 @@
                         <div class="admin-ai__result-actions">
                             <button type="button" id="aiVideoDownload" class="btn-action" hidden>Download Video</button>
                             <button type="button" id="aiVideoSave" class="btn-action" hidden>Save to Folder</button>
+                            <button type="button" id="aiVideoResumeJob" class="btn-action" hidden>Check last video job</button>
                         </div>
 
                         <div id="aiVideoPreview" class="admin-ai__video-preview">
@@ -2381,6 +2382,27 @@
                                 <button type="button" id="aiVideoCopyRaw" class="btn-action">Copy Raw JSON</button>
                             </div>
                             <pre id="aiVideoRaw" class="admin-ai__raw"></pre>
+                        </details>
+
+                        <details id="aiVideoRecovery" class="admin-ai__debug">
+                            <summary>Recovery: Import provider response</summary>
+                            <div class="admin-ai__field">
+                                <span class="admin-ai__label">Job ID</span>
+                                <input id="aiVideoRecoveryJobId" class="admin-ai__input" type="text" autocomplete="off" placeholder="vidjob_...">
+                                <span class="admin-ai__hint">Use the existing Admin async video job that should receive the recovered output.</span>
+                            </div>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Raw Provider Response</span>
+                                <textarea id="aiVideoRecoveryRaw" class="admin-ai__textarea" rows="7" maxlength="30000" placeholder='{"state":"Completed","result":{"video":"https://..."}}'></textarea>
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Operator note</span>
+                                <input id="aiVideoRecoveryReason" class="admin-ai__input" type="text" maxlength="240" placeholder="Optional context for audit notes">
+                            </label>
+                            <div class="admin-ai__debug-actions">
+                                <button type="button" id="aiVideoRecoveryImport" class="btn-action">Import &amp; display video</button>
+                            </div>
+                            <p id="aiVideoRecoveryState" class="admin-ai__hint" role="status" aria-live="polite">Paste a completed provider JSON response. The worker will validate, download, and store the video before displaying it.</p>
                         </details>
                     </section>
                 </div>

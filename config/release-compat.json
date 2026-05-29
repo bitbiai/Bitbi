@@ -820,6 +820,7 @@
       "GET /api/admin/ai/platform-budget-evidence-archives/:id/download",
       "POST /api/admin/ai/platform-budget-evidence-archives/:id/expire",
       "GET /api/admin/ai/video-jobs/:id",
+      "POST /api/admin/ai/video-jobs/:id/recover",
       "GET /api/admin/ai/video-jobs/poison/:id",
       "GET /api/admin/ai/video-jobs/failed/:id",
       "GET /api/admin/ai/admin-usage-attempts/:id",

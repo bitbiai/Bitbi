@@ -1016,6 +1016,17 @@ export const ROUTE_POLICIES = Object.freeze([
     },
     notes: "Phase 4.5 covers only admin async video jobs with platform_admin_lab_budget metadata and duplicate queue/provider-task guards; Phase 4.7 adds internal AI caller-policy propagation for task create/poll. Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; broader admin AI routes remain separate tracked gaps where not already migrated.",
   }),
+  adminJsonWrite("admin.ai.video-jobs.recover", "POST", "/api/admin/ai/video-jobs/:id/recover", "admin-ai", "smallJson", "admin-ai-video-job-recover-ip", {
+    config: REQUIRED_CONFIG.adminVideoJobs,
+    audit: { event: "admin_ai_video_job_recovered_from_provider_response" },
+    billing: {
+      budgetScope: "platform_admin_lab_budget",
+      idempotency: "Idempotency-Key header is required; same-key same-provider-response reuses the recovered job metadata, and same-key different-response conflicts before any remote fetch.",
+      callerPolicy: "No provider execution and no credit debit. The route imports an already completed provider response by validating and ingesting the remote video output server-side through the existing admin video job R2 path.",
+      runtimeEnforcement: "Admin-only, same-origin JSON, low rate limit, small body limit, safe remote URL policy, MIME/size validation, and audit event. Raw signed provider URLs and R2 keys are never returned or logged.",
+    },
+    notes: "Admin recovery path for long async video jobs that completed at the provider after status polling was rate-limited. Public routes are not opened; final UI output remains /api/admin/ai/video-jobs/:id/output.",
+  }),
   adminRead("admin.ai.video-jobs.poison.list", "/api/admin/ai/video-jobs/poison", "admin-ai", {
     config: REQUIRED_CONFIG.adminVideoJobs,
     rateLimit: { id: "admin-ai-video-ops-ip", failClosed: true },

@@ -7,6 +7,7 @@ import {
     apiAdminAiModels,
     apiAdminAiCreateVideoJob,
     apiAdminAiGetVideoJob,
+    apiAdminAiRecoverVideoJob,
     apiAdminAiSaveTextAsset,
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
@@ -78,6 +79,11 @@ const DEFAULT_REQUEST_TIMEOUTS = {
     compare: ADMIN_AI_REQUEST_TIMEOUT_MS,
     liveAgent: ADMIN_AI_REQUEST_TIMEOUT_MS,
 };
+const VIDEO_JOB_POLL_INITIAL_DELAY_MS = 2_500;
+const VIDEO_JOB_POLL_MAX_DELAY_MS = 15_000;
+const VIDEO_JOB_POLL_BACKOFF_FACTOR = 1.45;
+const VIDEO_JOB_STATUS_RATE_LIMIT_MESSAGE = 'Status polling is rate limited. The video job is still running. Use Check last video job shortly.';
+const VIDEO_JOB_RECOVERY_DEFAULT_REASON = 'Admin AI Lab provider response recovery';
 const TASK_UI = {
     text: {
         label: 'Text',
@@ -411,6 +417,67 @@ function mergePreferences(savedPreferences) {
     }
 
     return merged;
+}
+
+function normalizeVideoJobSnapshot(job) {
+    if (!isObject(job)) return null;
+    const jobId = typeof job.jobId === 'string' ? job.jobId.trim() : '';
+    if (!jobId) return null;
+    return {
+        jobId,
+        status: typeof job.status === 'string' ? job.status : 'queued',
+        provider: typeof job.provider === 'string' ? job.provider : null,
+        model: typeof job.model === 'string' ? job.model : null,
+        createdAt: typeof job.createdAt === 'string' ? job.createdAt : null,
+        updatedAt: typeof job.updatedAt === 'string' ? job.updatedAt : null,
+        completedAt: typeof job.completedAt === 'string' ? job.completedAt : null,
+        statusUrl: typeof job.statusUrl === 'string' ? job.statusUrl : `/api/admin/ai/video-jobs/${encodeURIComponent(jobId)}`,
+        outputUrl: typeof job.outputUrl === 'string' ? job.outputUrl : null,
+        posterUrl: typeof job.posterUrl === 'string' ? job.posterUrl : null,
+        error: isObject(job.error) ? {
+            code: typeof job.error.code === 'string' ? job.error.code : null,
+            message: typeof job.error.message === 'string' ? job.error.message : null,
+        } : null,
+        budgetPolicy: isObject(job.budgetPolicy) ? job.budgetPolicy : null,
+    };
+}
+
+function snapshotVideoPayload(payload = {}) {
+    return {
+        preset: payload.preset || undefined,
+        model: payload.model || undefined,
+        prompt: typeof payload.prompt === 'string' ? payload.prompt : null,
+        duration: Number.isFinite(Number(payload.duration)) ? Number(payload.duration) : undefined,
+        aspect_ratio: payload.aspect_ratio || undefined,
+        ratio: payload.ratio || undefined,
+        quality: payload.quality || undefined,
+        resolution: payload.resolution || undefined,
+        seed: payload.seed ?? null,
+        generate_audio: payload.generate_audio ?? payload.audio ?? null,
+        audio: payload.audio ?? undefined,
+        watermark: payload.watermark ?? null,
+        hasImageInput: !!(payload.image_input || payload.start_image),
+        hasEndImageInput: !!payload.end_image,
+        workflow: payload.end_image
+            ? 'start_end_to_video'
+            : payload.start_image || payload.image_input
+                ? 'image_to_video'
+                : 'text_to_video',
+    };
+}
+
+function mergeVideoJobState(savedVideoJob) {
+    const lastJob = normalizeVideoJobSnapshot(savedVideoJob?.lastJob);
+    const lastPayload = isObject(savedVideoJob?.lastPayload)
+        ? snapshotVideoPayload(savedVideoJob.lastPayload)
+        : null;
+    return {
+        lastJob,
+        lastPayload,
+        lastVideoSpecId: typeof savedVideoJob?.lastVideoSpecId === 'string'
+            ? savedVideoJob.lastVideoSpecId
+            : (lastJob?.model || null),
+    };
 }
 
 function formatTime(date) {
@@ -798,6 +865,7 @@ export function createAdminAiLab({ showToast } = {}) {
             balance: null,
             error: '',
         },
+        videoJob: mergeVideoJobState(persisted?.videoJob),
     };
 
     const refs = {
@@ -1044,9 +1112,16 @@ export function createAdminAiLab({ showToast } = {}) {
             warnings: document.getElementById('aiVideoWarnings'),
             save: document.getElementById('aiVideoSave'),
             download: document.getElementById('aiVideoDownload'),
+            resumeJob: document.getElementById('aiVideoResumeJob'),
             debug: document.getElementById('aiVideoDebug'),
             raw: document.getElementById('aiVideoRaw'),
             copyRaw: document.getElementById('aiVideoCopyRaw'),
+            recovery: document.getElementById('aiVideoRecovery'),
+            recoveryJobId: document.getElementById('aiVideoRecoveryJobId'),
+            recoveryRaw: document.getElementById('aiVideoRecoveryRaw'),
+            recoveryReason: document.getElementById('aiVideoRecoveryReason'),
+            recoveryImport: document.getElementById('aiVideoRecoveryImport'),
+            recoveryState: document.getElementById('aiVideoRecoveryState'),
         },
         compare: {
             modelA: document.getElementById('aiCompareModelA'),
@@ -1305,6 +1380,7 @@ export function createAdminAiLab({ showToast } = {}) {
                     forms: formsToStore,
                     history: state.history,
                     preferences: state.preferences,
+                    videoJob: state.videoJob,
                 })
             );
         } catch {
@@ -3414,6 +3490,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const resultCode = getResultCode(result);
 
         renderVideoPreview(payload, result);
+        syncVideoResumeControls();
         renderMeta(refs.video.meta, response ? [
             { label: 'Preset', value: response.preset || 'Preset default' },
             { label: 'Model Label', value: response.model?.label },
@@ -3492,6 +3569,16 @@ export function createAdminAiLab({ showToast } = {}) {
                 response
                     ? `${result.error || 'Video request timed out.'} Previous result preserved.`
                     : result.error || 'Video request timed out.'
+            );
+            syncVideoFieldState();
+            return;
+        }
+
+        if (result.status === 'poll_paused') {
+            setResultState(
+                refs.video.state,
+                'aborted',
+                result.error || VIDEO_JOB_STATUS_RATE_LIMIT_MESSAGE
             );
             syncVideoFieldState();
             return;
@@ -3601,8 +3688,8 @@ export function createAdminAiLab({ showToast } = {}) {
         return {
             ok: true,
             task: 'video',
-            model: getVideoModelSummary(job?.model || videoSpec.id),
-            preset: payload.preset || videoSpec.defaultPreset || state.forms.video.preset || null,
+            model: getVideoModelSummary(job?.model || videoSpec?.id),
+            preset: payload.preset || videoSpec?.defaultPreset || state.forms.video.preset || null,
             result: {
                 videoUrl: job.outputUrl,
                 posterUrl: job.posterUrl || null,
@@ -3615,13 +3702,13 @@ export function createAdminAiLab({ showToast } = {}) {
                 seed: payload.seed ?? null,
                 generate_audio: payload.generate_audio ?? payload.audio ?? null,
                 watermark: payload.watermark ?? null,
-                hasImageInput: !!(payload.image_input || payload.start_image),
-                hasEndImageInput: !!payload.end_image,
+                hasImageInput: !!(payload.image_input || payload.start_image || payload.hasImageInput),
+                hasEndImageInput: !!(payload.end_image || payload.hasEndImageInput),
                 workflow: payload.end_image
                     ? 'start_end_to_video'
                     : payload.start_image || payload.image_input
                         ? 'image_to_video'
-                        : 'text_to_video',
+                        : payload.workflow || 'text_to_video',
                 pricing,
                 jobId: job.jobId,
                 statusUrl: job.statusUrl,
@@ -3631,10 +3718,65 @@ export function createAdminAiLab({ showToast } = {}) {
         };
     }
 
+    function rememberVideoJob(job, payload = null, videoSpec = null) {
+        const snapshot = normalizeVideoJobSnapshot(job);
+        if (!snapshot) return;
+        state.videoJob.lastJob = snapshot;
+        if (payload) state.videoJob.lastPayload = snapshotVideoPayload(payload);
+        if (videoSpec?.id || snapshot.model) {
+            state.videoJob.lastVideoSpecId = videoSpec?.id || snapshot.model;
+        }
+        if (refs.video.recoveryJobId && !refs.video.recoveryJobId.value.trim()) {
+            refs.video.recoveryJobId.value = snapshot.jobId;
+        }
+        persistState();
+        syncVideoResumeControls();
+    }
+
+    function getLastVideoJobId() {
+        return state.videoJob.lastJob?.jobId || '';
+    }
+
+    function getLastVideoJobPayload(job = null) {
+        return state.videoJob.lastPayload || snapshotVideoPayload({
+            ...state.forms.video,
+            model: job?.model || state.videoJob.lastVideoSpecId || state.forms.video.model,
+        });
+    }
+
+    function getVideoSpecForJob(job = null) {
+        return getAdminAiVideoModelSpec(job?.model || state.videoJob.lastVideoSpecId || getSelectedVideoModelId());
+    }
+
+    function syncVideoResumeControls() {
+        const hasJob = !!getLastVideoJobId();
+        if (refs.video.resumeJob) {
+            refs.video.resumeJob.hidden = !hasJob;
+            refs.video.resumeJob.disabled = state.results.video?.status === 'loading';
+        }
+        if (refs.video.recoveryJobId && !refs.video.recoveryJobId.value.trim() && hasJob) {
+            refs.video.recoveryJobId.value = getLastVideoJobId();
+        }
+    }
+
+    function getRetryAfterDelayMs(response, fallbackDelayMs) {
+        const seconds = Number(response?.retryAfterSeconds || response?.data?.retryAfterSeconds);
+        if (Number.isFinite(seconds) && seconds > 0) {
+            return Math.min(VIDEO_JOB_POLL_MAX_DELAY_MS, Math.max(1_000, Math.ceil(seconds * 1000)));
+        }
+        return fallbackDelayMs;
+    }
+
+    function isVideoStatusRateLimited(response) {
+        const code = getApiCode(response);
+        return response?.status === 429 || code === 'rate_limited';
+    }
+
     async function pollVideoJobUntilTerminal(job, controller, seq) {
         let current = job;
-        let delayMs = 1_500;
+        let delayMs = VIDEO_JOB_POLL_INITIAL_DELAY_MS;
         while (current && !isTerminalVideoJobStatus(current.status)) {
+            rememberVideoJob(current);
             setStatus(describeVideoJobStatus(current), 'loading');
             await waitForVideoJobPoll(delayMs, controller.signal);
             if (seq !== state.requestSeq.video) return null;
@@ -3643,13 +3785,22 @@ export function createAdminAiLab({ showToast } = {}) {
             });
             if (statusRes.aborted) return null;
             if (!statusRes.ok) {
+                if (isVideoStatusRateLimited(statusRes)) {
+                    rememberVideoJob(current);
+                    return {
+                        pollPaused: true,
+                        job: current,
+                        retryAfterMs: getRetryAfterDelayMs(statusRes, delayMs),
+                    };
+                }
                 throw Object.assign(new Error(statusRes.error || 'Video job status check failed.'), {
                     code: getApiCode(statusRes),
                     data: statusRes.data,
                 });
             }
             current = statusRes.data?.job;
-            delayMs = Math.min(5_000, Math.round(delayMs * 1.3));
+            rememberVideoJob(current);
+            delayMs = Math.min(VIDEO_JOB_POLL_MAX_DELAY_MS, Math.round(delayMs * VIDEO_JOB_POLL_BACKOFF_FACTOR));
         }
         return current;
     }
@@ -4146,6 +4297,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.run) {
             refs.video.run.disabled = noCatalog || state.results.video?.status === 'loading';
             refs.video.cancel.disabled = state.results.video?.status !== 'loading';
+            syncVideoResumeControls();
         }
         refs.compare.run.disabled = noCatalog || state.results.compare?.status === 'loading';
         refs.compare.cancel.disabled = state.results.compare?.status !== 'loading';
@@ -4675,8 +4827,24 @@ export function createAdminAiLab({ showToast } = {}) {
                 return;
             }
 
+            rememberVideoJob(createRes.data?.job, payload, videoSpec);
             const terminalJob = await pollVideoJobUntilTerminal(createRes.data?.job, controller, seq);
             if (seq !== state.requestSeq.video || !terminalJob) return;
+            if (terminalJob.pollPaused) {
+                const retrySeconds = Math.max(1, Math.ceil((terminalJob.retryAfterMs || VIDEO_JOB_POLL_MAX_DELAY_MS) / 1000));
+                const message = `${VIDEO_JOB_STATUS_RATE_LIMIT_MESSAGE} Retry after about ${retrySeconds} seconds.`;
+                state.results.video = {
+                    status: 'poll_paused',
+                    error: message,
+                    errorCode: 'status_poll_rate_limited',
+                    raw: previous.raw,
+                    debugRaw: { job: terminalJob.job, retryAfterSeconds: retrySeconds },
+                    receivedAt: previous.receivedAt,
+                };
+                setStatus(message, 'loading');
+                renderVideoResult();
+                return;
+            }
             if (terminalJob.status !== 'succeeded') {
                 const errorCode = terminalJob.error?.code || `video_job_${terminalJob.status || 'failed'}`;
                 const message = terminalJob.error?.message || describeVideoJobStatus(terminalJob);
@@ -4702,6 +4870,110 @@ export function createAdminAiLab({ showToast } = {}) {
             }
             clearTaskTimer('video', controller);
             setTaskBusy('video', false, TASK_UI.video.busyText, TASK_UI.video.idleText);
+        }
+    }
+
+    async function checkLastVideoJob() {
+        const jobId = getLastVideoJobId();
+        if (!jobId) {
+            setStatus('No previous async video job is available to check.', 'error');
+            return;
+        }
+        refs.video.resumeJob.disabled = true;
+        setStatus('Checking the last async video job...', 'loading');
+        try {
+            const res = await apiAdminAiGetVideoJob(jobId);
+            if (!res.ok) {
+                if (isVideoStatusRateLimited(res)) {
+                    const retrySeconds = Math.max(1, Math.ceil(getRetryAfterDelayMs(res, VIDEO_JOB_POLL_MAX_DELAY_MS) / 1000));
+                    const message = `${VIDEO_JOB_STATUS_RATE_LIMIT_MESSAGE} Retry after about ${retrySeconds} seconds.`;
+                    state.results.video = {
+                        status: 'poll_paused',
+                        error: message,
+                        errorCode: 'status_poll_rate_limited',
+                        raw: getRetainedResult(state.results.video).raw,
+                        debugRaw: { job: state.videoJob.lastJob, retryAfterSeconds: retrySeconds },
+                        receivedAt: getRetainedResult(state.results.video).receivedAt,
+                    };
+                    setStatus(message, 'loading');
+                    renderVideoResult();
+                    return;
+                }
+                setStatus(describeAdminAiError('video', res.error, getApiCode(res)), 'error');
+                return;
+            }
+
+            const job = res.data?.job;
+            rememberVideoJob(job);
+            if (job?.status === 'succeeded') {
+                const payload = getLastVideoJobPayload(job);
+                const successResponse = buildVideoJobSuccessResponse(job, payload, getVideoSpecForJob(job));
+                setTaskSuccessState('video', successResponse, 'async_video_job_succeeded');
+                setStatus('Video generation completed.', 'success');
+                renderVideoResult();
+                return;
+            }
+            const message = isTerminalVideoJobStatus(job?.status)
+                ? describeVideoJobStatus(job)
+                : `${describeVideoJobStatus(job)} Check again shortly.`;
+            setStatus(message, isTerminalVideoJobStatus(job?.status) ? 'error' : 'loading');
+            renderVideoResult();
+        } finally {
+            if (refs.video.resumeJob) refs.video.resumeJob.disabled = false;
+            syncVideoResumeControls();
+        }
+    }
+
+    function createVideoRecoveryIdempotencyKey(jobId) {
+        if (window.crypto?.randomUUID) {
+            return `admin-video-recover:${jobId}:${window.crypto.randomUUID()}`;
+        }
+        return `admin-video-recover:${jobId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    async function recoverVideoJobFromProviderResponse() {
+        const jobId = (refs.video.recoveryJobId?.value || getLastVideoJobId()).trim();
+        const providerResponseRaw = (refs.video.recoveryRaw?.value || '').trim();
+        const operatorReason = (refs.video.recoveryReason?.value || '').trim() || VIDEO_JOB_RECOVERY_DEFAULT_REASON;
+        if (!jobId) {
+            refs.video.recoveryState.textContent = 'Enter the async video Job ID to recover.';
+            return;
+        }
+        if (!providerResponseRaw) {
+            refs.video.recoveryState.textContent = 'Paste the raw completed provider response first.';
+            return;
+        }
+
+        refs.video.recoveryImport.disabled = true;
+        refs.video.recoveryState.textContent = 'Importing provider response and storing the video output...';
+        setStatus('Recovering provider video output...', 'loading');
+        try {
+            const res = await apiAdminAiRecoverVideoJob(jobId, {
+                providerResponseRaw,
+                operatorReason,
+            }, {
+                headers: {
+                    'Idempotency-Key': createVideoRecoveryIdempotencyKey(jobId),
+                },
+            });
+            if (!res.ok) {
+                const message = describeAdminAiError('video', res.error, getApiCode(res));
+                refs.video.recoveryState.textContent = message;
+                setStatus(message, 'error');
+                return;
+            }
+
+            const job = res.data?.job;
+            rememberVideoJob(job);
+            const payload = getLastVideoJobPayload(job);
+            const successResponse = buildVideoJobSuccessResponse(job, payload, getVideoSpecForJob(job));
+            setTaskSuccessState('video', successResponse, 'async_video_job_recovered');
+            refs.video.recoveryState.textContent = 'Recovered provider video imported and stored.';
+            setStatus('Recovered provider video imported and stored.', 'success');
+            renderVideoResult();
+        } finally {
+            refs.video.recoveryImport.disabled = false;
+            syncVideoResumeControls();
         }
     }
 
@@ -5341,6 +5613,8 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.run.addEventListener('click', runVideo);
             refs.video.cancel.addEventListener('click', () => cancelTask('video', 'Video'));
             refs.video.reset.addEventListener('click', () => resetVideoForm());
+            refs.video.resumeJob?.addEventListener('click', checkLastVideoJob);
+            refs.video.recoveryImport?.addEventListener('click', recoverVideoJobFromProviderResponse);
         }
         refs.compare.run.addEventListener('click', runCompare);
         refs.compare.cancel.addEventListener('click', () => cancelTask('compare', 'Compare'));

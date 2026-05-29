@@ -106,7 +106,20 @@ async function request(method, path, body, options = {}) {
         let data;
         try { data = await res.json(); } catch { data = null; }
         if (res.ok) return { ok: true, data, status: res.status };
-        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
+        const retryAfterHeader = Number(res.headers.get('retry-after'));
+        const retryAfterSeconds = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+            ? Math.ceil(retryAfterHeader)
+            : (Number.isFinite(Number(data?.retryAfterSeconds)) && Number(data.retryAfterSeconds) > 0
+                ? Math.ceil(Number(data.retryAfterSeconds))
+                : null);
+        return {
+            ok: false,
+            error: data?.error || `Error ${res.status}`,
+            code: data?.code || null,
+            data,
+            status: res.status,
+            retryAfterSeconds,
+        };
     } catch (e) {
         if (e?.name === 'AbortError') {
             if (signalState.timedOut()) {
@@ -1226,6 +1239,10 @@ export function apiAdminAiCreateVideoJob(payload, options) {
 
 export function apiAdminAiGetVideoJob(jobId, options) {
     return request('GET', `/admin/ai/video-jobs/${encodeURIComponent(jobId)}`, undefined, options);
+}
+
+export function apiAdminAiRecoverVideoJob(jobId, payload, options) {
+    return request('POST', `/admin/ai/video-jobs/${encodeURIComponent(jobId)}/recover`, payload, options);
 }
 
 export function apiAdminAiListVideoJobPoisonMessages({ limit, cursor } = {}, options) {

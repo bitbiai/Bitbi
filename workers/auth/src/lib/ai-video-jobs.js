@@ -36,6 +36,12 @@ import {
   withPlatformBudgetCapMetadata,
 } from "./platform-budget-caps.js";
 import { proxyToAiLab } from "./admin-ai-proxy.js";
+import {
+  beginAdminAiIdempotencyAttempt,
+  markAdminAiIdempotencyProviderFailed,
+  markAdminAiIdempotencyProviderRunning,
+  markAdminAiIdempotencySucceeded,
+} from "./admin-ai-idempotency.js";
 import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
 import { fetchWithGenerationTimeout } from "./generation-timeout.js";
@@ -137,6 +143,17 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const JOB_LEASE_MS = 2 * 60 * 1000;
 const MAX_SAFE_ERROR_LENGTH = 240;
 const MAX_BUDGET_POLICY_JSON_BYTES = 8 * 1024;
+const ADMIN_VIDEO_JOB_RECOVERY_OPERATION_ID = "admin.video.job.recover";
+const RECOVERABLE_ADMIN_VIDEO_JOB_STATUSES = new Set([
+  "failed",
+  "queued",
+  "starting",
+  "provider_pending",
+  "polling",
+  "processing",
+  "ingesting",
+]);
+const PROVIDER_RESPONSE_SUCCESS_STATES = new Set(["completed", "complete", "succeeded", "success", "done"]);
 export const VIDEO_OUTPUT_MAX_BYTES = 100 * 1024 * 1024;
 export const VIDEO_POSTER_MAX_BYTES = 5 * 1024 * 1024;
 export const VIDEO_OUTPUT_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
@@ -1273,6 +1290,330 @@ function assertSafeRemoteUrl(value, label) {
     throw error;
   }
   return url.href;
+}
+
+function normalizeProviderRecoveryInput(input) {
+  if (typeof input === "string") {
+    const rawText = input.trim();
+    if (!rawText) {
+      throw new AdminAiValidationError("Provider response is required.", 400, "validation_error");
+    }
+    try {
+      const parsed = JSON.parse(rawText);
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("not_object");
+      }
+      return { parsed, rawText };
+    } catch {
+      throw new AdminAiValidationError("Provider response must be valid JSON.", 400, "validation_error");
+    }
+  }
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    return { parsed: input, rawText: stableStringify(input) };
+  }
+  throw new AdminAiValidationError("Provider response is required.", 400, "validation_error");
+}
+
+function collectProviderStates(value, states = [], depth = 0) {
+  if (!value || typeof value !== "object" || depth > 6) return states;
+  if (Array.isArray(value)) {
+    for (const entry of value) collectProviderStates(entry, states, depth + 1);
+    return states;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    const normalizedKey = key.toLowerCase();
+    if ((normalizedKey === "state" || normalizedKey === "status") && typeof entry === "string") {
+      const normalizedState = entry.trim().toLowerCase();
+      if (normalizedState) states.push(normalizedState);
+    }
+    if (entry && typeof entry === "object") {
+      collectProviderStates(entry, states, depth + 1);
+    }
+  }
+  return states;
+}
+
+function findStringForKeys(value, keys, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 6) return null;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = findStringForKeys(entry, keys, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+
+  for (const key of ["result", "data", "output"]) {
+    const found = findStringForKeys(value[key], keys, depth + 1);
+    if (found) return found;
+  }
+
+  for (const entry of Object.values(value)) {
+    const found = findStringForKeys(entry, keys, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function extractAdminAiVideoRecoveryProviderOutput(input) {
+  const { parsed, rawText } = normalizeProviderRecoveryInput(input);
+  const states = collectProviderStates(parsed);
+  if (states.length > 0 && !states.some((state) => PROVIDER_RESPONSE_SUCCESS_STATES.has(state))) {
+    throw new AdminAiValidationError(
+      "Provider response is not completed.",
+      400,
+      "provider_response_not_completed"
+    );
+  }
+  const videoUrl = findStringForKeys(parsed, ["video", "video_url", "output_url", "url"]);
+  if (!videoUrl) {
+    throw new AdminAiValidationError(
+      "Provider response does not contain a video URL.",
+      400,
+      "provider_video_url_missing"
+    );
+  }
+  const posterUrl = findStringForKeys(parsed, ["poster", "poster_url", "thumbnail", "thumbnail_url"]);
+  return { videoUrl, posterUrl, rawText };
+}
+
+function assertVideoRecoveryConfig(env) {
+  if (!env?.DB) {
+    throw new WorkerConfigError("Required D1 binding is missing.", {
+      reason: "db_binding_missing",
+    });
+  }
+  if (!env?.USER_IMAGES || typeof env.USER_IMAGES.put !== "function" || typeof env.USER_IMAGES.get !== "function") {
+    throw new WorkerConfigError("Required user media R2 binding is missing.", {
+      reason: "user_images_binding_missing",
+    });
+  }
+}
+
+function safeOperatorReason(value) {
+  return String(value || "Admin AI Lab provider response recovery")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240) || "Admin AI Lab provider response recovery";
+}
+
+async function recoveryUrlSafeSummary(urlValue) {
+  const url = new URL(urlValue);
+  return {
+    host: url.hostname,
+    hash: await sha256Hex(url.href),
+  };
+}
+
+export async function recoverAdminAiVideoJobFromProviderResponse({
+  env,
+  adminUser,
+  jobId,
+  providerResponseRaw,
+  operatorReason,
+  idempotencyKey,
+  correlationId,
+} = {}) {
+  assertVideoRecoveryConfig(env);
+  const normalizedJobId = String(jobId || "").trim();
+  if (!normalizedJobId || normalizedJobId.includes("/")) {
+    throw new AdminAiValidationError("Video job not found.", 404, "not_found");
+  }
+  const normalizedIdempotencyKey = normalizeAiVideoIdempotencyKey(idempotencyKey);
+  const job = await getAdminAiVideoJob(env, adminUser, normalizedJobId);
+  if (!job) {
+    throw new AdminAiValidationError("Video job not found.", 404, "not_found");
+  }
+  if (job.status === "succeeded") {
+    return {
+      job,
+      recovery: {
+        alreadySucceeded: true,
+        idempotencyReplayed: false,
+        previousStatus: "succeeded",
+        recoveredUrlHost: null,
+        recoveredUrlHash: null,
+      },
+    };
+  }
+  if (!RECOVERABLE_ADMIN_VIDEO_JOB_STATUSES.has(job.status)) {
+    throw new AdminAiValidationError(
+      "This video job cannot be recovered from a provider response in its current status.",
+      409,
+      "video_job_recovery_status_not_allowed"
+    );
+  }
+
+  const previousStatus = job.status;
+  const providerOutput = extractAdminAiVideoRecoveryProviderOutput(providerResponseRaw);
+  let safeVideoUrl;
+  let safePosterUrl = null;
+  try {
+    safeVideoUrl = assertSafeRemoteUrl(providerOutput.videoUrl, "video_output");
+    safePosterUrl = providerOutput.posterUrl
+      ? assertSafeRemoteUrl(providerOutput.posterUrl, "video_poster")
+      : null;
+  } catch (error) {
+    throw new AdminAiValidationError(
+      "Provider response contains an unsafe media URL.",
+      400,
+      error?.code || "provider_media_url_not_allowed"
+    );
+  }
+  const recoveredVideo = await recoveryUrlSafeSummary(safeVideoUrl);
+  const recoveredPoster = safePosterUrl ? await recoveryUrlSafeSummary(safePosterUrl) : null;
+  const providerResponseHash = await sha256Hex(providerOutput.rawText);
+  const requestFingerprint = await sha256Hex(stableStringify({
+    job_id: job.id,
+    provider_response_hash: providerResponseHash,
+    recovered_video_url_hash: recoveredVideo.hash,
+    recovered_poster_url_hash: recoveredPoster?.hash || null,
+  }));
+  const safeReason = safeOperatorReason(operatorReason);
+
+  const attemptState = await beginAdminAiIdempotencyAttempt({
+    env,
+    operationKey: ADMIN_VIDEO_JOB_RECOVERY_OPERATION_ID,
+    route: "/api/admin/ai/video-jobs/:id/recover",
+    adminUserId: adminUser.id,
+    idempotencyKey: normalizedIdempotencyKey,
+    requestFingerprint,
+    providerFamily: job.provider || "external_video_provider",
+    modelKey: job.model || null,
+    budgetScope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    budgetPolicy: {
+      operation_id: ADMIN_VIDEO_JOB_RECOVERY_OPERATION_ID,
+      budget_scope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      credit_debit: false,
+      provider_execution: false,
+      source_job_id: job.id,
+    },
+    callerPolicy: {
+      operation_id: ADMIN_VIDEO_JOB_RECOVERY_OPERATION_ID,
+      idempotency_policy: "required",
+      source_route: "/api/admin/ai/video-jobs/:id/recover",
+      provider_execution: false,
+      reason: "admin_imports_existing_completed_provider_response_without_provider_rerun",
+    },
+    metadata: {
+      job_id: job.id,
+      previous_status: previousStatus,
+      operator_reason: safeReason,
+      recovered_url_host: recoveredVideo.host,
+      recovered_url_hash: recoveredVideo.hash,
+      recovered_poster_host: recoveredPoster?.host || null,
+      recovered_poster_hash: recoveredPoster?.hash || null,
+      provider_response_hash: providerResponseHash,
+    },
+  });
+
+  if (attemptState.kind === "completed") {
+    const latestJob = await getAdminAiVideoJob(env, adminUser, job.id);
+    return {
+      job: latestJob || job,
+      recovery: {
+        alreadySucceeded: latestJob?.status === "succeeded",
+        idempotencyReplayed: true,
+        previousStatus,
+        recoveredUrlHost: recoveredVideo.host,
+        recoveredUrlHash: recoveredVideo.hash,
+      },
+    };
+  }
+  if (attemptState.kind === "in_progress") {
+    throw new AdminAiValidationError(
+      "This video recovery request is already in progress.",
+      409,
+      "admin_ai_idempotency_in_progress"
+    );
+  }
+  if (attemptState.kind !== "created") {
+    throw new AdminAiValidationError(
+      "This idempotency key is tied to a completed or failed recovery request. Use a new key to retry.",
+      409,
+      attemptState.kind === "expired" ? "admin_ai_idempotency_expired" : "admin_ai_idempotency_terminal"
+    );
+  }
+
+  await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+  const ingestStartedAt = nowIso();
+  await updateJobIngesting(env, job.id, "recovered_provider_response", ingestStartedAt);
+  let ingested;
+  try {
+    ingested = await ingestProviderVideoOutput(env, job, {
+      videoUrl: safeVideoUrl,
+      posterUrl: safePosterUrl,
+      providerState: "recovered_provider_response",
+    });
+  } catch (error) {
+    const code = error?.code || "video_output_ingest_failed";
+    await updateJobFailed(env, job.id, code, "Recovered provider video output ingest failed.", nowIso());
+    await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+      code,
+      message: "Recovered provider video output ingest failed.",
+    });
+    throw new AdminAiValidationError(
+      "Recovered provider video could not be imported.",
+      Number(error?.status || 0) >= 500 ? 502 : 400,
+      code
+    );
+  }
+
+  await updateJobSucceeded(env, job.id, {
+    ...ingested,
+    providerTaskId: job.provider_task_id || null,
+    providerState: "recovered_provider_response",
+  }, nowIso());
+  await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+    resultMetadata: {
+      result_kind: "video_job_recovery",
+      job_id: job.id,
+      output_stored: true,
+      poster_stored: !!ingested.posterUrl,
+    },
+    metadata: {
+      job_id: job.id,
+      previous_status: previousStatus,
+      status: "succeeded",
+      recovered_url_host: recoveredVideo.host,
+      recovered_url_hash: recoveredVideo.hash,
+      recovered_poster_host: recoveredPoster?.host || null,
+      recovered_poster_hash: recoveredPoster?.hash || null,
+      provider_response_hash: providerResponseHash,
+      operator_reason: safeReason,
+    },
+  });
+  const latestJob = await getAdminAiVideoJob(env, adminUser, job.id);
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "ai-video-jobs-recovery",
+    event: "admin_ai_video_job_recovered_from_provider_response",
+    level: "info",
+    correlationId,
+    job_id: job.id,
+    admin_user_id: adminUser.id,
+    model: job.model,
+    provider: job.provider,
+    previous_status: previousStatus,
+    recovered_url_host: recoveredVideo.host,
+    recovered_url_hash: recoveredVideo.hash,
+    idempotency_replayed: false,
+  });
+  return {
+    job: latestJob || job,
+    recovery: {
+      alreadySucceeded: false,
+      idempotencyReplayed: false,
+      previousStatus,
+      recoveredUrlHost: recoveredVideo.host,
+      recoveredUrlHash: recoveredVideo.hash,
+    },
+  };
 }
 
 async function readResponseBodyLimited(response, maxBytes, label) {
