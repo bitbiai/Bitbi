@@ -422,12 +422,16 @@ export function createHomepageHeroVideosAdmin({
     function renderOperationsSummary() {
         const summary = el('section', 'admin-hero-videos__ops');
         summary.setAttribute('aria-label', 'Hero and stream preview operations');
+        const leftColumn = el('div', 'admin-hero-videos__ops-left');
+        const rightColumn = el('div', 'admin-hero-videos__ops-right');
+
         const hero = el('div', 'admin-hero-videos__ops-card');
         hero.append(el('h3', 'admin-hero-videos__section-title', 'Video Delivery Controls'));
         hero.append(el('p', 'admin-shell__desc', 'Worker capabilities default on. These Admin switches are runtime rollout controls and do not prove provider readiness.'));
         hero.append(renderFeatureControl('homepage_hero_external_ffmpeg'));
         hero.append(renderFeatureControl('homepage_hero_manual_uploads'));
-        summary.append(hero);
+        leftColumn.append(hero);
+        leftColumn.append(renderPresetPanel());
 
         const preview = el('div', 'admin-hero-videos__ops-card');
         preview.append(el('h3', 'admin-hero-videos__section-title', 'Memvid Stream previews'));
@@ -465,8 +469,10 @@ export function createHomepageHeroVideosAdmin({
         backfillBtn.disabled = !getFeature('memvid_stream_previews')?.effective_enabled || state.streamBackfillBusy;
         actions.append(backfillBtn);
         preview.append(actions);
-        summary.append(preview);
-        summary.append(renderPresetPanel());
+        rightColumn.append(preview);
+
+        summary.append(leftColumn);
+        summary.append(rightColumn);
         return summary;
     }
 

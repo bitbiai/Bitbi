@@ -12935,6 +12935,52 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Queued previews');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Total processor backlog');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Last dispatch status');
+    const topPanelLayout = await page.locator('#homepageHeroVideosAdmin .admin-hero-videos__ops').evaluate((ops) => {
+      const cardForTitle = (title) => {
+        const heading = [...ops.querySelectorAll('.admin-hero-videos__section-title')]
+          .find((node) => node.textContent?.trim() === title);
+        return heading?.closest('.admin-hero-videos__ops-card')?.getBoundingClientRect();
+      };
+      const headings = [...ops.querySelectorAll('.admin-hero-videos__section-title')]
+        .map((node) => node.textContent?.trim());
+      const controls = cardForTitle('Video Delivery Controls');
+      const preset = cardForTitle('Hero Conversion Preset');
+      const memvid = cardForTitle('Memvid Stream previews');
+      return {
+        headings,
+        controls: controls ? { left: controls.left, top: controls.top, bottom: controls.bottom } : null,
+        preset: preset ? { left: preset.left, top: preset.top, bottom: preset.bottom } : null,
+        memvid: memvid ? { left: memvid.left, top: memvid.top, bottom: memvid.bottom } : null,
+        actions: [...ops.querySelectorAll('[data-action]')].map((node) => node.getAttribute('data-action')),
+      };
+    });
+    expect(topPanelLayout.headings.slice(0, 3)).toEqual([
+      'Video Delivery Controls',
+      'Hero Conversion Preset',
+      'Memvid Stream previews',
+    ]);
+    expect(topPanelLayout.controls.left).toBeLessThan(topPanelLayout.memvid.left);
+    expect(Math.abs(topPanelLayout.controls.left - topPanelLayout.preset.left)).toBeLessThan(2);
+    expect(topPanelLayout.preset.top).toBeGreaterThan(topPanelLayout.controls.bottom);
+    expect(Math.abs(topPanelLayout.memvid.top - topPanelLayout.controls.top)).toBeLessThan(2);
+    expect(Math.abs(topPanelLayout.memvid.bottom - topPanelLayout.preset.bottom)).toBeLessThan(4);
+    expect(topPanelLayout.actions).toEqual(expect.arrayContaining([
+      'toggle-feature',
+      'save-preset',
+      'run-stream-preview-processing',
+    ]));
+    const lowerLayout = await page.locator('#homepageHeroVideosAdmin').evaluate((root) => {
+      const ops = root.querySelector('.admin-hero-videos__ops')?.getBoundingClientRect();
+      const candidate = root.querySelector('.admin-hero-videos__browser')?.getBoundingClientRect();
+      const assignment = root.querySelector('.admin-hero-videos__assign')?.getBoundingClientRect();
+      return {
+        opsBottom: ops?.bottom ?? 0,
+        candidateTop: candidate?.top ?? 0,
+        assignmentTop: assignment?.top ?? 0,
+      };
+    });
+    expect(lowerLayout.candidateTop).toBeGreaterThan(lowerLayout.opsBottom);
+    expect(lowerLayout.assignmentTop).toBeGreaterThan(lowerLayout.opsBottom);
     await expect(page.locator('.admin-hero-videos__slot-card')).toHaveCount(4);
     await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');
