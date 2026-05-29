@@ -293,7 +293,7 @@ export async function maybeDispatchMemvidStreamPreviewProcessor(env, options = {
     return buildSkipResult(status, "below_dispatch_threshold", { last_dispatch_at: lastDispatchAt, next_dispatch_after: nextDispatchAfter });
   }
   if (!force && queuedTotal <= 0) {
-    return buildSkipResult(status, "no_queued_work", { last_dispatch_at: lastDispatchAt, next_dispatch_after: nextDispatchAfter });
+    return buildSkipResult(status, "no_backlog", { last_dispatch_at: lastDispatchAt, next_dispatch_after: nextDispatchAfter });
   }
   if (cooldownActive) {
     return buildSkipResult(status, "dispatch_cooldown_active", { last_dispatch_at: lastDispatchAt, next_dispatch_after: nextDispatchAfter });

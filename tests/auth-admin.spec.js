@@ -12771,6 +12771,13 @@ test.describe('Admin Control Plane', () => {
             feature_flags: {
               provider_configured: true,
             },
+            status_counts: {
+              queued: 2,
+              ready: 2,
+            },
+            queued_count: 2,
+            repair_count: 1,
+            total_backlog_count: 3,
             ready_count: 2,
             ready_with_download_url: 1,
             ready_missing_download_url: 1,
@@ -12779,6 +12786,12 @@ test.describe('Admin Control Plane', () => {
           },
           stream_preview_processor_dispatch: {
             configured: true,
+            auto_dispatch_enabled: true,
+            threshold: 3,
+            last_dispatch_at: '2026-05-28T10:00:00.000Z',
+            last_dispatch_reason: 'scheduled_catchup',
+            last_dispatch_status: 'succeeded',
+            last_dispatch_message: 'Processor dispatch started.',
           },
         },
       });
@@ -12838,6 +12851,13 @@ test.describe('Admin Control Plane', () => {
             feature_flags: {
               provider_configured: true,
             },
+            status_counts: {
+              queued: 2,
+              ready: 2,
+            },
+            queued_count: 2,
+            repair_count: 1,
+            total_backlog_count: 3,
             ready_count: 2,
             ready_with_download_url: 1,
             ready_missing_download_url: 1,
@@ -12888,6 +12908,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Video Delivery Controls');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Generate / repair Memvid previews');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Hero Conversion Preset');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Queued previews');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Total processor backlog');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Last dispatch status');
     await expect(page.locator('.admin-hero-videos__slot-card')).toHaveCount(4);
     await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');

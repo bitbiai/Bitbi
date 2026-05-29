@@ -41035,6 +41035,143 @@ test.describe('Worker routes', () => {
     }
   });
 
+  test('Admin homepage hero status exposes Memvid Stream queued and repair backlog counts', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('stream-backlog-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      aiTextAssets: [{
+        id: 'feed0801',
+        user_id: 'memvid-owner',
+        title: 'Queued backlog 1',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:00:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:00:00.000Z',
+        r2_key: 'users/memvid-owner/queued-1.mp4',
+      }, {
+        id: 'feed0802',
+        user_id: 'memvid-owner',
+        title: 'Queued backlog 2',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:01:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:01:00.000Z',
+        r2_key: 'users/memvid-owner/queued-2.mp4',
+      }, {
+        id: 'feed0803',
+        user_id: 'memvid-owner',
+        title: 'Needs repair',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: 7000000,
+        metadata_json: '{}',
+        created_at: '2026-05-20T10:02:00.000Z',
+        visibility: 'public',
+        published_at: '2026-05-20T12:02:00.000Z',
+        r2_key: 'users/memvid-owner/repair.mp4',
+      }],
+      memvidStreamPreviews: [{
+        id: 'msp_backlog000001',
+        asset_id: 'feed0801',
+        user_id: 'memvid-owner',
+        source_r2_key: 'users/memvid-owner/queued-1.mp4',
+        source_fingerprint: 'fp-backlog-1',
+        stream_uid: null,
+        status: 'queued',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:01:00.000Z',
+        updated_at: '2026-05-20T12:02:00.000Z',
+        completed_at: null,
+        error_code: null,
+        error_message: null,
+        provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+      }, {
+        id: 'msp_backlog000002',
+        asset_id: 'feed0802',
+        user_id: 'memvid-owner',
+        source_r2_key: 'users/memvid-owner/queued-2.mp4',
+        source_fingerprint: 'fp-backlog-2',
+        stream_uid: null,
+        status: 'queued',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:03:00.000Z',
+        updated_at: '2026-05-20T12:04:00.000Z',
+        completed_at: null,
+        error_code: null,
+        error_message: null,
+        provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+      }, {
+        id: 'msp_backlog000003',
+        asset_id: 'feed0803',
+        user_id: 'memvid-owner',
+        source_r2_key: 'users/memvid-owner/repair.mp4',
+        source_fingerprint: 'fp-backlog-3',
+        stream_uid: 'streamBacklogRepairUid001',
+        status: 'ready',
+        preview_duration_seconds: 5,
+        max_loop_count: 3,
+        created_at: '2026-05-20T12:05:00.000Z',
+        updated_at: '2026-05-20T12:06:00.000Z',
+        completed_at: '2026-05-20T12:06:00.000Z',
+        error_code: null,
+        error_message: null,
+        provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+      }],
+      appSettings: [{
+        key: 'memvid_stream_preview_dispatch_state',
+        value_json: JSON.stringify({
+          last_dispatch_at: '2026-05-20T13:00:00.000Z',
+          last_dispatch_reason: 'scheduled_catchup',
+          last_dispatch_provider: 'github_actions',
+          last_dispatch_status: 'succeeded',
+          last_dispatch_message: 'Processor dispatch started.',
+        }),
+        updated_at: '2026-05-20T13:00:00.000Z',
+        updated_by_user_id: null,
+        reason: 'test backlog status',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/homepage/hero-videos', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.stream_preview_summary).toMatchObject({
+      queued_count: 2,
+      repair_count: 1,
+      total_backlog_count: 3,
+      ready_missing_download_url: 1,
+      status_counts: {
+        queued: 2,
+        ready: 1,
+      },
+    });
+    expect(body.data.stream_preview_processor_dispatch).toMatchObject({
+      last_dispatch_reason: 'scheduled_catchup',
+      last_dispatch_status: 'succeeded',
+      last_dispatch_message: 'Processor dispatch started.',
+    });
+    expect(JSON.stringify(body)).not.toContain('test-stream-token');
+  });
+
   test('publishing a Memvid queues one Stream preview without dispatching below threshold or duplicating active work', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const user = createContractUser({ id: 'memvid-publish-user', role: 'user' });
@@ -41109,6 +41246,77 @@ test.describe('Worker routes', () => {
       expect(republishRes.status).toBe(200);
       expect(env.DB.state.memvidStreamPreviews.filter((row) => row.asset_id === 'feed0101')).toHaveLength(1);
       expect(dispatches).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('scheduled Memvid Stream catch-up dispatches existing queued publish backlog below threshold', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'memvid-low-volume-user', role: 'user' });
+    const assets = Array.from({ length: 2 }, (_, index) => ({
+      id: `feed06${index + 1}0`,
+      user_id: user.id,
+      title: `Low volume Memvid ${index + 1}`,
+      source_module: 'video',
+      mime_type: 'video/mp4',
+      size_bytes: 7000000,
+      metadata_json: '{}',
+      created_at: `2026-05-20T10:0${index}:00.000Z`,
+      visibility: 'private',
+      published_at: null,
+      r2_key: `users/memvid-low-volume-user/low-volume-${index + 1}.mp4`,
+    }));
+    const env = createAuthTestEnv({
+      users: [user],
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'true',
+      MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD: '3',
+      MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_COOLDOWN_SECONDS: '600',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER: 'github_actions',
+      GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
+      GITHUB_ACTIONS_DISPATCH_OWNER: 'bitbiai',
+      GITHUB_ACTIONS_DISPATCH_REPO: 'Bitbi',
+      GITHUB_ACTIONS_DISPATCH_WORKFLOW: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_REF: 'main',
+      aiTextAssets: assets,
+    });
+    const token = await seedSession(env, user.id);
+    const originalFetch = globalThis.fetch;
+    const dispatches = [];
+    globalThis.fetch = async (url, init = {}) => {
+      dispatches.push({ url: String(url), body: JSON.parse(String(init.body || '{}')) });
+      return new Response(null, { status: 204 });
+    };
+    try {
+      for (const asset of assets) {
+        const res = await authWorker.fetch(
+          authJsonRequest(`/api/ai/text-assets/${asset.id}/publication`, 'PATCH', {
+            visibility: 'public',
+          }, {
+            Origin: 'https://bitbi.ai',
+            Cookie: `bitbi_session=${token}`,
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.data.stream_preview_lifecycle.dispatch_skipped_reason).toBe('below_dispatch_threshold');
+      }
+      expect(env.DB.state.memvidStreamPreviews.filter((row) => row.status === 'queued')).toHaveLength(2);
+      expect(dispatches).toHaveLength(0);
+
+      await authWorker.scheduled({ cron: '*/30 * * * *' }, env, createExecutionContext().execCtx);
+      expect(dispatches).toHaveLength(1);
+      expect(dispatches[0].body.inputs).toMatchObject({
+        job_limit: '5',
+        repair_downloads: 'true',
+        dispatch_reason: 'Scheduled Memvid Stream preview catch-up.',
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -41235,6 +41443,89 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.memvidStreamPreviews.filter((row) => row.asset_id === 'feed0301' && row.status === 'queued')).toHaveLength(1);
       expect(dispatches).toHaveLength(1);
       expect(dispatches[0].body.inputs.dispatch_reason).toBe('Scheduled Memvid Stream preview catch-up.');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('scheduled Memvid Stream catch-up skips cleanly with no backlog and respects cooldown', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const baseEnv = {
+      ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
+      ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'true',
+      MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'test-stream-processor-secret',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_STREAM_API_TOKEN: 'test-stream-token',
+      MEMVID_STREAM_PREVIEW_DISPATCH_PROVIDER: 'github_actions',
+      GITHUB_ACTIONS_DISPATCH_TOKEN: 'test-dispatch-token',
+      GITHUB_ACTIONS_DISPATCH_OWNER: 'bitbiai',
+      GITHUB_ACTIONS_DISPATCH_REPO: 'Bitbi',
+      GITHUB_ACTIONS_DISPATCH_WORKFLOW: 'memvid-stream-preview-processor.yml',
+      GITHUB_ACTIONS_DISPATCH_REF: 'main',
+    };
+    const originalFetch = globalThis.fetch;
+    const dispatches = [];
+    globalThis.fetch = async (url, init = {}) => {
+      dispatches.push({ url: String(url), body: JSON.parse(String(init.body || '{}')) });
+      return new Response(null, { status: 204 });
+    };
+    try {
+      const emptyEnv = createAuthTestEnv(baseEnv);
+      await authWorker.scheduled({ cron: '*/30 * * * *' }, emptyEnv, createExecutionContext().execCtx);
+      expect(dispatches).toHaveLength(0);
+      expect(emptyEnv.DB.state.appSettings).toHaveLength(0);
+
+      const cooldownEnv = createAuthTestEnv({
+        ...baseEnv,
+        MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_COOLDOWN_SECONDS: '600',
+        appSettings: [{
+          key: 'memvid_stream_preview_dispatch_state',
+          value_json: JSON.stringify({
+            last_dispatch_at: new Date().toISOString(),
+            last_dispatch_reason: 'publish_threshold',
+            last_dispatch_provider: 'github_actions',
+            last_dispatch_status: 'succeeded',
+            last_dispatch_message: 'Processor dispatch started.',
+          }),
+          updated_at: new Date().toISOString(),
+          updated_by_user_id: null,
+          reason: 'test cooldown',
+        }],
+        aiTextAssets: [{
+          id: 'feed0701',
+          user_id: 'memvid-owner',
+          title: 'Cooldown preview',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: 7000000,
+          metadata_json: '{}',
+          created_at: '2026-05-20T10:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-05-20T12:00:00.000Z',
+          r2_key: 'users/memvid-owner/cooldown.mp4',
+        }],
+        memvidStreamPreviews: [{
+          id: 'msp_cooldown000001',
+          asset_id: 'feed0701',
+          user_id: 'memvid-owner',
+          source_r2_key: 'users/memvid-owner/cooldown.mp4',
+          source_fingerprint: 'fp-cooldown',
+          stream_uid: null,
+          status: 'queued',
+          preview_duration_seconds: 5,
+          max_loop_count: 3,
+          created_at: '2026-05-20T12:01:00.000Z',
+          updated_at: '2026-05-20T12:02:00.000Z',
+          completed_at: null,
+          error_code: null,
+          error_message: null,
+          provider_metadata_json: JSON.stringify({ provider: 'cloudflare_stream' }),
+        }],
+      });
+      await authWorker.scheduled({ cron: '*/30 * * * *' }, cooldownEnv, createExecutionContext().execCtx);
+      expect(dispatches).toHaveLength(0);
+      const dispatchState = JSON.parse(cooldownEnv.DB.state.appSettings[0].value_json);
+      expect(dispatchState.last_dispatch_reason).toBe('publish_threshold');
     } finally {
       globalThis.fetch = originalFetch;
     }

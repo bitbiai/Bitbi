@@ -199,6 +199,9 @@ export function summarizeMemvidStreamPreviews(rows = [], events = [], env = {}) 
     const seconds = Number(event?.estimated_delivered_seconds || 0);
     if (Number.isFinite(seconds)) estimatedDeliveredSeconds += seconds;
   }
+  const queuedCount = Number(statusCounts.queued || 0);
+  const readyWithDownloadUrl = previewRows.filter((row) => row?.status === "ready" && hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length;
+  const readyMissingDownloadUrl = previewRows.filter((row) => row?.status === "ready" && row?.stream_uid && !hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length;
 
   return {
     feature_flags: {
@@ -207,12 +210,15 @@ export function summarizeMemvidStreamPreviews(rows = [], events = [], env = {}) 
       provider_configured: config.providerConfigured,
     },
     status_counts: statusCounts,
+    queued_count: queuedCount,
     ready_count: readyCount,
     failed_count: failedCount,
     pending_delete_count: pendingDeleteCount,
     failed_delete_count: failedDeleteCount,
-    ready_with_download_url: previewRows.filter((row) => row?.status === "ready" && hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length,
-    ready_missing_download_url: previewRows.filter((row) => row?.status === "ready" && row?.stream_uid && !hasReadyStreamDownloadMetadata(row.provider_metadata_json)).length,
+    ready_with_download_url: readyWithDownloadUrl,
+    ready_missing_download_url: readyMissingDownloadUrl,
+    repair_count: readyMissingDownloadUrl,
+    total_backlog_count: queuedCount + readyMissingDownloadUrl,
     estimated_stored_preview_minutes: Math.round((storedPreviewSeconds / 60) * 100) / 100,
     max_loop_count: config.maxLoopCount,
     hover_starts: hoverStarts,

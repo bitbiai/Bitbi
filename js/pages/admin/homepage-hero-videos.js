@@ -398,7 +398,13 @@ export function createHomepageHeroVideosAdmin({
         preview.append(createMetaRow('Auto dispatch', dispatch.auto_dispatch_enabled ? 'Enabled' : 'Disabled'));
         preview.append(createMetaRow('Dispatch threshold', String(dispatch.threshold ?? 3)));
         preview.append(createMetaRow('Last dispatch', dispatch.last_dispatch_at ? formatDateValue(dispatch.last_dispatch_at, formatDate) : 'Never'));
+        preview.append(createMetaRow('Last dispatch status', dispatch.last_dispatch_status || 'None'));
+        preview.append(createMetaRow('Last dispatch reason', dispatch.last_dispatch_reason || 'None'));
+        preview.append(createMetaRow('Last dispatch message', dispatch.last_dispatch_message || dispatch.dispatch_skipped_reason || 'None'));
         preview.append(createMetaRow('Next dispatch after', dispatch.next_dispatch_after ? formatDateValue(dispatch.next_dispatch_after, formatDate) : 'Now'));
+        preview.append(createMetaRow('Queued previews', String(stream.queued_count ?? stream.status_counts?.queued ?? 0)));
+        preview.append(createMetaRow('Repair backlog', String(stream.repair_count ?? stream.ready_missing_download_url ?? 0)));
+        preview.append(createMetaRow('Total processor backlog', String(stream.total_backlog_count ?? 0)));
         preview.append(createMetaRow('Ready previews', String(stream.ready_count ?? 0)));
         preview.append(createMetaRow('Ready MP4 downloads', String(stream.ready_with_download_url ?? 0)));
         preview.append(createMetaRow('Needs MP4 repair', String(stream.ready_missing_download_url ?? 0)));

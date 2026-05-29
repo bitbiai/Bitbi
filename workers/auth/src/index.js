@@ -70,6 +70,7 @@ import {
   WorkerConfigError,
 } from "./lib/config.js";
 import {
+  getMemvidStreamPreviewBacklogCounts,
   queueMemvidStreamPreviewRepairJobs,
   queueMissingMemvidStreamPreviewJobs,
 } from "./lib/memvid-stream-preview-jobs.js";
@@ -229,16 +230,23 @@ async function runMemvidStreamPreviewScheduledCatchup(env, {
       limit: deleteRetryLimit,
     }),
   ]);
+  const backlog = await getMemvidStreamPreviewBacklogCounts(env, {
+    repairLimit,
+  });
   const dispatch = await maybeDispatchMemvidStreamPreviewProcessor(env, {
     reason,
     dispatchReason: "Scheduled Memvid Stream preview catch-up.",
-    queuedNewCount: missing.queued_count,
-    queuedRepairCount: repair.queued_count,
+    queuedNewCount: backlog.queued_count,
+    queuedRepairCount: backlog.repair_count,
     repairDownloads: true,
   });
   return {
     queued_new_count: missing.queued_count,
+    queued_repair_requested_count: repair.queued_count,
     queued_repair_count: repair.queued_count,
+    existing_queued_backlog_count: backlog.queued_count,
+    existing_repair_backlog_count: backlog.repair_count,
+    total_backlog_count: backlog.total_count,
     pending_delete_count: deletes.delete_pending_count,
     delete_attempt_count: deletes.delete_attempt_count,
     delete_succeeded_count: deletes.delete_succeeded_count,
@@ -450,6 +458,7 @@ export default {
         if (
           catchup.queued_new_count > 0 ||
           catchup.queued_repair_count > 0 ||
+          catchup.total_backlog_count > 0 ||
           catchup.delete_attempt_count > 0 ||
           catchup.dispatch?.attempted
         ) {
@@ -459,7 +468,10 @@ export default {
             event: "memvid_stream_preview_catchup_completed",
             level: catchup.dispatch?.succeeded === false && catchup.dispatch?.attempted ? "warn" : "info",
             queued_new_count: catchup.queued_new_count,
-            queued_repair_count: catchup.queued_repair_count,
+            queued_repair_requested_count: catchup.queued_repair_requested_count,
+            existing_queued_backlog_count: catchup.existing_queued_backlog_count,
+            existing_repair_backlog_count: catchup.existing_repair_backlog_count,
+            total_backlog_count: catchup.total_backlog_count,
             delete_attempt_count: catchup.delete_attempt_count,
             delete_succeeded_count: catchup.delete_succeeded_count,
             pending_delete_count: catchup.pending_delete_count,

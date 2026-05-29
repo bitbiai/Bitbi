@@ -141,7 +141,7 @@ The Worker validates and stores the preset in `app_settings` as `homepage_hero_f
 
 1. A video is published, the Admin clicks **Generate / repair Memvid previews**, or the scheduled catch-up cron runs.
 2. The Auth Worker queues missing public Memvid preview rows idempotently by asset/source fingerprint and marks existing ready rows that lack Cloudflare MP4 download metadata for repair.
-3. Publish-triggered dispatch waits until the queued/repair backlog reaches `MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD` and respects `MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_COOLDOWN_SECONDS`. The Admin button remains a force/manual path and bypasses the cooldown. Scheduled catch-up handles low-volume sites so fewer than threshold new videos still get processed without terminal work.
+3. Publish-triggered dispatch waits until the queued/repair backlog reaches `MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD` and respects `MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_COOLDOWN_SECONDS`. The Admin button remains a force/manual path and bypasses the cooldown. Scheduled catch-up handles low-volume sites by dispatching any existing queued/repair backlog after cooldown, including preview rows that were already queued by publish events before the scheduled run.
 4. If GitHub dispatch settings are configured, the Worker dispatches `.github/workflows/memvid-stream-preview-processor.yml` through the GitHub REST API; otherwise it returns a clear warning and leaves the jobs queued for the separately deployed processor.
 5. A trusted processor/backfill path creates short preview clips for public Memvids.
 6. The clip is uploaded to Cloudflare Stream.
@@ -165,8 +165,9 @@ PROCESS_HOMEPAGE_HERO=0 PROCESS_HOMEPAGE_SOURCE_POSTERS=0 PROCESS_MEMVID_STREAM_
 ### Publish, Unpublish, And Cleanup Lifecycle
 
 - Publishing a public video queues one active preview job when the Memvid Stream feature is effectively enabled and provider prerequisites exist. Re-publishing the same source does not duplicate active queued, processing, or ready work.
-- When the publish backlog reaches the configured threshold, the Auth Worker may dispatch the processor automatically. A persisted dispatch state in `app_settings` records last dispatch time, reason, provider, status, and next cooldown boundary.
-- The scheduled catch-up cron queues missing previews, repairs ready previews with missing MP4 download metadata, retries pending provider deletes, and dispatches the processor when cooldown rules allow.
+- When the publish backlog reaches the configured threshold, the Auth Worker may dispatch the processor automatically. A persisted dispatch state in `app_settings` records last dispatch time, reason, provider, status, message, and next cooldown boundary.
+- The scheduled catch-up cron queues missing previews, repairs ready previews with missing MP4 download metadata, retries pending provider deletes, then re-counts total current backlog. If any queued/repair backlog exists and cooldown has expired, it dispatches the processor even when no new rows were queued during that cron invocation.
+- The Admin panel shows queued previews, repair backlog, total processor backlog, last dispatch status/reason/message, and cooldown timing so `Ready previews: 0` is not mistaken for an empty processor queue.
 - Making a video private immediately changes its active preview rows to `disabled` so public APIs stop returning `stream_preview`. The Worker then attempts to delete the Cloudflare Stream asset. Cloudflare 404/not found is treated as already deleted.
 - Provider delete failures do not block the user action. The row stores retryable `delete_pending` metadata and scheduled cleanup retries deletion later. If Cloudflare Stream credentials are missing, rows are disabled locally and marked `not_configured` until an operator restores provider configuration.
 - Republished assets get fresh preview work. Disabled previews from a prior public state are not re-enabled because their Stream UID was privacy-cleanup scoped.
