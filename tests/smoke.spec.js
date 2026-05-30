@@ -3325,6 +3325,91 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.pointerEvents).not.toBe('none');
   });
 
+  test('homepage hero foreground scales proportionally only above the large-screen baseline', async ({ page }) => {
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname.includes('/thumbs/')) {
+        await route.fulfill({ status: 200, contentType: 'image/webp', body: Buffer.from('mock-thumb') });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: buildNewsPulseItems('hero-scale-pulse'), updated_at: '2026-05-31T08:00:00.000Z' }),
+      });
+    });
+
+    const measureHero = async (width, height, expectScaled) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('#hero .hero__models-cta')).toHaveCount(2);
+      await expect(page.locator('#hero .hero__creation-stream[data-creation-stream-anchored="true"]')).toHaveCount(2);
+      await expect
+        .poll(() => page.locator('#hero').evaluate((node) => node.dataset.homepageHeroLargeScale || ''), { timeout: 10_000 })
+        .toBe(expectScaled ? 'true' : '');
+      await expect
+        .poll(() => page.locator('#newsPulse').evaluate((node) => node.dataset.newsPulseHeroPlacement || ''), { timeout: 10_000 })
+        .toBe('ready');
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+      return page.evaluate(() => {
+        const hero = document.querySelector('#hero');
+        const heroRect = hero.getBoundingClientRect();
+        const heroStyle = window.getComputedStyle(hero);
+        const title = document.querySelector('#hero .hero__title-img').getBoundingClientRect();
+        const left = document.querySelector('#hero .hero__models-cta--left').getBoundingClientRect();
+        const right = document.querySelector('#hero .hero__models-cta--right').getBoundingClientRect();
+        const teaser = document.querySelector('#hero .hero__lab-teaser');
+        const teaserRect = teaser.getBoundingClientRect();
+        const pulse = document.querySelector('#newsPulse').getBoundingClientRect();
+        const scroll = document.querySelector('#hero .hero__scroll-hint').getBoundingClientRect();
+        return {
+          active: hero.dataset.homepageHeroLargeScale === 'true',
+          scale: Number.parseFloat(hero.dataset.homepageHeroScale || '1') || 1,
+          stageInlineMargin: Number.parseFloat(heroStyle.getPropertyValue('--homepage-hero-stage-inline-margin')) || 0,
+          titleWidth: title.width,
+          modelWidth: right.width,
+          modelHeight: right.height,
+          leftInset: left.left - heroRect.left,
+          rightInset: heroRect.right - right.right,
+          ctaWidth: teaserRect.width,
+          ctaHeight: teaserRect.height,
+          ctaHref: teaser.getAttribute('href'),
+          ctaTarget: teaser.getAttribute('target'),
+          newsWidth: pulse.width,
+          newsHeight: pulse.height,
+          scrollBottomGap: heroRect.bottom - scroll.bottom,
+          anchoredStreams: document.querySelectorAll('#hero .hero__creation-stream[data-creation-stream-anchored="true"]').length,
+        };
+      });
+    };
+
+    const baseline = await measureHero(1728, 1117, false);
+    const shortDesktop = await measureHero(1920, 1080, false);
+    const large = await measureHero(2560, 1440, true);
+    const expectedLargeScale = 1440 / 1117;
+
+    expect(baseline.active).toBe(false);
+    expect(shortDesktop.active).toBe(false);
+    expect(large.active).toBe(true);
+    expectWithinPx(large.scale, expectedLargeScale, 'large hero scale', 0.01);
+    expectWithinPx(large.titleWidth / baseline.titleWidth, large.scale, 'title scale ratio', 0.04);
+    expectWithinPx(large.modelWidth / baseline.modelWidth, large.scale, 'model width scale ratio', 0.04);
+    expectWithinPx(large.modelHeight / baseline.modelHeight, large.scale, 'model height scale ratio', 0.04);
+    expect(large.ctaWidth).toBeGreaterThan(baseline.ctaWidth * 1.2);
+    expect(large.ctaHeight).toBeGreaterThan(baseline.ctaHeight * 1.2);
+    expect(large.newsWidth).toBeGreaterThan(baseline.newsWidth * 1.2);
+    expect(large.newsHeight).toBeGreaterThan(baseline.newsHeight * 1.15);
+    expectWithinPx(large.leftInset, large.stageInlineMargin, 'left model stage inset', 2);
+    expectWithinPx(large.rightInset, large.stageInlineMargin, 'right model stage inset', 2);
+    expect(large.ctaHref).toBe('/generate-lab/');
+    expect(large.ctaTarget).toBe('bitbi-generate-lab');
+    expect(large.anchoredStreams).toBe(2);
+    expect(large.scrollBottomGap).toBeGreaterThan(baseline.scrollBottomGap);
+    expect(shortDesktop.modelWidth).toBeGreaterThan(0);
+    expectWithinPx(shortDesktop.modelWidth, baseline.modelWidth, 'short desktop inactive model width', 2);
+  });
+
   test('hero creation stream origins and endpoints stay anchored to CTA and Models module', async ({ page }) => {
     await page.route('**/api/public/news-pulse**', async (route) => {
       await route.fulfill({
@@ -7803,7 +7888,7 @@ test.describe('Homepage', () => {
     expect(laptopLayout).toBeLessThanOrEqual(3);
   });
 
-  test('public media walls add columns on large monitors without materially enlarging cards or hero modules', async ({ page }) => {
+  test('public media walls add columns on large monitors without materially enlarging cards while hero modules scale proportionally', async ({ page }) => {
     const imagePixel = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==',
       'base64',
@@ -8166,6 +8251,7 @@ test.describe('Homepage', () => {
         return {
           sound: summarizeRows('#soundLabTracks .snd-card--memtrack'),
           heroModuleWidth: heroModule?.width || 0,
+          heroScaleActive: document.querySelector('#hero')?.dataset.homepageHeroLargeScale === 'true',
           overflowX: Math.max(
             0,
             document.documentElement.scrollWidth - window.innerWidth,
@@ -8208,7 +8294,9 @@ test.describe('Homepage', () => {
     expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);
     expect(large.sound.rightUnused).toBeLessThanOrEqual(Math.max(3, large.sound.targetGap + 1));
     expect(large.heroModuleWidth).toBeGreaterThan(0);
-    expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.15);
+    expect(large.heroScaleActive).toBe(true);
+    expect(large.heroModuleWidth).toBeGreaterThanOrEqual(normal.heroModuleWidth * 1.2);
+    expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.5);
     expect(large.overflowX).toBeLessThanOrEqual(2);
   });
 

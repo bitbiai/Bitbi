@@ -576,6 +576,7 @@ export function initCreationStreamAnchor(root = document) {
     window.addEventListener('orientationchange', schedule, { passive: true });
     window.addEventListener('load', schedule, { once: true, passive: true });
     window.addEventListener('pageshow', schedule, { passive: true });
+    window.addEventListener('bitbi:homepage-hero-scale', schedule, { passive: true });
 
     if (typeof ResizeObserver === 'function') {
         const observer = new ResizeObserver(schedule);

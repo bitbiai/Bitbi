@@ -23,6 +23,7 @@ import { initSoundLabCreate } from './soundlab-create.js?v=__ASSET_VERSION__';
 import { initVideoCreate } from './video-create.js?v=__ASSET_VERSION__';
 import { initCreationStreamAnchor } from './creation-stream-anchor.js?v=__ASSET_VERSION__';
 import { initLatestModelsVideoModule } from './latest-models-video-module.js?v=__ASSET_VERSION__';
+import { initHomepageHeroResponsiveScale } from './hero-responsive-scale.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initContact } from './contact.js?v=__ASSET_VERSION__';
 import {
@@ -165,6 +166,7 @@ function initHeroModelsCtaPlacement() {
 
 const authReady = initAuth().catch(e => console.warn('auth:', e));
 
+try { initHomepageHeroResponsiveScale(); } catch (e) { console.warn('heroResponsiveScale:', e); }
 try { initHeroModelsCtaPlacement(); } catch (e) { console.warn('heroModelsCta:', e); }
 try { initCreationStreamAnchor(); } catch (e) { console.warn('creationStreamAnchor:', e); }
 try { initLatestModelsVideoModule(); } catch (e) { console.warn('latestModelsVideoModule:', e); }

@@ -395,15 +395,20 @@ function updateDesktopPlacement(root) {
     if (!hero || !labels.length || !isVisibleElement(scrollAnchor)) return false;
 
     const heroRect = hero.getBoundingClientRect();
+    const heroStyle = window.getComputedStyle(hero);
     const scrollRect = scrollAnchor.getBoundingClientRect();
-    const rootRect = root.getBoundingClientRect();
     const labelBottom = Math.max(...labels.map((rect) => rect.bottom));
     const scrollTop = scrollRect.top;
     const available = scrollTop - labelBottom;
     if (!Number.isFinite(available) || available <= DESKTOP_PLACEMENT_MIN_HEIGHT) return false;
 
     const minGap = Math.max(DESKTOP_PLACEMENT_MIN_GAP, Math.min(22, window.innerHeight * 0.015));
-    const currentHeight = rootRect.height > 0 ? rootRect.height : 132;
+    const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    const preferredHeight = Number.parseFloat(heroStyle.getPropertyValue('--homepage-hero-news-height'));
+    const fallbackHeight = Math.min(Math.max(7.15 * rootFontSize, window.innerHeight * 0.12), 9.25 * rootFontSize);
+    const currentHeight = hero.dataset.homepageHeroLargeScale === 'true' && Number.isFinite(preferredHeight) && preferredHeight > 0
+        ? preferredHeight
+        : fallbackHeight;
     const maxHeight = Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, available - (minGap * 2));
     const height = Math.min(currentHeight, maxHeight);
     const centeredTop = labelBottom + ((available - height) / 2);
@@ -715,6 +720,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
 
         window.addEventListener('resize', scheduleActivePlacement, { passive: true });
         window.addEventListener('orientationchange', scheduleActivePlacement, { passive: true });
+        window.addEventListener('bitbi:homepage-hero-scale', scheduleActivePlacement, { passive: true });
         window.addEventListener('load', scheduleActivePlacement, { once: true });
         document.fonts?.ready?.then(scheduleActivePlacement).catch(() => {});
         const heroLogo = root.closest('#hero')?.querySelector('.hero__title-img');
