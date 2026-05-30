@@ -294,7 +294,7 @@ export function initSoundLab(revealObserver) {
     function createMemtrackCard(item) {
         const card = document.createElement('div');
         card.className = 'reveal snd-card snd-card--memtrack';
-        card.style.cssText = 'position:relative;background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;overflow:hidden;transition:border-color 0.3s,background-color 0.3s';
+        card.style.cssText = 'position:relative;background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;overflow:hidden;transition:border-color 0.3s,background-color 0.3s;box-sizing:border-box;width:var(--bitbi-public-sound-card-width);inline-size:var(--bitbi-public-sound-card-width);min-width:var(--bitbi-public-sound-card-width);max-width:var(--bitbi-public-sound-card-width);min-inline-size:var(--bitbi-public-sound-card-width);max-inline-size:var(--bitbi-public-sound-card-width);flex:0 0 var(--bitbi-public-sound-card-width);justify-self:start;align-self:start';
         card.dataset.memtrackId = String(item.id || '');
         const publisher = item.publisher || null;
         const publisherName = typeof publisher?.display_name === 'string'

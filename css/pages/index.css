@@ -3360,6 +3360,7 @@
             display: grid;
             grid-template-columns: repeat(auto-fill, var(--bitbi-public-sound-card-width));
             justify-content: center;
+            justify-items: start;
             align-items: start;
             gap: var(--bitbi-public-sound-gap);
         }
@@ -3372,6 +3373,19 @@
             inline-size: var(--bitbi-public-sound-card-width);
             min-inline-size: var(--bitbi-public-sound-card-width);
             max-inline-size: var(--bitbi-public-sound-card-width);
+        }
+
+        #soundLabTracks > .snd-card--memtrack {
+            box-sizing: border-box !important;
+            inline-size: var(--bitbi-public-sound-card-width) !important;
+            width: var(--bitbi-public-sound-card-width) !important;
+            min-inline-size: var(--bitbi-public-sound-card-width) !important;
+            max-inline-size: var(--bitbi-public-sound-card-width) !important;
+            min-width: var(--bitbi-public-sound-card-width) !important;
+            max-width: var(--bitbi-public-sound-card-width) !important;
+            flex: 0 0 var(--bitbi-public-sound-card-width) !important;
+            justify-self: start;
+            align-self: start;
         }
 
         .snd-hero {
