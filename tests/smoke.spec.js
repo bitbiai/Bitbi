@@ -636,7 +636,7 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
       && currentAvailableWidth > 0
       && Math.abs(storedAvailableWidth - currentAvailableWidth) <= 0.5
       && targetWidth >= baseWidth
-      && baseWidth >= 327
+      && baseWidth >= 360
       && capacity === expectedCapacity
       && columnCount === expectedColumnCount
       && Math.abs(targetWidth - expectedResolvedWidth) <= 1
@@ -1162,7 +1162,12 @@ test.describe('Homepage', () => {
           .map((element) => element.getBoundingClientRect());
         const scroll = document.querySelector('#hero .hero__scroll-text').getBoundingClientRect();
         const activeLink = node.querySelector('.news-pulse__slide.is-active a');
+        const activeThumb = node.querySelector('.news-pulse__slide.is-active .news-pulse__thumb');
+        const activeThumbRect = activeThumb?.getBoundingClientRect();
         const firstIndicator = node.querySelector('.news-pulse__indicator-button');
+        const labelNode = node.querySelector('.news-pulse__label');
+        const labelRect = labelNode?.getBoundingClientRect();
+        const labelStyle = labelNode ? getComputedStyle(labelNode) : null;
         return {
           display: style.display,
           visibility: style.visibility,
@@ -1179,9 +1184,16 @@ test.describe('Homepage', () => {
           labelBottom: Math.max(...labels.map((label) => label.bottom)),
           scrollTop: scroll.top,
           activeText: node.querySelector('.news-pulse__slide.is-active .news-pulse__title')?.textContent.trim() || '',
+          activeThumbWidth: activeThumbRect?.width || 0,
+          activeThumbHeight: activeThumbRect?.height || 0,
           activeLinkTarget: activeLink?.target || '',
           activeLinkRel: activeLink?.rel || '',
           firstIndicatorLabel: firstIndicator?.getAttribute('aria-label') || '',
+          labelText: labelNode?.textContent.trim() || '',
+          labelPosition: labelStyle?.position || '',
+          labelClipPath: labelStyle?.clipPath || '',
+          labelWidth: labelRect?.width || 0,
+          labelHeight: labelRect?.height || 0,
         };
       });
       expect(state.display).not.toBe('none');
@@ -1189,8 +1201,14 @@ test.describe('Homepage', () => {
       expect(state.width).toBeGreaterThan(420);
       expect(state.height).toBeGreaterThan(80);
       expect(state.childCount).toBeGreaterThan(0);
-      expect(state.text).toContain(path === '/de/' ? 'KI-Puls' : 'Bitbi Live Pulse');
+      expect(state.labelText).toBe(path === '/de/' ? 'KI-Puls' : 'Bitbi Live Pulse');
+      expect(state.labelPosition).toBe('absolute');
+      expect(state.labelClipPath).toContain('inset');
+      expect(state.labelWidth).toBeLessThanOrEqual(1);
+      expect(state.labelHeight).toBeLessThanOrEqual(1);
       expect(state.activeText).toContain('disabled-pulse headline 1');
+      expect(state.activeThumbWidth).toBeGreaterThanOrEqual(62);
+      expect(state.activeThumbHeight).toBeGreaterThanOrEqual(62);
       expectWithinPx(state.centerX, state.heroCenterX, `${path} desktop News Pulse horizontal center`, 2);
       const gapAbove = state.top - state.labelBottom;
       const gapBelow = state.scrollTop - state.bottom;
@@ -1254,7 +1272,7 @@ test.describe('Homepage', () => {
     expect(new Set(titles).size).toBe(titles.length);
   });
 
-  test('German homepage Live Pulse requests the German endpoint and localizes the hero box label', async ({ page }) => {
+  test('German homepage Live Pulse requests the German endpoint and keeps the localized label non-visual', async ({ page }) => {
     const requestedLocales = [];
     await page.route('**/api/public/news-pulse**', async (route) => {
       requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
@@ -1285,7 +1303,22 @@ test.describe('Homepage', () => {
     await expect(pulse.locator('.news-pulse__slides')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__slide')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__indicator-button')).toHaveCount(1);
-    await expect(pulse.locator('.news-pulse__label')).toHaveText('KI-Puls');
+    const labelState = await pulse.locator('.news-pulse__label').evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return {
+        text: node.textContent.trim(),
+        position: style.position,
+        clipPath: style.clipPath,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+    expect(labelState.text).toBe('KI-Puls');
+    expect(labelState.position).toBe('absolute');
+    expect(labelState.clipPath).toContain('inset');
+    expect(labelState.width).toBeLessThanOrEqual(1);
+    expect(labelState.height).toBeLessThanOrEqual(1);
     await expect(pulse.getByRole('link', { name: /Kreativ-KI Workflow-Update/ }).first()).toHaveAttribute(
       'href',
       'https://example.com/kreativ-ki-workflow',
@@ -1393,7 +1426,22 @@ test.describe('Homepage', () => {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       const pulse = page.locator('#newsPulse');
       await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toHaveCount(1, { timeout: 10_000 });
-      await expect(pulse.locator('.news-pulse__label')).toHaveText(label);
+      const labelState = await pulse.locator('.news-pulse__label').evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          text: node.textContent.trim(),
+          position: style.position,
+          clipPath: style.clipPath,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+      expect(labelState.text).toBe(label);
+      expect(labelState.position).toBe('absolute');
+      expect(labelState.clipPath).toContain('inset');
+      expect(labelState.width).toBeLessThanOrEqual(1);
+      expect(labelState.height).toBeLessThanOrEqual(1);
       await expect(pulse.locator('.news-pulse__track')).toHaveCount(0);
       await expect(pulse.locator('.news-pulse__item')).toHaveCount(0);
       await expect(pulse.locator('.news-pulse__mobile-item')).toHaveCount(1);
@@ -6568,7 +6616,7 @@ test.describe('Homepage', () => {
     const galleryCards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
     await expect.poll(() => galleryCards.count()).toBeGreaterThanOrEqual(10);
     await expect(galleryCards.first()).toBeVisible();
-    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 267);
+    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 294);
 
     const wideLayout = await page.evaluate(() => {
       const grid = document.getElementById('galleryGrid');
@@ -6633,9 +6681,9 @@ test.describe('Homepage', () => {
         renderedCount: rects.length,
         averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
         targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
-          || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+          || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 297),
         baseWidth: Number(grid.dataset.mediaWallBaseWidth)
-          || parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
+          || parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 297),
         targetGap: Number(grid.dataset.mediaWallGap)
           || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
         orderedIds: rects.map((rect) => rect.id),
@@ -6652,16 +6700,16 @@ test.describe('Homepage', () => {
     });
 
     expect(wideLayout.display).toBe('grid');
-    expect(wideLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
+    expect(wideLayout.cssColumnCount).toBeGreaterThanOrEqual(4);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
     expect(wideLayout.renderedCount).toBeGreaterThanOrEqual(10);
     expect(wideLayout.renderedCount).toBeLessThanOrEqual(items.length);
-    expect(wideLayout.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(wideLayout.baseWidth).toBeGreaterThanOrEqual(294);
     expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(wideLayout.baseWidth);
     expect(Math.abs(wideLayout.averageWidth - wideLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(wideLayout.orderedIds).toContain('mempic-11');
     expect(wideLayout.topLeftId).toBe('mempic-11');
-    expect(wideLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
+    expect(wideLayout.columnCounts.length).toBeGreaterThanOrEqual(4);
     expect(Math.min(...wideLayout.columnCounts)).toBeGreaterThanOrEqual(1);
     expect(Math.max(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(wideLayout.targetGap + 3);
     expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(2);
@@ -6679,7 +6727,7 @@ test.describe('Homepage', () => {
     const videoCards = page.locator('#videoGrid .video-card');
     await expect.poll(() => videoCards.count()).toBeGreaterThanOrEqual(10);
     await expect(videoCards.first()).toBeVisible();
-    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 267);
+    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 294);
 
     const videoLayout = await page.evaluate(() => {
       const grid = document.getElementById('videoGrid');
@@ -6739,9 +6787,9 @@ test.describe('Homepage', () => {
         viewportWidth: window.innerWidth,
         averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
         targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
-          || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+          || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 297),
         baseWidth: Number(grid.dataset.mediaWallBaseWidth)
-          || parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
+          || parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 297),
         targetGap: Number(grid.dataset.mediaWallGap)
           || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
         orderedIds: rects.map((rect) => rect.id),
@@ -6763,14 +6811,14 @@ test.describe('Homepage', () => {
     });
 
     expect(videoLayout.display).toBe('grid');
-    expect(videoLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
+    expect(videoLayout.cssColumnCount).toBeGreaterThanOrEqual(4);
     expect(videoLayout.overflow).toBeLessThanOrEqual(2);
-    expect(videoLayout.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(videoLayout.baseWidth).toBeGreaterThanOrEqual(294);
     expect(videoLayout.targetWidth).toBeGreaterThanOrEqual(videoLayout.baseWidth);
     expect(Math.abs(videoLayout.averageWidth - videoLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(videoLayout.orderedIds).toContain('memvid-11');
     expect(videoLayout.topLeftId).toBe('memvid-11');
-    expect(videoLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
+    expect(videoLayout.columnCounts.length).toBeGreaterThanOrEqual(4);
     expect(Math.min(...videoLayout.columnCounts)).toBeGreaterThanOrEqual(1);
     expect(videoLayout.columnCounts.at(-1)).toBeGreaterThanOrEqual(1);
     expect(videoLayout.lastColumn.width).toBeGreaterThan(150);
@@ -6870,14 +6918,14 @@ test.describe('Homepage', () => {
 
     const cards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
     await expect.poll(() => cards.count()).toBe(60);
-    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 267);
+    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 294);
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing 60 Mempics.');
 
     const showMore = page.locator('#galleryPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
     await expect.poll(() => cards.count()).toBe(100);
-    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 267);
+    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 294);
     await expect(showMore).toBeHidden();
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing 100 Mempics.');
 
@@ -6952,14 +7000,14 @@ test.describe('Homepage', () => {
 
     const cards = page.locator('#videoGrid .video-card');
     await expect.poll(() => cards.count()).toBe(60);
-    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 267);
+    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 294);
     await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing 60 Memvids.');
 
     const showMore = page.locator('#videoPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
     await expect.poll(() => cards.count()).toBe(100);
-    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 267);
+    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 294);
     await expect(showMore).toBeHidden();
     await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing 100 Memvids.');
 
@@ -7729,9 +7777,9 @@ test.describe('Homepage', () => {
         overflow: grid.scrollWidth - grid.clientWidth,
         averageWidth: cards.reduce((sum, rect) => sum + rect.width, 0) / Math.max(cards.length, 1),
         targetWidth: Number(grid.dataset.soundWallResolvedWidth)
-          || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 330),
+          || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 363),
         baseWidth: Number(grid.dataset.soundWallBaseWidth)
-          || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
+          || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 363),
         targetGap: Number(grid.dataset.soundWallGap)
           || parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
         maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
@@ -7740,7 +7788,7 @@ test.describe('Homepage', () => {
 
     expect(wideLayout.columns).toBeGreaterThanOrEqual(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
-    expect(wideLayout.baseWidth).toBeGreaterThanOrEqual(327);
+    expect(wideLayout.baseWidth).toBeGreaterThanOrEqual(360);
     expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(wideLayout.baseWidth);
     expect(Math.abs(wideLayout.averageWidth - wideLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(wideLayout.maxHorizontalGap).toBeLessThanOrEqual(wideLayout.targetGap + 3);
@@ -7859,7 +7907,7 @@ test.describe('Homepage', () => {
     });
 
     const waitForWideColumnCount = async (gridSelector, itemSelector) => {
-      await waitForFixedMediaWallReady(page, gridSelector, itemSelector, 267);
+      await waitForFixedMediaWallReady(page, gridSelector, itemSelector, 294);
     };
     const waitForSoundWallReady = async () => {
       await waitForSoundWidthReady(page, memtracks.length);
@@ -7939,9 +7987,9 @@ test.describe('Homepage', () => {
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
           gap: Number.parseFloat(style.columnGap) || 0,
           targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
-            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 297),
           baseWidth: Number(grid.dataset.mediaWallBaseWidth)
-            || parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
+            || parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 297),
           targetGap: Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
@@ -8020,9 +8068,9 @@ test.describe('Homepage', () => {
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
           gap: Number.parseFloat(style.columnGap) || 0,
           targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
-            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 297),
           baseWidth: Number(grid.dataset.mediaWallBaseWidth)
-            || parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
+            || parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 297),
           targetGap: Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
@@ -8103,9 +8151,9 @@ test.describe('Homepage', () => {
             averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
             gap: Number.parseFloat(style.columnGap || style.gap) || 0,
             targetWidth: Number(grid.dataset.soundWallResolvedWidth)
-              || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 330),
+              || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 363),
             baseWidth: Number(grid.dataset.soundWallBaseWidth)
-              || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
+              || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 363),
             targetGap: Number(grid.dataset.soundWallGap)
               || parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
             maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
@@ -8136,7 +8184,7 @@ test.describe('Homepage', () => {
     expect(large.gallery.renderedCount).toBe(60);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
     expect(large.gallery.averageWidth).toBeGreaterThanOrEqual(normal.gallery.averageWidth * 0.78);
-    expect(large.gallery.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.gallery.baseWidth).toBeGreaterThanOrEqual(294);
     expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(large.gallery.baseWidth);
     expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
@@ -8146,7 +8194,7 @@ test.describe('Homepage', () => {
     expect(large.video.renderedCount).toBe(60);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
     expect(large.video.averageWidth).toBeGreaterThanOrEqual(normal.video.averageWidth * 0.78);
-    expect(large.video.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.video.baseWidth).toBeGreaterThanOrEqual(294);
     expect(large.video.targetWidth).toBeGreaterThanOrEqual(large.video.baseWidth);
     expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
@@ -8154,7 +8202,7 @@ test.describe('Homepage', () => {
     expect(large.sound.firstRowCount).toBeGreaterThan(normal.sound.firstRowCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
     expect(large.sound.averageWidth).toBeGreaterThanOrEqual(normal.sound.averageWidth * 0.88);
-    expect(large.sound.baseWidth).toBeGreaterThanOrEqual(327);
+    expect(large.sound.baseWidth).toBeGreaterThanOrEqual(360);
     expect(large.sound.targetWidth).toBeGreaterThanOrEqual(large.sound.baseWidth);
     expect(Math.abs(large.sound.averageWidth - large.sound.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);
@@ -8268,7 +8316,7 @@ test.describe('Homepage', () => {
     });
 
     const waitForWideWallReady = async (gridSelector, itemSelector) => {
-      await waitForFixedMediaWallReady(page, gridSelector, itemSelector, 267);
+      await waitForFixedMediaWallReady(page, gridSelector, itemSelector, 294);
     };
 
     const readWall = async (gridSelector, itemSelector) => page.evaluate(({ gridSelector: selector, itemSelector: childSelector }) => {
@@ -8345,14 +8393,14 @@ test.describe('Homepage', () => {
         gap: Number.parseFloat(style.columnGap || style.gap) || 0,
         targetWidth: selector === '#soundLabTracks'
           ? Number(grid.dataset.soundWallResolvedWidth)
-            || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 330)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 363)
           : Number(grid.dataset.mediaWallResolvedWidth)
-            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 297),
         baseWidth: selector === '#soundLabTracks'
           ? Number(grid.dataset.soundWallBaseWidth)
-            || parseCssLength(style.getPropertyValue(targetWidthProperty), 330)
+            || parseCssLength(style.getPropertyValue(targetWidthProperty), 363)
           : Number(grid.dataset.mediaWallBaseWidth)
-            || parseCssLength(style.getPropertyValue(targetWidthProperty), 270),
+            || parseCssLength(style.getPropertyValue(targetWidthProperty), 297),
         targetGap: selector === '#soundLabTracks'
           ? Number(grid.dataset.soundWallGap)
             || parseCssLength(style.getPropertyValue(targetGapProperty) || style.columnGap || style.gap, 3)
@@ -8389,7 +8437,7 @@ test.describe('Homepage', () => {
     expect(large.gallery.columnCount).toBeGreaterThan(normal.gallery.columnCount);
     expect(large.gallery.renderedCount).toBeGreaterThanOrEqual(normal.gallery.renderedCount);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
-    expect(large.gallery.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.gallery.baseWidth).toBeGreaterThanOrEqual(294);
     expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(large.gallery.baseWidth);
     expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
@@ -8397,14 +8445,14 @@ test.describe('Homepage', () => {
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThanOrEqual(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
-    expect(large.video.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.video.baseWidth).toBeGreaterThanOrEqual(294);
     expect(large.video.targetWidth).toBeGreaterThanOrEqual(large.video.baseWidth);
     expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
     expect(large.video.rightUnused).toBeLessThanOrEqual(Math.max(3, large.video.targetGap + 1));
     expect(large.sound.columnCount).toBeGreaterThan(normal.sound.columnCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
-    expect(large.sound.baseWidth).toBeGreaterThanOrEqual(327);
+    expect(large.sound.baseWidth).toBeGreaterThanOrEqual(360);
     expect(large.sound.targetWidth).toBeGreaterThanOrEqual(large.sound.baseWidth);
     expect(Math.abs(large.sound.averageWidth - large.sound.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);

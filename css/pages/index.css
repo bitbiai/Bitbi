@@ -7,11 +7,11 @@
 @layer pages {
     :root {
         --bitbi-public-media-gap: 2px;
-        --bitbi-public-gallery-column-width: 270px;
-        --bitbi-public-gallery-column-width-tablet: 265px;
-        --bitbi-public-video-column-width: 270px;
-        --bitbi-public-video-column-width-tablet: 265px;
-        --bitbi-public-sound-card-width: 330px;
+        --bitbi-public-gallery-column-width: 297px;
+        --bitbi-public-gallery-column-width-tablet: 292px;
+        --bitbi-public-video-column-width: 297px;
+        --bitbi-public-video-column-width-tablet: 292px;
+        --bitbi-public-sound-card-width: 363px;
         --bitbi-public-sound-gap: 3px;
     }
 

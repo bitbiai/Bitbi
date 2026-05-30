@@ -109,10 +109,10 @@ export function initSoundLab(revealObserver) {
         if (!isDesktopLayout || typeof window.getComputedStyle !== 'function') {
             return {
                 isDesktopLayout,
-                baseWidthPx: 330,
+                baseWidthPx: 363,
                 gapPx: 3,
                 columnCount: 1,
-                resolvedWidthPx: 330,
+                resolvedWidthPx: 363,
                 widthValue: 'var(--bitbi-public-sound-card-width)',
             };
         }
@@ -120,7 +120,7 @@ export function initSoundLab(revealObserver) {
         const style = window.getComputedStyle(ctn);
         const target = parseCssLengthToPixels(
             style.getPropertyValue('--bitbi-public-sound-card-width'),
-            330,
+            363,
             ctn,
         );
         const gap = parseCssLengthToPixels(

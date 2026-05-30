@@ -5,8 +5,8 @@
     inset-block-end: auto;
     inset-inline-start: 50%;
     z-index: 10;
-    --news-pulse-thumb-text-offset: 3.47rem;
-    --news-pulse-thumb-size: 3.3rem;
+    --news-pulse-thumb-text-offset: 4.34rem;
+    --news-pulse-thumb-size: 3.96rem;
     --news-pulse-thumb-gap: calc(var(--news-pulse-thumb-text-offset) - var(--news-pulse-thumb-size));
     inline-size: min(var(--homepage-news-pulse-width, clamp(24rem, 42vw, 44rem)), calc(100vw - (var(--homepage-hero-side-inset, 1.4rem) * 2)));
     block-size: var(--news-pulse-hero-height, clamp(7.15rem, 12vh, 9.25rem));
@@ -27,6 +27,7 @@
   }
 
   .news-pulse__shell--hero {
+    grid-template-rows: minmax(0, 1fr) auto;
     overflow: hidden;
     padding: clamp(0.76rem, 1.35vw, 1.05rem) clamp(1rem, 2vw, 1.45rem) clamp(0.62rem, 1.1vw, 0.88rem);
     border: 1px solid rgba(132, 224, 255, 0.2);
@@ -75,32 +76,20 @@
   }
 
   .news-pulse__label {
-    position: relative;
-    z-index: 1;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.42rem;
-    width: fit-content;
-    color: rgba(245, 229, 171, 0.8);
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.14em;
-    line-height: 1;
-    text-transform: uppercase;
-    text-shadow:
-      0 0 18px rgba(245, 229, 171, 0.28),
-      0 0 28px rgba(0, 240, 255, 0.12);
+    position: absolute;
+    overflow: hidden;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .news-pulse__label::before {
-    content: '';
-    inline-size: 0.42rem;
-    block-size: 0.42rem;
-    border-radius: 50%;
-    background: radial-gradient(circle, #ffffff 0 18%, #00f0ff 19% 54%, rgba(255, 79, 216, 0.72) 55% 100%);
-    box-shadow:
-      0 0 11px rgba(0, 240, 255, 0.72),
-      0 0 20px rgba(255, 79, 216, 0.28);
+    content: none;
   }
 
   .news-pulse__flow {
@@ -262,7 +251,7 @@
 
   .news-pulse.is-empty .news-pulse__shell {
     align-content: center;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto;
   }
 
   .news-pulse__viewport {
@@ -460,17 +449,10 @@
 
     .news-pulse--mobile .news-pulse__shell {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      gap: 0.42rem;
+      grid-template-rows: minmax(0, 1fr);
+      gap: 0;
       align-content: stretch;
       min-block-size: 100%;
-    }
-
-    .news-pulse--mobile .news-pulse__label {
-      justify-self: center;
-      font-size: 0.56rem;
-      letter-spacing: 0.18em;
-      opacity: 0.82;
     }
 
     .news-pulse--mobile .news-pulse__flow,
