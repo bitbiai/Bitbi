@@ -6,13 +6,13 @@
 
 @layer pages {
     :root {
-        --bitbi-public-media-gap: clamp(0.38rem, 0.5vw, 0.62rem);
-        --bitbi-public-gallery-column-width: 13.5rem;
-        --bitbi-public-gallery-column-width-tablet: 13.25rem;
-        --bitbi-public-video-column-width: 13.5rem;
-        --bitbi-public-video-column-width-tablet: 13.25rem;
-        --bitbi-public-sound-card-width: 16.5rem;
-        --bitbi-public-sound-gap: clamp(0.75rem, 1vw, 1rem);
+        --bitbi-public-media-gap: clamp(0.076rem, 0.1vw, 0.124rem);
+        --bitbi-public-gallery-column-width: 16.875rem;
+        --bitbi-public-gallery-column-width-tablet: 16.5625rem;
+        --bitbi-public-video-column-width: 16.875rem;
+        --bitbi-public-video-column-width-tablet: 16.5625rem;
+        --bitbi-public-sound-card-width: 20.625rem;
+        --bitbi-public-sound-gap: clamp(0.15rem, 0.2vw, 0.2rem);
     }
 
     /* --- Tilt Card --- */
@@ -197,7 +197,7 @@
             display: grid;
             grid-template-columns: repeat(var(--bitbi-public-gallery-column-count, 1), minmax(0, var(--bitbi-public-gallery-active-column-width)));
             align-items: start;
-            justify-content: space-between;
+            justify-content: start;
             column-gap: var(--bitbi-public-media-gap);
             row-gap: 0;
             inline-size: 100%;
@@ -2668,7 +2668,7 @@
             display: grid;
             grid-template-columns: repeat(var(--bitbi-public-video-column-count, 1), minmax(0, var(--bitbi-public-video-active-column-width)));
             align-items: start;
-            justify-content: space-between;
+            justify-content: start;
             column-gap: var(--bitbi-public-media-gap);
             row-gap: 0;
             inline-size: 100%;

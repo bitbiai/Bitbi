@@ -6184,6 +6184,15 @@ test.describe('Homepage', () => {
     const wideLayout = await page.evaluate(() => {
       const grid = document.getElementById('galleryGrid');
       const style = window.getComputedStyle(grid);
+      const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+      const parseCssLength = (value, fallback) => {
+        const text = String(value || '').trim();
+        const parsed = Number.parseFloat(text);
+        if (!Number.isFinite(parsed)) return fallback;
+        if (text.endsWith('rem')) return parsed * rootFontSize;
+        if (text.endsWith('px')) return parsed;
+        return parsed;
+      };
       const rects = Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)')).map((node) => {
         const rect = node.getBoundingClientRect();
         const nodeStyle = window.getComputedStyle(node);
@@ -6233,6 +6242,9 @@ test.describe('Homepage', () => {
         cssColumnCount: columns.length,
         overflow: grid.scrollWidth - grid.clientWidth,
         renderedCount: rects.length,
+        averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+        targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
+        targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
         orderedIds: rects.map((rect) => rect.id),
         topLeftId: topLeft?.id || '',
         columnCounts: columns.map((column) => column.cards.length),
@@ -6251,13 +6263,15 @@ test.describe('Homepage', () => {
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
     expect(wideLayout.renderedCount).toBeGreaterThanOrEqual(10);
     expect(wideLayout.renderedCount).toBeLessThanOrEqual(items.length);
+    expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(Math.abs(wideLayout.averageWidth - wideLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(wideLayout.orderedIds).toContain('mempic-11');
     expect(wideLayout.topLeftId).toBe('mempic-11');
     expect(wideLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
     expect(Math.min(...wideLayout.columnCounts)).toBeGreaterThanOrEqual(1);
-    expect(Math.max(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(24);
-    expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(3);
-    expect(wideLayout.maxVerticalGap).toBeLessThanOrEqual(16);
+    expect(Math.max(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(wideLayout.targetGap + 3);
+    expect(Math.max(...wideLayout.horizontalGaps) - Math.min(...wideLayout.horizontalGaps)).toBeLessThanOrEqual(2);
+    expect(wideLayout.maxVerticalGap).toBeLessThanOrEqual(wideLayout.targetGap + 3);
     expect(wideLayout.minMediaCoverage).toBeGreaterThan(0.95);
     expect(wideLayout.portrait.aspect).toBe('portrait');
     expect(wideLayout.portrait.cssAspect).toBeLessThan(0.9);
@@ -6274,6 +6288,15 @@ test.describe('Homepage', () => {
     const videoLayout = await page.evaluate(() => {
       const grid = document.getElementById('videoGrid');
       const style = window.getComputedStyle(grid);
+      const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+      const parseCssLength = (value, fallback) => {
+        const text = String(value || '').trim();
+        const parsed = Number.parseFloat(text);
+        if (!Number.isFinite(parsed)) return fallback;
+        if (text.endsWith('rem')) return parsed * rootFontSize;
+        if (text.endsWith('px')) return parsed;
+        return parsed;
+      };
       const rects = Array.from(grid.querySelectorAll('.video-card')).map((node) => {
         const rect = node.getBoundingClientRect();
         const nodeStyle = window.getComputedStyle(node);
@@ -6318,6 +6341,9 @@ test.describe('Homepage', () => {
         cssColumnCount: columns.length,
         overflow: grid.scrollWidth - grid.clientWidth,
         viewportWidth: window.innerWidth,
+        averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
+        targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
+        targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
         orderedIds: rects.map((rect) => rect.id),
         topLeftId: topLeft?.id || '',
         columnCounts: columns.map((column) => column.cards.length),
@@ -6339,6 +6365,8 @@ test.describe('Homepage', () => {
     expect(videoLayout.display).toBe('grid');
     expect(videoLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
     expect(videoLayout.overflow).toBeLessThanOrEqual(2);
+    expect(videoLayout.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(Math.abs(videoLayout.averageWidth - videoLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(videoLayout.orderedIds).toContain('memvid-11');
     expect(videoLayout.topLeftId).toBe('memvid-11');
     expect(videoLayout.columnCounts.length).toBeGreaterThanOrEqual(5);
@@ -6347,9 +6375,9 @@ test.describe('Homepage', () => {
     expect(videoLayout.lastColumn.width).toBeGreaterThan(150);
     expect(videoLayout.lastColumn.left).toBeLessThan(videoLayout.viewportWidth - 180);
     expect(videoLayout.lastColumn.right).toBeLessThanOrEqual(videoLayout.viewportWidth + 2);
-    expect(Math.max(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(24);
-    expect(Math.max(...videoLayout.horizontalGaps) - Math.min(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(3);
-    expect(videoLayout.maxVerticalGap).toBeLessThanOrEqual(16);
+    expect(Math.max(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(videoLayout.targetGap + 3);
+    expect(Math.max(...videoLayout.horizontalGaps) - Math.min(...videoLayout.horizontalGaps)).toBeLessThanOrEqual(2);
+    expect(videoLayout.maxVerticalGap).toBeLessThanOrEqual(videoLayout.targetGap + 3);
     expect(videoLayout.minMediaCoverage).toBeGreaterThan(0.95);
     expect(videoLayout.portrait.aspect).toBe('portrait');
     expect(videoLayout.portrait.cssAspect).toBeLessThan(0.9);
@@ -7165,7 +7193,7 @@ test.describe('Homepage', () => {
   });
 
   test('Sound Lab expands to five columns on wide desktops and steps down on smaller desktop widths', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.setViewportSize({ width: 1920, height: 1200 });
     await page.goto('/');
     await switchHomepageCategory(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
@@ -7173,14 +7201,36 @@ test.describe('Homepage', () => {
     const wideLayout = await page.evaluate(() => {
       const grid = document.getElementById('soundLabTracks');
       const style = window.getComputedStyle(grid);
+      const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+      const parseCssLength = (value, fallback) => {
+        const text = String(value || '').trim();
+        const parsed = Number.parseFloat(text);
+        if (!Number.isFinite(parsed)) return fallback;
+        if (text.endsWith('rem')) return parsed * rootFontSize;
+        if (text.endsWith('px')) return parsed;
+        return parsed;
+      };
+      const cards = Array.from(grid.querySelectorAll('.snd-card')).map((node) => node.getBoundingClientRect());
+      const firstTop = cards[0]?.top;
+      const firstRow = Number.isFinite(firstTop)
+        ? cards.filter((rect) => Math.abs(rect.top - firstTop) <= 3).sort((a, b) => a.left - b.left)
+        : [];
+      const horizontalGaps = firstRow.slice(1).map((rect, index) => rect.left - firstRow[index].right);
       return {
         columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
         overflow: grid.scrollWidth - grid.clientWidth,
+        averageWidth: cards.reduce((sum, rect) => sum + rect.width, 0) / Math.max(cards.length, 1),
+        targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
+        targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
+        maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
       };
     });
 
-    expect(wideLayout.columns).toBe(5);
+    expect(wideLayout.columns).toBeGreaterThanOrEqual(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
+    expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(327);
+    expect(Math.abs(wideLayout.averageWidth - wideLayout.targetWidth)).toBeLessThanOrEqual(2);
+    expect(wideLayout.maxHorizontalGap).toBeLessThanOrEqual(wideLayout.targetGap + 3);
 
     await page.setViewportSize({ width: 1100, height: 1200 });
     const laptopLayout = await page.evaluate(() => {
@@ -7189,7 +7239,7 @@ test.describe('Homepage', () => {
       return style.gridTemplateColumns.split(' ').filter(Boolean).length;
     });
 
-    expect(laptopLayout).toBeLessThanOrEqual(4);
+    expect(laptopLayout).toBeLessThanOrEqual(3);
   });
 
   test('public media walls add columns on large monitors without materially enlarging cards or hero modules', async ({ page }) => {
@@ -7343,6 +7393,15 @@ test.describe('Homepage', () => {
         const grid = document.getElementById('galleryGrid');
         const gridRect = grid.getBoundingClientRect();
         const style = window.getComputedStyle(grid);
+        const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+        const parseCssLength = (value, fallback) => {
+          const text = String(value || '').trim();
+          const parsed = Number.parseFloat(text);
+          if (!Number.isFinite(parsed)) return fallback;
+          if (text.endsWith('rem')) return parsed * rootFontSize;
+          if (text.endsWith('px')) return parsed;
+          return parsed;
+        };
         const rects = Array.from(document.querySelectorAll('#galleryGrid .gallery-item:not(.locked-area)'))
           .filter((node) => node.offsetParent !== null)
           .map((node) => {
@@ -7356,11 +7415,20 @@ test.describe('Homepage', () => {
             columns.push(rect.left);
           }
         });
+        columns.sort((a, b) => a - b);
+        const columnRects = columns.map((left) => {
+          const inColumn = rects.filter((rect) => Math.abs(rect.left - left) <= 3);
+          return { left, right: Math.max(...inColumn.map((rect) => rect.right)) };
+        });
+        const horizontalGaps = columnRects.slice(1).map((column, index) => column.left - columnRects[index].right);
         return {
           renderedCount: rects.length,
           columnCount: columns.length,
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
           gap: Number.parseFloat(style.columnGap) || 0,
+          targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
+          targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
+          maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
           rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
       });
@@ -7372,6 +7440,15 @@ test.describe('Homepage', () => {
         const grid = document.getElementById('videoGrid');
         const gridRect = grid.getBoundingClientRect();
         const style = window.getComputedStyle(grid);
+        const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+        const parseCssLength = (value, fallback) => {
+          const text = String(value || '').trim();
+          const parsed = Number.parseFloat(text);
+          if (!Number.isFinite(parsed)) return fallback;
+          if (text.endsWith('rem')) return parsed * rootFontSize;
+          if (text.endsWith('px')) return parsed;
+          return parsed;
+        };
         const rects = Array.from(document.querySelectorAll('#videoGrid .video-card'))
           .filter((node) => node.offsetParent !== null)
           .map((node) => {
@@ -7385,11 +7462,20 @@ test.describe('Homepage', () => {
             columns.push(rect.left);
           }
         });
+        columns.sort((a, b) => a - b);
+        const columnRects = columns.map((left) => {
+          const inColumn = rects.filter((rect) => Math.abs(rect.left - left) <= 3);
+          return { left, right: Math.max(...inColumn.map((rect) => rect.right)) };
+        });
+        const horizontalGaps = columnRects.slice(1).map((column, index) => column.left - columnRects[index].right);
         return {
           renderedCount: rects.length,
           columnCount: columns.length,
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
           gap: Number.parseFloat(style.columnGap) || 0,
+          targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
+          targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
+          maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
           rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
       });
@@ -7402,6 +7488,15 @@ test.describe('Homepage', () => {
           const grid = document.getElementById('soundLabTracks');
           const gridRect = grid.getBoundingClientRect();
           const style = window.getComputedStyle(grid);
+          const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+          const parseCssLength = (value, fallback) => {
+            const text = String(value || '').trim();
+            const parsed = Number.parseFloat(text);
+            if (!Number.isFinite(parsed)) return fallback;
+            if (text.endsWith('rem')) return parsed * rootFontSize;
+            if (text.endsWith('px')) return parsed;
+            return parsed;
+          };
           const rects = Array.from(document.querySelectorAll(selector))
             .filter((node) => node.offsetParent !== null)
             .map((node) => {
@@ -7418,11 +7513,18 @@ test.describe('Homepage', () => {
             row.rects.push(rect);
           });
           rows.sort((a, b) => a.top - b.top);
+          const firstRowRects = [...(rows[0]?.rects || [])].sort((a, b) => a.left - b.left);
+          const horizontalGaps = firstRowRects.slice(1).map((rect, index) => (
+            rect.left - (firstRowRects[index].left + firstRowRects[index].width)
+          ));
           return {
             renderedCount: rects.length,
             firstRowCount: rows[0]?.rects.length || 0,
             averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
             gap: Number.parseFloat(style.columnGap || style.gap) || 0,
+            targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
+            targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
+            maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
             rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.left + rect.width)),
           };
         };
@@ -7449,15 +7551,24 @@ test.describe('Homepage', () => {
     expect(large.gallery.renderedCount).toBeGreaterThan(normal.gallery.renderedCount);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
     expect(large.gallery.averageWidth).toBeGreaterThanOrEqual(normal.gallery.averageWidth * 0.78);
+    expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
+    expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
     expect(large.gallery.rightUnused).toBeLessThanOrEqual(large.gallery.averageWidth + (large.gallery.gap * 2) + 2);
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThan(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
     expect(large.video.averageWidth).toBeGreaterThanOrEqual(normal.video.averageWidth * 0.78);
+    expect(large.video.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
+    expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
     expect(large.video.rightUnused).toBeLessThanOrEqual(large.video.averageWidth + (large.video.gap * 2) + 2);
     expect(large.sound.firstRowCount).toBeGreaterThan(normal.sound.firstRowCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
     expect(large.sound.averageWidth).toBeGreaterThanOrEqual(normal.sound.averageWidth * 0.88);
+    expect(large.sound.targetWidth).toBeGreaterThanOrEqual(327);
+    expect(Math.abs(large.sound.averageWidth - large.sound.targetWidth)).toBeLessThanOrEqual(2);
+    expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);
     expect(large.sound.rightUnused).toBeLessThanOrEqual(large.sound.averageWidth + (large.sound.gap * 2) + 2);
     expect(large.heroModuleWidth).toBeGreaterThan(0);
     expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.15);
@@ -7588,6 +7699,15 @@ test.describe('Homepage', () => {
       const grid = document.querySelector(selector);
       const gridRect = grid.getBoundingClientRect();
       const style = window.getComputedStyle(grid);
+      const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+      const parseCssLength = (value, fallback) => {
+        const text = String(value || '').trim();
+        const parsed = Number.parseFloat(text);
+        if (!Number.isFinite(parsed)) return fallback;
+        if (text.endsWith('rem')) return parsed * rootFontSize;
+        if (text.endsWith('px')) return parsed;
+        return parsed;
+      };
       const rects = Array.from(grid.querySelectorAll(childSelector))
         .filter((node) => node.offsetParent !== null)
         .map((node) => {
@@ -7599,11 +7719,27 @@ test.describe('Homepage', () => {
         if (!columns.some((left) => Math.abs(left - rect.left) <= 3)) columns.push(rect.left);
       });
       columns.sort((a, b) => a - b);
+      const columnRects = columns.map((left) => {
+        const inColumn = rects.filter((rect) => Math.abs(rect.left - left) <= 3);
+        return { left, right: Math.max(...inColumn.map((rect) => rect.right)) };
+      });
+      const horizontalGaps = columnRects.slice(1).map((column, index) => column.left - columnRects[index].right);
+      const targetWidthProperty = selector === '#soundLabTracks'
+        ? '--bitbi-public-sound-card-width'
+        : selector === '#videoGrid'
+          ? '--bitbi-public-video-active-column-width'
+          : '--bitbi-public-gallery-active-column-width';
+      const targetGapProperty = selector === '#soundLabTracks'
+        ? '--bitbi-public-sound-gap'
+        : '--bitbi-public-media-gap';
       return {
         renderedCount: rects.length,
         columnCount: columns.length,
         averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
         gap: Number.parseFloat(style.columnGap || style.gap) || 0,
+        targetWidth: parseCssLength(style.getPropertyValue(targetWidthProperty), selector === '#soundLabTracks' ? 330 : 270),
+        targetGap: parseCssLength(style.getPropertyValue(targetGapProperty) || style.columnGap || style.gap, selector === '#soundLabTracks' ? 3 : 2),
+        maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
         rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
       };
     }, { gridSelector, itemSelector });
@@ -7634,13 +7770,22 @@ test.describe('Homepage', () => {
     expect(large.gallery.columnCount).toBeGreaterThan(normal.gallery.columnCount);
     expect(large.gallery.renderedCount).toBeGreaterThanOrEqual(normal.gallery.renderedCount);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
+    expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
+    expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
     expect(large.gallery.rightUnused).toBeLessThanOrEqual(large.gallery.averageWidth + (large.gallery.gap * 2) + 2);
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThanOrEqual(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
+    expect(large.video.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
+    expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
     expect(large.video.rightUnused).toBeLessThanOrEqual(large.video.averageWidth + (large.video.gap * 2) + 2);
     expect(large.sound.columnCount).toBeGreaterThan(normal.sound.columnCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
+    expect(large.sound.targetWidth).toBeGreaterThanOrEqual(327);
+    expect(Math.abs(large.sound.averageWidth - large.sound.targetWidth)).toBeLessThanOrEqual(2);
+    expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);
   });
 
   test('homepage Sound Lab renders published member tracks directly without Free or Exclusive categories', async ({ page }) => {

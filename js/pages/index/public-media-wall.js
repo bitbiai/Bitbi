@@ -34,7 +34,7 @@ export function syncFixedMediaWallColumnCount(grid, {
 
     const style = window.getComputedStyle(grid);
     const gap = parseCssLengthToPixels(
-        style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap || style.gap,
+        style.columnGap || style.gap || style.getPropertyValue('--bitbi-public-media-gap'),
         10,
         grid,
     );
