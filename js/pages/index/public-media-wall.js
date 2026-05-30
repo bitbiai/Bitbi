@@ -20,7 +20,7 @@ export function parseCssLengthToPixels(value, fallback, basisElement = document.
 }
 
 function toPixelString(value) {
-    const rounded = Math.round((Number(value) || 0) * 100) / 100;
+    const rounded = Math.floor((Number(value) || 0) * 1000) / 1000;
     return `${rounded}px`;
 }
 
@@ -55,7 +55,10 @@ export function calculateFixedMediaWallMetrics(grid, {
         return {
             gridWidth: 0,
             gapPx: 10,
+            baseWidthPx: fallbackWidth,
             targetWidthPx: fallbackWidth,
+            resolvedWidthPx: fallbackWidth,
+            capacity: 1,
             columnCount: 1,
         };
     }
@@ -76,11 +79,17 @@ export function calculateFixedMediaWallMetrics(grid, {
         ? Math.max(1, Math.floor((rect.width + gap) / (targetColumnWidth + gap)))
         : 1;
     const columnCount = itemCount > 0 ? Math.min(itemCount, capacity) : capacity;
+    const resolvedWidth = rect.width && columnCount > 0
+        ? Math.max(targetColumnWidth, Math.floor(((rect.width - (gap * (columnCount - 1))) / columnCount) * 1000) / 1000)
+        : targetColumnWidth;
 
     return {
         gridWidth: rect.width || 0,
         gapPx: gap,
+        baseWidthPx: targetColumnWidth,
         targetWidthPx: targetColumnWidth,
+        resolvedWidthPx: resolvedWidth,
+        capacity,
         columnCount,
     };
 }
@@ -94,8 +103,15 @@ export function clearFixedMediaWallLayout(grid, {
 } = {}) {
     if (!grid) return;
     if (countProperty) grid.style.removeProperty(countProperty);
+    grid.style.removeProperty('--bitbi-public-media-wall-base-column-width');
     grid.style.removeProperty('--bitbi-public-media-wall-resolved-column-width');
     grid.style.gridTemplateColumns = '';
+    delete grid.dataset.mediaWallReady;
+    delete grid.dataset.mediaWallColumnCount;
+    delete grid.dataset.mediaWallBaseWidth;
+    delete grid.dataset.mediaWallResolvedWidth;
+    delete grid.dataset.mediaWallGap;
+    delete grid.dataset.mediaWallCapacity;
     delete grid.dataset.publicMediaWallReady;
     delete grid.dataset.publicMediaWallWidthPx;
     delete grid.dataset.publicMediaWallColumnCount;
@@ -118,24 +134,33 @@ export function renderFixedMediaWallColumns(grid, cards, {
 } = {}) {
     if (!grid) return 1;
     const safeCards = Array.isArray(cards) ? cards : [];
+    grid.dataset.mediaWallReady = 'false';
     grid.dataset.publicMediaWallReady = 'false';
     const metrics = calculateFixedMediaWallMetrics(grid, {
         targetWidthProperty,
         fallbackColumnWidth,
         itemCount: safeCards.length,
     });
-    const { columnCount, targetWidthPx } = metrics;
-    const resolvedWidthPx = toPixelString(targetWidthPx);
+    const { columnCount, baseWidthPx, resolvedWidthPx: resolvedWidth, gapPx, capacity } = metrics;
+    const baseWidthValue = toPixelString(baseWidthPx);
+    const resolvedWidthPx = toPixelString(resolvedWidth);
     if (countProperty) {
         grid.style.setProperty(countProperty, String(columnCount));
     }
+    grid.style.setProperty('--bitbi-public-media-wall-base-column-width', baseWidthValue);
     grid.style.setProperty('--bitbi-public-media-wall-resolved-column-width', resolvedWidthPx);
     grid.style.gridTemplateColumns = `repeat(${columnCount}, ${resolvedWidthPx})`;
 
     if (!safeCards.length) {
         grid.replaceChildren();
+        grid.dataset.mediaWallReady = 'true';
+        grid.dataset.mediaWallBaseWidth = String(baseWidthPx);
+        grid.dataset.mediaWallResolvedWidth = String(resolvedWidth);
+        grid.dataset.mediaWallGap = String(gapPx);
+        grid.dataset.mediaWallColumnCount = String(columnCount);
+        grid.dataset.mediaWallCapacity = String(capacity);
         grid.dataset.publicMediaWallReady = 'true';
-        grid.dataset.publicMediaWallWidthPx = String(targetWidthPx);
+        grid.dataset.publicMediaWallWidthPx = String(resolvedWidth);
         grid.dataset.publicMediaWallColumnCount = String(columnCount);
         return columnCount;
     }
@@ -154,12 +179,18 @@ export function renderFixedMediaWallColumns(grid, cards, {
         lockCardToColumn(card);
         targetColumn.node.appendChild(card);
         const aspectRatio = readCardAspectRatio(card, aspectProperty, fallbackAspectRatio);
-        targetColumn.estimatedHeight += (targetWidthPx / aspectRatio) + estimatedExtraHeight;
+        targetColumn.estimatedHeight += (resolvedWidth / aspectRatio) + estimatedExtraHeight;
     });
 
     grid.replaceChildren(...columns.map((column) => column.node));
+    grid.dataset.mediaWallReady = 'true';
+    grid.dataset.mediaWallBaseWidth = String(baseWidthPx);
+    grid.dataset.mediaWallResolvedWidth = String(resolvedWidth);
+    grid.dataset.mediaWallGap = String(gapPx);
+    grid.dataset.mediaWallColumnCount = String(columnCount);
+    grid.dataset.mediaWallCapacity = String(capacity);
     grid.dataset.publicMediaWallReady = 'true';
-    grid.dataset.publicMediaWallWidthPx = String(targetWidthPx);
+    grid.dataset.publicMediaWallWidthPx = String(resolvedWidth);
     grid.dataset.publicMediaWallColumnCount = String(columnCount);
     return columnCount;
 }

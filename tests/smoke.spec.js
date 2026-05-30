@@ -467,10 +467,20 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
     const grid = document.querySelector(gridSelector);
     if (!grid) return 'missing_grid';
     const style = window.getComputedStyle(grid);
-    const targetWidth = Number(grid.dataset.publicMediaWallWidthPx)
+    const targetWidth = Number(grid.dataset.mediaWallResolvedWidth)
+      || Number(grid.dataset.publicMediaWallWidthPx)
       || Number.parseFloat(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'))
       || 0;
-    const columnCount = Number(grid.dataset.publicMediaWallColumnCount) || 0;
+    const baseWidth = Number(grid.dataset.mediaWallBaseWidth)
+      || Number.parseFloat(style.getPropertyValue('--bitbi-public-media-wall-base-column-width'))
+      || targetWidth;
+    const gap = Number(grid.dataset.mediaWallGap)
+      || Number.parseFloat(style.columnGap || style.gap)
+      || 0;
+    const columnCount = Number(grid.dataset.mediaWallColumnCount)
+      || Number(grid.dataset.publicMediaWallColumnCount)
+      || 0;
+    const capacity = Number(grid.dataset.mediaWallCapacity) || columnCount;
     const columns = Array.from(grid.querySelectorAll('.public-media-wall__column'))
       .filter((node) => node.offsetParent !== null)
       .map((node) => node.getBoundingClientRect().width);
@@ -484,17 +494,34 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
       && widths.every((width) => Math.abs(width - targetWidth) <= 2);
     const columnsReady = columnWidths.length > 0
       && columnWidths.every((width) => Math.abs(width - targetWidth) <= 2);
-    const ok = grid.dataset.publicMediaWallReady === 'true'
+    const expectedCapacity = baseWidth > 0
+      ? Math.max(1, Math.floor((grid.getBoundingClientRect().width + gap) / (baseWidth + gap)))
+      : columnCount;
+    const expectedColumnCount = rects.length > 0 ? Math.min(rects.length, expectedCapacity) : expectedCapacity;
+    const expectedResolvedWidth = expectedColumnCount > 0
+      ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
+      : baseWidth;
+    const ok = (grid.dataset.mediaWallReady === 'true' || grid.dataset.publicMediaWallReady === 'true')
       && !stage?.classList.contains('is-transitioning')
       && grid.getBoundingClientRect().width > 0
       && columnCount > 1
+      && capacity === expectedCapacity
+      && columnCount === expectedColumnCount
+      && targetWidth >= baseWidth
+      && Math.abs(targetWidth - expectedResolvedWidth) <= 1
       && itemWidthsReady
       && columnsReady;
     if (ok) return 'ready';
     return JSON.stringify({
-      ready: grid.dataset.publicMediaWallReady || '',
+      ready: grid.dataset.mediaWallReady || grid.dataset.publicMediaWallReady || '',
       targetWidth,
+      baseWidth,
+      gap,
       columnCount,
+      capacity,
+      expectedCapacity,
+      expectedColumnCount,
+      expectedResolvedWidth,
       widths: widths.slice(0, 5),
       columnWidths: columnWidths.slice(0, 5),
       gridTemplateColumns: style.gridTemplateColumns,
@@ -512,10 +539,19 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const grid = document.getElementById('soundLabTracks');
     if (!stage || !grid) return 'missing_sound_grid';
     const style = window.getComputedStyle(grid);
-    const targetWidth = Number(grid.dataset.soundCardWidthPx)
+    const targetWidth = Number(grid.dataset.soundWallResolvedWidth)
+      || Number(grid.dataset.soundCardWidthPx)
       || Number.parseFloat(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'))
       || Number.parseFloat(style.getPropertyValue('--bitbi-public-sound-card-width'))
       || 0;
+    const baseWidth = Number(grid.dataset.soundWallBaseWidth)
+      || Number.parseFloat(style.getPropertyValue('--bitbi-public-sound-card-width'))
+      || targetWidth;
+    const gap = Number(grid.dataset.soundWallGap)
+      || Number.parseFloat(style.columnGap || style.gap)
+      || 0;
+    const columnCount = Number(grid.dataset.soundWallColumnCount) || 0;
+    const capacity = Number(grid.dataset.soundWallCapacity) || columnCount;
     const rects = Array.from(grid.querySelectorAll('.snd-card--memtrack'))
       .filter((node) => node.offsetParent !== null)
       .map((node) => node.getBoundingClientRect());
@@ -524,17 +560,35 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const firstRowCount = Number.isFinite(firstTop)
       ? rects.filter((rect) => Math.abs(rect.top - firstTop) <= 3).length
       : 0;
+    const expectedCapacity = baseWidth > 0
+      ? Math.max(1, Math.floor((grid.getBoundingClientRect().width + gap) / (baseWidth + gap)))
+      : columnCount;
+    const expectedColumnCount = rects.length > 0 ? Math.min(rects.length, expectedCapacity) : expectedCapacity;
+    const expectedResolvedWidth = expectedColumnCount > 0
+      ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
+      : baseWidth;
     const ok = stage.dataset.activeCategory === 'sound'
       && !stage.classList.contains('is-transitioning')
-      && grid.dataset.soundWidthReady === 'true'
-      && targetWidth >= 327
+      && (grid.dataset.soundWallReady === 'true' || grid.dataset.soundWidthReady === 'true')
+      && targetWidth >= baseWidth
+      && baseWidth >= 327
+      && capacity === expectedCapacity
+      && columnCount === expectedColumnCount
+      && Math.abs(targetWidth - expectedResolvedWidth) <= 1
       && rects.length >= expectedTrackCount
       && (expectedTrackCount <= 1 || firstRowCount > 1)
       && widths.every((width) => Math.abs(width - targetWidth) <= 2);
     if (ok) return 'ready';
     return JSON.stringify({
-      ready: grid.dataset.soundWidthReady || '',
+      ready: grid.dataset.soundWallReady || grid.dataset.soundWidthReady || '',
       targetWidth,
+      baseWidth,
+      gap,
+      columnCount,
+      capacity,
+      expectedCapacity,
+      expectedColumnCount,
+      expectedResolvedWidth,
       widths: widths.slice(0, 5),
       visibleCount: rects.length,
       firstRowCount,
@@ -6336,8 +6390,12 @@ test.describe('Homepage', () => {
         overflow: grid.scrollWidth - grid.clientWidth,
         renderedCount: rects.length,
         averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
-        targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
-        targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
+        targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+        baseWidth: Number(grid.dataset.mediaWallBaseWidth)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
+        targetGap: Number(grid.dataset.mediaWallGap)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
         orderedIds: rects.map((rect) => rect.id),
         topLeftId: topLeft?.id || '',
         columnCounts: columns.map((column) => column.cards.length),
@@ -6356,7 +6414,8 @@ test.describe('Homepage', () => {
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
     expect(wideLayout.renderedCount).toBeGreaterThanOrEqual(10);
     expect(wideLayout.renderedCount).toBeLessThanOrEqual(items.length);
-    expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(wideLayout.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(wideLayout.baseWidth);
     expect(Math.abs(wideLayout.averageWidth - wideLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(wideLayout.orderedIds).toContain('mempic-11');
     expect(wideLayout.topLeftId).toBe('mempic-11');
@@ -6437,8 +6496,12 @@ test.describe('Homepage', () => {
         overflow: grid.scrollWidth - grid.clientWidth,
         viewportWidth: window.innerWidth,
         averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
-        targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
-        targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
+        targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+        baseWidth: Number(grid.dataset.mediaWallBaseWidth)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
+        targetGap: Number(grid.dataset.mediaWallGap)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
         orderedIds: rects.map((rect) => rect.id),
         topLeftId: topLeft?.id || '',
         columnCounts: columns.map((column) => column.cards.length),
@@ -6460,7 +6523,8 @@ test.describe('Homepage', () => {
     expect(videoLayout.display).toBe('grid');
     expect(videoLayout.cssColumnCount).toBeGreaterThanOrEqual(5);
     expect(videoLayout.overflow).toBeLessThanOrEqual(2);
-    expect(videoLayout.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(videoLayout.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(videoLayout.targetWidth).toBeGreaterThanOrEqual(videoLayout.baseWidth);
     expect(Math.abs(videoLayout.averageWidth - videoLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(videoLayout.orderedIds).toContain('memvid-11');
     expect(videoLayout.topLeftId).toBe('memvid-11');
@@ -7288,11 +7352,36 @@ test.describe('Homepage', () => {
   });
 
   test('Sound Lab expands to five columns on wide desktops and steps down on smaller desktop widths', async ({ page }) => {
+    const memtracks = Array.from({ length: 12 }, (_, index) => {
+      const id = `sound-layout-track-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Sound Layout Track ${index + 1}`,
+        caption: 'Published by Ada Member.',
+        category: 'memtracks',
+        model_label: 'Music 2.6',
+        publisher: { display_name: 'Ada Member' },
+        file: { url: `/api/gallery/memtracks/${id}/file` },
+        poster: { url: `/api/gallery/memtracks/${id}/poster`, w: 640, h: 360 },
+      };
+    });
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { items: memtracks, has_more: false, next_cursor: null, applied_limit: 60 },
+        }),
+      });
+    });
+
     await page.setViewportSize({ width: 1920, height: 1200 });
     await page.goto('/');
     await switchHomepageCategory(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
-    await waitForSoundWidthReady(page);
+    await waitForSoundWidthReady(page, memtracks.length);
 
     const wideLayout = await page.evaluate(() => {
       const grid = document.getElementById('soundLabTracks');
@@ -7313,26 +7402,31 @@ test.describe('Homepage', () => {
         : [];
       const horizontalGaps = firstRow.slice(1).map((rect, index) => rect.left - firstRow[index].right);
       return {
-        columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+        columns: Number(grid.dataset.soundWallColumnCount) || style.gridTemplateColumns.split(' ').filter(Boolean).length,
         overflow: grid.scrollWidth - grid.clientWidth,
         averageWidth: cards.reduce((sum, rect) => sum + rect.width, 0) / Math.max(cards.length, 1),
-        targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
-        targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
+        targetWidth: Number(grid.dataset.soundWallResolvedWidth)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 330),
+        baseWidth: Number(grid.dataset.soundWallBaseWidth)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
+        targetGap: Number(grid.dataset.soundWallGap)
+          || parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
         maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
       };
     });
 
     expect(wideLayout.columns).toBeGreaterThanOrEqual(5);
     expect(wideLayout.overflow).toBeLessThanOrEqual(2);
-    expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(327);
+    expect(wideLayout.baseWidth).toBeGreaterThanOrEqual(327);
+    expect(wideLayout.targetWidth).toBeGreaterThanOrEqual(wideLayout.baseWidth);
     expect(Math.abs(wideLayout.averageWidth - wideLayout.targetWidth)).toBeLessThanOrEqual(2);
     expect(wideLayout.maxHorizontalGap).toBeLessThanOrEqual(wideLayout.targetGap + 3);
 
     await page.setViewportSize({ width: 1100, height: 1200 });
+    await waitForSoundWidthReady(page, memtracks.length);
     const laptopLayout = await page.evaluate(() => {
       const grid = document.getElementById('soundLabTracks');
-      const style = window.getComputedStyle(grid);
-      return style.gridTemplateColumns.split(' ').filter(Boolean).length;
+      return Number(grid.dataset.soundWallColumnCount) || 0;
     });
 
     expect(laptopLayout).toBeLessThanOrEqual(3);
@@ -7491,8 +7585,12 @@ test.describe('Homepage', () => {
           columnCount: columns.length,
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
           gap: Number.parseFloat(style.columnGap) || 0,
-          targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
-          targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
+          targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+          baseWidth: Number(grid.dataset.mediaWallBaseWidth)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-gallery-active-column-width'), 270),
+          targetGap: Number(grid.dataset.mediaWallGap)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
           rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
@@ -7538,8 +7636,12 @@ test.describe('Homepage', () => {
           columnCount: columns.length,
           averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
           gap: Number.parseFloat(style.columnGap) || 0,
-          targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
-          targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
+          targetWidth: Number(grid.dataset.mediaWallResolvedWidth)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+          baseWidth: Number(grid.dataset.mediaWallBaseWidth)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-video-active-column-width'), 270),
+          targetGap: Number(grid.dataset.mediaWallGap)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
           rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
@@ -7587,8 +7689,12 @@ test.describe('Homepage', () => {
             firstRowCount: rows[0]?.rects.length || 0,
             averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
             gap: Number.parseFloat(style.columnGap || style.gap) || 0,
-            targetWidth: parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
-            targetGap: parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
+            targetWidth: Number(grid.dataset.soundWallResolvedWidth)
+              || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 330),
+            baseWidth: Number(grid.dataset.soundWallBaseWidth)
+              || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-width'), 330),
+            targetGap: Number(grid.dataset.soundWallGap)
+              || parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
             maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
             rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.left + rect.width)),
           };
@@ -7616,25 +7722,28 @@ test.describe('Homepage', () => {
     expect(large.gallery.renderedCount).toBeGreaterThan(normal.gallery.renderedCount);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
     expect(large.gallery.averageWidth).toBeGreaterThanOrEqual(normal.gallery.averageWidth * 0.78);
-    expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(large.gallery.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(large.gallery.baseWidth);
     expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
-    expect(large.gallery.rightUnused).toBeLessThanOrEqual(large.gallery.averageWidth + (large.gallery.gap * 2) + 2);
+    expect(large.gallery.rightUnused).toBeLessThanOrEqual(2);
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThan(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
     expect(large.video.averageWidth).toBeGreaterThanOrEqual(normal.video.averageWidth * 0.78);
-    expect(large.video.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(large.video.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.video.targetWidth).toBeGreaterThanOrEqual(large.video.baseWidth);
     expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
-    expect(large.video.rightUnused).toBeLessThanOrEqual(large.video.averageWidth + (large.video.gap * 2) + 2);
+    expect(large.video.rightUnused).toBeLessThanOrEqual(2);
     expect(large.sound.firstRowCount).toBeGreaterThan(normal.sound.firstRowCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
     expect(large.sound.averageWidth).toBeGreaterThanOrEqual(normal.sound.averageWidth * 0.88);
-    expect(large.sound.targetWidth).toBeGreaterThanOrEqual(327);
+    expect(large.sound.baseWidth).toBeGreaterThanOrEqual(327);
+    expect(large.sound.targetWidth).toBeGreaterThanOrEqual(large.sound.baseWidth);
     expect(Math.abs(large.sound.averageWidth - large.sound.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);
-    expect(large.sound.rightUnused).toBeLessThanOrEqual(large.sound.averageWidth + (large.sound.gap * 2) + 2);
+    expect(large.sound.rightUnused).toBeLessThanOrEqual(2);
     expect(large.heroModuleWidth).toBeGreaterThan(0);
     expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.15);
     expect(large.overflowX).toBeLessThanOrEqual(2);
@@ -7789,8 +7898,21 @@ test.describe('Homepage', () => {
         columnCount: columns.length,
         averageWidth: rects.reduce((sum, rect) => sum + rect.width, 0) / Math.max(rects.length, 1),
         gap: Number.parseFloat(style.columnGap || style.gap) || 0,
-        targetWidth: parseCssLength(style.getPropertyValue(targetWidthProperty), selector === '#soundLabTracks' ? 330 : 270),
-        targetGap: parseCssLength(style.getPropertyValue(targetGapProperty) || style.columnGap || style.gap, selector === '#soundLabTracks' ? 3 : 2),
+        targetWidth: selector === '#soundLabTracks'
+          ? Number(grid.dataset.soundWallResolvedWidth)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'), 330)
+          : Number(grid.dataset.mediaWallResolvedWidth)
+            || parseCssLength(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'), 270),
+        baseWidth: selector === '#soundLabTracks'
+          ? Number(grid.dataset.soundWallBaseWidth)
+            || parseCssLength(style.getPropertyValue(targetWidthProperty), 330)
+          : Number(grid.dataset.mediaWallBaseWidth)
+            || parseCssLength(style.getPropertyValue(targetWidthProperty), 270),
+        targetGap: selector === '#soundLabTracks'
+          ? Number(grid.dataset.soundWallGap)
+            || parseCssLength(style.getPropertyValue(targetGapProperty) || style.columnGap || style.gap, 3)
+          : Number(grid.dataset.mediaWallGap)
+            || parseCssLength(style.getPropertyValue(targetGapProperty) || style.columnGap || style.gap, 2),
         maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
         rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
       };
@@ -7822,20 +7944,23 @@ test.describe('Homepage', () => {
     expect(large.gallery.columnCount).toBeGreaterThan(normal.gallery.columnCount);
     expect(large.gallery.renderedCount).toBeGreaterThanOrEqual(normal.gallery.renderedCount);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
-    expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(large.gallery.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(large.gallery.baseWidth);
     expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
-    expect(large.gallery.rightUnused).toBeLessThanOrEqual(large.gallery.averageWidth + (large.gallery.gap * 2) + 2);
+    expect(large.gallery.rightUnused).toBeLessThanOrEqual(2);
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThanOrEqual(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
-    expect(large.video.targetWidth).toBeGreaterThanOrEqual(267);
+    expect(large.video.baseWidth).toBeGreaterThanOrEqual(267);
+    expect(large.video.targetWidth).toBeGreaterThanOrEqual(large.video.baseWidth);
     expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
-    expect(large.video.rightUnused).toBeLessThanOrEqual(large.video.averageWidth + (large.video.gap * 2) + 2);
+    expect(large.video.rightUnused).toBeLessThanOrEqual(2);
     expect(large.sound.columnCount).toBeGreaterThan(normal.sound.columnCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
-    expect(large.sound.targetWidth).toBeGreaterThanOrEqual(327);
+    expect(large.sound.baseWidth).toBeGreaterThanOrEqual(327);
+    expect(large.sound.targetWidth).toBeGreaterThanOrEqual(large.sound.baseWidth);
     expect(Math.abs(large.sound.averageWidth - large.sound.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);
   });

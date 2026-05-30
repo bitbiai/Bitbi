@@ -280,6 +280,14 @@ export function initCategoryCarousel() {
         stage.dataset.activeCategory = activeCategory;
         syncVisibleReveals(getPanel(activeCategory));
         updateArrowState();
+        window.requestAnimationFrame(() => {
+            document.dispatchEvent(new CustomEvent('bitbi:homepage-category-activated', {
+                detail: {
+                    category: activeCategory,
+                    stageMode: stage.dataset.stageMode || '',
+                },
+            }));
+        });
     }
 
     function updateCategoryLinkState() {

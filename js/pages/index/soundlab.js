@@ -87,7 +87,7 @@ export function initSoundLab(revealObserver) {
     ctn.after(paginationEl, statusEl);
 
     function toPixelString(value) {
-        const rounded = Math.round((Number(value) || 0) * 100) / 100;
+        const rounded = Math.floor((Number(value) || 0) * 1000) / 1000;
         return `${rounded}px`;
     }
 
@@ -96,20 +96,43 @@ export function initSoundLab(revealObserver) {
         if (!isDesktopLayout || typeof window.getComputedStyle !== 'function') {
             return {
                 isDesktopLayout,
-                widthPx: 330,
+                baseWidthPx: 330,
+                gapPx: 3,
+                columnCount: 1,
+                resolvedWidthPx: 330,
                 widthValue: 'var(--bitbi-public-sound-card-width)',
             };
         }
+        const rect = ctn.getBoundingClientRect();
         const style = window.getComputedStyle(ctn);
         const target = parseCssLengthToPixels(
             style.getPropertyValue('--bitbi-public-sound-card-width'),
             330,
             ctn,
         );
+        const gap = parseCssLengthToPixels(
+            style.getPropertyValue('--bitbi-public-sound-gap') || style.columnGap || style.gap,
+            3,
+            ctn,
+        );
+        const itemCount = Array.from(ctn.children)
+            .filter((card) => card.classList.contains('snd-card--memtrack'))
+            .length;
+        const capacity = rect.width
+            ? Math.max(1, Math.floor((rect.width + gap) / (target + gap)))
+            : 1;
+        const columnCount = itemCount > 0 ? Math.min(itemCount, capacity) : capacity;
+        const resolvedWidth = rect.width && columnCount > 0
+            ? Math.max(target, Math.floor(((rect.width - (gap * (columnCount - 1))) / columnCount) * 1000) / 1000)
+            : target;
         return {
             isDesktopLayout,
-            widthPx: target,
-            widthValue: toPixelString(target),
+            baseWidthPx: target,
+            gapPx: gap,
+            capacity,
+            columnCount,
+            resolvedWidthPx: resolvedWidth,
+            widthValue: toPixelString(resolvedWidth),
         };
     }
 
@@ -128,21 +151,45 @@ export function initSoundLab(revealObserver) {
     }
 
     function syncMemtrackCardWidths() {
-        const { isDesktopLayout, widthPx, widthValue } = getMemtrackWidthMetrics();
+        const {
+            isDesktopLayout,
+            baseWidthPx,
+            gapPx,
+            capacity,
+            columnCount,
+            resolvedWidthPx,
+            widthValue,
+        } = getMemtrackWidthMetrics();
+        ctn.dataset.soundWallReady = 'false';
         ctn.dataset.soundWidthReady = 'false';
         if (isDesktopLayout) {
-            ctn.style.gridTemplateColumns = `repeat(auto-fill, ${widthValue})`;
+            ctn.style.gridTemplateColumns = `repeat(${columnCount}, ${widthValue})`;
             ctn.style.setProperty('--bitbi-public-sound-card-resolved-width', widthValue);
-            ctn.dataset.soundCardWidthPx = String(Math.round(widthPx * 100) / 100);
+            ctn.dataset.soundWallBaseWidth = String(baseWidthPx);
+            ctn.dataset.soundWallResolvedWidth = String(resolvedWidthPx);
+            ctn.dataset.soundWallGap = String(gapPx);
+            ctn.dataset.soundWallColumnCount = String(columnCount);
+            ctn.dataset.soundWallCapacity = String(capacity);
+            ctn.dataset.soundCardWidthPx = String(resolvedWidthPx);
         } else {
             ctn.style.gridTemplateColumns = '';
             ctn.style.removeProperty('--bitbi-public-sound-card-resolved-width');
+            delete ctn.dataset.soundWallReady;
+            delete ctn.dataset.soundWallBaseWidth;
+            delete ctn.dataset.soundWallResolvedWidth;
+            delete ctn.dataset.soundWallGap;
+            delete ctn.dataset.soundWallColumnCount;
+            delete ctn.dataset.soundWallCapacity;
+            delete ctn.dataset.soundWidthReady;
             delete ctn.dataset.soundCardWidthPx;
         }
         Array.from(ctn.children)
             .filter((card) => card.classList.contains('snd-card--memtrack'))
             .forEach((card) => lockMemtrackCardWidth(card, widthValue));
-        ctn.dataset.soundWidthReady = isDesktopLayout ? 'true' : 'false';
+        if (isDesktopLayout) {
+            ctn.dataset.soundWallReady = 'true';
+            ctn.dataset.soundWidthReady = 'true';
+        }
     }
 
     function scheduleMemtrackWidthSync() {

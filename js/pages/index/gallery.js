@@ -69,6 +69,7 @@ export function initGallery() {
     let mempicsResizeObserver = null;
     let mempicsStageObserver = null;
     let mempicsResizeFrame = 0;
+    let mempicsResizeSettledTimer = 0;
 
     const mobileMediaQuery = getMobileMediaGridQuery();
     const $paginationStatus = document.createElement('button');
@@ -109,11 +110,15 @@ export function initGallery() {
     }
 
     function syncWideColumnCount(itemCount = 0) {
+        return getWideLayoutMetrics(itemCount).columnCount;
+    }
+
+    function getWideLayoutMetrics(itemCount = 0) {
         return calculateFixedMediaWallMetrics(grid, {
             targetWidthProperty: '--bitbi-public-gallery-active-column-width',
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
             itemCount,
-        }).columnCount;
+        });
     }
 
     function getWideColumnCapacity() {
@@ -134,18 +139,27 @@ export function initGallery() {
     function syncMempicsWideLimitForLayout() {
         const previousColumnCount = grid.style.getPropertyValue('--bitbi-public-gallery-column-count');
         const visibleCount = getVisibleMempicsCount();
-        const nextColumnCount = isPublicWideLayoutEnabled() ? syncWideColumnCount(visibleCount) : 1;
+        const nextMetrics = isPublicWideLayoutEnabled()
+            ? getWideLayoutMetrics(visibleCount)
+            : { columnCount: 1, resolvedWidthPx: 0 };
+        const nextColumnCount = nextMetrics.columnCount;
         const columnCountChanged = isPublicWideLayoutEnabled()
             && !!previousColumnCount
             && previousColumnCount !== String(nextColumnCount);
+        const previousResolvedWidth = Number(grid.dataset.mediaWallResolvedWidth) || 0;
+        const resolvedWidthChanged = isPublicWideLayoutEnabled()
+            && previousResolvedWidth > 0
+            && Math.abs(previousResolvedWidth - nextMetrics.resolvedWidthPx) > 0.1;
         if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || mempicsProgressiveMode || !mempicsState.loaded) return;
         const nextLimit = Math.min(Math.max(mempicsVisibleLimit, getWideMempicsInitialLimit()), mempicsState.items.length);
-        if (nextLimit <= mempicsVisibleLimit && !columnCountChanged) return;
+        if (nextLimit <= mempicsVisibleLimit && !columnCountChanged && !resolvedWidthChanged) return;
         mempicsVisibleLimit = nextLimit;
         render(currentFilter);
     }
 
     function scheduleMempicsWideLimitSync() {
+        window.clearTimeout(mempicsResizeSettledTimer);
+        mempicsResizeSettledTimer = window.setTimeout(syncMempicsWideLimitForLayout, 90);
         if (mempicsResizeFrame) return;
         mempicsResizeFrame = window.requestAnimationFrame(() => {
             mempicsResizeFrame = 0;
@@ -854,6 +868,11 @@ export function initGallery() {
             attributeFilter: ['class', 'data-active-category', 'data-stage-mode'],
         });
     }
+    const handleMempicsCategoryActivation = (event) => {
+        if (event?.detail?.category !== 'gallery') return;
+        scheduleMempicsWideLimitSync();
+    };
+    document.addEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
     document.fonts?.ready?.then(scheduleMempicsWideLimitSync).catch(() => {});
 
     function galEngage() {
@@ -972,9 +991,11 @@ export function initGallery() {
         if (galGridObserver) { galGridObserver.disconnect(); galGridObserver = null; }
         if (mempicsResizeObserver) { mempicsResizeObserver.disconnect(); mempicsResizeObserver = null; }
         if (mempicsStageObserver) { mempicsStageObserver.disconnect(); mempicsStageObserver = null; }
+        document.removeEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
         window.removeEventListener('resize', scheduleMempicsWideLimitSync);
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
         window.clearTimeout(mempicsScrollBatchSettlingTimer);
+        window.clearTimeout(mempicsResizeSettledTimer);
         window.cancelAnimationFrame(mempicsResizeFrame);
         disconnectMempicsObserver();
     });

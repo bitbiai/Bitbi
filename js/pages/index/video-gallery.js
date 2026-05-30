@@ -73,6 +73,7 @@ export function initVideoGallery() {
     let memvidsResizeObserver = null;
     let memvidsStageObserver = null;
     let memvidsResizeFrame = 0;
+    let memvidsResizeSettledTimer = 0;
     let activeHoverPreview = null;
 
     /* Replace the teaser placeholder with a live grid */
@@ -131,11 +132,15 @@ export function initVideoGallery() {
     }
 
     function syncWideColumnCount(itemCount = 0) {
+        return getWideLayoutMetrics(itemCount).columnCount;
+    }
+
+    function getWideLayoutMetrics(itemCount = 0) {
         return calculateFixedMediaWallMetrics(grid, {
             targetWidthProperty: '--bitbi-public-video-active-column-width',
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
             itemCount,
-        }).columnCount;
+        });
     }
 
     function getWideColumnCapacity() {
@@ -156,23 +161,37 @@ export function initVideoGallery() {
     function syncMemvidsWideLimitForLayout() {
         const previousColumnCount = grid.style.getPropertyValue('--bitbi-public-video-column-count');
         const visibleCount = getVisibleMemvidsCount();
-        const nextColumnCount = isPublicWideLayoutEnabled() ? syncWideColumnCount(visibleCount) : 1;
+        const nextMetrics = isPublicWideLayoutEnabled()
+            ? getWideLayoutMetrics(visibleCount)
+            : { columnCount: 1, resolvedWidthPx: 0 };
+        const nextColumnCount = nextMetrics.columnCount;
         const columnCountChanged = isPublicWideLayoutEnabled()
             && !!previousColumnCount
             && previousColumnCount !== String(nextColumnCount);
+        const previousResolvedWidth = Number(grid.dataset.mediaWallResolvedWidth) || 0;
+        const resolvedWidthChanged = isPublicWideLayoutEnabled()
+            && previousResolvedWidth > 0
+            && Math.abs(previousResolvedWidth - nextMetrics.resolvedWidthPx) > 0.1;
         if (!isPublicWideLayoutEnabled() || memvidsProgressiveMode || !memvidsState.loaded) return;
         const nextLimit = Math.min(Math.max(memvidsVisibleLimit, getWideMemvidsInitialLimit()), memvidsState.items.length);
-        if (nextLimit <= memvidsVisibleLimit && !columnCountChanged) return;
+        if (nextLimit <= memvidsVisibleLimit && !columnCountChanged && !resolvedWidthChanged) return;
         memvidsVisibleLimit = nextLimit;
         render();
     }
 
     function scheduleMemvidsWideLimitSync() {
+        window.clearTimeout(memvidsResizeSettledTimer);
+        memvidsResizeSettledTimer = window.setTimeout(syncMemvidsWideLimitForLayout, 90);
         if (memvidsResizeFrame) return;
         memvidsResizeFrame = window.requestAnimationFrame(() => {
             memvidsResizeFrame = 0;
             syncMemvidsWideLimitForLayout();
         });
+    }
+
+    function handleMemvidsCategoryActivation(event) {
+        if (event?.detail?.category !== 'video') return;
+        scheduleMemvidsWideLimitSync();
     }
 
     function canRevealMoreMemvids() {
@@ -1093,9 +1112,11 @@ export function initVideoGallery() {
         deck.destroy();
         if (memvidsResizeObserver) { memvidsResizeObserver.disconnect(); memvidsResizeObserver = null; }
         if (memvidsStageObserver) { memvidsStageObserver.disconnect(); memvidsStageObserver = null; }
+        document.removeEventListener('bitbi:homepage-category-activated', handleMemvidsCategoryActivation);
         window.removeEventListener('resize', scheduleMemvidsWideLimitSync);
         window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
         window.clearTimeout(memvidsScrollBatchSettlingTimer);
+        window.clearTimeout(memvidsResizeSettledTimer);
         window.cancelAnimationFrame(memvidsResizeFrame);
         disconnectMemvidsObserver();
     }, { once: true });
@@ -1149,6 +1170,7 @@ export function initVideoGallery() {
             attributeFilter: ['class', 'data-active-category', 'data-stage-mode'],
         });
     }
+    document.addEventListener('bitbi:homepage-category-activated', handleMemvidsCategoryActivation);
     document.fonts?.ready?.then(scheduleMemvidsWideLimitSync).catch(() => {});
 
     render();
