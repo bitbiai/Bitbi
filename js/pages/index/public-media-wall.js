@@ -29,21 +29,41 @@ export function getStableMediaWallAvailableWidth(grid) {
     const gridStyle = window.getComputedStyle(grid);
     if (gridStyle.display === 'none' || gridStyle.visibility === 'hidden') return 0;
 
+    const viewportWidth = Math.min(
+        window.innerWidth || Number.POSITIVE_INFINITY,
+        document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+    );
+    const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
+    const panel = grid.closest?.('.home-categories__panel');
+    const panelInner = panel?.querySelector?.(':scope > .section__inner') || null;
+    const sectionInner = grid.closest?.('.section__inner') || null;
+    const exploreWrapper = grid.closest?.('#galleryExplore, #videoExplore') || null;
     const stableContainers = [
+        panelInner,
+        sectionInner,
+        exploreWrapper?.parentElement || null,
+        exploreWrapper,
         grid.parentElement,
-        grid.closest?.('#galleryExplore, #videoExplore'),
     ].filter(Boolean);
 
+    const widths = [];
     for (const container of stableContainers) {
         const style = window.getComputedStyle(container);
         const rect = container.getBoundingClientRect();
-        if (style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0) {
-            return rect.width;
+        if (style.display === 'none' || style.visibility === 'hidden' || rect.width <= 0) {
+            continue;
         }
+        const clampedWidth = finiteViewportWidth > 0
+            ? Math.min(rect.width, finiteViewportWidth)
+            : rect.width;
+        if (clampedWidth > 0) widths.push(clampedWidth);
     }
 
+    if (widths.length) return Math.min(...widths);
+
     const ownWidth = grid.getBoundingClientRect?.().width || 0;
-    return ownWidth > 0 ? ownWidth : 0;
+    if (ownWidth <= 0) return 0;
+    return finiteViewportWidth > 0 ? Math.min(ownWidth, finiteViewportWidth) : ownWidth;
 }
 
 function lockNodeToWidth(node, widthPx) {

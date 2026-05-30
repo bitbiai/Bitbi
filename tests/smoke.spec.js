@@ -467,15 +467,33 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
     const grid = document.querySelector(gridSelector);
     if (!grid) return 'missing_grid';
     const readStableWidth = () => {
-      const candidates = [grid.parentElement, grid.closest('#galleryExplore, #videoExplore')].filter(Boolean);
+      const viewportWidth = Math.min(
+        window.innerWidth || Number.POSITIVE_INFINITY,
+        document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+      );
+      const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
+      const panel = grid.closest('.home-categories__panel');
+      const panelInner = panel?.querySelector(':scope > .section__inner') || null;
+      const sectionInner = grid.closest('.section__inner') || null;
+      const exploreWrapper = grid.closest('#galleryExplore, #videoExplore') || null;
+      const candidates = [
+        panelInner,
+        sectionInner,
+        exploreWrapper?.parentElement || null,
+        exploreWrapper,
+        grid.parentElement,
+      ].filter(Boolean);
+      const widths = [];
       for (const candidate of candidates) {
         const candidateStyle = window.getComputedStyle(candidate);
         const candidateRect = candidate.getBoundingClientRect();
         if (candidateStyle.display !== 'none' && candidateStyle.visibility !== 'hidden' && candidateRect.width > 0) {
-          return candidateRect.width;
+          widths.push(finiteViewportWidth > 0 ? Math.min(candidateRect.width, finiteViewportWidth) : candidateRect.width);
         }
       }
-      return grid.getBoundingClientRect().width || 0;
+      if (widths.length) return Math.min(...widths);
+      const ownWidth = grid.getBoundingClientRect().width || 0;
+      return finiteViewportWidth > 0 ? Math.min(ownWidth, finiteViewportWidth) : ownWidth;
     };
     const style = window.getComputedStyle(grid);
     const targetWidth = Number(grid.dataset.mediaWallResolvedWidth)
@@ -7732,7 +7750,19 @@ test.describe('Homepage', () => {
       const gallery = await page.evaluate(() => {
         const grid = document.getElementById('galleryGrid');
         const gridRect = grid.getBoundingClientRect();
-        const availableRect = grid.parentElement?.getBoundingClientRect() || gridRect;
+        const getStableRightEdge = () => {
+          const panel = grid.closest('.home-categories__panel');
+          const candidates = [
+            panel?.querySelector(':scope > .section__inner') || null,
+            grid.closest('.section__inner'),
+            grid.parentElement,
+          ].filter(Boolean);
+          const rightEdges = candidates
+            .map((node) => node.getBoundingClientRect())
+            .filter((rect) => rect.width > 0)
+            .map((rect) => rect.right);
+          return rightEdges.length ? Math.min(...rightEdges) : gridRect.right;
+        };
         const style = window.getComputedStyle(grid);
         const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
         const parseCssLength = (value, fallback) => {
@@ -7774,7 +7804,7 @@ test.describe('Homepage', () => {
           targetGap: Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
-          rightUnused: availableRect.right - Math.max(...rects.map((rect) => rect.right)),
+          rightUnused: getStableRightEdge() - Math.max(...rects.map((rect) => rect.right)),
         };
       });
 
@@ -7784,7 +7814,19 @@ test.describe('Homepage', () => {
       const video = await page.evaluate(() => {
         const grid = document.getElementById('videoGrid');
         const gridRect = grid.getBoundingClientRect();
-        const availableRect = grid.parentElement?.getBoundingClientRect() || gridRect;
+        const getStableRightEdge = () => {
+          const panel = grid.closest('.home-categories__panel');
+          const candidates = [
+            panel?.querySelector(':scope > .section__inner') || null,
+            grid.closest('.section__inner'),
+            grid.parentElement,
+          ].filter(Boolean);
+          const rightEdges = candidates
+            .map((node) => node.getBoundingClientRect())
+            .filter((rect) => rect.width > 0)
+            .map((rect) => rect.right);
+          return rightEdges.length ? Math.min(...rightEdges) : gridRect.right;
+        };
         const style = window.getComputedStyle(grid);
         const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
         const parseCssLength = (value, fallback) => {
@@ -7826,7 +7868,7 @@ test.describe('Homepage', () => {
           targetGap: Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
-          rightUnused: availableRect.right - Math.max(...rects.map((rect) => rect.right)),
+          rightUnused: getStableRightEdge() - Math.max(...rects.map((rect) => rect.right)),
         };
       });
 
@@ -8044,9 +8086,20 @@ test.describe('Homepage', () => {
     const readWall = async (gridSelector, itemSelector) => page.evaluate(({ gridSelector: selector, itemSelector: childSelector }) => {
       const grid = document.querySelector(selector);
       const gridRect = grid.getBoundingClientRect();
-      const availableRect = selector === '#soundLabTracks'
-        ? gridRect
-        : grid.parentElement?.getBoundingClientRect() || gridRect;
+      const getStableRightEdge = () => {
+        if (selector === '#soundLabTracks') return gridRect.right;
+        const panel = grid.closest('.home-categories__panel');
+        const candidates = [
+          panel?.querySelector(':scope > .section__inner') || null,
+          grid.closest('.section__inner'),
+          grid.parentElement,
+        ].filter(Boolean);
+        const rightEdges = candidates
+          .map((node) => node.getBoundingClientRect())
+          .filter((rect) => rect.width > 0)
+          .map((rect) => rect.right);
+        return rightEdges.length ? Math.min(...rightEdges) : gridRect.right;
+      };
       const style = window.getComputedStyle(grid);
       const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
       const parseCssLength = (value, fallback) => {
@@ -8102,7 +8155,7 @@ test.describe('Homepage', () => {
           : Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue(targetGapProperty) || style.columnGap || style.gap, 2),
         maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
-        rightUnused: availableRect.right - Math.max(...rects.map((rect) => rect.right)),
+        rightUnused: getStableRightEdge() - Math.max(...rects.map((rect) => rect.right)),
       };
     }, { gridSelector, itemSelector });
 
