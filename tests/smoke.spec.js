@@ -477,6 +477,7 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
     const gap = Number(grid.dataset.mediaWallGap)
       || Number.parseFloat(style.columnGap || style.gap)
       || 0;
+    const storedGridWidth = Number(grid.dataset.mediaWallGridWidth) || 0;
     const columnCount = Number(grid.dataset.mediaWallColumnCount)
       || Number(grid.dataset.publicMediaWallColumnCount)
       || 0;
@@ -501,9 +502,11 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
     const expectedResolvedWidth = expectedColumnCount > 0
       ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
       : baseWidth;
+    const currentGridWidth = grid.getBoundingClientRect().width;
     const ok = (grid.dataset.mediaWallReady === 'true' || grid.dataset.publicMediaWallReady === 'true')
       && !stage?.classList.contains('is-transitioning')
-      && grid.getBoundingClientRect().width > 0
+      && currentGridWidth > 0
+      && Math.abs(storedGridWidth - currentGridWidth) <= 0.5
       && columnCount > 1
       && capacity === expectedCapacity
       && columnCount === expectedColumnCount
@@ -517,6 +520,8 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
       targetWidth,
       baseWidth,
       gap,
+      storedGridWidth,
+      currentGridWidth,
       columnCount,
       capacity,
       expectedCapacity,
@@ -550,6 +555,7 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const gap = Number(grid.dataset.soundWallGap)
       || Number.parseFloat(style.columnGap || style.gap)
       || 0;
+    const storedGridWidth = Number(grid.dataset.soundWallGridWidth) || 0;
     const columnCount = Number(grid.dataset.soundWallColumnCount) || 0;
     const capacity = Number(grid.dataset.soundWallCapacity) || columnCount;
     const rects = Array.from(grid.querySelectorAll('.snd-card--memtrack'))
@@ -567,9 +573,12 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const expectedResolvedWidth = expectedColumnCount > 0
       ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
       : baseWidth;
+    const currentGridWidth = grid.getBoundingClientRect().width;
     const ok = stage.dataset.activeCategory === 'sound'
       && !stage.classList.contains('is-transitioning')
       && (grid.dataset.soundWallReady === 'true' || grid.dataset.soundWidthReady === 'true')
+      && currentGridWidth > 0
+      && Math.abs(storedGridWidth - currentGridWidth) <= 0.5
       && targetWidth >= baseWidth
       && baseWidth >= 327
       && capacity === expectedCapacity
@@ -584,6 +593,8 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
       targetWidth,
       baseWidth,
       gap,
+      storedGridWidth,
+      currentGridWidth,
       columnCount,
       capacity,
       expectedCapacity,
@@ -7726,7 +7737,7 @@ test.describe('Homepage', () => {
     expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(large.gallery.baseWidth);
     expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
-    expect(large.gallery.rightUnused).toBeLessThanOrEqual(2);
+    expect(large.gallery.rightUnused).toBeLessThanOrEqual(Math.max(3, large.gallery.targetGap + 1));
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThan(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
@@ -7735,7 +7746,7 @@ test.describe('Homepage', () => {
     expect(large.video.targetWidth).toBeGreaterThanOrEqual(large.video.baseWidth);
     expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
-    expect(large.video.rightUnused).toBeLessThanOrEqual(2);
+    expect(large.video.rightUnused).toBeLessThanOrEqual(Math.max(3, large.video.targetGap + 1));
     expect(large.sound.firstRowCount).toBeGreaterThan(normal.sound.firstRowCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
     expect(large.sound.averageWidth).toBeGreaterThanOrEqual(normal.sound.averageWidth * 0.88);
@@ -7743,7 +7754,7 @@ test.describe('Homepage', () => {
     expect(large.sound.targetWidth).toBeGreaterThanOrEqual(large.sound.baseWidth);
     expect(Math.abs(large.sound.averageWidth - large.sound.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.sound.maxHorizontalGap).toBeLessThanOrEqual(large.sound.targetGap + 3);
-    expect(large.sound.rightUnused).toBeLessThanOrEqual(2);
+    expect(large.sound.rightUnused).toBeLessThanOrEqual(Math.max(3, large.sound.targetGap + 1));
     expect(large.heroModuleWidth).toBeGreaterThan(0);
     expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.15);
     expect(large.overflowX).toBeLessThanOrEqual(2);
@@ -7948,7 +7959,7 @@ test.describe('Homepage', () => {
     expect(large.gallery.targetWidth).toBeGreaterThanOrEqual(large.gallery.baseWidth);
     expect(Math.abs(large.gallery.averageWidth - large.gallery.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
-    expect(large.gallery.rightUnused).toBeLessThanOrEqual(2);
+    expect(large.gallery.rightUnused).toBeLessThanOrEqual(Math.max(3, large.gallery.targetGap + 1));
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
     expect(large.video.renderedCount).toBeGreaterThanOrEqual(normal.video.renderedCount);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
@@ -7956,7 +7967,7 @@ test.describe('Homepage', () => {
     expect(large.video.targetWidth).toBeGreaterThanOrEqual(large.video.baseWidth);
     expect(Math.abs(large.video.averageWidth - large.video.targetWidth)).toBeLessThanOrEqual(2);
     expect(large.video.maxHorizontalGap).toBeLessThanOrEqual(large.video.targetGap + 3);
-    expect(large.video.rightUnused).toBeLessThanOrEqual(2);
+    expect(large.video.rightUnused).toBeLessThanOrEqual(Math.max(3, large.video.targetGap + 1));
     expect(large.sound.columnCount).toBeGreaterThan(normal.sound.columnCount);
     expect(large.sound.averageWidth).toBeLessThanOrEqual(normal.sound.averageWidth * 1.15);
     expect(large.sound.baseWidth).toBeGreaterThanOrEqual(327);

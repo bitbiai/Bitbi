@@ -24,6 +24,30 @@ function toPixelString(value) {
     return `${rounded}px`;
 }
 
+function roundLayoutValue(value) {
+    return Math.round((Number(value) || 0) * 1000) / 1000;
+}
+
+function buildLayoutSignature({
+    gridWidth = 0,
+    gapPx = 0,
+    baseWidthPx = 0,
+    itemCount = 0,
+    capacity = 1,
+    columnCount = 1,
+    resolvedWidthPx = 0,
+} = {}) {
+    return [
+        roundLayoutValue(gridWidth),
+        roundLayoutValue(gapPx),
+        roundLayoutValue(baseWidthPx),
+        Number(itemCount) || 0,
+        Number(capacity) || 1,
+        Number(columnCount) || 1,
+        roundLayoutValue(resolvedWidthPx),
+    ].join('|');
+}
+
 function lockNodeToWidth(node, widthPx) {
     if (!node) return;
     node.style.setProperty('box-sizing', 'border-box');
@@ -60,6 +84,13 @@ export function calculateFixedMediaWallMetrics(grid, {
             resolvedWidthPx: fallbackWidth,
             capacity: 1,
             columnCount: 1,
+            itemCount: Number(itemCount) || 0,
+            signature: buildLayoutSignature({
+                gapPx: 10,
+                baseWidthPx: fallbackWidth,
+                itemCount,
+                resolvedWidthPx: fallbackWidth,
+            }),
         };
     }
 
@@ -82,8 +113,8 @@ export function calculateFixedMediaWallMetrics(grid, {
     const resolvedWidth = rect.width && columnCount > 0
         ? Math.max(targetColumnWidth, Math.floor(((rect.width - (gap * (columnCount - 1))) / columnCount) * 1000) / 1000)
         : targetColumnWidth;
-
-    return {
+    const safeItemCount = Number(itemCount) || 0;
+    const metrics = {
         gridWidth: rect.width || 0,
         gapPx: gap,
         baseWidthPx: targetColumnWidth,
@@ -91,6 +122,12 @@ export function calculateFixedMediaWallMetrics(grid, {
         resolvedWidthPx: resolvedWidth,
         capacity,
         columnCount,
+        itemCount: safeItemCount,
+    };
+
+    return {
+        ...metrics,
+        signature: buildLayoutSignature(metrics),
     };
 }
 
@@ -106,12 +143,16 @@ export function clearFixedMediaWallLayout(grid, {
     grid.style.removeProperty('--bitbi-public-media-wall-base-column-width');
     grid.style.removeProperty('--bitbi-public-media-wall-resolved-column-width');
     grid.style.gridTemplateColumns = '';
+    delete grid.dataset.mediaWallGridWidth;
     delete grid.dataset.mediaWallReady;
     delete grid.dataset.mediaWallColumnCount;
     delete grid.dataset.mediaWallBaseWidth;
     delete grid.dataset.mediaWallResolvedWidth;
     delete grid.dataset.mediaWallGap;
     delete grid.dataset.mediaWallCapacity;
+    delete grid.dataset.mediaWallItemCount;
+    delete grid.dataset.mediaWallSignature;
+    delete grid.dataset.mediaWallRenderToken;
     delete grid.dataset.publicMediaWallReady;
     delete grid.dataset.publicMediaWallWidthPx;
     delete grid.dataset.publicMediaWallColumnCount;
@@ -124,6 +165,114 @@ function readCardAspectRatio(card, aspectProperty, fallbackRatio) {
     return Number.isFinite(ratio) && ratio > 0 ? ratio : fallbackRatio;
 }
 
+function setReadyState(grid, ready) {
+    const value = ready ? 'true' : 'false';
+    grid.dataset.mediaWallReady = value;
+    grid.dataset.publicMediaWallReady = value;
+}
+
+function storeLayoutMetrics(grid, metrics) {
+    grid.dataset.mediaWallGridWidth = String(metrics.gridWidth);
+    grid.dataset.mediaWallBaseWidth = String(metrics.baseWidthPx);
+    grid.dataset.mediaWallResolvedWidth = String(metrics.resolvedWidthPx);
+    grid.dataset.mediaWallGap = String(metrics.gapPx);
+    grid.dataset.mediaWallColumnCount = String(metrics.columnCount);
+    grid.dataset.mediaWallCapacity = String(metrics.capacity);
+    grid.dataset.mediaWallItemCount = String(metrics.itemCount);
+    grid.dataset.mediaWallSignature = metrics.signature;
+    grid.dataset.publicMediaWallWidthPx = String(metrics.resolvedWidthPx);
+    grid.dataset.publicMediaWallColumnCount = String(metrics.columnCount);
+}
+
+function visibleRects(nodes) {
+    return nodes
+        .filter((node) => node?.offsetParent !== null)
+        .map((node) => node.getBoundingClientRect());
+}
+
+function mediaWallMetricsAreStale(storedMetrics, currentMetrics) {
+    const numericDrift = (key, tolerance) => (
+        Math.abs((Number(storedMetrics?.[key]) || 0) - (Number(currentMetrics?.[key]) || 0)) > tolerance
+    );
+    const integerChanged = (key) => (
+        Number(storedMetrics?.[key]) !== Number(currentMetrics?.[key])
+    );
+
+    return numericDrift('gridWidth', 0.5)
+        || numericDrift('gapPx', 0.1)
+        || numericDrift('baseWidthPx', 0.1)
+        || numericDrift('resolvedWidthPx', 1)
+        || integerChanged('itemCount')
+        || integerChanged('capacity')
+        || integerChanged('columnCount');
+}
+
+function validateMediaWallLayout(grid, cards, metrics, {
+    targetWidthProperty,
+    fallbackColumnWidth,
+} = {}) {
+    const currentMetrics = calculateFixedMediaWallMetrics(grid, {
+        targetWidthProperty,
+        fallbackColumnWidth,
+        itemCount: cards.length,
+    });
+    if (!currentMetrics.gridWidth) {
+        return { ready: false, stale: false, currentMetrics };
+    }
+
+    if (mediaWallMetricsAreStale(metrics, currentMetrics)) {
+        return { ready: false, stale: true, currentMetrics };
+    }
+
+    const expectedWidth = currentMetrics.resolvedWidthPx;
+    const cardRects = visibleRects(cards);
+    const columnRects = visibleRects(Array.from(grid.querySelectorAll('.public-media-wall__column')));
+    const cardsReady = !cards.length
+        || (cardRects.length === cards.length && cardRects.every((rect) => Math.abs(rect.width - expectedWidth) <= 2));
+    const columnsReady = !cards.length
+        || (columnRects.length === currentMetrics.columnCount && columnRects.every((rect) => Math.abs(rect.width - expectedWidth) <= 2));
+    return {
+        ready: cardsReady && columnsReady,
+        stale: false,
+        currentMetrics,
+    };
+}
+
+function scheduleLayoutReadyValidation(grid, cards, options, renderToken, correctionAttempt) {
+    const safeCards = Array.isArray(cards) ? cards : [];
+    const validate = () => {
+        if (grid.dataset.mediaWallRenderToken !== renderToken) return;
+        const validation = validateMediaWallLayout(grid, safeCards, {
+            gridWidth: Number(grid.dataset.mediaWallGridWidth) || 0,
+            gapPx: Number(grid.dataset.mediaWallGap) || 0,
+            baseWidthPx: Number(grid.dataset.mediaWallBaseWidth) || 0,
+            itemCount: Number(grid.dataset.mediaWallItemCount) || safeCards.length,
+            capacity: Number(grid.dataset.mediaWallCapacity) || 1,
+            columnCount: Number(grid.dataset.mediaWallColumnCount) || 1,
+            resolvedWidthPx: Number(grid.dataset.mediaWallResolvedWidth) || 0,
+            signature: grid.dataset.mediaWallSignature || '',
+        }, options);
+
+        if (validation.stale && correctionAttempt < 2) {
+            renderFixedMediaWallColumns(grid, safeCards, {
+                ...options,
+                correctionAttempt: correctionAttempt + 1,
+            });
+            return;
+        }
+
+        if (validation.ready) {
+            storeLayoutMetrics(grid, validation.currentMetrics);
+        }
+        setReadyState(grid, validation.ready);
+    };
+
+    window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(validate);
+    });
+    window.setTimeout(validate, 140);
+}
+
 export function renderFixedMediaWallColumns(grid, cards, {
     countProperty,
     targetWidthProperty,
@@ -131,11 +280,13 @@ export function renderFixedMediaWallColumns(grid, cards, {
     aspectProperty,
     fallbackAspectRatio = 1,
     estimatedExtraHeight = 0,
+    correctionAttempt = 0,
 } = {}) {
     if (!grid) return 1;
     const safeCards = Array.isArray(cards) ? cards : [];
-    grid.dataset.mediaWallReady = 'false';
-    grid.dataset.publicMediaWallReady = 'false';
+    const renderToken = String((Number(grid.dataset.mediaWallRenderToken) || 0) + 1);
+    grid.dataset.mediaWallRenderToken = renderToken;
+    setReadyState(grid, false);
     const metrics = calculateFixedMediaWallMetrics(grid, {
         targetWidthProperty,
         fallbackColumnWidth,
@@ -150,18 +301,18 @@ export function renderFixedMediaWallColumns(grid, cards, {
     grid.style.setProperty('--bitbi-public-media-wall-base-column-width', baseWidthValue);
     grid.style.setProperty('--bitbi-public-media-wall-resolved-column-width', resolvedWidthPx);
     grid.style.gridTemplateColumns = `repeat(${columnCount}, ${resolvedWidthPx})`;
+    storeLayoutMetrics(grid, metrics);
 
     if (!safeCards.length) {
         grid.replaceChildren();
-        grid.dataset.mediaWallReady = 'true';
-        grid.dataset.mediaWallBaseWidth = String(baseWidthPx);
-        grid.dataset.mediaWallResolvedWidth = String(resolvedWidth);
-        grid.dataset.mediaWallGap = String(gapPx);
-        grid.dataset.mediaWallColumnCount = String(columnCount);
-        grid.dataset.mediaWallCapacity = String(capacity);
-        grid.dataset.publicMediaWallReady = 'true';
-        grid.dataset.publicMediaWallWidthPx = String(resolvedWidth);
-        grid.dataset.publicMediaWallColumnCount = String(columnCount);
+        scheduleLayoutReadyValidation(grid, safeCards, {
+            countProperty,
+            targetWidthProperty,
+            fallbackColumnWidth,
+            aspectProperty,
+            fallbackAspectRatio,
+            estimatedExtraHeight,
+        }, renderToken, correctionAttempt);
         return columnCount;
     }
 
@@ -183,14 +334,13 @@ export function renderFixedMediaWallColumns(grid, cards, {
     });
 
     grid.replaceChildren(...columns.map((column) => column.node));
-    grid.dataset.mediaWallReady = 'true';
-    grid.dataset.mediaWallBaseWidth = String(baseWidthPx);
-    grid.dataset.mediaWallResolvedWidth = String(resolvedWidth);
-    grid.dataset.mediaWallGap = String(gapPx);
-    grid.dataset.mediaWallColumnCount = String(columnCount);
-    grid.dataset.mediaWallCapacity = String(capacity);
-    grid.dataset.publicMediaWallReady = 'true';
-    grid.dataset.publicMediaWallWidthPx = String(resolvedWidth);
-    grid.dataset.publicMediaWallColumnCount = String(columnCount);
+    scheduleLayoutReadyValidation(grid, safeCards, {
+        countProperty,
+        targetWidthProperty,
+        fallbackColumnWidth,
+        aspectProperty,
+        fallbackAspectRatio,
+        estimatedExtraHeight,
+    }, renderToken, correctionAttempt);
     return columnCount;
 }
