@@ -4028,7 +4028,7 @@
 
     .hero--homepage {
         --homepage-hero-side-inset: var(--bitbi-content-gutter, var(--bitbi-public-header-inset, clamp(0.7rem, 2vw, 1.4rem)));
-        --homepage-news-pulse-width: clamp(24rem, 42vw, 44rem);
+        --homepage-news-pulse-width: clamp(26rem, 46vw, 52rem);
         background:
             radial-gradient(120% 88% at 50% 16%, rgba(13, 27, 42, 0.44) 0%, rgba(5, 8, 13, 0.18) 48%, transparent 72%),
             linear-gradient(180deg, #05080d 0%, #07111a 52%, #04060a 100%);

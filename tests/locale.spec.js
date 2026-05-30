@@ -155,25 +155,26 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('main')).not.toContainText('Mit Konto erstellen, ohne Konto stöbern');
   });
 
-  test('English and German homepages keep the temporarily disabled localized Live Pulse mount and reduced-motion CSS', () => {
+  test('English and German homepages keep the enabled localized Live Pulse mount and responsive CSS', () => {
     const enHome = repoFile('index.html');
     const deHome = repoFile('de/index.html');
     const css = repoFile('css/components/news-pulse.css');
 
     expect(enHome).toContain('data-news-pulse-locale="en"');
-    expect(enHome).toContain('data-news-pulse-disabled="temporary-homepage-layout"');
-    expect(enHome).toContain('aria-hidden="true" hidden');
+    expect(enHome).not.toContain('data-news-pulse-disabled="temporary-homepage-layout"');
+    expect(enHome).not.toContain('aria-hidden="true" hidden');
     expect(enHome).toContain('aria-label="Bitbi Live Pulse"');
     expect(enHome).toContain('css/components/news-pulse.css');
     expect(enHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
     expect(deHome).toContain('data-news-pulse-locale="de"');
-    expect(deHome).toContain('data-news-pulse-disabled="temporary-homepage-layout"');
-    expect(deHome).toContain('aria-hidden="true" hidden');
+    expect(deHome).not.toContain('data-news-pulse-disabled="temporary-homepage-layout"');
+    expect(deHome).not.toContain('aria-hidden="true" hidden');
     expect(deHome).toContain('aria-label="KI-Puls"');
     expect(deHome).toContain('../css/components/news-pulse.css');
     expect(deHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
     expect(css).toContain('position: absolute');
-    expect(css).toContain('news-pulse-wheel');
+    expect(css).toContain('news-pulse__shell--hero');
+    expect(css).toContain('news-pulse__indicator-button');
     expect(css).toContain('news-pulse--mobile');
     expect(css).toContain('news-pulse-mobile-cube-turn');
     expect(css).toContain('@media (max-width: 1023px)');

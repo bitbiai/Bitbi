@@ -1120,10 +1120,16 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/BITBI/);
   });
 
-  test('homepage KI-PULS is temporarily disabled without deleting the mount', async ({ page }) => {
+  test('homepage KI-PULS renders as a centered hero news box with indicator navigation', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     const requestedLocales = [];
     await page.route('**/api/public/news-pulse**', async (route) => {
-      requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname.includes('/thumbs/')) {
+        await route.fulfill({ status: 200, contentType: 'image/webp', body: Buffer.from('mock-thumb') });
+        return;
+      }
+      requestedLocales.push(requestUrl.searchParams.get('locale'));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1135,33 +1141,75 @@ test.describe('Homepage', () => {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       const pulse = page.locator('#newsPulse');
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
-      await expect(pulse).toHaveAttribute('data-news-pulse-disabled', 'temporary-homepage-layout');
-      await expect(pulse).toHaveAttribute('aria-hidden', 'true');
-      await expect(pulse).toHaveAttribute('hidden', '');
+      await expect(pulse).not.toHaveAttribute('data-news-pulse-disabled', /.+/);
+      await expect(pulse).not.toHaveAttribute('hidden', '');
+      await expect(pulse.locator('.news-pulse__slide')).toHaveCount(3);
+      await expect(pulse.locator('.news-pulse__indicator-button')).toHaveCount(3);
+      await expect(pulse.locator('.news-pulse__indicator-button.is-active')).toHaveAttribute('aria-current', 'true');
+      await expect
+        .poll(() => pulse.evaluate((node) => node.dataset.newsPulseHeroPlacement || ''), { timeout: 10_000 })
+        .toBe('ready');
       const state = await pulse.evaluate((node) => {
         const style = window.getComputedStyle(node);
         const rect = node.getBoundingClientRect();
+        const hero = document.querySelector('#hero').getBoundingClientRect();
+        const labels = [...document.querySelectorAll('#hero .latest-models-video-module__label')]
+          .filter((element) => {
+            const box = element.getBoundingClientRect();
+            const computed = window.getComputedStyle(element);
+            return box.width > 0 && box.height > 0 && computed.display !== 'none' && computed.visibility !== 'hidden';
+          })
+          .map((element) => element.getBoundingClientRect());
+        const scroll = document.querySelector('#hero .hero__scroll-text').getBoundingClientRect();
+        const activeLink = node.querySelector('.news-pulse__slide.is-active a');
+        const firstIndicator = node.querySelector('.news-pulse__indicator-button');
         return {
           display: style.display,
           visibility: style.visibility,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
           width: rect.width,
           height: rect.height,
           childCount: node.children.length,
           text: node.textContent.trim(),
+          centerX: rect.left + rect.width / 2,
+          heroCenterX: hero.left + hero.width / 2,
+          labelBottom: Math.max(...labels.map((label) => label.bottom)),
+          scrollTop: scroll.top,
+          activeText: node.querySelector('.news-pulse__slide.is-active .news-pulse__title')?.textContent.trim() || '',
+          activeLinkTarget: activeLink?.target || '',
+          activeLinkRel: activeLink?.rel || '',
+          firstIndicatorLabel: firstIndicator?.getAttribute('aria-label') || '',
         };
       });
-      expect(state.display).toBe('none');
-      expect(state.visibility).toBe('hidden');
-      expect(state.width).toBe(0);
-      expect(state.height).toBe(0);
-      expect(state.childCount).toBe(0);
-      expect(state.text).toBe('');
+      expect(state.display).not.toBe('none');
+      expect(state.visibility).toBe('visible');
+      expect(state.width).toBeGreaterThan(420);
+      expect(state.height).toBeGreaterThan(80);
+      expect(state.childCount).toBeGreaterThan(0);
+      expect(state.text).toContain(path === '/de/' ? 'KI-Puls' : 'Bitbi Live Pulse');
+      expect(state.activeText).toContain('disabled-pulse headline 1');
+      expectWithinPx(state.centerX, state.heroCenterX, `${path} desktop News Pulse horizontal center`, 2);
+      const gapAbove = state.top - state.labelBottom;
+      const gapBelow = state.scrollTop - state.bottom;
+      expect(gapAbove).toBeGreaterThan(8);
+      expect(gapBelow).toBeGreaterThan(8);
+      expectWithinPx(gapAbove, gapBelow, `${path} desktop News Pulse vertical center`, 10);
+      expect(state.activeLinkTarget).toBe('_blank');
+      expect(state.activeLinkRel).toContain('noopener');
+      expect(state.activeLinkRel).toContain('noreferrer');
+      expect(state.firstIndicatorLabel).toMatch(path === '/de/' ? /Nachricht 1 von 3 anzeigen/ : /Show news item 1 of 3/);
+
+      await pulse.locator('.news-pulse__indicator-button').nth(1).click();
+      await expect(pulse.locator('.news-pulse__slide.is-active .news-pulse__title')).toContainText('disabled-pulse headline 2');
+      await expect(pulse.locator('.news-pulse__indicator-button').nth(1)).toHaveAttribute('aria-current', 'true');
     }
-    await page.waitForTimeout(250);
-    expect(requestedLocales).toEqual([]);
+    expect(requestedLocales).toEqual(['en', 'de']);
   });
 
-  test.skip('homepage Live Pulse does not render duplicate visible news items while KI-PULS is temporarily disabled', async ({ page }) => {
+  test('homepage Live Pulse does not render duplicate visible news items', async ({ page }) => {
     await page.route('**/api/public/news-pulse**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -1199,14 +1247,14 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    const titles = await page.locator('#newsPulse .news-pulse__item .news-pulse__title').evaluateAll((nodes) =>
+    const titles = await page.locator('#newsPulse .news-pulse__slide .news-pulse__title').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent.trim()).filter(Boolean)
     );
     expect(titles).toEqual(['Duplicate AI headline', 'Unique AI headline']);
     expect(new Set(titles).size).toBe(titles.length);
   });
 
-  test.skip('German homepage Live Pulse requests the German endpoint and localizes the layer label while KI-PULS is temporarily disabled', async ({ page }) => {
+  test('German homepage Live Pulse requests the German endpoint and localizes the hero box label', async ({ page }) => {
     const requestedLocales = [];
     await page.route('**/api/public/news-pulse**', async (route) => {
       requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
@@ -1234,9 +1282,9 @@ test.describe('Homepage', () => {
     const pulse = page.locator('#newsPulse');
     await expect(pulse).toHaveAttribute('data-news-pulse-locale', 'de');
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
-    await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
-    await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
-    await expect(pulse.locator('.news-pulse__item')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__slides')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__slide')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__indicator-button')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('KI-Puls');
     await expect(pulse.getByRole('link', { name: /Kreativ-KI Workflow-Update/ }).first()).toHaveAttribute(
       'href',
@@ -1262,8 +1310,7 @@ test.describe('Homepage', () => {
       };
     });
     expect(pulseLayout.parentId).toBe('hero');
-    expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
-    expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.62);
+    expectWithinPx((pulseLayout.left + pulseLayout.right) / 2, pulseLayout.heroLeft + pulseLayout.heroWidth / 2, 'German pulse center', 2);
     expect(pulseLayout.top).toBeGreaterThanOrEqual(pulseLayout.heroTop - 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.heroBottom + 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.nextTop);
@@ -1327,7 +1374,7 @@ test.describe('Homepage', () => {
     { path: '/', locale: 'en', label: 'Bitbi Live Pulse', prefix: 'mobile-pulse-en' },
     { path: '/de/', locale: 'de', label: 'KI-Puls', prefix: 'mobile-pulse-de' },
   ]) {
-    test.skip(`mobile logged-in ${locale} homepage renders member Live Pulse with measured placement while KI-PULS is temporarily disabled`, async ({ page }) => {
+    test(`mobile logged-in ${locale} homepage renders member Live Pulse with measured placement`, async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 844 });
       await mockHomepageAuthState(page, { loggedIn: true });
       const requestedLocales = [];
@@ -1391,7 +1438,7 @@ test.describe('Homepage', () => {
     });
   }
 
-  test.skip('mobile Live Pulse rotates one active item with cube animation and settles focusability while KI-PULS is temporarily disabled', async ({ page }) => {
+  test('mobile Live Pulse rotates one active item with cube animation and settles focusability', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await mockHomepageAuthState(page, { loggedIn: true });
@@ -1465,7 +1512,7 @@ test.describe('Homepage', () => {
     expect(settled.activeLinks).toBe(1);
   });
 
-  test.skip('mobile Live Pulse initializes after login and clears after logout while KI-PULS is temporarily disabled', async ({ page }) => {
+  test('mobile Live Pulse initializes after login and clears after logout', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     let loggedIn = false;
     const requestedUrls = [];
@@ -1535,7 +1582,7 @@ test.describe('Homepage', () => {
     expect(cleared.display).toBe('none');
   });
 
-  test.skip('homepage Live Pulse handles failed endpoint responses without breaking the page while KI-PULS is temporarily disabled', async ({ page }) => {
+  test('homepage Live Pulse handles failed endpoint responses without breaking the page', async ({ page }) => {
     await page.route('**/api/public/news-pulse**', async (route) => {
       await route.fulfill({
         status: 503,
@@ -1659,9 +1706,9 @@ test.describe('Homepage', () => {
 
       expect(metrics.logo).toBeTruthy();
       expect(metrics.pulse).toBeTruthy();
-      expect(metrics.pulseHidden).toBe(true);
-      expect(metrics.pulseDisplay).toBe('none');
-      expect(metrics.pulse.width).toBe(0);
+      expect(metrics.pulseHidden).toBe(false);
+      expect(metrics.pulseDisplay).not.toBe('none');
+      expect(metrics.pulse.width).toBeGreaterThan(320);
       expect(metrics.gallery.left).toBeGreaterThan(metrics.logo.right + 8);
       expect(metrics.gallery.right).toBeLessThan(metrics.video.left);
       expect(metrics.sound.left).toBeGreaterThan(metrics.video.right);
@@ -2719,11 +2766,11 @@ test.describe('Homepage', () => {
         expect(layout.leftLabelCenterX).toBeLessThan(layout.leftModuleLeft + layout.leftModuleWidth * 0.52);
         expect(layout.labelTransform).not.toBe('none');
         expect(layout.leftLabelTransform).not.toContain('-1, 0');
-        expect(layout.pulseDisplay).toBe('none');
-        expect(layout.pulseVisibility).toBe('hidden');
-        expect(layout.pulseHidden).toBe(true);
-        expect(layout.pulseWidth).toBe(0);
-        expect(layout.pulseHeight).toBe(0);
+        expect(layout.pulseDisplay).not.toBe('none');
+        expect(layout.pulseVisibility).toBe('visible');
+        expect(layout.pulseHidden).toBe(false);
+        expect(layout.pulseWidth).toBeGreaterThan(320);
+        expect(layout.pulseHeight).toBeGreaterThan(70);
         expect(Math.abs(layout.topMediaTop - layout.moduleTop)).toBeLessThanOrEqual(1);
         expect(layout.topMediaBottom).toBeGreaterThanOrEqual(seamY);
         expect(layout.topMediaBottom).toBeLessThanOrEqual(seamY + 9);

@@ -8,10 +8,14 @@ const MAX_VISUAL_ITEMS = 8;
 const MIN_WHEEL_DURATION_SECONDS = 32.49;
 const MAX_WHEEL_DURATION_SECONDS = 48.735;
 const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 8.037;
+const DESKTOP_NEWS_INTERVAL_MS = 3000;
+const DESKTOP_TRANSITION_MS = 450;
 const MOBILE_INTERVAL_MS = 4500;
 const MOBILE_ANIMATION_MS = 1404;
 const MOBILE_TOP_RATIO = 0.05;
 const MOBILE_BOTTOM_RATIO = 0.95;
+const DESKTOP_PLACEMENT_MIN_GAP = 14;
+const DESKTOP_PLACEMENT_MIN_HEIGHT = 86;
 
 function normalizeLocale(value) {
     const locale = String(value || '').trim().toLowerCase();
@@ -216,8 +220,104 @@ function renderTrack(items, locale) {
     return track;
 }
 
+function desktopIndicatorLabel(index, total, locale) {
+    return locale === 'de'
+        ? `Nachricht ${index + 1} von ${total} anzeigen`
+        : `Show news item ${index + 1} of ${total}`;
+}
+
+function createDesktopSlide(item, locale, index, isActive) {
+    const slide = createElement('div', `news-pulse__slide${isActive ? ' is-active' : ''}`);
+    slide.setAttribute('role', 'group');
+    slide.setAttribute('aria-roledescription', 'slide');
+    slide.setAttribute('aria-label', `${index + 1}`);
+    slide.dataset.newsPulseItemId = item.id;
+    slide.dataset.newsPulseRenderIndex = String(index);
+    if (!isActive) slide.setAttribute('aria-hidden', 'true');
+
+    const link = createPulseLink(item, locale, { allowThumbnail: true });
+    if (!isActive) link.tabIndex = -1;
+    slide.appendChild(link);
+    return slide;
+}
+
+function createDesktopIndicatorButton(index, total, locale, isActive) {
+    const button = createElement('button', `news-pulse__indicator-button${isActive ? ' is-active' : ''}`);
+    button.type = 'button';
+    button.dataset.newsPulseIndicator = String(index);
+    button.setAttribute('aria-label', desktopIndicatorLabel(index, total, locale));
+    if (isActive) button.setAttribute('aria-current', 'true');
+    return button;
+}
+
+function renderDesktopNewsPulse(root, items, locale, onIndicatorSelect) {
+    const visualItems = buildVisualItems(items);
+    if (!visualItems.length) {
+        renderEmpty(root, locale);
+        return;
+    }
+
+    root.classList.remove('is-loading', 'is-empty', 'is-disabled', 'news-pulse--mobile');
+    root.classList.add('is-ready', 'news-pulse--desktop');
+    root.style.setProperty('--news-pulse-desktop-transition-ms', `${DESKTOP_TRANSITION_MS}ms`);
+    root.removeAttribute('aria-hidden');
+    root.replaceChildren();
+
+    const shell = createElement('div', 'news-pulse__shell news-pulse__shell--hero');
+    const label = createElement('span', 'news-pulse__label', localeText('newsPulse.label', {}, locale));
+    const viewport = createElement('div', 'news-pulse__viewport');
+    viewport.setAttribute('aria-live', 'off');
+    const track = createElement('div', 'news-pulse__slides');
+    track.style.setProperty('--news-pulse-active-index', '0');
+    visualItems.forEach((item, index) => {
+        track.appendChild(createDesktopSlide(item, locale, index, index === 0));
+    });
+    viewport.appendChild(track);
+
+    const indicators = createElement('div', 'news-pulse__indicators');
+    indicators.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
+    visualItems.forEach((_, index) => {
+        const button = createDesktopIndicatorButton(index, visualItems.length, locale, index === 0);
+        button.addEventListener('click', () => onIndicatorSelect(index));
+        indicators.appendChild(button);
+    });
+
+    shell.append(label, viewport, indicators);
+    root.appendChild(shell);
+    root.dataset.newsPulseActiveIndex = '0';
+    root.dataset.newsPulseItemCount = String(visualItems.length);
+}
+
+function setDesktopActiveItem(root, nextIndex) {
+    const slides = [...root.querySelectorAll('.news-pulse__slide')];
+    if (!slides.length) return 0;
+    const normalizedIndex = ((nextIndex % slides.length) + slides.length) % slides.length;
+    const track = root.querySelector('.news-pulse__slides');
+    if (track) {
+        track.style.setProperty('--news-pulse-active-index', String(normalizedIndex));
+    }
+    slides.forEach((slide, index) => {
+        const isActive = index === normalizedIndex;
+        slide.classList.toggle('is-active', isActive);
+        slide.toggleAttribute('aria-hidden', !isActive);
+        const link = slide.querySelector('a[href]');
+        if (link) link.tabIndex = isActive ? 0 : -1;
+    });
+    root.querySelectorAll('.news-pulse__indicator-button').forEach((button, index) => {
+        const isActive = index === normalizedIndex;
+        button.classList.toggle('is-active', isActive);
+        if (isActive) {
+            button.setAttribute('aria-current', 'true');
+        } else {
+            button.removeAttribute('aria-current');
+        }
+    });
+    root.dataset.newsPulseActiveIndex = String(normalizedIndex);
+    return normalizedIndex;
+}
+
 function renderEmpty(root, locale) {
-    root.classList.remove('is-loading');
+    root.classList.remove('is-loading', 'is-ready');
     root.classList.add('is-empty');
     root.replaceChildren();
 
@@ -278,6 +378,47 @@ function updateMobilePlacement(root) {
     return true;
 }
 
+function isVisibleElement(element) {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+}
+
+function updateDesktopPlacement(root) {
+    const hero = root.closest('.hero--homepage') || root.closest('#hero');
+    const labels = [...(hero?.querySelectorAll('.latest-models-video-module__label') || [])]
+        .filter(isVisibleElement)
+        .map((element) => element.getBoundingClientRect());
+    const scrollAnchor = hero?.querySelector('.hero__scroll-text') || hero?.querySelector('.hero__scroll-hint');
+    if (!hero || !labels.length || !isVisibleElement(scrollAnchor)) return false;
+
+    const heroRect = hero.getBoundingClientRect();
+    const scrollRect = scrollAnchor.getBoundingClientRect();
+    const rootRect = root.getBoundingClientRect();
+    const labelBottom = Math.max(...labels.map((rect) => rect.bottom));
+    const scrollTop = scrollRect.top;
+    const available = scrollTop - labelBottom;
+    if (!Number.isFinite(available) || available <= DESKTOP_PLACEMENT_MIN_HEIGHT) return false;
+
+    const minGap = Math.max(DESKTOP_PLACEMENT_MIN_GAP, Math.min(22, window.innerHeight * 0.015));
+    const currentHeight = rootRect.height > 0 ? rootRect.height : 132;
+    const maxHeight = Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, available - (minGap * 2));
+    const height = Math.min(currentHeight, maxHeight);
+    const centeredTop = labelBottom + ((available - height) / 2);
+    const minTop = labelBottom + minGap;
+    const maxTop = scrollTop - height - minGap;
+    const top = Math.min(Math.max(centeredTop, minTop), Math.max(minTop, maxTop));
+
+    root.style.setProperty('--news-pulse-hero-top', `${Math.max(0, top - heroRect.top).toFixed(2)}px`);
+    root.style.setProperty('--news-pulse-hero-height', `${Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, height).toFixed(2)}px`);
+    root.dataset.newsPulseHeroPlacement = 'ready';
+    root.dataset.newsPulseHeroLabelBottom = String(Math.round((labelBottom - heroRect.top) * 100) / 100);
+    root.dataset.newsPulseHeroScrollTop = String(Math.round((scrollTop - heroRect.top) * 100) / 100);
+    return true;
+}
+
 function readAuthState(getAuthState) {
     if (typeof getAuthState !== 'function') return { ready: false, loggedIn: false };
     try {
@@ -302,7 +443,35 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
         let mobileTimer = 0;
         let mobileTransitionTimer = 0;
         let mobilePlacementFrame = 0;
+        let desktopIndex = 0;
+        let desktopTimer = 0;
+        let desktopPlacementFrame = 0;
         let disconnectObserver = null;
+        let desktopResizeObserver = null;
+
+        const clearDesktopTimer = () => {
+            if (desktopTimer) {
+                window.clearInterval(desktopTimer);
+                desktopTimer = 0;
+            }
+        };
+
+        const clearDesktopPlacement = () => {
+            if (desktopPlacementFrame) {
+                window.cancelAnimationFrame(desktopPlacementFrame);
+                desktopPlacementFrame = 0;
+            }
+        };
+
+        const clearDesktopState = () => {
+            clearDesktopTimer();
+            clearDesktopPlacement();
+            delete root.dataset.newsPulseHeroPlacement;
+            delete root.dataset.newsPulseHeroLabelBottom;
+            delete root.dataset.newsPulseHeroScrollTop;
+            delete root.dataset.newsPulseActiveIndex;
+            delete root.dataset.newsPulseItemCount;
+        };
 
         const clearMobileTimers = () => {
             if (mobileTimer) {
@@ -319,6 +488,17 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             }
         };
 
+        const scheduleDesktopPlacement = () => {
+            if (mode !== 'desktop' || !desktopQuery.matches) return;
+            if (desktopPlacementFrame) window.cancelAnimationFrame(desktopPlacementFrame);
+            desktopPlacementFrame = window.requestAnimationFrame(() => {
+                desktopPlacementFrame = window.requestAnimationFrame(() => {
+                    desktopPlacementFrame = 0;
+                    updateDesktopPlacement(root);
+                });
+            });
+        };
+
         const scheduleMobilePlacement = () => {
             if (mode !== 'mobile') return;
             if (mobilePlacementFrame) window.cancelAnimationFrame(mobilePlacementFrame);
@@ -332,8 +512,32 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             mode = 'disabled';
             fetchToken += 1;
             clearMobileTimers();
+            clearDesktopState();
             clearNewsPulse(root);
         };
+
+        const showDesktopItem = (nextIndex, { resetTimer = false } = {}) => {
+            desktopIndex = setDesktopActiveItem(root, nextIndex);
+            scheduleDesktopPlacement();
+            if (resetTimer) {
+                clearDesktopTimer();
+                startDesktopTimer();
+            }
+        };
+
+        function startDesktopTimer() {
+            clearDesktopTimer();
+            const count = Number.parseInt(root.dataset.newsPulseItemCount || '0', 10);
+            if (count <= 1) return;
+            desktopTimer = window.setInterval(() => {
+                if (!root.isConnected || mode !== 'desktop') {
+                    clearDesktopTimer();
+                    return;
+                }
+                if (document.hidden) return;
+                showDesktopItem(desktopIndex + 1);
+            }, DESKTOP_NEWS_INTERVAL_MS);
+        }
 
         const showMobileItem = (nextIndex, { transition = true } = {}) => {
             const viewport = root.querySelector('.news-pulse__mobile-viewport');
@@ -375,6 +579,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
         };
 
         const renderMobileNewsPulse = (items, locale) => {
+            clearDesktopState();
             root.classList.remove('is-loading', 'is-empty', 'is-disabled', 'news-pulse--desktop');
             root.classList.add('is-ready', 'news-pulse--mobile');
             root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
@@ -398,6 +603,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
         };
 
         const renderMobileEmpty = (locale) => {
+            clearDesktopState();
             clearMobileTimers();
             root.classList.remove('is-disabled', 'news-pulse--desktop');
             root.classList.add('news-pulse--mobile');
@@ -412,7 +618,10 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             mode = 'desktop';
             root.classList.remove('news-pulse--mobile');
             root.classList.add('news-pulse--desktop');
-            if (hasRenderedDesktop) return;
+            if (hasRenderedDesktop) {
+                scheduleDesktopPlacement();
+                return;
+            }
             hasRenderedDesktop = true;
 
             const locale = normalizeLocale(root.dataset.newsPulseLocale || getCurrentLocale());
@@ -421,16 +630,25 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             root.removeAttribute('aria-hidden');
             root.classList.remove('is-disabled');
             root.classList.add('is-loading');
+            root.replaceChildren();
+            clearDesktopTimer();
             try {
-                renderNewsPulse(root, await fetchNewsPulse(locale), locale);
+                renderDesktopNewsPulse(root, await fetchNewsPulse(locale), locale, (index) => {
+                    showDesktopItem(index, { resetTimer: true });
+                });
+                desktopIndex = 0;
+                scheduleDesktopPlacement();
+                startDesktopTimer();
             } catch {
                 renderEmpty(root, locale);
+                scheduleDesktopPlacement();
             }
         };
 
         const renderMobile = async () => {
             const locale = normalizeLocale(root.dataset.newsPulseLocale || getCurrentLocale());
             root.dataset.newsPulseLocale = locale;
+            clearDesktopState();
             const authState = readAuthState(getAuthState);
             if (!authState.ready || !authState.loggedIn) {
                 clearForDisabledState();
@@ -484,25 +702,41 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             renderForViewport();
         };
 
+        const scheduleActivePlacement = () => {
+            scheduleDesktopPlacement();
+            scheduleMobilePlacement();
+        };
+
         if (typeof desktopQuery.addEventListener === 'function') {
             desktopQuery.addEventListener('change', handleViewportChange);
         } else if (typeof desktopQuery.addListener === 'function') {
             desktopQuery.addListener(handleViewportChange);
         }
 
-        window.addEventListener('resize', scheduleMobilePlacement, { passive: true });
-        window.addEventListener('orientationchange', scheduleMobilePlacement, { passive: true });
-        window.addEventListener('load', scheduleMobilePlacement, { once: true });
-        document.fonts?.ready?.then(scheduleMobilePlacement).catch(() => {});
+        window.addEventListener('resize', scheduleActivePlacement, { passive: true });
+        window.addEventListener('orientationchange', scheduleActivePlacement, { passive: true });
+        window.addEventListener('load', scheduleActivePlacement, { once: true });
+        document.fonts?.ready?.then(scheduleActivePlacement).catch(() => {});
         const heroLogo = root.closest('#hero')?.querySelector('.hero__title-img');
         if (heroLogo && !heroLogo.complete) {
-            heroLogo.addEventListener('load', scheduleMobilePlacement, { once: true });
+            heroLogo.addEventListener('load', scheduleActivePlacement, { once: true });
+        }
+        if (window.ResizeObserver) {
+            desktopResizeObserver = new ResizeObserver(scheduleActivePlacement);
+            const hero = root.closest('#hero');
+            if (hero) desktopResizeObserver.observe(hero);
+            desktopResizeObserver.observe(root);
+            hero?.querySelectorAll('.latest-models-video-module__label, .hero__scroll-hint, .hero__scroll-text')
+                .forEach((element) => desktopResizeObserver.observe(element));
         }
         document.addEventListener('bitbi:auth-change', renderForViewport);
         if (window.MutationObserver) {
             disconnectObserver = new MutationObserver(() => {
                 if (!root.isConnected) {
                     clearMobileTimers();
+                    clearDesktopState();
+                    desktopResizeObserver?.disconnect();
+                    desktopResizeObserver = null;
                     disconnectObserver?.disconnect();
                     disconnectObserver = null;
                 }
