@@ -178,6 +178,13 @@
         display: none;
     }
 
+    @media (max-width: 639px) {
+        #galleryGrid.grid-gallery,
+        #videoGrid.grid-video {
+            grid-template-columns: minmax(0, 1fr) !important;
+        }
+    }
+
     @media
       (min-width: 1024px) and (hover: hover) and (pointer: fine),
       (min-width: 768px) and (max-width: 1023px) and (min-height: 700px),
@@ -207,23 +214,23 @@
             display: flex;
             flex-direction: column;
             gap: var(--bitbi-public-media-gap);
-            inline-size: var(
-                --bitbi-public-gallery-active-column-width,
-                var(--bitbi-public-video-active-column-width, 100%)
-            );
-            max-inline-size: var(
-                --bitbi-public-gallery-active-column-width,
-                var(--bitbi-public-video-active-column-width, 100%)
-            );
-            min-inline-size: var(
-                --bitbi-public-gallery-active-column-width,
-                var(--bitbi-public-video-active-column-width, 0)
-            );
+            box-sizing: border-box;
+            flex: 0 0 auto;
+        }
+
+        #galleryGrid .public-media-wall__column {
+            inline-size: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-gallery-active-column-width));
+            width: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-gallery-active-column-width));
+            min-inline-size: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-gallery-active-column-width));
+            max-inline-size: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-gallery-active-column-width));
+            min-width: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-gallery-active-column-width));
+            max-width: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-gallery-active-column-width));
         }
 
         #galleryGrid .gallery-item {
             position: relative;
             display: block;
+            width: 100%;
             inline-size: 100%;
             max-inline-size: 100%;
             margin: 0;
@@ -2686,9 +2693,21 @@
             inline-size: 100%;
         }
 
+        #videoGrid .public-media-wall__column {
+            inline-size: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-video-active-column-width));
+            width: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-video-active-column-width));
+            min-inline-size: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-video-active-column-width));
+            max-inline-size: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-video-active-column-width));
+            min-width: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-video-active-column-width));
+            max-width: var(--bitbi-public-media-wall-resolved-column-width, var(--bitbi-public-video-active-column-width));
+        }
+
         #videoGrid .video-card {
             display: block;
+            width: 100%;
             inline-size: 100%;
+            max-inline-size: 100%;
+            min-inline-size: 0;
             margin: 0;
             border-radius: 0.62rem;
             background: transparent;

@@ -21,6 +21,7 @@ import {
     orderPublicMemvidItems,
 } from './public-memvids.js?v=__ASSET_VERSION__';
 import {
+    clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
     syncFixedMediaWallColumnCount,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
@@ -913,6 +914,9 @@ export function initVideoGallery() {
     function renderVideoCards(items) {
         const cards = items.map(buildVideoCard);
         if (!isPublicWideLayoutEnabled()) {
+            clearFixedMediaWallLayout(grid, {
+                countProperty: '--bitbi-public-video-column-count',
+            });
             grid.append(...cards);
             return;
         }

@@ -25,8 +25,10 @@ import {
     seekGlobalAudio,
 } from '../../shared/audio/audio-manager.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { parseCssLengthToPixels } from './public-media-wall.js?v=__ASSET_VERSION__';
 
 const MEMTRACKS_PAGE_LIMIT = 60;
+const DESKTOP_SOUND_LAYOUT_MEDIA = '(min-width: 640px)';
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -58,7 +60,11 @@ export function initSoundLab(revealObserver) {
 
     let currentState = getGlobalAudioState();
     let syncDeck = null;
+    let memtrackWidthFrame = 0;
+    let memtrackResizeObserver = null;
+    let memtrackStageObserver = null;
     const mobileMediaQuery = getMobileMediaGridQuery();
+    const desktopSoundLayoutQuery = window.matchMedia?.(DESKTOP_SOUND_LAYOUT_MEDIA);
     const memtracksState = {
         items: [],
         loaded: false,
@@ -79,6 +85,60 @@ export function initSoundLab(revealObserver) {
     paginationStatus.className = 'browse-pagination__status';
     paginationEl.appendChild(paginationStatus);
     ctn.after(paginationEl, statusEl);
+
+    function toPixelString(value) {
+        const rounded = Math.round((Number(value) || 0) * 100) / 100;
+        return `${rounded}px`;
+    }
+
+    function getMemtrackWidthValue() {
+        if (!desktopSoundLayoutQuery?.matches || typeof window.getComputedStyle !== 'function') {
+            return 'var(--bitbi-public-sound-card-width)';
+        }
+        const style = window.getComputedStyle(ctn);
+        const target = parseCssLengthToPixels(
+            style.getPropertyValue('--bitbi-public-sound-card-width'),
+            330,
+            ctn,
+        );
+        return toPixelString(target);
+    }
+
+    function lockMemtrackCardWidth(card, widthValue) {
+        if (!card) return;
+        card.style.setProperty('box-sizing', 'border-box');
+        card.style.setProperty('width', widthValue);
+        card.style.setProperty('inline-size', widthValue);
+        card.style.setProperty('min-width', widthValue);
+        card.style.setProperty('max-width', widthValue);
+        card.style.setProperty('min-inline-size', widthValue);
+        card.style.setProperty('max-inline-size', widthValue);
+        card.style.setProperty('flex-basis', widthValue);
+        card.style.setProperty('justify-self', 'start');
+        card.style.setProperty('align-self', 'start');
+    }
+
+    function syncMemtrackCardWidths() {
+        const widthValue = getMemtrackWidthValue();
+        if (desktopSoundLayoutQuery?.matches) {
+            ctn.style.gridTemplateColumns = `repeat(auto-fill, ${widthValue})`;
+            ctn.style.setProperty('--bitbi-public-sound-card-resolved-width', widthValue);
+        } else {
+            ctn.style.gridTemplateColumns = '';
+            ctn.style.removeProperty('--bitbi-public-sound-card-resolved-width');
+        }
+        Array.from(ctn.children)
+            .filter((card) => card.classList.contains('snd-card--memtrack'))
+            .forEach((card) => lockMemtrackCardWidth(card, widthValue));
+    }
+
+    function scheduleMemtrackWidthSync() {
+        if (memtrackWidthFrame) return;
+        memtrackWidthFrame = window.requestAnimationFrame(() => {
+            memtrackWidthFrame = 0;
+            syncMemtrackCardWidths();
+        });
+    }
 
     function getMemtrackTrack(item) {
         if (!item?.id || !item?.file?.url) return null;
@@ -484,6 +544,7 @@ export function initSoundLab(revealObserver) {
                 ctn.appendChild(card);
                 if (revealObserver) revealObserver.observe(card);
             });
+            syncMemtrackCardWidths();
             syncCategoryGhostModels('sound', items);
             renderMemtrackRows(currentState);
             ctn.dispatchEvent(new CustomEvent('snd:tracks-refresh'));
@@ -746,6 +807,35 @@ export function initSoundLab(revealObserver) {
     }
 
     syncDeck = initSndDeck();
+    ctn.addEventListener('snd:tracks-refresh', scheduleMemtrackWidthSync);
+    if (typeof ResizeObserver === 'function') {
+        memtrackResizeObserver = new ResizeObserver(scheduleMemtrackWidthSync);
+        memtrackResizeObserver.observe(ctn);
+    } else {
+        window.addEventListener('resize', scheduleMemtrackWidthSync, { passive: true });
+    }
+    const categoryStage = document.getElementById('homeCategories');
+    if (categoryStage && 'MutationObserver' in window) {
+        memtrackStageObserver = new MutationObserver(scheduleMemtrackWidthSync);
+        memtrackStageObserver.observe(categoryStage, {
+            attributes: true,
+            attributeFilter: ['class', 'data-active-category', 'data-stage-mode'],
+        });
+    }
+    if (desktopSoundLayoutQuery) {
+        if (typeof desktopSoundLayoutQuery.addEventListener === 'function') {
+            desktopSoundLayoutQuery.addEventListener('change', scheduleMemtrackWidthSync);
+        } else if (typeof desktopSoundLayoutQuery.addListener === 'function') {
+            desktopSoundLayoutQuery.addListener(scheduleMemtrackWidthSync);
+        }
+    }
+    document.fonts?.ready?.then(scheduleMemtrackWidthSync).catch(() => {});
+    window.addEventListener('pagehide', () => {
+        if (memtrackResizeObserver) { memtrackResizeObserver.disconnect(); memtrackResizeObserver = null; }
+        if (memtrackStageObserver) { memtrackStageObserver.disconnect(); memtrackStageObserver = null; }
+        window.removeEventListener('resize', scheduleMemtrackWidthSync);
+        window.cancelAnimationFrame(memtrackWidthFrame);
+    }, { once: true });
     paginationStatus.addEventListener('click', openMemtracksOverlay);
     if (mobileMediaQuery) {
         const syncMobileTrigger = () => syncMemtracksPagination();

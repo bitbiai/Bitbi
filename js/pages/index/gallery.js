@@ -17,6 +17,7 @@ import {
 import { syncCategoryGhostModels } from './category-ghost-models.js?v=__ASSET_VERSION__';
 import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
 import {
+    clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
     syncFixedMediaWallColumnCount,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
@@ -599,6 +600,9 @@ export function initGallery() {
     function renderGalleryCards(items) {
         const cards = items.map(buildGalleryCard);
         if (!isPublicWideLayoutEnabled()) {
+            clearFixedMediaWallLayout(grid, {
+                countProperty: '--bitbi-public-gallery-column-count',
+            });
             grid.append(...cards);
             return;
         }
