@@ -3418,6 +3418,9 @@ test.describe('Homepage', () => {
             getHighlightKey(path),
             {
               animationDuration: Number.parseFloat(style.animationDuration || '0'),
+              animationName: style.animationName || '',
+              display: style.display || '',
+              opacity: Number.parseFloat(style.opacity || '0'),
               strokeDasharray: parseNumberList(style.strokeDasharray || ''),
             },
           ];
@@ -3494,6 +3497,13 @@ test.describe('Homepage', () => {
           flareCount: flares.length,
           particleCount: particles.length,
           visibleParticleCount,
+          visibleHighlightCount: highlightPaths.filter((path) => {
+            const style = window.getComputedStyle(path);
+            return style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && style.animationName === 'heroCreationStreamFlow'
+              && Number.parseFloat(style.opacity || '0') > 0;
+          }).length,
           flareRayCount: flareRays.length,
           visibleFlareRayCount,
           particleLayerDisplay: particleLayerStyle?.display || '',
@@ -3524,13 +3534,13 @@ test.describe('Homepage', () => {
       await expect(page.locator('#hero .hero__creation-stream')).toHaveCount(2);
 
       const expectedHighlightMetrics = {
-        one: { animationDuration: 2.9, strokeDasharray: [20, 66] },
-        two: { animationDuration: 3.35, strokeDasharray: [14, 52] },
-        three: { animationDuration: 2.55, strokeDasharray: [14, 52] },
-        four: { animationDuration: 3.9, strokeDasharray: [10, 39] },
-        five: { animationDuration: 3.05, strokeDasharray: [12, 42] },
-        six: { animationDuration: 3.6, strokeDasharray: [11, 44] },
-        seven: { animationDuration: 4.2, strokeDasharray: [9, 38] },
+        one: { active: true, animationDuration: 2.4167, strokeDasharray: [20, 66] },
+        two: { active: false, strokeDasharray: [14, 52] },
+        three: { active: true, animationDuration: 2.125, strokeDasharray: [14, 52] },
+        four: { active: false, strokeDasharray: [10, 39] },
+        five: { active: true, animationDuration: 2.5417, strokeDasharray: [12, 42] },
+        six: { active: false, strokeDasharray: [11, 44] },
+        seven: { active: true, animationDuration: 3.5, strokeDasharray: [9, 38] },
       };
 
       for (const width of [1100, 1280, 1440, 1600]) {
@@ -3546,6 +3556,7 @@ test.describe('Homepage', () => {
           expect(metrics.haloPathCount, `stream halo path count for ${context}`).toBe(4);
           expect(metrics.strandPathCount, `stream strand path count for ${context}`).toBe(15);
           expect(metrics.highlightPathCount, `stream highlight path count for ${context}`).toBe(7);
+          expect(metrics.visibleHighlightCount, `moving stream highlight count for ${context}`).toBe(4);
           expect(metrics.haloLayerFilter, `stream halo filter for ${context}`).toBe('none');
           for (const halo of metrics.haloMetrics) {
             expect(halo.strokeWidth, `slim halo stroke for ${context} ${halo.className}`).toBeLessThanOrEqual(3.5);
@@ -3559,10 +3570,19 @@ test.describe('Homepage', () => {
           for (const [variant, expected] of Object.entries(expectedHighlightMetrics)) {
             const actual = metrics.highlightMetrics[variant];
             expect(actual, `stream highlight ${variant} metrics for ${context}`).toBeTruthy();
-            expect(
-              actual.animationDuration,
-              `stream highlight ${variant} duration for ${context}`,
-            ).toBeCloseTo(expected.animationDuration, 2);
+            if (expected.active) {
+              expect(actual.display, `stream highlight ${variant} display for ${context}`).not.toBe('none');
+              expect(actual.animationName, `stream highlight ${variant} animation for ${context}`).toBe('heroCreationStreamFlow');
+              expect(actual.opacity, `stream highlight ${variant} opacity for ${context}`).toBeGreaterThan(0);
+              expect(
+                actual.animationDuration,
+                `stream highlight ${variant} duration for ${context}`,
+              ).toBeCloseTo(expected.animationDuration, 2);
+            } else {
+              expect(actual.display, `disabled stream highlight ${variant} display for ${context}`).toBe('none');
+              expect(actual.animationName, `disabled stream highlight ${variant} animation for ${context}`).toBe('none');
+              expect(actual.opacity, `disabled stream highlight ${variant} opacity for ${context}`).toBe(0);
+            }
             expect(
               actual.strokeDasharray.slice(0, 2),
               `stream highlight ${variant} dasharray for ${context}`,

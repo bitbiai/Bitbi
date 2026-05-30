@@ -4458,7 +4458,7 @@
             stroke-dasharray: 14 52;
             stroke-dashoffset: 260;
             opacity: 0.7;
-            animation: heroCreationStreamFlow 2.9s linear infinite;
+            animation: heroCreationStreamFlow 2.4167s linear infinite;
         }
 
         .hero__creation-stream-highlight--one {
@@ -4467,44 +4467,51 @@
         }
 
         .hero__creation-stream-highlight--two {
-            animation-duration: 3.35s;
+            display: none;
+            opacity: 0;
+            animation: none;
+            animation-duration: 2.7917s;
             animation-delay: -0.7s;
         }
 
         .hero__creation-stream-highlight--three {
             stroke-width: 1.2px;
-            animation-duration: 2.55s;
+            animation-duration: 2.125s;
             animation-delay: -1.4s;
         }
 
         .hero__creation-stream-highlight--four {
+            display: none;
             stroke-width: 1.1px;
             stroke-dasharray: 10 39;
-            animation-duration: 3.9s;
+            animation: none;
+            animation-duration: 3.25s;
             animation-delay: -1.75s;
-            opacity: 0.58;
+            opacity: 0;
         }
 
         .hero__creation-stream-highlight--five {
             stroke-width: 1.25px;
             stroke-dasharray: 12 42;
-            animation-duration: 3.05s;
+            animation-duration: 2.5417s;
             animation-delay: -2.3s;
             opacity: 0.52;
         }
 
         .hero__creation-stream-highlight--six {
+            display: none;
             stroke-width: 0.95px;
             stroke-dasharray: 11 44;
-            animation-duration: 3.6s;
+            animation: none;
+            animation-duration: 3s;
             animation-delay: -1.05s;
-            opacity: 0.62;
+            opacity: 0;
         }
 
         .hero__creation-stream-highlight--seven {
             stroke-width: 0.85px;
             stroke-dasharray: 9 38;
-            animation-duration: 4.2s;
+            animation-duration: 3.5s;
             animation-delay: -2.6s;
             opacity: 0.48;
         }
