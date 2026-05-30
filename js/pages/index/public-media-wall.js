@@ -35,15 +35,15 @@ export function getStableMediaWallAvailableWidth(grid) {
     );
     const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
     const panel = grid.closest?.('.home-categories__panel');
+    const exploreWrapper = grid.closest?.('#galleryExplore, #videoExplore, #soundLabExplore') || null;
     const panelInner = panel?.querySelector?.(':scope > .section__inner') || null;
     const sectionInner = grid.closest?.('.section__inner') || null;
-    const exploreWrapper = grid.closest?.('#galleryExplore, #videoExplore') || null;
     const stableContainers = [
-        panelInner,
-        sectionInner,
-        exploreWrapper?.parentElement || null,
         exploreWrapper,
         grid.parentElement,
+        sectionInner,
+        panel,
+        panelInner,
     ].filter(Boolean);
 
     const widths = [];
@@ -53,17 +53,14 @@ export function getStableMediaWallAvailableWidth(grid) {
         if (style.display === 'none' || style.visibility === 'hidden' || rect.width <= 0) {
             continue;
         }
-        const clampedWidth = finiteViewportWidth > 0
-            ? Math.min(rect.width, finiteViewportWidth)
-            : rect.width;
-        if (clampedWidth > 0) widths.push(clampedWidth);
+        if (finiteViewportWidth > 0 && rect.width > finiteViewportWidth + 1) {
+            continue;
+        }
+        widths.push(rect.width);
     }
 
     if (widths.length) return Math.min(...widths);
-
-    const ownWidth = grid.getBoundingClientRect?.().width || 0;
-    if (ownWidth <= 0) return 0;
-    return finiteViewportWidth > 0 ? Math.min(ownWidth, finiteViewportWidth) : ownWidth;
+    return 0;
 }
 
 function lockNodeToWidth(node, widthPx) {
@@ -244,9 +241,10 @@ function validateRenderedLayout(grid, cards, metrics, {
 
 function scheduleReadyValidation(grid, cards, options, token, correctionAttempt) {
     const safeCards = Array.isArray(cards) ? cards : [];
-    let retryScheduled = false;
+    let validationAttempts = 0;
     const validate = () => {
         if (grid.dataset.mediaWallRenderToken !== token) return;
+        validationAttempts += 1;
         const storedMetrics = {
             availableWidthPx: Number(grid.dataset.mediaWallAvailableWidth) || 0,
             gapPx: Number(grid.dataset.mediaWallGap) || 0,
@@ -273,8 +271,7 @@ function scheduleReadyValidation(grid, cards, options, token, correctionAttempt)
             return;
         }
         setReadyState(grid, false);
-        if (correctionAttempt < 2 && !retryScheduled) {
-            retryScheduled = true;
+        if (validationAttempts < 10) {
             window.setTimeout(validate, 120);
         }
     };

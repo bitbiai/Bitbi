@@ -121,12 +121,16 @@ export function initGallery() {
         const columnCountChanged = isPublicWideLayoutEnabled()
             && !!previousColumnCount
             && previousColumnCount !== String(nextColumnCount);
+        const previousAvailableWidth = Number(grid.dataset.mediaWallAvailableWidth) || 0;
+        const availableWidthBecameReady = isPublicWideLayoutEnabled()
+            && nextMetrics.availableWidthPx > 0
+            && previousAvailableWidth <= 0;
         const previousResolvedWidth = Number(grid.dataset.mediaWallResolvedWidth) || 0;
         const resolvedWidthChanged = isPublicWideLayoutEnabled()
             && previousResolvedWidth > 0
             && Math.abs(previousResolvedWidth - nextMetrics.resolvedWidthPx) > 0.1;
         if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return;
-        if (!columnCountChanged && !resolvedWidthChanged) return;
+        if (!columnCountChanged && !resolvedWidthChanged && !availableWidthBecameReady) return;
         render(currentFilter);
     }
 
@@ -802,7 +806,9 @@ export function initGallery() {
     const handleMempicsCategoryActivation = (event) => {
         if (event?.detail?.category !== 'gallery') return;
         scheduleMempicsWideLimitSync();
-        window.setTimeout(scheduleMempicsWideLimitSync, 180);
+        [120, 240, 480, 900, 1400].forEach((delay) => {
+            window.setTimeout(scheduleMempicsWideLimitSync, delay);
+        });
     };
     document.addEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
     document.fonts?.ready?.then(scheduleMempicsWideLimitSync).catch(() => {});

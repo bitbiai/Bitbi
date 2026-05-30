@@ -473,27 +473,27 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
       );
       const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
       const panel = grid.closest('.home-categories__panel');
-      const panelInner = panel?.querySelector(':scope > .section__inner') || null;
+      const exploreWrapper = grid.closest('#galleryExplore, #videoExplore, #soundLabExplore') || null;
       const sectionInner = grid.closest('.section__inner') || null;
-      const exploreWrapper = grid.closest('#galleryExplore, #videoExplore') || null;
+      const panelInner = panel?.querySelector(':scope > .section__inner') || null;
       const candidates = [
-        panelInner,
-        sectionInner,
-        exploreWrapper?.parentElement || null,
         exploreWrapper,
         grid.parentElement,
+        sectionInner,
+        panel,
+        panelInner,
       ].filter(Boolean);
       const widths = [];
       for (const candidate of candidates) {
         const candidateStyle = window.getComputedStyle(candidate);
         const candidateRect = candidate.getBoundingClientRect();
         if (candidateStyle.display !== 'none' && candidateStyle.visibility !== 'hidden' && candidateRect.width > 0) {
-          widths.push(finiteViewportWidth > 0 ? Math.min(candidateRect.width, finiteViewportWidth) : candidateRect.width);
+          if (finiteViewportWidth > 0 && candidateRect.width > finiteViewportWidth + 1) continue;
+          widths.push(candidateRect.width);
         }
       }
       if (widths.length) return Math.min(...widths);
-      const ownWidth = grid.getBoundingClientRect().width || 0;
-      return finiteViewportWidth > 0 ? Math.min(ownWidth, finiteViewportWidth) : ownWidth;
+      return 0;
     };
     const style = window.getComputedStyle(grid);
     const targetWidth = Number(grid.dataset.mediaWallResolvedWidth)
@@ -572,6 +572,33 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const stage = document.getElementById('homeCategories');
     const grid = document.getElementById('soundLabTracks');
     if (!stage || !grid) return 'missing_sound_grid';
+    const readStableWidth = () => {
+      const viewportWidth = Math.min(
+        window.innerWidth || Number.POSITIVE_INFINITY,
+        document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+      );
+      const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
+      const panel = grid.closest('.home-categories__panel');
+      const exploreWrapper = grid.closest('#galleryExplore, #videoExplore, #soundLabExplore') || null;
+      const sectionInner = grid.closest('.section__inner') || null;
+      const panelInner = panel?.querySelector(':scope > .section__inner') || null;
+      const candidates = [
+        exploreWrapper,
+        grid.parentElement,
+        sectionInner,
+        panel,
+        panelInner,
+      ].filter(Boolean);
+      const widths = [];
+      for (const candidate of candidates) {
+        const candidateStyle = window.getComputedStyle(candidate);
+        const candidateRect = candidate.getBoundingClientRect();
+        if (candidateStyle.display === 'none' || candidateStyle.visibility === 'hidden' || candidateRect.width <= 0) continue;
+        if (finiteViewportWidth > 0 && candidateRect.width > finiteViewportWidth + 1) continue;
+        widths.push(candidateRect.width);
+      }
+      return widths.length ? Math.min(...widths) : 0;
+    };
     const style = window.getComputedStyle(grid);
     const targetWidth = Number(grid.dataset.soundWallResolvedWidth)
       || Number(grid.dataset.soundCardWidthPx)
@@ -594,16 +621,20 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const firstRowCount = Number.isFinite(firstTop)
       ? rects.filter((rect) => Math.abs(rect.top - firstTop) <= 3).length
       : 0;
+    const storedAvailableWidth = Number(grid.dataset.soundWallAvailableWidth) || 0;
+    const currentAvailableWidth = readStableWidth();
     const expectedCapacity = baseWidth > 0
-      ? Math.max(1, Math.floor((grid.getBoundingClientRect().width + gap) / (baseWidth + gap)))
+      ? Math.max(1, Math.floor((currentAvailableWidth + gap) / (baseWidth + gap)))
       : columnCount;
     const expectedColumnCount = rects.length > 0 ? Math.min(rects.length, expectedCapacity) : expectedCapacity;
     const expectedResolvedWidth = expectedColumnCount > 0
-      ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
+      ? Math.max(baseWidth, Math.floor(((currentAvailableWidth - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
       : baseWidth;
     const ok = stage.dataset.activeCategory === 'sound'
       && !stage.classList.contains('is-transitioning')
       && (grid.dataset.soundWallReady === 'true' || grid.dataset.soundWidthReady === 'true')
+      && currentAvailableWidth > 0
+      && Math.abs(storedAvailableWidth - currentAvailableWidth) <= 0.5
       && targetWidth >= baseWidth
       && baseWidth >= 327
       && capacity === expectedCapacity
@@ -618,6 +649,8 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
       targetWidth,
       baseWidth,
       gap,
+      storedAvailableWidth,
+      currentAvailableWidth,
       columnCount,
       capacity,
       expectedCapacity,
@@ -7751,17 +7784,34 @@ test.describe('Homepage', () => {
         const grid = document.getElementById('galleryGrid');
         const gridRect = grid.getBoundingClientRect();
         const getStableRightEdge = () => {
+          const viewportWidth = Math.min(
+            window.innerWidth || Number.POSITIVE_INFINITY,
+            document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+          );
+          const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
           const panel = grid.closest('.home-categories__panel');
           const candidates = [
-            panel?.querySelector(':scope > .section__inner') || null,
-            grid.closest('.section__inner'),
+            grid.closest('#galleryExplore, #videoExplore, #soundLabExplore'),
             grid.parentElement,
+            grid.closest('.section__inner'),
+            panel,
+            panel?.querySelector(':scope > .section__inner') || null,
           ].filter(Boolean);
-          const rightEdges = candidates
-            .map((node) => node.getBoundingClientRect())
-            .filter((rect) => rect.width > 0)
-            .map((rect) => rect.right);
-          return rightEdges.length ? Math.min(...rightEdges) : gridRect.right;
+          const rects = candidates
+            .map((node) => {
+              const nodeStyle = window.getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return { rect, nodeStyle };
+            })
+            .filter(({ rect, nodeStyle }) => (
+              nodeStyle.display !== 'none'
+              && nodeStyle.visibility !== 'hidden'
+              && rect.width > 0
+              && (!finiteViewportWidth || rect.width <= finiteViewportWidth + 1)
+            ))
+            .map(({ rect }) => rect);
+          if (!rects.length) return gridRect.right;
+          return rects.reduce((narrowest, rect) => (rect.width < narrowest.width ? rect : narrowest), rects[0]).right;
         };
         const style = window.getComputedStyle(grid);
         const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
@@ -7815,17 +7865,34 @@ test.describe('Homepage', () => {
         const grid = document.getElementById('videoGrid');
         const gridRect = grid.getBoundingClientRect();
         const getStableRightEdge = () => {
+          const viewportWidth = Math.min(
+            window.innerWidth || Number.POSITIVE_INFINITY,
+            document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+          );
+          const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
           const panel = grid.closest('.home-categories__panel');
           const candidates = [
-            panel?.querySelector(':scope > .section__inner') || null,
-            grid.closest('.section__inner'),
+            grid.closest('#galleryExplore, #videoExplore, #soundLabExplore'),
             grid.parentElement,
+            grid.closest('.section__inner'),
+            panel,
+            panel?.querySelector(':scope > .section__inner') || null,
           ].filter(Boolean);
-          const rightEdges = candidates
-            .map((node) => node.getBoundingClientRect())
-            .filter((rect) => rect.width > 0)
-            .map((rect) => rect.right);
-          return rightEdges.length ? Math.min(...rightEdges) : gridRect.right;
+          const rects = candidates
+            .map((node) => {
+              const nodeStyle = window.getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return { rect, nodeStyle };
+            })
+            .filter(({ rect, nodeStyle }) => (
+              nodeStyle.display !== 'none'
+              && nodeStyle.visibility !== 'hidden'
+              && rect.width > 0
+              && (!finiteViewportWidth || rect.width <= finiteViewportWidth + 1)
+            ))
+            .map(({ rect }) => rect);
+          if (!rects.length) return gridRect.right;
+          return rects.reduce((narrowest, rect) => (rect.width < narrowest.width ? rect : narrowest), rects[0]).right;
         };
         const style = window.getComputedStyle(grid);
         const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
@@ -7879,6 +7946,36 @@ test.describe('Homepage', () => {
         const summarizeRows = (selector) => {
           const grid = document.getElementById('soundLabTracks');
           const gridRect = grid.getBoundingClientRect();
+          const getStableRightEdge = () => {
+            const viewportWidth = Math.min(
+              window.innerWidth || Number.POSITIVE_INFINITY,
+              document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+            );
+            const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
+            const panel = grid.closest('.home-categories__panel');
+            const candidates = [
+              grid.closest('#galleryExplore, #videoExplore, #soundLabExplore'),
+              grid.parentElement,
+              grid.closest('.section__inner'),
+              panel,
+              panel?.querySelector(':scope > .section__inner') || null,
+            ].filter(Boolean);
+            const stableRects = candidates
+              .map((node) => {
+                const nodeStyle = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return { rect, nodeStyle };
+              })
+              .filter(({ rect, nodeStyle }) => (
+                nodeStyle.display !== 'none'
+                && nodeStyle.visibility !== 'hidden'
+                && rect.width > 0
+                && (!finiteViewportWidth || rect.width <= finiteViewportWidth + 1)
+              ))
+              .map(({ rect }) => rect);
+            if (!stableRects.length) return gridRect.right;
+            return stableRects.reduce((narrowest, rect) => (rect.width < narrowest.width ? rect : narrowest), stableRects[0]).right;
+          };
           const style = window.getComputedStyle(grid);
           const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
           const parseCssLength = (value, fallback) => {
@@ -7921,7 +8018,7 @@ test.describe('Homepage', () => {
             targetGap: Number(grid.dataset.soundWallGap)
               || parseCssLength(style.getPropertyValue('--bitbi-public-sound-gap') || style.gap, 3),
             maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
-            rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.left + rect.width)),
+            rightUnused: getStableRightEdge() - Math.max(...rects.map((rect) => rect.left + rect.width)),
           };
         };
         const heroModule = Array.from(document.querySelectorAll('.hero__models-cta'))
@@ -8087,18 +8184,34 @@ test.describe('Homepage', () => {
       const grid = document.querySelector(selector);
       const gridRect = grid.getBoundingClientRect();
       const getStableRightEdge = () => {
-        if (selector === '#soundLabTracks') return gridRect.right;
+        const viewportWidth = Math.min(
+          window.innerWidth || Number.POSITIVE_INFINITY,
+          document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+        );
+        const finiteViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
         const panel = grid.closest('.home-categories__panel');
         const candidates = [
-          panel?.querySelector(':scope > .section__inner') || null,
-          grid.closest('.section__inner'),
+          grid.closest('#galleryExplore, #videoExplore, #soundLabExplore'),
           grid.parentElement,
+          grid.closest('.section__inner'),
+          panel,
+          panel?.querySelector(':scope > .section__inner') || null,
         ].filter(Boolean);
-        const rightEdges = candidates
-          .map((node) => node.getBoundingClientRect())
-          .filter((rect) => rect.width > 0)
-          .map((rect) => rect.right);
-        return rightEdges.length ? Math.min(...rightEdges) : gridRect.right;
+        const stableRects = candidates
+          .map((node) => {
+            const nodeStyle = window.getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return { rect, nodeStyle };
+          })
+          .filter(({ rect, nodeStyle }) => (
+            nodeStyle.display !== 'none'
+            && nodeStyle.visibility !== 'hidden'
+            && rect.width > 0
+            && (!finiteViewportWidth || rect.width <= finiteViewportWidth + 1)
+          ))
+          .map(({ rect }) => rect);
+        if (!stableRects.length) return gridRect.right;
+        return stableRects.reduce((narrowest, rect) => (rect.width < narrowest.width ? rect : narrowest), stableRects[0]).right;
       };
       const style = window.getComputedStyle(grid);
       const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;

@@ -25,7 +25,10 @@ import {
     seekGlobalAudio,
 } from '../../shared/audio/audio-manager.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
-import { parseCssLengthToPixels } from './public-media-wall.js?v=__ASSET_VERSION__';
+import {
+    getStableMediaWallAvailableWidth,
+    parseCssLengthToPixels,
+} from './public-media-wall.js?v=__ASSET_VERSION__';
 
 const MEMTRACKS_PAGE_LIMIT = 60;
 const PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT = 60;
@@ -63,6 +66,7 @@ export function initSoundLab(revealObserver) {
     let currentState = getGlobalAudioState();
     let syncDeck = null;
     let memtrackWidthFrame = 0;
+    let memtrackWidthValidationToken = 0;
     let memtrackResizeObserver = null;
     let memtrackStageObserver = null;
     const mobileMediaQuery = getMobileMediaGridQuery();
@@ -112,7 +116,7 @@ export function initSoundLab(revealObserver) {
                 widthValue: 'var(--bitbi-public-sound-card-width)',
             };
         }
-        const rect = ctn.getBoundingClientRect();
+        const availableWidth = getStableMediaWallAvailableWidth(ctn);
         const style = window.getComputedStyle(ctn);
         const target = parseCssLengthToPixels(
             style.getPropertyValue('--bitbi-public-sound-card-width'),
@@ -127,15 +131,16 @@ export function initSoundLab(revealObserver) {
         const itemCount = Array.from(ctn.children)
             .filter((card) => card.classList.contains('snd-card--memtrack'))
             .length;
-        const capacity = rect.width
-            ? Math.max(1, Math.floor((rect.width + gap) / (target + gap)))
+        const capacity = availableWidth
+            ? Math.max(1, Math.floor((availableWidth + gap) / (target + gap)))
             : 1;
         const columnCount = itemCount > 0 ? Math.min(itemCount, capacity) : capacity;
-        const resolvedWidth = rect.width && columnCount > 0
-            ? Math.max(target, Math.floor(((rect.width - (gap * (columnCount - 1))) / columnCount) * 1000) / 1000)
+        const resolvedWidth = availableWidth && columnCount > 0
+            ? Math.max(target, Math.floor(((availableWidth - (gap * (columnCount - 1))) / columnCount) * 1000) / 1000)
             : target;
         return {
             isDesktopLayout,
+            availableWidthPx: availableWidth,
             baseWidthPx: target,
             gapPx: gap,
             capacity,
@@ -159,9 +164,82 @@ export function initSoundLab(revealObserver) {
         card.style.setProperty('align-self', 'start');
     }
 
-    function syncMemtrackCardWidths() {
+    function getVisibleMemtrackCards() {
+        return Array.from(ctn.children)
+            .filter((card) => card.classList.contains('snd-card--memtrack'));
+    }
+
+    function storeMemtrackWidthMetrics(metrics) {
+        ctn.dataset.soundWallAvailableWidth = String(metrics.availableWidthPx || 0);
+        ctn.dataset.soundWallBaseWidth = String(metrics.baseWidthPx);
+        ctn.dataset.soundWallResolvedWidth = String(metrics.resolvedWidthPx);
+        ctn.dataset.soundWallGap = String(metrics.gapPx);
+        ctn.dataset.soundWallColumnCount = String(metrics.columnCount);
+        ctn.dataset.soundWallCapacity = String(metrics.capacity);
+        ctn.dataset.soundCardWidthPx = String(metrics.resolvedWidthPx);
+    }
+
+    function validateMemtrackWidthMetrics(metrics) {
+        const current = getMemtrackWidthMetrics();
+        const differs = (key, tolerance) => (
+            Math.abs((Number(metrics?.[key]) || 0) - (Number(current?.[key]) || 0)) > tolerance
+        );
+        if (!current.isDesktopLayout || !current.availableWidthPx) {
+            return { ready: false, stale: false, current };
+        }
+        if (differs('availableWidthPx', 0.5)
+            || differs('gapPx', 0.1)
+            || differs('baseWidthPx', 0.1)
+            || differs('resolvedWidthPx', 1)
+            || Number(metrics?.capacity || 0) !== Number(current.capacity || 0)
+            || Number(metrics?.columnCount || 0) !== Number(current.columnCount || 0)) {
+            return { ready: false, stale: true, current };
+        }
+        const stage = ctn.closest?.('#homeCategories');
+        if (stage?.classList.contains('is-transitioning')) {
+            return { ready: false, stale: false, current };
+        }
+        const cards = getVisibleMemtrackCards();
+        const cardRects = cards
+            .filter((card) => card.offsetParent !== null)
+            .map((card) => card.getBoundingClientRect());
+        const cardsReady = !cards.length
+            || (cardRects.length === cards.length && cardRects.every((rect) => Math.abs(rect.width - current.resolvedWidthPx) <= 2));
+        return { ready: cardsReady, stale: false, current };
+    }
+
+    function scheduleMemtrackWidthReadyValidation(metrics, token, correctionAttempt = 0) {
+        let validationAttempts = 0;
+        const validate = () => {
+            if (memtrackWidthValidationToken !== token) return;
+            validationAttempts += 1;
+            const result = validateMemtrackWidthMetrics(metrics);
+            if (result.stale && correctionAttempt < 2) {
+                syncMemtrackCardWidths(correctionAttempt + 1);
+                return;
+            }
+            if (result.ready) {
+                storeMemtrackWidthMetrics(result.current);
+                ctn.dataset.soundWallReady = 'true';
+                ctn.dataset.soundWidthReady = 'true';
+                return;
+            }
+            ctn.dataset.soundWallReady = 'false';
+            ctn.dataset.soundWidthReady = 'false';
+            if (validationAttempts < 10) {
+                window.setTimeout(validate, 120);
+            }
+        };
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(validate);
+        });
+        window.setTimeout(validate, 180);
+    }
+
+    function syncMemtrackCardWidths(correctionAttempt = 0) {
         const {
             isDesktopLayout,
+            availableWidthPx,
             baseWidthPx,
             gapPx,
             capacity,
@@ -171,18 +249,23 @@ export function initSoundLab(revealObserver) {
         } = getMemtrackWidthMetrics();
         ctn.dataset.soundWallReady = 'false';
         ctn.dataset.soundWidthReady = 'false';
+        memtrackWidthValidationToken += 1;
+        const validationToken = memtrackWidthValidationToken;
         if (isDesktopLayout) {
             ctn.style.gridTemplateColumns = `repeat(${columnCount}, ${widthValue})`;
             ctn.style.setProperty('--bitbi-public-sound-card-resolved-width', widthValue);
-            ctn.dataset.soundWallBaseWidth = String(baseWidthPx);
-            ctn.dataset.soundWallResolvedWidth = String(resolvedWidthPx);
-            ctn.dataset.soundWallGap = String(gapPx);
-            ctn.dataset.soundWallColumnCount = String(columnCount);
-            ctn.dataset.soundWallCapacity = String(capacity);
-            ctn.dataset.soundCardWidthPx = String(resolvedWidthPx);
+            storeMemtrackWidthMetrics({
+                availableWidthPx,
+                baseWidthPx,
+                gapPx,
+                capacity,
+                columnCount,
+                resolvedWidthPx,
+            });
         } else {
             ctn.style.gridTemplateColumns = '';
             ctn.style.removeProperty('--bitbi-public-sound-card-resolved-width');
+            delete ctn.dataset.soundWallAvailableWidth;
             delete ctn.dataset.soundWallReady;
             delete ctn.dataset.soundWallBaseWidth;
             delete ctn.dataset.soundWallResolvedWidth;
@@ -192,12 +275,16 @@ export function initSoundLab(revealObserver) {
             delete ctn.dataset.soundWidthReady;
             delete ctn.dataset.soundCardWidthPx;
         }
-        Array.from(ctn.children)
-            .filter((card) => card.classList.contains('snd-card--memtrack'))
-            .forEach((card) => lockMemtrackCardWidth(card, widthValue));
+        getVisibleMemtrackCards().forEach((card) => lockMemtrackCardWidth(card, widthValue));
         if (isDesktopLayout) {
-            ctn.dataset.soundWallReady = 'true';
-            ctn.dataset.soundWidthReady = 'true';
+            scheduleMemtrackWidthReadyValidation({
+                availableWidthPx,
+                baseWidthPx,
+                gapPx,
+                capacity,
+                columnCount,
+                resolvedWidthPx,
+            }, validationToken, correctionAttempt);
         }
     }
 
