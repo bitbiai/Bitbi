@@ -38,7 +38,7 @@ const WIDE_MEMVIDS_BATCH = 12;
 const WIDE_INITIAL_ROWS = 3;
 const WIDE_REVEAL_ROWS = 2;
 const WIDE_SCROLL_PRELOAD_PX = 720;
-const WIDE_COLUMN_FALLBACK_PX = 216;
+const WIDE_COLUMN_FALLBACK_PX = 270;
 // Small non-zero intent delay avoids accidental Stream minute usage across dense grids.
 const HOVER_PREVIEW_DELAY_MS = 100;
 

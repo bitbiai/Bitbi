@@ -36,7 +36,7 @@ const WIDE_MEMPICS_BATCH = 12;
 const WIDE_INITIAL_ROWS = 3;
 const WIDE_REVEAL_ROWS = 2;
 const WIDE_SCROLL_PRELOAD_PX = 720;
-const WIDE_COLUMN_FALLBACK_PX = 216;
+const WIDE_COLUMN_FALLBACK_PX = 270;
 
 let focusTrapCleanup = null;
 

@@ -6,13 +6,13 @@
 
 @layer pages {
     :root {
-        --bitbi-public-media-gap: clamp(0.076rem, 0.1vw, 0.124rem);
-        --bitbi-public-gallery-column-width: 16.875rem;
-        --bitbi-public-gallery-column-width-tablet: 16.5625rem;
-        --bitbi-public-video-column-width: 16.875rem;
-        --bitbi-public-video-column-width-tablet: 16.5625rem;
-        --bitbi-public-sound-card-width: 20.625rem;
-        --bitbi-public-sound-gap: clamp(0.15rem, 0.2vw, 0.2rem);
+        --bitbi-public-media-gap: 2px;
+        --bitbi-public-gallery-column-width: 270px;
+        --bitbi-public-gallery-column-width-tablet: 265px;
+        --bitbi-public-video-column-width: 270px;
+        --bitbi-public-video-column-width-tablet: 265px;
+        --bitbi-public-sound-card-width: 330px;
+        --bitbi-public-sound-gap: 3px;
     }
 
     /* --- Tilt Card --- */
@@ -3367,8 +3367,11 @@
         .snd-card {
             display: flex;
             flex-direction: column;
+            box-sizing: border-box;
+            flex-basis: var(--bitbi-public-sound-card-width);
             inline-size: var(--bitbi-public-sound-card-width);
-            max-inline-size: 100%;
+            min-inline-size: var(--bitbi-public-sound-card-width);
+            max-inline-size: var(--bitbi-public-sound-card-width);
         }
 
         .snd-hero {
