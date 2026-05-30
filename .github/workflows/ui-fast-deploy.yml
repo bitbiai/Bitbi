@@ -17,6 +17,15 @@
 # internal guard still compares all changed files because a mixed commit can
 # include both an allowed UI file and a risky file. Mixed/risky changes fail
 # before validation, before the Pages environment, and before Pages concurrency.
+#
+# Operator policy:
+# - Normal UI work should use normal commits and `git push origin main`.
+# - Avoid `git commit --amend` / force-push for routine UI deploys; if a push
+#   base disappears, the guard will fall back to HEAD^ only when that is safe.
+# - Manual workflow dispatch can intentionally redeploy current HEAD with
+#   `allow_empty_deploy=true`.
+# - For manual changed-file checks, provide a known previous commit SHA in
+#   `base_ref`.
 
 name: Fast UI Deploy to Pages
 
@@ -40,6 +49,14 @@ on:
         description: "Optional base ref/SHA for changed-file guard. Defaults to HEAD^."
         required: false
         default: ""
+      allow_empty_deploy:
+        description: "Allow an intentional manual redeploy when no changed files are found."
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -55,6 +72,7 @@ jobs:
       ui_only: ${{ steps.changed-files.outputs.ui_only }}
       base_ref: ${{ steps.changed-files.outputs.base_ref }}
       head_ref: ${{ steps.changed-files.outputs.head_ref }}
+      empty_deploy: ${{ steps.changed-files.outputs.empty_deploy }}
     steps:
       - name: Checkout full history
         uses: actions/checkout@v5
@@ -68,30 +86,81 @@ jobs:
           PUSH_BASE: ${{ github.event.before }}
           PUSH_HEAD: ${{ github.sha }}
           MANUAL_BASE: ${{ github.event.inputs.base_ref }}
+          ALLOW_EMPTY_DEPLOY: ${{ github.event.inputs.allow_empty_deploy || 'false' }}
         run: |
           set -euo pipefail
 
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            HEAD_REF="$PUSH_HEAD"
-            BASE_REF="${MANUAL_BASE:-HEAD^}"
-          else
-            HEAD_REF="$PUSH_HEAD"
-            BASE_REF="$PUSH_BASE"
-          fi
+          is_truthy() {
+            case "${1:-}" in
+              true|TRUE|True|1|yes|YES|Yes) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
 
-          if [ -z "${BASE_REF:-}" ] || echo "$BASE_REF" | grep -Eq '^0+$'; then
-            echo "Fast UI deploy cannot determine a safe base ref."
-            echo "For workflow_dispatch, provide a base_ref. For push events, github.event.before must be available."
+          is_zero_sha() {
+            [ -z "${1:-}" ] || echo "$1" | grep -Eq '^0+$'
+          }
+
+          is_valid_commit() {
+            [ -n "${1:-}" ] && git cat-file -e "$1^{commit}" 2>/dev/null
+          }
+
+          fail_friendly() {
+            echo "::error::$1"
+            echo "$1"
             exit 1
+          }
+
+          FALLBACK_USED="false"
+          EMPTY_DEPLOY="false"
+          ALLOW_EMPTY="false"
+          if is_truthy "$ALLOW_EMPTY_DEPLOY"; then
+            ALLOW_EMPTY="true"
           fi
 
-          git rev-parse --verify "$BASE_REF^{commit}" >/dev/null
-          git rev-parse --verify "$HEAD_REF^{commit}" >/dev/null
+          HEAD_REF="$PUSH_HEAD"
+          if ! is_valid_commit "$HEAD_REF"; then
+            fail_friendly "Fast UI deploy cannot validate head ref '$HEAD_REF'. Re-run after checkout has full history or use the full static workflow."
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -n "${MANUAL_BASE:-}" ]; then
+              BASE_REF="$MANUAL_BASE"
+              if ! is_valid_commit "$BASE_REF"; then
+                fail_friendly "Manual Fast UI deploy base_ref '$BASE_REF' is not a valid commit in this checkout. Provide a known previous commit SHA or rerun with allow_empty_deploy=true only for an intentional current-HEAD redeploy."
+              fi
+            elif is_valid_commit "HEAD^"; then
+              BASE_REF="HEAD^"
+            elif [ "$ALLOW_EMPTY" = "true" ]; then
+              BASE_REF="$HEAD_REF"
+              EMPTY_DEPLOY="true"
+            else
+              fail_friendly "Manual Fast UI deploy could not find a valid default base (HEAD^). Provide base_ref, or rerun with allow_empty_deploy=true to intentionally redeploy current HEAD."
+            fi
+          else
+            BASE_REF="$PUSH_BASE"
+            if is_zero_sha "$BASE_REF" || ! is_valid_commit "$BASE_REF"; then
+              echo "::warning::Push base '$BASE_REF' is unavailable in this checkout. This can happen after amend/force-push. Falling back to HEAD^ if it is valid."
+              if is_valid_commit "HEAD^"; then
+                BASE_REF="HEAD^"
+                FALLBACK_USED="true"
+              else
+                fail_friendly "Fast UI deploy cannot resolve push base '$PUSH_BASE' and HEAD^ is not available. Push a normal UI-only commit, provide a manual base_ref through workflow_dispatch, or use the full static workflow."
+              fi
+            fi
+          fi
+
+          if ! is_valid_commit "$BASE_REF"; then
+            fail_friendly "Fast UI deploy selected base ref '$BASE_REF', but it is not a valid commit. Provide a known previous commit SHA or use the full static workflow."
+          fi
 
           echo "Changed-file guard"
-          echo "- Event: $EVENT_NAME"
-          echo "- Base:  $BASE_REF"
-          echo "- Head:  $HEAD_REF"
+          echo "- Event:                  $EVENT_NAME"
+          echo "- Selected base ref:      $BASE_REF"
+          echo "- Head ref:               $HEAD_REF"
+          echo "- Fallback used:          $FALLBACK_USED"
+          echo "- Allow empty deploy:     $ALLOW_EMPTY"
+          echo "- Intentional empty run:  $EMPTY_DEPLOY"
           echo
 
           mapfile -t changed_files < <(git diff --name-only --no-renames "$BASE_REF" "$HEAD_REF" | sort)
@@ -105,9 +174,15 @@ jobs:
           echo
 
           if [ "${#changed_files[@]}" -eq 0 ]; then
-            echo "No changed files were found; refusing fast deploy to avoid an accidental production redeploy."
-            exit 1
+            if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$ALLOW_EMPTY" = "true" ]; then
+              EMPTY_DEPLOY="true"
+              echo "No changed files were found. Continuing because this is an intentional manual empty redeploy."
+            else
+              fail_friendly "No changed files were found. For workflow_dispatch, provide base_ref or rerun with allow_empty_deploy=true for an intentional current-HEAD redeploy. Push events must contain a UI-only diff."
+            fi
           fi
+          echo "- Intentional empty run after diff: $EMPTY_DEPLOY"
+          echo
 
           is_ui_safe_path() {
             case "$1" in
@@ -151,6 +226,7 @@ jobs:
           printf 'ui_only=true\n' >> "$GITHUB_OUTPUT"
           printf 'base_ref=%s\n' "$BASE_REF" >> "$GITHUB_OUTPUT"
           printf 'head_ref=%s\n' "$HEAD_REF" >> "$GITHUB_OUTPUT"
+          printf 'empty_deploy=%s\n' "$EMPTY_DEPLOY" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Validate and deploy UI-only change

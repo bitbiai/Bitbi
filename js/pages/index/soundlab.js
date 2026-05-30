@@ -100,30 +100,6 @@ export function initSoundLab(revealObserver) {
         return `${rounded}px`;
     }
 
-    function roundLayoutValue(value) {
-        return Math.round((Number(value) || 0) * 1000) / 1000;
-    }
-
-    function buildSoundWallSignature({
-        gridWidth = 0,
-        gapPx = 0,
-        baseWidthPx = 0,
-        itemCount = 0,
-        capacity = 1,
-        columnCount = 1,
-        resolvedWidthPx = 0,
-    } = {}) {
-        return [
-            roundLayoutValue(gridWidth),
-            roundLayoutValue(gapPx),
-            roundLayoutValue(baseWidthPx),
-            Number(itemCount) || 0,
-            Number(capacity) || 1,
-            Number(columnCount) || 1,
-            roundLayoutValue(resolvedWidthPx),
-        ].join('|');
-    }
-
     function getMemtrackWidthMetrics() {
         const isDesktopLayout = !!desktopSoundLayoutQuery?.matches;
         if (!isDesktopLayout || typeof window.getComputedStyle !== 'function') {
@@ -134,12 +110,6 @@ export function initSoundLab(revealObserver) {
                 columnCount: 1,
                 resolvedWidthPx: 330,
                 widthValue: 'var(--bitbi-public-sound-card-width)',
-                itemCount: 0,
-                signature: buildSoundWallSignature({
-                    gapPx: 3,
-                    baseWidthPx: 330,
-                    resolvedWidthPx: 330,
-                }),
             };
         }
         const rect = ctn.getBoundingClientRect();
@@ -164,20 +134,14 @@ export function initSoundLab(revealObserver) {
         const resolvedWidth = rect.width && columnCount > 0
             ? Math.max(target, Math.floor(((rect.width - (gap * (columnCount - 1))) / columnCount) * 1000) / 1000)
             : target;
-        const metrics = {
+        return {
             isDesktopLayout,
-            gridWidth: rect.width || 0,
             baseWidthPx: target,
             gapPx: gap,
             capacity,
             columnCount,
             resolvedWidthPx: resolvedWidth,
-            itemCount,
             widthValue: toPixelString(resolvedWidth),
-        };
-        return {
-            ...metrics,
-            signature: buildSoundWallSignature(metrics),
         };
     }
 
@@ -195,104 +159,36 @@ export function initSoundLab(revealObserver) {
         card.style.setProperty('align-self', 'start');
     }
 
-    function setSoundWallReady(ready) {
-        const value = ready ? 'true' : 'false';
-        ctn.dataset.soundWallReady = value;
-        ctn.dataset.soundWidthReady = value;
-    }
-
-    function storeSoundWallMetrics(metrics) {
-        ctn.dataset.soundWallGridWidth = String(metrics.gridWidth || 0);
-        ctn.dataset.soundWallBaseWidth = String(metrics.baseWidthPx);
-        ctn.dataset.soundWallResolvedWidth = String(metrics.resolvedWidthPx);
-        ctn.dataset.soundWallGap = String(metrics.gapPx);
-        ctn.dataset.soundWallColumnCount = String(metrics.columnCount);
-        ctn.dataset.soundWallCapacity = String(metrics.capacity);
-        ctn.dataset.soundWallItemCount = String(metrics.itemCount || 0);
-        ctn.dataset.soundWallSignature = metrics.signature || '';
-        ctn.dataset.soundCardWidthPx = String(metrics.resolvedWidthPx);
-    }
-
-    function visibleMemtrackRects() {
-        return Array.from(ctn.querySelectorAll('.snd-card--memtrack'))
-            .filter((card) => card.offsetParent !== null)
-            .map((card) => card.getBoundingClientRect());
-    }
-
-    function soundWallMetricsAreStale(storedMetrics, currentMetrics) {
-        const numericDrift = (key, tolerance) => (
-            Math.abs((Number(storedMetrics?.[key]) || 0) - (Number(currentMetrics?.[key]) || 0)) > tolerance
-        );
-        const integerChanged = (key) => (
-            Number(storedMetrics?.[key]) !== Number(currentMetrics?.[key])
-        );
-
-        return numericDrift('gridWidth', 0.5)
-            || numericDrift('gapPx', 0.1)
-            || numericDrift('baseWidthPx', 0.1)
-            || numericDrift('resolvedWidthPx', 1)
-            || integerChanged('itemCount')
-            || integerChanged('capacity')
-            || integerChanged('columnCount');
-    }
-
-    function validateSoundWallLayout(metrics) {
-        const currentMetrics = getMemtrackWidthMetrics();
-        if (!currentMetrics.isDesktopLayout || !currentMetrics.gridWidth) {
-            return { ready: false, stale: false, currentMetrics };
-        }
-        if (soundWallMetricsAreStale(metrics, currentMetrics)) {
-            return { ready: false, stale: true, currentMetrics };
-        }
-        const rects = visibleMemtrackRects();
-        const expectedWidth = currentMetrics.resolvedWidthPx;
-        const ready = rects.length === currentMetrics.itemCount
-            && rects.every((rect) => Math.abs(rect.width - expectedWidth) <= 2);
-        return { ready, stale: false, currentMetrics };
-    }
-
-    function scheduleSoundWallReadyValidation(metrics, syncToken, correctionAttempt) {
-        const validate = () => {
-            if (ctn.dataset.soundWallRenderToken !== syncToken) return;
-            const validation = validateSoundWallLayout(metrics);
-            if (validation.stale && correctionAttempt < 2) {
-                syncMemtrackCardWidths(correctionAttempt + 1);
-                return;
-            }
-            if (validation.ready) {
-                storeSoundWallMetrics(validation.currentMetrics);
-            }
-            setSoundWallReady(validation.ready);
-        };
-        window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(validate);
-        });
-        window.setTimeout(validate, 140);
-    }
-
-    function syncMemtrackCardWidths(correctionAttempt = 0) {
-        const metrics = getMemtrackWidthMetrics();
-        const { isDesktopLayout, columnCount, widthValue } = metrics;
-        const syncToken = String((Number(ctn.dataset.soundWallRenderToken) || 0) + 1);
-        ctn.dataset.soundWallRenderToken = syncToken;
-        setSoundWallReady(false);
+    function syncMemtrackCardWidths() {
+        const {
+            isDesktopLayout,
+            baseWidthPx,
+            gapPx,
+            capacity,
+            columnCount,
+            resolvedWidthPx,
+            widthValue,
+        } = getMemtrackWidthMetrics();
+        ctn.dataset.soundWallReady = 'false';
+        ctn.dataset.soundWidthReady = 'false';
         if (isDesktopLayout) {
             ctn.style.gridTemplateColumns = `repeat(${columnCount}, ${widthValue})`;
             ctn.style.setProperty('--bitbi-public-sound-card-resolved-width', widthValue);
-            storeSoundWallMetrics(metrics);
+            ctn.dataset.soundWallBaseWidth = String(baseWidthPx);
+            ctn.dataset.soundWallResolvedWidth = String(resolvedWidthPx);
+            ctn.dataset.soundWallGap = String(gapPx);
+            ctn.dataset.soundWallColumnCount = String(columnCount);
+            ctn.dataset.soundWallCapacity = String(capacity);
+            ctn.dataset.soundCardWidthPx = String(resolvedWidthPx);
         } else {
             ctn.style.gridTemplateColumns = '';
             ctn.style.removeProperty('--bitbi-public-sound-card-resolved-width');
             delete ctn.dataset.soundWallReady;
-            delete ctn.dataset.soundWallGridWidth;
             delete ctn.dataset.soundWallBaseWidth;
             delete ctn.dataset.soundWallResolvedWidth;
             delete ctn.dataset.soundWallGap;
             delete ctn.dataset.soundWallColumnCount;
             delete ctn.dataset.soundWallCapacity;
-            delete ctn.dataset.soundWallItemCount;
-            delete ctn.dataset.soundWallSignature;
-            delete ctn.dataset.soundWallRenderToken;
             delete ctn.dataset.soundWidthReady;
             delete ctn.dataset.soundCardWidthPx;
         }
@@ -300,7 +196,8 @@ export function initSoundLab(revealObserver) {
             .filter((card) => card.classList.contains('snd-card--memtrack'))
             .forEach((card) => lockMemtrackCardWidth(card, widthValue));
         if (isDesktopLayout) {
-            scheduleSoundWallReadyValidation(metrics, syncToken, correctionAttempt);
+            ctn.dataset.soundWallReady = 'true';
+            ctn.dataset.soundWidthReady = 'true';
         }
     }
 
@@ -1081,8 +978,9 @@ export function initSoundLab(revealObserver) {
     if (typeof ResizeObserver === 'function') {
         memtrackResizeObserver = new ResizeObserver(scheduleMemtrackWidthSync);
         memtrackResizeObserver.observe(ctn);
+    } else {
+        window.addEventListener('resize', scheduleMemtrackWidthSync, { passive: true });
     }
-    window.addEventListener('resize', scheduleMemtrackWidthSync, { passive: true });
     const categoryStage = document.getElementById('homeCategories');
     if (categoryStage && 'MutationObserver' in window) {
         memtrackStageObserver = new MutationObserver(scheduleMemtrackWidthSync);

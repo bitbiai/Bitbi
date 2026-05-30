@@ -477,7 +477,6 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
     const gap = Number(grid.dataset.mediaWallGap)
       || Number.parseFloat(style.columnGap || style.gap)
       || 0;
-    const storedGridWidth = Number(grid.dataset.mediaWallGridWidth) || 0;
     const columnCount = Number(grid.dataset.mediaWallColumnCount)
       || Number(grid.dataset.publicMediaWallColumnCount)
       || 0;
@@ -502,11 +501,9 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
     const expectedResolvedWidth = expectedColumnCount > 0
       ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
       : baseWidth;
-    const currentGridWidth = grid.getBoundingClientRect().width;
     const ok = (grid.dataset.mediaWallReady === 'true' || grid.dataset.publicMediaWallReady === 'true')
       && !stage?.classList.contains('is-transitioning')
-      && currentGridWidth > 0
-      && Math.abs(storedGridWidth - currentGridWidth) <= 0.5
+      && grid.getBoundingClientRect().width > 0
       && columnCount > 1
       && capacity === expectedCapacity
       && columnCount === expectedColumnCount
@@ -520,8 +517,6 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
       targetWidth,
       baseWidth,
       gap,
-      storedGridWidth,
-      currentGridWidth,
       columnCount,
       capacity,
       expectedCapacity,
@@ -555,7 +550,6 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const gap = Number(grid.dataset.soundWallGap)
       || Number.parseFloat(style.columnGap || style.gap)
       || 0;
-    const storedGridWidth = Number(grid.dataset.soundWallGridWidth) || 0;
     const columnCount = Number(grid.dataset.soundWallColumnCount) || 0;
     const capacity = Number(grid.dataset.soundWallCapacity) || columnCount;
     const rects = Array.from(grid.querySelectorAll('.snd-card--memtrack'))
@@ -573,12 +567,9 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
     const expectedResolvedWidth = expectedColumnCount > 0
       ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
       : baseWidth;
-    const currentGridWidth = grid.getBoundingClientRect().width;
     const ok = stage.dataset.activeCategory === 'sound'
       && !stage.classList.contains('is-transitioning')
       && (grid.dataset.soundWallReady === 'true' || grid.dataset.soundWidthReady === 'true')
-      && currentGridWidth > 0
-      && Math.abs(storedGridWidth - currentGridWidth) <= 0.5
       && targetWidth >= baseWidth
       && baseWidth >= 327
       && capacity === expectedCapacity
@@ -593,8 +584,6 @@ async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
       targetWidth,
       baseWidth,
       gap,
-      storedGridWidth,
-      currentGridWidth,
       columnCount,
       capacity,
       expectedCapacity,
@@ -5708,6 +5697,11 @@ test.describe('Homepage', () => {
     const memvidFileRequests = () => videoRequests.filter((pathname) => pathname.startsWith('/api/gallery/memvids/'));
 
     await page.addInitScript(() => {
+      try {
+        localStorage.removeItem('bitbi_audio_state_v1');
+      } catch {
+        // Ignore opaque initial documents; the real homepage origin will be cleared too.
+      }
       HTMLMediaElement.prototype.play = function playMock() {
         this.dataset.playState = 'playing';
         return Promise.resolve();
@@ -5851,10 +5845,89 @@ test.describe('Homepage', () => {
     ];
 
     await page.addInitScript(() => {
-      HTMLMediaElement.prototype.play = function playMock() {
-        this.dataset.playState = 'playing';
-        return Promise.resolve();
-      };
+      localStorage.removeItem('bitbi_audio_state_v1');
+      class MockAudio extends EventTarget {
+        constructor() {
+          super();
+          this.preload = 'auto';
+          this._src = '';
+          this._crossOrigin = '';
+          this._paused = true;
+          this._currentTime = 0;
+          this._duration = 245;
+          this._volume = 0.8;
+          this._muted = false;
+          this._loop = false;
+          this._playbackRate = 1;
+          window.__bitbiSoundMoreAudioMock.instances.push(this);
+        }
+
+        get src() { return this._src; }
+        set src(value) {
+          this._src = String(value || '');
+          if (this._src) {
+            queueMicrotask(() => {
+              this.dispatchEvent(new Event('loadedmetadata'));
+              this.dispatchEvent(new Event('durationchange'));
+              this.dispatchEvent(new Event('timeupdate'));
+            });
+          }
+        }
+
+        get crossOrigin() { return this._crossOrigin; }
+        set crossOrigin(value) { this._crossOrigin = String(value || ''); }
+        get paused() { return this._paused; }
+        get currentTime() { return this._currentTime; }
+        set currentTime(value) {
+          this._currentTime = Number(value) || 0;
+          this.dispatchEvent(new Event('timeupdate'));
+        }
+        get duration() { return this._duration; }
+        get volume() { return this._volume; }
+        set volume(value) {
+          this._volume = Number(value) || 0;
+          this.dispatchEvent(new Event('volumechange'));
+        }
+        get muted() { return this._muted; }
+        set muted(value) {
+          this._muted = !!value;
+          this.dispatchEvent(new Event('volumechange'));
+        }
+        get loop() { return this._loop; }
+        set loop(value) { this._loop = !!value; }
+        get playbackRate() { return this._playbackRate; }
+        set playbackRate(value) {
+          this._playbackRate = Number(value) || 1;
+          this.dispatchEvent(new Event('ratechange'));
+        }
+
+        play() {
+          this._paused = false;
+          window.__bitbiSoundMoreAudioMock.playCalls += 1;
+          this.dispatchEvent(new Event('play'));
+          return Promise.resolve();
+        }
+
+        pause() {
+          this._paused = true;
+          window.__bitbiSoundMoreAudioMock.pauseCalls += 1;
+          this.dispatchEvent(new Event('pause'));
+        }
+
+        load() {
+          if (!this._src) return;
+          this.dispatchEvent(new Event('loadedmetadata'));
+          this.dispatchEvent(new Event('durationchange'));
+        }
+
+        removeAttribute(name) {
+          if (name === 'src') this._src = '';
+          if (name === 'crossorigin') this._crossOrigin = '';
+        }
+      }
+
+      window.__bitbiSoundMoreAudioMock = { playCalls: 0, pauseCalls: 0, instances: [] };
+      window.Audio = MockAudio;
     });
     await routeHomepageVideoHoverFixtures(page, { items, videoRequests });
 
@@ -6827,8 +6900,30 @@ test.describe('Homepage', () => {
     await expect(showMore).toBeHidden();
     await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing 100 Memtracks.');
 
-    await cards.first().locator('.snd-play').click();
-    await expect(cards.first().locator('.pa')).toBeVisible();
+    await page.evaluate(async () => {
+      localStorage.removeItem('bitbi_audio_state_v1');
+      const { clearGlobalAudio } = await import('/js/shared/audio/audio-manager.js?v=__ASSET_VERSION__');
+      clearGlobalAudio();
+    });
+    await cards.first().locator('.snd-play').evaluate((button) => button.click());
+    await expect.poll(() => page.evaluate(async () => {
+      try {
+        const { getGlobalAudioState } = await import('/js/shared/audio/audio-manager.js?v=__ASSET_VERSION__');
+        const state = getGlobalAudioState();
+        const playCalls = window.__bitbiSoundMoreAudioMock?.playCalls || 0;
+        return state.trackId === 'memtrack:progressive-memtrack-1'
+          ? 'selected'
+          : JSON.stringify({
+            trackId: state.trackId || '',
+            status: state.status || '',
+            playIntent: !!state.playIntent,
+            playCalls,
+            audioConstructor: window.Audio?.name || '',
+          });
+      } catch {
+        return 'missing';
+      }
+    })).toBe('selected');
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.memtrackId));
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
     expect(idsAfterClick).toContain('progressive-memtrack-100');

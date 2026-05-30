@@ -596,6 +596,7 @@ export function initGallery() {
         renderGalleryCards(list);
         syncCategoryGhostModels('gallery', list);
         updateMempicsPagination(filter);
+        scheduleMempicsWideLimitSync();
     }
 
     render(MEMPICS_CATEGORY);
@@ -786,8 +787,9 @@ export function initGallery() {
     if ('ResizeObserver' in window) {
         mempicsResizeObserver = new ResizeObserver(scheduleMempicsWideLimitSync);
         mempicsResizeObserver.observe(grid);
+    } else {
+        window.addEventListener('resize', scheduleMempicsWideLimitSync, { passive: true });
     }
-    window.addEventListener('resize', scheduleMempicsWideLimitSync, { passive: true });
     const categoryStage = document.getElementById('homeCategories');
     if (categoryStage && 'MutationObserver' in window) {
         mempicsStageObserver = new MutationObserver(scheduleMempicsWideLimitSync);
@@ -799,6 +801,7 @@ export function initGallery() {
     const handleMempicsCategoryActivation = (event) => {
         if (event?.detail?.category !== 'gallery') return;
         scheduleMempicsWideLimitSync();
+        window.setTimeout(scheduleMempicsWideLimitSync, 180);
     };
     document.addEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
     document.fonts?.ready?.then(scheduleMempicsWideLimitSync).catch(() => {});

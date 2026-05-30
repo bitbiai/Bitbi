@@ -165,6 +165,7 @@ export function initVideoGallery() {
     function handleMemvidsCategoryActivation(event) {
         if (event?.detail?.category !== 'video') return;
         scheduleMemvidsWideLimitSync();
+        window.setTimeout(scheduleMemvidsWideLimitSync, 180);
     }
 
     function canRevealMoreMemvids() {
@@ -911,6 +912,7 @@ export function initVideoGallery() {
         renderVideoCards(items);
         syncCategoryGhostModels('video', items);
         updateMemvidsPagination();
+        scheduleMemvidsWideLimitSync();
     }
 
     async function loadMoreMemvids() {
@@ -1084,8 +1086,9 @@ export function initVideoGallery() {
     if ('ResizeObserver' in window) {
         memvidsResizeObserver = new ResizeObserver(scheduleMemvidsWideLimitSync);
         memvidsResizeObserver.observe(grid);
+    } else {
+        window.addEventListener('resize', scheduleMemvidsWideLimitSync, { passive: true });
     }
-    window.addEventListener('resize', scheduleMemvidsWideLimitSync, { passive: true });
     const categoryStage = document.getElementById('homeCategories');
     if (categoryStage && 'MutationObserver' in window) {
         memvidsStageObserver = new MutationObserver(scheduleMemvidsWideLimitSync);
