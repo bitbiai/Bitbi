@@ -4745,12 +4745,18 @@
             inset-block-start: calc(var(--latest-models-video-stack-height) + clamp(0.42rem, 0.9vh, 0.68rem));
             inset-inline-start: 60%;
             z-index: 4;
+            inline-size: max-content;
             font-family: var(--font-mono);
             font-size: clamp(0.66rem, 0.82vw, 0.9rem);
             font-weight: 900;
             line-height: 1;
             letter-spacing: 0.07em;
             text-transform: uppercase;
+            white-space: nowrap;
+            text-wrap: nowrap;
+            hyphens: none;
+            word-break: normal;
+            overflow-wrap: normal;
             color: rgba(246, 252, 255, 0.94);
             background:
                 linear-gradient(92deg, rgba(255, 255, 255, 1), rgba(0, 240, 255, 0.9) 39%, rgba(255, 226, 158, 0.96) 82%),
@@ -5024,7 +5030,7 @@
 
         .hero--homepage .hero__actions--single-cta {
             margin-block-start: 0;
-            padding-block-start: clamp(9rem, calc(46.7vh - 11.75rem), 14.5rem);
+            padding-block-start: clamp(6.5rem, calc(30vh - 8.6rem), 8.25rem);
         }
 
         .hero--homepage .hero__scroll-hint {
@@ -5039,6 +5045,10 @@
             .hero__models-cta {
                 --latest-models-module-width: clamp(10.75rem, 18vw, 13rem);
                 --latest-models-module-height: clamp(21rem, 58vh, 32rem);
+            }
+
+            .hero--homepage .hero__actions--single-cta {
+                padding-block-start: clamp(5.2rem, calc(22vh - 5.9rem), 6.6rem);
             }
         }
 

@@ -3108,6 +3108,7 @@ test.describe('Homepage', () => {
   });
 
   test('hero section renders', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
     const hero = page.locator('#hero');
     const teaser = hero.locator('.hero__lab-teaser');
@@ -3155,10 +3156,23 @@ test.describe('Homepage', () => {
       const titleRect = titleEl?.getBoundingClientRect();
       const scrollHintRect = scrollHintEl?.getBoundingClientRect();
       const navRect = navEl?.getBoundingClientRect();
+      const modelLabelMetrics = Array.from(document.querySelectorAll('#hero .latest-models-video-module__label'))
+        .map((label) => {
+          const rect = label.getBoundingClientRect();
+          const style = window.getComputedStyle(label);
+          return {
+            centerY: rect.top + rect.height / 2,
+            height: rect.height,
+            whiteSpace: style.whiteSpace,
+            hyphens: style.hyphens,
+            textWrap: style.textWrap,
+          };
+        });
       const scrollHintTranslateY = scrollHintStyle?.transform && scrollHintStyle.transform !== 'none'
         ? new DOMMatrixReadOnly(scrollHintStyle.transform).m42
         : 0;
       const scrollHintLayoutTop = scrollHintRect ? scrollHintRect.top - scrollHintTranslateY : 0;
+      const teaserCenterY = teaserRect ? teaserRect.top + teaserRect.height / 2 : 0;
       return {
         actionClass: actionsEl?.className || '',
         actionJustifyContent: actionsEl ? window.getComputedStyle(actionsEl).justifyContent : '',
@@ -3174,6 +3188,13 @@ test.describe('Homepage', () => {
           : Number.POSITIVE_INFINITY,
         titleHeaderGap: titleRect && navRect ? titleRect.top - navRect.bottom : 0,
         teaserToScrollGap: teaserRect && scrollHintRect ? scrollHintLayoutTop - teaserRect.bottom : 0,
+        modelLabelCenterDelta: modelLabelMetrics.length
+          ? Math.max(...modelLabelMetrics.map((label) => Math.abs(label.centerY - teaserCenterY)))
+          : Number.POSITIVE_INFINITY,
+        modelLabelsSingleLine: modelLabelMetrics.every((label) => label.height < 18),
+        modelLabelsNoWrap: modelLabelMetrics.every((label) => label.whiteSpace === 'nowrap'
+          && label.hyphens === 'none'
+          && label.textWrap === 'nowrap'),
         minBlockSize: teaserStyle ? parseFloat(teaserStyle.minHeight || teaserStyle.minBlockSize || '0') : 0,
         teaserFontSize: teaserStyle ? parseFloat(teaserStyle.fontSize) : 0,
         textTransform: teaserStyle?.textTransform || '',
@@ -3194,7 +3215,10 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.titleHeight).toBeGreaterThan(320);
     expect(teaserMetrics.titleCenterOffset).toBeLessThanOrEqual(2);
     expect(teaserMetrics.titleHeaderGap).toBeGreaterThanOrEqual(0);
-    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(60);
+    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(18);
+    expect(teaserMetrics.modelLabelCenterDelta).toBeLessThanOrEqual(3);
+    expect(teaserMetrics.modelLabelsSingleLine).toBe(true);
+    expect(teaserMetrics.modelLabelsNoWrap).toBe(true);
     expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(34);
     expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);
     expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
