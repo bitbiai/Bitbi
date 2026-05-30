@@ -17,9 +17,9 @@ import {
 import { syncCategoryGhostModels } from './category-ghost-models.js?v=__ASSET_VERSION__';
 import { orderPublicExploreItems } from './explore-order.js?v=__ASSET_VERSION__';
 import {
+    calculateFixedMediaWallMetrics,
     clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
-    syncFixedMediaWallColumnCount,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
@@ -109,20 +109,18 @@ export function initGallery() {
     }
 
     function syncWideColumnCount(itemCount = 0) {
-        return syncFixedMediaWallColumnCount(grid, {
-            countProperty: '--bitbi-public-gallery-column-count',
+        return calculateFixedMediaWallMetrics(grid, {
             targetWidthProperty: '--bitbi-public-gallery-active-column-width',
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
             itemCount,
-        });
+        }).columnCount;
     }
 
     function getWideColumnCapacity() {
-        return syncFixedMediaWallColumnCount(grid, {
-            countProperty: '',
+        return calculateFixedMediaWallMetrics(grid, {
             targetWidthProperty: '--bitbi-public-gallery-active-column-width',
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
-        });
+        }).columnCount;
     }
 
     function getWideMempicsInitialLimit() {
@@ -393,10 +391,15 @@ export function initGallery() {
         try {
             const loaded = await fetchNextMempicsPage();
             if (!loaded) return;
-            if (!isPublicWideLayoutEnabled()) {
+            if (isPublicWideLayoutEnabled()) {
+                mempicsVisibleLimit = Math.min(
+                    Math.max(mempicsVisibleLimit, getWideMempicsInitialLimit()),
+                    mempicsState.items.length,
+                );
+            } else {
                 mempicsVisibleLimit = mempicsState.items.length;
             }
-            render(MEMPICS_CATEGORY);
+            await render(MEMPICS_CATEGORY);
         } catch (error) {
             errorMessage = localeText('browse.mempicsLoadMoreFailed');
             console.warn('mempics load more:', error);

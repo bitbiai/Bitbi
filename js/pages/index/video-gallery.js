@@ -21,9 +21,9 @@ import {
     orderPublicMemvidItems,
 } from './public-memvids.js?v=__ASSET_VERSION__';
 import {
+    calculateFixedMediaWallMetrics,
     clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
-    syncFixedMediaWallColumnCount,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
@@ -131,20 +131,18 @@ export function initVideoGallery() {
     }
 
     function syncWideColumnCount(itemCount = 0) {
-        return syncFixedMediaWallColumnCount(grid, {
-            countProperty: '--bitbi-public-video-column-count',
+        return calculateFixedMediaWallMetrics(grid, {
             targetWidthProperty: '--bitbi-public-video-active-column-width',
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
             itemCount,
-        });
+        }).columnCount;
     }
 
     function getWideColumnCapacity() {
-        return syncFixedMediaWallColumnCount(grid, {
-            countProperty: '',
+        return calculateFixedMediaWallMetrics(grid, {
             targetWidthProperty: '--bitbi-public-video-active-column-width',
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
-        });
+        }).columnCount;
     }
 
     function getWideMemvidsInitialLimit() {
@@ -967,10 +965,15 @@ export function initVideoGallery() {
         try {
             const loaded = await fetchNextMemvidsPage();
             if (!loaded) return;
-            if (!isPublicWideLayoutEnabled()) {
+            if (isPublicWideLayoutEnabled()) {
+                memvidsVisibleLimit = Math.min(
+                    Math.max(memvidsVisibleLimit, getWideMemvidsInitialLimit()),
+                    memvidsState.items.length,
+                );
+            } else {
                 memvidsVisibleLimit = memvidsState.items.length;
             }
-            render();
+            await render();
         } catch (error) {
             errorMessage = localeText('browse.memvidsLoadMoreFailed');
             console.warn('memvids load more:', error);

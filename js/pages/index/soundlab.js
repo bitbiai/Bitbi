@@ -91,9 +91,14 @@ export function initSoundLab(revealObserver) {
         return `${rounded}px`;
     }
 
-    function getMemtrackWidthValue() {
-        if (!desktopSoundLayoutQuery?.matches || typeof window.getComputedStyle !== 'function') {
-            return 'var(--bitbi-public-sound-card-width)';
+    function getMemtrackWidthMetrics() {
+        const isDesktopLayout = !!desktopSoundLayoutQuery?.matches;
+        if (!isDesktopLayout || typeof window.getComputedStyle !== 'function') {
+            return {
+                isDesktopLayout,
+                widthPx: 330,
+                widthValue: 'var(--bitbi-public-sound-card-width)',
+            };
         }
         const style = window.getComputedStyle(ctn);
         const target = parseCssLengthToPixels(
@@ -101,7 +106,11 @@ export function initSoundLab(revealObserver) {
             330,
             ctn,
         );
-        return toPixelString(target);
+        return {
+            isDesktopLayout,
+            widthPx: target,
+            widthValue: toPixelString(target),
+        };
     }
 
     function lockMemtrackCardWidth(card, widthValue) {
@@ -119,17 +128,21 @@ export function initSoundLab(revealObserver) {
     }
 
     function syncMemtrackCardWidths() {
-        const widthValue = getMemtrackWidthValue();
-        if (desktopSoundLayoutQuery?.matches) {
+        const { isDesktopLayout, widthPx, widthValue } = getMemtrackWidthMetrics();
+        ctn.dataset.soundWidthReady = 'false';
+        if (isDesktopLayout) {
             ctn.style.gridTemplateColumns = `repeat(auto-fill, ${widthValue})`;
             ctn.style.setProperty('--bitbi-public-sound-card-resolved-width', widthValue);
+            ctn.dataset.soundCardWidthPx = String(Math.round(widthPx * 100) / 100);
         } else {
             ctn.style.gridTemplateColumns = '';
             ctn.style.removeProperty('--bitbi-public-sound-card-resolved-width');
+            delete ctn.dataset.soundCardWidthPx;
         }
         Array.from(ctn.children)
             .filter((card) => card.classList.contains('snd-card--memtrack'))
             .forEach((card) => lockMemtrackCardWidth(card, widthValue));
+        ctn.dataset.soundWidthReady = isDesktopLayout ? 'true' : 'false';
     }
 
     function scheduleMemtrackWidthSync() {

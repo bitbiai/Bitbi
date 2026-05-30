@@ -38,25 +38,29 @@ function lockNodeToWidth(node, widthPx) {
 
 function lockCardToColumn(card) {
     if (!card) return;
+    card.style.setProperty('box-sizing', 'border-box');
     card.style.setProperty('width', '100%');
     card.style.setProperty('inline-size', '100%');
     card.style.setProperty('max-inline-size', '100%');
     card.style.setProperty('min-inline-size', '0');
 }
 
-export function syncFixedMediaWallColumnCount(grid, {
-    countProperty,
+export function calculateFixedMediaWallMetrics(grid, {
     targetWidthProperty,
     fallbackColumnWidth = 216,
     itemCount = 0,
 } = {}) {
-    if (!grid || typeof window.getComputedStyle !== 'function') return 1;
-    const current = Number.parseInt(grid.style.getPropertyValue(countProperty), 10);
-    const rect = grid.getBoundingClientRect();
-    if (!rect.width) {
-        return Number.isFinite(current) && current > 0 ? current : 1;
+    const fallbackWidth = Number(fallbackColumnWidth) > 0 ? Number(fallbackColumnWidth) : 216;
+    if (!grid || typeof window.getComputedStyle !== 'function') {
+        return {
+            gridWidth: 0,
+            gapPx: 10,
+            targetWidthPx: fallbackWidth,
+            columnCount: 1,
+        };
     }
 
+    const rect = grid.getBoundingClientRect();
     const style = window.getComputedStyle(grid);
     const gap = parseCssLengthToPixels(
         style.columnGap || style.gap || style.getPropertyValue('--bitbi-public-media-gap'),
@@ -68,15 +72,21 @@ export function syncFixedMediaWallColumnCount(grid, {
         fallbackColumnWidth,
         grid,
     );
-    const resolvedWidthPx = toPixelString(targetColumnWidth);
-    const capacity = Math.max(1, Math.floor((rect.width + gap) / (targetColumnWidth + gap)));
-    const nextColumnCount = itemCount > 0 ? Math.min(itemCount, capacity) : capacity;
-    if (countProperty && grid.style.getPropertyValue(countProperty) !== String(nextColumnCount)) {
-        grid.style.setProperty(countProperty, String(nextColumnCount));
-    }
-    grid.style.setProperty('--bitbi-public-media-wall-resolved-column-width', resolvedWidthPx);
-    grid.style.gridTemplateColumns = `repeat(${nextColumnCount}, ${resolvedWidthPx})`;
-    return nextColumnCount;
+    const capacity = rect.width
+        ? Math.max(1, Math.floor((rect.width + gap) / (targetColumnWidth + gap)))
+        : 1;
+    const columnCount = itemCount > 0 ? Math.min(itemCount, capacity) : capacity;
+
+    return {
+        gridWidth: rect.width || 0,
+        gapPx: gap,
+        targetWidthPx: targetColumnWidth,
+        columnCount,
+    };
+}
+
+export function syncFixedMediaWallColumnCount(grid, options = {}) {
+    return calculateFixedMediaWallMetrics(grid, options).columnCount;
 }
 
 export function clearFixedMediaWallLayout(grid, {
@@ -86,6 +96,9 @@ export function clearFixedMediaWallLayout(grid, {
     if (countProperty) grid.style.removeProperty(countProperty);
     grid.style.removeProperty('--bitbi-public-media-wall-resolved-column-width');
     grid.style.gridTemplateColumns = '';
+    delete grid.dataset.publicMediaWallReady;
+    delete grid.dataset.publicMediaWallWidthPx;
+    delete grid.dataset.publicMediaWallColumnCount;
 }
 
 function readCardAspectRatio(card, aspectProperty, fallbackRatio) {
@@ -103,26 +116,30 @@ export function renderFixedMediaWallColumns(grid, cards, {
     fallbackAspectRatio = 1,
     estimatedExtraHeight = 0,
 } = {}) {
+    if (!grid) return 1;
     const safeCards = Array.isArray(cards) ? cards : [];
-    const columnCount = syncFixedMediaWallColumnCount(grid, {
-        countProperty,
+    grid.dataset.publicMediaWallReady = 'false';
+    const metrics = calculateFixedMediaWallMetrics(grid, {
         targetWidthProperty,
         fallbackColumnWidth,
         itemCount: safeCards.length,
     });
+    const { columnCount, targetWidthPx } = metrics;
+    const resolvedWidthPx = toPixelString(targetWidthPx);
+    if (countProperty) {
+        grid.style.setProperty(countProperty, String(columnCount));
+    }
+    grid.style.setProperty('--bitbi-public-media-wall-resolved-column-width', resolvedWidthPx);
+    grid.style.gridTemplateColumns = `repeat(${columnCount}, ${resolvedWidthPx})`;
 
     if (!safeCards.length) {
         grid.replaceChildren();
+        grid.dataset.publicMediaWallReady = 'true';
+        grid.dataset.publicMediaWallWidthPx = String(targetWidthPx);
+        grid.dataset.publicMediaWallColumnCount = String(columnCount);
         return columnCount;
     }
 
-    const style = window.getComputedStyle(grid);
-    const targetColumnWidth = parseCssLengthToPixels(
-        style.getPropertyValue(targetWidthProperty),
-        fallbackColumnWidth,
-        grid,
-    );
-    const resolvedWidthPx = toPixelString(targetColumnWidth);
     const columns = Array.from({ length: columnCount }, () => {
         const node = document.createElement('div');
         node.className = 'public-media-wall__column';
@@ -137,9 +154,12 @@ export function renderFixedMediaWallColumns(grid, cards, {
         lockCardToColumn(card);
         targetColumn.node.appendChild(card);
         const aspectRatio = readCardAspectRatio(card, aspectProperty, fallbackAspectRatio);
-        targetColumn.estimatedHeight += (targetColumnWidth / aspectRatio) + estimatedExtraHeight;
+        targetColumn.estimatedHeight += (targetWidthPx / aspectRatio) + estimatedExtraHeight;
     });
 
     grid.replaceChildren(...columns.map((column) => column.node));
+    grid.dataset.publicMediaWallReady = 'true';
+    grid.dataset.publicMediaWallWidthPx = String(targetWidthPx);
+    grid.dataset.publicMediaWallColumnCount = String(columnCount);
     return columnCount;
 }

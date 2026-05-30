@@ -455,6 +455,98 @@ async function waitForHomepageCategoryStage(page) {
     .not.toContain('is-transitioning');
 }
 
+async function waitForLayoutFrames(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+  }));
+}
+
+async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expectedTargetWidthMin = 0) {
+  await expect.poll(async () => page.evaluate(({ gridSelector, itemSelector, expectedTargetWidthMin }) => {
+    const stage = document.getElementById('homeCategories');
+    const grid = document.querySelector(gridSelector);
+    if (!grid) return 'missing_grid';
+    const style = window.getComputedStyle(grid);
+    const targetWidth = Number(grid.dataset.publicMediaWallWidthPx)
+      || Number.parseFloat(style.getPropertyValue('--bitbi-public-media-wall-resolved-column-width'))
+      || 0;
+    const columnCount = Number(grid.dataset.publicMediaWallColumnCount) || 0;
+    const columns = Array.from(grid.querySelectorAll('.public-media-wall__column'))
+      .filter((node) => node.offsetParent !== null)
+      .map((node) => node.getBoundingClientRect().width);
+    const rects = Array.from(grid.querySelectorAll(itemSelector))
+      .filter((node) => node.offsetParent !== null)
+      .map((node) => node.getBoundingClientRect());
+    const widths = rects.map((rect) => Math.round(rect.width * 100) / 100);
+    const columnWidths = columns.map((width) => Math.round(width * 100) / 100);
+    const itemWidthsReady = widths.length > 0
+      && targetWidth >= expectedTargetWidthMin
+      && widths.every((width) => Math.abs(width - targetWidth) <= 2);
+    const columnsReady = columnWidths.length > 0
+      && columnWidths.every((width) => Math.abs(width - targetWidth) <= 2);
+    const ok = grid.dataset.publicMediaWallReady === 'true'
+      && !stage?.classList.contains('is-transitioning')
+      && grid.getBoundingClientRect().width > 0
+      && columnCount > 1
+      && itemWidthsReady
+      && columnsReady;
+    if (ok) return 'ready';
+    return JSON.stringify({
+      ready: grid.dataset.publicMediaWallReady || '',
+      targetWidth,
+      columnCount,
+      widths: widths.slice(0, 5),
+      columnWidths: columnWidths.slice(0, 5),
+      gridTemplateColumns: style.gridTemplateColumns,
+      activeCategory: stage?.dataset.activeCategory || '',
+      stageMode: stage?.dataset.stageMode || '',
+      transitioning: stage?.classList.contains('is-transitioning') || false,
+    });
+  }, { gridSelector, itemSelector, expectedTargetWidthMin }), { timeout: 10_000 }).toBe('ready');
+  await waitForLayoutFrames(page);
+}
+
+async function waitForSoundWidthReady(page, expectedTrackCount = 1) {
+  await expect.poll(async () => page.evaluate((expectedTrackCount) => {
+    const stage = document.getElementById('homeCategories');
+    const grid = document.getElementById('soundLabTracks');
+    if (!stage || !grid) return 'missing_sound_grid';
+    const style = window.getComputedStyle(grid);
+    const targetWidth = Number(grid.dataset.soundCardWidthPx)
+      || Number.parseFloat(style.getPropertyValue('--bitbi-public-sound-card-resolved-width'))
+      || Number.parseFloat(style.getPropertyValue('--bitbi-public-sound-card-width'))
+      || 0;
+    const rects = Array.from(grid.querySelectorAll('.snd-card--memtrack'))
+      .filter((node) => node.offsetParent !== null)
+      .map((node) => node.getBoundingClientRect());
+    const widths = rects.map((rect) => Math.round(rect.width * 100) / 100);
+    const firstTop = rects[0]?.top;
+    const firstRowCount = Number.isFinite(firstTop)
+      ? rects.filter((rect) => Math.abs(rect.top - firstTop) <= 3).length
+      : 0;
+    const ok = stage.dataset.activeCategory === 'sound'
+      && !stage.classList.contains('is-transitioning')
+      && grid.dataset.soundWidthReady === 'true'
+      && targetWidth >= 327
+      && rects.length >= expectedTrackCount
+      && (expectedTrackCount <= 1 || firstRowCount > 1)
+      && widths.every((width) => Math.abs(width - targetWidth) <= 2);
+    if (ok) return 'ready';
+    return JSON.stringify({
+      ready: grid.dataset.soundWidthReady || '',
+      targetWidth,
+      widths: widths.slice(0, 5),
+      visibleCount: rects.length,
+      firstRowCount,
+      gridTemplateColumns: style.gridTemplateColumns,
+      activeCategory: stage.dataset.activeCategory || '',
+      stageMode: stage.dataset.stageMode || '',
+      transitioning: stage.classList.contains('is-transitioning'),
+    });
+  }, expectedTrackCount), { timeout: 10_000 }).toBe('ready');
+  await waitForLayoutFrames(page);
+}
+
 async function routeDefaultMemtracks(page, {
   id = 'feedc0de',
   version = 'vpub',
@@ -6180,6 +6272,7 @@ test.describe('Homepage', () => {
     const galleryCards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
     await expect.poll(() => galleryCards.count()).toBeGreaterThanOrEqual(10);
     await expect(galleryCards.first()).toBeVisible();
+    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 267);
 
     const wideLayout = await page.evaluate(() => {
       const grid = document.getElementById('galleryGrid');
@@ -6284,6 +6377,8 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'video');
     const videoCards = page.locator('#videoGrid .video-card');
     await expect.poll(() => videoCards.count()).toBeGreaterThanOrEqual(10);
+    await expect(videoCards.first()).toBeVisible();
+    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 267);
 
     const videoLayout = await page.evaluate(() => {
       const grid = document.getElementById('videoGrid');
@@ -7197,6 +7292,7 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await switchHomepageCategory(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
+    await waitForSoundWidthReady(page);
 
     const wideLayout = await page.evaluate(() => {
       const grid = document.getElementById('soundLabTracks');
@@ -7345,42 +7441,11 @@ test.describe('Homepage', () => {
       await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('mock-audio') });
     });
 
-    const waitForLayoutFrames = async () => {
-      await page.evaluate(() => new Promise((resolve) => {
-        window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
-      }));
-    };
-    const waitForWideColumnCount = async (gridSelector, itemSelector, variableName) => {
-      await expect.poll(async () => page.evaluate(({ gridSelector: selector, itemSelector: childSelector, variableName: name }) => {
-        const grid = document.querySelector(selector);
-        if (!grid) return false;
-        const visibleItems = Array.from(grid.querySelectorAll(childSelector)).filter((node) => node.offsetParent !== null);
-        return grid.getBoundingClientRect().width > 0
-          && visibleItems.length > 0
-          && Number.parseInt(grid.style.getPropertyValue(name), 10) > 1;
-      }, { gridSelector, itemSelector, variableName }), { timeout: 10_000 }).toBe(true);
-      await waitForLayoutFrames();
+    const waitForWideColumnCount = async (gridSelector, itemSelector) => {
+      await waitForFixedMediaWallReady(page, gridSelector, itemSelector, 267);
     };
     const waitForSoundWallReady = async () => {
-      await expect.poll(async () => page.evaluate((expectedTrackCount) => {
-        const stage = document.getElementById('homeCategories');
-        const grid = document.getElementById('soundLabTracks');
-        if (!stage || !grid) return false;
-        const style = window.getComputedStyle(grid);
-        const rects = Array.from(grid.querySelectorAll('.snd-card--memtrack'))
-          .filter((node) => node.offsetParent !== null)
-          .map((node) => node.getBoundingClientRect());
-        const firstTop = rects[0]?.top;
-        const firstRowCount = Number.isFinite(firstTop)
-          ? rects.filter((rect) => Math.abs(rect.top - firstTop) <= 3).length
-          : 0;
-        return stage.dataset.activeCategory === 'sound'
-          && !stage.classList.contains('is-transitioning')
-          && style.display === 'grid'
-          && rects.length >= expectedTrackCount
-          && firstRowCount > 1;
-      }, memtracks.length), { timeout: 10_000 }).toBe(true);
-      await waitForLayoutFrames();
+      await waitForSoundWidthReady(page, memtracks.length);
     };
 
     const measureViewport = async (width, height) => {
@@ -7678,21 +7743,8 @@ test.describe('Homepage', () => {
       await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('mock-audio') });
     });
 
-    const waitForLayoutFrames = async () => {
-      await page.evaluate(() => new Promise((resolve) => {
-        window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
-      }));
-    };
-    const waitForWideWallReady = async (gridSelector, itemSelector, variableName) => {
-      await expect.poll(async () => page.evaluate(({ gridSelector: selector, itemSelector: childSelector, variableName: name }) => {
-        const grid = document.querySelector(selector);
-        if (!grid) return false;
-        const visibleItems = Array.from(grid.querySelectorAll(childSelector)).filter((node) => node.offsetParent !== null);
-        return grid.getBoundingClientRect().width > 0
-          && visibleItems.length > 0
-          && Number.parseInt(grid.style.getPropertyValue(name), 10) > 1;
-      }, { gridSelector, itemSelector, variableName }), { timeout: 10_000 }).toBe(true);
-      await waitForLayoutFrames();
+    const waitForWideWallReady = async (gridSelector, itemSelector) => {
+      await waitForFixedMediaWallReady(page, gridSelector, itemSelector, 267);
     };
 
     const readWall = async (gridSelector, itemSelector) => page.evaluate(({ gridSelector: selector, itemSelector: childSelector }) => {
@@ -7758,7 +7810,7 @@ test.describe('Homepage', () => {
       await switchHomepageCategory(page, 'sound');
       await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
       await expect.poll(async () => page.locator('#soundLabTracks .snd-card--memtrack:visible').count()).toBe(20);
-      await waitForLayoutFrames();
+      await waitForSoundWidthReady(page, 20);
       const sound = await readWall('#soundLabTracks', '.snd-card--memtrack');
 
       return { gallery, video, sound };
