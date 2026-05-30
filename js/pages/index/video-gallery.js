@@ -1086,6 +1086,7 @@ export function initVideoGallery() {
     if ('ResizeObserver' in window) {
         memvidsResizeObserver = new ResizeObserver(scheduleMemvidsWideLimitSync);
         memvidsResizeObserver.observe(grid);
+        if (grid.parentElement) memvidsResizeObserver.observe(grid.parentElement);
     } else {
         window.addEventListener('resize', scheduleMemvidsWideLimitSync, { passive: true });
     }

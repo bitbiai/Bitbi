@@ -466,6 +466,17 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
     const stage = document.getElementById('homeCategories');
     const grid = document.querySelector(gridSelector);
     if (!grid) return 'missing_grid';
+    const readStableWidth = () => {
+      const candidates = [grid.parentElement, grid.closest('#galleryExplore, #videoExplore')].filter(Boolean);
+      for (const candidate of candidates) {
+        const candidateStyle = window.getComputedStyle(candidate);
+        const candidateRect = candidate.getBoundingClientRect();
+        if (candidateStyle.display !== 'none' && candidateStyle.visibility !== 'hidden' && candidateRect.width > 0) {
+          return candidateRect.width;
+        }
+      }
+      return grid.getBoundingClientRect().width || 0;
+    };
     const style = window.getComputedStyle(grid);
     const targetWidth = Number(grid.dataset.mediaWallResolvedWidth)
       || Number(grid.dataset.publicMediaWallWidthPx)
@@ -494,16 +505,19 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
       && widths.every((width) => Math.abs(width - targetWidth) <= 2);
     const columnsReady = columnWidths.length > 0
       && columnWidths.every((width) => Math.abs(width - targetWidth) <= 2);
+    const storedAvailableWidth = Number(grid.dataset.mediaWallAvailableWidth) || 0;
+    const currentAvailableWidth = readStableWidth();
     const expectedCapacity = baseWidth > 0
-      ? Math.max(1, Math.floor((grid.getBoundingClientRect().width + gap) / (baseWidth + gap)))
+      ? Math.max(1, Math.floor((currentAvailableWidth + gap) / (baseWidth + gap)))
       : columnCount;
     const expectedColumnCount = rects.length > 0 ? Math.min(rects.length, expectedCapacity) : expectedCapacity;
     const expectedResolvedWidth = expectedColumnCount > 0
-      ? Math.max(baseWidth, Math.floor(((grid.getBoundingClientRect().width - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
+      ? Math.max(baseWidth, Math.floor(((currentAvailableWidth - (gap * (expectedColumnCount - 1))) / expectedColumnCount) * 1000) / 1000)
       : baseWidth;
     const ok = (grid.dataset.mediaWallReady === 'true' || grid.dataset.publicMediaWallReady === 'true')
       && !stage?.classList.contains('is-transitioning')
-      && grid.getBoundingClientRect().width > 0
+      && currentAvailableWidth > 0
+      && Math.abs(storedAvailableWidth - currentAvailableWidth) <= 0.5
       && columnCount > 1
       && capacity === expectedCapacity
       && columnCount === expectedColumnCount
@@ -517,6 +531,8 @@ async function waitForFixedMediaWallReady(page, gridSelector, itemSelector, expe
       targetWidth,
       baseWidth,
       gap,
+      storedAvailableWidth,
+      currentAvailableWidth,
       columnCount,
       capacity,
       expectedCapacity,
@@ -7716,6 +7732,7 @@ test.describe('Homepage', () => {
       const gallery = await page.evaluate(() => {
         const grid = document.getElementById('galleryGrid');
         const gridRect = grid.getBoundingClientRect();
+        const availableRect = grid.parentElement?.getBoundingClientRect() || gridRect;
         const style = window.getComputedStyle(grid);
         const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
         const parseCssLength = (value, fallback) => {
@@ -7757,7 +7774,7 @@ test.describe('Homepage', () => {
           targetGap: Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
-          rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
+          rightUnused: availableRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
       });
 
@@ -7767,6 +7784,7 @@ test.describe('Homepage', () => {
       const video = await page.evaluate(() => {
         const grid = document.getElementById('videoGrid');
         const gridRect = grid.getBoundingClientRect();
+        const availableRect = grid.parentElement?.getBoundingClientRect() || gridRect;
         const style = window.getComputedStyle(grid);
         const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
         const parseCssLength = (value, fallback) => {
@@ -7808,7 +7826,7 @@ test.describe('Homepage', () => {
           targetGap: Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue('--bitbi-public-media-gap') || style.columnGap, 2),
           maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
-          rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
+          rightUnused: availableRect.right - Math.max(...rects.map((rect) => rect.right)),
         };
       });
 
@@ -8026,6 +8044,9 @@ test.describe('Homepage', () => {
     const readWall = async (gridSelector, itemSelector) => page.evaluate(({ gridSelector: selector, itemSelector: childSelector }) => {
       const grid = document.querySelector(selector);
       const gridRect = grid.getBoundingClientRect();
+      const availableRect = selector === '#soundLabTracks'
+        ? gridRect
+        : grid.parentElement?.getBoundingClientRect() || gridRect;
       const style = window.getComputedStyle(grid);
       const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
       const parseCssLength = (value, fallback) => {
@@ -8081,7 +8102,7 @@ test.describe('Homepage', () => {
           : Number(grid.dataset.mediaWallGap)
             || parseCssLength(style.getPropertyValue(targetGapProperty) || style.columnGap || style.gap, 2),
         maxHorizontalGap: horizontalGaps.length ? Math.max(...horizontalGaps) : 0,
-        rightUnused: gridRect.right - Math.max(...rects.map((rect) => rect.right)),
+        rightUnused: availableRect.right - Math.max(...rects.map((rect) => rect.right)),
       };
     }, { gridSelector, itemSelector });
 

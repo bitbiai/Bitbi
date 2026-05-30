@@ -787,6 +787,7 @@ export function initGallery() {
     if ('ResizeObserver' in window) {
         mempicsResizeObserver = new ResizeObserver(scheduleMempicsWideLimitSync);
         mempicsResizeObserver.observe(grid);
+        if (grid.parentElement) mempicsResizeObserver.observe(grid.parentElement);
     } else {
         window.addEventListener('resize', scheduleMempicsWideLimitSync, { passive: true });
     }
