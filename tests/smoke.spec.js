@@ -6577,8 +6577,8 @@ test.describe('Homepage', () => {
     expect(mobileVideoLayout).toBe(1);
   });
 
-  test('homepage Gallery Show More enables limited scroll batches without rendering every Mempic', async ({ page }) => {
-    const items = Array.from({ length: 60 }, (_, index) => {
+  test('homepage Gallery More starts at 60 Mempics and caps visible items at 100', async ({ page }) => {
+    const items = Array.from({ length: 120 }, (_, index) => {
       const id = `progressive-mempic-${index + 1}`;
       return {
         id,
@@ -6603,8 +6603,9 @@ test.describe('Homepage', () => {
     });
     const pages = {
       first: { items: items.slice(0, 24), next_cursor: 'page-2', has_more: true },
-      'page-2': { items: items.slice(24, 48), next_cursor: 'page-3', has_more: true },
-      'page-3': { items: items.slice(48), next_cursor: null, has_more: false },
+      'page-2': { items: items.slice(24, 60), next_cursor: 'page-3', has_more: true },
+      'page-3': { items: items.slice(60, 100), next_cursor: 'page-4', has_more: true },
+      'page-4': { items: items.slice(100), next_cursor: null, has_more: false },
     };
 
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
@@ -6637,46 +6638,26 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'gallery');
 
     const cards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
-    await expect.poll(() => cards.count()).toBeGreaterThanOrEqual(10);
-    const initialCount = await cards.count();
-    expect(initialCount).toBeLessThanOrEqual(24);
+    await expect.poll(() => cards.count()).toBe(60);
+    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 267);
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing 60 Mempics.');
 
     const showMore = page.locator('#galleryPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
-    await expect.poll(() => cards.count()).toBeGreaterThan(initialCount);
-    const afterClickTarget = await cards.count();
-    expect(afterClickTarget).toBeLessThan(60);
+    await expect.poll(() => cards.count()).toBe(100);
+    await waitForFixedMediaWallReady(page, '#galleryGrid', '.gallery-item:not(.locked-area)', 267);
     await expect(showMore).toBeHidden();
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing 100 Mempics.');
 
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
-    expect(idsAfterClick).not.toContain('progressive-mempic-60');
-
-    await page.waitForTimeout(220);
-    await page.evaluate(() => {
-      window.scrollTo({ top: 0, behavior: 'auto' });
-      window.dispatchEvent(new Event('scroll'));
-    });
-    await page.waitForTimeout(80);
-    await page.mouse.move(720, 640);
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      if (await cards.count() > afterClickTarget) break;
-      await page.mouse.wheel(0, 2400);
-      await page.waitForTimeout(140);
-    }
-    await expect.poll(() => cards.count()).toBeGreaterThan(afterClickTarget);
-    const afterScrollTarget = await cards.count();
-    expect(afterScrollTarget).toBeLessThan(60);
-
-    const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.galleryItemId));
-    expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
-    expect(idsAfterScroll).toContain(`progressive-mempic-${afterScrollTarget}`);
-    expect(idsAfterScroll).not.toContain('progressive-mempic-60');
+    expect(idsAfterClick).toContain('progressive-mempic-100');
+    expect(idsAfterClick).not.toContain('progressive-mempic-101');
   });
 
-  test('homepage Video Show More enables limited scroll batches without rendering every Memvid', async ({ page }) => {
-    const items = Array.from({ length: 60 }, (_, index) => {
+  test('homepage Video More starts at 60 Memvids and caps visible items at 100', async ({ page }) => {
+    const items = Array.from({ length: 120 }, (_, index) => {
       const id = `progressive-memvid-${index + 1}`;
       return {
         id,
@@ -6696,8 +6677,9 @@ test.describe('Homepage', () => {
     });
     const pages = {
       first: { items: items.slice(0, 24), next_cursor: 'page-2', has_more: true },
-      'page-2': { items: items.slice(24, 48), next_cursor: 'page-3', has_more: true },
-      'page-3': { items: items.slice(48), next_cursor: null, has_more: false },
+      'page-2': { items: items.slice(24, 60), next_cursor: 'page-3', has_more: true },
+      'page-3': { items: items.slice(60, 100), next_cursor: 'page-4', has_more: true },
+      'page-4': { items: items.slice(100), next_cursor: null, has_more: false },
     };
 
     await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
@@ -6738,42 +6720,119 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'video');
 
     const cards = page.locator('#videoGrid .video-card');
-    await expect.poll(() => cards.count()).toBeGreaterThanOrEqual(10);
-    const initialCount = await cards.count();
-    expect(initialCount).toBeLessThanOrEqual(24);
+    await expect.poll(() => cards.count()).toBe(60);
+    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 267);
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing 60 Memvids.');
 
     const showMore = page.locator('#videoPagination .browse-pagination__toggle');
     await expect(showMore).toHaveText('Show More');
     await showMore.click();
-    await expect.poll(() => cards.count()).toBeGreaterThan(initialCount);
-    const afterClickTarget = await cards.count();
-    expect(afterClickTarget).toBeLessThan(60);
+    await expect.poll(() => cards.count()).toBe(100);
+    await waitForFixedMediaWallReady(page, '#videoGrid', '.video-card', 267);
     await expect(showMore).toBeHidden();
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing 100 Memvids.');
 
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
-    expect(idsAfterClick).not.toContain('progressive-memvid-60');
+    expect(idsAfterClick).toContain('progressive-memvid-100');
+    expect(idsAfterClick).not.toContain('progressive-memvid-101');
+  });
 
-    await page.waitForTimeout(220);
-    await page.evaluate(() => {
-      window.scrollTo({ top: 0, behavior: 'auto' });
-      window.dispatchEvent(new Event('scroll'));
+  test('homepage Sound Lab More starts at 60 Memtracks, caps at 100, and keeps playback usable', async ({ page }) => {
+    const items = Array.from({ length: 120 }, (_, index) => {
+      const id = `progressive-memtrack-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Public Member Track ${index + 1}`,
+        caption: `Published by Ada Member on 2026-04-${String((index % 20) + 1).padStart(2, '0')}.`,
+        category: 'memtracks',
+        model_label: 'Music 2.6',
+        publisher: {
+          display_name: 'Ada Member',
+        },
+        file: {
+          url: `/api/gallery/memtracks/${id}/file`,
+        },
+        poster: {
+          url: `/api/gallery/memtracks/${id}/poster`,
+          w: 320,
+          h: 320,
+        },
+      };
     });
-    await page.waitForTimeout(80);
-    await page.mouse.move(720, 640);
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      if (await cards.count() > afterClickTarget) break;
-      await page.mouse.wheel(0, 2400);
-      await page.waitForTimeout(140);
-    }
-    await expect.poll(() => cards.count()).toBeGreaterThan(afterClickTarget);
-    const afterScrollTarget = await cards.count();
-    expect(afterScrollTarget).toBeLessThan(60);
+    const pages = {
+      first: { items: items.slice(0, 24), next_cursor: 'page-2', has_more: true },
+      'page-2': { items: items.slice(24, 60), next_cursor: 'page-3', has_more: true },
+      'page-3': { items: items.slice(60, 100), next_cursor: 'page-4', has_more: true },
+      'page-4': { items: items.slice(100), next_cursor: null, has_more: false },
+    };
 
-    const idsAfterScroll = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.videoItemId));
-    expect(new Set(idsAfterScroll).size).toBe(idsAfterScroll.length);
-    expect(idsAfterScroll).toContain(`progressive-memvid-${afterScrollTarget}`);
-    expect(idsAfterScroll).not.toContain('progressive-memvid-60');
+    await page.addInitScript(() => {
+      HTMLMediaElement.prototype.play = function playMock() {
+        this.dataset.playState = 'playing';
+        return Promise.resolve();
+      };
+    });
+
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor') || 'first';
+      const pageData = pages[cursor] || pages.first;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: pageData.items,
+            next_cursor: pageData.next_cursor,
+            has_more: pageData.has_more,
+            applied_limit: 60,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memtracks/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/webp',
+          body: Buffer.from('mock-poster'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'audio/mpeg',
+        body: Buffer.from('mock-audio'),
+      });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+    await switchHomepageCategory(page, 'sound');
+
+    const cards = page.locator('#soundLabTracks .snd-card--memtrack');
+    await expect.poll(() => cards.count()).toBe(60);
+    await waitForSoundWidthReady(page, 60);
+    await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing 60 Memtracks.');
+
+    const showMore = page.locator('.snd-memtracks-pagination .browse-pagination__toggle');
+    await expect(showMore).toHaveText('Show More');
+    await showMore.click();
+    await expect.poll(() => cards.count()).toBe(100);
+    await waitForSoundWidthReady(page, 100);
+    await expect(showMore).toBeHidden();
+    await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing 100 Memtracks.');
+
+    await cards.first().locator('.snd-play').click();
+    await expect(cards.first().locator('.pa')).toBeVisible();
+    const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.memtrackId));
+    expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
+    expect(idsAfterClick).toContain('progressive-memtrack-100');
+    expect(idsAfterClick).not.toContain('progressive-memtrack-101');
   });
 
   test('homepage favorites reuse the shared flow for Mempics cards and video modal cards', async ({ page }) => {
@@ -7730,7 +7789,8 @@ test.describe('Homepage', () => {
     const large = await measureViewport(2560, 1440);
 
     expect(large.gallery.columnCount).toBeGreaterThan(normal.gallery.columnCount);
-    expect(large.gallery.renderedCount).toBeGreaterThan(normal.gallery.renderedCount);
+    expect(normal.gallery.renderedCount).toBe(60);
+    expect(large.gallery.renderedCount).toBe(60);
     expect(large.gallery.averageWidth).toBeLessThanOrEqual(normal.gallery.averageWidth * 1.15);
     expect(large.gallery.averageWidth).toBeGreaterThanOrEqual(normal.gallery.averageWidth * 0.78);
     expect(large.gallery.baseWidth).toBeGreaterThanOrEqual(267);
@@ -7739,7 +7799,8 @@ test.describe('Homepage', () => {
     expect(large.gallery.maxHorizontalGap).toBeLessThanOrEqual(large.gallery.targetGap + 3);
     expect(large.gallery.rightUnused).toBeLessThanOrEqual(Math.max(3, large.gallery.targetGap + 1));
     expect(large.video.columnCount).toBeGreaterThan(normal.video.columnCount);
-    expect(large.video.renderedCount).toBeGreaterThan(normal.video.renderedCount);
+    expect(normal.video.renderedCount).toBe(60);
+    expect(large.video.renderedCount).toBe(60);
     expect(large.video.averageWidth).toBeLessThanOrEqual(normal.video.averageWidth * 1.15);
     expect(large.video.averageWidth).toBeGreaterThanOrEqual(normal.video.averageWidth * 0.78);
     expect(large.video.baseWidth).toBeGreaterThanOrEqual(267);

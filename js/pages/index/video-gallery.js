@@ -34,11 +34,9 @@ const TABLET_DESKTOP_LAYOUT_MEDIA = [
     '(min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)',
 ].join(', ');
 const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOUT_MEDIA}`;
-const WIDE_INITIAL_MEMVIDS = 10;
-const WIDE_MEMVIDS_BATCH = 12;
-const WIDE_INITIAL_ROWS = 3;
-const WIDE_REVEAL_ROWS = 2;
-const WIDE_SCROLL_PRELOAD_PX = 720;
+const PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT = 60;
+const PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT = 100;
+const PUBLIC_EXPLORE_MIN_PREFETCH_PAGE_SIZE = 20;
 const WIDE_COLUMN_FALLBACK_PX = 270;
 // Small non-zero intent delay avoids accidental Stream minute usage across dense grids.
 const HOVER_PREVIEW_DELAY_MS = 100;
@@ -61,15 +59,8 @@ export function initVideoGallery() {
         loaded: false,
         loadingMore: false,
     };
-    let memvidsProgressiveMode = false;
-    let memvidsVisibleLimit = WIDE_INITIAL_MEMVIDS;
-    let memvidsRevealPromise = null;
+    let memvidsVisibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
     let memvidsObserver = null;
-    let memvidsUserScrolledSinceBatch = false;
-    let memvidsScrollBatchSettling = false;
-    let memvidsScrollBatchSettlingTimer = 0;
-    let memvidsLastRevealScrollY = Number.NaN;
-    let memvidsScrollSentinelNeedsReset = false;
     let memvidsResizeObserver = null;
     let memvidsStageObserver = null;
     let memvidsResizeFrame = 0;
@@ -127,8 +118,7 @@ export function initVideoGallery() {
     }
 
     function getVisibleMemvidsCount() {
-        if (!isPublicWideLayoutEnabled()) return memvidsState.items.length;
-        return Math.min(memvidsVisibleLimit, memvidsState.items.length);
+        return Math.min(memvidsVisibleLimit, memvidsState.items.length, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
     }
 
     function syncWideColumnCount(itemCount = 0) {
@@ -141,21 +131,6 @@ export function initVideoGallery() {
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
             itemCount,
         });
-    }
-
-    function getWideColumnCapacity() {
-        return calculateFixedMediaWallMetrics(grid, {
-            targetWidthProperty: '--bitbi-public-video-active-column-width',
-            fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
-        }).columnCount;
-    }
-
-    function getWideMemvidsInitialLimit() {
-        return Math.max(WIDE_INITIAL_MEMVIDS, getWideColumnCapacity() * WIDE_INITIAL_ROWS);
-    }
-
-    function getWideMemvidsBatchSize() {
-        return Math.max(WIDE_MEMVIDS_BATCH, getWideColumnCapacity() * WIDE_REVEAL_ROWS);
     }
 
     function syncMemvidsWideLimitForLayout() {
@@ -172,10 +147,8 @@ export function initVideoGallery() {
         const resolvedWidthChanged = isPublicWideLayoutEnabled()
             && previousResolvedWidth > 0
             && Math.abs(previousResolvedWidth - nextMetrics.resolvedWidthPx) > 0.1;
-        if (!isPublicWideLayoutEnabled() || memvidsProgressiveMode || !memvidsState.loaded) return;
-        const nextLimit = Math.min(Math.max(memvidsVisibleLimit, getWideMemvidsInitialLimit()), memvidsState.items.length);
-        if (nextLimit <= memvidsVisibleLimit && !columnCountChanged && !resolvedWidthChanged) return;
-        memvidsVisibleLimit = nextLimit;
+        if (!isPublicWideLayoutEnabled() || !memvidsState.loaded) return;
+        if (!columnCountChanged && !resolvedWidthChanged) return;
         render();
     }
 
@@ -195,24 +168,13 @@ export function initVideoGallery() {
     }
 
     function canRevealMoreMemvids() {
-        const initialLimit = getWideMemvidsInitialLimit();
-        return isPublicWideLayoutEnabled()
-            && (
-                memvidsState.items.length > getVisibleMemvidsCount()
-                || (memvidsState.items.length >= initialLimit && memvidsState.hasMore)
-            );
+        const visibleCount = getVisibleMemvidsCount();
+        return visibleCount < PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT
+            && (memvidsState.items.length > visibleCount || memvidsState.hasMore);
     }
 
     function resetMemvidsWideWindow() {
-        memvidsProgressiveMode = false;
-        memvidsVisibleLimit = isPublicWideLayoutEnabled()
-            ? getWideMemvidsInitialLimit()
-            : memvidsState.items.length;
-        memvidsUserScrolledSinceBatch = false;
-        memvidsScrollBatchSettling = false;
-        memvidsLastRevealScrollY = Number.NaN;
-        memvidsScrollSentinelNeedsReset = false;
-        window.clearTimeout(memvidsScrollBatchSettlingTimer);
+        memvidsVisibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
     }
 
     /* ── Modal ── */
@@ -574,7 +536,7 @@ export function initVideoGallery() {
     function openMemvidsOverlay() {
         openMobileMediaGrid({
             title: 'Memvids',
-            items: memvidsState.items,
+            items: memvidsState.items.slice(0, getVisibleMemvidsCount()),
             emptyText: localeText('browse.noMemvids'),
             className: 'mobile-media-grid-overlay--video',
             renderItem(item, index, { openDetail } = {}) {
@@ -665,11 +627,12 @@ export function initVideoGallery() {
         }
         const visibleCount = getVisibleMemvidsCount();
         const canRevealMore = canRevealMoreMemvids();
-        const showDrawerToggle = isPublicWideLayoutEnabled() && canRevealMore && !memvidsProgressiveMode;
-        const showLoadMore = memvidsState.hasMore && (
-            !isPublicWideLayoutEnabled()
-            || (!showDrawerToggle && !memvidsProgressiveMode && memvidsState.items.length < getWideMemvidsInitialLimit())
-        );
+        const useUnderfilledLoadMore = canRevealMore
+            && memvidsState.hasMore
+            && memvidsState.items.length < PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT
+            && memvidsState.items.length < PUBLIC_EXPLORE_MIN_PREFETCH_PAGE_SIZE;
+        const showDrawerToggle = canRevealMore && !useUnderfilledLoadMore;
+        const showLoadMore = useUnderfilledLoadMore;
         $pagination.style.display = '';
         if (canRevealMore) {
             $paginationStatus.textContent = localeText('browse.showingMemvidsComplete', { count: visibleCount });
@@ -684,22 +647,23 @@ export function initVideoGallery() {
         });
         $drawerToggle.hidden = !showDrawerToggle;
         $drawerToggle.textContent = showDrawerToggle
-            ? localeText('browse.showMore')
+            ? (memvidsState.loadingMore ? localeText('browse.loading') : localeText('browse.showMore'))
             : '';
         $drawerToggle.disabled = memvidsState.loadingMore;
-        $drawerToggle.setAttribute('aria-expanded', String(showDrawerToggle && memvidsProgressiveMode));
+        $drawerToggle.setAttribute('aria-expanded', 'false');
         $loadMore.hidden = !showLoadMore;
         $loadMore.disabled = memvidsState.loadingMore;
         $loadMore.textContent = showLoadMore
             ? (memvidsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
             : '';
-        $scrollSentinel.hidden = !(isPublicWideLayoutEnabled() && memvidsProgressiveMode && canRevealMore);
+        $scrollSentinel.hidden = true;
         syncMemvidsScrollLoading();
     }
 
-    async function fetchMemvids(cursor = null) {
+    async function fetchMemvids(cursor = null, limit = MEMVIDS_LIMIT) {
         try {
-            return await fetchPublicMemvidsPage({ limit: MEMVIDS_LIMIT, cursor });
+            const safeLimit = Math.max(1, Math.min(MEMVIDS_LIMIT, Number(limit) || MEMVIDS_LIMIT));
+            return await fetchPublicMemvidsPage({ limit: safeLimit, cursor });
         } catch (error) {
             console.warn('memvids:', error);
             throw error;
@@ -708,87 +672,66 @@ export function initVideoGallery() {
 
     async function ensureMemvidsLoaded() {
         if (memvidsState.loaded) return;
-        const page = await fetchMemvids();
+        const page = await fetchMemvids(null, PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT);
         mergeMemvidsItems(page.items, { replace: true });
+        if (memvidsState.items.length > PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT) {
+            memvidsState.items = memvidsState.items.slice(0, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
+        }
         memvidsState.nextCursor = page.nextCursor;
         memvidsState.hasMore = page.hasMore;
+        if ((page.items?.length || 0) >= PUBLIC_EXPLORE_MIN_PREFETCH_PAGE_SIZE) {
+            await loadMemvidsUntilVisible(PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT);
+        }
         memvidsState.loaded = true;
         resetMemvidsWideWindow();
     }
 
-    async function fetchNextMemvidsPage() {
-        if (!memvidsState.hasMore || memvidsState.loadingMore) return false;
+    async function fetchNextMemvidsPage({ updateUi = true, limit = MEMVIDS_LIMIT } = {}) {
+        if (!memvidsState.hasMore || memvidsState.loadingMore || memvidsState.items.length >= PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT) return false;
         memvidsState.loadingMore = true;
-        updateMemvidsPagination();
+        if (updateUi) updateMemvidsPagination();
         try {
-            const page = await fetchMemvids(memvidsState.nextCursor);
+            const remaining = Math.max(1, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT - memvidsState.items.length);
+            const page = await fetchMemvids(memvidsState.nextCursor, Math.min(limit, remaining));
+            const beforeCount = memvidsState.items.length;
             mergeMemvidsItems(page.items);
+            if (memvidsState.items.length > PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT) {
+                memvidsState.items = memvidsState.items.slice(0, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
+            }
             memvidsState.nextCursor = page.nextCursor;
             memvidsState.hasMore = page.hasMore;
-            return true;
+            return memvidsState.items.length > beforeCount;
         } finally {
             memvidsState.loadingMore = false;
-            updateMemvidsPagination();
+            if (updateUi) updateMemvidsPagination();
+        }
+    }
+
+    async function loadMemvidsUntilVisible(targetCount, { updateUi = false } = {}) {
+        const safeTarget = Math.min(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, Math.max(0, Number(targetCount) || 0));
+        while (memvidsState.items.length < safeTarget && memvidsState.hasMore) {
+            const beforeCount = memvidsState.items.length;
+            const fetched = await fetchNextMemvidsPage({
+                updateUi,
+                limit: safeTarget - beforeCount,
+            });
+            if (!fetched || memvidsState.items.length <= beforeCount) break;
         }
     }
 
     async function revealNextMemvidsBatch() {
-        if (!isPublicWideLayoutEnabled()) return;
-        if (!canRevealMoreMemvids()) return;
-        if (memvidsRevealPromise) return memvidsRevealPromise;
-        memvidsProgressiveMode = true;
-        const nextLimit = memvidsVisibleLimit + getWideMemvidsBatchSize();
-        memvidsRevealPromise = (async () => {
-            let errorMessage = '';
-            try {
-                if (nextLimit > memvidsState.items.length && memvidsState.hasMore) {
-                    await fetchNextMemvidsPage();
-                }
-                memvidsVisibleLimit = Math.min(nextLimit, memvidsState.items.length);
-                await render();
-            } catch (error) {
-                errorMessage = localeText('browse.memvidsLoadMoreFailed');
-                console.warn('memvids reveal more:', error);
-            } finally {
-                memvidsUserScrolledSinceBatch = false;
-                memvidsScrollBatchSettling = true;
-                window.clearTimeout(memvidsScrollBatchSettlingTimer);
-                memvidsScrollBatchSettlingTimer = window.setTimeout(() => {
-                    memvidsScrollBatchSettling = false;
-                }, 180);
-                memvidsRevealPromise = null;
-                updateMemvidsPagination(errorMessage);
-            }
-        })();
-        return memvidsRevealPromise;
+        return loadMoreMemvids();
     }
 
     function shouldUseMemvidsScrollLoading() {
-        return isPublicWideLayoutEnabled()
-            && memvidsProgressiveMode
-            && canRevealMoreMemvids();
+        return false;
     }
 
     function maybeRevealMemvidsFromScroll() {
-        if (memvidsScrollBatchSettling) return;
-        if (!memvidsUserScrolledSinceBatch || !shouldUseMemvidsScrollLoading()) return;
-        const rect = $scrollSentinel.getBoundingClientRect();
-        const sentinelIsNear = rect.top <= window.innerHeight + WIDE_SCROLL_PRELOAD_PX;
-        if (memvidsScrollSentinelNeedsReset) {
-            if (!sentinelIsNear) memvidsScrollSentinelNeedsReset = false;
-            return;
-        }
-        if (!sentinelIsNear) return;
-        const scrollY = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
-        if (Object.is(scrollY, memvidsLastRevealScrollY)) return;
-        memvidsLastRevealScrollY = scrollY;
-        memvidsScrollSentinelNeedsReset = true;
-        revealNextMemvidsBatch();
+        return undefined;
     }
 
     function handleMemvidsProgressiveScroll() {
-        if (memvidsScrollBatchSettling) return;
-        memvidsUserScrolledSinceBatch = true;
         maybeRevealMemvidsFromScroll();
     }
 
@@ -804,17 +747,8 @@ export function initVideoGallery() {
     }
 
     function syncMemvidsScrollLoading() {
-        const active = shouldUseMemvidsScrollLoading();
         window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
         disconnectMemvidsObserver();
-        if (!active) return;
-        window.addEventListener('scroll', handleMemvidsProgressiveScroll, { passive: true });
-        if ('IntersectionObserver' in window) {
-            memvidsObserver = new IntersectionObserver(handleMemvidsIntersection, {
-                rootMargin: `${WIDE_SCROLL_PRELOAD_PX}px 0px`,
-            });
-            memvidsObserver.observe($scrollSentinel);
-        }
     }
 
     function buildVideoCard(item) {
@@ -982,16 +916,9 @@ export function initVideoGallery() {
     async function loadMoreMemvids() {
         let errorMessage = '';
         try {
-            const loaded = await fetchNextMemvidsPage();
-            if (!loaded) return;
-            if (isPublicWideLayoutEnabled()) {
-                memvidsVisibleLimit = Math.min(
-                    Math.max(memvidsVisibleLimit, getWideMemvidsInitialLimit()),
-                    memvidsState.items.length,
-                );
-            } else {
-                memvidsVisibleLimit = memvidsState.items.length;
-            }
+            if (!canRevealMoreMemvids()) return;
+            await loadMemvidsUntilVisible(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, { updateUi: true });
+            memvidsVisibleLimit = Math.min(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, Math.max(memvidsVisibleLimit, memvidsState.items.length));
             await render();
         } catch (error) {
             errorMessage = localeText('browse.memvidsLoadMoreFailed');
@@ -1115,7 +1042,6 @@ export function initVideoGallery() {
         document.removeEventListener('bitbi:homepage-category-activated', handleMemvidsCategoryActivation);
         window.removeEventListener('resize', scheduleMemvidsWideLimitSync);
         window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
-        window.clearTimeout(memvidsScrollBatchSettlingTimer);
         window.clearTimeout(memvidsResizeSettledTimer);
         window.cancelAnimationFrame(memvidsResizeFrame);
         disconnectMemvidsObserver();
@@ -1143,7 +1069,6 @@ export function initVideoGallery() {
 
     bindMediaQueryChange(publicWideLayoutQuery, () => {
         stopActiveHoverPreview();
-        resetMemvidsWideWindow();
         render();
     });
     bindMediaQueryChange(desktopHoverQuery, () => {
@@ -1159,9 +1084,8 @@ export function initVideoGallery() {
     if ('ResizeObserver' in window) {
         memvidsResizeObserver = new ResizeObserver(scheduleMemvidsWideLimitSync);
         memvidsResizeObserver.observe(grid);
-    } else {
-        window.addEventListener('resize', scheduleMemvidsWideLimitSync, { passive: true });
     }
+    window.addEventListener('resize', scheduleMemvidsWideLimitSync, { passive: true });
     const categoryStage = document.getElementById('homeCategories');
     if (categoryStage && 'MutationObserver' in window) {
         memvidsStageObserver = new MutationObserver(scheduleMemvidsWideLimitSync);

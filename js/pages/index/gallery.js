@@ -32,11 +32,9 @@ const TABLET_DESKTOP_LAYOUT_MEDIA = [
     '(min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)',
 ].join(', ');
 const PUBLIC_WIDE_LAYOUT_MEDIA = `${DESKTOP_HOVER_MEDIA}, ${TABLET_DESKTOP_LAYOUT_MEDIA}`;
-const WIDE_INITIAL_MEMPICS = 10;
-const WIDE_MEMPICS_BATCH = 12;
-const WIDE_INITIAL_ROWS = 3;
-const WIDE_REVEAL_ROWS = 2;
-const WIDE_SCROLL_PRELOAD_PX = 720;
+const PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT = 60;
+const PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT = 100;
+const PUBLIC_EXPLORE_MIN_PREFETCH_PAGE_SIZE = 20;
 const WIDE_COLUMN_FALLBACK_PX = 270;
 
 let focusTrapCleanup = null;
@@ -57,15 +55,8 @@ export function initGallery() {
         loadingMore: false,
     };
     let currentFilter = MEMPICS_CATEGORY;
-    let mempicsProgressiveMode = false;
-    let mempicsVisibleLimit = WIDE_INITIAL_MEMPICS;
-    let mempicsRevealPromise = null;
+    let mempicsVisibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
     let mempicsObserver = null;
-    let mempicsUserScrolledSinceBatch = false;
-    let mempicsScrollBatchSettling = false;
-    let mempicsScrollBatchSettlingTimer = 0;
-    let mempicsLastRevealScrollY = Number.NaN;
-    let mempicsScrollSentinelNeedsReset = false;
     let mempicsResizeObserver = null;
     let mempicsStageObserver = null;
     let mempicsResizeFrame = 0;
@@ -105,8 +96,7 @@ export function initGallery() {
     }
 
     function getVisibleMempicsCount() {
-        if (!isPublicWideLayoutEnabled()) return mempicsState.items.length;
-        return Math.min(mempicsVisibleLimit, mempicsState.items.length);
+        return Math.min(mempicsVisibleLimit, mempicsState.items.length, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
     }
 
     function syncWideColumnCount(itemCount = 0) {
@@ -119,21 +109,6 @@ export function initGallery() {
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
             itemCount,
         });
-    }
-
-    function getWideColumnCapacity() {
-        return calculateFixedMediaWallMetrics(grid, {
-            targetWidthProperty: '--bitbi-public-gallery-active-column-width',
-            fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
-        }).columnCount;
-    }
-
-    function getWideMempicsInitialLimit() {
-        return Math.max(WIDE_INITIAL_MEMPICS, getWideColumnCapacity() * WIDE_INITIAL_ROWS);
-    }
-
-    function getWideMempicsBatchSize() {
-        return Math.max(WIDE_MEMPICS_BATCH, getWideColumnCapacity() * WIDE_REVEAL_ROWS);
     }
 
     function syncMempicsWideLimitForLayout() {
@@ -150,10 +125,8 @@ export function initGallery() {
         const resolvedWidthChanged = isPublicWideLayoutEnabled()
             && previousResolvedWidth > 0
             && Math.abs(previousResolvedWidth - nextMetrics.resolvedWidthPx) > 0.1;
-        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || mempicsProgressiveMode || !mempicsState.loaded) return;
-        const nextLimit = Math.min(Math.max(mempicsVisibleLimit, getWideMempicsInitialLimit()), mempicsState.items.length);
-        if (nextLimit <= mempicsVisibleLimit && !columnCountChanged && !resolvedWidthChanged) return;
-        mempicsVisibleLimit = nextLimit;
+        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return;
+        if (!columnCountChanged && !resolvedWidthChanged) return;
         render(currentFilter);
     }
 
@@ -168,21 +141,14 @@ export function initGallery() {
     }
 
     function canRevealMoreMempics() {
-        return isPublicWideLayoutEnabled()
-            && currentFilter === MEMPICS_CATEGORY
-            && (mempicsState.items.length > getVisibleMempicsCount() || mempicsState.hasMore);
+        const visibleCount = getVisibleMempicsCount();
+        return currentFilter === MEMPICS_CATEGORY
+            && visibleCount < PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT
+            && (mempicsState.items.length > visibleCount || mempicsState.hasMore);
     }
 
     function resetMempicsWideWindow() {
-        mempicsProgressiveMode = false;
-        mempicsVisibleLimit = isPublicWideLayoutEnabled()
-            ? getWideMempicsInitialLimit()
-            : mempicsState.items.length;
-        mempicsUserScrolledSinceBatch = false;
-        mempicsScrollBatchSettling = false;
-        mempicsLastRevealScrollY = Number.NaN;
-        mempicsScrollSentinelNeedsReset = false;
-        window.clearTimeout(mempicsScrollBatchSettlingTimer);
+        mempicsVisibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
     }
 
     function getMempicIdentity(item) {
@@ -235,7 +201,7 @@ export function initGallery() {
     function openMempicsOverlay() {
         openMobileMediaGrid({
             title: 'Mempics',
-            items: mempicsState.items,
+            items: mempicsState.items.slice(0, getVisibleMempicsCount()),
             emptyText: localeText('browse.noMempics'),
             className: 'mobile-media-grid-overlay--gallery',
             renderItem(item, index, { openDetail } = {}) {
@@ -315,8 +281,7 @@ export function initGallery() {
         }
         const visibleCount = getVisibleMempicsCount();
         const canRevealMore = canRevealMoreMempics();
-        const showDrawerToggle = isPublicWideLayoutEnabled() && canRevealMore && !mempicsProgressiveMode;
-        const showLoadMore = !isPublicWideLayoutEnabled() && mempicsState.hasMore;
+        const showDrawerToggle = canRevealMore;
         $pagination.style.display = '';
         if (canRevealMore) {
             $paginationStatus.textContent = localeText('browse.showingMempicsComplete', { count: visibleCount });
@@ -331,25 +296,24 @@ export function initGallery() {
         });
         $drawerToggle.hidden = !showDrawerToggle;
         $drawerToggle.textContent = showDrawerToggle
-            ? localeText('browse.showMore')
+            ? (mempicsState.loadingMore ? localeText('browse.loading') : localeText('browse.showMore'))
             : '';
         $drawerToggle.disabled = mempicsState.loadingMore;
-        $drawerToggle.setAttribute('aria-expanded', String(showDrawerToggle && mempicsProgressiveMode));
-        $loadMore.hidden = !showLoadMore;
+        $drawerToggle.setAttribute('aria-expanded', 'false');
+        $loadMore.hidden = true;
         $loadMore.disabled = mempicsState.loadingMore;
-        $loadMore.textContent = showLoadMore
-            ? (mempicsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
-            : '';
-        $scrollSentinel.hidden = !(isPublicWideLayoutEnabled() && mempicsProgressiveMode && canRevealMore);
+        $loadMore.textContent = '';
+        $scrollSentinel.hidden = true;
         syncMempicsScrollLoading();
     }
 
-    async function fetchMempics(cursor = null) {
+    async function fetchMempics(cursor = null, limit = MEMPICS_PAGE_LIMIT) {
         if (mempicsPromise) return mempicsPromise;
         mempicsPromise = (async () => {
             try {
                 const params = new URLSearchParams();
-                params.set('limit', String(MEMPICS_PAGE_LIMIT));
+                const safeLimit = Math.max(1, Math.min(MEMPICS_PAGE_LIMIT, Number(limit) || MEMPICS_PAGE_LIMIT));
+                params.set('limit', String(safeLimit));
                 if (cursor) params.set('cursor', cursor);
                 const res = await fetch(`/api/gallery/mempics?${params}`, {
                     credentials: 'same-origin',
@@ -374,45 +338,65 @@ export function initGallery() {
         return mempicsPromise;
     }
 
+    async function fetchAndMergeNextMempicsPage({ updateUi = true, limit = MEMPICS_PAGE_LIMIT } = {}) {
+        if (!mempicsState.hasMore || mempicsState.loadingMore || mempicsState.items.length >= PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT) return false;
+        mempicsState.loadingMore = true;
+        if (updateUi) updateMempicsPagination(MEMPICS_CATEGORY);
+        try {
+            const remaining = Math.max(1, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT - mempicsState.items.length);
+            const page = await fetchMempics(mempicsState.nextCursor, Math.min(limit, remaining));
+            const beforeCount = mempicsState.items.length;
+            mergeMempicsItems(page.items);
+            if (mempicsState.items.length > PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT) {
+                mempicsState.items = mempicsState.items.slice(0, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
+            }
+            mempicsState.nextCursor = page.nextCursor;
+            mempicsState.hasMore = page.hasMore;
+            return mempicsState.items.length > beforeCount;
+        } finally {
+            mempicsState.loadingMore = false;
+            if (updateUi) updateMempicsPagination(MEMPICS_CATEGORY);
+        }
+    }
+
+    async function loadMempicsUntilVisible(targetCount, { updateUi = false } = {}) {
+        const safeTarget = Math.min(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, Math.max(0, Number(targetCount) || 0));
+        while (mempicsState.items.length < safeTarget && mempicsState.hasMore) {
+            const beforeCount = mempicsState.items.length;
+            const fetched = await fetchAndMergeNextMempicsPage({
+                updateUi,
+                limit: safeTarget - beforeCount,
+            });
+            if (!fetched || mempicsState.items.length <= beforeCount) break;
+        }
+    }
+
     async function ensureMempicsLoaded() {
         if (mempicsState.loaded) return;
-        const page = await fetchMempics();
+        const page = await fetchMempics(null, PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT);
         mergeMempicsItems(page.items, { replace: true });
+        if (mempicsState.items.length > PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT) {
+            mempicsState.items = mempicsState.items.slice(0, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
+        }
         mempicsState.nextCursor = page.nextCursor;
         mempicsState.hasMore = page.hasMore;
+        if ((page.items?.length || 0) >= PUBLIC_EXPLORE_MIN_PREFETCH_PAGE_SIZE) {
+            await loadMempicsUntilVisible(PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT);
+        }
         mempicsState.loaded = true;
         resetMempicsWideWindow();
     }
 
     async function fetchNextMempicsPage() {
-        if (!mempicsState.hasMore || mempicsState.loadingMore) return;
-        mempicsState.loadingMore = true;
-        updateMempicsPagination(MEMPICS_CATEGORY);
-        try {
-            const page = await fetchMempics(mempicsState.nextCursor);
-            mergeMempicsItems(page.items);
-            mempicsState.nextCursor = page.nextCursor;
-            mempicsState.hasMore = page.hasMore;
-            return true;
-        } finally {
-            mempicsState.loadingMore = false;
-            updateMempicsPagination(MEMPICS_CATEGORY);
-        }
+        return fetchAndMergeNextMempicsPage({ updateUi: true });
     }
 
     async function loadMoreMempics() {
         let errorMessage = '';
         try {
-            const loaded = await fetchNextMempicsPage();
-            if (!loaded) return;
-            if (isPublicWideLayoutEnabled()) {
-                mempicsVisibleLimit = Math.min(
-                    Math.max(mempicsVisibleLimit, getWideMempicsInitialLimit()),
-                    mempicsState.items.length,
-                );
-            } else {
-                mempicsVisibleLimit = mempicsState.items.length;
-            }
+            if (!canRevealMoreMempics()) return;
+            await loadMempicsUntilVisible(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, { updateUi: true });
+            mempicsVisibleLimit = Math.min(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, Math.max(mempicsVisibleLimit, mempicsState.items.length));
             await render(MEMPICS_CATEGORY);
         } catch (error) {
             errorMessage = localeText('browse.mempicsLoadMoreFailed');
@@ -423,63 +407,18 @@ export function initGallery() {
     }
 
     async function revealNextMempicsBatch() {
-        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY) return;
-        if (!canRevealMoreMempics()) return;
-        if (mempicsRevealPromise) return mempicsRevealPromise;
-        mempicsProgressiveMode = true;
-        const nextLimit = mempicsVisibleLimit + getWideMempicsBatchSize();
-        mempicsRevealPromise = (async () => {
-            let errorMessage = '';
-            try {
-                if (nextLimit > mempicsState.items.length && mempicsState.hasMore) {
-                    await fetchNextMempicsPage();
-                }
-                mempicsVisibleLimit = Math.min(nextLimit, mempicsState.items.length);
-                await render(MEMPICS_CATEGORY);
-            } catch (error) {
-                errorMessage = localeText('browse.mempicsLoadMoreFailed');
-                console.warn('mempics reveal more:', error);
-            } finally {
-                mempicsUserScrolledSinceBatch = false;
-                mempicsScrollBatchSettling = true;
-                window.clearTimeout(mempicsScrollBatchSettlingTimer);
-                mempicsScrollBatchSettlingTimer = window.setTimeout(() => {
-                    mempicsScrollBatchSettling = false;
-                }, 180);
-                mempicsRevealPromise = null;
-                updateMempicsPagination(MEMPICS_CATEGORY, errorMessage);
-            }
-        })();
-        return mempicsRevealPromise;
+        return loadMoreMempics();
     }
 
     function shouldUseScrollLoading() {
-        return isPublicWideLayoutEnabled()
-            && currentFilter === MEMPICS_CATEGORY
-            && mempicsProgressiveMode
-            && canRevealMoreMempics();
+        return false;
     }
 
     function maybeRevealMempicsFromScroll() {
-        if (mempicsScrollBatchSettling) return;
-        if (!mempicsUserScrolledSinceBatch || !shouldUseScrollLoading()) return;
-        const rect = $scrollSentinel.getBoundingClientRect();
-        const sentinelIsNear = rect.top <= window.innerHeight + WIDE_SCROLL_PRELOAD_PX;
-        if (mempicsScrollSentinelNeedsReset) {
-            if (!sentinelIsNear) mempicsScrollSentinelNeedsReset = false;
-            return;
-        }
-        if (!sentinelIsNear) return;
-        const scrollY = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
-        if (Object.is(scrollY, mempicsLastRevealScrollY)) return;
-        mempicsLastRevealScrollY = scrollY;
-        mempicsScrollSentinelNeedsReset = true;
-        revealNextMempicsBatch();
+        return undefined;
     }
 
     function handleMempicsProgressiveScroll() {
-        if (mempicsScrollBatchSettling) return;
-        mempicsUserScrolledSinceBatch = true;
         maybeRevealMempicsFromScroll();
     }
 
@@ -495,17 +434,8 @@ export function initGallery() {
     }
 
     function syncMempicsScrollLoading() {
-        const active = shouldUseScrollLoading();
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
         disconnectMempicsObserver();
-        if (!active) return;
-        window.addEventListener('scroll', handleMempicsProgressiveScroll, { passive: true });
-        if ('IntersectionObserver' in window) {
-            mempicsObserver = new IntersectionObserver(handleMempicsIntersection, {
-                rootMargin: `${WIDE_SCROLL_PRELOAD_PX}px 0px`,
-            });
-            mempicsObserver.observe($scrollSentinel);
-        }
     }
 
     function buildGalleryCard(item) {
@@ -847,7 +777,6 @@ export function initGallery() {
     }
 
     bindMediaQueryChange(publicWideLayoutQuery, () => {
-        resetMempicsWideWindow();
         render(currentFilter);
     });
     bindMediaQueryChange(mobileMediaQuery, () => {
@@ -857,9 +786,8 @@ export function initGallery() {
     if ('ResizeObserver' in window) {
         mempicsResizeObserver = new ResizeObserver(scheduleMempicsWideLimitSync);
         mempicsResizeObserver.observe(grid);
-    } else {
-        window.addEventListener('resize', scheduleMempicsWideLimitSync, { passive: true });
     }
+    window.addEventListener('resize', scheduleMempicsWideLimitSync, { passive: true });
     const categoryStage = document.getElementById('homeCategories');
     if (categoryStage && 'MutationObserver' in window) {
         mempicsStageObserver = new MutationObserver(scheduleMempicsWideLimitSync);
@@ -994,7 +922,6 @@ export function initGallery() {
         document.removeEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
         window.removeEventListener('resize', scheduleMempicsWideLimitSync);
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
-        window.clearTimeout(mempicsScrollBatchSettlingTimer);
         window.clearTimeout(mempicsResizeSettledTimer);
         window.cancelAnimationFrame(mempicsResizeFrame);
         disconnectMempicsObserver();

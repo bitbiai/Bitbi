@@ -28,6 +28,8 @@ import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import { parseCssLengthToPixels } from './public-media-wall.js?v=__ASSET_VERSION__';
 
 const MEMTRACKS_PAGE_LIMIT = 60;
+const PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT = 60;
+const PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT = 100;
 const DESKTOP_SOUND_LAYOUT_MEDIA = '(min-width: 640px)';
 
 function clamp(value, min, max) {
@@ -72,18 +74,25 @@ export function initSoundLab(revealObserver) {
         nextCursor: null,
         hasMore: false,
         error: '',
+        loadingMore: false,
+        visibleLimit: PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT,
     };
 
     const statusEl = document.createElement('div');
     statusEl.className = 'snd-memtracks-status';
     statusEl.hidden = true;
     const paginationEl = document.createElement('div');
-    paginationEl.className = 'browse-pagination browse-pagination--mobile-only snd-memtracks-pagination';
+    paginationEl.className = 'browse-pagination snd-memtracks-pagination';
     paginationEl.hidden = true;
     const paginationStatus = document.createElement('button');
     paginationStatus.type = 'button';
     paginationStatus.className = 'browse-pagination__status';
-    paginationEl.appendChild(paginationStatus);
+    const paginationMore = document.createElement('button');
+    paginationMore.type = 'button';
+    paginationMore.className = 'browse-pagination__toggle snd-memtracks-more';
+    paginationMore.textContent = localeText('browse.showMore');
+    paginationMore.hidden = true;
+    paginationEl.append(paginationStatus, paginationMore);
     ctn.after(paginationEl, statusEl);
 
     function toPixelString(value) {
@@ -325,6 +334,20 @@ export function initSoundLab(revealObserver) {
         return memtracksState.items.findIndex(item => state.trackId === `memtrack:${item.id}`);
     }
 
+    function getVisibleMemtrackCount() {
+        return Math.min(memtracksState.visibleLimit, memtracksState.items.length, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
+    }
+
+    function getVisibleMemtracks() {
+        return memtracksState.items.slice(0, getVisibleMemtrackCount());
+    }
+
+    function canRevealMoreMemtracks() {
+        const visibleCount = getVisibleMemtrackCount();
+        return visibleCount < PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT
+            && (memtracksState.items.length > visibleCount || memtracksState.hasMore);
+    }
+
     function syncStatus() {
         const show = memtracksState.loading || memtracksState.error || (memtracksState.loaded && !memtracksState.items.length);
         statusEl.hidden = !show;
@@ -342,7 +365,7 @@ export function initSoundLab(revealObserver) {
     function openMemtracksOverlay() {
         openMobileMediaGrid({
             title: 'Memtracks',
-            items: memtracksState.items,
+            items: getVisibleMemtracks(),
             emptyText: localeText('browse.noTracks'),
             className: 'mobile-media-grid-overlay--sound',
             renderItem(item, index, { openDetail } = {}) {
@@ -477,13 +500,27 @@ export function initSoundLab(revealObserver) {
         if (!hasItems) {
             paginationStatus.textContent = '';
             syncMobileMediaTrigger(paginationStatus, { enabled: false, label: localeText('browse.openMemtracksGrid') });
+            paginationMore.hidden = true;
+            paginationMore.disabled = false;
+            paginationMore.textContent = '';
             return;
         }
-        paginationStatus.textContent = `Showing all ${memtracksState.items.length} Memtracks.`;
+        const visibleCount = getVisibleMemtrackCount();
+        const canRevealMore = canRevealMoreMemtracks();
+        if (canRevealMore || memtracksState.hasMore) {
+            paginationStatus.textContent = localeText('browse.showingMemtracksComplete', { count: visibleCount });
+        } else {
+            paginationStatus.textContent = localeText('browse.showingAllMemtracksComplete', { count: visibleCount });
+        }
         syncMobileMediaTrigger(paginationStatus, {
             enabled: hasItems,
             label: localeText('browse.openMemtracksGrid'),
         });
+        paginationMore.hidden = !canRevealMore;
+        paginationMore.disabled = memtracksState.loadingMore;
+        paginationMore.textContent = canRevealMore
+            ? (memtracksState.loadingMore ? localeText('browse.loading') : localeText('browse.showMore'))
+            : '';
     }
 
     function renderMemtrackCard(row, item, state = currentState) {
@@ -675,8 +712,25 @@ export function initSoundLab(revealObserver) {
         return card;
     }
 
-    async function fetchMemtracks(cursor = null) {
-        const params = new URLSearchParams({ limit: String(MEMTRACKS_PAGE_LIMIT) });
+    function getMemtrackIdentity(item) {
+        return String(item?.id || item?.slug || item?.file?.url || '').trim();
+    }
+
+    function mergeMemtracksItems(items, { replace = false } = {}) {
+        const nextItems = replace ? [] : memtracksState.items.slice();
+        const seen = new Set(nextItems.map(getMemtrackIdentity).filter(Boolean));
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            const identity = getMemtrackIdentity(item);
+            if (identity && seen.has(identity)) return;
+            if (identity) seen.add(identity);
+            nextItems.push(item);
+        });
+        memtracksState.items = nextItems.slice(0, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
+    }
+
+    async function fetchMemtracks(cursor = null, limit = MEMTRACKS_PAGE_LIMIT) {
+        const safeLimit = Math.max(1, Math.min(MEMTRACKS_PAGE_LIMIT, Number(limit) || MEMTRACKS_PAGE_LIMIT));
+        const params = new URLSearchParams({ limit: String(safeLimit) });
         if (cursor) params.set('cursor', cursor);
         const res = await fetch(`/api/gallery/memtracks?${params}`, {
             credentials: 'same-origin',
@@ -689,32 +743,68 @@ export function initSoundLab(revealObserver) {
         return body.data || {};
     }
 
+    async function fetchAndMergeNextMemtracksPage({ updateUi = true, limit = MEMTRACKS_PAGE_LIMIT } = {}) {
+        if (!memtracksState.hasMore || memtracksState.loadingMore || memtracksState.items.length >= PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT) return false;
+        memtracksState.loadingMore = true;
+        if (updateUi) syncMemtracksPagination();
+        try {
+            const remaining = Math.max(1, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT - memtracksState.items.length);
+            const page = await fetchMemtracks(memtracksState.nextCursor, Math.min(limit, remaining));
+            const beforeCount = memtracksState.items.length;
+            mergeMemtracksItems(Array.isArray(page.items) ? page.items : []);
+            memtracksState.nextCursor = page.next_cursor || null;
+            memtracksState.hasMore = !!page.has_more;
+            return memtracksState.items.length > beforeCount;
+        } finally {
+            memtracksState.loadingMore = false;
+            if (updateUi) syncMemtracksPagination();
+        }
+    }
+
+    async function loadMemtracksUntilVisible(targetCount, { updateUi = false } = {}) {
+        const safeTarget = Math.min(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, Math.max(0, Number(targetCount) || 0));
+        while (memtracksState.items.length < safeTarget && memtracksState.hasMore) {
+            const beforeCount = memtracksState.items.length;
+            const fetched = await fetchAndMergeNextMemtracksPage({
+                updateUi,
+                limit: safeTarget - beforeCount,
+            });
+            if (!fetched || memtracksState.items.length <= beforeCount) break;
+        }
+    }
+
+    function renderVisibleMemtracks() {
+        const visibleItems = getVisibleMemtracks();
+        ctn.innerHTML = '';
+        visibleItems.forEach((item) => {
+            const card = createMemtrackCard(item);
+            ctn.appendChild(card);
+            if (revealObserver) revealObserver.observe(card);
+        });
+        syncMemtrackCardWidths();
+        syncCategoryGhostModels('sound', visibleItems);
+        renderMemtrackRows(currentState);
+        ctn.dispatchEvent(new CustomEvent('snd:tracks-refresh'));
+        document.dispatchEvent(new CustomEvent('bitbi:homepage-category-content-ready', {
+            detail: { category: 'sound' },
+        }));
+        syncMemtracksPagination();
+    }
+
     async function loadMemtracks() {
         if (memtracksState.loaded || memtracksState.loading) return;
         memtracksState.loading = true;
         syncStatus();
         try {
-            const page = await fetchMemtracks();
-            const items = Array.isArray(page.items) ? page.items : [];
-            memtracksState.items = items;
+            const page = await fetchMemtracks(null, PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT);
+            mergeMemtracksItems(Array.isArray(page.items) ? page.items : [], { replace: true });
             memtracksState.nextCursor = page.next_cursor || null;
             memtracksState.hasMore = !!page.has_more;
+            await loadMemtracksUntilVisible(PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT);
             memtracksState.error = '';
             memtracksState.loaded = true;
-            ctn.innerHTML = '';
-            items.forEach((item) => {
-                const card = createMemtrackCard(item);
-                ctn.appendChild(card);
-                if (revealObserver) revealObserver.observe(card);
-            });
-            syncMemtrackCardWidths();
-            syncCategoryGhostModels('sound', items);
-            renderMemtrackRows(currentState);
-            ctn.dispatchEvent(new CustomEvent('snd:tracks-refresh'));
-            document.dispatchEvent(new CustomEvent('bitbi:homepage-category-content-ready', {
-                detail: { category: 'sound' },
-            }));
-            syncMemtracksPagination();
+            memtracksState.visibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
+            renderVisibleMemtracks();
         } catch (error) {
             console.warn('soundLab memtracks:', error);
             memtracksState.error = 'Could not load published tracks right now.';
@@ -722,6 +812,23 @@ export function initSoundLab(revealObserver) {
             syncCategoryGhostModels('sound', []);
         } finally {
             memtracksState.loading = false;
+            syncStatus();
+            syncMemtracksPagination();
+        }
+    }
+
+    async function loadMoreMemtracks() {
+        if (!canRevealMoreMemtracks()) return;
+        try {
+            await loadMemtracksUntilVisible(PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT, { updateUi: true });
+            memtracksState.visibleLimit = Math.min(
+                PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT,
+                Math.max(memtracksState.visibleLimit, memtracksState.items.length),
+            );
+            renderVisibleMemtracks();
+        } catch (error) {
+            console.warn('soundLab memtracks load more:', error);
+            memtracksState.error = localeText('browse.memtracksLoadMoreFailed');
             syncStatus();
             syncMemtracksPagination();
         }
@@ -974,9 +1081,8 @@ export function initSoundLab(revealObserver) {
     if (typeof ResizeObserver === 'function') {
         memtrackResizeObserver = new ResizeObserver(scheduleMemtrackWidthSync);
         memtrackResizeObserver.observe(ctn);
-    } else {
-        window.addEventListener('resize', scheduleMemtrackWidthSync, { passive: true });
     }
+    window.addEventListener('resize', scheduleMemtrackWidthSync, { passive: true });
     const categoryStage = document.getElementById('homeCategories');
     if (categoryStage && 'MutationObserver' in window) {
         memtrackStageObserver = new MutationObserver(scheduleMemtrackWidthSync);
@@ -1000,6 +1106,7 @@ export function initSoundLab(revealObserver) {
         window.cancelAnimationFrame(memtrackWidthFrame);
     }, { once: true });
     paginationStatus.addEventListener('click', openMemtracksOverlay);
+    paginationMore.addEventListener('click', loadMoreMemtracks);
     if (mobileMediaQuery) {
         const syncMobileTrigger = () => syncMemtracksPagination();
         if (typeof mobileMediaQuery.addEventListener === 'function') {
