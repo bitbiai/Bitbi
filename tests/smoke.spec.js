@@ -2558,6 +2558,118 @@ test.describe('Homepage', () => {
     ]));
   });
 
+  test('tablet homepage hero shows Models videos and creation streams while phones stay lightweight', async ({ browser }) => {
+    const buildHeroSlots = () => ['right_top', 'right_bottom', 'left_top', 'left_bottom'].map((slot, index) => ({
+      slot,
+      version: `tabletv${index + 1}`,
+      title: `Tablet ${slot}`,
+      source_type: 'admin_asset',
+      file: {
+        url: `/api/homepage/hero-videos/${slot}/tabletv${index + 1}/file`,
+        mime_type: 'video/mp4',
+        width: 720,
+        height: 405,
+        size_bytes: 1400000,
+        duration_seconds: 6,
+      },
+      poster: {
+        url: `/api/homepage/hero-videos/${slot}/tabletv${index + 1}/poster`,
+        mime_type: 'image/webp',
+        width: 720,
+        height: 405,
+        size_bytes: 90000,
+      },
+    }));
+    const homepageHeroVideos = {
+      ok: true,
+      data: {
+        configured: true,
+        slots: buildHeroSlots(),
+        slot_order: ['right_top', 'right_bottom', 'left_top', 'left_bottom'],
+      },
+    };
+
+    const openTouchPage = async (viewport) => {
+      const context = await browser.newContext({
+        baseURL: 'http://localhost:3000',
+        viewport,
+        hasTouch: true,
+        isMobile: true,
+      });
+      const page = await context.newPage();
+      const videoRequests = [];
+      await routeHomepageVideoHoverFixtures(page, {
+        videoRequests,
+        homepageHeroVideos,
+        items: [],
+      });
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+      return { context, page, videoRequests };
+    };
+
+    const assertTabletHeroVisuals = async (viewport, label) => {
+      const { context, page, videoRequests } = await openTouchPage(viewport);
+      try {
+        await expect(page.locator('#hero .hero__models-cta')).toHaveCount(2);
+        await expect(page.locator('#hero .hero__models-cta--left')).toBeVisible();
+        await expect(page.locator('#hero .hero__models-cta--right')).toBeVisible();
+        await expect(page.locator('#hero .latest-models-video-module__slot')).toHaveCount(4);
+        await expect(page.locator('#hero .latest-models-video-module__slot video')).toHaveCount(4);
+        await expect(page.locator('#hero .latest-models-video-module[data-video-module-state="ready"]')).toHaveCount(2);
+        await expect(page.locator('#hero .hero__creation-stream[data-creation-stream-anchored="true"]')).toHaveCount(2);
+
+        const metrics = await page.evaluate(() => {
+          const stream = document.querySelector('#hero .hero__creation-stream');
+          const slots = Array.from(document.querySelectorAll('#hero .latest-models-video-module__slot'));
+          return {
+            legacyDesktopVideoGate: window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)').matches,
+            heroVisualMedia: window.matchMedia('(min-width: 1024px), (min-width: 768px) and (max-width: 1023px) and (min-height: 700px)').matches,
+            streamDisplay: stream ? window.getComputedStyle(stream).display : '',
+            visibleSlotCount: slots.filter((slot) => {
+              const rect = slot.getBoundingClientRect();
+              const style = window.getComputedStyle(slot);
+              return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+            }).length,
+          };
+        });
+        expect(metrics.heroVisualMedia, `${label} hero visual media`).toBe(true);
+        expect(metrics.streamDisplay, `${label} stream display`).not.toBe('none');
+        expect(metrics.visibleSlotCount, `${label} visible hero video slots`).toBe(4);
+        expect(videoRequests, `${label} configured hero videos requested`).toEqual(expect.arrayContaining([
+          '/api/homepage/hero-videos/right_top/tabletv1/file',
+          '/api/homepage/hero-videos/right_bottom/tabletv2/file',
+          '/api/homepage/hero-videos/left_top/tabletv3/file',
+          '/api/homepage/hero-videos/left_bottom/tabletv4/file',
+        ]));
+        return metrics;
+      } finally {
+        await context.close();
+      }
+    };
+
+    const iPadProLike = await assertTabletHeroVisuals({ width: 1366, height: 1024 }, 'iPad Pro landscape');
+    expect(iPadProLike.legacyDesktopVideoGate, 'touch tablet should not depend on hover/fine media').toBe(false);
+    await assertTabletHeroVisuals({ width: 820, height: 1180 }, 'tablet portrait');
+
+    const { context: phoneContext, page: phonePage, videoRequests: phoneVideoRequests } = await openTouchPage({ width: 390, height: 844 });
+    try {
+      await expect(phonePage.locator('#hero .hero__models-cta')).toHaveCount(2);
+      await expect(phonePage.locator('#hero .hero__models-cta--left')).toBeHidden();
+      await expect(phonePage.locator('#hero .hero__models-cta--right')).toBeHidden();
+      await expect(phonePage.locator('#hero .latest-models-video-module__slot video')).toHaveCount(0);
+      const phoneMetrics = await phonePage.evaluate(() => ({
+        heroVisualMedia: window.matchMedia('(min-width: 1024px), (min-width: 768px) and (max-width: 1023px) and (min-height: 700px)').matches,
+        streamDisplays: Array.from(document.querySelectorAll('#hero .hero__creation-stream'))
+          .map((stream) => window.getComputedStyle(stream).display),
+      }));
+      expect(phoneMetrics.heroVisualMedia).toBe(false);
+      expect(phoneMetrics.streamDisplays.every((display) => display === 'none')).toBe(true);
+      expect(phoneVideoRequests).toEqual([]);
+    } finally {
+      await phoneContext.close();
+    }
+  });
+
   for (const { path, galleryLabel } of [
     { path: '/', galleryLabel: 'Gallery' },
     { path: '/de/', galleryLabel: 'Galerie' },

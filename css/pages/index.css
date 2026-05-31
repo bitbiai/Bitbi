@@ -4306,7 +4306,9 @@
         text-wrap: balance;
     }
 
-    @media (min-width: 1024px) {
+    @media
+      (min-width: 1024px),
+      (min-width: 768px) and (max-width: 1023px) and (min-height: 700px) {
         .hero__creation-stream {
             position: absolute;
             inset: 0;
@@ -5091,7 +5093,7 @@
         }
     }
 
-    @media (max-width: 1023px), (hover: none), (pointer: coarse) {
+    @media (max-width: 767px), (max-width: 1023px) and (max-height: 699px) {
         .hero__creation-stream {
             display: none;
         }

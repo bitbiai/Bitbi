@@ -9,7 +9,10 @@ import {
     resolvePublicMemvidFileUrl,
 } from './public-memvids.js?v=__ASSET_VERSION__';
 
-const DESKTOP_MODELS_VIDEO_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const HERO_MODELS_VIDEO_MEDIA = [
+    '(min-width: 1024px)',
+    '(min-width: 768px) and (max-width: 1023px) and (min-height: 700px)',
+].join(', ');
 const REDUCED_MOTION_MEDIA = '(prefers-reduced-motion: reduce)';
 const HOMEPAGE_HERO_VIDEO_SLOTS = ['right_top', 'right_bottom', 'left_top', 'left_bottom'];
 const LATEST_MEMVID_LIMIT = 60;
@@ -336,7 +339,7 @@ export function initLatestModelsVideoModule(root = document) {
         .filter((entry) => entry.slots.top && entry.slots.bottom);
     if (!modules.length) return;
 
-    const desktopQuery = window.matchMedia?.(DESKTOP_MODELS_VIDEO_MEDIA);
+    const heroVisualQuery = window.matchMedia?.(HERO_MODELS_VIDEO_MEDIA);
     const reducedMotionQuery = window.matchMedia?.(REDUCED_MOTION_MEDIA);
     let enabled = false;
     let loadToken = 0;
@@ -388,7 +391,7 @@ export function initLatestModelsVideoModule(root = document) {
     }
 
     async function start() {
-        if (!desktopQuery?.matches) {
+        if (!heroVisualQuery?.matches) {
             stop();
             return;
         }
@@ -405,7 +408,7 @@ export function initLatestModelsVideoModule(root = document) {
             } catch {
                 configuredEntries = null;
             }
-            if (token !== loadToken || !desktopQuery.matches) return;
+            if (token !== loadToken || !heroVisualQuery.matches) return;
             if (configuredEntries) {
                 stop();
                 enabled = true;
@@ -417,7 +420,7 @@ export function initLatestModelsVideoModule(root = document) {
             }
 
             const page = await fetchPublicMemvidsPage({ limit: LATEST_MEMVID_LIMIT });
-            if (token !== loadToken || !desktopQuery.matches) return;
+            if (token !== loadToken || !heroVisualQuery.matches) return;
             const entries = getPreviewItems(page.items);
             if (!entries.length) {
                 modules.forEach((entry) => {
@@ -448,12 +451,12 @@ export function initLatestModelsVideoModule(root = document) {
         start();
     }
 
-    bindMediaQueryChange(desktopQuery, sync);
+    bindMediaQueryChange(heroVisualQuery, sync);
     bindMediaQueryChange(reducedMotionQuery, sync);
     start();
 
     window.addEventListener('pagehide', () => {
-        removeMediaQueryChange(desktopQuery, sync);
+        removeMediaQueryChange(heroVisualQuery, sync);
         removeMediaQueryChange(reducedMotionQuery, sync);
         loadToken += 1;
         stop();
