@@ -11,7 +11,7 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
-    "wrangler": "^4.87.0"
+    "wrangler": "^4.95.0"
   },
   "overrides": {
     "ws": "8.20.1"

@@ -25753,6 +25753,45 @@ test.describe('Worker routes', () => {
       expect(usageEventMetadata.input_image_megapixels).toBeCloseTo(1, 6);
     });
 
+    test('POST /api/admin/ai/test-image rejects FLUX.2 Max unsupported fields before provider execution', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 500 });
+
+      for (const [key, value] of [
+        ['steps', 4],
+        ['guidance', 7.5],
+        ['structuredPrompt', '{"legacy":true}'],
+        ['quality', 'high'],
+        ['size', '1024x1024'],
+        ['background', 'auto'],
+      ]) {
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+            model: 'black-forest-labs/flux-2-max',
+            prompt: `Unsupported ${key} must fail.`,
+            width: 1024,
+            height: 1024,
+            [key]: value,
+          }), adminImageChargeHeaders(authHeaders, `admin-image-flux-2-max-${key}-key`)),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(400);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          code: 'validation_error',
+          error: expect.stringContaining(`${key} is not supported`),
+        }));
+      }
+      expect(providerCalls).toBe(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+    });
+
     test('POST /api/admin/ai/test-image fetches GPT Image 2 provider URL outputs as base64', async () => {
       const originalFetch = globalThis.fetch;
       const fetchCalls = [];
@@ -25851,6 +25890,35 @@ test.describe('Worker routes', () => {
           outputFormat: 'png',
           background: 'auto',
         }), adminImageChargeHeaders(authHeaders, 'admin-image-gpt-provider-fail-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(502);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+      expect(env.DB.state.aiUsageAttempts[0]).toEqual(expect.objectContaining({
+        status: 'provider_failed',
+        billing_status: 'released',
+      }));
+    });
+
+    test('charged FLUX.2 Max provider failures do not consume credits', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('provider unavailable');
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 300 });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'black-forest-labs/flux-2-max',
+          prompt: 'Provider failure no charge.',
+          width: 1024,
+          height: 1024,
+          outputFormat: 'jpeg',
+          safetyTolerance: 2,
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-flux-2-max-provider-fail-key')),
         env,
         createExecutionContext().execCtx
       );
@@ -26662,6 +26730,11 @@ test.describe('Worker routes', () => {
         [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', referenceImages: Array.from({ length: 9 }, () => validPng) }, 'at most 8'],
         [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', referenceImages: ['https://example.com/ref.png'] }, 'data URI'],
         [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', steps: 20 }, 'steps is not supported'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', guidance: 7.5 }, 'guidance is not supported'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', structuredPrompt: '{"x":true}' }, 'structuredPrompt is not supported'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', quality: 'high' }, 'quality is not supported'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', size: '1024x1024' }, 'size is not supported'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', background: 'auto' }, 'background is not supported'],
       ];
       for (const [payload, message] of invalidCases) {
         expect(() => validateAdminAiImageBody(payload)).toThrow(AdminAiValidationError);

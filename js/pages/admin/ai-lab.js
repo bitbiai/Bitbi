@@ -33,6 +33,7 @@ import {
     ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
     FLUX_2_DEV_MODEL_ID,
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
+    FLUX_2_MAX_MODEL_ID,
     GPT_IMAGE_2_MODEL_ID,
     getAdminAiVideoModelSpec,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
@@ -40,6 +41,7 @@ import {
     FLUX_1_SCHNELL_IMAGE_MODEL_ID as ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID,
     calculateAiImageCreditCost,
     calculateAiVideoCreditCost,
+    isPricedAiImageModel,
 } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { BITBI_GENERATION_TIMEOUT_MS } from '../../shared/generation-timeout.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
@@ -347,6 +349,12 @@ function cloneDefaultPreferences() {
 
 function isObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveFieldElement(fieldId, inputId) {
+    return document.getElementById(fieldId)
+        || document.getElementById(inputId)?.closest('.admin-ai__field')
+        || null;
 }
 
 function resolveRequestTimeouts(overrides) {
@@ -950,15 +958,15 @@ export function createAdminAiLab({ showToast } = {}) {
             guidance: document.getElementById('aiImageGuidance'),
             guidanceHint: document.getElementById('aiImageGuidanceHint'),
             gptControls: document.getElementById('aiImageGptControls'),
-            qualityField: document.getElementById('aiImageQualityField'),
+            qualityField: resolveFieldElement('aiImageQualityField', 'aiImageQuality'),
             quality: document.getElementById('aiImageQuality'),
-            sizeField: document.getElementById('aiImageSizeField'),
+            sizeField: resolveFieldElement('aiImageSizeField', 'aiImageSize'),
             size: document.getElementById('aiImageSize'),
-            outputFormatField: document.getElementById('aiImageOutputFormatField'),
+            outputFormatField: resolveFieldElement('aiImageOutputFormatField', 'aiImageOutputFormat'),
             outputFormat: document.getElementById('aiImageOutputFormat'),
-            backgroundField: document.getElementById('aiImageBackgroundField'),
+            backgroundField: resolveFieldElement('aiImageBackgroundField', 'aiImageBackground'),
             background: document.getElementById('aiImageBackground'),
-            safetyField: document.getElementById('aiImageSafetyField'),
+            safetyField: resolveFieldElement('aiImageSafetyField', 'aiImageSafetyTolerance'),
             safetyTolerance: document.getElementById('aiImageSafetyTolerance'),
             safetyHint: document.getElementById('aiImageSafetyHint'),
             gptCostHint: document.getElementById('aiImageGptCostHint'),
@@ -2013,18 +2021,6 @@ export function createAdminAiLab({ showToast } = {}) {
         container.appendChild(list);
     }
 
-    function getSelectedImageModelCapabilities() {
-        const modelId = state.forms.image.model;
-        if (!modelId || !hasCatalog()) {
-            return ADMIN_AI_IMAGE_CAPABILITY_FALLBACK;
-        }
-        const model = getModelInfo(state.catalog.data, 'image', modelId);
-        if (!model?.capabilities) {
-            return ADMIN_AI_IMAGE_CAPABILITY_FALLBACK;
-        }
-        return model.capabilities;
-    }
-
     function getSelectedImageModelIdForBilling() {
         if (state.forms.image.model) return state.forms.image.model;
         const presetName = state.forms.image.preset || ADMIN_AI_DEFAULT_PRESETS.image;
@@ -2032,8 +2028,26 @@ export function createAdminAiLab({ showToast } = {}) {
         return preset?.model || ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID;
     }
 
+    function getSelectedImageModelInfo() {
+        const modelId = getSelectedImageModelIdForBilling();
+        if (!modelId || !hasCatalog()) return null;
+        return getModelInfo(state.catalog.data, 'image', modelId) || null;
+    }
+
+    function getSelectedImageModelCapabilities() {
+        return getSelectedImageModelInfo()?.capabilities || ADMIN_AI_IMAGE_CAPABILITY_FALLBACK;
+    }
+
     function isGptImage2Selected() {
         return getSelectedImageModelIdForBilling() === GPT_IMAGE_2_MODEL_ID;
+    }
+
+    function isFlux2MaxSelected() {
+        return getSelectedImageModelIdForBilling() === FLUX_2_MAX_MODEL_ID;
+    }
+
+    function isSelectedImageModelChargeable() {
+        return isPricedAiImageModel(getSelectedImageModelIdForBilling());
     }
 
     function getSelectedImageCreditCost() {
@@ -2076,7 +2090,11 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function getImageRunLabel() {
         const credits = getSelectedImageCreditCost();
-        if (!credits) return TASK_UI.image.idleText;
+        if (!credits) {
+            return isSelectedImageModelChargeable()
+                ? 'Run image test · charged'
+                : TASK_UI.image.idleText;
+        }
         return `Run image test · ${credits} credit${credits === 1 ? '' : 's'}`;
     }
 
@@ -2102,6 +2120,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function syncImageBillingUi() {
         const credits = getSelectedImageCreditCost();
+        const isChargeable = isSelectedImageModelChargeable();
         const isBusy = state.results.image?.status === 'loading';
         if (refs.image.run && !isBusy) refs.image.run.textContent = getImageRunLabel();
         if (refs.image.gptCostHint) {
@@ -2119,6 +2138,8 @@ export function createAdminAiLab({ showToast } = {}) {
                     parts.push('Reference images affect cost; the server verifies dimensions before generation.');
                 }
                 refs.image.gptCostHint.textContent = parts.join(' ');
+            } else if (isChargeable) {
+                refs.image.gptCostHint.textContent = 'Charged admin image test. The server verifies final pricing before generation.';
             } else {
                 refs.image.gptCostHint.textContent = '';
             }
@@ -2137,7 +2158,7 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.image.organizationState.textContent = state.imageBilling.error || 'Organization billing is unavailable.';
             return;
         }
-        if (!credits) {
+        if (!isChargeable) {
             refs.image.organizationState.textContent = 'No admin image-test credit charge for this model.';
             return;
         }
@@ -2149,6 +2170,10 @@ export function createAdminAiLab({ showToast } = {}) {
         const prefix = selectedOrg?.name
             ? `Selected organization: ${selectedOrg.name}. `
             : '';
+        if (!credits) {
+            refs.image.organizationState.textContent = `${prefix}This is a charged image test. The server verifies pricing and debits only after provider success.`;
+            return;
+        }
         if (typeof balance === 'number') {
             refs.image.organizationState.textContent = balance >= credits
                 ? `${prefix}Selected balance: ${balance} credits. This test charges ${credits} credit${credits === 1 ? '' : 's'} after provider success.`
@@ -2303,33 +2328,78 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
-    function applySelectedImageModelDefaults() {
+    function sanitizeImageFormForSelectedModel({ applyDefaults = false } = {}) {
         const caps = getSelectedImageModelCapabilities();
         if (caps.supportsDimensions && caps.defaultSize && typeof caps.defaultSize === 'object') {
-            if (Number.isFinite(Number(caps.defaultSize.width))) {
+            if ((applyDefaults || !Number.isFinite(Number(state.forms.image.width))) && Number.isFinite(Number(caps.defaultSize.width))) {
                 state.forms.image.width = Number(caps.defaultSize.width);
                 if (refs.image.width) refs.image.width.value = state.forms.image.width;
             }
-            if (Number.isFinite(Number(caps.defaultSize.height))) {
+            if ((applyDefaults || !Number.isFinite(Number(state.forms.image.height))) && Number.isFinite(Number(caps.defaultSize.height))) {
                 state.forms.image.height = Number(caps.defaultSize.height);
                 if (refs.image.height) refs.image.height.value = state.forms.image.height;
             }
         }
-        if (caps.supportsSteps && Number.isFinite(Number(caps.defaultSteps))) {
+        if (caps.supportsSteps && (applyDefaults || !Number.isFinite(Number(state.forms.image.steps))) && Number.isFinite(Number(caps.defaultSteps))) {
             state.forms.image.steps = Number(caps.defaultSteps);
             if (refs.image.steps) refs.image.steps.value = state.forms.image.steps;
         }
         if (caps.supportsOutputFormat && caps.defaultOutputFormat) {
-            state.forms.image.outputFormat = caps.defaultOutputFormat;
-            if (refs.image.outputFormat) refs.image.outputFormat.value = caps.defaultOutputFormat;
+            const options = Array.isArray(caps.outputFormatOptions) && caps.outputFormatOptions.length
+                ? caps.outputFormatOptions
+                : [caps.defaultOutputFormat];
+            if (applyDefaults || !options.includes(state.forms.image.outputFormat)) {
+                state.forms.image.outputFormat = caps.defaultOutputFormat;
+            }
+            if (refs.image.outputFormat) refs.image.outputFormat.value = state.forms.image.outputFormat;
         }
         if (caps.supportsSafetyTolerance && Number.isInteger(Number(caps.defaultSafetyTolerance))) {
-            state.forms.image.safetyTolerance = Number(caps.defaultSafetyTolerance);
+            const safetyValue = Number(state.forms.image.safetyTolerance);
+            const minSafety = Number(caps.minSafetyTolerance ?? 0);
+            const maxSafety = Number(caps.maxSafetyTolerance ?? 5);
+            const invalidSafety = !Number.isInteger(safetyValue) || safetyValue < minSafety || safetyValue > maxSafety;
+            if (applyDefaults || invalidSafety) {
+                state.forms.image.safetyTolerance = Number(caps.defaultSafetyTolerance);
+            }
+            if (refs.image.safetyTolerance) refs.image.safetyTolerance.value = state.forms.image.safetyTolerance;
+        }
+        if (!caps.supportsStructuredPrompt && state.forms.image.promptMode !== 'standard') {
+            state.forms.image.promptMode = 'standard';
+            if (refs.image.promptMode) refs.image.promptMode.value = 'standard';
+        }
+        if (!Array.isArray(state.forms.image.referenceImages)) {
+            state.forms.image.referenceImages = [];
+        }
+        if (!Array.isArray(state.forms.image.referenceImageDimensions)) {
+            state.forms.image.referenceImageDimensions = [];
+        }
+        const maxRef = caps.supportsReferenceImages
+            ? (caps.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages)
+            : 0;
+        if (maxRef === 0 && state.forms.image.referenceImages.length > 0) {
+            state.forms.image.referenceImages = [];
+            state.forms.image.referenceImageDimensions = [];
+        } else if (state.forms.image.referenceImages.length > maxRef) {
+            state.forms.image.referenceImages = state.forms.image.referenceImages.slice(0, maxRef);
+            state.forms.image.referenceImageDimensions = state.forms.image.referenceImageDimensions.slice(0, maxRef);
+        } else if (state.forms.image.referenceImageDimensions.length > state.forms.image.referenceImages.length) {
+            state.forms.image.referenceImageDimensions = state.forms.image.referenceImageDimensions.slice(0, state.forms.image.referenceImages.length);
+        }
+    }
+
+    function applySelectedImageModelDefaults() {
+        sanitizeImageFormForSelectedModel({ applyDefaults: true });
+        const caps = getSelectedImageModelCapabilities();
+        if (caps.supportsOutputFormat && refs.image.outputFormat) {
+            refs.image.outputFormat.value = state.forms.image.outputFormat || caps.defaultOutputFormat || 'png';
+        }
+        if (caps.supportsSafetyTolerance && refs.image.safetyTolerance) {
             if (refs.image.safetyTolerance) refs.image.safetyTolerance.value = state.forms.image.safetyTolerance;
         }
     }
 
     function updateImageCapabilityControls() {
+        sanitizeImageFormForSelectedModel();
         const caps = getSelectedImageModelCapabilities();
         const isGpt = isGptImage2Selected();
         const supportsDimensions = !!caps.supportsDimensions;
@@ -2350,12 +2420,16 @@ export function createAdminAiLab({ showToast } = {}) {
             const minDimension = caps.minDimension || ADMIN_AI_LIMITS.image.allowedDimensions[0];
             const maxDimension = caps.maxDimension || ADMIN_AI_LIMITS.image.allowedDimensions.at(-1);
             const step = minDimension < 256 ? 64 : 256;
-            refs.image.width.min = String(minDimension);
-            refs.image.width.max = String(maxDimension);
-            refs.image.width.step = String(step);
-            refs.image.height.min = String(minDimension);
-            refs.image.height.max = String(maxDimension);
-            refs.image.height.step = String(step);
+            if (refs.image.width) {
+                refs.image.width.min = String(minDimension);
+                refs.image.width.max = String(maxDimension);
+                refs.image.width.step = String(step);
+            }
+            if (refs.image.height) {
+                refs.image.height.min = String(minDimension);
+                refs.image.height.max = String(maxDimension);
+                refs.image.height.step = String(step);
+            }
         }
         if (refs.image.gptControls) refs.image.gptControls.hidden = !extraControlVisible;
         if (refs.image.qualityField) refs.image.qualityField.hidden = !supportsQuality;
@@ -2363,6 +2437,10 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.image.outputFormatField) refs.image.outputFormatField.hidden = !supportsOutputFormat;
         if (refs.image.backgroundField) refs.image.backgroundField.hidden = !supportsBackground;
         if (refs.image.safetyField) refs.image.safetyField.hidden = !supportsSafetyTolerance;
+        setFieldDisabled(refs.image.qualityField, refs.image.quality, !supportsQuality, null, '');
+        setFieldDisabled(refs.image.sizeField, refs.image.size, !supportsSize, null, '');
+        setFieldDisabled(refs.image.outputFormatField, refs.image.outputFormat, !supportsOutputFormat, null, '');
+        setFieldDisabled(refs.image.backgroundField, refs.image.background, !supportsBackground, null, '');
         if (refs.image.quality) refs.image.quality.value = state.forms.image.quality || caps.defaultQuality || 'medium';
         if (refs.image.size) refs.image.size.value = state.forms.image.size || caps.defaultSize || '1024x1024';
         if (refs.image.outputFormat) {
@@ -2672,6 +2750,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!Array.isArray(state.forms.image.referenceImageDimensions)) {
             state.forms.image.referenceImageDimensions = [];
         }
+        sanitizeImageFormForSelectedModel();
         if (state.forms.embeddings.model && !embeddingIds.includes(state.forms.embeddings.model)) {
             state.forms.embeddings.model = '';
         }
@@ -4482,6 +4561,8 @@ export function createAdminAiLab({ showToast } = {}) {
         state.catalog.loadedAt = new Date();
         normalizeFormSelections();
         populateSelects();
+        syncFormInputs();
+        updateImageCapabilityControls();
         persistState();
         setCatalogButtonsDisabled(false);
         setStatus('AI model catalog loaded.', 'success');
@@ -4541,6 +4622,67 @@ export function createAdminAiLab({ showToast } = {}) {
         renderTextResult();
     }
 
+    function removeFlux2MaxUnsupportedPayloadFields(payload) {
+        if (!payload || !isFlux2MaxSelected()) return payload;
+        delete payload.steps;
+        delete payload.guidance;
+        delete payload.structuredPrompt;
+        delete payload.quality;
+        delete payload.size;
+        delete payload.background;
+        return payload;
+    }
+
+    function buildSelectedImageTestPayload() {
+        sanitizeImageFormForSelectedModel();
+        const caps = getSelectedImageModelCapabilities();
+        const payload = {
+            preset: state.forms.image.preset || undefined,
+            model: state.forms.image.model || undefined,
+            prompt: state.forms.image.prompt,
+        };
+
+        if (caps.supportsDimensions) {
+            payload.width = Number(state.forms.image.width);
+            payload.height = Number(state.forms.image.height);
+        }
+        if (caps.supportsSeed && state.forms.image.seed !== '') {
+            payload.seed = Number(state.forms.image.seed);
+        }
+        if (caps.supportsSteps) {
+            payload.steps = Number(state.forms.image.steps) || undefined;
+        }
+        if (caps.supportsGuidance && state.forms.image.guidance !== '') {
+            payload.guidance = Number(state.forms.image.guidance);
+        }
+        if (caps.supportsStructuredPrompt && state.forms.image.promptMode === 'structured') {
+            const spValue = (state.forms.image.structuredPrompt || '').trim();
+            if (spValue) {
+                payload.structuredPrompt = spValue;
+            }
+        }
+        if (caps.supportsQuality) {
+            payload.quality = state.forms.image.quality || 'medium';
+        }
+        if (caps.supportsSize) {
+            payload.size = state.forms.image.size || '1024x1024';
+        }
+        if (caps.supportsOutputFormat) {
+            payload.outputFormat = state.forms.image.outputFormat || caps.defaultOutputFormat || 'png';
+        }
+        if (caps.supportsBackground) {
+            payload.background = state.forms.image.background || 'auto';
+        }
+        if (caps.supportsSafetyTolerance) {
+            payload.safetyTolerance = Number(state.forms.image.safetyTolerance ?? caps.defaultSafetyTolerance ?? 2);
+        }
+        if (caps.supportsReferenceImages && state.forms.image.referenceImages.length > 0) {
+            payload.referenceImages = state.forms.image.referenceImages.filter(Boolean);
+        }
+
+        return removeFlux2MaxUnsupportedPayloadFields(payload);
+    }
+
     async function runImage() {
         if (!hasCatalog()) {
             setStatus('Load the model catalog before running an image test.', 'error');
@@ -4561,7 +4703,10 @@ export function createAdminAiLab({ showToast } = {}) {
         renderImageResult();
         startTaskTimer('image', controller);
 
-        if (state.forms.image.promptMode === 'structured') {
+        sanitizeImageFormForSelectedModel();
+        const caps = getSelectedImageModelCapabilities();
+
+        if (caps.supportsStructuredPrompt && state.forms.image.promptMode === 'structured') {
             if (!validateStructuredPrompt()) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
                 clearTaskTimer('image', controller);
@@ -4579,52 +4724,7 @@ export function createAdminAiLab({ showToast } = {}) {
             }
         }
 
-        const caps = getSelectedImageModelCapabilities();
-        const payload = {
-            preset: state.forms.image.preset || undefined,
-            model: state.forms.image.model || undefined,
-            prompt: state.forms.image.prompt,
-        };
-
-        if (caps.supportsQuality) {
-            payload.quality = state.forms.image.quality || 'medium';
-        }
-        if (caps.supportsSize) {
-            payload.size = state.forms.image.size || '1024x1024';
-        }
-        if (caps.supportsOutputFormat) {
-            payload.outputFormat = state.forms.image.outputFormat || caps.defaultOutputFormat || 'png';
-        }
-        if (caps.supportsBackground) {
-            payload.background = state.forms.image.background || 'auto';
-        }
-        if (caps.supportsSafetyTolerance) {
-            payload.safetyTolerance = Number(state.forms.image.safetyTolerance ?? caps.defaultSafetyTolerance ?? 2);
-        }
-        if (caps.supportsDimensions) {
-            payload.width = Number(state.forms.image.width);
-            payload.height = Number(state.forms.image.height);
-        }
-        if (caps.supportsSteps) {
-            payload.steps = Number(state.forms.image.steps) || undefined;
-        }
-        if (caps.supportsSeed) {
-            if (state.forms.image.seed !== '') {
-                payload.seed = Number(state.forms.image.seed);
-            }
-        }
-        if (caps.supportsGuidance && state.forms.image.guidance !== '') {
-            payload.guidance = Number(state.forms.image.guidance);
-        }
-        if (caps.supportsStructuredPrompt && state.forms.image.promptMode === 'structured') {
-            const spValue = (state.forms.image.structuredPrompt || '').trim();
-            if (spValue) {
-                payload.structuredPrompt = spValue;
-            }
-        }
-        if (caps.supportsReferenceImages && state.forms.image.referenceImages.length > 0) {
-            payload.referenceImages = state.forms.image.referenceImages.filter(Boolean);
-        }
+        const payload = buildSelectedImageTestPayload();
 
         const referenceImageError = await validateFlux2DevReferenceImagesClient(payload.referenceImages || []);
         if (referenceImageError) {
@@ -4644,8 +4744,9 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         const requiredCredits = getSelectedImageCreditCost();
+        const isChargeable = isSelectedImageModelChargeable();
         const requestOptions = { signal: controller.signal };
-        if (requiredCredits) {
+        if (isChargeable) {
             const organizationId = state.forms.image.organizationId || '';
             if (!organizationId) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
@@ -4658,7 +4759,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 syncImageBillingUi();
                 return;
             }
-            if (typeof state.imageBilling.balance === 'number' && state.imageBilling.balance < requiredCredits) {
+            if (requiredCredits && typeof state.imageBilling.balance === 'number' && state.imageBilling.balance < requiredCredits) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
                 clearTaskTimer('image', controller);
                 state.controllers.image = null;
@@ -4675,6 +4776,7 @@ export function createAdminAiLab({ showToast } = {}) {
             };
         }
 
+        removeFlux2MaxUnsupportedPayloadFields(payload);
         const res = await apiAdminAiTestImage(payload, {
             ...requestOptions,
         });

@@ -1062,7 +1062,12 @@ async function mockAdminAiLab(page, captures = {}) {
     imageTestRequests.push(body);
     const idempotencyKey = route.request().headers()['idempotency-key'];
     if (
-      ['@cf/black-forest-labs/flux-1-schnell', '@cf/black-forest-labs/flux-2-klein-9b', undefined].includes(body.model) &&
+      [
+        '@cf/black-forest-labs/flux-1-schnell',
+        '@cf/black-forest-labs/flux-2-klein-9b',
+        'black-forest-labs/flux-2-max',
+        undefined,
+      ].includes(body.model) &&
       (!body.organization_id || !idempotencyKey)
     ) {
       await route.fulfill({
@@ -15594,6 +15599,11 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImageRun')).toHaveText('Run image test · 10 credits');
     await expect(page.locator('#aiImageOrganizationState')).toContainText('charges 10 credits');
 
+    await page.selectOption('#aiImageModel', 'black-forest-labs/flux-2-max');
+    await expect(page.locator('#aiImageRun')).toContainText(/Run image test · \d+ credits?/);
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('charges');
+    await expect(page.locator('#aiImageOrganizationState')).not.toContainText('No admin image-test credit charge');
+
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
     await expect(page.locator('#aiImageRun')).toHaveText('Run Image Test');
   });
@@ -15622,6 +15632,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await clickAiLabMode(page, 'image');
+    await page.selectOption('#aiImageModel', 'black-forest-labs/flux-2-max');
     await expect(page.locator('#aiImageOrganizationState')).toContainText('Select an organization before running this charged image test.');
 
     await page.locator('#aiImageRun').click();
@@ -15636,6 +15647,82 @@ test.describe('Admin AI Lab', () => {
     expect(imageTestRequests[0].organization_id).toBe('org_11111111111111111111111111111111');
     await expect(page.locator('#aiImageMeta')).toContainText('Charged Org');
     await expect(page.locator('#aiImageMeta')).toContainText('First Billing Org');
+  });
+
+  test('FLUX.2 Max cleans stale image state and sends only supported charged fields', async ({ page }) => {
+    const imageTestRequests = [];
+    await page.unroute('**/api/admin/orgs**');
+    await page.unroute('**/api/admin/ai/test-image');
+    await mockAdminAiLab(page, {
+      imageTestRequests,
+      adminOrganizations: [
+        {
+          id: 'org_11111111111111111111111111111111',
+          name: 'First Billing Org',
+          slug: 'first-billing-org',
+          status: 'active',
+        },
+      ],
+    });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'bitbi_admin_ai_lab_state_v1',
+        JSON.stringify({
+          activeMode: 'image',
+          forms: {
+            image: {
+              preset: 'image_fast',
+              model: 'black-forest-labs/flux-2-max',
+              prompt: 'Stale state should not leak unsupported fields.',
+              promptMode: 'structured',
+              structuredPrompt: '{"legacy":true}',
+              width: 1024,
+              height: 1024,
+              steps: 4,
+              seed: '77',
+              guidance: 7.5,
+              quality: 'high',
+              size: '1024x1024',
+              outputFormat: 'webp',
+              background: 'auto',
+              safetyTolerance: 4,
+              referenceImages: [],
+              referenceImageDimensions: [],
+              organizationId: '',
+            },
+          },
+        }),
+      );
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await clickAiLabMode(page, 'image');
+    await expect(page.locator('#aiImageModel')).toHaveValue('black-forest-labs/flux-2-max');
+    await expect(page.locator('#aiImageStepsField')).toBeHidden();
+    await expect(page.locator('#aiImageGuidanceField')).toBeHidden();
+    await expect(page.locator('#aiImagePromptModeField')).toBeHidden();
+    await expect(page.locator('#aiImageQualityField')).toBeHidden();
+    await expect(page.locator('#aiImageSizeField')).toBeHidden();
+    await expect(page.locator('#aiImageBackgroundField')).toBeHidden();
+    await expect(page.locator('#aiImageOrganizationState')).not.toContainText('No admin image-test credit charge');
+
+    await page.locator('#aiImageRun').click();
+    await expect(page.locator('#aiImageState')).toContainText('Image response ready.');
+    expect(imageTestRequests).toHaveLength(1);
+    expect(imageTestRequests[0]).toEqual(expect.objectContaining({
+      model: 'black-forest-labs/flux-2-max',
+      prompt: 'Stale state should not leak unsupported fields.',
+      width: 1024,
+      height: 1024,
+      seed: 77,
+      outputFormat: 'webp',
+      safetyTolerance: 4,
+      organization_id: 'org_11111111111111111111111111111111',
+    }));
+    for (const unsupportedKey of ['steps', 'guidance', 'structuredPrompt', 'quality', 'size', 'background']) {
+      expect(imageTestRequests[0]).not.toHaveProperty(unsupportedKey);
+    }
   });
 
   test('Music AI card validates, posts the expected payload, and renders success plus error states beside Live Agent', async ({
@@ -17496,6 +17583,12 @@ test.describe('AI Lab Image capability controls', () => {
     await expect(page.locator('#aiImageStepsField')).toBeHidden();
     await expect(page.locator('#aiImageGuidanceField')).toBeHidden();
     await expect(page.locator('#aiImagePromptModeField')).toBeHidden();
+    await expect(page.locator('#aiImageQualityField')).toBeHidden();
+    await expect(page.locator('#aiImageSizeField')).toBeHidden();
+    await expect(page.locator('#aiImageBackgroundField')).toBeHidden();
+    await expect(page.locator('#aiImageQuality')).toBeDisabled();
+    await expect(page.locator('#aiImageSize')).toBeDisabled();
+    await expect(page.locator('#aiImageBackground')).toBeDisabled();
     await expect(page.locator('#aiImageOutputFormatField')).toBeVisible();
     await expect(page.locator('#aiImageSafetyField')).toBeVisible();
     await expect(page.locator('#aiImageRefSection')).not.toHaveClass(/admin-ai__ref-images--disabled/);
