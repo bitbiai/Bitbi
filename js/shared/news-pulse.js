@@ -16,6 +16,7 @@ const MOBILE_TOP_RATIO = 0.05;
 const MOBILE_BOTTOM_RATIO = 0.95;
 const DESKTOP_PLACEMENT_MIN_GAP = 14;
 const DESKTOP_PLACEMENT_MIN_HEIGHT = 86;
+const DESKTOP_PLACEMENT_UPDATE_TOLERANCE_PX = 2;
 
 function normalizeLocale(value) {
     const locale = String(value || '').trim().toLowerCase();
@@ -385,29 +386,103 @@ function isVisibleElement(element) {
     return rect.width > 0 && rect.height > 0;
 }
 
+function parseCssLengthToPixels(value, fallback = 0, context = document.documentElement) {
+    const raw = String(value || '').trim();
+    if (!raw || raw === 'auto') return fallback;
+    const numeric = Number.parseFloat(raw);
+    if (!Number.isFinite(numeric)) return fallback;
+    if (raw.endsWith('px') || /^-?\d+(\.\d+)?$/.test(raw)) return numeric;
+    const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    if (raw.endsWith('rem')) return numeric * rootFontSize;
+    if (raw.endsWith('em')) {
+        const contextFontSize = Number.parseFloat(window.getComputedStyle(context).fontSize) || rootFontSize;
+        return numeric * contextFontSize;
+    }
+    if (raw.endsWith('vh')) return (numeric / 100) * (window.innerHeight || document.documentElement.clientHeight || 0);
+    if (raw.endsWith('vw')) return (numeric / 100) * (window.innerWidth || document.documentElement.clientWidth || 0);
+    return fallback;
+}
+
+function getDesktopFallbackHeight(rootFontSize) {
+    return Math.min(Math.max(7.15 * rootFontSize, window.innerHeight * 0.12), 9.25 * rootFontSize);
+}
+
+function getDesktopContentMinimumHeight(root) {
+    const rootStyle = window.getComputedStyle(root);
+    const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    const thumbSize = parseCssLengthToPixels(
+        rootStyle.getPropertyValue('--news-pulse-thumb-size'),
+        3.96 * rootFontSize,
+        root,
+    );
+    const shell = root.querySelector('.news-pulse__shell--hero');
+    const shellStyle = shell ? window.getComputedStyle(shell) : null;
+    const paddingBlock = shellStyle
+        ? parseCssLengthToPixels(shellStyle.paddingBlockStart, 0, shell)
+            + parseCssLengthToPixels(shellStyle.paddingBlockEnd, 0, shell)
+        : rootFontSize * 1.45;
+    const shellGap = shellStyle
+        ? parseCssLengthToPixels(shellStyle.rowGap || shellStyle.gap, rootFontSize * 0.46, shell)
+        : rootFontSize * 0.46;
+    const indicator = root.querySelector('.news-pulse__indicators');
+    const indicatorRect = indicator?.getBoundingClientRect();
+    const indicatorHeight = indicatorRect && indicatorRect.height > 0 ? indicatorRect.height : rootFontSize * 0.28;
+    return Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, thumbSize + paddingBlock + shellGap + indicatorHeight);
+}
+
+function getStableScrollBoundary(hero, heroRect) {
+    const scrollHint = hero?.querySelector('.hero__scroll-hint');
+    if (!hero || !heroRect || !isVisibleElement(scrollHint)) return null;
+    const heroStyle = window.getComputedStyle(hero);
+    const hintStyle = window.getComputedStyle(scrollHint);
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const fallbackBottom = Math.min(Math.max(viewportHeight * 0.0145, 10), 16);
+    const bottomOffset = parseCssLengthToPixels(
+        hintStyle.insetBlockEnd || hintStyle.bottom || heroStyle.getPropertyValue('--homepage-hero-scroll-bottom'),
+        parseCssLengthToPixels(heroStyle.getPropertyValue('--homepage-hero-scroll-bottom'), fallbackBottom, hero),
+        scrollHint,
+    );
+    const hintRect = scrollHint.getBoundingClientRect();
+    const stableTop = heroRect.bottom - bottomOffset - hintRect.height;
+    return Number.isFinite(stableTop) ? stableTop : null;
+}
+
+function setPixelPropertyIfChanged(element, property, nextValue) {
+    const previousValue = parseCssLengthToPixels(element.style.getPropertyValue(property), NaN, element);
+    if (Number.isFinite(previousValue)
+        && Math.abs(previousValue - nextValue) <= DESKTOP_PLACEMENT_UPDATE_TOLERANCE_PX) {
+        return false;
+    }
+    element.style.setProperty(property, `${nextValue.toFixed(2)}px`);
+    return true;
+}
+
 function updateDesktopPlacement(root) {
     const hero = root.closest('.hero--homepage') || root.closest('#hero');
     const labels = [...(hero?.querySelectorAll('.latest-models-video-module__label') || [])]
         .filter(isVisibleElement)
         .map((element) => element.getBoundingClientRect());
-    const scrollAnchor = hero?.querySelector('.hero__scroll-text') || hero?.querySelector('.hero__scroll-hint');
-    if (!hero || !labels.length || !isVisibleElement(scrollAnchor)) return false;
+    if (!hero || !labels.length) return false;
 
     const heroRect = hero.getBoundingClientRect();
     const heroStyle = window.getComputedStyle(hero);
-    const scrollRect = scrollAnchor.getBoundingClientRect();
     const labelBottom = Math.max(...labels.map((rect) => rect.bottom));
-    const scrollTop = scrollRect.top;
+    const scrollTop = getStableScrollBoundary(hero, heroRect);
+    if (!Number.isFinite(scrollTop)) return false;
     const available = scrollTop - labelBottom;
     if (!Number.isFinite(available) || available <= DESKTOP_PLACEMENT_MIN_HEIGHT) return false;
 
     const minGap = Math.max(DESKTOP_PLACEMENT_MIN_GAP, Math.min(22, window.innerHeight * 0.015));
     const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-    const preferredHeight = Number.parseFloat(heroStyle.getPropertyValue('--homepage-hero-news-height'));
-    const fallbackHeight = Math.min(Math.max(7.15 * rootFontSize, window.innerHeight * 0.12), 9.25 * rootFontSize);
-    const currentHeight = hero.dataset.homepageHeroLargeScale === 'true' && Number.isFinite(preferredHeight) && preferredHeight > 0
-        ? preferredHeight
-        : fallbackHeight;
+    const preferredHeight = parseCssLengthToPixels(heroStyle.getPropertyValue('--homepage-hero-news-height'), NaN, hero);
+    const fallbackHeight = getDesktopFallbackHeight(rootFontSize);
+    const contentMinimumHeight = getDesktopContentMinimumHeight(root);
+    const currentHeight = Math.max(
+        contentMinimumHeight,
+        hero.dataset.homepageHeroLargeScale === 'true' && Number.isFinite(preferredHeight) && preferredHeight > 0
+            ? preferredHeight
+            : fallbackHeight,
+    );
     const maxHeight = Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, available - (minGap * 2));
     const height = Math.min(currentHeight, maxHeight);
     const centeredTop = labelBottom + ((available - height) / 2);
@@ -415,11 +490,12 @@ function updateDesktopPlacement(root) {
     const maxTop = scrollTop - height - minGap;
     const top = Math.min(Math.max(centeredTop, minTop), Math.max(minTop, maxTop));
 
-    root.style.setProperty('--news-pulse-hero-top', `${Math.max(0, top - heroRect.top).toFixed(2)}px`);
-    root.style.setProperty('--news-pulse-hero-height', `${Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, height).toFixed(2)}px`);
+    setPixelPropertyIfChanged(root, '--news-pulse-hero-top', Math.max(0, top - heroRect.top));
+    setPixelPropertyIfChanged(root, '--news-pulse-hero-height', Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, height));
     root.dataset.newsPulseHeroPlacement = 'ready';
     root.dataset.newsPulseHeroLabelBottom = String(Math.round((labelBottom - heroRect.top) * 100) / 100);
     root.dataset.newsPulseHeroScrollTop = String(Math.round((scrollTop - heroRect.top) * 100) / 100);
+    root.dataset.newsPulseHeroBoundary = 'stable-scroll-hint';
     return true;
 }
 
@@ -473,6 +549,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             delete root.dataset.newsPulseHeroPlacement;
             delete root.dataset.newsPulseHeroLabelBottom;
             delete root.dataset.newsPulseHeroScrollTop;
+            delete root.dataset.newsPulseHeroBoundary;
             delete root.dataset.newsPulseActiveIndex;
             delete root.dataset.newsPulseItemCount;
         };

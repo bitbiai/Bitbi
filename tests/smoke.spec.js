@@ -1152,7 +1152,8 @@ test.describe('Homepage', () => {
       const state = await pulse.evaluate((node) => {
         const style = window.getComputedStyle(node);
         const rect = node.getBoundingClientRect();
-        const hero = document.querySelector('#hero').getBoundingClientRect();
+        const heroElement = document.querySelector('#hero');
+        const hero = heroElement.getBoundingClientRect();
         const labels = [...document.querySelectorAll('#hero .latest-models-video-module__label')]
           .filter((element) => {
             const box = element.getBoundingClientRect();
@@ -1160,7 +1161,11 @@ test.describe('Homepage', () => {
             return box.width > 0 && box.height > 0 && computed.display !== 'none' && computed.visibility !== 'hidden';
           })
           .map((element) => element.getBoundingClientRect());
-        const scroll = document.querySelector('#hero .hero__scroll-text').getBoundingClientRect();
+        const scrollHint = document.querySelector('#hero .hero__scroll-hint');
+        const scrollHintRect = scrollHint.getBoundingClientRect();
+        const scrollHintStyle = window.getComputedStyle(scrollHint);
+        const scrollBottom = Number.parseFloat(scrollHintStyle.insetBlockEnd || scrollHintStyle.bottom || '0') || 0;
+        const stableScrollTop = hero.bottom - scrollBottom - scrollHintRect.height;
         const activeLink = node.querySelector('.news-pulse__slide.is-active a');
         const activeThumb = node.querySelector('.news-pulse__slide.is-active .news-pulse__thumb');
         const activeThumbRect = activeThumb?.getBoundingClientRect();
@@ -1182,7 +1187,9 @@ test.describe('Homepage', () => {
           centerX: rect.left + rect.width / 2,
           heroCenterX: hero.left + hero.width / 2,
           labelBottom: Math.max(...labels.map((label) => label.bottom)),
-          scrollTop: scroll.top,
+          scrollTop: stableScrollTop,
+          storedScrollTop: Number.parseFloat(node.dataset.newsPulseHeroScrollTop || 'NaN') + hero.top,
+          placementBoundary: node.dataset.newsPulseHeroBoundary || '',
           activeText: node.querySelector('.news-pulse__slide.is-active .news-pulse__title')?.textContent.trim() || '',
           activeThumbWidth: activeThumbRect?.width || 0,
           activeThumbHeight: activeThumbRect?.height || 0,
@@ -1210,11 +1217,20 @@ test.describe('Homepage', () => {
       expect(state.activeThumbWidth).toBeGreaterThanOrEqual(62);
       expect(state.activeThumbHeight).toBeGreaterThanOrEqual(62);
       expectWithinPx(state.centerX, state.heroCenterX, `${path} desktop News Pulse horizontal center`, 2);
+      expect(state.placementBoundary).toBe('stable-scroll-hint');
+      expectWithinPx(state.storedScrollTop, state.scrollTop, `${path} desktop News Pulse stored scroll boundary`, 1);
       const gapAbove = state.top - state.labelBottom;
       const gapBelow = state.scrollTop - state.bottom;
       expect(gapAbove).toBeGreaterThan(8);
       expect(gapBelow).toBeGreaterThan(8);
       expectWithinPx(gapAbove, gapBelow, `${path} desktop News Pulse vertical center`, 10);
+      await page.waitForTimeout(650);
+      const stableRect = await pulse.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, height: rect.height };
+      });
+      expectWithinPx(stableRect.top, state.top, `${path} desktop News Pulse ignores scroll bounce top`, 2);
+      expectWithinPx(stableRect.height, state.height, `${path} desktop News Pulse ignores scroll bounce height`, 2);
       expect(state.activeLinkTarget).toBe('_blank');
       expect(state.activeLinkRel).toContain('noopener');
       expect(state.activeLinkRel).toContain('noreferrer');
