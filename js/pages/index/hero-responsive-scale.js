@@ -53,6 +53,8 @@ function setScaledLength(hero, name, baseValue, scale) {
 function clearScaledProperties(hero) {
     [
         '--homepage-hero-large-scale',
+        '--homepage-hero-large-size-scale',
+        '--homepage-hero-large-vertical-scale',
         '--homepage-hero-stage-width',
         '--homepage-hero-stage-height',
         '--homepage-hero-stage-inline-margin',
@@ -84,6 +86,8 @@ function clearScaledProperties(hero) {
     ].forEach((property) => hero.style.removeProperty(property));
     delete hero.dataset.homepageHeroLargeScale;
     delete hero.dataset.homepageHeroScale;
+    delete hero.dataset.homepageHeroSizeScale;
+    delete hero.dataset.homepageHeroVerticalScale;
 }
 
 export function initHomepageHeroResponsiveScale(root = document) {
@@ -101,6 +105,7 @@ export function initHomepageHeroResponsiveScale(root = document) {
             detail: {
                 active: hero.dataset.homepageHeroLargeScale === 'true',
                 scale: Number.parseFloat(hero.dataset.homepageHeroScale || '1') || 1,
+                verticalScale: Number.parseFloat(hero.dataset.homepageHeroVerticalScale || '1') || 1,
             },
         }));
     };
@@ -108,8 +113,9 @@ export function initHomepageHeroResponsiveScale(root = document) {
     const apply = () => {
         frame = 0;
         const { width, height } = getViewportSize();
-        const rawScale = Math.min(width / BASELINE_WIDTH, height / BASELINE_HEIGHT);
-        const shouldScale = desktopQuery.matches && Number.isFinite(rawScale) && rawScale > 1;
+        const widthScale = width / BASELINE_WIDTH;
+        const heightScale = height / BASELINE_HEIGHT;
+        const shouldScale = desktopQuery.matches && Number.isFinite(widthScale) && widthScale > 1;
 
         if (!shouldScale) {
             if (hero.dataset.homepageHeroLargeScale || lastSignature) {
@@ -120,53 +126,58 @@ export function initHomepageHeroResponsiveScale(root = document) {
             return;
         }
 
-        const scale = rawScale;
-        const stageWidth = BASELINE_WIDTH * scale;
-        const stageHeight = BASELINE_HEIGHT * scale;
-        const stageInlineMargin = Math.max(0, (width - stageWidth) / 2);
+        const sizeScale = widthScale;
+        const verticalScale = Math.max(1, Math.min(widthScale, heightScale));
+        const stageWidth = width;
+        const stageHeight = BASELINE_HEIGHT * verticalScale;
+        const stageInlineMargin = 0;
         const stageBlockMargin = Math.max(0, (height - stageHeight) / 2);
         const signature = [
-            formatScale(scale),
+            formatScale(sizeScale),
+            formatScale(verticalScale),
             Math.round(width),
             Math.round(height),
-            Math.round(stageInlineMargin * 100) / 100,
             Math.round(stageBlockMargin * 100) / 100,
         ].join('|');
         if (signature === lastSignature) return;
 
         lastSignature = signature;
         hero.dataset.homepageHeroLargeScale = 'true';
-        hero.dataset.homepageHeroScale = formatScale(scale);
-        hero.style.setProperty('--homepage-hero-large-scale', formatScale(scale));
+        hero.dataset.homepageHeroScale = formatScale(sizeScale);
+        hero.dataset.homepageHeroSizeScale = formatScale(sizeScale);
+        hero.dataset.homepageHeroVerticalScale = formatScale(verticalScale);
+        hero.style.setProperty('--homepage-hero-large-scale', formatScale(sizeScale));
+        hero.style.setProperty('--homepage-hero-large-size-scale', formatScale(sizeScale));
+        hero.style.setProperty('--homepage-hero-large-vertical-scale', formatScale(verticalScale));
         hero.style.setProperty('--homepage-hero-stage-width', formatPx(stageWidth));
         hero.style.setProperty('--homepage-hero-stage-height', formatPx(stageHeight));
         hero.style.setProperty('--homepage-hero-stage-inline-margin', formatPx(stageInlineMargin));
         hero.style.setProperty('--homepage-hero-stage-block-margin', formatPx(stageBlockMargin));
 
-        setScaledLength(hero, '--homepage-hero-model-top', BASELINE.modelTop, scale);
-        setScaledLength(hero, '--homepage-hero-model-width', BASELINE.modelWidth, scale);
-        setScaledLength(hero, '--homepage-hero-model-height', BASELINE.modelHeight, scale);
-        setScaledLength(hero, '--homepage-hero-model-caption-space', BASELINE.modelCaptionSpace, scale);
-        setScaledLength(hero, '--homepage-hero-model-label-gap', BASELINE.modelLabelGap, scale);
-        setScaledLength(hero, '--homepage-hero-model-label-font-size', BASELINE.modelLabelFontSize, scale);
-        setScaledLength(hero, '--homepage-hero-title-width', BASELINE.titleWidth, scale);
-        setScaledLength(hero, '--homepage-hero-title-wrap-height', BASELINE.titleWrapHeight, scale);
-        setScaledLength(hero, '--homepage-hero-title-margin-end', BASELINE.titleMarginEnd, scale);
-        setScaledLength(hero, '--homepage-hero-content-top', BASELINE.contentTop, scale);
-        setScaledLength(hero, '--homepage-hero-cta-offset', BASELINE.ctaOffset, scale);
-        setScaledLength(hero, '--homepage-hero-cta-min-height', BASELINE.ctaMinHeight, scale);
-        setScaledLength(hero, '--homepage-hero-cta-max-width', BASELINE.ctaMaxWidth, scale);
-        setScaledLength(hero, '--homepage-hero-cta-padding-block', BASELINE.ctaPaddingBlock, scale);
-        setScaledLength(hero, '--homepage-hero-cta-padding-inline', BASELINE.ctaPaddingInline, scale);
-        setScaledLength(hero, '--homepage-hero-cta-gap', BASELINE.ctaGap, scale);
-        setScaledLength(hero, '--homepage-hero-cta-font-size', BASELINE.ctaFontSize, scale);
-        setScaledLength(hero, '--homepage-hero-cta-icon-size', BASELINE.ctaIconSize, scale);
-        setScaledLength(hero, '--homepage-hero-news-width', BASELINE.newsWidth, scale);
-        setScaledLength(hero, '--homepage-hero-news-height', BASELINE.newsHeight, scale);
-        setScaledLength(hero, '--homepage-hero-scroll-bottom', BASELINE.scrollBottom, scale);
-        setScaledLength(hero, '--homepage-hero-scroll-gap', BASELINE.scrollGap, scale);
-        setScaledLength(hero, '--homepage-hero-scroll-text-size', BASELINE.scrollTextSize, scale);
-        setScaledLength(hero, '--homepage-hero-scroll-icon-size', BASELINE.scrollIconSize, scale);
+        setScaledLength(hero, '--homepage-hero-model-top', BASELINE.modelTop, verticalScale);
+        setScaledLength(hero, '--homepage-hero-model-width', BASELINE.modelWidth, sizeScale);
+        setScaledLength(hero, '--homepage-hero-model-height', BASELINE.modelHeight, sizeScale);
+        setScaledLength(hero, '--homepage-hero-model-caption-space', BASELINE.modelCaptionSpace, sizeScale);
+        setScaledLength(hero, '--homepage-hero-model-label-gap', BASELINE.modelLabelGap, sizeScale);
+        setScaledLength(hero, '--homepage-hero-model-label-font-size', BASELINE.modelLabelFontSize, sizeScale);
+        setScaledLength(hero, '--homepage-hero-title-width', BASELINE.titleWidth, sizeScale);
+        setScaledLength(hero, '--homepage-hero-title-wrap-height', BASELINE.titleWrapHeight, sizeScale);
+        setScaledLength(hero, '--homepage-hero-title-margin-end', BASELINE.titleMarginEnd, verticalScale);
+        setScaledLength(hero, '--homepage-hero-content-top', BASELINE.contentTop, verticalScale);
+        setScaledLength(hero, '--homepage-hero-cta-offset', BASELINE.ctaOffset, verticalScale);
+        setScaledLength(hero, '--homepage-hero-cta-min-height', BASELINE.ctaMinHeight, sizeScale);
+        setScaledLength(hero, '--homepage-hero-cta-max-width', BASELINE.ctaMaxWidth, sizeScale);
+        setScaledLength(hero, '--homepage-hero-cta-padding-block', BASELINE.ctaPaddingBlock, sizeScale);
+        setScaledLength(hero, '--homepage-hero-cta-padding-inline', BASELINE.ctaPaddingInline, sizeScale);
+        setScaledLength(hero, '--homepage-hero-cta-gap', BASELINE.ctaGap, sizeScale);
+        setScaledLength(hero, '--homepage-hero-cta-font-size', BASELINE.ctaFontSize, sizeScale);
+        setScaledLength(hero, '--homepage-hero-cta-icon-size', BASELINE.ctaIconSize, sizeScale);
+        setScaledLength(hero, '--homepage-hero-news-width', BASELINE.newsWidth, sizeScale);
+        setScaledLength(hero, '--homepage-hero-news-height', BASELINE.newsHeight, sizeScale);
+        setScaledLength(hero, '--homepage-hero-scroll-bottom', BASELINE.scrollBottom, verticalScale);
+        setScaledLength(hero, '--homepage-hero-scroll-gap', BASELINE.scrollGap, sizeScale);
+        setScaledLength(hero, '--homepage-hero-scroll-text-size', BASELINE.scrollTextSize, sizeScale);
+        setScaledLength(hero, '--homepage-hero-scroll-icon-size', BASELINE.scrollIconSize, sizeScale);
 
         dispatchScaleEvent();
     };

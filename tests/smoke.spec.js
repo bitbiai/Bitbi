@@ -3325,7 +3325,7 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.pointerEvents).not.toBe('none');
   });
 
-  test('homepage hero foreground scales proportionally only above the large-screen baseline', async ({ page }) => {
+  test('homepage hero foreground scales from viewport width and keeps side modules edge-attached', async ({ page }) => {
     await page.route('**/api/public/news-pulse**', async (route) => {
       const requestUrl = new URL(route.request().url());
       if (requestUrl.pathname.includes('/thumbs/')) {
@@ -3366,6 +3366,8 @@ test.describe('Homepage', () => {
         return {
           active: hero.dataset.homepageHeroLargeScale === 'true',
           scale: Number.parseFloat(hero.dataset.homepageHeroScale || '1') || 1,
+          verticalScale: Number.parseFloat(hero.dataset.homepageHeroVerticalScale || '1') || 1,
+          stageWidth: Number.parseFloat(heroStyle.getPropertyValue('--homepage-hero-stage-width')) || 0,
           stageInlineMargin: Number.parseFloat(heroStyle.getPropertyValue('--homepage-hero-stage-inline-margin')) || 0,
           titleWidth: title.width,
           modelWidth: right.width,
@@ -3385,14 +3387,21 @@ test.describe('Homepage', () => {
     };
 
     const baseline = await measureHero(1728, 1117, false);
-    const shortDesktop = await measureHero(1920, 1080, false);
+    const shortDesktop = await measureHero(1920, 1080, true);
     const large = await measureHero(2560, 1440, true);
-    const expectedLargeScale = 1440 / 1117;
+    const fourK = await measureHero(3840, 2160, true);
+    const expectedShortScale = 1920 / 1728;
+    const expectedLargeScale = 2560 / 1728;
+    const expectedLargeVerticalScale = 1440 / 1117;
+    const expectedFourKScale = 3840 / 1728;
 
     expect(baseline.active).toBe(false);
-    expect(shortDesktop.active).toBe(false);
+    expect(shortDesktop.active).toBe(true);
     expect(large.active).toBe(true);
+    expect(fourK.active).toBe(true);
+    expectWithinPx(shortDesktop.scale, expectedShortScale, 'short desktop width-fill scale', 0.01);
     expectWithinPx(large.scale, expectedLargeScale, 'large hero scale', 0.01);
+    expectWithinPx(large.verticalScale, expectedLargeVerticalScale, 'large vertical safety scale', 0.01);
     expectWithinPx(large.titleWidth / baseline.titleWidth, large.scale, 'title scale ratio', 0.04);
     expectWithinPx(large.modelWidth / baseline.modelWidth, large.scale, 'model width scale ratio', 0.04);
     expectWithinPx(large.modelHeight / baseline.modelHeight, large.scale, 'model height scale ratio', 0.04);
@@ -3400,14 +3409,23 @@ test.describe('Homepage', () => {
     expect(large.ctaHeight).toBeGreaterThan(baseline.ctaHeight * 1.2);
     expect(large.newsWidth).toBeGreaterThan(baseline.newsWidth * 1.2);
     expect(large.newsHeight).toBeGreaterThan(baseline.newsHeight * 1.15);
-    expectWithinPx(large.leftInset, large.stageInlineMargin, 'left model stage inset', 2);
-    expectWithinPx(large.rightInset, large.stageInlineMargin, 'right model stage inset', 2);
+    expectWithinPx(large.stageInlineMargin, 0, 'large stage inline margin', 0.5);
+    expectWithinPx(large.stageWidth, 2560, 'large stage width fills viewport', 1);
+    expectWithinPx(large.leftInset, 0, 'left model remains edge-attached', 2);
+    expectWithinPx(large.rightInset, 0, 'right model remains edge-attached', 2);
     expect(large.ctaHref).toBe('/generate-lab/');
     expect(large.ctaTarget).toBe('bitbi-generate-lab');
     expect(large.anchoredStreams).toBe(2);
     expect(large.scrollBottomGap).toBeGreaterThan(baseline.scrollBottomGap);
     expect(shortDesktop.modelWidth).toBeGreaterThan(0);
-    expectWithinPx(shortDesktop.modelWidth, baseline.modelWidth, 'short desktop inactive model width', 2);
+    expectWithinPx(shortDesktop.modelWidth / baseline.modelWidth, expectedShortScale, 'short desktop model width scale', 0.04);
+    expectWithinPx(shortDesktop.leftInset, 0, 'short desktop left edge attachment', 2);
+    expectWithinPx(shortDesktop.rightInset, 0, 'short desktop right edge attachment', 2);
+    expectWithinPx(fourK.scale, expectedFourKScale, '4k width-fill scale', 0.01);
+    expect(fourK.modelWidth).toBeGreaterThan(large.modelWidth);
+    expect(fourK.newsWidth).toBeGreaterThan(large.newsWidth);
+    expectWithinPx(fourK.leftInset, 0, '4k left edge attachment', 2);
+    expectWithinPx(fourK.rightInset, 0, '4k right edge attachment', 2);
   });
 
   test('hero creation stream origins and endpoints stay anchored to CTA and Models module', async ({ page }) => {
@@ -8296,7 +8314,7 @@ test.describe('Homepage', () => {
     expect(large.heroModuleWidth).toBeGreaterThan(0);
     expect(large.heroScaleActive).toBe(true);
     expect(large.heroModuleWidth).toBeGreaterThanOrEqual(normal.heroModuleWidth * 1.2);
-    expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.5);
+    expect(large.heroModuleWidth).toBeLessThanOrEqual(normal.heroModuleWidth * 1.75);
     expect(large.overflowX).toBeLessThanOrEqual(2);
   });
 
