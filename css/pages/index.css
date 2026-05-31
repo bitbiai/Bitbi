@@ -5132,6 +5132,10 @@
             margin-block-end: var(--space-4);
         }
 
+        .hero--homepage .hero__actions--single-cta {
+            display: none;
+        }
+
         .hero--homepage .hero__content {
             padding-inline: 1rem;
         }
@@ -5141,6 +5145,12 @@
             padding-inline: 1.35rem;
             font-size: 0.82rem;
             letter-spacing: 0.03em;
+        }
+    }
+
+    @media (max-width: 932px) and (max-height: 480px) and (orientation: landscape) {
+        .hero--homepage .hero__actions--single-cta {
+            display: none;
         }
     }
 
