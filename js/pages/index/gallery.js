@@ -810,7 +810,13 @@ export function initGallery() {
             window.setTimeout(scheduleMempicsWideLimitSync, delay);
         });
     };
+    const handleMempicsCategoryLayoutRequest = (event) => {
+        if (event?.detail?.category !== 'gallery') return;
+        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return;
+        event.detail.waitUntil?.(render(MEMPICS_CATEGORY));
+    };
     document.addEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
+    document.addEventListener('bitbi:homepage-category-layout-request', handleMempicsCategoryLayoutRequest);
     document.fonts?.ready?.then(scheduleMempicsWideLimitSync).catch(() => {});
 
     function galEngage() {
@@ -930,6 +936,7 @@ export function initGallery() {
         if (mempicsResizeObserver) { mempicsResizeObserver.disconnect(); mempicsResizeObserver = null; }
         if (mempicsStageObserver) { mempicsStageObserver.disconnect(); mempicsStageObserver = null; }
         document.removeEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
+        document.removeEventListener('bitbi:homepage-category-layout-request', handleMempicsCategoryLayoutRequest);
         window.removeEventListener('resize', scheduleMempicsWideLimitSync);
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
         window.clearTimeout(mempicsResizeSettledTimer);

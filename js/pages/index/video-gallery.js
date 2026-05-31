@@ -174,6 +174,12 @@ export function initVideoGallery() {
         });
     }
 
+    function handleMemvidsCategoryLayoutRequest(event) {
+        if (event?.detail?.category !== 'video') return;
+        if (!isPublicWideLayoutEnabled() || !memvidsState.loaded) return;
+        event.detail.waitUntil?.(render());
+    }
+
     function canRevealMoreMemvids() {
         const visibleCount = getVisibleMemvidsCount();
         return visibleCount < PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT
@@ -1048,6 +1054,7 @@ export function initVideoGallery() {
         if (memvidsResizeObserver) { memvidsResizeObserver.disconnect(); memvidsResizeObserver = null; }
         if (memvidsStageObserver) { memvidsStageObserver.disconnect(); memvidsStageObserver = null; }
         document.removeEventListener('bitbi:homepage-category-activated', handleMemvidsCategoryActivation);
+        document.removeEventListener('bitbi:homepage-category-layout-request', handleMemvidsCategoryLayoutRequest);
         window.removeEventListener('resize', scheduleMemvidsWideLimitSync);
         window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
         window.clearTimeout(memvidsResizeSettledTimer);
@@ -1105,6 +1112,7 @@ export function initVideoGallery() {
         });
     }
     document.addEventListener('bitbi:homepage-category-activated', handleMemvidsCategoryActivation);
+    document.addEventListener('bitbi:homepage-category-layout-request', handleMemvidsCategoryLayoutRequest);
     document.fonts?.ready?.then(scheduleMemvidsWideLimitSync).catch(() => {});
 
     render();

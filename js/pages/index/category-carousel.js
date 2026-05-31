@@ -29,6 +29,7 @@ const CATEGORY_META = {
 };
 
 const TRANSITION_MS = 560;
+const LAYOUT_PREPARE_TIMEOUT_MS = 160;
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
@@ -97,6 +98,7 @@ export function initCategoryCarousel() {
     let isTransitioning = false;
     let pendingCategory = null;
     let transitionTimer = 0;
+    let transitionSeq = 0;
     let scrollFrame = 0;
     let contentAlignmentFrame = 0;
     let stagedLayoutEnabled = false;
@@ -290,6 +292,59 @@ export function initCategoryCarousel() {
         });
     }
 
+    function waitForAnimationFrame(count = 1) {
+        const safeCount = Math.max(1, Number(count) || 1);
+        return new Promise((resolve) => {
+            let remaining = safeCount;
+            const step = () => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    resolve();
+                    return;
+                }
+                window.requestAnimationFrame(step);
+            };
+            window.requestAnimationFrame(step);
+        });
+    }
+
+    function withTimeout(promise, ms = LAYOUT_PREPARE_TIMEOUT_MS) {
+        return new Promise((resolve) => {
+            let settled = false;
+            const timer = window.setTimeout(() => {
+                settled = true;
+                resolve();
+            }, ms);
+            Promise.resolve(promise)
+                .catch((error) => {
+                    console.warn('category layout preparation:', error);
+                })
+                .then(() => {
+                    if (settled) return;
+                    settled = true;
+                    window.clearTimeout(timer);
+                    resolve();
+                });
+        });
+    }
+
+    async function requestCategoryLayout(category, panel, phase = 'before-transition') {
+        const pending = [];
+        const detail = {
+            category,
+            panel,
+            stageMode: stage.dataset.stageMode || '',
+            phase,
+            waitUntil(promise) {
+                if (!promise || typeof promise.then !== 'function') return;
+                pending.push(Promise.resolve(promise));
+            },
+        };
+        document.dispatchEvent(new CustomEvent('bitbi:homepage-category-layout-request', { detail }));
+        await withTimeout(Promise.allSettled(pending));
+        await waitForAnimationFrame(2);
+    }
+
     function updateCategoryLinkState() {
         if (!stagedLayoutEnabled) {
             categoryLinks.forEach((links) => {
@@ -449,28 +504,36 @@ export function initCategoryCarousel() {
         currentPanel.classList.add('is-transition-current');
         currentPanel.setAttribute('aria-hidden', 'false');
 
-        nextPanel.classList.add('is-transition-next', nextFromLeft ? 'is-from-left' : 'is-from-right');
+        nextPanel.classList.add(
+            'is-transition-next',
+            'is-layout-preparing',
+            nextFromLeft ? 'is-from-left' : 'is-from-right',
+        );
         nextPanel.setAttribute('aria-hidden', 'false');
 
         const currentHeight = currentPanel.offsetHeight;
-        const nextHeight = nextPanel.offsetHeight;
 
         viewport.style.height = `${currentHeight}px`;
 
         if (clearHash) clearCategoryHash();
 
-        requestAnimationFrame(() => {
+        const thisTransitionSeq = ++transitionSeq;
+        requestCategoryLayout(nextCategory, nextPanel).then(() => {
+            if (!isTransitioning || pendingCategory !== nextCategory || thisTransitionSeq !== transitionSeq) {
+                return;
+            }
+            nextPanel.classList.remove('is-layout-preparing');
+            const nextHeight = nextPanel.offsetHeight;
             currentPanel.classList.add(nextFromLeft ? 'is-leave-right' : 'is-leave-left');
             nextPanel.classList.add('is-enter-active');
             viewport.style.height = `${nextHeight}px`;
             if (alignStage) {
                 animateStageAlignment();
             }
+            transitionTimer = window.setTimeout(() => {
+                finishTransition(nextCategory);
+            }, TRANSITION_MS + 50);
         });
-
-        transitionTimer = window.setTimeout(() => {
-            finishTransition(nextCategory);
-        }, TRANSITION_MS + 50);
     }
 
     function move(delta) {

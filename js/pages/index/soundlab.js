@@ -296,6 +296,17 @@ export function initSoundLab(revealObserver) {
         });
     }
 
+    function handleMemtracksCategoryLayoutRequest(event) {
+        if (event?.detail?.category !== 'sound') return;
+        if (!desktopSoundLayoutQuery?.matches || !memtracksState.loaded) return;
+        syncMemtrackCardWidths();
+        event.detail.waitUntil?.(new Promise((resolve) => {
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(resolve);
+            });
+        }));
+    }
+
     function getMemtrackTrack(item) {
         if (!item?.id || !item?.file?.url) return null;
         return {
@@ -1062,6 +1073,7 @@ export function initSoundLab(revealObserver) {
 
     syncDeck = initSndDeck();
     ctn.addEventListener('snd:tracks-refresh', scheduleMemtrackWidthSync);
+    document.addEventListener('bitbi:homepage-category-layout-request', handleMemtracksCategoryLayoutRequest);
     if (typeof ResizeObserver === 'function') {
         memtrackResizeObserver = new ResizeObserver(scheduleMemtrackWidthSync);
         memtrackResizeObserver.observe(ctn);
@@ -1088,6 +1100,7 @@ export function initSoundLab(revealObserver) {
         if (memtrackResizeObserver) { memtrackResizeObserver.disconnect(); memtrackResizeObserver = null; }
         if (memtrackStageObserver) { memtrackStageObserver.disconnect(); memtrackStageObserver = null; }
         window.removeEventListener('resize', scheduleMemtrackWidthSync);
+        document.removeEventListener('bitbi:homepage-category-layout-request', handleMemtracksCategoryLayoutRequest);
         window.cancelAnimationFrame(memtrackWidthFrame);
     }, { once: true });
     paginationStatus.addEventListener('click', openMemtracksOverlay);

@@ -3621,6 +3621,12 @@
             z-index: 2;
         }
 
+        .home-categories.is-ready .home-categories__panel.is-transition-next.is-layout-preparing {
+            opacity: 0;
+            pointer-events: none;
+            transition: none;
+        }
+
         .home-categories.is-ready .home-categories__panel.is-transition-next.is-from-left {
             transform: translateX(-108%) rotateY(14deg) scale(0.96);
         }
