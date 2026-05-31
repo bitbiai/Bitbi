@@ -648,6 +648,10 @@
     to { opacity: 0; }
   }
 
+  .news-pulse__meta {
+    display: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .news-pulse__slides,
     .news-pulse__slide,
