@@ -24,6 +24,7 @@ import {
     ADMIN_AI_LIMITS,
     ADMIN_AI_LIVE_AGENT_MODEL,
     ADMIN_AI_MUSIC_KEYS,
+    ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
     ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
     ADMIN_AI_VIDEO_MODEL_ID,
     ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
@@ -1328,6 +1329,22 @@ export function createAdminAiLab({ showToast } = {}) {
         } else if (typeof state.forms.video.generateAudio !== 'boolean') {
             state.forms.video.generateAudio = spec.defaultGenerateAudio !== false;
         }
+        if (!spec.supportsNegativePrompt) {
+            state.forms.video.negativePrompt = '';
+        }
+        if (!spec.supportsImageInput) {
+            state.forms.video.imageInput = null;
+        }
+        if (!spec.supportsEndImage) {
+            state.forms.video.startImageInput = null;
+            state.forms.video.endImageInput = null;
+        }
+        if (!spec.supportsSeed) {
+            state.forms.video.seed = '';
+        }
+        if (!spec.supportsAudioToggle && !spec.supportsWatermark) {
+            state.forms.video.generateAudio = false;
+        }
 
         return spec;
     }
@@ -1693,6 +1710,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const isHappyHorse = spec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID;
         const isSeedance = spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
             || spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
+        const isGrokImagine = spec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID;
         const isGenerationBlocked = spec.generationEnabled === false
             || spec.pricingRequired === true;
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
@@ -1710,6 +1728,8 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
         refs.video.prompt.placeholder = isSeedance
             ? 'Describe a Seedance video prompt.'
+            : isGrokImagine
+            ? 'Describe the Grok Imagine video prompt.'
             : isVidu
             ? (usesViduFrameWorkflow
                 ? 'Optional — add a text prompt to steer motion between the selected frames.'
@@ -4998,6 +5018,11 @@ export function createAdminAiLab({ showToast } = {}) {
             payload.prompt = prompt;
             payload.aspect_ratio = state.forms.video.aspectRatio;
             payload.resolution = state.forms.video.resolution;
+        } else if (videoSpec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
+            payload.prompt = prompt;
+            payload._operation = 'generate';
+            payload.aspect_ratio = state.forms.video.aspectRatio;
+            payload.resolution = state.forms.video.resolution;
         } else {
             payload.prompt = prompt;
             payload.aspect_ratio = state.forms.video.aspectRatio;
@@ -5017,6 +5042,21 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (videoSpec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && refs.video.minimalMode?.checked) {
             payload.minimal_mode = true;
+        }
+
+        if (videoSpec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
+            delete payload.quality;
+            delete payload.seed;
+            delete payload.negative_prompt;
+            delete payload.generate_audio;
+            delete payload.audio;
+            delete payload.watermark;
+            delete payload.image_input;
+            delete payload.start_image;
+            delete payload.end_image;
+            delete payload.ratio;
+            delete payload.gateway_mode;
+            delete payload.minimal_mode;
         }
 
         try {

@@ -37,6 +37,19 @@ import {
   SEEDANCE_2_RESOLUTIONS,
   calculateSeedance2CreditPricing,
 } from "./seedance-2-pricing.mjs";
+import {
+  GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
+  GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+  GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_VIDEO_MAX_DURATION,
+  GROK_IMAGINE_VIDEO_MIN_DURATION,
+  GROK_IMAGINE_VIDEO_MODEL_ID,
+  GROK_IMAGINE_VIDEO_OPERATIONS,
+  GROK_IMAGINE_VIDEO_RESOLUTIONS,
+  GROK_IMAGINE_VIDEO_SIZES,
+  calculateGrokImagineVideoCreditPricing,
+} from "./grok-imagine-video-pricing.mjs";
 
 export {
   GPT_IMAGE_2_BACKGROUND_OPTIONS,
@@ -51,6 +64,18 @@ export {
   HAPPYHORSE_T2V_RATIOS,
   HAPPYHORSE_T2V_RESOLUTIONS,
 } from "./happyhorse-t2v-pricing.mjs";
+export {
+  GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
+  GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+  GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_VIDEO_MAX_DURATION,
+  GROK_IMAGINE_VIDEO_MIN_DURATION,
+  GROK_IMAGINE_VIDEO_MODEL_ID,
+  GROK_IMAGINE_VIDEO_OPERATIONS,
+  GROK_IMAGINE_VIDEO_RESOLUTIONS,
+  GROK_IMAGINE_VIDEO_SIZES,
+} from "./grok-imagine-video-pricing.mjs";
 
 export class AdminAiValidationError extends Error {
   constructor(message, status = 400, code = "validation_error") {
@@ -82,6 +107,7 @@ export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
 export const ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID = HAPPYHORSE_T2V_MODEL_ID;
 export const ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID = SEEDANCE_2_FAST_MODEL_ID;
 export const ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID = SEEDANCE_2_MODEL_ID;
+export const ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID = GROK_IMAGINE_VIDEO_MODEL_ID;
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE = "model_pricing_required";
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE =
   "Pricing is not configured for this admin Video AI model. Configure verified Cloudflare pricing before generation.";
@@ -224,6 +250,18 @@ export const ADMIN_AI_LIMITS = {
         defaultAspectRatio: SEEDANCE_2_DEFAULT_ASPECT_RATIO,
         defaultResolution: SEEDANCE_2_DEFAULT_RESOLUTION,
       },
+      [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID]: {
+        maxPromptLength: 5000,
+        minDuration: GROK_IMAGINE_VIDEO_MIN_DURATION,
+        maxDuration: GROK_IMAGINE_VIDEO_MAX_DURATION,
+        allowedAspectRatios: GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
+        allowedResolutions: GROK_IMAGINE_VIDEO_RESOLUTIONS,
+        allowedSizes: GROK_IMAGINE_VIDEO_SIZES,
+        allowedOperations: GROK_IMAGINE_VIDEO_OPERATIONS,
+        defaultDuration: GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+        defaultAspectRatio: GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+        defaultResolution: GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+      },
     },
   },
 };
@@ -275,6 +313,10 @@ export function isAdminAiVideoSeedanceModelId(modelId) {
   const id = String(modelId || "").trim();
   return id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
     || id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
+}
+
+export function isAdminAiVideoGrokImagineModelId(modelId) {
+  return String(modelId || "").trim() === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID;
 }
 
 const TEXT_MODELS = {
@@ -634,6 +676,46 @@ const VIDEO_MODELS = {
     defaultPreset: "video_seedance_2",
     description: "Admin-only Cloudflare/AI Gateway Seedance 2.0 video generation with operator-approved pricing.",
   },
+  [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID]: {
+    id: ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
+    task: "video",
+    label: "Grok Imagine Video",
+    vendor: "xAI",
+    providerLabel: "Cloudflare AI Gateway",
+    inputFormat: "grok-imagine-video",
+    proxied: true,
+    adminOnly: true,
+    pricingRequired: false,
+    costDiscoveryEnabled: false,
+    costDiscoveryFlag: null,
+    generationEnabled: true,
+    unavailableCode: null,
+    unavailableMessage: null,
+    supportedOperations: ["generate"],
+    supportsImageInput: false,
+    supportsReferenceImages: false,
+    maxReferenceImages: 0,
+    supportsEndImage: false,
+    supportsNegativePrompt: false,
+    supportsSeed: false,
+    supportsAudioToggle: false,
+    supportsWatermark: false,
+    supportsPromptlessImageMode: false,
+    resolutionField: "resolution",
+    aspectRatioMode: "always",
+    maxPromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID].maxPromptLength,
+    minDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID].minDuration,
+    maxDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID].maxDuration,
+    allowedAspectRatios: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID].allowedAspectRatios,
+    allowedResolutions: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID].allowedResolutions,
+    allowedSizes: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID].allowedSizes,
+    defaultDuration: GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+    defaultAspectRatio: GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+    defaultResolution: GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+    defaultGenerateAudio: false,
+    defaultPreset: "video_grok_imagine",
+    description: "Admin-only xAI Grok Imagine Video via Cloudflare AI Gateway Unified Billing and platform admin lab budget controls.",
+  },
 };
 
 const PRESETS = {
@@ -713,6 +795,13 @@ const PRESETS = {
     label: "Seedance 2.0",
     model: ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID,
     description: "Admin-only Seedance 2.0 preset with operator-approved video pricing.",
+  },
+  video_grok_imagine: {
+    name: "video_grok_imagine",
+    task: "video",
+    label: "Grok Imagine Video",
+    model: ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
+    description: "Admin-only xAI Grok Imagine Video preset through Cloudflare AI Gateway Unified Billing.",
   },
 };
 
@@ -1115,6 +1204,8 @@ function toPublicModel(model) {
   if (model.task === "video") {
     pub.capabilities = {
       supportsImageInput: !!model.supportsImageInput,
+      supportsReferenceImages: !!model.supportsReferenceImages,
+      maxReferenceImages: model.maxReferenceImages || 0,
       supportsEndImage: !!model.supportsEndImage,
       supportsNegativePrompt: !!model.supportsNegativePrompt,
       supportsSeed: !!model.supportsSeed,
@@ -1130,6 +1221,8 @@ function toPublicModel(model) {
       aspectRatios: Array.isArray(model.allowedAspectRatios) ? [...model.allowedAspectRatios] : [],
       qualityOptions: Array.isArray(model.allowedQualities) ? [...model.allowedQualities] : [],
       resolutionOptions: Array.isArray(model.allowedResolutions) ? [...model.allowedResolutions] : [],
+      sizeOptions: Array.isArray(model.allowedSizes) ? [...model.allowedSizes] : [],
+      supportedOperations: Array.isArray(model.supportedOperations) ? [...model.supportedOperations] : [],
       defaultDuration: model.defaultDuration || 5,
       defaultAspectRatio: model.defaultAspectRatio || "16:9",
       defaultQuality: model.defaultQuality || "720p",
@@ -1768,6 +1861,72 @@ export function validateAdminAiVideoBody(body) {
       preset,
       model,
       prompt,
+      duration,
+      aspect_ratio,
+      resolution,
+    };
+  }
+
+  if (selectedModel.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
+    assertOnlyAllowedFields(
+      input,
+      [
+        "preset",
+        "model",
+        "prompt",
+        "_operation",
+        "duration",
+        "aspect_ratio",
+        "resolution",
+      ],
+      selectedModel.id
+    );
+
+    const operation = optionalEnum(
+      input._operation,
+      "_operation",
+      ["generate"],
+      "generate"
+    );
+    const prompt = requiredString(input.prompt, "prompt", selectedModel.maxPromptLength);
+    const duration = optionalInteger(
+      input.duration,
+      "duration",
+      selectedModel.minDuration,
+      selectedModel.maxDuration,
+      selectedModel.defaultDuration
+    );
+    const aspect_ratio = optionalEnum(
+      input.aspect_ratio,
+      "aspect_ratio",
+      selectedModel.allowedAspectRatios,
+      selectedModel.defaultAspectRatio
+    );
+    const resolution = optionalEnum(
+      input.resolution,
+      "resolution",
+      selectedModel.allowedResolutions,
+      selectedModel.defaultResolution
+    );
+    try {
+      calculateGrokImagineVideoCreditPricing({
+        duration,
+        aspect_ratio,
+        resolution,
+      });
+    } catch {
+      throw new AdminAiValidationError(
+        selectedModel.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+        409,
+        selectedModel.unavailableCode || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE
+      );
+    }
+
+    return {
+      preset,
+      model,
+      prompt,
+      _operation: operation,
       duration,
       aspect_ratio,
       resolution,

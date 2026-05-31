@@ -1,10 +1,12 @@
 import {
+  ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
   ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
   ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
   ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
   ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
   AdminAiValidationError,
+  isAdminAiVideoGrokImagineModelId,
   isAdminAiVideoSeedanceModelId,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
@@ -58,6 +60,11 @@ export const ADMIN_VIDEO_JOB_BUDGET_KILL_SWITCH = "ENABLE_ADMIN_AI_VIDEO_JOB_BUD
 
 export function assertAdminSeedancePricingConfigured(modelId, payload = {}) {
   if (!isAdminAiVideoSeedanceModelId(modelId)) return;
+  assertAdminVideoPricingConfigured(modelId, payload);
+}
+
+export function assertAdminVideoPricingConfigured(modelId, payload = {}) {
+  if (!isAdminAiVideoSeedanceModelId(modelId) && !isAdminAiVideoGrokImagineModelId(modelId)) return;
   try {
     const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
     if (pricing?.credits > 0 && pricing?.providerCostUsd > 0) return;
@@ -218,6 +225,7 @@ function sanitizePublicError(value, fallback = "Video job failed.") {
 
 function resolveProvider(modelId) {
   if (modelId === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return "vidu";
+  if (modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) return "xai";
   if (
     modelId === ADMIN_AI_VIDEO_MODEL_ID
     || modelId === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID
@@ -310,7 +318,36 @@ function buildSeedancePricingMetadata(modelId, payload = {}, createdAt = nowIso(
   };
 }
 
-function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso(), seedancePricing = null } = {}) {
+function buildGrokImaginePricingMetadata(modelId, payload = {}, createdAt = nowIso()) {
+  if (!isAdminAiVideoGrokImagineModelId(modelId)) return null;
+  const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
+  return {
+    status: "operator_approved_admin_pricing",
+    pricing_configured: true,
+    credit_debit: false,
+    model_id: modelId,
+    duration: Number(payload.duration || 0) || null,
+    resolution: typeof payload.resolution === "string" ? payload.resolution : null,
+    aspect_ratio: typeof payload.aspect_ratio === "string" ? payload.aspect_ratio : null,
+    provider_cost_usd: pricing?.providerCostUsd ?? null,
+    estimated_credits: pricing?.credits ?? null,
+    pricing_version: pricing?.formula?.pricingVersion || null,
+    pricing_source: pricing?.formula?.pricingSource || null,
+    input_mode: "prompt_only",
+    workflow: "text_to_video",
+    recorded_at: createdAt,
+  };
+}
+
+function compactAdminVideoBudgetPolicy(
+  plan,
+  fingerprint,
+  {
+    createdAt = nowIso(),
+    seedancePricing = null,
+    grokImaginePricing = null,
+  } = {}
+) {
   const summary = {
     budget_policy_version: plan.policyVersion,
     operation_id: plan.operationId,
@@ -346,6 +383,7 @@ function compactAdminVideoBudgetPolicy(plan, fingerprint, { createdAt = nowIso()
     audit_fields: plan.auditFields,
   };
   if (seedancePricing) summary.seedance_pricing = seedancePricing;
+  if (grokImaginePricing) summary.grok_imagine_pricing = grokImaginePricing;
   return summary;
 }
 
@@ -388,6 +426,7 @@ export async function buildAdminVideoJobBudgetPolicyContext({
     summary: compactAdminVideoBudgetPolicy(plan, fingerprint, {
       createdAt,
       seedancePricing: buildSeedancePricingMetadata(modelId, payload, createdAt),
+      grokImaginePricing: buildGrokImaginePricingMetadata(modelId, payload, createdAt),
     }),
   };
 }
@@ -465,6 +504,22 @@ function safeBudgetPolicyForResponse(value) {
       workflow: policy.seedance_pricing.workflow || null,
       recorded_at: policy.seedance_pricing.recorded_at || null,
     } : null,
+    grok_imagine_pricing: policy.grok_imagine_pricing && typeof policy.grok_imagine_pricing === "object" ? {
+      status: policy.grok_imagine_pricing.status || null,
+      pricing_configured: policy.grok_imagine_pricing.pricing_configured === true,
+      credit_debit: policy.grok_imagine_pricing.credit_debit === true,
+      model_id: policy.grok_imagine_pricing.model_id || null,
+      duration: Number(policy.grok_imagine_pricing.duration || 0) || null,
+      resolution: policy.grok_imagine_pricing.resolution || null,
+      aspect_ratio: policy.grok_imagine_pricing.aspect_ratio || null,
+      provider_cost_usd: Number(policy.grok_imagine_pricing.provider_cost_usd || 0) || null,
+      estimated_credits: Number(policy.grok_imagine_pricing.estimated_credits || 0) || null,
+      pricing_version: policy.grok_imagine_pricing.pricing_version || null,
+      pricing_source: policy.grok_imagine_pricing.pricing_source || null,
+      input_mode: policy.grok_imagine_pricing.input_mode || null,
+      workflow: policy.grok_imagine_pricing.workflow || null,
+      recorded_at: policy.grok_imagine_pricing.recorded_at || null,
+    } : null,
     fingerprint: policy.fingerprint || null,
     audit_fields: policy.audit_fields && typeof policy.audit_fields === "object"
       ? policy.audit_fields
@@ -491,7 +546,8 @@ function queueBudgetPolicySummary(job) {
 
 function buildJobStoredInput(payload, modelId) {
   const supportsAdminPricingMetadata = modelId === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID
-    || isAdminAiVideoSeedanceModelId(modelId);
+    || isAdminAiVideoSeedanceModelId(modelId)
+    || isAdminAiVideoGrokImagineModelId(modelId);
   if (!supportsAdminPricingMetadata) {
     return payload;
   }
@@ -854,7 +910,7 @@ export async function createAdminAiVideoJob({
     model: payload.model,
   });
   const modelId = selection.model.id;
-  assertAdminSeedancePricingConfigured(modelId, payload);
+  assertAdminVideoPricingConfigured(modelId, payload);
   const requestHash = await sha256Hex(stableStringify(payload));
   const inputJson = stableStringify(buildJobStoredInput(payload, modelId));
   const existing = await findIdempotentJob(env, adminUser.id, AI_VIDEO_JOB_SCOPE_ADMIN, idempotencyKey);
@@ -1871,7 +1927,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   }
 
   try {
-    assertAdminSeedancePricingConfigured(job.model, parsedInput);
+    assertAdminVideoPricingConfigured(job.model, parsedInput);
   } catch (error) {
     const failedAt = nowIso();
     await updateJobFailed(
@@ -1884,7 +1940,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
-      event: "ai_video_job_seedance_pricing_required",
+      event: "ai_video_job_model_pricing_required",
       level: "warn",
       correlationId: payload.correlationId,
       job_id: job.id,
@@ -1984,15 +2040,24 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         model_id: job.model,
         provider_family: budgetPolicy.provider_family || job.provider,
         result_status: "succeeded",
-        seedance_pricing_status: budgetPolicy.seedance_pricing?.status || null,
-        seedance_pricing_configured: budgetPolicy.seedance_pricing?.pricing_configured === true,
-        seedance_credit_debit: budgetPolicy.seedance_pricing?.credit_debit === true,
-        seedance_estimated_credits: budgetPolicy.seedance_pricing?.estimated_credits || null,
-        seedance_provider_cost_usd: budgetPolicy.seedance_pricing?.provider_cost_usd || null,
-        seedance_internal_cost_usd: budgetPolicy.seedance_pricing?.internal_cost_usd || null,
-        duration: budgetPolicy.seedance_pricing?.duration || null,
-        resolution: budgetPolicy.seedance_pricing?.resolution || null,
-        aspect_ratio: budgetPolicy.seedance_pricing?.aspect_ratio || null,
+        duration: budgetPolicy.seedance_pricing?.duration || budgetPolicy.grok_imagine_pricing?.duration || null,
+        resolution: budgetPolicy.seedance_pricing?.resolution || budgetPolicy.grok_imagine_pricing?.resolution || null,
+        aspect_ratio: budgetPolicy.seedance_pricing?.aspect_ratio || budgetPolicy.grok_imagine_pricing?.aspect_ratio || null,
+        ...(budgetPolicy.seedance_pricing ? {
+          seedance_pricing_status: budgetPolicy.seedance_pricing.status || null,
+          seedance_pricing_configured: budgetPolicy.seedance_pricing.pricing_configured === true,
+          seedance_credit_debit: budgetPolicy.seedance_pricing.credit_debit === true,
+          seedance_estimated_credits: budgetPolicy.seedance_pricing.estimated_credits || null,
+          seedance_provider_cost_usd: budgetPolicy.seedance_pricing.provider_cost_usd || null,
+          seedance_internal_cost_usd: budgetPolicy.seedance_pricing.internal_cost_usd || null,
+        } : {}),
+        ...(budgetPolicy.grok_imagine_pricing ? {
+          grok_imagine_pricing_status: budgetPolicy.grok_imagine_pricing.status || null,
+          grok_imagine_pricing_configured: budgetPolicy.grok_imagine_pricing.pricing_configured === true,
+          grok_imagine_credit_debit: budgetPolicy.grok_imagine_pricing.credit_debit === true,
+          grok_imagine_estimated_credits: budgetPolicy.grok_imagine_pricing.estimated_credits || null,
+          grok_imagine_provider_cost_usd: budgetPolicy.grok_imagine_pricing.provider_cost_usd || null,
+        } : {}),
       },
     });
     logDiagnostic({

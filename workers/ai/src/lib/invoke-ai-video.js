@@ -1,6 +1,7 @@
 // @ts-check
 
 import {
+  ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
   ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
   ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
@@ -12,6 +13,15 @@ import {
   SEEDANCE_2_MIN_DURATION,
   seedance2ResolutionsForModel,
 } from "../../../../js/shared/seedance-2-pricing.mjs";
+import {
+  GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
+  GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+  GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_VIDEO_MAX_DURATION,
+  GROK_IMAGINE_VIDEO_MIN_DURATION,
+  GROK_IMAGINE_VIDEO_RESOLUTIONS,
+} from "../../../../js/shared/grok-imagine-video-pricing.mjs";
 import {
   getDurationMs,
   getErrorFields,
@@ -676,6 +686,18 @@ function videoValidationError(message) {
   return error;
 }
 
+function getAiGatewayId(env) {
+  return readTrimmedEnvString(env, "AI_GATEWAY_ID") || DEFAULT_AI_GATEWAY_ID;
+}
+
+function buildVideoRunOptions(env, model) {
+  if (!model?.proxied) return undefined;
+  if (model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
+    return { gateway: { id: getAiGatewayId(env) } };
+  }
+  return { gateway: { id: DEFAULT_AI_GATEWAY_ID } };
+}
+
 function buildViduQ3Payload(input) {
   let duration = input.duration;
   if (duration !== undefined && duration !== null) {
@@ -760,7 +782,7 @@ function buildViduQ3Payload(input) {
       prompt: prompt || null,
       duration,
       aspect_ratio: aspectRatio || null,
-      ratio: null,
+      ratio: aspectRatio || "16:9",
       quality: null,
       resolution,
       seed: null,
@@ -865,6 +887,74 @@ function buildSeedancePayload(modelId, input) {
   };
 }
 
+function buildGrokImagineVideoPayload(input) {
+  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
+  if (!prompt) {
+    throw videoValidationError("xai/grok-imagine-video: prompt is required.");
+  }
+
+  const operation = typeof input._operation === "string" && input._operation.trim()
+    ? input._operation.trim()
+    : "generate";
+  if (operation !== "generate") {
+    throw videoValidationError("xai/grok-imagine-video: only generate is enabled in Admin AI Lab.");
+  }
+
+  const durationValue = input.duration ?? GROK_IMAGINE_VIDEO_DEFAULT_DURATION;
+  const duration = typeof durationValue === "string" ? parseInt(durationValue, 10) : Number(durationValue);
+  if (
+    !Number.isInteger(duration)
+    || duration < GROK_IMAGINE_VIDEO_MIN_DURATION
+    || duration > GROK_IMAGINE_VIDEO_MAX_DURATION
+  ) {
+    throw videoValidationError(
+      `xai/grok-imagine-video: duration must be an integer between ${GROK_IMAGINE_VIDEO_MIN_DURATION} and ${GROK_IMAGINE_VIDEO_MAX_DURATION}.`
+    );
+  }
+
+  const aspectRatio = typeof input.aspect_ratio === "string" && input.aspect_ratio.trim()
+    ? input.aspect_ratio.trim()
+    : GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO;
+  if (!GROK_IMAGINE_VIDEO_ASPECT_RATIOS.includes(aspectRatio)) {
+    throw videoValidationError(
+      `xai/grok-imagine-video: aspect_ratio must be one of ${GROK_IMAGINE_VIDEO_ASPECT_RATIOS.join(", ")}.`
+    );
+  }
+
+  const resolution = typeof input.resolution === "string" && input.resolution.trim()
+    ? input.resolution.trim()
+    : GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION;
+  if (!GROK_IMAGINE_VIDEO_RESOLUTIONS.includes(resolution)) {
+    throw videoValidationError(
+      `xai/grok-imagine-video: resolution must be one of ${GROK_IMAGINE_VIDEO_RESOLUTIONS.join(", ")}.`
+    );
+  }
+
+  return {
+    payload: {
+      _operation: "generate",
+      prompt,
+      duration,
+      aspect_ratio: aspectRatio,
+      resolution,
+    },
+    normalized: {
+      prompt,
+      duration,
+      aspect_ratio: aspectRatio,
+      ratio: null,
+      quality: null,
+      resolution,
+      seed: null,
+      generate_audio: false,
+      watermark: null,
+      hasImageInput: false,
+      hasEndImageInput: false,
+      workflow: "text_to_video",
+    },
+  };
+}
+
 /**
  * @param {{ id: string }} model
  * @param {Record<string, any>} input
@@ -921,6 +1011,10 @@ export function buildVideoPayload(model, input) {
     return buildSeedancePayload(model.id, input);
   }
 
+  if (model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
+    return buildGrokImagineVideoPayload(input);
+  }
+
   const error = new Error(`Unsupported video model "${model.id}".`);
   error.status = 400;
   error.code = "model_not_allowed";
@@ -962,6 +1056,24 @@ function buildVideoTaskResult({
 
 async function runWorkersAiVideoOnce(env, model, input, request, startedAt, runOptions) {
   ensureAI(env);
+  logDiagnostic({
+    service: "bitbi-ai",
+    component: "invoke-video-task",
+    event: "workers_ai_video_task_create",
+    level: "info",
+    correlationId: input.correlationId || null,
+    model: model.id,
+    ...summarizeGatewayOptions(runOptions),
+    has_image_input: !!request.normalized.hasImageInput,
+    has_end_image_input: !!request.normalized.hasEndImageInput,
+    workflow: request.normalized.workflow,
+    prompt_length: typeof request.normalized.prompt === "string" ? request.normalized.prompt.length : 0,
+    duration: request.payload.duration,
+    aspect_ratio: request.payload.aspect_ratio || request.payload.ratio || null,
+    quality: request.payload.quality || null,
+    resolution: request.payload.resolution || null,
+    payload_keys: Object.keys(request.payload).sort().join(","),
+  });
   const raw = await runWithGenerationTimeout(() => (
     runOptions
       ? env.AI.run(model.id, request.payload, runOptions)
@@ -1130,7 +1242,7 @@ export async function createVideoProviderTask(env, model, input) {
     });
   }
 
-  const runOptions = model.proxied ? { gateway: { id: DEFAULT_AI_GATEWAY_ID } } : undefined;
+  const runOptions = buildVideoRunOptions(env, model);
   return runWorkersAiVideoOnce(env, model, input, request, startedAt, runOptions);
 }
 
@@ -1263,7 +1375,7 @@ export async function invokeVideo(env, model, input) {
   const runOptions =
     model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
       ? (gatewayMode === "on" ? { gateway: { id: DEFAULT_AI_GATEWAY_ID } } : undefined)
-      : (model.proxied ? { gateway: { id: DEFAULT_AI_GATEWAY_ID } } : undefined);
+      : buildVideoRunOptions(env, model);
 
   const payloadTypeMap = {};
   for (const [key, value] of Object.entries(payload)) {

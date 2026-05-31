@@ -22,6 +22,10 @@ import {
   calculateSeedance2CreditPricing,
 } from "./seedance-2-pricing.mjs";
 import {
+  GROK_IMAGINE_VIDEO_MODEL_ID,
+  calculateGrokImagineVideoCreditPricing,
+} from "./grok-imagine-video-pricing.mjs";
+import {
   MINIMAX_MUSIC_2_6_MODEL_ID,
   calculateMinimaxMusic26CreditCost,
 } from "./music-2-6-pricing.mjs";
@@ -32,6 +36,7 @@ export {
   HAPPYHORSE_T2V_MODEL_ID,
   SEEDANCE_2_FAST_MODEL_ID,
   SEEDANCE_2_MODEL_ID,
+  GROK_IMAGINE_VIDEO_MODEL_ID,
   MINIMAX_MUSIC_2_6_MODEL_ID,
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -250,6 +255,9 @@ export function calculateAiVideoCreditCost(modelId, params = {}) {
   }
   if (id === SEEDANCE_2_FAST_MODEL_ID || id === SEEDANCE_2_MODEL_ID) {
     return calculateSeedance2CreditPricing(id, params);
+  }
+  if (id === GROK_IMAGINE_VIDEO_MODEL_ID) {
+    return calculateGrokImagineVideoCreditPricing(params);
   }
   return null;
 }
