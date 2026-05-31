@@ -3844,13 +3844,13 @@ test.describe('Homepage', () => {
       await expect(page.locator('#hero .hero__creation-stream')).toHaveCount(2);
 
       const expectedHighlightMetrics = {
-        one: { active: true, animationDuration: 2.4167, strokeDasharray: [20, 66] },
-        two: { active: false, strokeDasharray: [14, 52] },
-        three: { active: true, animationDuration: 2.125, strokeDasharray: [14, 52] },
-        four: { active: false, strokeDasharray: [10, 39] },
-        five: { active: true, animationDuration: 2.5417, strokeDasharray: [12, 42] },
-        six: { active: false, strokeDasharray: [11, 44] },
-        seven: { active: true, animationDuration: 3.5, strokeDasharray: [9, 38] },
+        one: { active: true, animationDuration: 2.4167, strokeDasharray: [20, 9999] },
+        two: { active: true, animationDuration: 2.7917, strokeDasharray: [18, 9999] },
+        three: { active: true, animationDuration: 2.125, strokeDasharray: [18, 9999] },
+        four: { active: false, strokeDasharray: [15, 9999] },
+        five: { active: true, animationDuration: 2.5417, strokeDasharray: [16, 9999] },
+        six: { active: false, strokeDasharray: [15, 9999] },
+        seven: { active: true, animationDuration: 3.5, strokeDasharray: [14, 9999] },
       };
 
       for (const width of [1100, 1280, 1440, 1600]) {
@@ -3866,7 +3866,7 @@ test.describe('Homepage', () => {
           expect(metrics.haloPathCount, `stream halo path count for ${context}`).toBe(4);
           expect(metrics.strandPathCount, `stream strand path count for ${context}`).toBe(15);
           expect(metrics.highlightPathCount, `stream highlight path count for ${context}`).toBe(7);
-          expect(metrics.visibleHighlightCount, `moving stream highlight count for ${context}`).toBe(4);
+          expect(metrics.visibleHighlightCount, `moving stream highlight count for ${context}`).toBe(5);
           expect(metrics.haloLayerFilter, `stream halo filter for ${context}`).toBe('none');
           for (const halo of metrics.haloMetrics) {
             expect(halo.strokeWidth, `slim halo stroke for ${context} ${halo.className}`).toBeLessThanOrEqual(3.5);

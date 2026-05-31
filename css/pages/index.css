@@ -4462,36 +4462,37 @@
         }
 
         .hero__creation-stream-highlight {
+            --hero-stream-streak-dash: 20px;
             stroke-width: 0.95px;
-            stroke-dasharray: 14 52;
+            stroke-dasharray: var(--hero-stream-streak-dash) 9999px;
             stroke-dashoffset: 260;
             opacity: 0.7;
             animation: heroCreationStreamFlow 2.4167s linear infinite;
         }
 
         .hero__creation-stream-highlight--one {
+            --hero-stream-streak-dash: 20px;
             stroke-width: 1.35px;
-            stroke-dasharray: 20 66;
         }
 
         .hero__creation-stream-highlight--two {
-            display: none;
-            opacity: 0;
-            animation: none;
+            --hero-stream-streak-dash: 18px;
             animation-duration: 2.7917s;
             animation-delay: -0.7s;
         }
 
         .hero__creation-stream-highlight--three {
+            --hero-stream-streak-dash: 18px;
             stroke-width: 1.2px;
             animation-duration: 2.125s;
             animation-delay: -1.4s;
         }
 
         .hero__creation-stream-highlight--four {
+            --hero-stream-streak-dash: 15px;
             display: none;
+            visibility: hidden;
             stroke-width: 1.1px;
-            stroke-dasharray: 10 39;
             animation: none;
             animation-duration: 3.25s;
             animation-delay: -1.75s;
@@ -4499,17 +4500,18 @@
         }
 
         .hero__creation-stream-highlight--five {
+            --hero-stream-streak-dash: 16px;
             stroke-width: 1.25px;
-            stroke-dasharray: 12 42;
             animation-duration: 2.5417s;
             animation-delay: -2.3s;
             opacity: 0.52;
         }
 
         .hero__creation-stream-highlight--six {
+            --hero-stream-streak-dash: 15px;
             display: none;
+            visibility: hidden;
             stroke-width: 0.95px;
-            stroke-dasharray: 11 44;
             animation: none;
             animation-duration: 3s;
             animation-delay: -1.05s;
@@ -4517,8 +4519,8 @@
         }
 
         .hero__creation-stream-highlight--seven {
+            --hero-stream-streak-dash: 14px;
             stroke-width: 0.85px;
-            stroke-dasharray: 9 38;
             animation-duration: 3.5s;
             animation-delay: -2.6s;
             opacity: 0.48;
