@@ -1736,7 +1736,7 @@
                                 </label>
                             </div>
                             <div class="admin-ai__form-grid admin-ai__form-grid--4" id="aiImageGptControls" hidden>
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageQualityField">
                                     <span class="admin-ai__label">Quality</span>
                                     <select id="aiImageQuality" class="admin-ai__input">
                                         <option value="low">low</option>
@@ -1745,7 +1745,7 @@
                                         <option value="auto">auto</option>
                                     </select>
                                 </label>
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageSizeField">
                                     <span class="admin-ai__label">Size</span>
                                     <select id="aiImageSize" class="admin-ai__input">
                                         <option value="1024x1024">1024x1024</option>
@@ -1754,7 +1754,7 @@
                                         <option value="auto">auto</option>
                                     </select>
                                 </label>
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageOutputFormatField">
                                     <span class="admin-ai__label">Output Format</span>
                                     <select id="aiImageOutputFormat" class="admin-ai__input">
                                         <option value="png">png</option>
@@ -1762,13 +1762,18 @@
                                         <option value="jpeg">jpeg</option>
                                     </select>
                                 </label>
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageBackgroundField">
                                     <span class="admin-ai__label">Background</span>
                                     <select id="aiImageBackground" class="admin-ai__input">
                                         <option value="auto">auto</option>
                                         <option value="opaque">opaque</option>
                                     </select>
                                     <span class="admin-ai__hint">Transparent background is not supported for GPT Image 2.</span>
+                                </label>
+                                <label class="admin-ai__field" id="aiImageSafetyField" hidden>
+                                    <span class="admin-ai__label">Safety Tolerance</span>
+                                    <input id="aiImageSafetyTolerance" class="admin-ai__input" type="number" min="0" max="5" step="1">
+                                    <span id="aiImageSafetyHint" class="admin-ai__hint" hidden></span>
                                 </label>
                                 <span id="aiImageGptCostHint" class="admin-ai__hint admin-ai__hint--wide"></span>
                             </div>

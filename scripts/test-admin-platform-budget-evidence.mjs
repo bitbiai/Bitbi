@@ -36,7 +36,7 @@ assert.equal(report.summary.adminLabDurableIdempotency, 5);
 assert.equal(report.summary.retiredDebugPaths, 1);
 assert.equal(report.summary.adminTextEmbeddingsAttemptsOperable, true);
 assert.equal(report.summary.adminLabAttemptsOperable, true);
-assert.equal(report.summary.adminImageChargedBranches, 4);
+assert.equal(report.summary.adminImageChargedBranches, 5);
 assert.equal(report.summary.adminImageExplicitUnmeteredBranches, 1);
 assert.equal(report.summary.adminImageBlockedUnsupportedGuards, 1);
 assert.equal(report.summary.runtimeBudgetSwitchTargets, 10);
@@ -191,7 +191,7 @@ const adminBfl = report.implementedOperations.find((entry) => entry.operationId 
 assert.equal(adminBfl.budgetScope, "admin_org_credit_account");
 assert.equal(adminBfl.runtimeStatus, "implemented_hardened");
 assert.equal(adminBfl.killSwitchTarget, "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET");
-assert.equal(adminBfl.modelClass, "priced Admin image tests (BFL FLUX and GPT Image 2)");
+assert.equal(adminBfl.modelClass, "priced Admin image tests (BFL FLUX, FLUX.2 Max, and GPT Image 2)");
 assert(adminBfl.metadataFieldsExpected.includes("budget_policy_version"));
 assert(adminBfl.metadataFieldsExpected.includes("fingerprint"));
 assert(adminBfl.remainingLimitations.some((entry) => entry.includes("runtime budget switch")));
@@ -205,7 +205,7 @@ assert(adminImageUnmetered.explicitUnmeteredAdmin.some((entry) =>
   && entry.killSwitchTarget === "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS"
 ));
 assert(adminImageUnmetered.blockedUnsupported.some((entry) => entry.providerCalls === false));
-assert.equal(report.adminImageBranches.counts.chargedAdminOrgCredit, 4);
+assert.equal(report.adminImageBranches.counts.chargedAdminOrgCredit, 5);
 assert.equal(report.adminImageBranches.counts.explicitUnmeteredAdmin, 1);
 assert.equal(report.adminImageBranches.counts.blockedUnsupportedGuard, 1);
 

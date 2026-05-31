@@ -541,6 +541,44 @@ function createMockAiCatalog() {
           },
         },
         {
+          id: 'black-forest-labs/flux-2-max',
+          task: 'image',
+          label: 'FLUX.2 Max',
+          vendor: 'Black Forest Labs',
+          providerLabel: 'Cloudflare AI Gateway',
+          description: 'Admin-only FLUX.2 Max image generation and editing via Cloudflare AI Gateway.',
+          capabilities: {
+            supportsSeed: true,
+            supportsSteps: false,
+            supportsDimensions: true,
+            supportsGuidance: false,
+            supportsStructuredPrompt: false,
+            supportsReferenceImages: true,
+            supportsQuality: false,
+            supportsSize: false,
+            supportsOutputFormat: true,
+            supportsBackground: false,
+            supportsTransparentBackground: false,
+            supportsSafetyTolerance: true,
+            maxReferenceImages: 8,
+            maxSteps: null,
+            defaultSteps: null,
+            minDimension: 64,
+            maxDimension: 2048,
+            maxPixels: 4194304,
+            minGuidance: null,
+            maxGuidance: null,
+            defaultGuidance: null,
+            minSafetyTolerance: 0,
+            maxSafetyTolerance: 5,
+            defaultSafetyTolerance: 2,
+            outputFormatOptions: ['jpeg', 'png', 'webp'],
+            defaultOutputFormat: 'jpeg',
+            defaultSize: { width: 1024, height: 1024 },
+            proxied: true,
+          },
+        },
+        {
           id: 'openai/gpt-image-2',
           task: 'image',
           label: 'GPT Image 2',
@@ -15439,6 +15477,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.1 Schnell');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
+    await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Max');
     await expect(page.locator('#aiModelsImage')).toContainText('GPT Image 2');
     await expect(page.locator('#aiModelsImage')).toContainText('OpenAI via Cloudflare AI Gateway');
     await expect(page.locator('#aiModelsMusic')).toContainText('Music 2.6');
@@ -15463,7 +15502,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImagePrompt')).toHaveValue(
       /An editorial portrait of a digital artist/,
     );
-    await expect(page.locator('#aiImageModel option')).toHaveCount(5);
+    await expect(page.locator('#aiImageModel option')).toHaveCount(6);
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
     await page.locator('#aiImageRun').click();
     await expect(page.locator('#aiImagePreview img')).toBeVisible();
@@ -17448,6 +17487,23 @@ test.describe('AI Lab Image capability controls', () => {
     await expect(page.locator('#aiImageGuidanceField')).toHaveClass(/admin-ai__field--disabled/);
     await expect(page.locator('#aiImageStepsField')).toHaveClass(/admin-ai__field--disabled/);
     await expect(page.locator('#aiImageSeedField')).toHaveClass(/admin-ai__field--disabled/);
+
+    // Select FLUX.2 Max — image dimensions, seed, output format, safety, and 8 refs are enabled; unsupported controls stay hidden/disabled.
+    await page.selectOption('#aiImageModel', 'black-forest-labs/flux-2-max');
+    await expect(page.locator('#aiImageWidthField')).toBeVisible();
+    await expect(page.locator('#aiImageHeightField')).toBeVisible();
+    await expect(page.locator('#aiImageSeedField')).not.toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImageStepsField')).toBeHidden();
+    await expect(page.locator('#aiImageGuidanceField')).toBeHidden();
+    await expect(page.locator('#aiImagePromptModeField')).toBeHidden();
+    await expect(page.locator('#aiImageOutputFormatField')).toBeVisible();
+    await expect(page.locator('#aiImageSafetyField')).toBeVisible();
+    await expect(page.locator('#aiImageRefSection')).not.toHaveClass(/admin-ai__ref-images--disabled/);
+    await expect(page.locator('#aiImageRefCount')).toHaveText('0 / 8');
+    await expect(page.locator('#aiImageOutputFormat')).toHaveValue('jpeg');
+    await expect(page.locator('#aiImageSafetyTolerance')).toHaveValue('2');
+    await expect(page.locator('#aiImageWidth')).toHaveAttribute('min', '64');
+    await expect(page.locator('#aiImageWidth')).toHaveAttribute('max', '2048');
   });
 
   test('shows GPT Image 2 controls, 16 reference slots, and credit preview', async ({ page }) => {

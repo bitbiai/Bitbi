@@ -1,4 +1,5 @@
 import {
+  buildAdminAiFlux2MaxRequest,
   buildAdminAiGptImage2Request,
   buildAdminAiMultipartImageRequest,
 } from "../../../../js/shared/admin-ai-contract.mjs";
@@ -553,6 +554,7 @@ export async function invokeImage(env, model, input) {
   let appliedQuality = null;
   let appliedOutputFormat = null;
   let appliedBackground = null;
+  let appliedSafetyTolerance = null;
   let referenceImageCount = Array.isArray(input.referenceImages) ? input.referenceImages.length : 0;
   let runOptions;
 
@@ -578,6 +580,31 @@ export async function invokeImage(env, model, input) {
       size: payload.size,
       output_format: appliedOutputFormat,
       background: appliedBackground,
+      reference_image_count: referenceImageCount,
+      prompt_length: payload.prompt.length,
+    });
+  } else if (model.inputFormat === "flux-2-max") {
+    const flux2MaxRequest = buildAdminAiFlux2MaxRequest(model, input);
+    payload = flux2MaxRequest.payload;
+    appliedSize = flux2MaxRequest.appliedSize;
+    appliedSeed = flux2MaxRequest.appliedSeed;
+    appliedOutputFormat = flux2MaxRequest.appliedOutputFormat;
+    appliedSafetyTolerance = flux2MaxRequest.appliedSafetyTolerance;
+    referenceImageCount = flux2MaxRequest.referenceImageCount;
+    runOptions = { gateway: { id: env.AI_GATEWAY_ID || "default" } };
+
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-image",
+      event: "workers_ai_flux_2_max_invoke",
+      level: "info",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      gateway_id: runOptions.gateway.id,
+      width: payload.width,
+      height: payload.height,
+      output_format: appliedOutputFormat,
+      safety_tolerance: appliedSafetyTolerance,
       reference_image_count: referenceImageCount,
       prompt_length: payload.prompt.length,
     });
@@ -643,6 +670,7 @@ export async function invokeImage(env, model, input) {
       size: payload?.size || null,
       output_format: appliedOutputFormat,
       background: appliedBackground,
+      safety_tolerance: appliedSafetyTolerance,
       reference_image_count: referenceImageCount,
       duration_ms: getDurationMs(startedAt),
       ...getErrorFields(error, { includeMessage: false }),
@@ -664,6 +692,7 @@ export async function invokeImage(env, model, input) {
     appliedQuality,
     appliedOutputFormat,
     appliedBackground,
+    appliedSafetyTolerance,
     referenceImageCount,
     imageUrl: image.imageUrl || null,
     gatewayMetadata: sanitizeGatewayMetadata(raw?.gatewayMetadata),

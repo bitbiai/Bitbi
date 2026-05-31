@@ -63,6 +63,19 @@ export class AdminAiValidationError extends Error {
 
 export const FLUX_2_DEV_MODEL_ID = "@cf/black-forest-labs/flux-2-dev";
 export const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
+export const FLUX_2_MAX_MODEL_ID = "black-forest-labs/flux-2-max";
+export const FLUX_2_MAX_MIN_DIMENSION = 64;
+export const FLUX_2_MAX_MAX_DIMENSION = 2048;
+// Cloudflare accepts dimensions >=64px. BITBI caps FLUX.2 Max at 4MP for admin-lab cost safety.
+export const FLUX_2_MAX_MAX_PIXELS = FLUX_2_MAX_MAX_DIMENSION * FLUX_2_MAX_MAX_DIMENSION;
+export const FLUX_2_MAX_DEFAULT_WIDTH = 1024;
+export const FLUX_2_MAX_DEFAULT_HEIGHT = 1024;
+export const FLUX_2_MAX_MAX_REFERENCE_IMAGES = 8;
+export const FLUX_2_MAX_OUTPUT_FORMAT_OPTIONS = ["jpeg", "png", "webp"];
+export const FLUX_2_MAX_DEFAULT_OUTPUT_FORMAT = "jpeg";
+export const FLUX_2_MAX_MIN_SAFETY_TOLERANCE = 0;
+export const FLUX_2_MAX_MAX_SAFETY_TOLERANCE = 5;
+export const FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE = 2;
 export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
 export const ADMIN_AI_VIDEO_MODEL_ID = "pixverse/v6";
 export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
@@ -227,12 +240,19 @@ export const ADMIN_AI_IMAGE_CAPABILITY_FALLBACK = {
   supportsOutputFormat: false,
   supportsBackground: false,
   supportsTransparentBackground: false,
+  supportsSafetyTolerance: false,
   maxReferenceImages: 0,
   maxSteps: 8,
   defaultSteps: 4,
+  minDimension: null,
+  maxDimension: null,
+  maxPixels: null,
   minGuidance: null,
   maxGuidance: null,
   defaultGuidance: null,
+  minSafetyTolerance: null,
+  maxSafetyTolerance: null,
+  defaultSafetyTolerance: null,
   qualityOptions: [],
   sizeOptions: [],
   outputFormatOptions: [],
@@ -392,6 +412,36 @@ const IMAGE_MODELS = {
     defaultBackground: "auto",
     defaultMimeType: "image/png",
     description: "OpenAI image generation and editing via Cloudflare AI Gateway.",
+  },
+  [FLUX_2_MAX_MODEL_ID]: {
+    id: FLUX_2_MAX_MODEL_ID,
+    task: "image",
+    label: "FLUX.2 Max",
+    vendor: "Black Forest Labs",
+    providerLabel: "Cloudflare AI Gateway",
+    inputFormat: "flux-2-max",
+    proxied: true,
+    adminOnly: true,
+    supportsSeed: true,
+    supportsSteps: false,
+    supportsDimensions: true,
+    supportsGuidance: false,
+    supportsStructuredPrompt: false,
+    supportsReferenceImages: true,
+    maxReferenceImages: FLUX_2_MAX_MAX_REFERENCE_IMAGES,
+    minDimension: FLUX_2_MAX_MIN_DIMENSION,
+    maxDimension: FLUX_2_MAX_MAX_DIMENSION,
+    maxPixels: FLUX_2_MAX_MAX_PIXELS,
+    defaultSize: { width: FLUX_2_MAX_DEFAULT_WIDTH, height: FLUX_2_MAX_DEFAULT_HEIGHT },
+    supportsOutputFormat: true,
+    outputFormatOptions: FLUX_2_MAX_OUTPUT_FORMAT_OPTIONS,
+    defaultOutputFormat: FLUX_2_MAX_DEFAULT_OUTPUT_FORMAT,
+    supportsSafetyTolerance: true,
+    minSafetyTolerance: FLUX_2_MAX_MIN_SAFETY_TOLERANCE,
+    maxSafetyTolerance: FLUX_2_MAX_MAX_SAFETY_TOLERANCE,
+    defaultSafetyTolerance: FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE,
+    defaultMimeType: "image/jpeg",
+    description: "Admin-only FLUX.2 Max image generation and editing via Cloudflare AI Gateway.",
   },
 };
 
@@ -808,6 +858,11 @@ function optionalDimension(value, field) {
   return parsed;
 }
 
+function optionalBoundedDimension(value, field, min, max, defaultValue = null) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  return optionalInteger(value, field, min, max, defaultValue);
+}
+
 function normalizeInputArray(input, field, maxItems, maxItemLength) {
   const values = typeof input === "string" ? [input] : input;
   if (!Array.isArray(values)) {
@@ -1033,12 +1088,19 @@ function toPublicModel(model) {
       supportsOutputFormat: !!model.supportsOutputFormat,
       supportsBackground: !!model.supportsBackground,
       supportsTransparentBackground: !!model.supportsTransparentBackground,
+      supportsSafetyTolerance: !!model.supportsSafetyTolerance,
       maxReferenceImages: model.maxReferenceImages || 0,
       maxSteps: model.maxSteps || null,
       defaultSteps: model.defaultSteps || null,
+      minDimension: model.minDimension || null,
+      maxDimension: model.maxDimension || null,
+      maxPixels: model.maxPixels || null,
       minGuidance: model.minGuidance || null,
       maxGuidance: model.maxGuidance || null,
       defaultGuidance: model.defaultGuidance || null,
+      minSafetyTolerance: model.minSafetyTolerance ?? null,
+      maxSafetyTolerance: model.maxSafetyTolerance ?? null,
+      defaultSafetyTolerance: model.defaultSafetyTolerance ?? null,
       qualityOptions: Array.isArray(model.qualityOptions) ? [...model.qualityOptions] : [],
       sizeOptions: Array.isArray(model.sizeOptions) ? [...model.sizeOptions] : [],
       outputFormatOptions: Array.isArray(model.outputFormatOptions) ? [...model.outputFormatOptions] : [],
@@ -1241,6 +1303,91 @@ export function validateAdminAiImageBody(body) {
       ),
       referenceImages: validateReferenceImages(input.referenceImages, {
         maxItems: selectedModel.maxReferenceImages,
+        allowedMimeTypes: ["image/png", "image/jpeg", "image/webp"],
+      }),
+    };
+  }
+
+  if (selectedModel.id === FLUX_2_MAX_MODEL_ID) {
+    assertOnlyAllowedFields(
+      input,
+      [
+        "preset",
+        "model",
+        "prompt",
+        "width",
+        "height",
+        "seed",
+        "outputFormat",
+        "output_format",
+        "safetyTolerance",
+        "safety_tolerance",
+        "referenceImages",
+        "organization_id",
+      ],
+      selectedModel.id
+    );
+    const hasWidth = input.width !== undefined && input.width !== null && input.width !== "";
+    const hasHeight = input.height !== undefined && input.height !== null && input.height !== "";
+    if (hasWidth !== hasHeight) {
+      throw new AdminAiValidationError(
+        "width and height must be provided together.",
+        400,
+        "validation_error"
+      );
+    }
+    const width = optionalBoundedDimension(
+      input.width,
+      "width",
+      FLUX_2_MAX_MIN_DIMENSION,
+      FLUX_2_MAX_MAX_DIMENSION,
+      FLUX_2_MAX_DEFAULT_WIDTH
+    );
+    const height = optionalBoundedDimension(
+      input.height,
+      "height",
+      FLUX_2_MAX_MIN_DIMENSION,
+      FLUX_2_MAX_MAX_DIMENSION,
+      FLUX_2_MAX_DEFAULT_HEIGHT
+    );
+    if (width * height > FLUX_2_MAX_MAX_PIXELS) {
+      throw new AdminAiValidationError(
+        `Image dimensions exceed the ${FLUX_2_MAX_MAX_PIXELS} pixel safety cap.`,
+        400,
+        "validation_error"
+      );
+    }
+    const outputFormatValue =
+      input.outputFormat === undefined || input.outputFormat === null || input.outputFormat === ""
+        ? input.output_format
+        : input.outputFormat;
+    const safetyToleranceValue =
+      input.safetyTolerance === undefined || input.safetyTolerance === null || input.safetyTolerance === ""
+        ? input.safety_tolerance
+        : input.safetyTolerance;
+
+    return {
+      preset,
+      model,
+      prompt: requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.image.maxPromptLength),
+      width,
+      height,
+      seed: optionalInteger(input.seed, "seed", 0, ADMIN_AI_LIMITS.image.maxSeed, null),
+      outputFormat: optionalEnum(
+        outputFormatValue,
+        "outputFormat",
+        FLUX_2_MAX_OUTPUT_FORMAT_OPTIONS,
+        FLUX_2_MAX_DEFAULT_OUTPUT_FORMAT
+      ),
+      safetyTolerance: optionalInteger(
+        safetyToleranceValue,
+        "safetyTolerance",
+        FLUX_2_MAX_MIN_SAFETY_TOLERANCE,
+        FLUX_2_MAX_MAX_SAFETY_TOLERANCE,
+        FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE
+      ),
+      referenceImages: validateReferenceImages(input.referenceImages, {
+        maxItems: FLUX_2_MAX_MAX_REFERENCE_IMAGES,
         allowedMimeTypes: ["image/png", "image/jpeg", "image/webp"],
       }),
     };
@@ -1797,6 +1944,61 @@ export async function validateFlux2DevReferenceImageDimensions(env, input) {
   }
 }
 
+export async function inspectFlux2MaxReferenceImagePricingDimensions(env, input) {
+  if (input?.model !== FLUX_2_MAX_MODEL_ID) return null;
+  const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages : [];
+  if (referenceImages.length === 0) {
+    return {
+      inputImageMegapixels: 0,
+      inputImages: [],
+      referenceImageCount: 0,
+    };
+  }
+  if (!env?.IMAGES || typeof env.IMAGES.info !== "function") {
+    throw new AdminAiValidationError(
+      "Images binding is unavailable for FLUX.2 Max reference image pricing.",
+      503,
+      "images_binding_unavailable"
+    );
+  }
+
+  const inputImages = [];
+  let inputImageMegapixels = 0;
+  for (const [index, dataUri] of referenceImages.entries()) {
+    const field = `referenceImages[${index}]`;
+    const bytes = dataUriToBytes(dataUri, field);
+    let info;
+    try {
+      info = await env.IMAGES.info(bytes);
+    } catch {
+      throw new AdminAiValidationError(
+        `${field} could not be inspected for dimensions.`,
+        400,
+        "validation_error"
+      );
+    }
+    const width = Number(info?.width);
+    const height = Number(info?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+      throw new AdminAiValidationError(
+        `${field} could not be inspected for dimensions.`,
+        400,
+        "validation_error"
+      );
+    }
+    const roundedWidth = Math.round(width);
+    const roundedHeight = Math.round(height);
+    inputImages.push({ width: roundedWidth, height: roundedHeight });
+    inputImageMegapixels += (roundedWidth * roundedHeight) / 1_048_576;
+  }
+
+  return {
+    inputImageMegapixels,
+    inputImages,
+    referenceImageCount: inputImages.length,
+  };
+}
+
 function dataUriToBlob(dataUri) {
   const commaIndex = dataUri.indexOf(",");
   if (commaIndex === -1) return null;
@@ -1891,5 +2093,35 @@ export function buildAdminAiGptImage2Request(model, input) {
     appliedOutputFormat: payload.output_format,
     appliedBackground: payload.background,
     referenceImageCount: payload.images?.length || 0,
+  };
+}
+
+export function buildAdminAiFlux2MaxRequest(model, input) {
+  const width = input.width || model.defaultSize?.width || FLUX_2_MAX_DEFAULT_WIDTH;
+  const height = input.height || model.defaultSize?.height || FLUX_2_MAX_DEFAULT_HEIGHT;
+  const outputFormat = input.outputFormat || model.defaultOutputFormat || FLUX_2_MAX_DEFAULT_OUTPUT_FORMAT;
+  const safetyTolerance = input.safetyTolerance ?? model.defaultSafetyTolerance ?? FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE;
+  const payload = {
+    prompt: String(input.prompt || "").trim(),
+    width,
+    height,
+    output_format: outputFormat,
+    safety_tolerance: safetyTolerance,
+  };
+
+  if (input.seed !== null && input.seed !== undefined && input.seed !== "") {
+    payload.seed = input.seed;
+  }
+  if (Array.isArray(input.referenceImages) && input.referenceImages.length > 0) {
+    payload.input_images = input.referenceImages;
+  }
+
+  return {
+    payload,
+    appliedSize: { width, height },
+    appliedSeed: payload.seed ?? null,
+    appliedOutputFormat: outputFormat,
+    appliedSafetyTolerance: safetyTolerance,
+    referenceImageCount: payload.input_images?.length || 0,
   };
 }

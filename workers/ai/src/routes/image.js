@@ -45,6 +45,7 @@ export async function handleImage({ request, env, correlationId, pathname, metho
         quality: output.appliedQuality || null,
         size: input.size || null,
         outputFormat: output.appliedOutputFormat || null,
+        safetyTolerance: output.appliedSafetyTolerance ?? null,
         background: output.appliedBackground || null,
         imageUrl: output.imageUrl || null,
         gatewayMetadata: output.gatewayMetadata || null,

@@ -16,6 +16,7 @@ import {
   validateAdminAiTextBody as validateTextPayload,
   validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
+  inspectFlux2MaxReferenceImagePricingDimensions,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
@@ -1473,9 +1474,11 @@ async function adminImageRequestFingerprint({ organizationId, userId, payload, m
     seed: payload.seed || null,
     guidance: payload.guidance || null,
     referenceImageCount: Array.isArray(payload.referenceImages) ? payload.referenceImages.length : 0,
+    inputImageMegapixels: pricing.normalized?.inputImageMegapixels ?? null,
     quality: payload.quality || null,
     size: payload.size || null,
     outputFormat: payload.outputFormat || null,
+    safetyTolerance: payload.safetyTolerance ?? null,
     background: payload.background || null,
     credits: pricing.credits,
   }));
@@ -2604,14 +2607,23 @@ export async function handleAdminAI(ctx) {
     try {
       const payload = validateImagePayload(body);
       await validateFlux2DevReferenceImageDimensions(env, payload);
+      const flux2MaxReferencePricing = await inspectFlux2MaxReferenceImagePricingDimensions(env, payload);
       const selection = resolveAdminAiModelSelection("image", payload);
       const modelId = selection.model.id;
       const branch = getAdminImageTestBranchClassification(modelId);
       if (branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.BLOCKED_UNSUPPORTED) {
         return adminImageModelNotBudgetedResponse(branch, correlationId);
       }
+      const pricingPayload = flux2MaxReferencePricing
+        ? {
+            ...payload,
+            inputImageMegapixels: flux2MaxReferencePricing.inputImageMegapixels,
+            inputImages: flux2MaxReferencePricing.inputImages,
+            referenceImageCount: flux2MaxReferencePricing.referenceImageCount,
+          }
+        : payload;
       const pricing = isChargeableAdminImageTestModel(modelId)
-        ? calculateAdminImageTestCreditCost(modelId, payload)
+        ? calculateAdminImageTestCreditCost(modelId, pricingPayload)
         : null;
       if (!pricing) {
         if (branch.budgetClassification !== ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.EXPLICIT_UNMETERED_ADMIN) {
@@ -2798,9 +2810,11 @@ export async function handleAdminAI(ctx) {
             quality: pricing.normalized?.quality || payload.quality || null,
             size: pricing.normalized?.size || payload.size || null,
             output_format: pricing.normalized?.outputFormat || payload.outputFormat || null,
+            safety_tolerance: pricing.normalized?.safetyTolerance ?? payload.safetyTolerance ?? null,
             background: pricing.normalized?.background || payload.background || null,
             reference_image_count: pricing.normalized?.referenceImageCount
               ?? (Array.isArray(payload.referenceImages) ? payload.referenceImages.length : null),
+            input_image_megapixels: pricing.normalized?.inputImageMegapixels ?? null,
             pricing_version: pricing.formula?.pricingVersion || null,
             budget_policy: budgetPolicy.summary,
           },
@@ -2857,6 +2871,11 @@ export async function handleAdminAI(ctx) {
         usage_event_id: debit.usageEvent?.id || null,
         usage_attempt_id: attemptState.attempt.id,
         idempotent_replay: false,
+        pricing: {
+          provider_cost_usd: pricing.providerCostUsd,
+          normalized: pricing.normalized,
+          formula: pricing.formula,
+        },
         budget_policy: budgetPolicy.summary,
       }, correlationId);
       return attachAdminImageSaveReference(billedResponse, env, result.user, correlationId, requestInfo);

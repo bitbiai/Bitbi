@@ -49,6 +49,7 @@ export const FLUX_2_KLEIN_IMAGE_MODEL_IDS = Object.freeze([
   "@cf/black-forest-labs/flux-2-klein-9b",
   "black-forest-labs/flux-2-klein-9b",
 ]);
+export const FLUX_2_MAX_IMAGE_MODEL_ID = "black-forest-labs/flux-2-max";
 
 const DEFAULT_WIDTH = 1024;
 const DEFAULT_HEIGHT = 1024;
@@ -67,6 +68,12 @@ const FLUX_2_KLEIN = Object.freeze({
   firstOutputMpCostUsd: 0.015,
   subsequentOutputMpCostUsd: 0.002,
   inputImageMpCostUsd: 0.002,
+});
+
+const FLUX_2_MAX = Object.freeze({
+  firstOutputMpCostUsd: 0.07,
+  subsequentOutputMpCostUsd: 0.03,
+  inputImageMpCostUsd: 0.03,
 });
 
 function positiveFiniteNumber(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -88,6 +95,13 @@ function normalizedDimensions(params = {}) {
 }
 
 function normalizeInputImageMegapixels(params = {}) {
+  if (params.inputImageMegapixels !== undefined && params.inputImageMegapixels !== null && !Array.isArray(params.inputImageMegapixels)) {
+    return positiveFiniteNumber(params.inputImageMegapixels, 0, { min: 0, max: MAX_INPUT_IMAGE_MP });
+  }
+  if (params.inputImageMp !== undefined && params.inputImageMp !== null && !Array.isArray(params.inputImageMp)) {
+    return positiveFiniteNumber(params.inputImageMp, 0, { min: 0, max: MAX_INPUT_IMAGE_MP });
+  }
+
   const direct = Array.isArray(params.inputImageMegapixels)
     ? params.inputImageMegapixels
     : Array.isArray(params.inputImageMp)
@@ -150,6 +164,40 @@ function flux2KleinCost(params = {}) {
   };
 }
 
+function flux2MaxCost(params = {}) {
+  const { width, height } = normalizedDimensions(params);
+  const outputMp = (width * height) / 1_048_576;
+  const outputCostUsd = FLUX_2_MAX.firstOutputMpCostUsd
+    + Math.max(outputMp - 1, 0) * FLUX_2_MAX.subsequentOutputMpCostUsd;
+  const inputImageMegapixels = normalizeInputImageMegapixels(params);
+  const inputImageCostUsd = inputImageMegapixels * FLUX_2_MAX.inputImageMpCostUsd;
+  return {
+    providerCostUsd: outputCostUsd + inputImageCostUsd,
+    normalized: {
+      width,
+      height,
+      outputMp,
+      inputImageMegapixels,
+      outputFormat: typeof params.outputFormat === "string" ? params.outputFormat : null,
+      safetyTolerance: Number.isInteger(Number(params.safetyTolerance))
+        ? Number(params.safetyTolerance)
+        : null,
+      referenceImageCount: Number.isInteger(Number(params.referenceImageCount))
+        ? Number(params.referenceImageCount)
+        : Array.isArray(params.inputImages)
+          ? params.inputImages.length
+          : null,
+    },
+    formula: {
+      pricingVersion: "flux-2-max-v1",
+      billingMode: "cloudflare_ai_gateway_output_mp_input_mp",
+      firstOutputMpCostUsd: FLUX_2_MAX.firstOutputMpCostUsd,
+      additionalOutputMpCostUsd: FLUX_2_MAX.subsequentOutputMpCostUsd,
+      inputImageMpCostUsd: FLUX_2_MAX.inputImageMpCostUsd,
+    },
+  };
+}
+
 function priceProviderCostModel(modelId, pricing) {
   return {
     modelId,
@@ -171,6 +219,7 @@ export function isPricedAiImageModel(modelId) {
   const id = String(modelId || "").trim();
   return id === FLUX_1_SCHNELL_IMAGE_MODEL_ID
     || FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id)
+    || id === FLUX_2_MAX_IMAGE_MODEL_ID
     || id === GPT_IMAGE_2_MODEL_ID;
 }
 
@@ -184,6 +233,9 @@ export function calculateAiImageCreditCost(modelId, params = {}) {
   }
   if (FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id)) {
     return priceProviderCostModel(id, flux2KleinCost(params));
+  }
+  if (id === FLUX_2_MAX_IMAGE_MODEL_ID) {
+    return priceProviderCostModel(id, flux2MaxCost(params));
   }
   return null;
 }

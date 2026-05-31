@@ -13,6 +13,7 @@ import { normalizeAiCostOperationConfig } from "../workers/auth/src/lib/ai-cost-
 import {
   ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
   ADMIN_IMAGE_TEST_FLUX_2_DEV_MODEL_ID,
+  ADMIN_IMAGE_TEST_FLUX_2_MAX_MODEL_ID,
   getAdminImageTestBranchClassification,
   listAdminImageTestBranchClassifications,
 } from "../workers/auth/src/lib/admin-ai-image-credit-pricing.js";
@@ -245,6 +246,13 @@ assert(!policyBaseline.knownGaps.some((gap) => gap.id === "admin-ai-image-unmete
     branch.modelId === ADMIN_IMAGE_TEST_FLUX_2_DEV_MODEL_ID
     && branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.EXPLICIT_UNMETERED_ADMIN
     && branch.killSwitchTarget === "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS"
+  ));
+  assert(classifications.some((branch) =>
+    branch.modelId === ADMIN_IMAGE_TEST_FLUX_2_MAX_MODEL_ID
+    && branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.CHARGED_ADMIN_ORG_CREDIT
+    && branch.providerFamily === "bfl"
+    && branch.killSwitchTarget === "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET"
+    && branch.idempotencyPolicy === "required"
   ));
   assert.equal(
     getAdminImageTestBranchClassification("not-a-real-model").budgetClassification,

@@ -504,7 +504,8 @@ function createAiLabRunStub() {
     if (
       modelId === '@cf/black-forest-labs/flux-1-schnell' ||
       modelId === '@cf/black-forest-labs/flux-2-klein-9b' ||
-      modelId === '@cf/black-forest-labs/flux-2-dev'
+      modelId === '@cf/black-forest-labs/flux-2-dev' ||
+      modelId === 'black-forest-labs/flux-2-max'
     ) {
       return `data:image/png;base64,${ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', '')}`;
     }
@@ -11841,6 +11842,31 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
       width: 2048,
       height: 2048,
     }).credits).toBe(14);
+    const flux2MaxBase = calculateAdminImageTestCreditCost('black-forest-labs/flux-2-max', {
+      width: 1024,
+      height: 1024,
+      outputFormat: 'jpeg',
+      safetyTolerance: 2,
+    });
+    expect(flux2MaxBase.providerCostUsd).toBeCloseTo(0.07, 6);
+    expect(flux2MaxBase.formula).toEqual(expect.objectContaining({
+      pricingVersion: 'flux-2-max-v1',
+      billingMode: 'cloudflare_ai_gateway_output_mp_input_mp',
+      firstOutputMpCostUsd: 0.07,
+      additionalOutputMpCostUsd: 0.03,
+      inputImageMpCostUsd: 0.03,
+    }));
+    expect(calculateAdminImageTestCreditCost('black-forest-labs/flux-2-max', {
+      width: 2048,
+      height: 1024,
+      outputFormat: 'png',
+      safetyTolerance: 5,
+    }).providerCostUsd).toBeCloseTo(0.10, 6);
+    expect(calculateAdminImageTestCreditCost('black-forest-labs/flux-2-max', {
+      width: 1024,
+      height: 1024,
+      inputImageMegapixels: 1,
+    }).providerCostUsd).toBeCloseTo(0.10, 6);
     expect(calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-dev', {
       width: 1024,
       height: 1024,
@@ -11907,8 +11933,20 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
   });
 
   test('marks GPT Image 2 as a chargeable admin image-test model', async () => {
-    const { isChargeableAdminImageTestModel } = await loadAdminImageCreditPricingModule();
+    const {
+      ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
+      getAdminImageTestBranchClassification,
+      isChargeableAdminImageTestModel,
+    } = await loadAdminImageCreditPricingModule();
     expect(isChargeableAdminImageTestModel('openai/gpt-image-2')).toBe(true);
+    expect(isChargeableAdminImageTestModel('black-forest-labs/flux-2-max')).toBe(true);
+    expect(getAdminImageTestBranchClassification('black-forest-labs/flux-2-max')).toEqual(expect.objectContaining({
+      budgetClassification: ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.CHARGED_ADMIN_ORG_CREDIT,
+      providerFamily: 'bfl',
+      budgetScope: 'admin_org_credit_account',
+      idempotencyPolicy: 'required',
+      killSwitchTarget: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+    }));
   });
 });
 
@@ -20582,7 +20620,35 @@ test.describe('Worker routes', () => {
         '@cf/black-forest-labs/flux-1-schnell',
         '@cf/black-forest-labs/flux-2-klein-9b',
         '@cf/black-forest-labs/flux-2-dev',
+        'black-forest-labs/flux-2-max',
       ]));
+      expect(body.presets.find((preset) => preset.task === 'image' && preset.name === 'image_fast')).toEqual(expect.objectContaining({
+        model: '@cf/black-forest-labs/flux-1-schnell',
+      }));
+      const flux2Max = body.models.image.find((model) => model.id === 'black-forest-labs/flux-2-max');
+      expect(flux2Max).toMatchObject({
+        label: 'FLUX.2 Max',
+        vendor: 'Black Forest Labs',
+        providerLabel: 'Cloudflare AI Gateway',
+        capabilities: expect.objectContaining({
+          supportsDimensions: true,
+          supportsSeed: true,
+          supportsReferenceImages: true,
+          maxReferenceImages: 8,
+          supportsOutputFormat: true,
+          outputFormatOptions: ['jpeg', 'png', 'webp'],
+          defaultOutputFormat: 'jpeg',
+          supportsSafetyTolerance: true,
+          minSafetyTolerance: 0,
+          maxSafetyTolerance: 5,
+          defaultSafetyTolerance: 2,
+          minDimension: 64,
+          maxDimension: 2048,
+          supportsSteps: false,
+          supportsGuidance: false,
+          supportsStructuredPrompt: false,
+        }),
+      });
       expect(body.models.music.map((model) => model.id)).toEqual(expect.arrayContaining([
         'minimax/music-2.6',
       ]));
@@ -25580,6 +25646,113 @@ test.describe('Worker routes', () => {
       expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
     });
 
+    test('POST /api/admin/ai/test-image routes FLUX.2 Max through AI Gateway with charged org credits', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      let capturedOptions = null;
+      const validRef = 'data:image/png;base64,AAAA';
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        imagesBinding: { originalInfo: { width: 1024, height: 1024, format: 'image/png' } },
+        aiEnv: {
+          AI_GATEWAY_ID: 'custom-admin-gateway',
+        },
+        aiRun: async (modelId, payload, options) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          capturedOptions = options;
+          return {
+            image: ONE_PIXEL_PNG_DATA_URI,
+            gatewayMetadata: {
+              keySource: 'Unified',
+            },
+          };
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 500 });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'black-forest-labs/flux-2-max',
+          prompt: 'Admin FLUX.2 Max experiment.',
+          width: 1024,
+          height: 1024,
+          seed: 42,
+          outputFormat: 'png',
+          safetyTolerance: 5,
+          referenceImages: [validRef],
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-flux-2-max-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'image',
+        model: expect.objectContaining({
+          id: 'black-forest-labs/flux-2-max',
+          label: 'FLUX.2 Max',
+          vendor: 'Black Forest Labs',
+        }),
+        result: expect.objectContaining({
+          imageBase64: expect.any(String),
+          steps: null,
+          seed: 42,
+          guidance: null,
+          appliedSize: { width: 1024, height: 1024 },
+          outputFormat: 'png',
+          safetyTolerance: 5,
+          referenceImageCount: 1,
+          gatewayMetadata: { keySource: 'Unified' },
+        }),
+        billing: expect.objectContaining({
+          organization_id: ADMIN_AI_CHARGE_ORG_ID,
+          model_id: 'black-forest-labs/flux-2-max',
+          pricing: expect.objectContaining({
+            normalized: expect.objectContaining({
+              width: 1024,
+              height: 1024,
+              outputFormat: 'png',
+              safetyTolerance: 5,
+              referenceImageCount: 1,
+            }),
+            formula: expect.objectContaining({
+              pricingVersion: 'flux-2-max-v1',
+            }),
+          }),
+        }),
+      }));
+      expect(body.billing.pricing.provider_cost_usd).toBeCloseTo(0.10, 6);
+      expect(body.billing.pricing.normalized.inputImageMegapixels).toBeCloseTo(1, 6);
+      expect(capturedModelId).toBe('black-forest-labs/flux-2-max');
+      expect(capturedOptions).toEqual({ gateway: { id: 'custom-admin-gateway' } });
+      expect(capturedPayload).toEqual({
+        prompt: 'Admin FLUX.2 Max experiment.',
+        width: 1024,
+        height: 1024,
+        input_images: [validRef],
+        output_format: 'png',
+        safety_tolerance: 5,
+        seed: 42,
+      });
+      expect(capturedPayload).not.toHaveProperty('steps');
+      expect(capturedPayload).not.toHaveProperty('guidance');
+      expect(capturedPayload).not.toHaveProperty('structuredPrompt');
+      expect(env.IMAGES.infoCalls).toHaveLength(1);
+      const usageEventMetadata = JSON.parse(env.DB.state.usageEvents.at(-1).metadata_json);
+      expect(usageEventMetadata).toEqual(expect.objectContaining({
+        model: 'black-forest-labs/flux-2-max',
+        width: 1024,
+        height: 1024,
+        output_format: 'png',
+        safety_tolerance: 5,
+        reference_image_count: 1,
+        pricing_version: 'flux-2-max-v1',
+      }));
+      expect(usageEventMetadata.input_image_megapixels).toBeCloseTo(1, 6);
+    });
+
     test('POST /api/admin/ai/test-image fetches GPT Image 2 provider URL outputs as base64', async () => {
       const originalFetch = globalThis.fetch;
       const fetchCalls = [];
@@ -26404,6 +26577,91 @@ test.describe('Worker routes', () => {
         [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: Array.from({ length: 17 }, () => validPng) }, 'at most 16'],
         [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: ['not-a-data-uri'] }, 'data URI'],
         [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: ['data:image/gif;base64,AAAA'] }, 'PNG, JPEG, or WebP'],
+      ];
+      for (const [payload, message] of invalidCases) {
+        expect(() => validateAdminAiImageBody(payload)).toThrow(AdminAiValidationError);
+        expect(() => validateAdminAiImageBody(payload)).toThrow(message);
+      }
+    });
+
+    test('shared contract validates and builds FLUX.2 Max JSON payloads without unsupported fields', async () => {
+      const {
+        AdminAiValidationError,
+        buildAdminAiFlux2MaxRequest,
+        resolveAdminAiModelSelection,
+        validateAdminAiImageBody,
+      } = await loadAdminAiContractModule();
+      const validPng = 'data:image/png;base64,AAAA';
+      const input = validateAdminAiImageBody({
+        model: 'black-forest-labs/flux-2-max',
+        prompt: 'A premium editorial image.',
+        width: 1536,
+        height: 1024,
+        seed: 123,
+        outputFormat: 'webp',
+        safetyTolerance: 4,
+        referenceImages: [validPng],
+      });
+      expect(input).toEqual(expect.objectContaining({
+        model: 'black-forest-labs/flux-2-max',
+        prompt: 'A premium editorial image.',
+        width: 1536,
+        height: 1024,
+        seed: 123,
+        outputFormat: 'webp',
+        safetyTolerance: 4,
+        referenceImages: [validPng],
+      }));
+      expect(input).not.toHaveProperty('steps');
+      expect(input).not.toHaveProperty('guidance');
+      expect(input).not.toHaveProperty('structuredPrompt');
+
+      const selection = resolveAdminAiModelSelection('image', { model: 'black-forest-labs/flux-2-max' });
+      expect(selection.model.label).toBe('FLUX.2 Max');
+      const request = buildAdminAiFlux2MaxRequest(selection.model, input);
+      expect(request).toEqual(expect.objectContaining({
+        appliedSize: { width: 1536, height: 1024 },
+        appliedSeed: 123,
+        appliedOutputFormat: 'webp',
+        appliedSafetyTolerance: 4,
+        referenceImageCount: 1,
+      }));
+      expect(request.payload).toEqual({
+        prompt: 'A premium editorial image.',
+        width: 1536,
+        height: 1024,
+        input_images: [validPng],
+        output_format: 'webp',
+        safety_tolerance: 4,
+        seed: 123,
+      });
+      expect(request.payload).not.toHaveProperty('steps');
+      expect(request.payload).not.toHaveProperty('guidance');
+      expect(request.payload).not.toHaveProperty('background');
+      expect(request.payload).not.toHaveProperty('quality');
+      expect(request.payload).not.toHaveProperty('size');
+
+      const defaulted = validateAdminAiImageBody({
+        model: 'black-forest-labs/flux-2-max',
+        prompt: 'Defaults please.',
+      });
+      expect(defaulted).toEqual(expect.objectContaining({
+        width: 1024,
+        height: 1024,
+        outputFormat: 'jpeg',
+        safetyTolerance: 2,
+      }));
+
+      const invalidCases = [
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', width: 32, height: 1024 }, 'width must be between 64 and 2048'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', width: 1024 }, 'width and height must be provided together'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', width: 4096, height: 1024 }, 'width must be between 64 and 2048'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', width: 2048, height: 2049 }, 'height must be between 64 and 2048'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', outputFormat: 'gif' }, 'outputFormat'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', safetyTolerance: 6 }, 'safetyTolerance'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', referenceImages: Array.from({ length: 9 }, () => validPng) }, 'at most 8'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', referenceImages: ['https://example.com/ref.png'] }, 'data URI'],
+        [{ model: 'black-forest-labs/flux-2-max', prompt: 'x', steps: 20 }, 'steps is not supported'],
       ];
       for (const [payload, message] of invalidCases) {
         expect(() => validateAdminAiImageBody(payload)).toThrow(AdminAiValidationError);
