@@ -648,8 +648,8 @@
     to { opacity: 0; }
   }
 
-  .news-pulse__meta {
-    display: none;
+  .news-pulse .news-pulse__meta {
+    display: none !important;
   }
 
   @media (prefers-reduced-motion: reduce) {

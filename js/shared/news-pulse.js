@@ -136,12 +136,11 @@ function createPulseLink(item, locale, { isDuplicate = false, allowThumbnail = f
         visual.setAttribute('aria-hidden', 'true');
     }
     const body = createElement('span', 'news-pulse__body');
-    const meta = createElement('span', 'news-pulse__meta', item.category || 'AI');
     const title = createElement('span', 'news-pulse__title', item.title);
     const summary = createElement('span', 'news-pulse__summary', item.summary);
     const source = createElement('span', 'news-pulse__source', `${localeText('newsPulse.source', {}, locale)}: ${item.source}`);
 
-    body.append(meta, title, summary, source);
+    body.append(title, summary, source);
     link.append(visual, body);
     return link;
 }
