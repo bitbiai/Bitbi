@@ -14,6 +14,17 @@ import {
     GPT_IMAGE_2_MODEL_ID,
 } from '../../shared/gpt-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import {
+    GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
+    GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+    GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+    GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+    GROK_IMAGINE_VIDEO_MAX_DURATION,
+    GROK_IMAGINE_VIDEO_MIN_DURATION,
+    GROK_IMAGINE_VIDEO_MODEL_ID,
+    GROK_IMAGINE_VIDEO_PROVIDER_RATE_USD_PER_SECOND,
+    GROK_IMAGINE_VIDEO_RESOLUTIONS,
+} from '../../shared/grok-imagine-video-pricing.mjs?v=__ASSET_VERSION__';
+import {
     HAPPYHORSE_T2V_DEFAULT_DURATION,
     HAPPYHORSE_T2V_DEFAULT_RATIO,
     HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
@@ -46,7 +57,10 @@ import {
     SEEDANCE_2_MAX_DURATION,
     SEEDANCE_2_MIN_DURATION,
 } from '../../shared/seedance-2-pricing.mjs?v=__ASSET_VERSION__';
-import { calculateAiModelCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import {
+    FLUX_2_MAX_IMAGE_MODEL_ID,
+    calculateAiModelCreditCost,
+} from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { MINIMAX_MUSIC_2_6_MODEL_ID } from '../../shared/music-2-6-pricing.mjs?v=__ASSET_VERSION__';
 import { getCurrentLocale } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
@@ -137,6 +151,66 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
                 background: Object.freeze([...(config?.backgroundOptions || ['auto', 'opaque'])]),
             }),
             estimateCredits: (values = {}) => estimateModelCredits('image', model.id, values),
+        });
+    }
+    if (config?.requestMode === 'flux-2-max' || model.id === FLUX_2_MAX_IMAGE_MODEL_ID) {
+        return Object.freeze({
+            id: model.id,
+            displayName: model.label,
+            mediaType: 'image',
+            provider: 'Black Forest Labs / Cloudflare AI Gateway',
+            route: '/api/ai/generate-image',
+            outputType: 'image',
+            status: DE ? 'NEU' : 'NEW',
+            summary: DE ? 'Premium-Bildgenerierung mit variabler Größe, Referenzen und Sicherheitssteuerung über Cloudflare AI Gateway.' : 'Premium image generation with dimensions, references, and safety control through Cloudflare AI Gateway.',
+            capabilities: Object.freeze([
+                DE ? 'Text zu Bild' : 'Text to image',
+                DE ? 'Variable Größe bis 2048 px' : 'Variable size up to 2048 px',
+                DE ? 'Bis zu 8 Referenzbilder' : 'Up to 8 reference images',
+                'JPEG / PNG / WebP',
+                DE ? 'Speicherbar im Assets Manager' : 'Savable to Assets Manager',
+            ]),
+            controls: Object.freeze({
+                supportsSteps: false,
+                supportsSeed: true,
+                supportsDimensions: true,
+                supportsQuality: false,
+                supportsSize: false,
+                supportsOutputFormat: true,
+                supportsSafetyTolerance: true,
+                supportsBackground: false,
+                supportsReferenceImages: true,
+                maxReferenceImages: config?.maxReferenceImages || 8,
+            }),
+            defaults: Object.freeze({
+                model: model.id,
+                width: config?.defaultSize?.width || 1024,
+                height: config?.defaultSize?.height || 1024,
+                outputFormat: config?.defaultOutputFormat || 'jpeg',
+                safetyTolerance: config?.defaultSafetyTolerance ?? 2,
+                seed: '',
+                referenceImages: Object.freeze([]),
+            }),
+            options: Object.freeze({
+                outputFormat: Object.freeze([...(config?.outputFormatOptions || ['jpeg', 'png', 'webp'])]),
+                safetyTolerance: Object.freeze({
+                    min: config?.minSafetyTolerance ?? 0,
+                    max: config?.maxSafetyTolerance ?? 5,
+                }),
+                dimensions: Object.freeze({
+                    min: config?.minDimension || 64,
+                    max: config?.maxDimension || 2048,
+                    maxPixels: config?.maxPixels || 4_194_304,
+                }),
+            }),
+            estimateCredits: (values = {}) => estimateModelCredits('image', model.id, {
+                width: values.width || config?.defaultSize?.width || 1024,
+                height: values.height || config?.defaultSize?.height || 1024,
+                outputFormat: values.outputFormat || config?.defaultOutputFormat || 'jpeg',
+                safetyTolerance: values.safetyTolerance ?? config?.defaultSafetyTolerance ?? 2,
+                referenceImageCount: values.referenceImageCount || 0,
+                inputImages: values.inputImages || [],
+            }),
         });
     }
     return Object.freeze({
@@ -306,6 +380,49 @@ const seedance2FastModel = Object.freeze({
     }),
 });
 
+const grokImagineVideoModel = Object.freeze({
+    id: GROK_IMAGINE_VIDEO_MODEL_ID,
+    displayName: 'Grok Imagine Video',
+    mediaType: 'video',
+    provider: 'xAI / Cloudflare AI Gateway',
+    route: '/api/ai/generate-video',
+    outputType: 'video',
+    status: DE ? 'NEU' : 'NEW',
+    summary: DE ? 'xAI Text-zu-Video über Cloudflare AI Gateway mit Dauer, Auflösung und Formatsteuerung.' : 'xAI text-to-video through Cloudflare AI Gateway with duration, resolution, and aspect controls.',
+    capabilities: Object.freeze([
+        DE ? 'Text zu Video' : 'Text-to-video',
+        DE ? `${GROK_IMAGINE_VIDEO_MIN_DURATION}-${GROK_IMAGINE_VIDEO_MAX_DURATION} Sekunden Dauer` : `${GROK_IMAGINE_VIDEO_MIN_DURATION}-${GROK_IMAGINE_VIDEO_MAX_DURATION} second duration`,
+        DE ? `${GROK_IMAGINE_VIDEO_RESOLUTIONS.join(', ')} Auflösung` : `${GROK_IMAGINE_VIDEO_RESOLUTIONS.join(', ')} resolution`,
+        DE ? `${GROK_IMAGINE_VIDEO_ASPECT_RATIOS.join(', ')} Formate` : `${GROK_IMAGINE_VIDEO_ASPECT_RATIOS.join(', ')} aspect ratios`,
+        DE ? 'Automatisch gespeichertes Video-Asset' : 'Auto-saved video asset',
+    ]),
+    defaults: Object.freeze({
+        duration: GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+        resolution: GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+        aspectRatio: GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+    }),
+    options: Object.freeze({
+        duration: Object.freeze({ min: GROK_IMAGINE_VIDEO_MIN_DURATION, max: GROK_IMAGINE_VIDEO_MAX_DURATION }),
+        resolution: Object.freeze([...GROK_IMAGINE_VIDEO_RESOLUTIONS]),
+        aspectRatio: Object.freeze([...GROK_IMAGINE_VIDEO_ASPECT_RATIOS]),
+    }),
+    controls: Object.freeze({
+        supportsImageInput: false,
+        supportsNegativePrompt: false,
+        supportsAudioToggle: false,
+        supportsSeed: false,
+        supportsWatermark: false,
+        resolutionField: 'resolution',
+        aspectField: 'aspectRatio',
+    }),
+    estimateCredits: ({ duration, resolution, aspectRatio }) => estimateModelCredits('video', GROK_IMAGINE_VIDEO_MODEL_ID, {
+        duration,
+        resolution,
+        aspect_ratio: aspectRatio,
+        rateUsdPerSecond: GROK_IMAGINE_VIDEO_PROVIDER_RATE_USD_PER_SECOND,
+    }),
+});
+
 const music26Model = Object.freeze({
     id: MUSIC_26_MODEL_ID,
     displayName: 'MiniMax Music 2.6',
@@ -335,6 +452,7 @@ const models = Object.freeze([
     pixverseV6Model,
     happyHorseT2vModel,
     seedance2FastModel,
+    grokImagineVideoModel,
     music26Model,
 ]);
 

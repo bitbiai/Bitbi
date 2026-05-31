@@ -41,10 +41,10 @@ import {
 } from './model-registry.js?v=__ASSET_VERSION__';
 
 const MAX_VIDEO_REFERENCE_BYTES = 10 * 1024 * 1024;
-const MAX_GPT_IMAGE_REFERENCE_BYTES = 10 * 1024 * 1024;
-const GPT_IMAGE_REFERENCE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
-const GPT_IMAGE_REFERENCE_VISIBLE_SLOTS = 3;
-const GPT_IMAGE_REFERENCE_MAX_SLOTS = 16;
+const MAX_IMAGE_REFERENCE_BYTES = 10 * 1024 * 1024;
+const IMAGE_REFERENCE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const IMAGE_REFERENCE_VISIBLE_SLOTS = 3;
+const IMAGE_REFERENCE_MAX_SLOTS = 16;
 const SAVE_REFERENCE_FALLBACK_CODES = new Set([
     'INVALID_SAVE_REFERENCE',
     'SAVE_REFERENCE_EXPIRED',
@@ -66,7 +66,7 @@ const state = {
     modelId: getDefaultGenerateLabModel('image').id,
     busy: false,
     videoReferenceDataUri: '',
-    imageReferenceImages: Array.from({ length: GPT_IMAGE_REFERENCE_MAX_SLOTS }, () => null),
+    imageReferenceImages: Array.from({ length: IMAGE_REFERENCE_MAX_SLOTS }, () => null),
     imageRefsExpanded: false,
     currentImageData: null,
     currentImageMeta: null,
@@ -220,11 +220,39 @@ function isSelectedGptImage2() {
     return model.mediaType === 'image' && model.controls?.supportsQuality === true && model.controls?.supportsReferenceImages === true;
 }
 
+function selectedImageReferenceLimit(model = selectedModel()) {
+    if (model.mediaType !== 'image' || model.controls?.supportsReferenceImages !== true) return 0;
+    const max = Number(model.controls?.maxReferenceImages || IMAGE_REFERENCE_MAX_SLOTS);
+    return Math.max(0, Math.min(IMAGE_REFERENCE_MAX_SLOTS, Number.isFinite(max) ? Math.floor(max) : IMAGE_REFERENCE_MAX_SLOTS));
+}
+
 function selectedImageReferences() {
+    const limit = selectedImageReferenceLimit();
+    if (limit <= 0) return [];
     return state.imageReferenceImages
+        .slice(0, limit)
         .filter(Boolean)
         .map((entry) => entry.dataUrl)
         .filter(Boolean);
+}
+
+function selectedImageReferenceInputs() {
+    const limit = selectedImageReferenceLimit();
+    if (limit <= 0) return [];
+    return state.imageReferenceImages
+        .slice(0, limit)
+        .filter(Boolean)
+        .map((entry) => ({
+            width: entry.width,
+            height: entry.height,
+            megapixels: entry.width && entry.height ? (entry.width * entry.height) / 1_048_576 : undefined,
+        }))
+        .filter((entry) => Number.isFinite(entry.megapixels) && entry.megapixels > 0);
+}
+
+function currentImageDimensionValue(ref, fallback, { min = 64, max = 2048 } = {}) {
+    const parsed = parseOptionalInteger(ref?.value, { min, max });
+    return parsed ?? fallback;
 }
 
 function currentVideoEstimateValues(model = selectedModel()) {
@@ -268,6 +296,23 @@ function currentCreditEstimate() {
             outputFormat: refs.imageOutputFormat?.value || model.defaults?.outputFormat,
             background: refs.imageBackground?.value || model.defaults?.background,
             referenceImageCount: selectedImageReferences().length,
+        });
+    }
+    if (model.mediaType === 'image' && model.controls?.supportsDimensions) {
+        const dimensions = model.options?.dimensions || {};
+        const width = currentImageDimensionValue(refs.imageWidth, model.defaults?.width || 1024, dimensions);
+        const height = currentImageDimensionValue(refs.imageHeight, model.defaults?.height || 1024, dimensions);
+        return calculateGenerateLabCredits(model.id, {
+            width,
+            height,
+            outputFormat: model.controls?.supportsOutputFormat
+                ? (refs.imageOutputFormat?.value || model.defaults?.outputFormat)
+                : undefined,
+            safetyTolerance: model.controls?.supportsSafetyTolerance
+                ? (parseOptionalInteger(refs.imageSafetyTolerance?.value, model.options?.safetyTolerance || {}) ?? model.defaults?.safetyTolerance)
+                : undefined,
+            referenceImageCount: selectedImageReferences().length,
+            inputImages: selectedImageReferenceInputs(),
         });
     }
     return calculateGenerateLabCredits(model.id, {});
@@ -446,13 +491,14 @@ function updateActionState() {
     const price = currentCreditEstimate();
     const insufficient = state.creditBalance !== null && state.creditBalance < price;
     const gptSelected = isSelectedGptImage2();
+    const supportsImageReferences = selectedModel().mediaType === 'image' && selectedModel().controls?.supportsReferenceImages === true;
     const referenceCount = selectedImageReferences().length;
     const usesAutoImageSetting = gptSelected
         && (refs.imageQuality?.value === 'auto' || refs.imageSize?.value === 'auto');
 
     if (refs.cost) refs.cost.textContent = formatCredits(price);
     updateCostInsight(price, insufficient);
-    if (refs.imageReferenceCostHint) refs.imageReferenceCostHint.hidden = !(gptSelected && referenceCount > 0);
+    if (refs.imageReferenceCostHint) refs.imageReferenceCostHint.hidden = !(supportsImageReferences && referenceCount > 0);
     if (refs.imageAutoCostHint) refs.imageAutoCostHint.hidden = !usesAutoImageSetting;
     if (refs.balance) {
         if (!state.loggedIn) {
@@ -576,14 +622,50 @@ function durationOptions(duration = {}) {
 function syncImageOptionState() {
     const model = selectedModel();
     const isImage = model.mediaType === 'image';
-    const supportsSteps = !isImage || model.controls?.supportsSteps === true;
-    const supportsSeed = !isImage || model.controls?.supportsSeed === true;
-    const supportsGptControls = isImage && model.controls?.supportsQuality === true;
+    const controls = model.controls || {};
+    const supportsSteps = isImage && controls.supportsSteps === true;
+    const supportsSeed = isImage && controls.supportsSeed === true;
+    const supportsDimensions = isImage && controls.supportsDimensions === true;
+    const supportsQuality = isImage && controls.supportsQuality === true;
+    const supportsSize = isImage && controls.supportsSize === true;
+    const supportsOutputFormat = isImage && controls.supportsOutputFormat === true;
+    const supportsSafetyTolerance = isImage && controls.supportsSafetyTolerance === true;
+    const supportsBackground = isImage && controls.supportsBackground === true;
+    const supportsReferences = isImage && controls.supportsReferenceImages === true;
+    const supportsAdvancedControls = supportsQuality || supportsSize || supportsOutputFormat || supportsBackground || supportsReferences;
+    const showLegacyDisabledFields = isImage
+        && !supportsSteps
+        && !supportsSeed
+        && !supportsDimensions
+        && !supportsSafetyTolerance
+        && !supportsAdvancedControls;
+    const supportsFluxControls = supportsSteps || supportsSeed || supportsDimensions || supportsSafetyTolerance || showLegacyDisabledFields;
     const stepsField = refs.imageSteps?.closest('.generate-lab__field');
     const seedField = refs.imageSeed?.closest('.generate-lab__field');
+    const widthField = refs.imageWidth?.closest('.generate-lab__field');
+    const heightField = refs.imageHeight?.closest('.generate-lab__field');
+    const safetyField = refs.imageSafetyTolerance?.closest('.generate-lab__field');
+    const qualityField = refs.imageQuality?.closest('.generate-lab__field');
+    const sizeField = refs.imageSize?.closest('.generate-lab__field');
+    const outputFormatField = refs.imageOutputFormat?.closest('.generate-lab__field');
+    const backgroundField = refs.imageBackground?.closest('.generate-lab__field');
+    const referenceSection = refs.imageReferenceCount?.closest('.generate-lab-ref-images');
+    const modelChanged = refs.imageModel?.dataset.imageOptionsModelId !== model.id;
 
-    if (refs.imageFluxControls) refs.imageFluxControls.hidden = supportsGptControls;
-    if (refs.imageGptControls) refs.imageGptControls.hidden = !supportsGptControls;
+    if (refs.imageFluxControls) refs.imageFluxControls.hidden = !supportsFluxControls;
+    if (refs.imageGptControls) refs.imageGptControls.hidden = !supportsAdvancedControls;
+    if (modelChanged) {
+        if (refs.imageSteps) refs.imageSteps.value = String(model.defaults?.steps || 4);
+        if (refs.imageSeed) refs.imageSeed.value = model.defaults?.seed || '';
+        if (refs.imageWidth) refs.imageWidth.value = String(model.defaults?.width || 1024);
+        if (refs.imageHeight) refs.imageHeight.value = String(model.defaults?.height || 1024);
+        if (refs.imageSafetyTolerance) refs.imageSafetyTolerance.value = String(model.defaults?.safetyTolerance ?? 2);
+        if (refs.imageOutputFormat) refs.imageOutputFormat.value = model.defaults?.outputFormat || refs.imageOutputFormat.value;
+        if (refs.imageQuality) refs.imageQuality.value = model.defaults?.quality || refs.imageQuality.value;
+        if (refs.imageSize) refs.imageSize.value = model.defaults?.size || refs.imageSize.value;
+        if (refs.imageBackground) refs.imageBackground.value = model.defaults?.background || refs.imageBackground.value;
+        if (refs.imageModel) refs.imageModel.dataset.imageOptionsModelId = model.id;
+    }
     if (refs.imageSteps) {
         refs.imageSteps.disabled = state.busy || !supportsSteps;
         refs.imageSteps.setAttribute('aria-disabled', refs.imageSteps.disabled ? 'true' : 'false');
@@ -592,13 +674,68 @@ function syncImageOptionState() {
         refs.imageSeed.disabled = state.busy || !supportsSeed;
         refs.imageSeed.setAttribute('aria-disabled', refs.imageSeed.disabled ? 'true' : 'false');
     }
+    if (refs.imageWidth) {
+        const dimensions = model.options?.dimensions || {};
+        if (supportsDimensions) {
+            refs.imageWidth.min = String(dimensions.min || 64);
+            refs.imageWidth.max = String(dimensions.max || 2048);
+            refs.imageWidth.value = refs.imageWidth.value || String(model.defaults?.width || 1024);
+        }
+        refs.imageWidth.disabled = state.busy || !supportsDimensions;
+        refs.imageWidth.setAttribute('aria-disabled', refs.imageWidth.disabled ? 'true' : 'false');
+    }
+    if (refs.imageHeight) {
+        const dimensions = model.options?.dimensions || {};
+        if (supportsDimensions) {
+            refs.imageHeight.min = String(dimensions.min || 64);
+            refs.imageHeight.max = String(dimensions.max || 2048);
+            refs.imageHeight.value = refs.imageHeight.value || String(model.defaults?.height || 1024);
+        }
+        refs.imageHeight.disabled = state.busy || !supportsDimensions;
+        refs.imageHeight.setAttribute('aria-disabled', refs.imageHeight.disabled ? 'true' : 'false');
+    }
+    if (refs.imageSafetyTolerance) {
+        if (supportsSafetyTolerance) {
+            const safety = model.options?.safetyTolerance || {};
+            const values = Array.from(
+                { length: Math.max(0, Number(safety.max ?? 5) - Number(safety.min ?? 0) + 1) },
+                (_, index) => Number(safety.min ?? 0) + index,
+            );
+            setSelectOptions(refs.imageSafetyTolerance, values, refs.imageSafetyTolerance.value || (model.defaults?.safetyTolerance ?? 2));
+        }
+        refs.imageSafetyTolerance.disabled = state.busy || !supportsSafetyTolerance;
+        refs.imageSafetyTolerance.setAttribute('aria-disabled', refs.imageSafetyTolerance.disabled ? 'true' : 'false');
+    }
     stepsField?.classList.toggle('is-disabled', !supportsSteps);
     seedField?.classList.toggle('is-disabled', !supportsSeed);
-    for (const control of [refs.imageQuality, refs.imageSize, refs.imageOutputFormat, refs.imageBackground]) {
+    widthField?.classList.toggle('is-disabled', !supportsDimensions);
+    heightField?.classList.toggle('is-disabled', !supportsDimensions);
+    safetyField?.classList.toggle('is-disabled', !supportsSafetyTolerance);
+    if (stepsField) stepsField.hidden = !(supportsSteps || showLegacyDisabledFields);
+    if (seedField) seedField.hidden = !(supportsSeed || showLegacyDisabledFields);
+    if (widthField) widthField.hidden = !supportsDimensions;
+    if (heightField) heightField.hidden = !supportsDimensions;
+    if (safetyField) safetyField.hidden = !supportsSafetyTolerance;
+    if (qualityField) qualityField.hidden = !supportsQuality;
+    if (sizeField) sizeField.hidden = !supportsSize;
+    if (outputFormatField) outputFormatField.hidden = !supportsOutputFormat;
+    if (backgroundField) backgroundField.hidden = !supportsBackground;
+    if (referenceSection) referenceSection.hidden = !supportsReferences;
+    const advancedControls = [
+        [refs.imageQuality, supportsQuality],
+        [refs.imageSize, supportsSize],
+        [refs.imageOutputFormat, supportsOutputFormat],
+        [refs.imageBackground, supportsBackground],
+    ];
+    for (const [control, supported] of advancedControls) {
         if (!control) continue;
-        control.disabled = state.busy || !supportsGptControls;
+        if (supported && control === refs.imageOutputFormat && Array.isArray(model.options?.outputFormat)) {
+            setSelectOptions(control, model.options.outputFormat, control.value || model.defaults?.outputFormat, (value) => String(value).toUpperCase());
+        }
+        control.disabled = state.busy || !supported;
         control.setAttribute('aria-disabled', control.disabled ? 'true' : 'false');
     }
+    if (refs.imageGptBackgroundHelp) refs.imageGptBackgroundHelp.hidden = !supportsBackground;
     renderImageReferenceSlots();
 }
 
@@ -747,27 +884,35 @@ function clearImageReference(index) {
 
 async function handleImageReferenceChange(index, input) {
     const file = input?.files?.[0] || null;
+    const maxReferences = selectedImageReferenceLimit();
+    if (index >= maxReferences) {
+        input.value = '';
+        return;
+    }
     if (!file) {
         clearImageReference(index);
         return;
     }
-    if (!GPT_IMAGE_REFERENCE_MIME_TYPES.has(file.type)) {
+    if (!IMAGE_REFERENCE_MIME_TYPES.has(file.type)) {
         input.value = '';
         setMessage(localeText('generateLab.referenceImagesType'), 'error');
         return;
     }
-    if (file.size > MAX_GPT_IMAGE_REFERENCE_BYTES) {
+    if (file.size > MAX_IMAGE_REFERENCE_BYTES) {
         input.value = '';
         setMessage(localeText('generateLab.referenceImagesTooLarge'), 'error');
         return;
     }
     try {
         const dataUrl = await readFileAsDataUri(file);
+        const dimensions = await readImageDimensions(dataUrl).catch(() => null);
         state.imageReferenceImages[index] = {
             dataUrl,
             name: file.name || getImageReferenceLabel(index),
             type: file.type,
             size: file.size,
+            width: dimensions?.width,
+            height: dimensions?.height,
         };
         setMessage('');
         renderImageReferenceSlots();
@@ -776,6 +921,20 @@ async function handleImageReferenceChange(index, input) {
         input.value = '';
         setMessage(localeText('generateLab.referenceImageReadFailed'), 'error');
     }
+}
+
+function readImageDimensions(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+            resolve({
+                width: image.naturalWidth || image.width,
+                height: image.naturalHeight || image.height,
+            });
+        };
+        image.onerror = () => reject(new Error(localeText('generateLab.referenceImageReadFailed')));
+        image.src = dataUrl;
+    });
 }
 
 function createImageReferenceSlot(index, disabled) {
@@ -830,40 +989,46 @@ function createImageReferenceSlot(index, disabled) {
 }
 
 function renderImageReferenceSlots() {
-    const gptSelected = isSelectedGptImage2();
-    const disabled = state.busy || !gptSelected;
+    const maxSlots = selectedImageReferenceLimit();
+    const supportsReferences = maxSlots > 0;
+    const visibleSlots = Math.min(IMAGE_REFERENCE_VISIBLE_SLOTS, maxSlots);
+    const extraSlots = Math.max(0, maxSlots - visibleSlots);
+    const disabled = state.busy || !supportsReferences;
     const selectedCount = selectedImageReferences().length;
     const hiddenSelectedCount = state.imageReferenceImages
-        .slice(GPT_IMAGE_REFERENCE_VISIBLE_SLOTS)
+        .slice(visibleSlots, maxSlots)
         .filter(Boolean).length;
 
-    refs.imageReferenceCount && (refs.imageReferenceCount.textContent = `${selectedCount} / ${GPT_IMAGE_REFERENCE_MAX_SLOTS}`);
+    refs.imageReferenceCount && (refs.imageReferenceCount.textContent = `${selectedCount} / ${maxSlots || 0}`);
     if (refs.imageRefPrimary) {
         refs.imageRefPrimary.replaceChildren(
-            ...Array.from({ length: GPT_IMAGE_REFERENCE_VISIBLE_SLOTS }, (_, index) => createImageReferenceSlot(index, disabled)),
+            ...Array.from({ length: visibleSlots }, (_, index) => createImageReferenceSlot(index, disabled)),
         );
     }
     if (refs.imageRefExtraGrid) {
         refs.imageRefExtraGrid.replaceChildren(
             ...Array.from(
-                { length: GPT_IMAGE_REFERENCE_MAX_SLOTS - GPT_IMAGE_REFERENCE_VISIBLE_SLOTS },
-                (_, offset) => createImageReferenceSlot(offset + GPT_IMAGE_REFERENCE_VISIBLE_SLOTS, disabled),
+                { length: extraSlots },
+                (_, offset) => createImageReferenceSlot(offset + visibleSlots, disabled),
             ),
         );
     }
     if (refs.imageRefToggle) {
-        refs.imageRefToggle.disabled = disabled;
+        refs.imageRefToggle.hidden = extraSlots <= 0;
+        refs.imageRefToggle.disabled = disabled || extraSlots <= 0;
         refs.imageRefToggle.setAttribute('aria-expanded', state.imageRefsExpanded ? 'true' : 'false');
         const label = hiddenSelectedCount > 0
             ? localeText('generateLab.moreReferenceImagesSelected', { count: hiddenSelectedCount })
             : localeText('generateLab.moreReferenceImages');
-        const helper = state.imageRefsExpanded ? localeText('generateLab.hideOptionalReferences') : localeText('generateLab.addMoreReferences');
+        const helper = state.imageRefsExpanded
+            ? localeText('generateLab.hideOptionalReferences')
+            : localeText('generateLab.addMoreReferences', { count: extraSlots });
         refs.imageRefToggle.replaceChildren(
             el('span', { text: label }),
             el('small', { text: helper }),
         );
     }
-    if (refs.imageRefExtra) refs.imageRefExtra.hidden = !state.imageRefsExpanded;
+    if (refs.imageRefExtra) refs.imageRefExtra.hidden = !state.imageRefsExpanded || extraSlots <= 0;
 }
 
 function clearVideoReference() {
@@ -1309,14 +1474,16 @@ async function generateImage(prompt) {
     const currentModel = selectedModel();
     const model = refs.imageModel?.value || currentModel.id;
     const isGpt = currentModel.controls?.supportsQuality === true;
+    const isDimensionedProvider = currentModel.controls?.supportsDimensions === true;
     const steps = currentModel.controls?.supportsSteps === true
         ? parseOptionalInteger(refs.imageSteps?.value, { min: 1, max: 20 })
         : null;
     const seed = currentModel.controls?.supportsSeed === true
         ? parseOptionalInteger(refs.imageSeed?.value, { min: 0 })
         : null;
-    const res = isGpt
-        ? await apiAiGenerateImage({
+    let res;
+    if (isGpt) {
+        res = await apiAiGenerateImage({
             model,
             prompt,
             quality: refs.imageQuality?.value || currentModel.defaults?.quality || 'medium',
@@ -1324,8 +1491,32 @@ async function generateImage(prompt) {
             outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png',
             background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto',
             referenceImages: selectedImageReferences(),
-        })
-        : await apiAiGenerateImage(prompt, steps, seed, model);
+        });
+    } else if (isDimensionedProvider) {
+        const dimensions = currentModel.options?.dimensions || {};
+        const payload = {
+            model,
+            prompt,
+            width: currentImageDimensionValue(refs.imageWidth, currentModel.defaults?.width || 1024, dimensions),
+            height: currentImageDimensionValue(refs.imageHeight, currentModel.defaults?.height || 1024, dimensions),
+        };
+        if (currentModel.controls?.supportsOutputFormat) {
+            payload.outputFormat = refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'jpeg';
+        }
+        if (currentModel.controls?.supportsSafetyTolerance) {
+            payload.safetyTolerance = parseOptionalInteger(refs.imageSafetyTolerance?.value, currentModel.options?.safetyTolerance || {})
+                ?? currentModel.defaults?.safetyTolerance
+                ?? 2;
+        }
+        if (seed !== null) payload.seed = seed;
+        const referenceImages = selectedImageReferences();
+        if (currentModel.controls?.supportsReferenceImages && referenceImages.length > 0) {
+            payload.referenceImages = referenceImages;
+        }
+        res = await apiAiGenerateImage(payload);
+    } else {
+        res = await apiAiGenerateImage(prompt, steps, seed, model);
+    }
     if (!res.ok) return res;
     const data = res.data?.data || res.data || {};
     if (!data.imageBase64) {
@@ -1343,6 +1534,9 @@ async function generateImage(prompt) {
         quality: data.quality,
         size: data.size,
         outputFormat: data.outputFormat,
+        width: data.width,
+        height: data.height,
+        safetyTolerance: data.safetyTolerance,
         background: data.background,
         referenceImageCount: data.referenceImageCount,
         saveReference: typeof data.saveReference === 'string' ? data.saveReference : null,
@@ -1620,6 +1814,9 @@ function bindEvents() {
     });
     refs.imageSteps?.addEventListener('change', updateActionState);
     refs.imageSeed?.addEventListener('input', updateActionState);
+    refs.imageWidth?.addEventListener('input', updateActionState);
+    refs.imageHeight?.addEventListener('input', updateActionState);
+    refs.imageSafetyTolerance?.addEventListener('change', updateActionState);
     refs.imageQuality?.addEventListener('change', updateActionState);
     refs.imageSize?.addEventListener('change', updateActionState);
     refs.imageOutputFormat?.addEventListener('change', updateActionState);
@@ -1684,10 +1881,14 @@ function cacheRefs() {
         imageGptControls: byId('labImageGptControls'),
         imageSteps: byId('labImageSteps'),
         imageSeed: byId('labImageSeed'),
+        imageWidth: byId('labImageWidth'),
+        imageHeight: byId('labImageHeight'),
+        imageSafetyTolerance: byId('labImageSafetyTolerance'),
         imageQuality: byId('labImageQuality'),
         imageSize: byId('labImageSize'),
         imageOutputFormat: byId('labImageOutputFormat'),
         imageBackground: byId('labImageBackground'),
+        imageGptBackgroundHelp: byId('labImageGptBackgroundHelp'),
         imageAutoCostHint: byId('labImageAutoCostHint'),
         imageRefPrimary: byId('labImageRefPrimary'),
         imageRefToggle: byId('labImageRefToggle'),

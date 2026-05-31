@@ -35,6 +35,18 @@ import {
   SEEDANCE_2_MAX_DURATION,
   SEEDANCE_2_MIN_DURATION,
 } from "../../../../../js/shared/seedance-2-pricing.mjs";
+import {
+  GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
+  GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+  GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_VIDEO_MAX_DURATION,
+  GROK_IMAGINE_VIDEO_MIN_DURATION,
+  GROK_IMAGINE_VIDEO_MODEL_ID,
+  GROK_IMAGINE_VIDEO_MODEL_LABEL,
+  GROK_IMAGINE_VIDEO_RESOLUTIONS,
+  GROK_IMAGINE_VIDEO_VENDOR,
+} from "../../../../../js/shared/grok-imagine-video-pricing.mjs";
 import { calculateAiVideoCreditCost } from "../../../../../js/shared/ai-model-pricing.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
@@ -100,6 +112,8 @@ const SEEDANCE_2_FAST_MODEL_LABEL = "Seedance 2.0 Fast";
 const SEEDANCE_2_FAST_VENDOR = "ByteDance";
 const SEEDANCE_2_FAST_DEFAULT_TITLE = "Seedance Video";
 const SEEDANCE_2_MAX_PROMPT_LENGTH = 5000;
+const GROK_IMAGINE_VIDEO_DEFAULT_TITLE = "Grok Imagine Video";
+const GROK_IMAGINE_VIDEO_MAX_PROMPT_LENGTH = 5000;
 const PIXVERSE_ALLOWED_BODY_FIELDS = new Set([
   "model",
   "prompt",
@@ -132,6 +146,16 @@ const HAPPYHORSE_ALLOWED_BODY_FIELDS = new Set([
   "ratio",
   "seed",
   "watermark",
+  "folder_id",
+  "folderId",
+  "title",
+]);
+const GROK_IMAGINE_ALLOWED_BODY_FIELDS = new Set([
+  "model",
+  "prompt",
+  "duration",
+  "resolution",
+  "aspect_ratio",
   "folder_id",
   "folderId",
   "title",
@@ -197,7 +221,8 @@ function normalizeModelId(value) {
   if (
     modelId === PIXVERSE_V6_MODEL_ID ||
     modelId === HAPPYHORSE_T2V_MODEL_ID ||
-    modelId === SEEDANCE_2_FAST_MODEL_ID
+    modelId === SEEDANCE_2_FAST_MODEL_ID ||
+    modelId === GROK_IMAGINE_VIDEO_MODEL_ID
   ) {
     return modelId;
   }
@@ -480,6 +505,71 @@ function normalizeSeedanceFastBody(body) {
   };
 }
 
+function normalizeGrokImagineBody(body) {
+  assertAllowedBodyFields(body, GROK_IMAGINE_ALLOWED_BODY_FIELDS);
+  const prompt = normalizeOptionalString(body.prompt, GROK_IMAGINE_VIDEO_MAX_PROMPT_LENGTH, "prompt", { allowNewlines: true });
+  if (!prompt) {
+    throw validationError(`prompt must be 1-${GROK_IMAGINE_VIDEO_MAX_PROMPT_LENGTH} safe characters.`, "invalid_prompt");
+  }
+  const duration = normalizeInteger(body.duration, {
+    fieldName: "duration",
+    min: GROK_IMAGINE_VIDEO_MIN_DURATION,
+    max: GROK_IMAGINE_VIDEO_MAX_DURATION,
+    fallback: GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
+  });
+  const resolution = normalizeEnum(
+    body.resolution,
+    enumIncludes(GROK_IMAGINE_VIDEO_RESOLUTIONS),
+    GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+    "resolution"
+  );
+  const aspectRatio = normalizeEnum(
+    body.aspect_ratio,
+    enumIncludes(GROK_IMAGINE_VIDEO_ASPECT_RATIOS),
+    GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
+    "aspect_ratio"
+  );
+  const title = normalizeOptionalString(body.title, MAX_TITLE_LENGTH, "title")
+    || titleFromPrompt(prompt, GROK_IMAGINE_VIDEO_DEFAULT_TITLE);
+  const folderId = normalizeFolderId(body);
+  const pricing = calculateAiVideoCreditCost(GROK_IMAGINE_VIDEO_MODEL_ID, {
+    duration,
+    resolution,
+    aspect_ratio: aspectRatio,
+  });
+  if (!pricing) {
+    throw validationError("Video model pricing is unavailable.", "pricing_unavailable", 503);
+  }
+  const price = pricing.credits;
+
+  return {
+    modelId: GROK_IMAGINE_VIDEO_MODEL_ID,
+    modelLabel: GROK_IMAGINE_VIDEO_MODEL_LABEL,
+    vendor: GROK_IMAGINE_VIDEO_VENDOR,
+    provider: "ai_gateway_xai",
+    preset: "member_video_grok_imagine_video",
+    pricingSource: "grok-imagine-video-unified-billing-2026-05-31",
+    prompt,
+    duration,
+    aspectRatio,
+    resolution,
+    seed: null,
+    generateAudio: null,
+    watermark: null,
+    workflow: "text-to-video",
+    title,
+    folderId,
+    price,
+    policyBody: {
+      model: GROK_IMAGINE_VIDEO_MODEL_ID,
+      prompt,
+      duration,
+      aspect_ratio: aspectRatio,
+      resolution,
+    },
+  };
+}
+
 async function normalizeMemberVideoBody(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw validationError("JSON body is required.", "bad_request");
@@ -490,6 +580,9 @@ async function normalizeMemberVideoBody(body) {
   }
   if (modelId === SEEDANCE_2_FAST_MODEL_ID) {
     return normalizeSeedanceFastBody(body);
+  }
+  if (modelId === GROK_IMAGINE_VIDEO_MODEL_ID) {
+    return normalizeGrokImagineBody(body);
   }
   return normalizePixverseBody(body);
 }
@@ -529,7 +622,17 @@ function buildSeedanceFastPayload(input) {
   };
 }
 
+function buildGrokImaginePayload(input) {
+  return {
+    prompt: input.prompt,
+    duration: input.duration,
+    aspect_ratio: input.aspectRatio,
+    resolution: input.resolution,
+  };
+}
+
 function buildProviderPayload(input) {
+  if (input.modelId === GROK_IMAGINE_VIDEO_MODEL_ID) return buildGrokImaginePayload(input);
   if (input.modelId === SEEDANCE_2_FAST_MODEL_ID) return buildSeedanceFastPayload(input);
   if (input.modelId === HAPPYHORSE_T2V_MODEL_ID) return buildHappyHorsePayload(input);
   return buildPixversePayload(input);

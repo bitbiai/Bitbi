@@ -4202,7 +4202,14 @@ test.describe('Homepage', () => {
     };
     await expect(page.locator('#labModelList').getByText('FLUX.1 Schnell')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('FLUX.2 Klein 9B')).toBeVisible();
+    await expect(page.locator('#labModelList').getByText('FLUX.2 Max')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('GPT Image 2')).toBeVisible();
+    await expect(page.locator('#labImageModel option')).toHaveText([
+      'FLUX.1 Schnell',
+      'FLUX.2 Klein 9B',
+      'FLUX.2 Max',
+      'GPT Image 2',
+    ]);
     await expectLabAccent('192, 38, 211', '0, 240, 255');
 
     await page.selectOption('#labImageModel', 'openai/gpt-image-2');
@@ -4238,6 +4245,26 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labCost')).toHaveText('250 credits');
     await expect(page.locator('#labCostInsight')).toBeHidden();
     await expect(page.locator('#labImageAutoCostHint')).toBeVisible();
+    await page.selectOption('#labImageModel', 'black-forest-labs/flux-2-max');
+    await expect(page.locator('#labImageFluxControls')).toBeVisible();
+    await expect(page.locator('#labImageGptControls')).toBeVisible();
+    await expect(page.locator('label:has(#labImageSteps)')).toBeHidden();
+    await expect(page.locator('label:has(#labImageSeed)')).toBeVisible();
+    await expect(page.locator('label:has(#labImageWidth)')).toBeVisible();
+    await expect(page.locator('label:has(#labImageHeight)')).toBeVisible();
+    await expect(page.locator('label:has(#labImageSafetyTolerance)')).toBeVisible();
+    await expect(page.locator('label:has(#labImageQuality)')).toBeHidden();
+    await expect(page.locator('label:has(#labImageSize)')).toBeHidden();
+    await expect(page.locator('label:has(#labImageBackground)')).toBeHidden();
+    await expect(page.locator('label:has(#labImageOutputFormat)')).toBeVisible();
+    await expect(page.locator('#labImageWidth')).toHaveValue('1024');
+    await expect(page.locator('#labImageHeight')).toHaveValue('1024');
+    await expect(page.locator('#labImageOutputFormat')).toHaveValue('jpeg');
+    await expect(page.locator('#labImageSafetyTolerance')).toHaveValue('2');
+    await expect(page.locator('#labImageRefPrimary .generate-lab-ref-images__slot')).toHaveCount(3);
+    await expect(page.locator('#labImageRefExtraGrid .generate-lab-ref-images__slot')).toHaveCount(5);
+    await expect(page.locator('#labImageReferenceCount')).toHaveText('1 / 8');
+    await expect(page.locator('#labCost')).toHaveText('46 credits');
     await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-1-schnell');
     await expect(page.locator('#labImageGptControls')).toBeHidden();
     await expect(page.locator('#labImageFluxControls')).toBeVisible();
@@ -4260,6 +4287,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('HappyHorse 1.0 T2V')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('Seedance 2.0 Fast')).toBeVisible();
+    await expect(page.locator('#labModelList').getByText('Grok Imagine Video')).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
@@ -4310,6 +4338,22 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labCost')).toHaveText('252 credits');
     await page.selectOption('#labVideoDuration', '12');
     await expect(page.locator('#labCost')).toHaveText('604 credits');
+
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Grok Imagine Video' }).click();
+    await expect(page.locator('#labCost')).toHaveText('164 credits');
+    await expect(page.locator('#labVideoNegativeField')).toBeHidden();
+    await expect(page.locator('#labVideoReferenceField')).toBeHidden();
+    await expect(page.locator('#labVideoAudioField')).toBeHidden();
+    await expect(page.locator('#labVideoWatermarkField')).toBeHidden();
+    await expect(page.locator('label:has(#labVideoSeed)')).toBeHidden();
+    await expect(page.locator('#labVideoQualityLabel')).toHaveText('Resolution');
+    await expect(page.locator('#labVideoAspectLabel')).toHaveText('Aspect');
+    await expect(page.locator('#labVideoDuration option').first()).toHaveAttribute('value', '1');
+    await expect(page.locator('#labVideoDuration option[value="15"]')).toHaveCount(1);
+    await expect(page.locator('#labVideoQuality option')).toHaveText(['480p', '720p']);
+    await expect(page.locator('#labVideoAspect option')).toHaveText(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']);
+    await page.selectOption('#labVideoDuration', '10');
+    await expect(page.locator('#labCost')).toHaveText('328 credits');
 
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
@@ -4448,6 +4492,122 @@ test.describe('Homepage', () => {
     const sessionSnapshot = await page.evaluate(() => Object.values(sessionStorage).join('\n'));
     expect(sessionSnapshot).not.toContain('saved-image-one');
     await expect.poll(() => assetListRequests).toBeGreaterThanOrEqual(2);
+  });
+
+  test('Generate Lab sends allowlisted FLUX.2 Max and Grok Imagine Video payloads', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    const imagePayloads = [];
+    const videoPayloads = [];
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-payload-member', email: 'payload@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 1000 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { folders: [], counts: {}, unfolderedCount: 0 } }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
+      });
+    });
+    await page.route('**/api/ai/generate-image', async (route) => {
+      imagePayloads.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            imageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=',
+            mimeType: 'image/png',
+            prompt: 'FLUX.2 Max payload check',
+            model: 'black-forest-labs/flux-2-max',
+            width: 1024,
+            height: 1024,
+            outputFormat: 'jpeg',
+            safetyTolerance: 2,
+            seed: 123,
+          },
+          billing: { balance_after: 954 },
+        }),
+      });
+    });
+    await page.route('**/api/ai/generate-video', async (route) => {
+      videoPayloads.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            videoUrl: '/api/ai/text-assets/grok-video/file',
+            model: { id: 'xai/grok-imagine-video', label: 'Grok Imagine Video', vendor: 'xAI' },
+            duration: 5,
+            aspect_ratio: '16:9',
+            resolution: '720p',
+            asset: { id: 'grok-video', source_module: 'video', mime_type: 'video/mp4' },
+          },
+          billing: { balance_after: 790 },
+        }),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+    await page.selectOption('#labImageModel', 'black-forest-labs/flux-2-max');
+    await page.locator('#labImageSeed').fill('123');
+    await page.locator('#labPrompt').fill('FLUX.2 Max payload check');
+    await page.locator('#labGenerate').click();
+    await expect.poll(() => imagePayloads.length).toBe(1);
+    expect(imagePayloads[0]).toEqual({
+      model: 'black-forest-labs/flux-2-max',
+      prompt: 'FLUX.2 Max payload check',
+      width: 1024,
+      height: 1024,
+      outputFormat: 'jpeg',
+      safetyTolerance: 2,
+      seed: 123,
+    });
+    expect(imagePayloads[0]).not.toHaveProperty('steps');
+    expect(imagePayloads[0]).not.toHaveProperty('quality');
+    expect(imagePayloads[0]).not.toHaveProperty('size');
+    expect(imagePayloads[0]).not.toHaveProperty('background');
+    expect(imagePayloads[0]).not.toHaveProperty('guidance');
+
+    await page.getByRole('tab', { name: 'Video' }).click();
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Grok Imagine Video' }).click();
+    await page.locator('#labPrompt').fill('Grok Imagine payload check');
+    await page.locator('#labGenerate').click();
+    await expect.poll(() => videoPayloads.length).toBe(1);
+    expect(videoPayloads[0]).toEqual({
+      model: 'xai/grok-imagine-video',
+      prompt: 'Grok Imagine payload check',
+      duration: 5,
+      resolution: '720p',
+      aspect_ratio: '16:9',
+    });
+    expect(videoPayloads[0]).not.toHaveProperty('quality');
+    expect(videoPayloads[0]).not.toHaveProperty('seed');
+    expect(videoPayloads[0]).not.toHaveProperty('negative_prompt');
+    expect(videoPayloads[0]).not.toHaveProperty('image_input');
+    expect(videoPayloads[0]).not.toHaveProperty('generate_audio');
+    expect(videoPayloads[0]).not.toHaveProperty('watermark');
   });
 
   test('German Generate Lab shows HappyHorse video controls with localized labels', async ({ page }) => {
@@ -5669,13 +5829,13 @@ test.describe('Homepage', () => {
 
     expect(ghostState.gallery.hidden).toBe(false);
     expect(ghostState.gallery.source).toBe('category-config');
-    expect(ghostState.gallery.names).toEqual(['FLUX.1 Schnell', 'FLUX.2 Klein 9B', 'GPT Image 2']);
+    expect(ghostState.gallery.names).toEqual(['FLUX.1 Schnell', 'FLUX.2 Klein 9B', 'FLUX.2 Max', 'GPT Image 2']);
     expect(ghostState.gallery.names).not.toContain('Seedance 2.0 Fast');
     expect(ghostState.gallery.names).not.toContain('HappyHorse 1.0 T2V');
     expect(ghostState.gallery.names).not.toContain('Music 2.6');
     expect(ghostState.video.hidden).toBe(false);
     expect(ghostState.video.source).toBe('category-config');
-    expect(ghostState.video.names).toEqual(['PixVerse V6', 'HappyHorse 1.0 T2V', 'Seedance 2.0 Fast']);
+    expect(ghostState.video.names).toEqual(['PixVerse V6', 'HappyHorse 1.0 T2V', 'Seedance 2.0 Fast', 'Grok Imagine Video']);
     expect(ghostState.video.names).not.toContain('FLUX.1 Schnell');
     expect(ghostState.video.names).not.toContain('GPT Image 2');
     expect(ghostState.video.names).not.toContain('Music 2.6');

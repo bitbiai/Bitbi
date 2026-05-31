@@ -5,6 +5,9 @@ import {
     GPT_IMAGE_2_QUALITY_OPTIONS,
     GPT_IMAGE_2_SIZE_OPTIONS,
 } from './gpt-image-2-pricing.mjs';
+import {
+    FLUX_2_MAX_IMAGE_MODEL_ID,
+} from './ai-model-pricing.mjs';
 
 export const DEFAULT_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
@@ -30,6 +33,31 @@ const GENERATE_LAB_ONLY_AI_IMAGE_MODELS = Object.freeze([
             width: 1024,
             height: 1024,
         }),
+    }),
+    Object.freeze({
+        id: FLUX_2_MAX_IMAGE_MODEL_ID,
+        label: 'FLUX.2 Max',
+        provider: 'Black Forest Labs',
+        vendor: 'Black Forest Labs',
+        requestMode: 'flux-2-max',
+        proxied: true,
+        supportsSteps: false,
+        supportsSeed: true,
+        supportsDimensions: true,
+        supportsReferenceImages: true,
+        maxReferenceImages: 8,
+        supportsOutputFormat: true,
+        outputFormatOptions: Object.freeze(['jpeg', 'png', 'webp']),
+        defaultOutputFormat: 'jpeg',
+        supportsSafetyTolerance: true,
+        minSafetyTolerance: 0,
+        maxSafetyTolerance: 5,
+        defaultSafetyTolerance: 2,
+        defaultSize: Object.freeze({ width: 1024, height: 1024 }),
+        minDimension: 64,
+        maxDimension: 2048,
+        maxPixels: 4_194_304,
+        defaultMimeType: 'image/jpeg',
     }),
     Object.freeze({
         id: GPT_IMAGE_2_MODEL_ID,

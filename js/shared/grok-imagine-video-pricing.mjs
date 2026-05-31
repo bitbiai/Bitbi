@@ -15,6 +15,8 @@ export {
 };
 
 export const GROK_IMAGINE_VIDEO_MODEL_ID = "xai/grok-imagine-video";
+export const GROK_IMAGINE_VIDEO_MODEL_LABEL = "Grok Imagine Video";
+export const GROK_IMAGINE_VIDEO_VENDOR = "xAI";
 export const GROK_IMAGINE_VIDEO_ASPECT_RATIOS = Object.freeze([
   "1:1",
   "16:9",
@@ -84,7 +86,7 @@ export function normalizeGrokImagineVideoPricingInput(settings = {}) {
   return {
     modelId: GROK_IMAGINE_VIDEO_MODEL_ID,
     duration: normalizeDuration(settings.duration),
-    aspectRatio: normalizeAspectRatio(settings.aspect_ratio ?? settings.ratio),
+    aspectRatio: normalizeAspectRatio(settings.aspect_ratio ?? settings.aspectRatio ?? settings.ratio),
     resolution: normalizeResolution(settings.resolution),
     size: normalizeSize(settings.size),
     rateUsdPerSecond: GROK_IMAGINE_VIDEO_PROVIDER_RATE_USD_PER_SECOND,

@@ -33,7 +33,10 @@ import {
   aiUsagePolicyErrorResponse,
   prepareAiUsagePolicy,
 } from "../../lib/ai-usage-policy.js";
-import { calculateAiImageCreditCost } from "../../lib/ai-image-credit-pricing.js";
+import {
+  FLUX_2_MAX_IMAGE_MODEL_ID,
+  calculateAiImageCreditCost,
+} from "../../lib/ai-image-credit-pricing.js";
 import { storageKeyLogFields } from "../../lib/storage-key-redaction.js";
 import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
 import {
@@ -65,6 +68,32 @@ const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_PROVIDER_IMAGE_FETCH_BYTES = 25 * 1024 * 1024;
 const GPT_IMAGE_2_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const GPT_IMAGE_2_REFERENCE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const FLUX_2_MAX_MIN_DIMENSION = 64;
+const FLUX_2_MAX_MAX_DIMENSION = 2048;
+const FLUX_2_MAX_MAX_PIXELS = 4_194_304;
+const FLUX_2_MAX_DEFAULT_WIDTH = 1024;
+const FLUX_2_MAX_DEFAULT_HEIGHT = 1024;
+const FLUX_2_MAX_OUTPUT_FORMATS = new Set(["jpeg", "png", "webp"]);
+const FLUX_2_MAX_DEFAULT_OUTPUT_FORMAT = "jpeg";
+const FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE = 2;
+const FLUX_2_MAX_MIN_SAFETY_TOLERANCE = 0;
+const FLUX_2_MAX_MAX_SAFETY_TOLERANCE = 5;
+const FLUX_2_MAX_MAX_REFERENCE_IMAGES = 8;
+const FLUX_2_MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
+const FLUX_2_MAX_REFERENCE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const FLUX_2_MAX_ALLOWED_BODY_FIELDS = new Set([
+  "model",
+  "prompt",
+  "width",
+  "height",
+  "outputFormat",
+  "output_format",
+  "safetyTolerance",
+  "safety_tolerance",
+  "seed",
+  "referenceImages",
+]);
+const FLUX_2_MAX_SEED_MAX = 2_147_483_647;
 const MAX_SAVE_REFERENCE_LENGTH = 500;
 const ORG_CONTEXT_FIELDS = ["organization_id", "organizationId"];
 
@@ -120,6 +149,37 @@ function isGptImage2Model(modelConfig) {
   return modelConfig?.id === GPT_IMAGE_2_MODEL_ID || modelConfig?.requestMode === "gpt-image-2";
 }
 
+function isFlux2MaxModel(modelConfig) {
+  return modelConfig?.id === FLUX_2_MAX_IMAGE_MODEL_ID || modelConfig?.requestMode === "flux-2-max";
+}
+
+function assertOnlyAllowedFields(body, allowedFields, modelId) {
+  if (!body || typeof body !== "object") return;
+  for (const key of Object.keys(body)) {
+    if (!allowedFields.has(key)) {
+      throw new Error(`${key} is not supported by model "${modelId}".`);
+    }
+  }
+}
+
+function normalizeIntegerField(value, {
+  field,
+  min = Number.MIN_SAFE_INTEGER,
+  max = Number.MAX_SAFE_INTEGER,
+  fallback = null,
+  required = false,
+} = {}) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    if (required) throw new Error(`${field} is required.`);
+    return fallback;
+  }
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) {
+    throw new Error(`${field} must be an integer between ${min} and ${max}.`);
+  }
+  return number;
+}
+
 function normalizeGptImage2Option(value, allowed, fallback, field) {
   const normalized = String(value || "").trim() || fallback;
   if (!allowed.includes(normalized)) {
@@ -163,6 +223,86 @@ function validateGptImage2ReferenceImages(value) {
     }
     return item;
   });
+}
+
+function validateFlux2MaxReferenceImages(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("referenceImages must be an array.");
+  }
+  if (value.length > FLUX_2_MAX_MAX_REFERENCE_IMAGES) {
+    throw new Error(`referenceImages must contain at most ${FLUX_2_MAX_MAX_REFERENCE_IMAGES} items.`);
+  }
+  return value.map((item, index) => {
+    if (typeof item !== "string" || !item.startsWith("data:")) {
+      throw new Error(`referenceImages[${index}] must be a data URI string.`);
+    }
+    const commaIndex = item.indexOf(",");
+    if (commaIndex === -1) {
+      throw new Error(`referenceImages[${index}] is not a valid data URI.`);
+    }
+    const meta = item.slice(0, commaIndex);
+    const mimeMatch = meta.match(/^data:([^;,]+);base64$/i);
+    const mimeType = mimeMatch ? mimeMatch[1].toLowerCase() : "";
+    if (!FLUX_2_MAX_REFERENCE_IMAGE_TYPES.has(mimeType)) {
+      throw new Error(`referenceImages[${index}] must be a PNG, JPEG, or WebP data URI.`);
+    }
+    const base64 = item.slice(commaIndex + 1);
+    if (estimateBase64Bytes(base64) > FLUX_2_MAX_REFERENCE_IMAGE_BYTES) {
+      throw new Error(`referenceImages[${index}] exceeds the 10 MB byte size limit.`);
+    }
+    return item;
+  });
+}
+
+function dataUriImageToBytes(dataUri, field) {
+  const commaIndex = String(dataUri || "").indexOf(",");
+  if (commaIndex === -1) {
+    throw new Error(`${field} is not a valid data URI.`);
+  }
+  try {
+    return decodeBase64ToBytes(String(dataUri).slice(commaIndex + 1));
+  } catch {
+    throw new Error(`${field} is not valid base64 image data.`);
+  }
+}
+
+async function inspectFlux2MaxReferenceImages(env, referenceImages) {
+  if (!referenceImages.length) {
+    return {
+      inputImageMegapixels: 0,
+      inputImages: [],
+    };
+  }
+  if (!env?.IMAGES || typeof env.IMAGES.info !== "function") {
+    const error = new Error("Images binding is unavailable for FLUX.2 Max reference image pricing.");
+    error.status = 503;
+    error.code = "images_binding_unavailable";
+    throw error;
+  }
+  const inputImages = [];
+  let inputImageMegapixels = 0;
+  for (const [index, dataUri] of referenceImages.entries()) {
+    const field = `referenceImages[${index}]`;
+    const bytes = dataUriImageToBytes(dataUri, field);
+    let info;
+    try {
+      info = await env.IMAGES.info(bytes);
+    } catch {
+      throw new Error(`${field} could not be inspected for dimensions.`);
+    }
+    const width = Math.round(Number(info?.width));
+    const height = Math.round(Number(info?.height));
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+      throw new Error(`${field} could not be inspected for dimensions.`);
+    }
+    inputImages.push({ width, height });
+    inputImageMegapixels += (width * height) / 1_048_576;
+  }
+  return {
+    inputImageMegapixels,
+    inputImages,
+  };
 }
 
 function normalizeGptImage2Request(body, prompt, modelConfig) {
@@ -212,6 +352,69 @@ function normalizeGptImage2Request(body, prompt, modelConfig) {
     background,
     referenceImages,
     referenceImageCount: referenceImages.length,
+  };
+}
+
+async function normalizeFlux2MaxRequest(env, body, prompt) {
+  assertOnlyAllowedFields(body, FLUX_2_MAX_ALLOWED_BODY_FIELDS, FLUX_2_MAX_IMAGE_MODEL_ID);
+  const widthProvided = body?.width !== undefined && body?.width !== null && String(body.width).trim() !== "";
+  const heightProvided = body?.height !== undefined && body?.height !== null && String(body.height).trim() !== "";
+  if (widthProvided !== heightProvided) {
+    throw new Error("width and height must be provided together.");
+  }
+  const width = normalizeIntegerField(body?.width, {
+    field: "width",
+    min: FLUX_2_MAX_MIN_DIMENSION,
+    max: FLUX_2_MAX_MAX_DIMENSION,
+    fallback: FLUX_2_MAX_DEFAULT_WIDTH,
+  });
+  const height = normalizeIntegerField(body?.height, {
+    field: "height",
+    min: FLUX_2_MAX_MIN_DIMENSION,
+    max: FLUX_2_MAX_MAX_DIMENSION,
+    fallback: FLUX_2_MAX_DEFAULT_HEIGHT,
+  });
+  if (width * height > FLUX_2_MAX_MAX_PIXELS) {
+    throw new Error(`Image dimensions exceed the ${FLUX_2_MAX_MAX_PIXELS} pixel safety cap.`);
+  }
+  const outputFormat = String(body?.outputFormat ?? body?.output_format ?? FLUX_2_MAX_DEFAULT_OUTPUT_FORMAT).trim().toLowerCase();
+  if (!FLUX_2_MAX_OUTPUT_FORMATS.has(outputFormat)) {
+    throw new Error("outputFormat must be one of jpeg, png, or webp.");
+  }
+  const safetyTolerance = normalizeIntegerField(body?.safetyTolerance ?? body?.safety_tolerance, {
+    field: "safetyTolerance",
+    min: FLUX_2_MAX_MIN_SAFETY_TOLERANCE,
+    max: FLUX_2_MAX_MAX_SAFETY_TOLERANCE,
+    fallback: FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE,
+  });
+  const seed = normalizeIntegerField(body?.seed, {
+    field: "seed",
+    min: 0,
+    max: FLUX_2_MAX_SEED_MAX,
+    fallback: null,
+  });
+  const referenceImages = validateFlux2MaxReferenceImages(body?.referenceImages);
+  const referencePricing = await inspectFlux2MaxReferenceImages(env, referenceImages);
+  const payload = {
+    prompt,
+    width,
+    height,
+    output_format: outputFormat,
+    safety_tolerance: safetyTolerance,
+  };
+  if (seed !== null) payload.seed = seed;
+  if (referenceImages.length > 0) payload.input_images = referenceImages;
+  return {
+    payload,
+    width,
+    height,
+    outputFormat,
+    safetyTolerance,
+    seed,
+    referenceImages,
+    referenceImageCount: referenceImages.length,
+    inputImageMegapixels: referencePricing.inputImageMegapixels,
+    inputImages: referencePricing.inputImages,
   };
 }
 
@@ -423,6 +626,7 @@ function buildImageAttemptMetadata({
   modelConfig,
   imagePricing,
   gptRequest = null,
+  flux2MaxRequest = null,
   replayStatus,
   replayReason = null,
 } = {}) {
@@ -447,6 +651,14 @@ function buildImageAttemptMetadata({
         output_format: gptRequest.outputFormat,
         background: gptRequest.background,
         reference_image_count: gptRequest.referenceImageCount,
+      } : {}),
+      ...(flux2MaxRequest ? {
+        width: flux2MaxRequest.width,
+        height: flux2MaxRequest.height,
+        output_format: flux2MaxRequest.outputFormat,
+        safety_tolerance: flux2MaxRequest.safetyTolerance,
+        reference_image_count: flux2MaxRequest.referenceImageCount,
+        input_image_megapixels: flux2MaxRequest.inputImageMegapixels,
       } : {}),
     },
   };
@@ -607,8 +819,10 @@ export async function handleGenerateImage(ctx) {
     if (isNaN(seed) || seed < 0) seed = null;
   }
   const gptImage2 = isGptImage2Model(modelConfig);
+  const flux2Max = isFlux2MaxModel(modelConfig);
   let aiRequest = null;
   let gptRequest = null;
+  let flux2MaxRequest = null;
   try {
     if (gptImage2) {
       gptRequest = normalizeGptImage2Request(body, prompt, modelConfig);
@@ -617,11 +831,18 @@ export async function handleGenerateImage(ctx) {
         steps: null,
         seed: null,
       };
+    } else if (flux2Max) {
+      flux2MaxRequest = await normalizeFlux2MaxRequest(env, body, prompt);
+      aiRequest = {
+        payload: flux2MaxRequest.payload,
+        steps: null,
+        seed: flux2MaxRequest.seed,
+      };
     } else {
       aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
     }
   } catch (error) {
-    return respond({ ok: false, error: error.message || "Invalid image request." }, { status: 400 });
+    return respond({ ok: false, error: error.message || "Invalid image request." }, { status: error.status || 400 });
   }
   const imagePricing = calculateAiImageCreditCost(modelConfig.id, gptImage2
     ? {
@@ -631,6 +852,16 @@ export async function handleGenerateImage(ctx) {
         background: gptRequest.background,
         referenceImageCount: gptRequest.referenceImageCount,
       }
+    : flux2Max
+      ? {
+          width: flux2MaxRequest.width,
+          height: flux2MaxRequest.height,
+          outputFormat: flux2MaxRequest.outputFormat,
+          safetyTolerance: flux2MaxRequest.safetyTolerance,
+          referenceImageCount: flux2MaxRequest.referenceImageCount,
+          inputImageMegapixels: flux2MaxRequest.inputImageMegapixels,
+          inputImages: flux2MaxRequest.inputImages,
+        }
     : {
         width: 1024,
         height: 1024,
@@ -787,7 +1018,7 @@ export async function handleGenerateImage(ctx) {
   }
 
   try {
-    const runOptions = gptImage2
+    const runOptions = (gptImage2 || flux2Max)
       ? { gateway: { id: env.AI_GATEWAY_ID || "default" } }
       : undefined;
     if (gptImage2) {
@@ -809,12 +1040,31 @@ export async function handleGenerateImage(ctx) {
         credits: imagePricing.credits,
       });
     }
+    if (flux2Max) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-image",
+        event: "flux_2_max_provider_request",
+        level: "info",
+        correlationId,
+        user_id: userId,
+        model: modelConfig.id,
+        gateway_id: runOptions.gateway.id,
+        width: flux2MaxRequest.width,
+        height: flux2MaxRequest.height,
+        output_format: flux2MaxRequest.outputFormat,
+        safety_tolerance: flux2MaxRequest.safetyTolerance,
+        reference_image_count: flux2MaxRequest.referenceImageCount,
+        prompt_length: prompt.length,
+        credits: imagePricing.credits,
+      });
+    }
     const result = await runWithGenerationTimeout(() => (
-      gptImage2
+      (gptImage2 || flux2Max)
         ? env.AI.run(modelConfig.id, aiRequest.payload, runOptions)
         : env.AI.run(modelConfig.id, aiRequest.payload)
     ));
-    const extracted = await extractGeneratedImage(env, result, { allowProviderUrl: gptImage2 });
+    const extracted = await extractGeneratedImage(env, result, { allowProviderUrl: gptImage2 || flux2Max });
     if (extracted) {
       base64 = extracted.base64;
       mimeType = extracted.mimeType || mimeType;
@@ -906,6 +1156,46 @@ export async function handleGenerateImage(ctx) {
     );
   }
 
+  let tempSavePayload = {};
+  let tempSaveResult = null;
+  if (flux2Max) {
+    try {
+      tempSaveResult = await createAiGeneratedSaveReferenceFromBase64(env, {
+        userId,
+        imageBase64: base64,
+        mimeType,
+      });
+      tempSavePayload = {
+        saveReference: tempSaveResult.saveReference,
+      };
+    } catch (error) {
+      if (typeof usagePolicy.markProviderFailed === "function") {
+        try {
+          await usagePolicy.markProviderFailed({
+            code: "temp_store_failed",
+            message: "Generated image temporary storage failed before billing.",
+          });
+        } catch {}
+      }
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-image",
+        event: "ai_generated_temp_store_failed",
+        level: "error",
+        correlationId,
+        user_id: userId,
+        model: modelConfig.id,
+        is_admin: isAdmin,
+        ...getErrorFields(error),
+      });
+      return respond({
+        ok: false,
+        error: "Generated image could not be stored. Please try again.",
+        code: "generated_image_temp_store_failed",
+      }, { status: 500 });
+    }
+  }
+
   let billingMetadata = null;
   try {
     if (typeof usagePolicy.markFinalizing === "function") {
@@ -925,24 +1215,36 @@ export async function handleGenerateImage(ctx) {
         reference_image_count: gptRequest.referenceImageCount,
         pricing_version: imagePricing.formula?.pricingVersion || "gpt-image-2-v1",
       } : {}),
+      ...(flux2Max ? {
+        width: flux2MaxRequest.width,
+        height: flux2MaxRequest.height,
+        output_format: flux2MaxRequest.outputFormat,
+        safety_tolerance: flux2MaxRequest.safetyTolerance,
+        reference_image_count: flux2MaxRequest.referenceImageCount,
+        input_image_megapixels: flux2MaxRequest.inputImageMegapixels,
+        pricing_version: imagePricing.formula?.pricingVersion || "flux-2-max-v1",
+      } : {}),
     });
     if (typeof usagePolicy.markSucceeded === "function") {
       await usagePolicy.markSucceeded({
+        tempKey: tempSaveResult?.tempKey,
+        saveReference: tempSaveResult?.saveReference,
         mimeType,
         model: modelConfig.id,
         promptLength: prompt.length,
         steps: aiRequest.steps,
         seed: aiRequest.seed,
         balanceAfter: billingMetadata.balance_after,
-        resultStatus: "unavailable",
+        resultStatus: tempSaveResult ? "stored" : "unavailable",
         metadata: buildImageAttemptMetadata({
           prompt,
           aiRequest,
           modelConfig,
           imagePricing,
           gptRequest,
-          replayStatus: "unavailable",
-          replayReason: "temp_object_not_created",
+          flux2MaxRequest,
+          replayStatus: tempSaveResult ? "available" : "unavailable",
+          replayReason: tempSaveResult ? null : "temp_object_not_created",
         }),
       });
     }
@@ -969,32 +1271,32 @@ export async function handleGenerateImage(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
 
-  let tempSavePayload = {};
-  let tempSaveResult = null;
-  try {
-    tempSaveResult = await createAiGeneratedSaveReferenceFromBase64(env, {
-      userId,
-      imageBase64: base64,
-      mimeType,
-    });
-    tempSavePayload = {
-      saveReference: tempSaveResult.saveReference,
-    };
-  } catch (error) {
-    logDiagnostic({
-      service: "bitbi-auth",
-      component: "ai-generate-image",
-      event: "ai_generated_temp_store_failed",
-      level: "warn",
-      correlationId,
-      user_id: userId,
-      model: modelConfig.id,
-      is_admin: isAdmin,
-      ...getErrorFields(error),
-    });
+  if (!tempSaveResult) {
+    try {
+      tempSaveResult = await createAiGeneratedSaveReferenceFromBase64(env, {
+        userId,
+        imageBase64: base64,
+        mimeType,
+      });
+      tempSavePayload = {
+        saveReference: tempSaveResult.saveReference,
+      };
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-image",
+        event: "ai_generated_temp_store_failed",
+        level: "warn",
+        correlationId,
+        user_id: userId,
+        model: modelConfig.id,
+        is_admin: isAdmin,
+        ...getErrorFields(error),
+      });
+    }
   }
 
-  if (typeof usagePolicy.markSucceeded === "function" && tempSaveResult) {
+  if (typeof usagePolicy.markSucceeded === "function" && tempSaveResult && !flux2Max) {
     try {
       await usagePolicy.markSucceeded({
         tempKey: tempSaveResult.tempKey,
@@ -1012,6 +1314,7 @@ export async function handleGenerateImage(ctx) {
           modelConfig,
           imagePricing,
           gptRequest,
+          flux2MaxRequest,
           replayStatus: "available",
         }),
       });
@@ -1044,6 +1347,15 @@ export async function handleGenerateImage(ctx) {
         outputFormat: gptRequest.outputFormat,
         background: gptRequest.background,
         referenceImageCount: gptRequest.referenceImageCount,
+        imageUrl: providerImageUrl,
+      } : {}),
+      ...(flux2Max ? {
+        width: flux2MaxRequest.width,
+        height: flux2MaxRequest.height,
+        outputFormat: flux2MaxRequest.outputFormat,
+        safetyTolerance: flux2MaxRequest.safetyTolerance,
+        referenceImageCount: flux2MaxRequest.referenceImageCount,
+        inputImageMegapixels: flux2MaxRequest.inputImageMegapixels,
         imageUrl: providerImageUrl,
       } : {}),
       ...tempSavePayload,

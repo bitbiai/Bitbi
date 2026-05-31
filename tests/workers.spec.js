@@ -13010,6 +13010,10 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         modelId: 'openai/gpt-image-2',
         params: { quality: 'high', size: '1536x1024', referenceImageCount: 2 },
       },
+      {
+        modelId: 'black-forest-labs/flux-2-max',
+        params: { width: 1024, height: 1024, outputFormat: 'jpeg', safetyTolerance: 2, inputImageMegapixels: 1 },
+      },
     ];
 
     for (const entry of imageCases) {
@@ -13719,6 +13723,196 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       label: 'Seedance 2.0 Fast',
       vendor: 'ByteDance',
     }));
+  });
+
+  test('member Grok Imagine Video generation uses the text-to-video allowlist and saves a video asset', async () => {
+    const {
+      GROK_IMAGINE_VIDEO_MODEL_ID,
+      calculateGrokImagineVideoCreditPricing,
+    } = await loadGrokImagineVideoPricingModule();
+    const expectedPricing = calculateGrokImagineVideoCreditPricing({
+      duration: 5,
+      resolution: '720p',
+      aspect_ratio: '16:9',
+    });
+    const { authWorker, env, token, user, calls, fetchCalls } = await createMemberVideoHarness({
+      creditBalance: 1000,
+      aiRun: async () => ({
+        state: 'Completed',
+        result: {
+          video: 'https://video.example/grok-imagine-video.mp4',
+        },
+      }),
+    });
+
+    const res = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      includePixverseDefaults: false,
+      body: {
+        model: GROK_IMAGINE_VIDEO_MODEL_ID,
+        prompt: 'A cinematic Grok Imagine text to video scene.',
+        duration: 5,
+        resolution: '720p',
+        aspect_ratio: '16:9',
+      },
+      idempotencyKey: 'member-grok-imagine-video-key-123456',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        videoUrl: expect.stringMatching(/^\/api\/ai\/text-assets\/[a-f0-9]+\/file$/),
+        model: {
+          id: GROK_IMAGINE_VIDEO_MODEL_ID,
+          label: 'Grok Imagine Video',
+          vendor: 'xAI',
+        },
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        seed: null,
+        watermark: null,
+        generate_audio: null,
+        asset: {
+          source_module: 'video',
+          mime_type: 'video/mp4',
+        },
+      },
+      billing: {
+        user_id: user.id,
+        feature: 'ai.video.generate',
+        credits_charged: expectedPricing.credits,
+        price: expectedPricing.credits,
+        balance_after: 1000 - expectedPricing.credits,
+      },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(expect.objectContaining({
+      modelId: GROK_IMAGINE_VIDEO_MODEL_ID,
+      options: { gateway: { id: 'default' } },
+    }));
+    expect(calls[0].payload).toEqual({
+      prompt: 'A cinematic Grok Imagine text to video scene.',
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+    });
+    expect(calls[0].payload).not.toHaveProperty('_operation');
+    expect(calls[0].payload).not.toHaveProperty('quality');
+    expect(calls[0].payload).not.toHaveProperty('seed');
+    expect(calls[0].payload).not.toHaveProperty('negative_prompt');
+    expect(calls[0].payload).not.toHaveProperty('image_input');
+    expect(calls[0].payload).not.toHaveProperty('generate_audio');
+    expect(calls[0].payload).not.toHaveProperty('watermark');
+    expect(fetchCalls.map((call) => call.url)).toEqual([
+      'https://video.example/grok-imagine-video.mp4',
+    ]);
+
+    const usage = env.DB.state.memberUsageEvents.find((row) => row.feature_key === 'ai.video.generate');
+    expect(JSON.parse(usage.metadata_json)).toEqual(expect.objectContaining({
+      model: GROK_IMAGINE_VIDEO_MODEL_ID,
+      preset: 'member_video_grok_imagine_video',
+      request_mode: 'workers-ai-gateway',
+      pricing_source: 'grok-imagine-video-unified-billing-2026-05-31',
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      source_module: 'video',
+      asset_id: body.data.asset.id,
+    }));
+    const metadata = JSON.parse(env.DB.state.aiTextAssets[0].metadata_json);
+    const metadataModel = typeof metadata.model === 'string' ? JSON.parse(metadata.model) : metadata.model;
+    expect(metadata).toEqual(expect.objectContaining({
+      source_module: 'video',
+      provider: 'ai_gateway_xai',
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      workflow: 'text-to-video',
+    }));
+    expect(metadata).not.toHaveProperty('seed');
+    expect(metadata).not.toHaveProperty('generate_audio');
+    expect(metadata).not.toHaveProperty('watermark');
+    expect(metadataModel).toEqual(expect.objectContaining({
+      id: GROK_IMAGINE_VIDEO_MODEL_ID,
+      label: 'Grok Imagine Video',
+      vendor: 'xAI',
+    }));
+  });
+
+  test('member Grok Imagine Video rejects unsupported fields and provider failures do not consume credits', async () => {
+    const { GROK_IMAGINE_VIDEO_MODEL_ID } = await loadGrokImagineVideoPricingModule();
+    const { authWorker, env, token, calls } = await createMemberVideoHarness();
+    const unsupportedFields = [
+      { negative_prompt: 'blur' },
+      { image_input: 'data:image/png;base64,iVBORw0KGgo=' },
+      { seed: 42 },
+      { generate_audio: true },
+      { audio: true },
+      { watermark: true },
+      { quality: '720p' },
+      { ratio: '16:9' },
+      { size: '1280x720' },
+      { reference_images: ['data:image/png;base64,iVBORw0KGgo='] },
+      { _operation: 'edit' },
+    ];
+    for (const [index, field] of unsupportedFields.entries()) {
+      const res = await postGenerateVideo({
+        worker: authWorker,
+        env,
+        token,
+        includePixverseDefaults: false,
+        body: {
+          model: GROK_IMAGINE_VIDEO_MODEL_ID,
+          duration: 5,
+          resolution: '720p',
+          aspect_ratio: '16:9',
+          ...field,
+        },
+        idempotencyKey: `member-grok-unsupported-field-${index}`,
+      });
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'unsupported_option',
+      });
+    }
+    expect(calls).toHaveLength(0);
+
+    const providerFailure = await createMemberVideoHarness({
+      aiRun: async () => {
+        throw new Error('grok provider down');
+      },
+    });
+    const providerRes = await postGenerateVideo({
+      worker: providerFailure.authWorker,
+      env: providerFailure.env,
+      token: providerFailure.token,
+      includePixverseDefaults: false,
+      body: {
+        model: GROK_IMAGINE_VIDEO_MODEL_ID,
+        duration: 5,
+        resolution: '720p',
+        aspect_ratio: '16:9',
+      },
+      idempotencyKey: 'member-grok-provider-fail',
+    });
+    expect(providerRes.status).toBe(502);
+    await expect(providerRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'upstream_error',
+    });
+    expect(providerFailure.env.DB.state.memberUsageEvents.filter((row) =>
+      row.feature_key === 'ai.video.generate'
+    )).toHaveLength(0);
+    expect(providerFailure.env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.video.generate' && row.entry_type === 'consume'
+    )).toHaveLength(0);
+    expect(providerFailure.env.DB.state.aiTextAssets).toHaveLength(0);
   });
 
   test('member Seedance 2.0 Fast rejects standard model, unsupported fields, and 13s or 15s durations', async () => {
@@ -35981,13 +36175,34 @@ test.describe('Worker routes', () => {
     ]);
   });
 
-  test('AI generate: member image registry exposes GPT Image 2 for Generate Lab without changing the default Flux model', async () => {
+  test('AI generate: member image registry exposes FLUX.2 Max and GPT Image 2 for Generate Lab without changing the default Flux model', async () => {
     const imageModels = await loadAiImageModelsModule();
     const options = imageModels.getGenerateLabAiImageModelOptions();
+    const optionIds = options.map((entry) => entry.id);
     const gptModel = imageModels.getAiImageModelConfig('openai/gpt-image-2');
+    const flux2MaxModel = imageModels.getAiImageModelConfig('black-forest-labs/flux-2-max');
 
     expect(imageModels.DEFAULT_AI_IMAGE_MODEL).toBe('@cf/black-forest-labs/flux-1-schnell');
-    expect(options.map((entry) => entry.id)).toContain('openai/gpt-image-2');
+    expect(optionIds).toContain('black-forest-labs/flux-2-max');
+    expect(optionIds).toContain('openai/gpt-image-2');
+    expect(optionIds.indexOf('black-forest-labs/flux-2-max')).toBe(optionIds.indexOf('@cf/black-forest-labs/flux-2-klein-9b') + 1);
+    expect(optionIds.indexOf('openai/gpt-image-2')).toBe(optionIds.indexOf('black-forest-labs/flux-2-max') + 1);
+    expect(flux2MaxModel).toEqual(expect.objectContaining({
+      id: 'black-forest-labs/flux-2-max',
+      label: 'FLUX.2 Max',
+      provider: 'Black Forest Labs',
+      requestMode: 'flux-2-max',
+      proxied: true,
+      supportsSteps: false,
+      supportsSeed: true,
+      supportsDimensions: true,
+      supportsReferenceImages: true,
+      maxReferenceImages: 8,
+      supportsOutputFormat: true,
+      supportsSafetyTolerance: true,
+      defaultOutputFormat: 'jpeg',
+      defaultSafetyTolerance: 2,
+    }));
     expect(gptModel).toEqual(expect.objectContaining({
       id: 'openai/gpt-image-2',
       label: 'GPT Image 2',
@@ -36271,6 +36486,251 @@ test.describe('Worker routes', () => {
       },
     });
     expect(fetchCalls).toBe(1);
+  });
+
+  test('AI generate: member FLUX.2 Max uses AI Gateway with strict JSON payload, reference pricing, and save reference replay', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { calculateAiImageCreditCost } = await loadAiImageCreditPricingModule();
+    const user = createContractUser({ id: 'ai-flux2max-member-user', role: 'user' });
+    const validPng = ONE_PIXEL_PNG_DATA_URI;
+    let capturedModelId = null;
+    let capturedPayload = null;
+    let capturedOptions = null;
+    let fetchCalls = 0;
+    const env = createAuthTestEnv({
+      users: [user],
+      imagesBinding: {
+        originalInfo: { width: 1024, height: 1024, format: 'image/png' },
+      },
+      memberCreditLedger: [{
+        id: 'cl_seed_ai_flux2max_member_user',
+        user_id: user.id,
+        amount: 300,
+        balance_after: 300,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_grant',
+        idempotency_key: 'seed-ai-flux2max-member-user',
+        request_hash: 'seed',
+        created_by_user_id: user.id,
+        created_at: nowIso(),
+        metadata_json: '{}',
+      }],
+      aiRun: async (modelId, payload, options) => {
+        capturedModelId = modelId;
+        capturedPayload = payload;
+        capturedOptions = options;
+        return { result: { image: 'https://provider.example/flux2-max.webp' } };
+      },
+      fetch: async (url) => {
+        fetchCalls += 1;
+        expect(String(url)).toBe('https://provider.example/flux2-max.webp');
+        return new Response(Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'), {
+          status: 200,
+          headers: {
+            'content-type': 'image/webp',
+            'content-length': '68',
+          },
+        });
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'member FLUX.2 Max generation',
+        model: 'black-forest-labs/flux-2-max',
+        width: 1024,
+        height: 1024,
+        outputFormat: 'webp',
+        safetyTolerance: 3,
+        seed: 123,
+        referenceImages: [validPng],
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-flux2max-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    const expectedPricing = calculateAiImageCreditCost('black-forest-labs/flux-2-max', {
+      width: 1024,
+      height: 1024,
+      outputFormat: 'webp',
+      safetyTolerance: 3,
+      referenceImageCount: 1,
+      inputImageMegapixels: 1,
+      inputImages: [{ width: 1024, height: 1024 }],
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        imageBase64: expect.any(String),
+        mimeType: 'image/webp',
+        prompt: 'member FLUX.2 Max generation',
+        model: 'black-forest-labs/flux-2-max',
+        steps: null,
+        seed: 123,
+        width: 1024,
+        height: 1024,
+        outputFormat: 'webp',
+        safetyTolerance: 3,
+        referenceImageCount: 1,
+        inputImageMegapixels: expect.any(Number),
+        imageUrl: 'https://provider.example/flux2-max.webp',
+        saveReference: expect.any(String),
+      },
+      billing: {
+        credits_charged: expectedPricing.credits,
+        balance_after: 300 - expectedPricing.credits,
+      },
+    });
+    expect(capturedModelId).toBe('black-forest-labs/flux-2-max');
+    expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    expect(capturedPayload).toEqual({
+      prompt: 'member FLUX.2 Max generation',
+      width: 1024,
+      height: 1024,
+      output_format: 'webp',
+      safety_tolerance: 3,
+      seed: 123,
+      input_images: [validPng],
+    });
+    expect(capturedPayload).not.toHaveProperty('steps');
+    expect(capturedPayload).not.toHaveProperty('num_steps');
+    expect(capturedPayload).not.toHaveProperty('guidance');
+    expect(capturedPayload).not.toHaveProperty('quality');
+    expect(capturedPayload).not.toHaveProperty('size');
+    expect(capturedPayload).not.toHaveProperty('background');
+    expect(env.IMAGES.infoCalls).toHaveLength(1);
+    expect(env.IMAGES.infoCalls[0]).toEqual(expect.objectContaining({ width: 1024, height: 1024 }));
+    expect(fetchCalls).toBe(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === user.id && row.amount < 0)).toHaveLength(1);
+  });
+
+  test('AI generate: member FLUX.2 Max rejects unsupported fields and invalid references before provider calls', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const cases = [
+      { name: 'steps', patch: { steps: 4 }, error: 'steps is not supported' },
+      { name: 'num_steps', patch: { num_steps: 4 }, error: 'num_steps is not supported' },
+      { name: 'guidance', patch: { guidance: 7.5 }, error: 'guidance is not supported' },
+      { name: 'quality', patch: { quality: 'high' }, error: 'quality is not supported' },
+      { name: 'size', patch: { size: '1024x1024' }, error: 'size is not supported' },
+      { name: 'background', patch: { background: 'auto' }, error: 'background is not supported' },
+      { name: 'structuredPrompt', patch: { structuredPrompt: '{"x":true}' }, error: 'structuredPrompt is not supported' },
+      { name: 'remote reference', patch: { referenceImages: ['https://example.com/ref.png'] }, error: 'data URI' },
+      { name: 'too many references', patch: { referenceImages: Array.from({ length: 9 }, () => ONE_PIXEL_PNG_DATA_URI) }, error: 'at most 8' },
+    ];
+
+    for (const entry of cases) {
+      let aiCalls = 0;
+      const user = createContractUser({ id: `ai-flux2max-invalid-${entry.name.replace(/[^a-z0-9]+/gi, '-')}`, role: 'user' });
+      const env = createAuthTestEnv({
+        users: [user],
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      const token = await seedSession(env, user.id);
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/generate-image', 'POST', {
+          prompt: `invalid FLUX.2 Max ${entry.name}`,
+          model: 'black-forest-labs/flux-2-max',
+          width: 1024,
+          height: 1024,
+          outputFormat: 'jpeg',
+          safetyTolerance: 2,
+          ...entry.patch,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': `member-image-flux2max-invalid-${entry.name.replace(/[^a-z0-9]+/gi, '-')}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status, entry.name).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain(entry.error);
+      expect(aiCalls).toBe(0);
+    }
+  });
+
+  test('AI generate: failed FLUX.2 Max provider or temporary storage does not consume member credits', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const seedLedger = (user) => [{
+      id: `cl_seed_ai_flux2max_fail_${user.id}`,
+      user_id: user.id,
+      amount: 100,
+      balance_after: 100,
+      entry_type: 'grant',
+      feature_key: null,
+      source: 'test_grant',
+      idempotency_key: `seed-ai-flux2max-fail-${user.id}`,
+      request_hash: 'seed',
+      created_by_user_id: user.id,
+      created_at: nowIso(),
+      metadata_json: '{}',
+    }];
+    const baseBody = {
+      prompt: 'failed FLUX.2 Max',
+      model: 'black-forest-labs/flux-2-max',
+      width: 1024,
+      height: 1024,
+      outputFormat: 'jpeg',
+      safetyTolerance: 2,
+    };
+
+    const providerUser = createContractUser({ id: 'ai-flux2max-provider-fail-user', role: 'user' });
+    const providerEnv = createAuthTestEnv({
+      users: [providerUser],
+      memberCreditLedger: seedLedger(providerUser),
+      aiRun: async () => {
+        throw new Error('provider failed');
+      },
+    });
+    const providerToken = await seedSession(providerEnv, providerUser.id);
+    const providerRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', baseBody, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${providerToken}`,
+        'Idempotency-Key': 'member-image-flux2max-provider-fail',
+      }),
+      providerEnv,
+      createExecutionContext().execCtx
+    );
+    expect(providerRes.status).toBe(502);
+    expect(providerEnv.DB.state.memberCreditLedger.some((row) => row.amount < 0)).toBe(false);
+
+    const storageUser = createContractUser({ id: 'ai-flux2max-storage-fail-user', role: 'user' });
+    const storageEnv = createAuthTestEnv({
+      users: [storageUser],
+      memberCreditLedger: seedLedger(storageUser),
+      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+    storageEnv.USER_IMAGES.failPutWith = new Error('R2 down');
+    const storageToken = await seedSession(storageEnv, storageUser.id);
+    const storageRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', baseBody, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${storageToken}`,
+        'Idempotency-Key': 'member-image-flux2max-storage-fail',
+      }),
+      storageEnv,
+      createExecutionContext().execCtx
+    );
+    expect(storageRes.status).toBe(500);
+    await expect(storageRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'generated_image_temp_store_failed',
+    });
+    expect(storageEnv.DB.state.memberCreditLedger.some((row) => row.amount < 0)).toBe(false);
   });
 
   test('AI generate: failed GPT Image 2 provider calls do not consume member credits', async () => {

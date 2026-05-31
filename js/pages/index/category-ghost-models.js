@@ -120,12 +120,14 @@ const CATEGORY_CONFIG_FALLBACK_MODEL_NAMES = Object.freeze({
     gallery: Object.freeze([
         'FLUX.1 Schnell',
         'FLUX.2 Klein 9B',
+        'FLUX.2 Max',
         'GPT Image 2',
     ]),
     video: Object.freeze([
         'PixVerse V6',
         'HappyHorse 1.0 T2V',
         'Seedance 2.0 Fast',
+        'Grok Imagine Video',
     ]),
     sound: Object.freeze([
         'Music 2.6',
@@ -137,6 +139,7 @@ const CATEGORY_KNOWN_MODEL_NAMES = Object.freeze({
         'FLUX.1 Schnell',
         'FLUX.2 Klein 9B',
         'FLUX.2 Dev',
+        'FLUX.2 Max',
         'GPT Image 2',
     ]),
     video: new Set([
@@ -144,6 +147,7 @@ const CATEGORY_KNOWN_MODEL_NAMES = Object.freeze({
         'PixVerse V4.5',
         'HappyHorse 1.0 T2V',
         'Seedance 2.0 Fast',
+        'Grok Imagine Video',
     ]),
     sound: new Set([
         'Music 2.6',
@@ -166,12 +170,16 @@ const MODEL_LABELS = new Map([
     ['@cf/black-forest-labs/flux-2-dev', 'FLUX.2 Dev'],
     ['black-forest-labs/flux-2-dev', 'FLUX.2 Dev'],
     ['flux-2-dev', 'FLUX.2 Dev'],
+    ['black-forest-labs/flux-2-max', 'FLUX.2 Max'],
+    ['flux-2-max', 'FLUX.2 Max'],
     ['openai/gpt-image-2', 'GPT Image 2'],
     ['gpt-image-2', 'GPT Image 2'],
     ['pixverse/v6', 'PixVerse V6'],
     ['pixverse/v4.5', 'PixVerse V4.5'],
     ['alibaba/hh1-t2v', 'HappyHorse 1.0 T2V'],
     ['bytedance/seedance-2.0-fast', 'Seedance 2.0 Fast'],
+    ['xai/grok-imagine-video', 'Grok Imagine Video'],
+    ['grok-imagine-video', 'Grok Imagine Video'],
     ['minimax/music-2.6', 'Music 2.6'],
     ['music-2.6', 'Music 2.6'],
 ]);
