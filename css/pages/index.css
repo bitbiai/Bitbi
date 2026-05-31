@@ -5099,6 +5099,15 @@
         }
     }
 
+    @media (hover: none), (pointer: coarse) {
+        .hero--homepage .hero__creation-stream-highlight {
+            display: none;
+            visibility: hidden;
+            opacity: 0;
+            animation: none;
+        }
+    }
+
     #gallery,
     #video-creations,
     #soundlab,
