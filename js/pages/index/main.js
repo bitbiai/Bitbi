@@ -18,9 +18,6 @@ import { initNewsPulse } from '../../shared/news-pulse.js?v=__ASSET_VERSION__';
 import { initAuth, getAuthState } from '../../shared/auth-state.js';
 import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
-import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
-import { initSoundLabCreate } from './soundlab-create.js?v=__ASSET_VERSION__';
-import { initVideoCreate } from './video-create.js?v=__ASSET_VERSION__';
 import { initCreationStreamAnchor } from './creation-stream-anchor.js?v=__ASSET_VERSION__';
 import { initLatestModelsVideoModule } from './latest-models-video-module.js?v=__ASSET_VERSION__';
 import { initHomepageHeroResponsiveScale } from './hero-responsive-scale.js?v=__ASSET_VERSION__';
@@ -46,6 +43,64 @@ try {
 }
 
 try { clearGenerateLabContext(); } catch { /* Session storage may be unavailable. */ }
+
+const createModulePromises = {
+    galleryStudio: null,
+    videoCreate: null,
+    soundLabCreate: null,
+};
+
+function loadCreateModule(cacheKey, importer) {
+    if (!createModulePromises[cacheKey]) {
+        createModulePromises[cacheKey] = importer().catch((error) => {
+            createModulePromises[cacheKey] = null;
+            throw error;
+        });
+    }
+    return createModulePromises[cacheKey];
+}
+
+function initCreateModule(cacheKey, importer, exportName, warningLabel) {
+    return loadCreateModule(cacheKey, importer)
+        .then((module) => {
+            const init = module?.[exportName];
+            if (typeof init !== 'function') {
+                throw new Error(`${exportName} export unavailable`);
+            }
+            init();
+        })
+        .catch((error) => {
+            console.warn(`${warningLabel}:`, error);
+            throw error;
+        });
+}
+
+function initGalleryStudioLazy() {
+    return initCreateModule(
+        'galleryStudio',
+        () => import('./studio.js?v=__ASSET_VERSION__'),
+        'initGalleryStudio',
+        'galleryStudio',
+    );
+}
+
+function initVideoCreateLazy() {
+    return initCreateModule(
+        'videoCreate',
+        () => import('./video-create.js?v=__ASSET_VERSION__'),
+        'initVideoCreate',
+        'videoCreate',
+    );
+}
+
+function initSoundLabCreateLazy() {
+    return initCreateModule(
+        'soundLabCreate',
+        () => import('./soundlab-create.js?v=__ASSET_VERSION__'),
+        'initSoundLabCreate',
+        'soundLabCreate',
+    );
+}
 
 function initMobileGuestBanner() {
     const headerBar = document.querySelector('#navbar .site-nav__bar');
@@ -271,7 +326,9 @@ try {
             studioPane.style.display = mode === 'create' ? '' : 'none';
             if (mode === 'create' && !studioInited) {
                 studioInited = true;
-                initGalleryStudio();
+                initGalleryStudioLazy().catch(() => {
+                    studioInited = false;
+                });
             }
         }
 
@@ -346,7 +403,9 @@ try {
             createPane.style.display = mode === 'create' ? '' : 'none';
             if (mode === 'create' && !createInited) {
                 createInited = true;
-                initVideoCreate();
+                initVideoCreateLazy().catch(() => {
+                    createInited = false;
+                });
             }
         }
 
@@ -410,7 +469,9 @@ try {
             createPane.style.display = mode === 'create' ? '' : 'none';
             if (mode === 'create' && !createInited) {
                 createInited = true;
-                initSoundLabCreate();
+                initSoundLabCreateLazy().catch(() => {
+                    createInited = false;
+                });
             }
         }
 

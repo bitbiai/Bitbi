@@ -52,6 +52,8 @@
     "check:static-deploy-safety": "node scripts/check-static-deploy-safety.mjs",
     "check:static-deploy-safety:github": "node scripts/check-static-deploy-safety.mjs --github-output",
     "check:ai-cost-policy": "node scripts/check-ai-cost-policy.mjs",
+    "audit:performance": "node scripts/performance-inventory.mjs",
+    "audit:performance:markdown": "node scripts/performance-inventory.mjs --markdown",
     "report:ai-budget-evidence": "node scripts/report-ai-budget-evidence.mjs",
     "validate:release": "node scripts/validate-release-compat.mjs",
     "validate:cloudflare-prereqs": "node scripts/validate-cloudflare-deploy-prereqs.mjs",
