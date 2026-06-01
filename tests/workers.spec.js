@@ -10528,8 +10528,15 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
 });
 
 test.describe('BITBI Pro member subscriptions', () => {
-  const PERIOD_START = '2026-05-01T00:00:00.000Z';
-  const PERIOD_END = '2026-06-01T00:00:00.000Z';
+  const PERIOD_START_DATE = new Date();
+  PERIOD_START_DATE.setUTCDate(1);
+  PERIOD_START_DATE.setUTCHours(0, 0, 0, 0);
+  const PERIOD_END_DATE = new Date(PERIOD_START_DATE);
+  PERIOD_END_DATE.setUTCMonth(PERIOD_END_DATE.getUTCMonth() + 1);
+  const PERIOD_START = PERIOD_START_DATE.toISOString();
+  const PERIOD_END = PERIOD_END_DATE.toISOString();
+  const PERIOD_START_SECONDS = Math.floor(PERIOD_START_DATE.getTime() / 1000);
+  const PERIOD_END_SECONDS = Math.floor(PERIOD_END_DATE.getTime() / 1000);
 
   function seedBucketedMember({
     userId = 'member-subscription-user',
@@ -10952,7 +10959,7 @@ test.describe('BITBI Pro member subscriptions', () => {
                   subscription: 'sub_member_pro_123456',
                 },
               },
-              period: { start: 1777593600, end: 1780272000 },
+              period: { start: PERIOD_START_SECONDS, end: PERIOD_END_SECONDS },
               metadata: { user_id: 'member-subscription-webhook' },
             }],
           },
@@ -11074,7 +11081,7 @@ test.describe('BITBI Pro member subscriptions', () => {
                   subscription: 'sub_member_pro_123456',
                 },
               },
-              period: { start: 1777593600, end: 1780272000 },
+              period: { start: PERIOD_START_SECONDS, end: PERIOD_END_SECONDS },
               metadata: { user_id: 'member-subscription-ignored-invoices' },
             }],
           },
@@ -11115,7 +11122,7 @@ test.describe('BITBI Pro member subscriptions', () => {
                   subscription: 'sub_member_pro_123456',
                 },
               },
-              period: { start: 1777593600, end: 1780272000 },
+              period: { start: PERIOD_START_SECONDS, end: PERIOD_END_SECONDS },
               metadata: { user_id: 'member-subscription-ignored-invoices' },
             }],
           },
@@ -11350,9 +11357,9 @@ test.describe('BITBI Pro member subscriptions', () => {
         customer: 'cus_member_pro_123456',
         status: 'active',
         cancel_at_period_end: true,
-        canceled_at: 1778000000,
-        current_period_start: 1777593600,
-        current_period_end: 1780272000,
+        canceled_at: PERIOD_START_SECONDS,
+        current_period_start: PERIOD_START_SECONDS,
+        current_period_end: PERIOD_END_SECONDS,
         items: { data: [{ price: { id: 'price_member_pro_123456' } }] },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
@@ -11393,7 +11400,7 @@ test.describe('BITBI Pro member subscriptions', () => {
       cancelAtPeriodEnd: true,
       canCancelSubscription: false,
       canReactivateSubscription: true,
-      activeUntil: '2026-06-01T00:00:00.000Z',
+      activeUntil: PERIOD_END,
     }));
   });
 
@@ -11416,8 +11423,8 @@ test.describe('BITBI Pro member subscriptions', () => {
         customer: 'cus_member_pro_123456',
         status: 'active',
         cancel_at_period_end: false,
-        current_period_start: 1777593600,
-        current_period_end: 1780272000,
+        current_period_start: PERIOD_START_SECONDS,
+        current_period_end: PERIOD_END_SECONDS,
         items: { data: [{ price: { id: 'price_member_pro_123456' } }] },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
@@ -22793,6 +22800,9 @@ test.describe('Worker routes', () => {
     });
 
     test('platform_admin_lab_budget caps block Admin Text before provider work and record successful usage once', async () => {
+      const capWindowNow = nowIso();
+      const capWindowDay = capWindowNow.slice(0, 10);
+      const capWindowMonth = capWindowNow.slice(0, 7);
       const exceededHarness = await createAdminAiContractHarness({
         authEnv: {
           platformBudgetLimits: [
@@ -22837,15 +22847,15 @@ test.describe('Worker routes', () => {
             actor_user_id: 'admin-ai-user',
             actor_role: 'admin',
             units: 1,
-            window_day: '2026-05-16',
-            window_month: '2026-05',
+            window_day: capWindowDay,
+            window_month: capWindowMonth,
             idempotency_key_hash: null,
             request_fingerprint: null,
             source_attempt_id: 'existing-attempt',
             source_job_id: null,
             status: 'recorded',
             metadata_json: '{}',
-            created_at: '2026-05-16T00:00:00.000Z',
+            created_at: capWindowNow,
           }],
         },
       });
