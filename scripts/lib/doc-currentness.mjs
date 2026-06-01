@@ -254,6 +254,11 @@ function isOperatorLiveEvidencePackagePath(relativePath) {
   return /^docs\/production-readiness\/evidence\/operator-live-evidence-\d{4}-\d{2}-\d{2}\/.+\.md$/.test(normalized);
 }
 
+function isPerformancePhaseReportPath(relativePath) {
+  const normalized = normalizePathname(relativePath);
+  return /^docs\/performance\/phase-[a-z0-9-]+\.md$/.test(normalized);
+}
+
 function walkMarkdownFiles(root, dir = root, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const absolutePath = path.join(dir, entry.name);
@@ -284,6 +289,7 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (ACTIVE_DOMAIN_DESIGN_DOCS.has(normalized)) return "active_domain_design";
   if (normalized.startsWith("docs/tenant-assets/evidence/") && /^\d{4}-\d{2}-\d{2}-.+\.md$/.test(path.basename(normalized))) return "historical_phase_report";
   if (normalized.startsWith("docs/tenant-assets/") && normalized.endsWith(".md")) return "active_domain_design";
+  if (isPerformancePhaseReportPath(normalized)) return "historical_phase_report";
   if (normalized.startsWith("docs/audits/archive/") && normalized.endsWith(".md")) return "historical_phase_report";
   if (normalized === "docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md") return "historical_phase_report";
   if (isRootHistoricalReportPath(normalized)) return "historical_root_report_not_archived";

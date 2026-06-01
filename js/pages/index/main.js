@@ -23,10 +23,6 @@ import { initLatestModelsVideoModule } from './latest-models-video-module.js?v=_
 import { initHomepageHeroResponsiveScale } from './hero-responsive-scale.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initContact } from './contact.js?v=__ASSET_VERSION__';
-import {
-    HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS,
-    initModelsOverlay,
-} from '../../shared/models-overlay.js?v=__ASSET_VERSION__';
 import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
@@ -49,6 +45,11 @@ const createModulePromises = {
     videoCreate: null,
     soundLabCreate: null,
 };
+const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([
+    '@cf/black-forest-labs/flux-2-dev',
+]);
+let modelsOverlayModulePromise = null;
+let modelsOverlayInitialized = false;
 
 function loadCreateModule(cacheKey, importer) {
     if (!createModulePromises[cacheKey]) {
@@ -100,6 +101,100 @@ function initSoundLabCreateLazy() {
         'initSoundLabCreate',
         'soundLabCreate',
     );
+}
+
+function loadModelsOverlayModule() {
+    if (!modelsOverlayModulePromise) {
+        modelsOverlayModulePromise = import('../../shared/models-overlay.js?v=__ASSET_VERSION__')
+            .catch((error) => {
+                modelsOverlayModulePromise = null;
+                throw error;
+            });
+    }
+    return modelsOverlayModulePromise;
+}
+
+async function initModelsOverlayLazy() {
+    const module = await loadModelsOverlayModule();
+    if (!modelsOverlayInitialized) {
+        if (typeof module?.initModelsOverlay !== 'function') {
+            throw new Error('initModelsOverlay export unavailable');
+        }
+        module.initModelsOverlay(document, {
+            excludeModelIds: HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS,
+        });
+        modelsOverlayInitialized = true;
+    }
+    return module;
+}
+
+function closeMobileNavForModelsOverlay() {
+    document.getElementById('mobileNavClose')?.click();
+}
+
+function openModelsOverlayFromModule(module, { isMobile = false } = {}) {
+    if (isMobile && typeof module?.openModelsOverlay === 'function') {
+        module.openModelsOverlay();
+        return;
+    }
+    if (!isMobile && typeof module?.toggleModelsOverlay === 'function') {
+        module.toggleModelsOverlay();
+        return;
+    }
+    if (typeof module?.openModelsOverlay === 'function') {
+        module.openModelsOverlay();
+    }
+}
+
+function initDeferredModelsOverlay() {
+    const triggers = document.querySelectorAll('[data-models-link]');
+    const handleLazyTrigger = (event) => {
+        if (modelsOverlayInitialized) return;
+
+        event.preventDefault();
+        const trigger = event.currentTarget;
+        const isMobile = trigger?.dataset?.modelsLink === 'mobile';
+        const requestedAt = performance.now();
+        if (isMobile) closeMobileNavForModelsOverlay();
+
+        initModelsOverlayLazy()
+            .then((module) => {
+                const openNow = () => openModelsOverlayFromModule(module, { isMobile });
+                const remainingDelay = isMobile ? Math.max(0, 120 - (performance.now() - requestedAt)) : 0;
+                if (remainingDelay > 0) {
+                    window.setTimeout(openNow, remainingDelay);
+                } else {
+                    openNow();
+                }
+            })
+            .catch((error) => {
+                console.warn('modelsOverlay:', error);
+            });
+    };
+
+    triggers.forEach((trigger) => {
+        if (trigger.dataset.modelsOverlayLazyBound === 'true') return;
+        trigger.dataset.modelsOverlayLazyBound = 'true';
+        trigger.addEventListener('click', handleLazyTrigger);
+    });
+
+    const syncModelsHash = () => {
+        if (window.location.hash !== '#models') return;
+        initModelsOverlayLazy()
+            .then((module) => {
+                if (window.location.hash === '#models') {
+                    module.openModelsOverlay?.();
+                }
+            })
+            .catch((error) => {
+                console.warn('modelsOverlay:', error);
+            });
+    };
+
+    window.addEventListener('hashchange', syncModelsHash);
+    if (window.location.hash === '#models') {
+        requestAnimationFrame(syncModelsHash);
+    }
 }
 
 function initMobileGuestBanner() {
@@ -253,9 +348,7 @@ try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio FAILED:', e);
 
 /* Models overlay */
 try {
-    initModelsOverlay(document, {
-        excludeModelIds: HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS,
-    });
+    initDeferredModelsOverlay();
 } catch (e) { console.warn('modelsOverlay:', e); }
 
 /* Scroll reveal */
@@ -309,9 +402,40 @@ try {
     const studioPane = document.getElementById('galleryStudio');
     if (modeBtns.length && explorePane && studioPane) {
         let studioInited = false;
+        let studioReady = false;
+        let studioInitPromise = null;
         let currentMode = 'explore';
         let pendingCreate = false;
         const createBtn = document.querySelector('.gallery-mode__btn[data-mode="create"]');
+
+        function ensureGalleryStudioReady() {
+            if (studioReady) return Promise.resolve();
+            if (!studioInitPromise) {
+                studioInited = true;
+                studioInitPromise = initGalleryStudioLazy()
+                    .then(() => {
+                        studioReady = true;
+                    })
+                    .catch((error) => {
+                        studioInited = false;
+                        studioInitPromise = null;
+                        throw error;
+                    });
+            }
+            return studioInitPromise;
+        }
+
+        studioPane.addEventListener('click', (event) => {
+            const button = event.target.closest?.('#galStudioGenerate');
+            if (!button || studioReady) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            ensureGalleryStudioReady()
+                .then(() => {
+                    button.click();
+                })
+                .catch(() => {});
+        }, true);
 
         function setGalleryMode(mode) {
             currentMode = mode;
@@ -325,10 +449,7 @@ try {
             explorePane.style.display = mode === 'explore' ? '' : 'none';
             studioPane.style.display = mode === 'create' ? '' : 'none';
             if (mode === 'create' && !studioInited) {
-                studioInited = true;
-                initGalleryStudioLazy().catch(() => {
-                    studioInited = false;
-                });
+                ensureGalleryStudioReady().catch(() => {});
             }
         }
 
@@ -377,10 +498,41 @@ try {
     const createPane = document.getElementById('videoCreate');
     if (modeBtns.length && explorePane && createPane) {
         let createInited = false;
+        let createReady = false;
+        let createInitPromise = null;
         let currentMode = 'explore';
         let pendingCreate = false;
         let paginationDisplayBeforeCreate = paginationPane?.style.display || '';
         const createBtn = document.querySelector('#video-creations .video-mode__btn[data-video-mode="create"]');
+
+        function ensureVideoCreateReady() {
+            if (createReady) return Promise.resolve();
+            if (!createInitPromise) {
+                createInited = true;
+                createInitPromise = initVideoCreateLazy()
+                    .then(() => {
+                        createReady = true;
+                    })
+                    .catch((error) => {
+                        createInited = false;
+                        createInitPromise = null;
+                        throw error;
+                    });
+            }
+            return createInitPromise;
+        }
+
+        createPane.addEventListener('click', (event) => {
+            const button = event.target.closest?.('#videoGenerate');
+            if (!button || createReady) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            ensureVideoCreateReady()
+                .then(() => {
+                    button.click();
+                })
+                .catch(() => {});
+        }, true);
 
         function setVideoMode(mode) {
             currentMode = mode;
@@ -402,10 +554,7 @@ try {
             }
             createPane.style.display = mode === 'create' ? '' : 'none';
             if (mode === 'create' && !createInited) {
-                createInited = true;
-                initVideoCreateLazy().catch(() => {
-                    createInited = false;
-                });
+                ensureVideoCreateReady().catch(() => {});
             }
         }
 
@@ -452,9 +601,40 @@ try {
     const createPane = document.getElementById('soundLabCreate');
     if (modeBtns.length && explorePane && createPane) {
         let createInited = false;
+        let createReady = false;
+        let createInitPromise = null;
         let currentMode = 'explore';
         let pendingCreate = false;
         const createBtn = document.querySelector('#soundlab .video-mode__btn[data-sound-mode="create"]');
+
+        function ensureSoundLabCreateReady() {
+            if (createReady) return Promise.resolve();
+            if (!createInitPromise) {
+                createInited = true;
+                createInitPromise = initSoundLabCreateLazy()
+                    .then(() => {
+                        createReady = true;
+                    })
+                    .catch((error) => {
+                        createInited = false;
+                        createInitPromise = null;
+                        throw error;
+                    });
+            }
+            return createInitPromise;
+        }
+
+        createPane.addEventListener('click', (event) => {
+            const button = event.target.closest?.('#soundMusicGenerate');
+            if (!button || createReady) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            ensureSoundLabCreateReady()
+                .then(() => {
+                    button.click();
+                })
+                .catch(() => {});
+        }, true);
 
         function setSoundMode(mode) {
             currentMode = mode;
@@ -468,10 +648,7 @@ try {
             explorePane.style.display = mode === 'explore' ? '' : 'none';
             createPane.style.display = mode === 'create' ? '' : 'none';
             if (mode === 'create' && !createInited) {
-                createInited = true;
-                initSoundLabCreateLazy().catch(() => {
-                    createInited = false;
-                });
+                ensureSoundLabCreateReady().catch(() => {});
             }
         }
 

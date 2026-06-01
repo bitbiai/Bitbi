@@ -215,6 +215,25 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "docs/performance/phase-a-baseline.md", "Performance audit phase report; not current release truth.\n");
+  writeFile(repo, "docs/performance/phase-b-initial-load-compat.md", "Performance audit phase report; not current release truth.\n");
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(
+    result.markdownInventory.find((entry) => entry.path === "docs/performance/phase-a-baseline.md")?.category,
+    "historical_phase_report"
+  );
+  assert.equal(
+    result.markdownInventory.find((entry) => entry.path === "docs/performance/phase-b-initial-load-compat.md")?.category,
+    "historical_phase_report"
+  );
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md", "Latest auth migration is `0048_add_member_ai_usage_attempts.sql`.\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],

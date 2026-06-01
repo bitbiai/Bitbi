@@ -246,6 +246,15 @@ function close() {
     }
 }
 
+export function openModelsOverlay() {
+    open();
+}
+
+export function toggleModelsOverlay() {
+    if (isOpen) close();
+    else open();
+}
+
 function handleKey(event) {
     if (event.key === 'Escape' && isOpen) close();
 }

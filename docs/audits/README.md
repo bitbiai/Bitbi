@@ -74,6 +74,7 @@ These files are not current source of truth. They may mention older migration nu
 | `docs/audits/archive/*.md` | Archived pre-consolidation snapshots. |
 | `docs/audits/archive/root-phase-reports/` | Historical root phase reports relocated out of the root. |
 | `docs/audits/archive/retired-audit-root-docs/` | Retired legacy root audit docs. |
+| `docs/performance/phase-*.md` | Performance audit phase reports and local measurement evidence; not active release truth or release prerequisites. |
 | dated `docs/tenant-assets/evidence/*.md` summaries | Evidence records; use current decision files for present status. |
 | `docs/audits/archive/root-phase-reports/PHASE1_COMPLETION_HANDOFF.md`, `docs/audits/archive/root-phase-reports/PHASE2A_ENTRYPOINT.md` | Historical handoffs. |
 | dated `docs/production-readiness/evidence/operator-live-evidence-*/` packages | Historical/operator evidence snapshots unless a future package is explicitly promoted into the active runbook list. |
@@ -112,6 +113,7 @@ This matrix is the conservative cleanup baseline for future documentation work. 
 - Historical phase-by-phase narrative belongs in frozen historical docs only.
 - The repository root is for active top-level docs only. Historical phase reports belong in `docs/audits/archive/root-phase-reports/`.
 - Audit-specific plans/reports belong under `docs/audits/` or an archive. Do not create new root-level `AUDIT_*.md`, `ALPHA_AUDIT_*.md`, or `PHASE*.md` files.
+- Performance phase reports under `docs/performance/phase-*.md` are classified as historical performance evidence, not current release truth.
 - Future completed audit reports should update current state or go directly to archive, not the repository root.
 - Old Omega, priority, wave, package, or phase labels are not active backlog labels unless a fresh audit explicitly reopens them.
 - Active domain roadmaps are candidate design context only; future audit findings should be newly numbered or newly classified.
