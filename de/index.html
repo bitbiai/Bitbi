@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>BITBI | Mein digitaler Spielraum</title>
     <meta name="description" content="BITBI — im Generate Lab erstellen, kontogebundene KI-Ergebnisse im Assets Manager speichern und Credits, Pro-Status sowie Profil im Mitgliederbereich verwalten.">
+    <meta name="robots" content="index, follow, max-image-preview:large">
     <meta name="keywords" content="BITBI, digital art, AI creations, creative coding">
     <meta name="author" content="BITBI Studio">
     <link rel="canonical" href="https://bitbi.ai/de/">
@@ -15,13 +16,20 @@
     <meta property="og:description" content="Im Generate Lab erstellen, kontogebundene KI-Ergebnisse im Assets Manager speichern und Credits, Pro-Status sowie Profil im Mitgliederbereich verwalten.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://bitbi.ai/de/">
+    <meta property="og:site_name" content="BITBI">
+    <meta property="og:locale" content="de_DE">
+    <meta property="og:locale:alternate" content="en_US">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@bitbi_ai">
     <meta name="twitter:title" content="BITBI | Mein digitaler Spielraum">
     <meta name="twitter:description" content="Im Generate Lab erstellen, kontogebundene KI-Ergebnisse im Assets Manager speichern und Credits, Pro-Status sowie Profil im Mitgliederbereich verwalten.">
-    <meta property="og:image" content="https://bitbi.ai/assets/images/og-default.png">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta name="twitter:image" content="https://bitbi.ai/assets/images/og-default.png">
+    <meta property="og:image" content="https://bitbi.ai/assets/images/1.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="600">
+    <meta property="og:image:height" content="391">
+    <meta property="og:image:alt" content="BITBI Logo auf dunklem Studiohintergrund">
+    <meta name="twitter:image" content="https://bitbi.ai/assets/images/1.png">
+    <meta name="twitter:image:alt" content="BITBI Logo auf dunklem Studiohintergrund">
     <meta name="theme-color" content="#0A0A0A">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
@@ -49,12 +57,45 @@
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "BITBI",
-        "url": "https://bitbi.ai/de/",
-        "description": "Im Generate Lab erstellen, kontogebundene KI-Ergebnisse im Assets Manager speichern und Credits, Pro-Status sowie Profil im Mitgliederbereich verwalten.",
-        "sameAs": [
-            "https://x.com/bitbi_ai"
+        "@graph": [
+            {
+                "@type": "Organization",
+                "@id": "https://bitbi.ai/de/#organization",
+                "name": "BITBI",
+                "url": "https://bitbi.ai/de/",
+                "logo": {
+                    "@type": "ImageObject",
+                    "url": "https://bitbi.ai/assets/favicons/android-chrome-512x512.png",
+                    "width": 512,
+                    "height": 512
+                },
+                "sameAs": [
+                    "https://x.com/bitbi_ai"
+                ]
+            },
+            {
+                "@type": "WebSite",
+                "@id": "https://bitbi.ai/de/#website",
+                "name": "BITBI",
+                "url": "https://bitbi.ai/de/",
+                "description": "Im Generate Lab erstellen, kontogebundene KI-Ergebnisse im Assets Manager speichern und Credits, Pro-Status sowie Profil im Mitgliederbereich verwalten.",
+                "inLanguage": "de",
+                "publisher": {
+                    "@id": "https://bitbi.ai/de/#organization"
+                }
+            },
+            {
+                "@type": "WebPage",
+                "@id": "https://bitbi.ai/de/#webpage",
+                "name": "BITBI | Mein digitaler Spielraum",
+                "url": "https://bitbi.ai/de/",
+                "description": "Im Generate Lab erstellen, kontogebundene KI-Ergebnisse im Assets Manager speichern und Credits, Pro-Status sowie Profil im Mitgliederbereich verwalten.",
+                "inLanguage": "de",
+                "isPartOf": {
+                    "@id": "https://bitbi.ai/de/#website"
+                },
+                "image": "https://bitbi.ai/assets/images/1.png"
+            }
         ]
     }
     </script>
@@ -449,7 +490,7 @@
         <div class="hero__title-wrap float-anim">
             <h1 class="hero__title">
                 <img src="../assets/images/1.png" alt="BITBI" class="hero__title-img"
-                     width="600" height="391" fetchpriority="high">
+                     width="600" height="391" fetchpriority="high" decoding="async">
             </h1>
         </div>
         <div class="hero__actions hero__actions--single-cta">

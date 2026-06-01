@@ -1,5 +1,8 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /admin/
+Disallow: /account/
+Disallow: /de/account/
 
 Sitemap: https://bitbi.ai/sitemap.xml

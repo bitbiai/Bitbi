@@ -26,6 +26,26 @@ function repoFile(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }
 
+function pngDimensions(relativePath) {
+  const buffer = fs.readFileSync(path.join(__dirname, '..', relativePath));
+  expect(buffer.toString('ascii', 1, 4), `${relativePath} png signature`).toBe('PNG');
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  };
+}
+
+function parseJsonLdBlocks(html, label) {
+  return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+    .map((match, index) => {
+      try {
+        return JSON.parse(match[1].trim());
+      } catch (error) {
+        throw new Error(`${label} JSON-LD ${index + 1} is invalid: ${error.message}`);
+      }
+    });
+}
+
 function visibleHtmlText(html) {
   return html
     .replace(/<!--[\s\S]*?-->/g, ' ')
@@ -61,18 +81,25 @@ function expectCanonicalHreflang(html, { canonical, en, de, xDefault }) {
   expect(html).toContain(`<link rel="alternate" hreflang="x-default" href="${xDefault}">`);
 }
 
-function expectSocialMetadata(html, { title, description, url }) {
+function expectSocialMetadata(html, { title, description, url, locale, alternateLocale, imageAlt }) {
   expect(html).toContain(`<meta property="og:title" content="${title}">`);
   expect(html).toContain(`<meta property="og:description" content="${description}">`);
   expect(html).toContain(`<meta property="og:type" content="website">`);
   expect(html).toContain(`<meta property="og:url" content="${url}">`);
-  expect(html).toContain('<meta property="og:image" content="https://bitbi.ai/assets/images/og-default.png">');
-  expect(html).toContain('<meta property="og:image:width" content="1200">');
-  expect(html).toContain('<meta property="og:image:height" content="630">');
+  expect(html).toContain('<meta property="og:site_name" content="BITBI">');
+  expect(html).toContain(`<meta property="og:locale" content="${locale}">`);
+  expect(html).toContain(`<meta property="og:locale:alternate" content="${alternateLocale}">`);
+  expect(html).toContain('<meta property="og:image" content="https://bitbi.ai/assets/images/1.png">');
+  expect(html).toContain('<meta property="og:image:type" content="image/png">');
+  expect(html).toContain('<meta property="og:image:width" content="600">');
+  expect(html).toContain('<meta property="og:image:height" content="391">');
+  expect(html).toContain(`<meta property="og:image:alt" content="${imageAlt}">`);
   expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
+  expect(html).toContain('<meta name="twitter:site" content="@bitbi_ai">');
   expect(html).toContain(`<meta name="twitter:title" content="${title}">`);
   expect(html).toContain(`<meta name="twitter:description" content="${description}">`);
-  expect(html).toContain('<meta name="twitter:image" content="https://bitbi.ai/assets/images/og-default.png">');
+  expect(html).toContain('<meta name="twitter:image" content="https://bitbi.ai/assets/images/1.png">');
+  expect(html).toContain(`<meta name="twitter:image:alt" content="${imageAlt}">`);
 }
 
 function criticalAttributes(html) {
@@ -289,22 +316,85 @@ test.describe('Bilingual locale pages', () => {
       title: 'BITBI Credits & Pro | Pricing',
       description: 'Choose BITBI Pro or one-time credit packs, then continue to Generate Lab, save outputs to Assets Manager, and review account-bound credits in your workspace.',
       url: 'https://bitbi.ai/pricing.html',
+      locale: 'en_US',
+      alternateLocale: 'de_DE',
+      imageAlt: 'BITBI Credits and Pro pricing preview',
     });
     expectSocialMetadata(dePricing, {
       title: 'BITBI Credits & Pro | Preise',
       description: 'Wählen Sie BITBI Pro oder einmalige Credit-Pakete, wechseln Sie ins Generate Lab, speichern Sie Ergebnisse im Assets Manager und prüfen Sie kontogebundene Credits im Arbeitsbereich.',
       url: 'https://bitbi.ai/de/pricing.html',
+      locale: 'de_DE',
+      alternateLocale: 'en_US',
+      imageAlt: 'BITBI Credits und Pro Preisvorschau',
     });
     expectSocialMetadata(enGenerate, {
       title: 'Generate Lab | BITBI',
       description: "Generate Lab is BITBI's desktop-optimized member creation workspace for image, video, and music generation.",
       url: 'https://bitbi.ai/generate-lab/',
+      locale: 'en_US',
+      alternateLocale: 'de_DE',
+      imageAlt: 'BITBI Generate Lab preview',
     });
     expectSocialMetadata(deGenerate, {
       title: 'Generate Lab | BITBI',
       description: 'Generate Lab ist BITBIs desktop-optimierter Mitglieder-Arbeitsbereich für Bild-, Video- und Musikgenerierung.',
       url: 'https://bitbi.ai/de/generate-lab/',
+      locale: 'de_DE',
+      alternateLocale: 'en_US',
+      imageAlt: 'BITBI Generate Lab Vorschau',
     });
+  });
+
+  test('public SEO metadata, robots, and sitemap stay crawler-safe without indexing private workspaces', () => {
+    const enHome = repoFile('index.html');
+    const deHome = repoFile('de/index.html');
+    const enPricing = repoFile('pricing.html');
+    const dePricing = repoFile('de/pricing.html');
+    const robots = repoFile('robots.txt');
+    const sitemap = repoFile('sitemap.xml');
+    const ogImage = pngDimensions('assets/images/1.png');
+    const enHomeJsonLd = parseJsonLdBlocks(enHome, 'English homepage');
+    const deHomeJsonLd = parseJsonLdBlocks(deHome, 'German homepage');
+    const enPricingJsonLd = parseJsonLdBlocks(enPricing, 'English pricing');
+    const dePricingJsonLd = parseJsonLdBlocks(dePricing, 'German pricing');
+
+    expect(ogImage).toEqual({ width: 600, height: 391 });
+    expect(enHome).toContain('<meta name="robots" content="index, follow, max-image-preview:large">');
+    expect(deHome).toContain('<meta name="robots" content="index, follow, max-image-preview:large">');
+    expect(enPricing).toContain('<meta name="robots" content="index, follow, max-image-preview:large">');
+    expect(dePricing).toContain('<meta name="robots" content="index, follow, max-image-preview:large">');
+    expect(enHome).toContain('<meta property="og:image:alt" content="BITBI logo on a dark studio background">');
+    expect(deHome).toContain('<meta property="og:image:alt" content="BITBI Logo auf dunklem Studiohintergrund">');
+    expect(enHome).toContain('"inLanguage": "en"');
+    expect(deHome).toContain('"inLanguage": "de"');
+    expect(enHome).toContain('"image": "https://bitbi.ai/assets/images/1.png"');
+    expect(deHome).toContain('"image": "https://bitbi.ai/assets/images/1.png"');
+    expect(enPricing).toContain('"@type": "WebPage"');
+    expect(dePricing).toContain('"@type": "WebPage"');
+    expect(enHomeJsonLd[0]['@graph'].map((entry) => entry['@type'])).toEqual(['Organization', 'WebSite', 'WebPage']);
+    expect(deHomeJsonLd[0]['@graph'].map((entry) => entry['@type'])).toEqual(['Organization', 'WebSite', 'WebPage']);
+    expect(enPricingJsonLd[0]['@type']).toBe('WebPage');
+    expect(dePricingJsonLd[0]['@type']).toBe('WebPage');
+    expect(enHome).toContain('decoding="async"');
+    expect(deHome).toContain('decoding="async"');
+
+    for (const disallowed of ['/api/', '/admin/', '/account/', '/de/account/']) {
+      expect(robots).toContain(`Disallow: ${disallowed}`);
+    }
+    expect(robots).not.toContain('Disallow: /generate-lab/');
+    expect(robots).not.toContain('Disallow: /de/generate-lab/');
+    expect(robots).toContain('Sitemap: https://bitbi.ai/sitemap.xml');
+
+    for (const loc of ['https://bitbi.ai/', 'https://bitbi.ai/de/', 'https://bitbi.ai/pricing.html', 'https://bitbi.ai/de/pricing.html']) {
+      expect(sitemap).toContain(`<loc>${loc}</loc>`);
+    }
+    for (const privateOrNoindexPath of ['generate-lab', 'account', 'admin', 'legal/privacy', 'legal/imprint', 'legal/terms']) {
+      expect(sitemap).not.toContain(privateOrNoindexPath);
+    }
+    expect(sitemap).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"');
+    expect(sitemap).toContain('<xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/"/>');
+    expect(sitemap).toContain('<xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/pricing.html"/>');
   });
 
   test('account member and recovery pages expose canonical and hreflang metadata parity', () => {
