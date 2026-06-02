@@ -121,163 +121,129 @@
     },
     {
       "source": "assets/images/2.jpg",
-      "category": "image_unconfirmed_legacy",
+      "category": "removed_orphan_unreferenced_legacy_image",
       "references": [],
-      "currentBytes": 224996,
+      "currentBytes": 0,
+      "removedBytes": 224996,
       "currentDimensions": {
         "width": 784,
         "height": 1168
       },
-      "candidateDerivatives": [
-        {
-          "format": "webp",
-          "strategy": "content-approved derivative only after ownership/provenance review",
-          "target": "assets/derivatives/images/2.candidate.webp"
-        }
-      ],
-      "status": "deferred_provenance_review",
-      "risk": "medium_high",
-      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after exact runtime, test, active-doc, manifest, and built-output dependency scans found no live dependency. Remaining references are historical performance report evidence and this cleanup manifest metadata.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },
     {
       "source": "assets/images/3.jpg",
-      "category": "image_unconfirmed_legacy",
+      "category": "removed_orphan_unreferenced_legacy_image",
       "references": [],
-      "currentBytes": 243978,
+      "currentBytes": 0,
+      "removedBytes": 243978,
       "currentDimensions": {
         "width": 784,
         "height": 1168
       },
-      "candidateDerivatives": [
-        {
-          "format": "webp",
-          "strategy": "content-approved derivative only after ownership/provenance review",
-          "target": "assets/derivatives/images/3.candidate.webp"
-        }
-      ],
-      "status": "deferred_provenance_review",
-      "risk": "medium_high",
-      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after exact runtime, test, active-doc, manifest, and built-output dependency scans found no live dependency. Remaining references are historical performance report evidence and this cleanup manifest metadata.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },
     {
       "source": "assets/images/4.jpg",
-      "category": "image_unconfirmed_legacy",
+      "category": "removed_orphan_unreferenced_legacy_image",
       "references": [],
-      "currentBytes": 344749,
+      "currentBytes": 0,
+      "removedBytes": 344749,
       "currentDimensions": {
         "width": 784,
         "height": 1168
       },
-      "candidateDerivatives": [
-        {
-          "format": "webp",
-          "strategy": "content-approved derivative only after ownership/provenance review",
-          "target": "assets/derivatives/images/4.candidate.webp"
-        }
-      ],
-      "status": "deferred_provenance_review",
-      "risk": "medium_high",
-      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after exact runtime, test, active-doc, manifest, and built-output dependency scans found no live dependency. Remaining references are historical performance report evidence and this cleanup manifest metadata.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },
     {
       "source": "assets/images/5.jpg",
-      "category": "image_unconfirmed_legacy",
+      "category": "removed_orphan_unreferenced_legacy_image",
       "references": [],
-      "currentBytes": 294653,
+      "currentBytes": 0,
+      "removedBytes": 294653,
       "currentDimensions": {
         "width": 784,
         "height": 1168
       },
-      "candidateDerivatives": [
-        {
-          "format": "webp",
-          "strategy": "content-approved derivative only after ownership/provenance review",
-          "target": "assets/derivatives/images/5.candidate.webp"
-        }
-      ],
-      "status": "deferred_provenance_review",
-      "risk": "medium_high",
-      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after exact runtime, test, active-doc, manifest, and built-output dependency scans found no live dependency. Remaining references are historical performance report evidence and this cleanup manifest metadata.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },
     {
       "source": "assets/images/6.jpg",
-      "category": "image_unconfirmed_legacy",
+      "category": "removed_orphan_unreferenced_legacy_image",
       "references": [],
-      "currentBytes": 294695,
+      "currentBytes": 0,
+      "removedBytes": 294695,
       "currentDimensions": {
         "width": 784,
         "height": 1168
       },
-      "candidateDerivatives": [
-        {
-          "format": "webp",
-          "strategy": "content-approved derivative only after ownership/provenance review",
-          "target": "assets/derivatives/images/6.candidate.webp"
-        }
-      ],
-      "status": "deferred_provenance_review",
-      "risk": "medium_high",
-      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after exact runtime, test, active-doc, manifest, and built-output dependency scans found no live dependency. Remaining references are historical performance report evidence and this cleanup manifest metadata.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },
     {
       "source": "assets/images/botton/gallery.webp",
-      "category": "css_background_image",
+      "category": "removed_orphan_css_background_image",
       "references": [
-        "css/pages/index.css"
+        "removed in orphan asset cleanup; previous CSS-only reference was deleted"
       ],
-      "currentBytes": 49664,
+      "currentBytes": 0,
+      "removedBytes": 49664,
       "currentDimensions": {
         "width": 480,
         "height": 322
       },
-      "candidateDerivatives": [
-        {
-          "format": "avif",
-          "strategy": "optional AVIF/WebP picture-equivalent only after CSS fallback design",
-          "target": "assets/derivatives/images/botton/gallery.candidate.avif"
-        }
-      ],
-      "status": "deferred_visual_css_review",
-      "risk": "medium",
-      "notes": "CSS background for category arrow. Integration would require CSS fallback behavior and screenshot review.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after source and built-output scans confirmed the old home category arrow DOM is absent; smoke tests explicitly assert zero category arrow controls.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },
     {
       "source": "assets/images/botton/video.webp",
-      "category": "css_background_image",
+      "category": "removed_orphan_css_background_image",
       "references": [
-        "css/pages/index.css"
+        "removed in orphan asset cleanup; previous CSS-only reference was deleted"
       ],
-      "currentBytes": 51446,
+      "currentBytes": 0,
+      "removedBytes": 51446,
       "currentDimensions": {
         "width": 480,
         "height": 322
       },
-      "candidateDerivatives": [
-        {
-          "format": "webp",
-          "strategy": "same-format WebP re-encode preserving dimensions and alpha for human visual approval",
-          "target": "assets/derivatives/phase-e/botton-video-q82.webp"
-        }
-      ],
-      "generatedDerivatives": [
+      "candidateDerivatives": [],
+      "generatedDerivatives": [],
+      "removedDerivatives": [
         {
           "path": "assets/derivatives/phase-e/botton-video-q82.webp",
           "format": "webp",
@@ -286,53 +252,63 @@
             "width": 480,
             "height": 322
           },
-          "byteDelta": -25454,
-          "percentByteDelta": -49.48,
           "sha256": "e45321ce45f451c32f331a7ea76fb606464d7e3ba09e4815ade45508b161728d",
-          "generationTool": "cwebp 1.6.0",
-          "generationCommand": "cwebp -preset picture -q 82 -alpha_q 100 -m 6 -mt assets/images/botton/video.webp -o assets/derivatives/phase-e/botton-video-q82.webp",
-          "visualApprovalStatus": "pending_human_review"
+          "removedAt": "2026-06-02",
+          "reason": "Phase E derivative was never integrated and the underlying category-arrow runtime was confirmed dead."
         }
       ],
-      "status": "generated_pending_human_approval",
-      "risk": "medium",
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
       "impactScore": 2,
-      "riskScore": 3,
+      "riskScore": 1,
       "effortScore": 2,
-      "notes": "Phase E pilot candidate. CSS background for category arrow. The generated same-format WebP candidate preserves 480x322 dimensions and alpha-capable pixel format, but runtime integration still requires human visual approval and a CSS reference change approval block.",
-      "requiresHumanVisualApproval": true,
+      "notes": "Removed after source and built-output scans confirmed the old home category arrow DOM is absent; the unintegrated Phase E derivative was removed with it.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false,
-      "humanApprovalStatus": "pending",
+      "humanApprovalStatus": "not_applicable_removed",
       "approvalArtifactPaths": [
         "test-results/visual-guardrails/latest/summary.md",
         "test-results/visual-guardrails/latest/"
       ],
-      "integrationStatus": "not_integrated",
-      "rollbackNotes": "Delete assets/derivatives/phase-e/botton-video-q82.webp and revert this manifest entry. No runtime references currently point at the derivative."
+      "integrationStatus": "removed_not_integrated",
+      "rollbackNotes": "Restore assets/images/botton/video.webp, restore assets/derivatives/phase-e/botton-video-q82.webp if Phase E evidence is needed, and revert the category-arrow CSS/JS cleanup."
     },
     {
       "source": "assets/images/botton/soundlab.webp",
-      "category": "css_background_image",
+      "category": "removed_orphan_css_background_image",
       "references": [
-        "css/pages/index.css"
+        "removed in orphan asset cleanup; previous CSS-only reference was deleted"
       ],
-      "currentBytes": 45654,
+      "currentBytes": 0,
+      "removedBytes": 45654,
       "currentDimensions": {
         "width": 480,
         "height": 322
       },
-      "candidateDerivatives": [
-        {
-          "format": "avif",
-          "strategy": "optional AVIF/WebP picture-equivalent only after CSS fallback design",
-          "target": "assets/derivatives/images/botton/soundlab.candidate.avif"
-        }
-      ],
-      "status": "deferred_visual_css_review",
-      "risk": "medium",
-      "notes": "CSS background for category arrow. Integration would require CSS fallback behavior and screenshot review.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after source and built-output scans confirmed the old home category arrow DOM is absent; smoke tests explicitly assert zero category arrow controls.",
+      "requiresHumanVisualApproval": false,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/botton/pivimu.webp",
+      "category": "removed_orphan_unreferenced_legacy_image",
+      "references": [],
+      "currentBytes": 0,
+      "removedBytes": 24360,
+      "currentDimensions": {
+        "width": 480,
+        "height": 322
+      },
+      "candidateDerivatives": [],
+      "status": "removed_orphan_cleanup",
+      "risk": "low_after_removal",
+      "notes": "Removed after exact source and built-output scans found no current HTML/CSS/JS/JSON/test references.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     }

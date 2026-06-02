@@ -16,6 +16,8 @@ The derivative is additive, same-format WebP, preserves the 480x322 dimensions, 
 
 No original asset was deleted, overwritten, renamed, or replaced.
 
+Cleanup follow-up on June 2, 2026: a later orphan asset audit confirmed that the old `.home-categories__arrow` DOM path no longer exists in current runtime HTML and that smoke tests explicitly assert zero category arrow controls. The Phase E derivative `assets/derivatives/phase-e/botton-video-q82.webp` was never integrated, so it was removed with the now-orphaned category-arrow source assets. The approval block below is retained as historical evidence only and is no longer an active integration request.
+
 ## 2. Repository State Inspected
 
 | Item | Value |
@@ -130,6 +132,8 @@ SEO/social approval required: no
 
 Without that exact approval block, the derivative must remain unintegrated.
 
+Cleanup follow-up: do not use this approval block without first restoring and re-auditing the category-arrow runtime. The derivative and its source CSS target were removed as confirmed orphan cleanup.
+
 ## 9. Visual Guardrail Results
 
 Baseline visual guardrails before candidate generation:
@@ -198,7 +202,7 @@ The asset inventory increases because the derivative is additive. Runtime refere
 | favicon/manifest assets | Browser icon, manifest, and structured logo behavior; explicit SEO/browser approval required. |
 | `assets/images/hero/hero-flow-mobile.mp4` | Video playback, poster/autoplay, and Safari/mobile behavior risk. |
 | `assets/images/1.jpg` | Worker/static fixture contract risk. |
-| `assets/images/2.jpg` to `assets/images/6.jpg` | Provenance and release-history review required before any derivative or cleanup. |
+| `assets/images/2.jpg` to `assets/images/6.jpg` | Removed by the follow-up orphan cleanup after exact runtime, test, active-doc-currentness, manifest, and built-output dependency scans found no live dependency. |
 | `assets/images/botton/gallery.webp` and `assets/images/botton/soundlab.webp` | Same class as selected candidate; deferred to keep Phase E small. |
 
 ## 12. Risks and Mitigations

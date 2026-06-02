@@ -75,8 +75,6 @@ function shouldHonorInitialCategoryHash() {
 export function initCategoryCarousel() {
     const stage = document.getElementById('homeCategories');
     const viewport = stage?.querySelector('.home-categories__viewport');
-    const prevButton = stage?.querySelector('[data-category-nav="prev"]');
-    const nextButton = stage?.querySelector('[data-category-nav="next"]');
     const navbar = document.getElementById('navbar');
     const stagedLayoutQuery = window.matchMedia?.(STAGED_LAYOUT_MEDIA);
     const categoryLinks = new Map(
@@ -129,61 +127,6 @@ export function initCategoryCarousel() {
         panel?.querySelectorAll('.reveal').forEach((el) => {
             el.classList.add('visible');
         });
-    }
-
-    function updateArrowState() {
-        if (!stagedLayoutEnabled) {
-            if (prevButton) {
-                prevButton.hidden = true;
-                prevButton.disabled = true;
-                prevButton.removeAttribute('data-category-target');
-                prevButton.removeAttribute('title');
-            }
-            if (nextButton) {
-                nextButton.hidden = true;
-                nextButton.disabled = true;
-                nextButton.removeAttribute('data-category-target');
-                nextButton.removeAttribute('title');
-            }
-            return;
-        }
-
-        const prevTarget = activeCategory === 'video'
-            ? 'gallery'
-            : activeCategory === 'sound'
-                ? 'video'
-                : null;
-        const nextTarget = activeCategory === 'video'
-            ? 'sound'
-            : activeCategory === 'gallery'
-                ? 'video'
-                : null;
-
-        if (prevButton && prevTarget) {
-            prevButton.hidden = false;
-            prevButton.disabled = isTransitioning;
-            prevButton.dataset.categoryTarget = prevTarget;
-            prevButton.setAttribute('aria-label', `Show ${CATEGORY_META[prevTarget].label}`);
-            prevButton.title = `Show ${CATEGORY_META[prevTarget].label}`;
-        } else if (prevButton) {
-            prevButton.hidden = true;
-            prevButton.disabled = true;
-            prevButton.removeAttribute('data-category-target');
-            prevButton.removeAttribute('title');
-        }
-
-        if (nextButton && nextTarget) {
-            nextButton.hidden = false;
-            nextButton.disabled = isTransitioning;
-            nextButton.dataset.categoryTarget = nextTarget;
-            nextButton.setAttribute('aria-label', `Show ${CATEGORY_META[nextTarget].label}`);
-            nextButton.title = `Show ${CATEGORY_META[nextTarget].label}`;
-        } else if (nextButton) {
-            nextButton.hidden = true;
-            nextButton.disabled = true;
-            nextButton.removeAttribute('data-category-target');
-            nextButton.removeAttribute('title');
-        }
     }
 
     function getStageAlignmentDelta() {
@@ -281,7 +224,6 @@ export function initCategoryCarousel() {
         });
         stage.dataset.activeCategory = activeCategory;
         syncVisibleReveals(getPanel(activeCategory));
-        updateArrowState();
         window.requestAnimationFrame(() => {
             document.dispatchEvent(new CustomEvent('bitbi:homepage-category-activated', {
                 detail: {
@@ -398,7 +340,6 @@ export function initCategoryCarousel() {
         });
 
         stage.dataset.activeCategory = activeCategory;
-        updateArrowState();
         updateCategoryLinkState();
     }
 
@@ -435,7 +376,6 @@ export function initCategoryCarousel() {
         applyCategoryState();
         isTransitioning = false;
         stage.classList.remove('is-transitioning');
-        updateArrowState();
         updateCategoryLinkState();
         requestAnimationFrame(() => {
             viewport.style.height = '';
@@ -492,7 +432,6 @@ export function initCategoryCarousel() {
         isTransitioning = true;
         pendingCategory = nextCategory;
         stage.classList.add('is-transitioning');
-        updateArrowState();
         updateCategoryLinkState();
 
         panels.forEach((panel) => {
@@ -535,22 +474,6 @@ export function initCategoryCarousel() {
             }, TRANSITION_MS + 50);
         });
     }
-
-    function move(delta) {
-        const currentIndex = CATEGORY_ORDER.indexOf(activeCategory);
-        const nextCategory = CATEGORY_ORDER[currentIndex + delta];
-        if (!nextCategory) return;
-        setActiveCategory(nextCategory, { alignStage: true, clearHash: true });
-    }
-
-    prevButton?.addEventListener('click', () => {
-        if (!stagedLayoutEnabled) return;
-        move(-1);
-    });
-    nextButton?.addEventListener('click', () => {
-        if (!stagedLayoutEnabled) return;
-        move(1);
-    });
 
     document.addEventListener('click', (event) => {
         const anchor = event.target.closest('a[data-category-link]');
