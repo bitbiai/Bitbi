@@ -1,0 +1,313 @@
+{
+  "schemaVersion": "bitbi-media-derivatives-manifest-v1",
+  "purpose": "Planning and audit metadata for safe additive media derivatives. This is not production runtime config.",
+  "updatedAt": "2026-06-02",
+  "defaultPolicy": {
+    "preserveOriginals": true,
+    "safeToAutoIntegrate": false,
+    "requiresHumanVisualApproval": true,
+    "requiresSeoApproval": true
+  },
+  "candidates": [
+    {
+      "source": "assets/images/hero/hero-flow-mobile.mp4",
+      "category": "video",
+      "references": [
+        "tests/auth-admin.spec.js",
+        "tests/smoke.spec.js",
+        "docs/performance/phase-a-baseline.md",
+        "docs/performance/phase-c-media-css-runtime.md"
+      ],
+      "currentBytes": 2170158,
+      "currentDimensions": null,
+      "candidateDerivatives": [
+        {
+          "format": "mp4",
+          "strategy": "controlled bitrate derivative with same dimensions/duration/poster behavior",
+          "target": "assets/derivatives/hero/hero-flow-mobile.phase-d-candidate.mp4"
+        }
+      ],
+      "status": "deferred_phase_e",
+      "risk": "medium_high",
+      "notes": "Largest asset. Current source references are tests and performance docs, not direct homepage HTML/CSS/JS runtime references. Do not move, delete, or replace without fixture review and visual playback review.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/1.png",
+      "category": "image",
+      "references": [
+        "index.html",
+        "de/index.html",
+        "generate-lab/index.html",
+        "de/generate-lab/index.html",
+        "tests/locale.spec.js"
+      ],
+      "currentBytes": 361041,
+      "currentDimensions": {
+        "width": 600,
+        "height": 391
+      },
+      "candidateDerivatives": [
+        {
+          "format": "png",
+          "strategy": "lossless PNG optimization only",
+          "target": "assets/derivatives/images/1.lossless-candidate.png"
+        }
+      ],
+      "status": "do_not_change_phase_d",
+      "risk": "high",
+      "notes": "Hero image, Open Graph/Twitter card image, JSON-LD image, and high-priority preload. Any derivative must preserve exact visual output and social preview dimensions.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": true,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/favicons/android-chrome-512x512.png",
+      "category": "favicon_manifest_social_logo",
+      "references": [
+        "index.html",
+        "de/index.html",
+        "generate-lab/index.html",
+        "de/generate-lab/index.html",
+        "admin/index.html",
+        "assets/favicons/site.webmanifest"
+      ],
+      "currentBytes": 358316,
+      "currentDimensions": {
+        "width": 512,
+        "height": 512
+      },
+      "candidateDerivatives": [
+        {
+          "format": "png",
+          "strategy": "lossless PNG optimization only after favicon/browser review",
+          "target": "assets/derivatives/favicons/android-chrome-512x512.lossless-candidate.png"
+        }
+      ],
+      "status": "do_not_change_phase_d",
+      "risk": "high",
+      "notes": "Favicon, manifest icon, structured Organization logo, and decorative watermark source. Favicon/manifest behavior must be explicitly approved before any integration.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": true,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/1.jpg",
+      "category": "image_fixture_public_media_reference",
+      "references": [
+        "tests/workers.spec.js",
+        "tests/auth-admin.spec.js"
+      ],
+      "currentBytes": 536335,
+      "currentDimensions": {
+        "width": 1429,
+        "height": 803
+      },
+      "candidateDerivatives": [
+        {
+          "format": "jpeg",
+          "strategy": "fixture-specific smaller thumbnail only if tests and public media route semantics are updated intentionally",
+          "target": "assets/derivatives/images/1.fixture-thumbnail-candidate.jpg"
+        }
+      ],
+      "status": "deferred_fixture_review",
+      "risk": "high",
+      "notes": "Used as a public thumbnail fixture in Worker/static tests. Do not delete, rename, or replace without fixture and route contract review.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/2.jpg",
+      "category": "image_unconfirmed_legacy",
+      "references": [],
+      "currentBytes": 224996,
+      "currentDimensions": {
+        "width": 784,
+        "height": 1168
+      },
+      "candidateDerivatives": [
+        {
+          "format": "webp",
+          "strategy": "content-approved derivative only after ownership/provenance review",
+          "target": "assets/derivatives/images/2.candidate.webp"
+        }
+      ],
+      "status": "deferred_provenance_review",
+      "risk": "medium_high",
+      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/3.jpg",
+      "category": "image_unconfirmed_legacy",
+      "references": [],
+      "currentBytes": 243978,
+      "currentDimensions": {
+        "width": 784,
+        "height": 1168
+      },
+      "candidateDerivatives": [
+        {
+          "format": "webp",
+          "strategy": "content-approved derivative only after ownership/provenance review",
+          "target": "assets/derivatives/images/3.candidate.webp"
+        }
+      ],
+      "status": "deferred_provenance_review",
+      "risk": "medium_high",
+      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/4.jpg",
+      "category": "image_unconfirmed_legacy",
+      "references": [],
+      "currentBytes": 344749,
+      "currentDimensions": {
+        "width": 784,
+        "height": 1168
+      },
+      "candidateDerivatives": [
+        {
+          "format": "webp",
+          "strategy": "content-approved derivative only after ownership/provenance review",
+          "target": "assets/derivatives/images/4.candidate.webp"
+        }
+      ],
+      "status": "deferred_provenance_review",
+      "risk": "medium_high",
+      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/5.jpg",
+      "category": "image_unconfirmed_legacy",
+      "references": [],
+      "currentBytes": 294653,
+      "currentDimensions": {
+        "width": 784,
+        "height": 1168
+      },
+      "candidateDerivatives": [
+        {
+          "format": "webp",
+          "strategy": "content-approved derivative only after ownership/provenance review",
+          "target": "assets/derivatives/images/5.candidate.webp"
+        }
+      ],
+      "status": "deferred_provenance_review",
+      "risk": "medium_high",
+      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/6.jpg",
+      "category": "image_unconfirmed_legacy",
+      "references": [],
+      "currentBytes": 294695,
+      "currentDimensions": {
+        "width": 784,
+        "height": 1168
+      },
+      "candidateDerivatives": [
+        {
+          "format": "webp",
+          "strategy": "content-approved derivative only after ownership/provenance review",
+          "target": "assets/derivatives/images/6.candidate.webp"
+        }
+      ],
+      "status": "deferred_provenance_review",
+      "risk": "medium_high",
+      "notes": "No direct current runtime reference was found in source scan, but deletion is still deferred until content provenance and release history are reviewed.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/botton/gallery.webp",
+      "category": "css_background_image",
+      "references": [
+        "css/pages/index.css"
+      ],
+      "currentBytes": 49664,
+      "currentDimensions": {
+        "width": 480,
+        "height": 322
+      },
+      "candidateDerivatives": [
+        {
+          "format": "avif",
+          "strategy": "optional AVIF/WebP picture-equivalent only after CSS fallback design",
+          "target": "assets/derivatives/images/botton/gallery.candidate.avif"
+        }
+      ],
+      "status": "deferred_visual_css_review",
+      "risk": "medium",
+      "notes": "CSS background for category arrow. Integration would require CSS fallback behavior and screenshot review.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/botton/video.webp",
+      "category": "css_background_image",
+      "references": [
+        "css/pages/index.css"
+      ],
+      "currentBytes": 51446,
+      "currentDimensions": {
+        "width": 480,
+        "height": 322
+      },
+      "candidateDerivatives": [
+        {
+          "format": "avif",
+          "strategy": "optional AVIF/WebP picture-equivalent only after CSS fallback design",
+          "target": "assets/derivatives/images/botton/video.candidate.avif"
+        }
+      ],
+      "status": "deferred_visual_css_review",
+      "risk": "medium",
+      "notes": "CSS background for category arrow. Integration would require CSS fallback behavior and screenshot review.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    },
+    {
+      "source": "assets/images/botton/soundlab.webp",
+      "category": "css_background_image",
+      "references": [
+        "css/pages/index.css"
+      ],
+      "currentBytes": 45654,
+      "currentDimensions": {
+        "width": 480,
+        "height": 322
+      },
+      "candidateDerivatives": [
+        {
+          "format": "avif",
+          "strategy": "optional AVIF/WebP picture-equivalent only after CSS fallback design",
+          "target": "assets/derivatives/images/botton/soundlab.candidate.avif"
+        }
+      ],
+      "status": "deferred_visual_css_review",
+      "risk": "medium",
+      "notes": "CSS background for category arrow. Integration would require CSS fallback behavior and screenshot review.",
+      "requiresHumanVisualApproval": true,
+      "requiresSeoApproval": false,
+      "safeToAutoIntegrate": false
+    }
+  ]
+}
