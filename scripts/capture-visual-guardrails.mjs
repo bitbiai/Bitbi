@@ -46,6 +46,10 @@ const ROUTES = Object.freeze([
   { path: '/de/', name: 'home-de' },
   { path: '/generate-lab/', name: 'generate-lab-en' },
   { path: '/de/generate-lab/', name: 'generate-lab-de' },
+  { path: '/pricing.html', name: 'pricing-en' },
+  { path: '/de/pricing.html', name: 'pricing-de' },
+  { path: '/legal/privacy.html', name: 'legal-privacy-en' },
+  { path: '/account/assets-manager.html', name: 'account-assets-guest' },
   { path: '/admin/', name: 'admin' },
 ]);
 
@@ -64,6 +68,7 @@ function buildRunPlan(browserName) {
     { route: ROUTES[0], scenario: SCENARIOS[0], reducedMotion: false },
     { route: ROUTES[0], scenario: SCENARIOS[1], reducedMotion: false },
     { route: ROUTES[1], scenario: SCENARIOS[0], reducedMotion: false },
+    { route: ROUTES[4], scenario: SCENARIOS[0], reducedMotion: false },
     { route: ROUTES[0], scenario: SCENARIOS[0], reducedMotion: true },
   ];
 }
@@ -239,18 +244,33 @@ async function collectMetrics(page) {
       domNodes: document.querySelectorAll('*').length,
       images: document.images.length,
       mobileNavHidden: document.querySelector('#mobileNav')?.getAttribute('aria-hidden') || null,
+      stylesheets: [...document.querySelectorAll('link[rel~="stylesheet"]')].map((link) => link.getAttribute('href')),
       rects: {
         adminRoot: rectFor('.admin-shell, .admin-page, [data-admin-root], main'),
+        authModal: rectFor('.auth-modal__overlay.active, .modal-overlay.active, #authModal [role="dialog"]'),
         categoryStage: rectFor('.category-stage, .home-categories__stage, .home-categories'),
         gallery: rectFor('#gallery'),
         generateLab: rectFor('.generate-lab, [data-generate-lab-workspace], main'),
         hero: rectFor('#hero'),
+        pricing: rectFor('.pricing-root, [data-pricing-root], main'),
         nav: rectFor('.site-header, .main-nav, .site-nav, header'),
         soundlab: rectFor('#soundlab'),
         video: rectFor('#video-creations'),
+        walletModal: rectFor('#walletModal.is-open, #walletModal:not([hidden])'),
+        walletWorkspace: rectFor('#walletWorkspace.is-open, #walletWorkspace:not([hidden])'),
       },
       resourceCount: resources.length,
       resourceTypes,
+      stylesheetResources: resources
+        .filter((entry) => entry.initiatorType === 'link' || String(entry.name || '').includes('.css'))
+        .map((entry) => {
+          try {
+            const url = new URL(entry.name);
+            return url.pathname;
+          } catch {
+            return entry.name;
+          }
+        }),
       videos: document.querySelectorAll('video').length,
       navigation: navigation ? {
         domContentLoadedEventEnd: Math.round(navigation.domContentLoadedEventEnd),
@@ -259,6 +279,37 @@ async function collectMetrics(page) {
       } : null,
     };
   });
+}
+
+async function closeTransientUi(page) {
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(80);
+}
+
+async function captureNamedState(page, runId, screenshots, metrics, key, fileSuffix) {
+  const screenshot = path.join(ARTIFACT_ROOT, `${runId}__${fileSuffix}.png`);
+  await page.screenshot({ path: screenshot, fullPage: false });
+  screenshots[key] = path.relative(ROOT, screenshot).split(path.sep).join('/');
+  metrics[key] = await collectMetrics(page);
+}
+
+async function clickVisibleCandidate(page, selectors) {
+  return page.evaluate((candidateSelectors) => {
+    const candidates = candidateSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]);
+    const visible = candidates.find((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && rect.width > 0
+        && rect.height > 0
+        && !element.disabled;
+    });
+    const target = visible || candidates[0];
+    if (!target) return false;
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    return true;
+  }, selectors);
 }
 
 function isExpectedLocalConsoleNotice(text) {
@@ -360,12 +411,23 @@ async function captureScenario({ browserName, browser, origin, route, scenario, 
       });
       if (didClickMobileNav) {
         await page.waitForTimeout(100);
-        const mobileScreenshot = path.join(ARTIFACT_ROOT, `${runId}__mobile-nav.png`);
-        await page.screenshot({ path: mobileScreenshot, fullPage: false });
-        metrics.mobileNavOpen = await collectMetrics(page);
-        screenshots.mobileNav = path.relative(ROOT, mobileScreenshot).split(path.sep).join('/');
+        await captureNamedState(page, runId, screenshots, metrics, 'mobileNavOpen', 'mobile-nav');
       }
     } else {
+      const didClickCreateGate = await clickVisibleCandidate(page, [
+        '.gallery-mode__btn[data-mode="create"]',
+        '#video-creations .video-mode__btn[data-video-mode="create"]',
+        '#soundlab .video-mode__btn[data-sound-mode="create"]',
+      ]).catch((error) => {
+        warnings.push(`create auth gate click failed: ${error.message}`);
+        return false;
+      });
+      if (didClickCreateGate) {
+        await page.waitForTimeout(150);
+        await captureNamedState(page, runId, screenshots, metrics, 'createAuthGate', 'create-auth-gate');
+        await closeTransientUi(page);
+      }
+
       const didClickModels = await page.evaluate(() => {
         const candidates = [...document.querySelectorAll('[data-models-link]')];
         const visible = candidates.find((element) => {
@@ -386,11 +448,59 @@ async function captureScenario({ browserName, browser, origin, route, scenario, 
       });
       if (didClickModels) {
         await page.waitForTimeout(150);
-        const modelsScreenshot = path.join(ARTIFACT_ROOT, `${runId}__models.png`);
-        await page.screenshot({ path: modelsScreenshot, fullPage: false });
-        metrics.modelsClick = await collectMetrics(page);
-        screenshots.models = path.relative(ROOT, modelsScreenshot).split(path.sep).join('/');
+        await captureNamedState(page, runId, screenshots, metrics, 'modelsClick', 'models');
       }
+    }
+  }
+
+  if (route.name.startsWith('pricing-')) {
+    const didOpenWallet = scenario.name === 'mobile'
+      ? await page.evaluate(() => {
+        const menu = document.querySelector('#mobileMenuBtn');
+        if (menu) menu.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        const trigger = document.querySelector('[data-wallet-open="mobile"]');
+        if (!trigger) return false;
+        trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        return true;
+      }).catch((error) => {
+        warnings.push(`pricing mobile wallet click failed: ${error.message}`);
+        return false;
+      })
+      : await clickVisibleCandidate(page, ['.wallet-nav__trigger', '[data-wallet-open="desktop"]']).catch((error) => {
+        warnings.push(`pricing wallet click failed: ${error.message}`);
+        return false;
+      });
+    if (didOpenWallet) {
+      await page.waitForTimeout(180);
+      await captureNamedState(page, runId, screenshots, metrics, 'walletOpen', 'wallet-open');
+      await closeTransientUi(page);
+    }
+
+    const didClickPricingAuth = await clickVisibleCandidate(page, [
+      '.pricing-card__cta[data-pricing-auth-entry]',
+      '.pricing-card__cta',
+      '.pricing-legal__checkout',
+    ]).catch((error) => {
+      warnings.push(`pricing auth click failed: ${error.message}`);
+      return false;
+    });
+    if (didClickPricingAuth) {
+      await page.waitForTimeout(180);
+      await captureNamedState(page, runId, screenshots, metrics, 'pricingAuthGate', 'pricing-auth-gate');
+      await closeTransientUi(page);
+    }
+  }
+
+  if (route.name.startsWith('generate-lab-')) {
+    const didClickModelCard = await clickVisibleCandidate(page, [
+      '#labModelList .generate-lab__model-card',
+    ]).catch((error) => {
+      warnings.push(`generate lab model card click failed: ${error.message}`);
+      return false;
+    });
+    if (didClickModelCard) {
+      await page.waitForTimeout(100);
+      await captureNamedState(page, runId, screenshots, metrics, 'generateLabModelPicker', 'model-picker');
     }
   }
 
