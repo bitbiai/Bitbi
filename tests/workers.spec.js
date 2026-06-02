@@ -27476,7 +27476,8 @@ test.describe('Worker routes', () => {
         dimensions: 4,
         vectors_stored: false,
       }));
-      const serializedAttempt = JSON.stringify(attempt);
+      const serializedAttempt = JSON.stringify(attempt)
+        .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z/g, '<timestamp>');
       expect(serializedAttempt).not.toContain('first snippet');
       expect(serializedAttempt).not.toContain('second snippet');
       expect(serializedAttempt).not.toContain('0.1');
