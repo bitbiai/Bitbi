@@ -41823,12 +41823,14 @@ test.describe('Worker routes', () => {
       idempotencyKey = 'homepage-hero-upload-1',
       mimeType = 'video/mp4',
       aspectRatio = '9:16',
+      posterTimeSeconds = 3,
       title = 'Uploaded Hero Source',
     } = {}) => {
       const form = new FormData();
       form.append('title', title);
       form.append('operator_reason', 'Testing private hero source upload.');
       if (aspectRatio !== null) form.append('aspect_ratio', aspectRatio);
+      if (posterTimeSeconds !== null) form.append('poster_time_seconds', String(posterTimeSeconds));
       form.append('video', new Blob([Buffer.from('mock-video-source')], { type: mimeType }), 'hero-source.mp4');
       form.append('poster', new Blob([Buffer.from('mock-poster-image')], { type: 'image/png' }), 'hero-source-poster.png');
       const headers = {
@@ -41868,6 +41870,22 @@ test.describe('Worker routes', () => {
       code: 'invalid_aspect_ratio',
     });
 
+    for (const posterTimeSeconds of ['not-a-number', '-1', '3600.1']) {
+      const invalidPosterTimeRes = await authWorker.fetch(
+        makeUploadRequest({
+          idempotencyKey: `homepage-hero-upload-invalid-poster-time-${String(posterTimeSeconds).replace(/\W+/g, '-')}`,
+          posterTimeSeconds,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidPosterTimeRes.status).toBe(400);
+      await expect(invalidPosterTimeRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'invalid_poster_time_seconds',
+      });
+    }
+
     const uploadRes = await authWorker.fetch(
       makeUploadRequest(),
       env,
@@ -41895,20 +41913,33 @@ test.describe('Worker routes', () => {
       homepage_hero_source: {
         is_manual_upload: true,
         display_aspect_ratio: '9:16',
+        poster_time_seconds: 3,
       },
     });
     expect(sourceAsset.poster_size_bytes).toBeGreaterThan(0);
 
-    for (const [aspectRatio, expected] of [
-      ['1:1', '1:1'],
-      ['16:9', '16:9'],
-      [null, '16:9'],
+    const timestampConflictRes = await authWorker.fetch(
+      makeUploadRequest({ posterTimeSeconds: 2 }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(timestampConflictRes.status).toBe(409);
+    await expect(timestampConflictRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_key_conflict',
+    });
+
+    for (const [aspectRatio, expectedAspectRatio, posterTimeSeconds, expectedPosterTimeSeconds] of [
+      ['1:1', '1:1', 0, 0],
+      ['16:9', '16:9', 2.44, 2.4],
+      [null, '16:9', null, 1],
     ]) {
       const aspectUploadRes = await authWorker.fetch(
         makeUploadRequest({
-          idempotencyKey: `homepage-hero-upload-${expected.replace(':', '-')}-${aspectRatio === null ? 'default' : 'explicit'}`,
+          idempotencyKey: `homepage-hero-upload-${expectedAspectRatio.replace(':', '-')}-${aspectRatio === null ? 'default' : 'explicit'}`,
           aspectRatio,
-          title: `Uploaded Hero Source ${expected}`,
+          posterTimeSeconds,
+          title: `Uploaded Hero Source ${expectedAspectRatio}`,
         }),
         env,
         createExecutionContext().execCtx
@@ -41917,10 +41948,11 @@ test.describe('Worker routes', () => {
       const aspectUploaded = await aspectUploadRes.json();
       const aspectAsset = env.DB.state.aiTextAssets.find((row) => row.id === aspectUploaded.data.candidate.source_asset_id);
       expect(JSON.parse(aspectAsset.metadata_json)).toMatchObject({
-        aspect_ratio: expected,
+        aspect_ratio: expectedAspectRatio,
         homepage_hero_source: {
           is_manual_upload: true,
-          display_aspect_ratio: expected,
+          display_aspect_ratio: expectedAspectRatio,
+          poster_time_seconds: expectedPosterTimeSeconds,
         },
       });
     }
@@ -41978,6 +42010,8 @@ test.describe('Worker routes', () => {
     const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === uploaded.data.candidate.source_asset_id);
     expect(JSON.parse(sourceAsset.metadata_json).homepage_hero_source).toMatchObject({
       is_manual_upload: true,
+      display_aspect_ratio: '16:9',
+      poster_time_seconds: 1,
       poster_status: 'pending',
       poster_retryable: true,
     });

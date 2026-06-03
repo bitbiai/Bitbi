@@ -79,6 +79,8 @@ const HERO_DERIVATIVE_VIDEO_MIME_TYPES = new Set(["video/mp4"]);
 const HERO_DERIVATIVE_POSTER_MIME_TYPES = new Set(["image/webp"]);
 const MANUAL_UPLOAD_DISPLAY_ASPECT_RATIOS = new Set(["9:16", "1:1", "16:9"]);
 const DEFAULT_MANUAL_UPLOAD_DISPLAY_ASPECT_RATIO = "16:9";
+const DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS = 1;
+const MAX_MANUAL_UPLOAD_POSTER_TIME_SECONDS = 3600;
 const TARGET_PRESET = DEFAULT_HERO_FFMPEG_PRESET;
 const SOURCE_POSTER_PROCESSOR_JOB_LIMIT = 8;
 const SOURCE_POSTER_PROCESSOR_SCAN_LIMIT = 48;
@@ -125,6 +127,14 @@ function normalizeManualUploadDisplayAspectRatio(value) {
   const normalized = String(value || "").trim();
   if (!normalized) return DEFAULT_MANUAL_UPLOAD_DISPLAY_ASPECT_RATIO;
   return MANUAL_UPLOAD_DISPLAY_ASPECT_RATIOS.has(normalized) ? normalized : null;
+}
+
+function normalizeManualUploadPosterTimeSeconds(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_MANUAL_UPLOAD_POSTER_TIME_SECONDS) return null;
+  return Math.round(parsed * 10) / 10;
 }
 
 function normalizeDerivativeVideoMimeType(value) {
@@ -2078,6 +2088,18 @@ async function handleAdminUploadSource(ctx) {
     }, { status: 400 });
   }
 
+  const normalizedPosterTimeSeconds = normalizeManualUploadPosterTimeSeconds(
+    formData.get("poster_time_seconds")
+      || formData.get("posterTimeSeconds")
+  );
+  if (normalizedPosterTimeSeconds === null) {
+    return json({
+      ok: false,
+      error: "poster_time_seconds must be a finite number from 0 through 3600.",
+      code: "invalid_poster_time_seconds",
+    }, { status: 400 });
+  }
+
   const poster = formData.get("poster");
   let posterBytes = null;
   let posterWarning = null;
@@ -2102,6 +2124,7 @@ async function handleAdminUploadSource(ctx) {
     mimeType,
     sizeBytes,
     aspectRatio: normalizedAspectRatio,
+    posterTimeSeconds: normalizedPosterTimeSeconds,
     posterSizeBytes: posterBytes?.byteLength || 0,
     operatorReason,
   }));
@@ -2144,6 +2167,7 @@ async function handleAdminUploadSource(ctx) {
         homepage_hero_source: {
           is_manual_upload: true,
           display_aspect_ratio: normalizedAspectRatio,
+          poster_time_seconds: normalizedPosterTimeSeconds,
           poster_status: "pending",
           poster_retryable: true,
           poster_message: posterBytes?.byteLength

@@ -5056,6 +5056,26 @@
         letter-spacing: 0.08em;
     }
 
+    .admin-hero-videos__upload-options {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-3);
+    }
+
+    .admin-hero-videos__field-help {
+        color: rgba(255, 255, 255, 0.48);
+        font: 500 0.76rem/1.4 var(--font-sans);
+        text-transform: none;
+        letter-spacing: 0;
+    }
+
+    @media (min-width: 760px) {
+        .admin-hero-videos__upload-options {
+            grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.72fr);
+            align-items: start;
+        }
+    }
+
     .admin-hero-videos__reason {
         min-block-size: 6rem;
         resize: vertical;

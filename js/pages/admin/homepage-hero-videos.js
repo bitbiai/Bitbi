@@ -37,6 +37,9 @@ const MANUAL_UPLOAD_ASPECT_RATIOS = Object.freeze([
     ['16:9', 'Landscape (16:9)'],
 ]);
 const DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO = '16:9';
+const DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS = 1;
+const MAX_MANUAL_UPLOAD_POSTER_TIME_SECONDS = 3600;
+const POSTER_CAPTURE_TIMEOUT_MS = 10_000;
 const DERIVATIVE_POLL_INTERVAL_MS = 4000;
 
 function el(tag, className, text = null) {
@@ -199,6 +202,95 @@ function setTrustedElementUrl(element, attribute, url) {
     if (!serialized) return false;
     element.setAttribute(attribute, serialized);
     return true;
+}
+
+function normalizeManualUploadPosterTimeSeconds(value, fallback = DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS) {
+    const parsed = Number.parseFloat(String(value ?? '').trim());
+    if (!Number.isFinite(parsed)) return fallback;
+    const clamped = Math.min(MAX_MANUAL_UPLOAD_POSTER_TIME_SECONDS, Math.max(0, parsed));
+    return Math.round(clamped * 10) / 10;
+}
+
+function formatManualUploadPosterTimeSeconds(value) {
+    const normalized = normalizeManualUploadPosterTimeSeconds(value);
+    return Number.isInteger(normalized) ? String(normalized) : String(normalized);
+}
+
+function buildUploadPosterKey(file, timeSeconds) {
+    if (!file) return '';
+    const lastModified = Number.isFinite(file.lastModified) ? file.lastModified : 0;
+    const normalizedTime = normalizeManualUploadPosterTimeSeconds(timeSeconds);
+    return `${file.name}:${file.size}:${lastModified}:${normalizedTime}`;
+}
+
+function clampPosterCaptureTimeSeconds(requestedTimeSeconds, duration) {
+    const requested = normalizeManualUploadPosterTimeSeconds(requestedTimeSeconds);
+    if (!Number.isFinite(duration) || duration <= 0) return requested;
+    const safeEnd = Math.max(0, duration - 0.05);
+    return Math.min(requested, safeEnd);
+}
+
+function waitForVideoEvent(video, eventName, timeoutMs = POSTER_CAPTURE_TIMEOUT_MS) {
+    return new Promise((resolve, reject) => {
+        let timer = null;
+        const cleanup = () => {
+            if (timer) window.clearTimeout(timer);
+            video.removeEventListener(eventName, onEvent);
+            video.removeEventListener('error', onError);
+        };
+        const onEvent = () => {
+            cleanup();
+            resolve();
+        };
+        const onError = () => {
+            cleanup();
+            reject(new Error('Poster frame could not be generated from this video.'));
+        };
+        timer = window.setTimeout(() => {
+            cleanup();
+            reject(new Error('Poster frame generation timed out.'));
+        }, timeoutMs);
+        video.addEventListener(eventName, onEvent, { once: true });
+        video.addEventListener('error', onError, { once: true });
+    });
+}
+
+function waitForVideoSeek(video, targetTime, timeoutMs = POSTER_CAPTURE_TIMEOUT_MS) {
+    return new Promise((resolve, reject) => {
+        const startedAt = performance.now();
+        let timer = null;
+        const cleanup = () => {
+            if (timer) window.clearTimeout(timer);
+            video.removeEventListener('seeked', checkReady);
+            video.removeEventListener('loadeddata', checkReady);
+            video.removeEventListener('timeupdate', checkReady);
+            video.removeEventListener('error', onError);
+        };
+        const isReady = () => video.readyState >= 2
+            && Math.abs(Number(video.currentTime || 0) - targetTime) < 0.15;
+        function checkReady() {
+            if (isReady()) {
+                cleanup();
+                resolve();
+                return;
+            }
+            if (performance.now() - startedAt >= timeoutMs) {
+                cleanup();
+                reject(new Error('Poster frame generation timed out.'));
+                return;
+            }
+            timer = window.setTimeout(checkReady, 50);
+        }
+        function onError() {
+            cleanup();
+            reject(new Error('Poster frame could not be generated from this video.'));
+        }
+        video.addEventListener('seeked', checkReady);
+        video.addEventListener('loadeddata', checkReady);
+        video.addEventListener('timeupdate', checkReady);
+        video.addEventListener('error', onError, { once: true });
+        checkReady();
+    });
 }
 
 async function createTrustedLocalVideoBlob(source) {
@@ -383,6 +475,8 @@ export function createHomepageHeroVideosAdmin({
         uploadPoster: null,
         uploadPosterWarning: '',
         uploadPosterBusy: false,
+        uploadPosterKey: '',
+        uploadPosterTimeSeconds: DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS,
         uploadTitle: '',
         uploadAspectRatio: DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO,
         uploadBusy: false,
@@ -773,6 +867,8 @@ export function createHomepageHeroVideosAdmin({
         fileLabel.append(file);
         panel.append(fileLabel);
 
+        const optionsRow = el('div', 'admin-hero-videos__upload-options');
+
         const aspectLabel = el('label', 'admin-hero-videos__field');
         aspectLabel.append(el('span', null, 'Display format'));
         const aspect = document.createElement('select');
@@ -787,7 +883,22 @@ export function createHomepageHeroVideosAdmin({
             aspect.append(option);
         });
         aspectLabel.append(aspect);
-        panel.append(aspectLabel);
+        optionsRow.append(aspectLabel);
+
+        const posterTimeLabel = el('label', 'admin-hero-videos__field');
+        posterTimeLabel.append(el('span', null, 'Thumb timestamp'));
+        const posterTime = document.createElement('input');
+        posterTime.className = 'admin-search__input';
+        posterTime.type = 'number';
+        posterTime.min = '0';
+        posterTime.step = '0.1';
+        posterTime.dataset.field = 'upload-poster-time';
+        posterTime.value = formatManualUploadPosterTimeSeconds(state.uploadPosterTimeSeconds);
+        posterTime.disabled = !state.manualUploadsEnabled || state.uploadBusy;
+        posterTimeLabel.append(posterTime);
+        posterTimeLabel.append(el('small', 'admin-hero-videos__field-help', 'Seconds into the video used for the saved thumbnail.'));
+        optionsRow.append(posterTimeLabel);
+        panel.append(optionsRow);
 
         const actions = el('div', 'admin-hero-videos__actions');
         const uploadBtn = el('button', 'btn-action', state.uploadBusy ? 'Uploading...' : 'Upload source');
@@ -1085,6 +1196,9 @@ export function createHomepageHeroVideosAdmin({
             return;
         }
         state.uploadBusy = true;
+        setStatus('Preparing thumbnail preview...');
+        renderShell();
+        await ensureFreshUploadPoster();
         setStatus('Uploading private hero source...');
         renderShell();
         const res = await apiAdminUploadHomepageHeroVideoSource(state.uploadFile, {
@@ -1092,6 +1206,7 @@ export function createHomepageHeroVideosAdmin({
             operatorReason: reason,
             poster: state.uploadPoster,
             aspectRatio: state.uploadAspectRatio,
+            posterTimeSeconds: state.uploadPosterTimeSeconds,
             idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-upload'),
         });
         state.uploadBusy = false;
@@ -1112,9 +1227,11 @@ export function createHomepageHeroVideosAdmin({
             || state.candidates.find((entry) => entry.source_asset_id === candidate?.source_asset_id) || null;
         state.uploadFile = null;
         state.uploadPoster = null;
+        state.uploadPosterKey = '';
         state.uploadPosterWarning = '';
         state.uploadTitle = '';
         state.uploadAspectRatio = DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO;
+        state.uploadPosterTimeSeconds = DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS;
         setStatus('Private hero source uploaded. Convert it before assigning a public slot.', 'success');
         showToast?.('Hero source uploaded.', 'success');
         renderShell();
@@ -1334,30 +1451,37 @@ export function createHomepageHeroVideosAdmin({
         renderShell();
     }
 
-    async function capturePosterFromLocalVideoBlob(source) {
+    async function capturePosterFromLocalVideoBlob(source, { timeSeconds = DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS } = {}) {
         const videoBlob = await createTrustedLocalVideoBlob(source);
         const video = document.createElement('video');
-        return new Promise((resolve, reject) => {
-            const fail = () => {
-                reject(new Error('Poster frame could not be generated from this video.'));
-            };
+        try {
             video.muted = true;
             video.playsInline = true;
             video.preload = 'metadata';
-            video.addEventListener('error', fail, { once: true });
-            video.addEventListener('loadeddata', () => {
-                const width = video.videoWidth || 640;
-                const height = video.videoHeight || 360;
-                const canvas = document.createElement('canvas');
-                const ratio = Math.min(640 / width, 640 / height, 1);
-                canvas.width = Math.max(1, Math.round(width * ratio));
-                canvas.height = Math.max(1, Math.round(height * ratio));
-                const context = canvas.getContext('2d');
-                if (!context) {
-                    fail();
-                    return;
-                }
-                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const metadataReady = waitForVideoEvent(video, 'loadedmetadata');
+            loadTrustedLocalVideoBlob(video, videoBlob);
+            await metadataReady;
+            const targetTime = clampPosterCaptureTimeSeconds(timeSeconds, video.duration);
+            if (targetTime > 0) {
+                const seeked = waitForVideoSeek(video, targetTime);
+                video.currentTime = targetTime;
+                await seeked;
+            } else if (video.readyState < 2) {
+                await waitForVideoEvent(video, 'loadeddata');
+            }
+
+            const width = video.videoWidth || 640;
+            const height = video.videoHeight || 360;
+            const canvas = document.createElement('canvas');
+            const ratio = Math.min(640 / width, 640 / height, 1);
+            canvas.width = Math.max(1, Math.round(width * ratio));
+            canvas.height = Math.max(1, Math.round(height * ratio));
+            const context = canvas.getContext('2d');
+            if (!context) {
+                throw new Error('Poster frame could not be generated from this video.');
+            }
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            return await new Promise((resolve, reject) => {
                 canvas.toBlob((blob) => {
                     if (!blob) {
                         reject(new Error('Poster frame could not be encoded.'));
@@ -1365,26 +1489,31 @@ export function createHomepageHeroVideosAdmin({
                     }
                     resolve(blob);
                 }, 'image/webp', 0.82);
-            }, { once: true });
-            loadTrustedLocalVideoBlob(video, videoBlob);
-        }).finally(() => {
+            });
+        } finally {
             revokeTrustedLocalVideoBlob(video);
-        });
+        }
     }
 
-    function generatePosterBlobFromVideoFile(file) {
+    function generatePosterBlobFromVideoFile(file, { timeSeconds = DEFAULT_MANUAL_UPLOAD_POSTER_TIME_SECONDS } = {}) {
         if (!file) return Promise.resolve(null);
-        return capturePosterFromLocalVideoBlob(file);
+        return capturePosterFromLocalVideoBlob(file, { timeSeconds });
     }
 
-    async function prepareUploadPoster(file) {
+    async function prepareUploadPoster(file, { force = false } = {}) {
+        const posterKey = buildUploadPosterKey(file, state.uploadPosterTimeSeconds);
+        if (!force && state.uploadPoster && state.uploadPosterKey === posterKey) return state.uploadPoster;
         state.uploadPoster = null;
+        state.uploadPosterKey = '';
         state.uploadPosterWarning = '';
         if (!file) return;
         state.uploadPosterBusy = true;
         renderShell();
         try {
-            state.uploadPoster = await generatePosterBlobFromVideoFile(file);
+            state.uploadPoster = await generatePosterBlobFromVideoFile(file, {
+                timeSeconds: state.uploadPosterTimeSeconds,
+            });
+            state.uploadPosterKey = posterKey;
         } catch (error) {
             console.warn(error);
             state.uploadPosterWarning = 'Poster preview could not be generated automatically. Upload can continue, but retry poster generation before using this source in Admin asset views.';
@@ -1392,6 +1521,13 @@ export function createHomepageHeroVideosAdmin({
             state.uploadPosterBusy = false;
             renderShell();
         }
+    }
+
+    async function ensureFreshUploadPoster() {
+        if (!state.uploadFile) return;
+        const posterKey = buildUploadPosterKey(state.uploadFile, state.uploadPosterTimeSeconds);
+        if (state.uploadPoster && state.uploadPosterKey === posterKey) return;
+        await prepareUploadPoster(state.uploadFile, { force: true });
     }
 
     async function retryCandidatePoster(assetId) {
@@ -1581,6 +1717,11 @@ export function createHomepageHeroVideosAdmin({
                     ? value
                     : DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO;
             }
+            if (event.target?.dataset?.field === 'upload-poster-time') {
+                state.uploadPosterTimeSeconds = normalizeManualUploadPosterTimeSeconds(event.target.value);
+                event.target.value = formatManualUploadPosterTimeSeconds(state.uploadPosterTimeSeconds);
+                state.uploadPosterKey = '';
+            }
             if (event.target?.dataset?.presetField) {
                 const draft = getPresetDraft();
                 const field = event.target.dataset.presetField;
@@ -1596,6 +1737,10 @@ export function createHomepageHeroVideosAdmin({
             if (event.target?.dataset?.field === 'upload-title') {
                 state.uploadTitle = event.target.value || '';
             }
+            if (event.target?.dataset?.field === 'upload-poster-time') {
+                state.uploadPosterTimeSeconds = normalizeManualUploadPosterTimeSeconds(event.target.value);
+                state.uploadPosterKey = '';
+            }
             if (event.target?.dataset?.presetField) {
                 const draft = getPresetDraft();
                 const field = event.target.dataset.presetField;
@@ -1607,6 +1752,7 @@ export function createHomepageHeroVideosAdmin({
         refs.container.addEventListener('change', (event) => {
             if (event.target?.dataset?.field === 'upload-file') {
                 state.uploadFile = event.target.files?.[0] || null;
+                state.uploadPosterKey = '';
                 if (!state.uploadTitle && state.uploadFile?.name) {
                     state.uploadTitle = state.uploadFile.name.replace(/\.[^.]+$/, '');
                 }

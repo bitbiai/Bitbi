@@ -339,6 +339,8 @@ export async function apiAdminUploadHomepageHeroVideoSource(file, {
     poster = null,
     aspectRatio = '',
     displayAspectRatio = '',
+    posterTimeSeconds = null,
+    poster_time_seconds = null,
     idempotencyKey,
     signal,
 } = {}) {
@@ -348,10 +350,16 @@ export async function apiAdminUploadHomepageHeroVideoSource(file, {
         const normalizedAspectRatio = ['9:16', '1:1', '16:9'].includes(aspectRatio)
             ? aspectRatio
             : (['9:16', '1:1', '16:9'].includes(displayAspectRatio) ? displayAspectRatio : '');
+        const normalizedPosterTimeSeconds = Number(
+            posterTimeSeconds ?? poster_time_seconds
+        );
         formData.append('video', file);
         if (poster) formData.append('poster', poster, 'hero-source-poster.webp');
         if (title) formData.append('title', title);
         if (normalizedAspectRatio) formData.append('aspect_ratio', normalizedAspectRatio);
+        if (Number.isFinite(normalizedPosterTimeSeconds) && normalizedPosterTimeSeconds >= 0) {
+            formData.append('poster_time_seconds', String(Math.round(normalizedPosterTimeSeconds * 10) / 10));
+        }
         formData.append('operator_reason', operatorReason);
         const headers = {};
         if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;

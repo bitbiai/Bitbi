@@ -13116,6 +13116,8 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Unsafe Preview Candidate');
     const displayFormat = page.locator('#homepageHeroVideosAdmin [data-field="upload-aspect-ratio"]');
+    const thumbTimestamp = page.locator('#homepageHeroVideosAdmin [data-field="upload-poster-time"]');
+    const uploadOptionsRow = page.locator('#homepageHeroVideosAdmin .admin-hero-videos__upload-options');
     await expect(displayFormat).toHaveValue('16:9');
     await expect(displayFormat.locator('option')).toHaveCount(3);
     expect(await displayFormat.locator('option').evaluateAll((options) => options.map((option) => ({
@@ -13126,6 +13128,25 @@ test.describe('Admin Control Plane', () => {
       { value: '1:1', text: 'Square (1:1)' },
       { value: '16:9', text: 'Landscape (16:9)' },
     ]);
+    await expect(uploadOptionsRow).toBeVisible();
+    await expect(thumbTimestamp).toHaveAttribute('type', 'number');
+    await expect(thumbTimestamp).toHaveAttribute('min', '0');
+    await expect(thumbTimestamp).toHaveAttribute('step', '0.1');
+    await expect(thumbTimestamp).toHaveValue('1');
+    await expect(uploadOptionsRow).toContainText('Display format');
+    await expect(uploadOptionsRow).toContainText('Thumb timestamp');
+    const uploadOptionsLayout = await uploadOptionsRow.evaluate((row) => {
+      const format = row.querySelector('[data-field="upload-aspect-ratio"]')?.closest('label')?.getBoundingClientRect();
+      const timestamp = row.querySelector('[data-field="upload-poster-time"]')?.closest('label')?.getBoundingClientRect();
+      return {
+        formatLeft: format?.left ?? 0,
+        formatTop: format?.top ?? 0,
+        timestampLeft: timestamp?.left ?? 0,
+        timestampTop: timestamp?.top ?? 0,
+      };
+    });
+    expect(uploadOptionsLayout.formatLeft).toBeLessThan(uploadOptionsLayout.timestampLeft);
+    expect(Math.abs(uploadOptionsLayout.formatTop - uploadOptionsLayout.timestampTop)).toBeLessThan(2);
     const unsafePreview = await page.locator('.admin-hero-videos__candidate-card', { hasText: 'Unsafe Preview Candidate' }).evaluate((card) => ({
       videoSrc: card.querySelector('video')?.getAttribute('src') || '',
       imageSrc: card.querySelector('img')?.getAttribute('src') || '',
@@ -13184,18 +13205,48 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('.admin-hero-videos__slot-card[data-slot="right_top"]')).toContainText('Enabled');
 
     await displayFormat.selectOption('9:16');
+    await thumbTimestamp.fill('0');
     await page.locator('#homepageHeroVideosAdmin [data-field="upload-title"]').fill('Manual Portrait Source');
+    await page.evaluate(() => {
+      if (window.__bitbiHeroVideoSeekSpyInstalled) return;
+      let descriptorOwner = HTMLMediaElement.prototype;
+      let descriptor = null;
+      while (descriptorOwner && !descriptor) {
+        descriptor = Object.getOwnPropertyDescriptor(descriptorOwner, 'currentTime');
+        descriptorOwner = Object.getPrototypeOf(descriptorOwner);
+      }
+      window.__bitbiHeroVideoSeekTimes = [];
+      Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+        configurable: true,
+        get() {
+          return descriptor?.get ? descriptor.get.call(this) : 0;
+        },
+        set(value) {
+          if (String(this.currentSrc || this.src || '').startsWith('blob:')) {
+            window.__bitbiHeroVideoSeekTimes.push(Number(value));
+          }
+          if (descriptor?.set) descriptor.set.call(this, value);
+        },
+      });
+      window.__bitbiHeroVideoSeekSpyInstalled = true;
+    });
     await page.locator('#homepageHeroVideosAdmin [data-field="upload-file"]').setInputFiles({
       name: 'manual-portrait.mp4',
       mimeType: 'video/mp4',
       buffer: TEST_MP4_BYTES,
     });
     await expect(page.getByRole('button', { name: 'Upload source' })).toBeEnabled({ timeout: 10_000 });
+    await thumbTimestamp.fill('0.4');
     await page.getByRole('button', { name: 'Upload source' }).click();
     await expect.poll(() => uploadRequests.length).toBe(1);
+    const seekTimes = await page.evaluate(() => window.__bitbiHeroVideoSeekTimes || []);
+    expect(seekTimes.some((value) => Math.abs(value - 0.4) < 0.05)).toBe(true);
     expect(uploadRequests[0]).toContain('aspect_ratio');
     expect(uploadRequests[0]).toContain('9:16');
+    expect(uploadRequests[0]).toContain('poster_time_seconds');
+    expect(uploadRequests[0]).toContain('0.4');
     await expect(displayFormat).toHaveValue('16:9');
+    await expect(thumbTimestamp).toHaveValue('1');
   });
 
   test('homepage hero admin recovers completed unassigned derivatives after refresh', async ({
