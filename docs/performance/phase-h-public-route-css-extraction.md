@@ -76,7 +76,7 @@ After Phase H:
 | Legal routes | 7 | 116,491 | 0 |
 | Account Assets Manager | 7 | 192,299 | 0 |
 
-Total route-level savings across the four affected public route variants: 158,956 static stylesheet bytes.
+Total route-level savings across the four affected public route variants: 158,296 static stylesheet bytes.
 
 ## Public route state coverage
 
