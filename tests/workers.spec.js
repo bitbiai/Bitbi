@@ -4,6 +4,8 @@ const path = require('path');
 const { createHash, createHmac, pbkdf2Sync, randomBytes } = require('crypto');
 const { pathToFileURL } = require('url');
 
+const TEST_FAVORITE_THUMB_URL = '/tests/fixtures/media/favorite-thumb.jpg';
+
 const {
   MockDurableRateLimiterNamespace,
   createAuthTestEnv,
@@ -33743,7 +33745,7 @@ test.describe('Worker routes', () => {
     const token = await seedSession(env, 'fav-valid-user');
     const validThumbUrls = [
       { input: '', stored: '' },
-      { input: ' /assets/images/1.jpg ', stored: '/assets/images/1.jpg' },
+      { input: ` ${TEST_FAVORITE_THUMB_URL} `, stored: TEST_FAVORITE_THUMB_URL },
       { input: ' /api/gallery/mempics/a1b2c3d4/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/thumb' },
       { input: ' /api/gallery/mempics/a1b2c3d4/vpubthumb/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/vpubthumb/thumb' },
       { input: ' /api/gallery/memvids/bada55e1/poster ', stored: '/api/gallery/memvids/bada55e1/poster' },
@@ -33869,8 +33871,8 @@ test.describe('Worker routes', () => {
       'https://user:pass@pub.bitbi.ai/gallery/thumbs/test.webp',
       'https://pub.bitbi.ai',
       'https://pub.bitbi.ai/',
-      '/assets/images/1.jpg?size=large',
-      '/assets/images/1.jpg#hero',
+      `${TEST_FAVORITE_THUMB_URL}?size=large`,
+      `${TEST_FAVORITE_THUMB_URL}#hero`,
       '/assets/images/\u0000thumb.png',
     ];
 
@@ -34452,7 +34454,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'rate-limited-favorite',
         title: 'Rate Limited Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -34485,7 +34487,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'not-added-when-limiter-missing',
         title: 'Blocked Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -34550,7 +34552,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'keep-favorite',
         title: 'Keep Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
         created_at: nowIso(),
       }],
       publicRateLimitCounters: [
@@ -35651,7 +35653,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'referer-favorite',
         title: 'Referer Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Referer: 'https://bitbi.ai/account/profile.html',
         Cookie: `bitbi_session=${token}`,
@@ -35680,7 +35682,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'fetch-metadata-same-origin',
         title: 'Fetch Metadata Same Origin',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Origin: 'https://bitbi.ai',
         'Sec-Fetch-Site': 'same-origin',
@@ -35697,7 +35699,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'fetch-metadata-cross-site',
         title: 'Fetch Metadata Cross Site',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Origin: 'https://bitbi.ai',
         'Sec-Fetch-Site': 'cross-site',
@@ -35728,7 +35730,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'foreign-origin-favorite',
         title: 'Foreign Origin Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Origin: 'https://evil.example',
         Cookie: `bitbi_session=${token}`,
@@ -35758,7 +35760,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'originless-favorite',
         title: 'Originless Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Cookie: `bitbi_session=${token}`,
         'CF-Connecting-IP': '203.0.113.64',
@@ -35816,7 +35818,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'csrf-favorite',
         title: 'CSRF Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
         created_at: nowIso(),
       }],
       linkedWallets: [{
@@ -35983,7 +35985,7 @@ test.describe('Worker routes', () => {
         item_type: 'gallery',
         item_id: 'tampered-member-favorite',
         title: 'Tampered Member Favorite',
-        thumb_url: '/assets/images/1.jpg',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tamperedMemberToken}`,

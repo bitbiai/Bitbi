@@ -392,6 +392,7 @@ function startGhostRotation(root, category) {
     applyGhostSlots(root, category, cycle);
     if (!canAnimateGhostSlots()) return;
     const timer = window.setInterval(() => {
+        if (document.hidden === true) return;
         cycle = (cycle + 1) % 997;
         applyGhostSlots(root, category, cycle);
     }, GHOST_SLOT_ROTATION_MS);

@@ -1,7 +1,7 @@
 {
   "schemaVersion": "bitbi-media-derivatives-manifest-v1",
   "purpose": "Planning and audit metadata for safe additive media derivatives. This is not production runtime config.",
-  "updatedAt": "2026-06-02",
+  "updatedAt": "2026-06-03",
   "defaultPolicy": {
     "preserveOriginals": true,
     "safeToAutoIntegrate": false,
@@ -11,26 +11,31 @@
   "candidates": [
     {
       "source": "assets/images/hero/hero-flow-mobile.mp4",
-      "category": "video",
+      "category": "removed_fixture_video",
       "references": [
+        "tests/fixtures/media/test-video.mp4",
         "tests/auth-admin.spec.js",
         "tests/smoke.spec.js",
-        "docs/performance/phase-a-baseline.md",
-        "docs/performance/phase-c-media-css-runtime.md"
+        "docs/performance/phase-j-release-hardening-layout-reduction.md"
       ],
-      "currentBytes": 2170158,
+      "currentBytes": 0,
+      "removedBytes": 2170158,
       "currentDimensions": null,
-      "candidateDerivatives": [
-        {
-          "format": "mp4",
-          "strategy": "controlled bitrate derivative with same dimensions/duration/poster behavior",
-          "target": "assets/derivatives/hero/hero-flow-mobile.phase-d-candidate.mp4"
-        }
-      ],
-      "status": "deferred_phase_e",
-      "risk": "medium_high",
-      "notes": "Largest asset. Current source references are tests and performance docs, not direct homepage HTML/CSS/JS runtime references. Do not move, delete, or replace without fixture review and visual playback review.",
-      "requiresHumanVisualApproval": true,
+      "candidateDerivatives": [],
+      "replacementFixture": {
+        "path": "tests/fixtures/media/test-video.mp4",
+        "bytes": 1953,
+        "format": "mp4",
+        "dimensions": {
+          "width": 16,
+          "height": 16
+        },
+        "durationSeconds": 1
+      },
+      "status": "removed_fixture_replaced_phase_j",
+      "risk": "low_after_fixture_replacement",
+      "notes": "Removed in Phase J after source, test, and build-output scans confirmed no production runtime, SEO, or static route dependency. Tests now use a small deterministic MP4 fixture under tests/fixtures/media while preserving video/mp4 and byte-range behavior.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },
@@ -95,27 +100,33 @@
     },
     {
       "source": "assets/images/1.jpg",
-      "category": "image_fixture_public_media_reference",
+      "category": "removed_fixture_image",
       "references": [
+        "tests/fixtures/media/favorite-thumb.jpg",
         "tests/workers.spec.js",
-        "tests/auth-admin.spec.js"
+        "tests/auth-admin.spec.js",
+        "docs/performance/phase-j-release-hardening-layout-reduction.md"
       ],
-      "currentBytes": 536335,
+      "currentBytes": 0,
+      "removedBytes": 536335,
       "currentDimensions": {
         "width": 1429,
         "height": 803
       },
-      "candidateDerivatives": [
-        {
-          "format": "jpeg",
-          "strategy": "fixture-specific smaller thumbnail only if tests and public media route semantics are updated intentionally",
-          "target": "assets/derivatives/images/1.fixture-thumbnail-candidate.jpg"
+      "candidateDerivatives": [],
+      "replacementFixture": {
+        "path": "tests/fixtures/media/favorite-thumb.jpg",
+        "bytes": 222,
+        "format": "jpeg",
+        "dimensions": {
+          "width": 16,
+          "height": 16
         }
-      ],
-      "status": "deferred_fixture_review",
-      "risk": "high",
-      "notes": "Used as a public thumbnail fixture in Worker/static tests. Do not delete, rename, or replace without fixture and route contract review.",
-      "requiresHumanVisualApproval": true,
+      },
+      "status": "removed_fixture_replaced_phase_j",
+      "risk": "low_after_fixture_replacement",
+      "notes": "Removed in Phase J after source, test, and build-output scans confirmed no production runtime, SEO, or static route dependency. Favorites and auth/admin tests now use a small deterministic slash-prefixed fixture path while preserving thumb_url validation semantics.",
+      "requiresHumanVisualApproval": false,
       "requiresSeoApproval": false,
       "safeToAutoIntegrate": false
     },

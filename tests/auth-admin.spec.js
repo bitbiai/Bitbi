@@ -5,7 +5,7 @@ const path = require('node:path');
 const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 const ASSET_STORAGE_LIMIT_BYTES = 50 * 1024 * 1024;
-const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, '..', 'assets/images/hero/hero-flow-mobile.mp4'));
+const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, 'fixtures/media/test-video.mp4'));
 const RELEASE_COMPAT = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config/release-compat.json'), 'utf8'));
 const CURRENT_AUTH_MIGRATION = RELEASE_COMPAT.release.schemaCheckpoints.auth.latest;
 const MOBILE_CHROME_USER_AGENT =
@@ -11824,7 +11824,7 @@ test.describe('Profile page (authenticated)', () => {
           item_type: 'gallery',
           item_id: 'good-gallery',
           title: 'Safe Preview',
-          thumb_url: '/assets/images/1.jpg',
+          thumb_url: '/tests/fixtures/media/favorite-thumb.jpg',
           created_at: '2026-04-10T11:59:00.000Z',
         },
       ],

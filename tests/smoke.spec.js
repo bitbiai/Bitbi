@@ -57,7 +57,7 @@ const FOOTER_COPY_PATHS = [
 const FOOTER_COPY_TEXT = 'BITBI Studio • Built with love & code • © 2026';
 const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
 const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
-const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, '..', 'assets/images/hero/hero-flow-mobile.mp4'));
+const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, 'fixtures/media/test-video.mp4'));
 
 const expectedModelCatalogs = new Map();
 const REMOVED_MODELS_OVERLAY_MODEL_IDS = new Set([
