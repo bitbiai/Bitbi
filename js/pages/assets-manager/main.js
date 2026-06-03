@@ -11,9 +11,17 @@ import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
 import {
+    apiAiSaveAudio,
+    apiAdminAiModels,
+    apiAdminAiTestImage,
     apiAdminHomepageHeroVideos,
     apiGetMe,
+    createAdminIdempotencyKey,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    FLUX_1_SCHNELL_IMAGE_MODEL_ID,
+    isPricedAiImageModel,
+} from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
@@ -28,6 +36,21 @@ let adminUploadController = null;
 let adminUploadEnabled = false;
 let adminUploadLastTrigger = null;
 let adminUploadStatusAbort = null;
+let adminMusicCatalogAbort = null;
+
+const MUSIC_UPLOAD_DEFAULT_MODEL_ID = FLUX_1_SCHNELL_IMAGE_MODEL_ID;
+const MUSIC_UPLOAD_ALLOWED_MIME_TYPES = new Set(['audio/mpeg', 'audio/mp3', 'audio/x-mpeg']);
+const MUSIC_UPLOAD_TITLE_MAX_LENGTH = 120;
+const MUSIC_UPLOAD_PROMPT_MAX_LENGTH = 1000;
+
+const adminMusicUploadState = {
+    busy: false,
+    catalogStatus: 'idle',
+    catalogError: '',
+    models: [],
+    selectedModel: '',
+    file: null,
+};
 
 const isGermanPage = document.documentElement.lang?.toLowerCase().startsWith('de');
 const adminUploadCopy = isGermanPage
@@ -45,6 +68,23 @@ const adminUploadCopy = isGermanPage
         disabledMessage: 'Manuelle Uploads sind durch den Admin-Schalter oder Worker deaktiviert.',
         title: 'Manual source upload',
         description: 'Uploads create private admin source assets only. Public playback still requires an optimized derivative.',
+        chooserTitle: 'Asset hochladen',
+        musicReady: 'Wähle eine MP3 und einen Cover-Prompt.',
+        musicCatalogLoading: 'Admin-AI-Bildmodelle werden geladen...',
+        musicCatalogReady: 'Bildmodell-Katalog geladen.',
+        musicCatalogFailed: 'Der Bildmodell-Katalog konnte nicht geladen werden.',
+        musicNoModels: 'Für diesen Upload sind keine kompatiblen Admin-AI-Bildmodelle verfügbar.',
+        musicChargedModelHelp: 'Modelle mit Organisationsabrechnung werden hier angezeigt, sind aber deaktiviert; nutze dafür Admin AI Lab.',
+        musicUploadStatus: 'Cover wird generiert und MP3 gespeichert...',
+        musicSuccess: 'Musik-Asset hochgeladen. Assets Manager aktualisiert.',
+        musicError: 'Musik-Upload fehlgeschlagen.',
+        musicTitleError: 'Gib vor dem Upload einen Titel ein.',
+        musicFileError: 'Wähle vor dem Upload eine MP3-Datei aus.',
+        musicPromptError: 'Gib vor dem Upload einen Cover-Prompt ein.',
+        musicModelError: 'Wähle ein verfügbares Admin-AI-Bildmodell.',
+        musicFileTypeError: 'Wähle eine MP3-Audiodatei aus.',
+        musicCoverError: 'Cover-Generierung fehlgeschlagen.',
+        musicSaveError: 'Audio-Speicherung fehlgeschlagen.',
     }
     : {
         ready: 'Ready to upload.',
@@ -60,6 +100,23 @@ const adminUploadCopy = isGermanPage
         disabledMessage: 'Manual uploads are disabled by the Admin switch or Worker hard-disable.',
         title: 'Manual source upload',
         description: 'Uploads create private admin source assets only. Public playback still requires an optimized derivative.',
+        chooserTitle: 'Upload asset',
+        musicReady: 'Choose an MP3 and cover prompt.',
+        musicCatalogLoading: 'Loading Admin AI image models...',
+        musicCatalogReady: 'Image model catalog loaded.',
+        musicCatalogFailed: 'Image model catalog could not be loaded.',
+        musicNoModels: 'No compatible Admin AI image models are available for this upload.',
+        musicChargedModelHelp: 'Models requiring organization billing are shown but disabled here; use Admin AI Lab for those charged tests.',
+        musicUploadStatus: 'Generating cover and saving MP3...',
+        musicSuccess: 'Music asset uploaded. Assets Manager refreshed.',
+        musicError: 'Music upload failed.',
+        musicTitleError: 'Enter a title before uploading.',
+        musicFileError: 'Choose an MP3 file before uploading.',
+        musicPromptError: 'Enter a cover prompt before uploading.',
+        musicModelError: 'Choose an available Admin AI image model.',
+        musicFileTypeError: 'Choose an MP3 audio file.',
+        musicCoverError: 'Cover image generation failed.',
+        musicSaveError: 'Audio save failed.',
     };
 
 function hasGenerateLabHandoff() {
@@ -128,6 +185,363 @@ function formatApiError(res, fallback) {
     return res?.data?.error || res?.error || fallback;
 }
 
+function setModalVisibility(modal, visible) {
+    if (!modal) return;
+    modal.hidden = !visible;
+    modal.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function isMusicUploadModelEnabled(modelId) {
+    return !!modelId && !isPricedAiImageModel(modelId);
+}
+
+function getImageCatalogModels(catalog) {
+    const source = catalog?.data && typeof catalog.data === 'object' ? catalog.data : catalog;
+    return Array.isArray(source?.models?.image) ? source.models.image : [];
+}
+
+function getMusicUploadElements() {
+    return {
+        modal: document.getElementById('studioAdminUploadMusicModal'),
+        title: document.getElementById('studioAdminUploadMusicTitle'),
+        titleInput: document.getElementById('studioAdminUploadMusicTitleInput'),
+        fileInput: document.getElementById('studioAdminUploadMusicFile'),
+        prompt: document.getElementById('studioAdminUploadMusicPrompt'),
+        model: document.getElementById('studioAdminUploadMusicModel'),
+        modelHelp: document.getElementById('studioAdminUploadMusicModelHelp'),
+        submit: document.getElementById('studioAdminUploadMusicSubmit'),
+        status: document.getElementById('studioAdminUploadMusicStatus'),
+    };
+}
+
+function setAdminMusicUploadStatus(message, state = '') {
+    const { status } = getMusicUploadElements();
+    if (!status) return;
+    status.textContent = message || '';
+    if (state) status.dataset.state = state;
+    else delete status.dataset.state;
+}
+
+function titleFromUploadFileName(fileName) {
+    const baseName = String(fileName || '')
+        .replace(/\\/g, '/')
+        .split('/')
+        .pop()
+        .replace(/\.[^.]+$/, '')
+        .trim();
+    return baseName.slice(0, MUSIC_UPLOAD_TITLE_MAX_LENGTH);
+}
+
+function isMp3UploadFile(file) {
+    if (!file) return false;
+    const type = String(file.type || '').split(';')[0].trim().toLowerCase();
+    const hasMp3Extension = String(file.name || '').toLowerCase().endsWith('.mp3');
+    if (type && !MUSIC_UPLOAD_ALLOWED_MIME_TYPES.has(type)) return false;
+    return hasMp3Extension || MUSIC_UPLOAD_ALLOWED_MIME_TYPES.has(type);
+}
+
+async function readFileAsBase64(file) {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+}
+
+function extractGeneratedCoverImage(responseData) {
+    const result = responseData?.result || responseData?.data?.result || responseData?.data || responseData;
+    const imageBase64 = typeof result?.imageBase64 === 'string'
+        ? result.imageBase64
+        : (typeof result?.image_base64 === 'string' ? result.image_base64 : '');
+    if (!imageBase64) return null;
+    return {
+        imageBase64,
+        mimeType: typeof result?.mimeType === 'string'
+            ? result.mimeType
+            : (typeof result?.mime_type === 'string' ? result.mime_type : 'image/png'),
+    };
+}
+
+function selectDefaultMusicUploadModel(models) {
+    const defaultEnabled = models.find((model) => (
+        model?.id === MUSIC_UPLOAD_DEFAULT_MODEL_ID && isMusicUploadModelEnabled(model.id)
+    ));
+    if (defaultEnabled?.id) return defaultEnabled.id;
+    const firstEnabled = models.find((model) => isMusicUploadModelEnabled(model?.id));
+    if (firstEnabled?.id) return firstEnabled.id;
+    return models[0]?.id || '';
+}
+
+function renderAdminMusicModelOptions() {
+    const { model, modelHelp } = getMusicUploadElements();
+    if (!model) return;
+    model.replaceChildren();
+
+    if (adminMusicUploadState.catalogStatus === 'loading') {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = adminUploadCopy.musicCatalogLoading;
+        model.appendChild(option);
+        model.value = '';
+        model.disabled = true;
+        if (modelHelp) modelHelp.textContent = adminUploadCopy.musicCatalogLoading;
+        return;
+    }
+
+    if (!adminMusicUploadState.models.length) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = adminUploadCopy.musicNoModels;
+        model.appendChild(option);
+        model.value = '';
+        model.disabled = true;
+        if (modelHelp) modelHelp.textContent = adminMusicUploadState.catalogError || adminUploadCopy.musicNoModels;
+        return;
+    }
+
+    for (const entry of adminMusicUploadState.models) {
+        const option = document.createElement('option');
+        option.value = entry.id;
+        option.disabled = !isMusicUploadModelEnabled(entry.id);
+        option.textContent = `${entry.label || entry.name || entry.id} (${entry.id})${option.disabled ? ' · Admin AI Lab billing required' : ''}`;
+        model.appendChild(option);
+    }
+
+    const selected = adminMusicUploadState.selectedModel || selectDefaultMusicUploadModel(adminMusicUploadState.models);
+    adminMusicUploadState.selectedModel = selected;
+    model.disabled = adminMusicUploadState.busy;
+    if (selected) model.value = selected;
+    if (modelHelp) {
+        modelHelp.textContent = adminMusicUploadState.models.some((entry) => !isMusicUploadModelEnabled(entry.id))
+            ? adminUploadCopy.musicChargedModelHelp
+            : adminUploadCopy.musicCatalogReady;
+    }
+}
+
+function syncAdminMusicUploadUi() {
+    const { titleInput, fileInput, prompt, model, submit } = getMusicUploadElements();
+    const busy = adminMusicUploadState.busy;
+    const title = String(titleInput?.value || '').trim();
+    const coverPrompt = String(prompt?.value || '').trim();
+    const selectedModel = model?.value || adminMusicUploadState.selectedModel || '';
+    const canSubmit = !busy
+        && !!title
+        && !!adminMusicUploadState.file
+        && !!coverPrompt
+        && isMusicUploadModelEnabled(selectedModel);
+
+    if (titleInput) titleInput.disabled = busy;
+    if (fileInput) fileInput.disabled = busy;
+    if (prompt) prompt.disabled = busy;
+    if (model) model.disabled = busy || !adminMusicUploadState.models.length;
+    if (submit) submit.disabled = !canSubmit;
+}
+
+function resetAdminMusicUploadForm() {
+    const { titleInput, fileInput, prompt, model } = getMusicUploadElements();
+    adminMusicUploadState.busy = false;
+    adminMusicUploadState.file = null;
+    if (titleInput) titleInput.value = '';
+    if (fileInput) fileInput.value = '';
+    if (prompt) prompt.value = '';
+    adminMusicUploadState.selectedModel = selectDefaultMusicUploadModel(adminMusicUploadState.models);
+    renderAdminMusicModelOptions();
+    if (model && adminMusicUploadState.selectedModel) model.value = adminMusicUploadState.selectedModel;
+    setAdminMusicUploadStatus(adminUploadCopy.musicReady);
+    syncAdminMusicUploadUi();
+}
+
+async function loadAdminMusicImageModels() {
+    if (adminMusicCatalogAbort) adminMusicCatalogAbort.abort();
+    adminMusicCatalogAbort = new AbortController();
+    adminMusicUploadState.catalogStatus = 'loading';
+    adminMusicUploadState.catalogError = '';
+    renderAdminMusicModelOptions();
+    syncAdminMusicUploadUi();
+    setAdminMusicUploadStatus(adminUploadCopy.musicCatalogLoading);
+
+    try {
+        const res = await apiAdminAiModels({ signal: adminMusicCatalogAbort.signal });
+        if (!res.ok) {
+            adminMusicUploadState.catalogStatus = 'error';
+            adminMusicUploadState.models = [];
+            adminMusicUploadState.selectedModel = '';
+            adminMusicUploadState.catalogError = formatApiError(res, adminUploadCopy.musicCatalogFailed);
+            renderAdminMusicModelOptions();
+            setAdminMusicUploadStatus(adminMusicUploadState.catalogError, 'error');
+            syncAdminMusicUploadUi();
+            return;
+        }
+        const models = getImageCatalogModels(res.data).filter((entry) => entry?.id);
+        adminMusicUploadState.catalogStatus = 'ready';
+        adminMusicUploadState.models = models;
+        adminMusicUploadState.selectedModel = selectDefaultMusicUploadModel(models);
+        adminMusicUploadState.catalogError = '';
+        renderAdminMusicModelOptions();
+        setAdminMusicUploadStatus(models.length ? adminUploadCopy.musicReady : adminUploadCopy.musicNoModels, models.length ? '' : 'warning');
+        syncAdminMusicUploadUi();
+    } catch (error) {
+        if (error?.name === 'AbortError') return;
+        console.warn('Assets Manager music upload catalog load failed:', error);
+        adminMusicUploadState.catalogStatus = 'error';
+        adminMusicUploadState.models = [];
+        adminMusicUploadState.selectedModel = '';
+        adminMusicUploadState.catalogError = adminUploadCopy.musicCatalogFailed;
+        renderAdminMusicModelOptions();
+        setAdminMusicUploadStatus(adminUploadCopy.musicCatalogFailed, 'error');
+        syncAdminMusicUploadUi();
+    }
+}
+
+function closeAdminUploadChooser({ restoreFocus = true } = {}) {
+    const modal = document.getElementById('studioAdminUploadChooserModal');
+    if (!modal || modal.hidden) return;
+    setModalVisibility(modal, false);
+    if (restoreFocus) {
+        adminUploadLastTrigger?.focus?.({ preventScroll: true });
+        adminUploadLastTrigger = null;
+    }
+}
+
+function openAdminUploadChooser(trigger = null) {
+    const modal = document.getElementById('studioAdminUploadChooserModal');
+    const title = document.getElementById('studioAdminUploadChooserTitle');
+    if (!modal) return;
+    adminUploadLastTrigger = trigger instanceof HTMLElement ? trigger : document.getElementById('studioAdminUploadVideoBtn');
+    setModalVisibility(modal, true);
+    window.requestAnimationFrame(() => {
+        title?.focus?.({ preventScroll: true });
+    });
+}
+
+function closeAdminMusicUploadModal({ restoreFocus = true } = {}) {
+    const { modal } = getMusicUploadElements();
+    if (!modal || modal.hidden) return;
+    adminMusicCatalogAbort?.abort();
+    adminMusicCatalogAbort = null;
+    setModalVisibility(modal, false);
+    resetAdminMusicUploadForm();
+    if (restoreFocus) {
+        adminUploadLastTrigger?.focus?.({ preventScroll: true });
+        adminUploadLastTrigger = null;
+    }
+}
+
+function openAdminMusicUploadModal(trigger = null) {
+    const { modal, title } = getMusicUploadElements();
+    if (!modal) return;
+    closeAdminUploadChooser({ restoreFocus: false });
+    adminUploadLastTrigger = trigger instanceof HTMLElement ? trigger : (adminUploadLastTrigger || document.getElementById('studioAdminUploadVideoBtn'));
+    resetAdminMusicUploadForm();
+    setModalVisibility(modal, true);
+    window.requestAnimationFrame(() => {
+        title?.focus?.({ preventScroll: true });
+    });
+    loadAdminMusicImageModels().catch((error) => {
+        console.warn('Assets Manager music upload catalog load failed:', error);
+    });
+}
+
+async function handleAdminMusicUpload() {
+    const { titleInput, fileInput, prompt, model } = getMusicUploadElements();
+    if (adminMusicUploadState.busy) return;
+
+    const title = String(titleInput?.value || '').trim().slice(0, MUSIC_UPLOAD_TITLE_MAX_LENGTH);
+    const coverPrompt = String(prompt?.value || '').trim().slice(0, MUSIC_UPLOAD_PROMPT_MAX_LENGTH);
+    const selectedModel = String(model?.value || adminMusicUploadState.selectedModel || '').trim();
+    const file = adminMusicUploadState.file || fileInput?.files?.[0] || null;
+
+    if (!title) {
+        setAdminMusicUploadStatus(adminUploadCopy.musicTitleError, 'error');
+        syncAdminMusicUploadUi();
+        return;
+    }
+    if (!file) {
+        setAdminMusicUploadStatus(adminUploadCopy.musicFileError, 'error');
+        syncAdminMusicUploadUi();
+        return;
+    }
+    if (!isMp3UploadFile(file)) {
+        setAdminMusicUploadStatus(adminUploadCopy.musicFileTypeError, 'error');
+        syncAdminMusicUploadUi();
+        return;
+    }
+    if (!coverPrompt) {
+        setAdminMusicUploadStatus(adminUploadCopy.musicPromptError, 'error');
+        syncAdminMusicUploadUi();
+        return;
+    }
+    if (!isMusicUploadModelEnabled(selectedModel)) {
+        setAdminMusicUploadStatus(adminUploadCopy.musicModelError, 'error');
+        syncAdminMusicUploadUi();
+        return;
+    }
+
+    adminMusicUploadState.busy = true;
+    setAdminMusicUploadStatus(adminUploadCopy.musicUploadStatus, 'loading');
+    syncAdminMusicUploadUi();
+
+    try {
+        const coverRes = await apiAdminAiTestImage({
+            prompt: coverPrompt,
+            model: selectedModel,
+        }, {
+            headers: {
+                'Idempotency-Key': createAdminIdempotencyKey('admin-assets-music-cover'),
+            },
+        });
+        if (!coverRes.ok) {
+            setAdminMusicUploadStatus(formatApiError(coverRes, adminUploadCopy.musicCoverError), 'error');
+            return;
+        }
+        const cover = extractGeneratedCoverImage(coverRes.data);
+        if (!cover) {
+            setAdminMusicUploadStatus(adminUploadCopy.musicCoverError, 'error');
+            return;
+        }
+
+        const audioBase64 = await readFileAsBase64(file);
+        const saveRes = await apiAiSaveAudio({
+            title,
+            audioBase64,
+            mimeType: 'audio/mpeg',
+            sizeBytes: file.size,
+            prompt: coverPrompt,
+            model: selectedModel,
+            mode: 'admin_assets_manager_upload',
+            source: 'admin_assets_manager_upload',
+            coverImageBase64: cover.imageBase64,
+            coverMimeType: cover.mimeType,
+            coverPrompt,
+            coverModel: selectedModel,
+            receivedAt: new Date().toISOString(),
+        });
+        if (!saveRes.ok) {
+            setAdminMusicUploadStatus(formatApiError(saveRes, adminUploadCopy.musicSaveError), 'error');
+            return;
+        }
+
+        if (savedAssetsBrowser) {
+            await savedAssetsBrowser.openAllAssets();
+        }
+        if (saveRes.data?.cover_warning) {
+            setAdminMusicUploadStatus(`${adminUploadCopy.musicSuccess} ${saveRes.data.cover_warning}`, 'warning');
+            return;
+        }
+        setAdminMusicUploadStatus(adminUploadCopy.musicSuccess, 'success');
+        window.setTimeout(() => closeAdminMusicUploadModal(), 0);
+    } catch (error) {
+        console.warn('Assets Manager music upload failed:', error);
+        setAdminMusicUploadStatus(adminUploadCopy.musicError, 'error');
+    } finally {
+        adminMusicUploadState.busy = false;
+        syncAdminMusicUploadUi();
+    }
+}
+
 function adminManualUploadsEnabledFromPayload(payload = {}) {
     if (typeof payload.manual_uploads_enabled === 'boolean') return payload.manual_uploads_enabled;
     const feature = payload.feature_status?.features?.homepage_hero_manual_uploads;
@@ -193,6 +607,7 @@ function openAdminUploadModal(trigger = null) {
     const title = document.getElementById('studioAdminUploadVideoTitle');
     const reason = document.getElementById('studioAdminUploadVideoReason');
     if (!modal || !adminUploadController) return;
+    closeAdminUploadChooser({ restoreFocus: false });
     adminUploadLastTrigger = trigger instanceof HTMLElement ? trigger : document.getElementById('studioAdminUploadVideoBtn');
     adminUploadController.reset();
     if (reason) reason.value = '';
@@ -211,10 +626,17 @@ function openAdminUploadModal(trigger = null) {
 function setupAdminVideoUpload({ enabled = false } = {}) {
     const desktopBtn = document.getElementById('studioAdminUploadVideoBtn');
     const mobileBtn = document.getElementById('studioAdminUploadVideoMobileBtn');
+    const chooserModal = document.getElementById('studioAdminUploadChooserModal');
     const modal = document.getElementById('studioAdminUploadVideoModal');
+    const musicModal = document.getElementById('studioAdminUploadMusicModal');
+    const musicFile = document.getElementById('studioAdminUploadMusicFile');
+    const musicTitle = document.getElementById('studioAdminUploadMusicTitleInput');
+    const musicPrompt = document.getElementById('studioAdminUploadMusicPrompt');
+    const musicModel = document.getElementById('studioAdminUploadMusicModel');
+    const musicSubmit = document.getElementById('studioAdminUploadMusicSubmit');
     const reason = document.getElementById('studioAdminUploadVideoReason');
 
-    if (!desktopBtn || !modal) {
+    if (!desktopBtn || !chooserModal || !modal || !musicModal) {
         return;
     }
 
@@ -267,9 +689,73 @@ function setupAdminVideoUpload({ enabled = false } = {}) {
     modal.addEventListener('input', handleModalInput);
     modal.addEventListener('change', handleModalChange);
     modal.addEventListener('click', handleModalClick);
+
+    chooserModal.addEventListener('click', (event) => {
+        if (event.target?.closest?.('[data-assets-upload-chooser-close]')) {
+            closeAdminUploadChooser();
+            return;
+        }
+        const choice = event.target?.closest?.('[data-assets-upload-choice]')?.dataset?.assetsUploadChoice;
+        if (choice === 'video') {
+            openAdminUploadModal(adminUploadLastTrigger || desktopBtn);
+        } else if (choice === 'music') {
+            openAdminMusicUploadModal(adminUploadLastTrigger || desktopBtn);
+        }
+    });
+
+    const handleMusicInput = () => {
+        syncAdminMusicUploadUi();
+    };
+    const handleMusicChange = (event) => {
+        if (event.target === musicFile) {
+            const file = musicFile.files?.[0] || null;
+            if (!file) {
+                adminMusicUploadState.file = null;
+                syncAdminMusicUploadUi();
+                return;
+            }
+            if (!isMp3UploadFile(file)) {
+                adminMusicUploadState.file = null;
+                setAdminMusicUploadStatus(adminUploadCopy.musicFileTypeError, 'error');
+                syncAdminMusicUploadUi();
+                return;
+            }
+            adminMusicUploadState.file = file;
+            if (musicTitle && !musicTitle.value.trim()) {
+                musicTitle.value = titleFromUploadFileName(file.name);
+            }
+            setAdminMusicUploadStatus(adminUploadCopy.musicReady);
+            syncAdminMusicUploadUi();
+            return;
+        }
+        if (event.target === musicModel) {
+            adminMusicUploadState.selectedModel = musicModel.value || '';
+            syncAdminMusicUploadUi();
+        }
+    };
+    musicModal.addEventListener('input', handleMusicInput);
+    musicModal.addEventListener('change', handleMusicChange);
+    musicModal.addEventListener('click', (event) => {
+        if (event.target?.closest?.('[data-assets-music-upload-close]')) {
+            closeAdminMusicUploadModal();
+            return;
+        }
+        if (event.target === musicSubmit) {
+            handleAdminMusicUpload().catch((error) => {
+                console.warn('Assets Manager music upload failed:', error);
+                setAdminMusicUploadStatus(adminUploadCopy.musicError, 'error');
+            });
+        }
+    });
+
     document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && !modal.hidden) {
+        if (event.key !== 'Escape') return;
+        if (!musicModal.hidden) {
+            closeAdminMusicUploadModal();
+        } else if (!modal.hidden) {
             closeAdminUploadModal();
+        } else if (!chooserModal.hidden) {
+            closeAdminUploadChooser();
         }
     });
 }
@@ -339,7 +825,7 @@ function createBrowser({ fromGenerateLab = false, enableAdminUpload = false } = 
         foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
         handoffActive: fromGenerateLab,
         onUploadVideo: enableAdminUpload
-            ? (trigger) => openAdminUploadModal(trigger || document.getElementById('studioAdminUploadVideoBtn'))
+            ? (trigger) => openAdminUploadChooser(trigger || document.getElementById('studioAdminUploadVideoBtn'))
             : null,
     });
 

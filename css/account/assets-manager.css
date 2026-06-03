@@ -344,6 +344,10 @@
         padding: var(--space-6);
     }
 
+    .assets-manager__admin-upload-dialog--compact {
+        inline-size: min(100%, 30rem);
+    }
+
     .assets-manager__admin-upload-head {
         display: flex;
         align-items: flex-start;
@@ -437,6 +441,45 @@
     .assets-manager__admin-upload-status[data-state="warning"] {
         border-color: rgba(255, 210, 122, 0.28);
         color: rgba(255, 220, 150, 0.9);
+    }
+
+    .assets-manager__upload-choice-grid,
+    .assets-manager__music-upload {
+        display: grid;
+        gap: var(--space-4);
+    }
+
+    .assets-manager__upload-choice {
+        display: grid;
+        gap: var(--space-2);
+        inline-size: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        background: rgba(255, 255, 255, 0.055);
+        color: rgba(255, 255, 255, 0.88);
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .assets-manager__upload-choice:hover,
+    .assets-manager__upload-choice:focus-visible {
+        border-color: rgba(0, 240, 255, 0.38);
+        background: rgba(0, 240, 255, 0.1);
+        outline: none;
+    }
+
+    .assets-manager__upload-choice-title {
+        color: rgba(255, 255, 255, 0.92);
+        font: 800 0.9rem/1.3 var(--font-mono);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .assets-manager__upload-choice-copy {
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.84rem;
+        line-height: 1.5;
     }
 
     .assets-manager__admin-upload-modal .admin-hero-videos__upload {

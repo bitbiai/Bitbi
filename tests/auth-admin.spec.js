@@ -4794,9 +4794,12 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
   };
   const imageRequests = options.imageRequests || [];
   const saveImageRequests = options.saveImageRequests || [];
+  const imageTestRequests = options.imageTestRequests || [];
+  const saveAudioRequests = options.saveAudioRequests || [];
   const assetStore = options.assetStore || createSavedAssetsStore(folderPayload, assetsPayload);
   const creditBalance = typeof options.creditBalance === 'number' ? options.creditBalance : 10;
   const userRole = options.userRole || 'user';
+  const catalog = options.aiCatalog || createMockAiCatalog();
 
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -4834,6 +4837,38 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
           isAdmin: userRole === 'admin',
           creditBalance,
           dailyCreditAllowance: 10,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/admin/ai/models', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(catalog),
+    });
+  });
+
+  await page.route('**/api/admin/ai/test-image', async (route) => {
+    const body = route.request().postDataJSON();
+    imageTestRequests.push({
+      body,
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+    });
+    const model = catalog.models.image.find((entry) => entry.id === body.model) || catalog.models.image[0];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        task: 'image',
+        model,
+        result: {
+          imageBase64: ONE_PX_PNG_BASE64,
+          mimeType: 'image/png',
+          prompt: body.prompt,
+          saveReference: 'assets-manager-music-cover-reference',
         },
       }),
     });
@@ -5052,6 +5087,51 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ ok: true }),
+    });
+  });
+
+  await page.route('**/api/ai/audio/save', async (route) => {
+    const body = route.request().postDataJSON();
+    saveAudioRequests.push(body);
+    const id = `audio-${saveAudioRequests.length}`;
+    const hasCover = !!body.coverImageBase64;
+    assetStore.addAsset({
+      id,
+      asset_type: 'audio',
+      folder_id: body.folder_id || null,
+      title: body.title || body.prompt || 'Saved audio',
+      file_name: `${id}.mp3`,
+      source_module: 'music',
+      mime_type: body.mimeType || 'audio/mpeg',
+      size_bytes: body.sizeBytes || 1024,
+      poster_size_bytes: hasCover ? 128 : null,
+      preview_text: body.prompt || 'Saved audio',
+      created_at: '2026-04-10T12:00:00.000Z',
+      file_url: `/api/ai/text-assets/${id}/file`,
+      poster_url: hasCover ? `/api/ai/text-assets/${id}/poster` : null,
+      poster_width: hasCover ? 320 : null,
+      poster_height: hasCover ? 320 : null,
+    });
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          id,
+          folder_id: body.folder_id || null,
+          title: body.title || body.prompt || 'Saved audio',
+          file_name: `${id}.mp3`,
+          source_module: 'music',
+          mime_type: body.mimeType || 'audio/mpeg',
+          size_bytes: body.sizeBytes || 1024,
+          poster_url: hasCover ? `/api/ai/text-assets/${id}/poster` : null,
+          poster_width: hasCover ? 320 : null,
+          poster_height: hasCover ? 320 : null,
+          poster_size_bytes: hasCover ? 128 : null,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      }),
     });
   });
 
@@ -8543,9 +8623,19 @@ test.describe('Assets Manager (authenticated)', () => {
 
     const uploadButton = page.locator('#studioAdminUploadVideoBtn');
     await expect(uploadButton).toBeVisible();
-    await expect(uploadButton).toHaveText('Upload Video');
+    await expect(uploadButton).toHaveText('Upload');
 
     await uploadButton.click();
+    const chooser = page.getByRole('dialog', { name: 'Upload asset' });
+    await expect(chooser).toBeVisible();
+    await expect(chooser.getByRole('button', { name: /Video upload/ })).toBeVisible();
+    await expect(chooser.getByRole('button', { name: /Music upload/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(chooser).toBeHidden();
+    await expect(uploadButton).toBeFocused();
+
+    await uploadButton.click();
+    await chooser.getByRole('button', { name: /Video upload/ }).click();
     const dialog = page.getByRole('dialog', { name: 'Upload video asset' });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByLabel('Source title')).toBeVisible();
@@ -8560,6 +8650,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(uploadButton).toBeFocused();
 
     await uploadButton.click();
+    await chooser.getByRole('button', { name: /Video upload/ }).click();
     await expect(dialog).toBeVisible();
     await expect(dialog.getByLabel('Source title')).toBeEnabled();
     await expect(dialog.getByLabel('Video file')).toBeEnabled();
@@ -8617,6 +8708,95 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(uploadButton).toBeFocused();
     await expect(page.locator('#studioImageGrid')).toContainText('Assets Manager Manual Upload');
+    await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset');
+  });
+
+  test('admin account Assets Manager uploads MP3 assets with Admin AI generated cover data', async ({
+    page,
+  }) => {
+    const assetStore = createSavedAssetsStore(
+      { folders: [], counts: {}, unfolderedCount: 0 },
+      { all: [], unfoldered: [], folders: {} },
+    );
+    const imageTestRequests = [];
+    const saveAudioRequests = [];
+    await mockAuthenticatedAssetsManager(page, [], {
+      userRole: 'admin',
+      assetStore,
+      imageTestRequests,
+      saveAudioRequests,
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    const uploadButton = page.locator('#studioAdminUploadVideoBtn');
+    await expect(uploadButton).toHaveText('Upload');
+    await uploadButton.click();
+    const chooser = page.getByRole('dialog', { name: 'Upload asset' });
+    await expect(chooser).toBeVisible();
+    await chooser.getByRole('button', { name: /Music upload/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Upload music asset' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Title')).toBeVisible();
+    await expect(dialog.getByLabel('MP3 file')).toHaveAttribute('accept', '.mp3,audio/mpeg');
+    await expect(dialog.getByLabel('Cover prompt')).toBeVisible();
+    const modelSelect = dialog.getByLabel('Admin AI image model');
+    await expect(modelSelect).toBeEnabled({ timeout: 10_000 });
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await expect(dialog.getByText('Width')).toHaveCount(0);
+    await expect(dialog.getByText('Height')).toHaveCount(0);
+    await expect(dialog.getByText('Quality')).toHaveCount(0);
+    await expect(dialog.getByText('Seed')).toHaveCount(0);
+
+    const modelOptions = await modelSelect.locator('option').evaluateAll((options) => options.map((option) => ({
+      value: option.value,
+      disabled: option.disabled,
+      text: option.textContent,
+    })));
+    expect(modelOptions.some((option) => option.value === '@cf/black-forest-labs/flux-2-dev' && !option.disabled)).toBe(true);
+
+    await dialog.getByLabel('MP3 file').setInputFiles({
+      name: 'sunrise-loop.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('ID3\u0004\u0000\u0000mock-mp3', 'binary'),
+    });
+    await expect(dialog.getByLabel('Title')).toHaveValue('sunrise-loop');
+    await dialog.getByLabel('Title').fill('Sunrise Loop');
+    await dialog.getByLabel('Cover prompt').fill('A neon album cover with warm sunrise gradients');
+    await modelSelect.selectOption('@cf/black-forest-labs/flux-2-dev');
+
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Upload music' }).click();
+
+    await expect.poll(() => imageTestRequests.length).toBe(1);
+    await expect.poll(() => saveAudioRequests.length).toBe(1);
+    expect(imageTestRequests[0].idempotencyKey).toMatch(/^admin-assets-music-cover-/);
+    expect(imageTestRequests[0].body).toEqual({
+      prompt: 'A neon album cover with warm sunrise gradients',
+      model: '@cf/black-forest-labs/flux-2-dev',
+    });
+    for (const advancedKey of ['width', 'height', 'steps', 'quality', 'size', 'outputFormat', 'safetyTolerance', 'seed']) {
+      expect(imageTestRequests[0].body).not.toHaveProperty(advancedKey);
+    }
+    expect(saveAudioRequests[0]).toEqual(expect.objectContaining({
+      title: 'Sunrise Loop',
+      mimeType: 'audio/mpeg',
+      prompt: 'A neon album cover with warm sunrise gradients',
+      model: '@cf/black-forest-labs/flux-2-dev',
+      mode: 'admin_assets_manager_upload',
+      source: 'admin_assets_manager_upload',
+      coverImageBase64: ONE_PX_PNG_BASE64,
+      coverMimeType: 'image/png',
+      coverPrompt: 'A neon album cover with warm sunrise gradients',
+      coverModel: '@cf/black-forest-labs/flux-2-dev',
+    }));
+    expect(saveAudioRequests[0].audioBase64).toEqual(expect.any(String));
+    await expect(dialog).toBeHidden({ timeout: 10_000 });
+    await expect(uploadButton).toBeFocused();
+    await expect(page.locator('#studioImageGrid')).toContainText('Sunrise Loop');
     await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset');
   });
 

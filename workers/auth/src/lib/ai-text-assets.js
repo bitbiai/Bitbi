@@ -288,7 +288,7 @@ function serializeLiveAgentPayload(title, payload, savedAt) {
 }
 
 function buildMusicMetadata(payload, savedAt) {
-  return {
+  const metadata = {
     source_module: "music",
     saved_at: savedAt,
     model: payload.model || null,
@@ -310,6 +310,17 @@ function buildMusicMetadata(payload, savedAt) {
     elapsed_ms: payload.elapsedMs ?? null,
     received_at: payload.receivedAt || null,
   };
+  if (payload.source) {
+    metadata.source = payload.source;
+  }
+  if (payload.coverPrompt || payload.coverModel || payload.coverMimeType) {
+    metadata.cover = {
+      prompt: payload.coverPrompt || null,
+      model: payload.coverModel || null,
+      mime_type: payload.coverMimeType || null,
+    };
+  }
+  return metadata;
 }
 
 function normalizeVideoMimeType(contentType, fallback = "video/mp4") {

@@ -8,7 +8,11 @@ import {
   assetStorageQuotaErrorBody,
   isAssetStorageQuotaError,
 } from "../../lib/asset-storage-quota.js";
-import { attachVideoPosterToAiTextAsset, saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
+import {
+  attachVideoPosterToAiTextAsset,
+  processGeneratedMusicCoverPoster,
+  saveAdminAiTextAsset,
+} from "../../lib/ai-text-assets.js";
 import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import {
@@ -19,11 +23,88 @@ import {
   fetchGeneratedAudioForSave,
   getTrustedGeneratedAudioOutputUrl,
 } from "../../lib/generated-audio-save.js";
-import { buildRenamedFileName, hasControlCharacters, isMissingTextAssetTableError } from "./helpers.js";
+import {
+  buildRenamedFileName,
+  hasControlCharacters,
+  isMissingTextAssetTableError,
+  parseBase64Image,
+} from "./helpers.js";
 import { AiAssetLifecycleError, deleteUserAiTextAsset } from "./lifecycle.js";
 
 const MAX_PROMPT_LENGTH = 1000;
 const MAX_SAVED_FILE_TITLE_LENGTH = 120;
+const MAX_AUDIO_SAVE_COVER_BASE64_CHARS = 3_000_000;
+const MAX_AUDIO_SAVE_COVER_BYTES = 2_000_000;
+const AUDIO_SAVE_COVER_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+function decodeAudioSaveCoverPayload(body) {
+  const rawValue = body?.coverImageBase64 ?? body?.cover_image_base64 ?? null;
+  if (rawValue === null || rawValue === undefined || rawValue === "") {
+    return { coverBytes: null, coverMimeType: null, error: null };
+  }
+  if (typeof rawValue !== "string") {
+    return {
+      coverBytes: null,
+      coverMimeType: null,
+      error: { status: 400, body: { ok: false, error: "coverImageBase64 must be a base64 image string.", code: "invalid_cover_image" } },
+    };
+  }
+
+  const trimmed = rawValue.trim();
+  if (!trimmed || trimmed.length > MAX_AUDIO_SAVE_COVER_BASE64_CHARS) {
+    return {
+      coverBytes: null,
+      coverMimeType: null,
+      error: { status: 400, body: { ok: false, error: "Cover image payload is invalid or too large.", code: "invalid_cover_image" } },
+    };
+  }
+
+  const requestedMime = String(body?.coverMimeType ?? body?.cover_mime_type ?? "image/png")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (!AUDIO_SAVE_COVER_MIME_TYPES.has(requestedMime)) {
+    return {
+      coverBytes: null,
+      coverMimeType: null,
+      error: { status: 400, body: { ok: false, error: "coverMimeType must be png, jpeg, or webp.", code: "invalid_cover_image" } },
+    };
+  }
+
+  const parsed = parseBase64Image(trimmed.startsWith("data:")
+    ? trimmed
+    : `data:${requestedMime};base64,${trimmed}`);
+  if (!parsed || !AUDIO_SAVE_COVER_MIME_TYPES.has(String(parsed.mimeType || "").toLowerCase())) {
+    return {
+      coverBytes: null,
+      coverMimeType: null,
+      error: { status: 400, body: { ok: false, error: "coverImageBase64 must be a supported base64 image.", code: "invalid_cover_image" } },
+    };
+  }
+
+  try {
+    const normalizedBase64 = parsed.base64.replace(/\s+/g, "");
+    const coverBytes = Uint8Array.from(atob(normalizedBase64), (ch) => ch.charCodeAt(0));
+    if (!coverBytes.byteLength || coverBytes.byteLength > MAX_AUDIO_SAVE_COVER_BYTES) {
+      return {
+        coverBytes: null,
+        coverMimeType: null,
+        error: { status: 400, body: { ok: false, error: "Cover image payload is invalid or too large.", code: "invalid_cover_image" } },
+      };
+    }
+    return {
+      coverBytes,
+      coverMimeType: String(parsed.mimeType || requestedMime).toLowerCase(),
+      error: null,
+    };
+  } catch {
+    return {
+      coverBytes: null,
+      coverMimeType: null,
+      error: { status: 400, body: { ok: false, error: "coverImageBase64 must be valid base64.", code: "invalid_cover_image" } },
+    };
+  }
+}
 
 export async function handleAttachTextAssetPoster(ctx, assetId) {
   const { request, env } = ctx;
@@ -217,6 +298,11 @@ export async function handleSaveAudio(ctx) {
     return respond({ ok: false, error: "audioBase64 must be a non-empty string." }, { status: 400 });
   }
 
+  const coverPayload = decodeAudioSaveCoverPayload(body);
+  if (coverPayload.error) {
+    return respond(coverPayload.error.body, { status: coverPayload.error.status });
+  }
+
   let audioBase64 = hasAudioBase64 ? body.audioBase64 : null;
   let mimeType = String(body.mimeType || "audio/mpeg").trim();
   let sizeBytes = body.sizeBytes ?? null;
@@ -290,6 +376,10 @@ export async function handleSaveAudio(ctx) {
     channels: body.channels ?? null,
     bitrate: body.bitrate ?? null,
     sizeBytes,
+    source: body.source ? String(body.source).slice(0, 120) : null,
+    coverPrompt: body.coverPrompt ? String(body.coverPrompt).slice(0, MAX_PROMPT_LENGTH) : null,
+    coverModel: body.coverModel ? String(body.coverModel).slice(0, 180) : null,
+    coverMimeType: coverPayload.coverMimeType,
     traceId: body.traceId || null,
     warnings: Array.isArray(body.warnings) ? body.warnings : [],
     elapsedMs: body.elapsedMs ?? null,
@@ -305,6 +395,27 @@ export async function handleSaveAudio(ctx) {
       payload,
     });
 
+    let responseData = saved;
+    let coverWarning = null;
+    if (coverPayload.coverBytes) {
+      const poster = await processGeneratedMusicCoverPoster(env, {
+        userId: session.user.id,
+        assetId: saved.id,
+        coverBytes: coverPayload.coverBytes,
+      });
+      if (poster) {
+        responseData = {
+          ...saved,
+          poster_r2_key: poster.r2Key,
+          poster_width: poster.width,
+          poster_height: poster.height,
+          poster_size_bytes: poster.sizeBytes,
+        };
+      } else {
+        coverWarning = "Cover image could not be attached to the saved audio asset.";
+      }
+    }
+
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-save-audio",
@@ -314,9 +425,14 @@ export async function handleSaveAudio(ctx) {
       asset_id: saved.id,
       folder_id: saved.folder_id,
       size_bytes: saved.size_bytes,
+      cover_attached: !!responseData.poster_r2_key,
     });
 
-    return respond({ ok: true, data: saved }, { status: 201 });
+    return respond({
+      ok: true,
+      data: responseData,
+      ...(coverWarning ? { cover_warning: coverWarning } : {}),
+    }, { status: 201 });
   } catch (error) {
     if (isAssetStorageQuotaError(error)) {
       return respond(assetStorageQuotaErrorBody(error), { status: error?.status || 413 });

@@ -2785,7 +2785,7 @@ export function createSavedAssetsBrowser({
             if (action === 'new-folder') showNewFolderForm();
             else if (action === 'delete-folder') showDeleteFolderForm();
             else if (action === 'select') enterSelectMode();
-            else if (action === 'upload-video' && typeof onUploadVideo === 'function') onUploadVideo(event.target.closest('button'));
+            else if ((action === 'upload-asset' || action === 'upload-video') && typeof onUploadVideo === 'function') onUploadVideo(event.target.closest('button'));
         });
         document.addEventListener('click', (event) => {
             if (!root?.contains(event.target)) closeMobileMenu();

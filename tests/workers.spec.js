@@ -39042,6 +39042,105 @@ test.describe('Worker routes', () => {
     expect(metadata.bpm).toBe(90);
   });
 
+  test('member audio save endpoint attaches optional generated cover poster through the music cover pipeline', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-cover-save', role: 'user' })],
+      imagesBinding: {
+        originalInfo: { width: 512, height: 512, format: 'image/png' },
+      },
+    });
+
+    const token = await seedSession(env, 'member-audio-cover-save');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'Admin Uploaded Track',
+        audioBase64: btoa('fake-mp3-binary-data'),
+        mimeType: 'audio/mpeg',
+        prompt: 'A neon album cover',
+        model: '@cf/black-forest-labs/flux-2-dev',
+        mode: 'admin_assets_manager_upload',
+        source: 'admin_assets_manager_upload',
+        coverImageBase64: ONE_PIXEL_PNG_DATA_URI,
+        coverMimeType: 'image/png',
+        coverPrompt: 'A neon album cover',
+        coverModel: '@cf/black-forest-labs/flux-2-dev',
+        sizeBytes: 400000,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.53',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      ok: true,
+      data: {
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        poster_r2_key: expect.stringMatching(/\/derivatives\/v1\/.+\/poster\.webp$/),
+        poster_width: 320,
+        poster_height: 320,
+        poster_size_bytes: expect.any(Number),
+      },
+    });
+
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    expect(row.poster_r2_key).toBe(json.data.poster_r2_key);
+    expect(row.poster_width).toBe(320);
+    expect(row.poster_height).toBe(320);
+    expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+    expect(env.USER_IMAGES.objects.has(row.poster_r2_key)).toBe(true);
+    expect(env.IMAGES.transformCalls).toHaveLength(1);
+    const metadata = JSON.parse(row.metadata_json);
+    expect(metadata.source).toBe('admin_assets_manager_upload');
+    const coverMetadata = typeof metadata.cover === 'string'
+      ? JSON.parse(metadata.cover)
+      : metadata.cover;
+    expect(coverMetadata).toEqual({
+      prompt: 'A neon album cover',
+      model: '@cf/black-forest-labs/flux-2-dev',
+      mime_type: 'image/png',
+    });
+  });
+
+  test('member audio save endpoint rejects invalid generated cover payloads before saving audio', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-bad-cover', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'member-audio-bad-cover');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'Bad Cover Track',
+        audioBase64: btoa('fake-mp3-binary-data'),
+        mimeType: 'audio/mpeg',
+        coverImageBase64: 'not base64',
+        coverMimeType: 'image/png',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.53',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      code: 'invalid_cover_image',
+    }));
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(0);
+  });
+
   test('member audio save endpoint fetches trusted generated audio URLs server-side and stores MP3 in R2', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

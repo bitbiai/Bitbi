@@ -183,7 +183,7 @@
                         <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
                         <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
                         <button type="button" id="studioSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
-                        <button type="button" id="studioAdminUploadVideoBtn" class="studio__new-folder-btn studio__folder-action" hidden>Upload Video</button>
+                        <button type="button" id="studioAdminUploadVideoBtn" class="studio__new-folder-btn studio__folder-action" hidden>Upload</button>
                         <div class="studio__mobile-actions" id="studioMobileActions">
                             <button type="button" class="studio__mobile-actions-toggle" id="studioMobileActionsToggle" aria-label="Asset actions" aria-expanded="false">Actions</button>
                             <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu" aria-label="Mobile asset actions">
@@ -191,7 +191,7 @@
                                 <button type="button" data-action="new-folder">Create folder</button>
                                 <button type="button" data-action="delete-folder">Delete folder</button>
                                 <button type="button" data-action="select">Select assets</button>
-                                <button type="button" data-action="upload-video" id="studioAdminUploadVideoMobileBtn" hidden>Upload video</button>
+                                <button type="button" data-action="upload-asset" id="studioAdminUploadVideoMobileBtn" hidden>Upload</button>
                             </div>
                         </div>
                     </div>
@@ -283,6 +283,29 @@
                     <div class="studio__gallery-empty">Loading saved assets...</div>
                 </div>
 
+                <div id="studioAdminUploadChooserModal" class="assets-manager__admin-upload-modal" hidden aria-hidden="true">
+                    <div class="assets-manager__admin-upload-backdrop" data-assets-upload-chooser-close></div>
+                    <div class="assets-manager__admin-upload-dialog assets-manager__admin-upload-dialog--compact glass glass-card" role="dialog" aria-modal="true" aria-labelledby="studioAdminUploadChooserTitle">
+                        <div class="assets-manager__admin-upload-head">
+                            <div>
+                                <h4 id="studioAdminUploadChooserTitle" class="admin-section-title" tabindex="-1">Upload asset</h4>
+                                <p class="admin-shell__desc">Choose the media type to add to the private Assets Manager library.</p>
+                            </div>
+                            <button type="button" class="assets-manager__toolbar-btn" data-assets-upload-chooser-close>Close</button>
+                        </div>
+                        <div class="assets-manager__upload-choice-grid" aria-label="Upload type">
+                            <button type="button" class="assets-manager__upload-choice" data-assets-upload-choice="video">
+                                <span class="assets-manager__upload-choice-title">Video upload</span>
+                                <span class="assets-manager__upload-choice-copy">Manual Hero Videos source upload with poster capture.</span>
+                            </button>
+                            <button type="button" class="assets-manager__upload-choice" data-assets-upload-choice="music">
+                                <span class="assets-manager__upload-choice-title">Music upload</span>
+                                <span class="assets-manager__upload-choice-copy">MP3 upload with an AI-generated cover thumbnail.</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="studioAdminUploadVideoModal" class="assets-manager__admin-upload-modal" hidden aria-hidden="true">
                     <div class="assets-manager__admin-upload-backdrop" data-assets-upload-close></div>
                     <div class="assets-manager__admin-upload-dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="studioAdminUploadVideoTitle">
@@ -299,6 +322,42 @@
                             <textarea id="studioAdminUploadVideoReason" class="admin-search__input admin-hero-videos__reason" rows="3" maxlength="500" placeholder="Required for admin manual uploads."></textarea>
                         </label>
                         <div id="studioAdminUploadVideoForm"></div>
+                    </div>
+                </div>
+
+                <div id="studioAdminUploadMusicModal" class="assets-manager__admin-upload-modal" hidden aria-hidden="true">
+                    <div class="assets-manager__admin-upload-backdrop" data-assets-music-upload-close></div>
+                    <div class="assets-manager__admin-upload-dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="studioAdminUploadMusicTitle">
+                        <div class="assets-manager__admin-upload-head">
+                            <div>
+                                <h4 id="studioAdminUploadMusicTitle" class="admin-section-title" tabindex="-1">Upload music asset</h4>
+                                <p class="admin-shell__desc">Upload a private MP3 and generate its saved-assets cover with Admin AI image models.</p>
+                            </div>
+                            <button type="button" class="assets-manager__toolbar-btn" data-assets-music-upload-close>Close</button>
+                        </div>
+                        <p id="studioAdminUploadMusicStatus" class="assets-manager__admin-upload-status" role="status" aria-live="polite">Choose an MP3 and cover prompt.</p>
+                        <div class="assets-manager__music-upload" id="studioAdminUploadMusicForm">
+                            <label class="admin-hero-videos__field">
+                                <span>Title</span>
+                                <input id="studioAdminUploadMusicTitleInput" class="admin-search__input" type="text" maxlength="120" autocomplete="off">
+                            </label>
+                            <label class="admin-hero-videos__field">
+                                <span>MP3 file</span>
+                                <input id="studioAdminUploadMusicFile" class="admin-search__input" type="file" accept=".mp3,audio/mpeg">
+                            </label>
+                            <label class="admin-hero-videos__field">
+                                <span>Cover prompt</span>
+                                <textarea id="studioAdminUploadMusicPrompt" class="admin-search__input admin-hero-videos__reason" rows="4" maxlength="1000" placeholder="Describe the cover image for this track."></textarea>
+                            </label>
+                            <label class="admin-hero-videos__field">
+                                <span>Admin AI image model</span>
+                                <select id="studioAdminUploadMusicModel" class="admin-search__input"></select>
+                                <span class="admin-hero-videos__field-help" id="studioAdminUploadMusicModelHelp">Load the image model catalog before uploading.</span>
+                            </label>
+                            <div class="admin-hero-videos__actions">
+                                <button type="button" id="studioAdminUploadMusicSubmit" class="btn-action">Upload music</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
