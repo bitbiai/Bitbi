@@ -345,6 +345,7 @@ async function collectMetrics(page) {
       },
       resourceCount: resources.length,
       resourceTypes,
+      runtimeProbe: window.__bitbiRuntimeProbe ? { ...window.__bitbiRuntimeProbe } : null,
       stylesheetResources: resources
         .filter((entry) => entry.initiatorType === 'link' || String(entry.name || '').includes('.css'))
         .map((entry) => {
@@ -421,8 +422,45 @@ async function captureScenario({ browserName, browser, origin, route, scenario, 
       name: VISUAL_MEMBER_COOKIE_NAME,
       path: '/',
       value: 'member',
-    }]);
+      }]);
   }
+  await context.addInitScript(() => {
+    if (window.__bitbiRuntimeProbe) return;
+    const originalRequestAnimationFrame = window.requestAnimationFrame?.bind(window);
+    const originalCancelAnimationFrame = window.cancelAnimationFrame?.bind(window);
+    const activeFrames = new Set();
+    window.__bitbiRuntimeProbe = {
+      rafScheduled: 0,
+      rafCallbacks: 0,
+      activeRaf: 0,
+      maxActiveRaf: 0,
+    };
+    if (typeof originalRequestAnimationFrame === 'function') {
+      window.requestAnimationFrame = (callback) => {
+        window.__bitbiRuntimeProbe.rafScheduled += 1;
+        const id = originalRequestAnimationFrame((time) => {
+          activeFrames.delete(id);
+          window.__bitbiRuntimeProbe.activeRaf = activeFrames.size;
+          window.__bitbiRuntimeProbe.rafCallbacks += 1;
+          callback(time);
+        });
+        activeFrames.add(id);
+        window.__bitbiRuntimeProbe.activeRaf = activeFrames.size;
+        window.__bitbiRuntimeProbe.maxActiveRaf = Math.max(
+          window.__bitbiRuntimeProbe.maxActiveRaf,
+          activeFrames.size,
+        );
+        return id;
+      };
+    }
+    if (typeof originalCancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame = (id) => {
+        activeFrames.delete(id);
+        window.__bitbiRuntimeProbe.activeRaf = activeFrames.size;
+        return originalCancelAnimationFrame(id);
+      };
+    }
+  });
   const page = await context.newPage();
   const consoleErrors = [];
   const expectedConsoleNotices = [];

@@ -14,9 +14,16 @@ export function initScrollReveal() {
         return null;
     }
 
+    if (typeof IntersectionObserver !== 'function') {
+        els.forEach((el) => el.classList.add('visible'));
+        return null;
+    }
+
     const observer = new IntersectionObserver(
         (entries) => entries.forEach((entry) => {
-            if (entry.isIntersecting) entry.target.classList.add('visible');
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
         }),
         { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
     );

@@ -14,6 +14,8 @@ export function initBinaryRain(containerId, options = {}) {
 
     const el = document.getElementById(containerId);
     if (!el) return;
+    if (el.dataset.binaryRainReady === 'true') return;
+    el.dataset.binaryRainReady = 'true';
 
     const cols = Math.min(maxCols, Math.floor(window.innerWidth / colDivisor));
     for (let i = 0; i < cols; i++) {

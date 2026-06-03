@@ -21,6 +21,8 @@ export function initParticles(canvasId, options = {}) {
     let destroyed = false;
     let ro = null;
     let io = null;
+    let onVisChange = null;
+    let animationFrame = 0;
 
     /* Prefer ResizeObserver over window resize */
     function resize() {
@@ -87,11 +89,29 @@ export function initParticles(canvasId, options = {}) {
         window.addEventListener('resize', resize);
     }
 
+    const handle = {
+        destroy() {
+            destroyed = true;
+            if (animationFrame) {
+                cancelAnimationFrame(animationFrame);
+                animationFrame = 0;
+            }
+            if (ro) { ro.disconnect(); ro = null; }
+            if (io) { io.disconnect(); io = null; }
+            if (onVisChange) document.removeEventListener('visibilitychange', onVisChange);
+        }
+    };
+
     /* Respect prefers-reduced-motion */
     const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     const ps = [];
-    const PC = Math.min(maxParticles, Math.floor(W * H / particleDensity));
+    const PC = Math.max(0, Math.min(maxParticles, Math.floor(W * H / particleDensity)));
+    const NC = Math.max(0, Math.floor(Number(nebulaCount) || 0));
+
+    if (PC === 0 && NC === 0) {
+        return handle;
+    }
 
     class P {
         constructor() { this.reset(); }
@@ -172,17 +192,7 @@ export function initParticles(canvasId, options = {}) {
 
     for (let i = 0; i < PC; i++) ps.push(new P());
     const ns = [];
-    for (let i = 0; i < nebulaCount; i++) ns.push(new N());
-
-    const handle = {
-        destroy() {
-            destroyed = true;
-            if (ro) { ro.disconnect(); ro = null; }
-            if (io) { io.disconnect(); io = null; }
-            if (onVisChange) document.removeEventListener('visibilitychange', onVisChange);
-        }
-    };
-    let onVisChange = null;
+    for (let i = 0; i < NC; i++) ns.push(new N());
 
     /* Draw single static frame if reduced motion */
     if (prefersReducedMotion) {
@@ -195,16 +205,22 @@ export function initParticles(canvasId, options = {}) {
     let t = 0;
     let visible = true;
 
+    function scheduleLoop() {
+        if (animationFrame || destroyed || !visible || document.hidden) return;
+        animationFrame = requestAnimationFrame(loop);
+    }
+
     if (typeof IntersectionObserver !== 'undefined') {
         io = new IntersectionObserver(([entry]) => {
             const wasVisible = visible;
             visible = entry.isIntersecting;
-            if (visible && !wasVisible && !destroyed) requestAnimationFrame(loop);
+            if (visible && !wasVisible && !destroyed) scheduleLoop();
         });
         io.observe(c.parentElement);
     }
 
     function loop() {
+        animationFrame = 0;
         if (destroyed) return;
         t++;
         ctx.clearRect(0, 0, W, H);
@@ -236,14 +252,14 @@ export function initParticles(canvasId, options = {}) {
             }
         }
 
-        if (visible && !document.hidden && !destroyed) requestAnimationFrame(loop);
+        scheduleLoop();
     }
 
     onVisChange = () => {
-        if (!document.hidden && visible && !destroyed) requestAnimationFrame(loop);
+        if (!document.hidden && visible && !destroyed) scheduleLoop();
     };
     document.addEventListener('visibilitychange', onVisChange);
 
-    requestAnimationFrame(loop);
+    scheduleLoop();
     return handle;
 }

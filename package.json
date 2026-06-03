@@ -58,6 +58,8 @@
     "audit:media-derivatives:markdown": "node scripts/media-derivative-inventory.mjs --markdown",
     "audit:performance": "node scripts/performance-inventory.mjs",
     "audit:performance:markdown": "node scripts/performance-inventory.mjs --markdown",
+    "audit:runtime": "node scripts/runtime-work-inventory.mjs",
+    "audit:runtime:markdown": "node scripts/runtime-work-inventory.mjs --markdown",
     "audit:visual-guardrails": "node scripts/capture-visual-guardrails.mjs",
     "report:ai-budget-evidence": "node scripts/report-ai-budget-evidence.mjs",
     "validate:release": "node scripts/validate-release-compat.mjs",
