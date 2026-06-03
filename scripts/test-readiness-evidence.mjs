@@ -20,6 +20,35 @@ const releaseCompat = JSON.parse(
 );
 const expectedLatestAuthMigration = releaseCompat.release.schemaCheckpoints.auth.latest;
 const secretValue = "super-secret-test-value-should-not-print";
+
+function markdownHttpUrls(markdownText) {
+  const urls = [];
+  const candidates = String(markdownText || "").split(/[\s<>()\[\]`"'|]+/);
+  for (const candidate of candidates) {
+    const trimmed = candidate.replace(/[.,;!?]+$/g, "");
+    if (!trimmed) continue;
+    let parsed;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      urls.push(parsed);
+    }
+  }
+  return urls;
+}
+
+function markdownContainsUrlOrigin(markdownText, expectedUrl) {
+  const expected = new URL(expectedUrl);
+  return markdownHttpUrls(markdownText).some((url) => (
+    url.protocol === expected.protocol &&
+    url.hostname === expected.hostname &&
+    url.port === expected.port
+  ));
+}
+
 const evidence = await collectReadinessEvidence({
   repoRoot,
   env: {
@@ -46,7 +75,7 @@ assert(markdown.includes("`STRIPE_SECRET_KEY` | present (value redacted)"));
 assert(markdown.includes("`STRIPE_WEBHOOK_SECRET` | missing"));
 assert(markdown.includes("LIVE/STAGING") || markdown.includes("Live/Staging"));
 assert(!markdown.includes(secretValue));
-assert(!markdown.includes("https://example.invalid"));
+assert.equal(markdownContainsUrlOrigin(markdown, "https://example.invalid"), false);
 assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
 
 {

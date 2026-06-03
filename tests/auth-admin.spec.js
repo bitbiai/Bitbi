@@ -12751,9 +12751,17 @@ test.describe('Admin Control Plane', () => {
       source_asset_id: 'pub_memvid_hero_1',
       title: 'Published Hero Candidate',
       file_url: null,
-      poster_url: `data:image/png;base64,${ONE_PX_PNG_BASE64}`,
+      poster_url: '/api/gallery/memvids/pub_memvid_hero_1/vtest/poster',
       size_bytes: 2_100_000,
       duration_seconds: 7,
+    }, {
+      source_type: 'public',
+      source_asset_id: 'pub_memvid_unsafe_preview',
+      title: 'Unsafe Preview Candidate',
+      file_url: 'javascript:alert(1)',
+      poster_url: 'data:image/png;base64,unsafe',
+      size_bytes: 1_100_000,
+      duration_seconds: 4,
     }];
     const adminCandidates = [{
       source_type: 'admin_asset',
@@ -13017,6 +13025,13 @@ test.describe('Admin Control Plane', () => {
         body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
       });
     });
+    await page.route(/\/api\/gallery\/memvids\/pub_memvid_hero_1\/vtest\/poster$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+      });
+    });
 
     const response = await page.goto('/admin/index.html#homepage-hero-videos');
     expect(response.status()).toBe(200);
@@ -13078,6 +13093,17 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('.admin-hero-videos__slot-card')).toHaveCount(4);
     await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');
+    await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Unsafe Preview Candidate');
+    const unsafePreview = await page.locator('.admin-hero-videos__candidate-card', { hasText: 'Unsafe Preview Candidate' }).evaluate((card) => ({
+      videoSrc: card.querySelector('video')?.getAttribute('src') || '',
+      imageSrc: card.querySelector('img')?.getAttribute('src') || '',
+      emptyText: card.querySelector('.admin-hero-videos__preview-empty')?.textContent || '',
+    }));
+    expect(unsafePreview).toEqual({
+      videoSrc: '',
+      imageSrc: '',
+      emptyText: 'No preview available',
+    });
 
     await page.getByRole('tab', { name: 'Admin Assets' }).click();
     await expect(page.getByRole('tab', { name: 'Admin Assets' })).toHaveAttribute('aria-selected', 'true');

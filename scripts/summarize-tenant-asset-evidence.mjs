@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { escapeMarkdownTableCell } from "./lib/markdown-table.mjs";
 
 const REQUIRED_REPORT_FIELDS = Object.freeze([
   "generatedAt",
@@ -204,7 +205,7 @@ export function buildTenantAssetEvidenceSummary(report, {
 }
 
 function markdownValue(value) {
-  return String(value ?? "").replace(/\|/g, "\\|");
+  return escapeMarkdownTableCell(value);
 }
 
 export function renderTenantAssetEvidenceSummaryMarkdown(summary) {

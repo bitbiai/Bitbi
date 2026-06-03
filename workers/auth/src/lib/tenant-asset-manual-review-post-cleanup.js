@@ -638,7 +638,12 @@ export async function buildManualReviewPostCleanupDryRunReport(env, input = {}) 
 }
 
 function escapeMarkdown(value) {
-  return String(value ?? "not_recorded").replace(/\|/g, "\\|");
+  return String(value ?? "not_recorded")
+    .split("\\").join("\\\\")
+    .split("|").join("\\|")
+    .replace(/\r\n?|\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function escapeHtml(value) {

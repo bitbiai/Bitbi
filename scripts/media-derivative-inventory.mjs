@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { escapeMarkdownTableCell } from './lib/markdown-table.mjs';
 
 const ROOT = process.cwd();
 const USE_MARKDOWN = process.argv.includes('--markdown');
@@ -325,9 +326,9 @@ function renderTable(headers, rows) {
     return [renderRow(headers), renderRow(widths.map((width) => '-'.repeat(width))), ...rows.map(renderRow)].join('\n');
   }
 
-  const headerLine = `| ${headers.join(' | ')} |`;
+  const headerLine = `| ${headers.map((header) => escapeMarkdownTableCell(header)).join(' | ')} |`;
   const dividerLine = `| ${headers.map(() => '---').join(' | ')} |`;
-  const rowLines = rows.map((row) => `| ${row.join(' | ')} |`);
+  const rowLines = rows.map((row) => `| ${row.map((cell) => escapeMarkdownTableCell(cell)).join(' | ')} |`);
   return [headerLine, dividerLine, ...rowLines].join('\n');
 }
 

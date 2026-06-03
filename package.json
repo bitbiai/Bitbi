@@ -18,6 +18,7 @@
     "test:readiness-evidence": "node scripts/test-readiness-evidence.mjs",
     "test:release-cutover-evidence": "node scripts/test-release-cutover-evidence.mjs",
     "test:main-release-readiness": "node scripts/test-main-release-readiness.mjs",
+    "test:codeql-fixes": "node scripts/test-codeql-security-fixes.mjs",
     "test:ai-cost-policy": "node scripts/test-ai-cost-policy.mjs",
     "test:ai-cost-gateway": "node scripts/test-ai-cost-gateway.mjs",
     "test:ai-cost-operations": "node scripts/test-ai-cost-operations.mjs",

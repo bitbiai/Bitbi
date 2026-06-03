@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = process.cwd();
 const USE_MARKDOWN = process.argv.includes('--markdown');
@@ -102,13 +103,107 @@ function formatBytes(bytes) {
   return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
-function extractInlineScripts(content) {
+function isNameBoundary(char) {
+  return !char || /[\s/>]/.test(char);
+}
+
+function findTagEnd(content, startIndex) {
+  let quote = '';
+  for (let index = startIndex; index < content.length; index += 1) {
+    const char = content[index];
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '>') return index;
+  }
+  return -1;
+}
+
+function hasSrcAttribute(attrs) {
+  let index = 0;
+  while (index < attrs.length) {
+    while (index < attrs.length && /\s/.test(attrs[index])) index += 1;
+    const nameStart = index;
+    while (index < attrs.length && !/[\s=/>]/.test(attrs[index])) index += 1;
+    const name = attrs.slice(nameStart, index).toLowerCase();
+    while (index < attrs.length && /\s/.test(attrs[index])) index += 1;
+    const hasValue = attrs[index] === '=';
+    if (name === 'src' && hasValue) return true;
+    if (!hasValue) continue;
+    index += 1;
+    while (index < attrs.length && /\s/.test(attrs[index])) index += 1;
+    const quote = attrs[index] === '"' || attrs[index] === "'" ? attrs[index] : '';
+    if (quote) {
+      index += 1;
+      while (index < attrs.length && attrs[index] !== quote) index += 1;
+      if (index < attrs.length) index += 1;
+      continue;
+    }
+    while (index < attrs.length && !/\s/.test(attrs[index])) index += 1;
+  }
+  return false;
+}
+
+function findClosingScriptTag(content, startIndex) {
+  let searchIndex = startIndex;
+  while (searchIndex < content.length) {
+    const openIndex = content.indexOf('<', searchIndex);
+    if (openIndex === -1) return null;
+    let index = openIndex + 1;
+    if (content[index] !== '/') {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    index += 1;
+    while (index < content.length && /\s/.test(content[index])) index += 1;
+    if (content.slice(index, index + 6).toLowerCase() !== 'script') {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    index += 6;
+    if (!isNameBoundary(content[index])) {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    while (index < content.length && /\s/.test(content[index])) index += 1;
+    if (content[index] !== '>') {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    return {
+      start: openIndex,
+      end: index,
+    };
+  }
+  return null;
+}
+
+export function extractInlineScripts(content) {
   const scripts = [];
-  const matches = content.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi);
-  for (const match of matches) {
-    const attrs = match[1] || '';
-    if (/\bsrc\s*=/i.test(attrs)) continue;
-    scripts.push(match[2] || '');
+  let searchIndex = 0;
+  while (searchIndex < content.length) {
+    const openIndex = content.indexOf('<', searchIndex);
+    if (openIndex === -1) break;
+    const nameStart = openIndex + 1;
+    if (content.slice(nameStart, nameStart + 6).toLowerCase() !== 'script'
+      || !isNameBoundary(content[nameStart + 6])) {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    const tagEnd = findTagEnd(content, nameStart + 6);
+    if (tagEnd === -1) break;
+    const attrs = content.slice(nameStart + 6, tagEnd);
+    const close = findClosingScriptTag(content, tagEnd + 1);
+    if (!close) break;
+    if (!hasSrcAttribute(attrs)) {
+      scripts.push(content.slice(tagEnd + 1, close.start));
+    }
+    searchIndex = close.end + 1;
   }
   return scripts;
 }
@@ -328,4 +423,6 @@ function printReport() {
   process.stdout.write(`${lines.join('\n')}\n`);
 }
 
-printReport();
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  printReport();
+}

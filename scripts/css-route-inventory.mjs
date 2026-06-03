@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { escapeMarkdownTableCell } from './lib/markdown-table.mjs';
 
 const ROOT = process.cwd();
 const USE_MARKDOWN = process.argv.includes('--markdown');
@@ -349,9 +350,9 @@ function buildRouteOverlapRows(routes) {
 function renderTable(headers, rows) {
   if (USE_MARKDOWN) {
     return [
-      `| ${headers.join(' | ')} |`,
+      `| ${headers.map((header) => escapeMarkdownTableCell(header)).join(' | ')} |`,
       `| ${headers.map(() => '---').join(' | ')} |`,
-      ...rows.map((row) => `| ${row.map((cell) => String(cell).replace(/\|/g, '\\|')).join(' | ')} |`),
+      ...rows.map((row) => `| ${row.map((cell) => escapeMarkdownTableCell(cell)).join(' | ')} |`),
     ].join('\n');
   }
 

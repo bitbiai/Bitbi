@@ -510,16 +510,74 @@ function parseConfiguredSources(value) {
   return sources;
 }
 
+const PLAIN_TEXT_ENTITY_MAP = Object.freeze({
+  amp: "&",
+  nbsp: " ",
+  quot: "\"",
+  lt: "<",
+  gt: ">",
+  "#39": "'",
+  "#039": "'",
+  "#x27": "'",
+});
+
+function findMarkupTagEnd(value, startIndex) {
+  let quote = "";
+  for (let index = startIndex; index < value.length; index += 1) {
+    const char = value[index];
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ">") return index;
+  }
+  return -1;
+}
+
+function removeMarkupForPlainText(value) {
+  const input = String(value || "");
+  const output = [];
+  let index = 0;
+  while (index < input.length) {
+    if (input.startsWith("<![CDATA[", index)) {
+      const end = input.indexOf("]]>", index + 9);
+      if (end === -1) {
+        output.push(removeMarkupForPlainText(input.slice(index + 9)));
+        break;
+      }
+      output.push(removeMarkupForPlainText(input.slice(index + 9, end)));
+      index = end + 3;
+      continue;
+    }
+    if (input[index] === "<") {
+      const end = findMarkupTagEnd(input, index + 1);
+      if (end === -1) {
+        output.push(input.slice(index));
+        break;
+      }
+      output.push(" ");
+      index = end + 1;
+      continue;
+    }
+    output.push(input[index]);
+    index += 1;
+  }
+  return output.join("");
+}
+
+function decodePlainTextEntities(value) {
+  return String(value || "").replace(/&(nbsp|amp|quot|lt|gt|#39|#039|#x27);/gi, (match, entity) => {
+    const replacement = PLAIN_TEXT_ENTITY_MAP[String(entity).toLowerCase()];
+    return replacement ?? match;
+  });
+}
+
 function stripMarkup(value) {
-  return String(value || "")
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
+  return decodePlainTextEntities(removeMarkupForPlainText(value))
     .replace(/\s+/g, " ")
     .trim();
 }

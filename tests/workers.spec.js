@@ -218,6 +218,13 @@ async function loadNewsPulseVisualsModule() {
   return import(modulePath);
 }
 
+async function loadNewsPulseModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/news-pulse.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadRoutePolicyModule() {
   const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/app/route-policy.js')).href;
   return import(modulePath);
@@ -17419,6 +17426,44 @@ test.describe('Worker routes', () => {
       expect(serialized).not.toContain('sk_test_secret_should_not_leak');
       expect(serialized).not.toContain('NEWS_PULSE_SOURCE_URLS');
       expect(serialized).not.toContain('feeds.example.com');
+    });
+
+    test('refreshNewsPulse decodes plain text entities without double-unescaping feed markup', async () => {
+      const { refreshNewsPulse } = await loadNewsPulseModule();
+      const env = createAuthTestEnv({
+        NEWS_PULSE_SOURCE_URLS: 'https://feeds.example.com/ai.xml',
+        __TEST_FETCH: async () => new Response([
+          '<?xml version="1.0" encoding="UTF-8"?>',
+          '<rss><channel>',
+          '<item>',
+          '<title><![CDATA[AI &amp;lt;models&gt; &amp;amp; safety]]></title>',
+          '<link>https://example.com/ai-entity-safety</link>',
+          '<description><![CDATA[<p>Summary &amp;lt;safe&gt; &amp;amp; sound</p>]]></description>',
+          '<pubDate>Fri, 10 May 2026 09:00:00 GMT</pubDate>',
+          '</item>',
+          '</channel></rss>',
+        ].join(''), {
+          status: 200,
+          headers: { 'Content-Type': 'application/rss+xml' },
+        }),
+      });
+
+      const result = await refreshNewsPulse({
+        env,
+        now: '2026-05-10T10:00:00.000Z',
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        skipped: false,
+        storedCount: 1,
+      }));
+      expect(env.DB.state.newsPulseItems).toHaveLength(1);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        title: 'AI &lt;models> &amp; safety',
+        summary: 'Summary &lt;safe> &amp; sound',
+      }));
+      expect(env.DB.state.newsPulseItems[0].title).not.toContain('<models>');
+      expect(env.DB.state.newsPulseItems[0].summary).not.toContain('<safe>');
     });
 
     test('GET /api/public/news-pulse exposes generated visual fields only for ready thumbnails', async () => {

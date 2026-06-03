@@ -36,24 +36,162 @@ function pngDimensions(relativePath) {
 }
 
 function parseJsonLdBlocks(html, label) {
-  return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
-    .map((match, index) => {
+  return extractScriptBlocksByType(html, 'application/ld+json')
+    .map((block, index) => {
       try {
-        return JSON.parse(match[1].trim());
+        return JSON.parse(block.trim());
       } catch (error) {
         throw new Error(`${label} JSON-LD ${index + 1} is invalid: ${error.message}`);
       }
     });
 }
 
+function findHtmlTagEnd(html, startIndex) {
+  let quote = '';
+  for (let index = startIndex; index < html.length; index += 1) {
+    const char = html[index];
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '>') return index;
+  }
+  return -1;
+}
+
+function readHtmlTagName(html, openIndex) {
+  let index = openIndex + 1;
+  if (html[index] === '/') index += 1;
+  while (index < html.length && /\s/.test(html[index])) index += 1;
+  const start = index;
+  while (index < html.length && /[A-Za-z0-9:-]/.test(html[index])) index += 1;
+  return html.slice(start, index).toLowerCase();
+}
+
+function getHtmlAttributeValue(attrs, targetName) {
+  let index = 0;
+  const normalizedTarget = targetName.toLowerCase();
+  while (index < attrs.length) {
+    while (index < attrs.length && /\s/.test(attrs[index])) index += 1;
+    const nameStart = index;
+    while (index < attrs.length && !/[\s=/>]/.test(attrs[index])) index += 1;
+    const name = attrs.slice(nameStart, index).toLowerCase();
+    while (index < attrs.length && /\s/.test(attrs[index])) index += 1;
+    if (attrs[index] !== '=') {
+      if (name === normalizedTarget) return '';
+      continue;
+    }
+    index += 1;
+    while (index < attrs.length && /\s/.test(attrs[index])) index += 1;
+    const quote = attrs[index] === '"' || attrs[index] === "'" ? attrs[index] : '';
+    const valueStart = quote ? index + 1 : index;
+    if (quote) {
+      index = valueStart;
+      while (index < attrs.length && attrs[index] !== quote) index += 1;
+      const value = attrs.slice(valueStart, index);
+      if (index < attrs.length) index += 1;
+      if (name === normalizedTarget) return value;
+      continue;
+    }
+    while (index < attrs.length && !/\s/.test(attrs[index])) index += 1;
+    const value = attrs.slice(valueStart, index);
+    if (name === normalizedTarget) return value;
+  }
+  return null;
+}
+
+function findClosingHtmlBlockRange(html, tagName, startIndex) {
+  let searchIndex = startIndex;
+  while (searchIndex < html.length) {
+    const openIndex = html.indexOf('<', searchIndex);
+    if (openIndex === -1) return null;
+    let index = openIndex + 1;
+    if (html[index] !== '/') {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    index += 1;
+    while (index < html.length && /\s/.test(html[index])) index += 1;
+    if (html.slice(index, index + tagName.length).toLowerCase() !== tagName) {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    index += tagName.length;
+    while (index < html.length && /\s/.test(html[index])) index += 1;
+    if (html[index] !== '>') {
+      searchIndex = openIndex + 1;
+      continue;
+    }
+    return { start: openIndex, end: index };
+  }
+  return null;
+}
+
+function findClosingHtmlBlock(html, tagName, startIndex) {
+  const range = findClosingHtmlBlockRange(html, tagName, startIndex);
+  return range ? range.end : -1;
+}
+
+function extractScriptBlocksByType(html, scriptType) {
+  const blocks = [];
+  let index = 0;
+  while (index < html.length) {
+    const openIndex = html.indexOf('<', index);
+    if (openIndex === -1) break;
+    if (html[openIndex + 1] === '/' || readHtmlTagName(html, openIndex) !== 'script') {
+      index = openIndex + 1;
+      continue;
+    }
+    const tagEnd = findHtmlTagEnd(html, openIndex + 1);
+    if (tagEnd === -1) break;
+    const attrs = html.slice(openIndex + 1, tagEnd);
+    const type = getHtmlAttributeValue(attrs, 'type');
+    const close = findClosingHtmlBlockRange(html, 'script', tagEnd + 1);
+    if (!close) break;
+    if (String(type || '').toLowerCase() === scriptType) {
+      blocks.push(html.slice(tagEnd + 1, close.start));
+    }
+    index = close.end + 1;
+  }
+  return blocks;
+}
+
 function visibleHtmlText(html) {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
-    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\s*>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ');
+  const hiddenBlocks = new Set(['script', 'style', 'svg']);
+  const out = [];
+  let index = 0;
+  while (index < html.length) {
+    if (html.startsWith('<!--', index)) {
+      const end = html.indexOf('-->', index + 4);
+      index = end === -1 ? html.length : end + 3;
+      out.push(' ');
+      continue;
+    }
+    if (html[index] === '<') {
+      const tagEnd = findHtmlTagEnd(html, index + 1);
+      if (tagEnd === -1) {
+        out.push(html.slice(index));
+        break;
+      }
+      const tagName = readHtmlTagName(html, index);
+      if (hiddenBlocks.has(tagName) && html[index + 1] !== '/') {
+        const closeEnd = findClosingHtmlBlock(html, tagName, tagEnd + 1);
+        index = closeEnd === -1 ? html.length : closeEnd + 1;
+        out.push(' ');
+        continue;
+      }
+      index = tagEnd + 1;
+      out.push(' ');
+      continue;
+    }
+    out.push(html[index]);
+    index += 1;
+  }
+  return out.join('').replace(/\s+/g, ' ');
 }
 
 function uiHtmlText(html) {
@@ -133,7 +271,7 @@ test.describe('Bilingual locale pages', () => {
     const html = [
       '<p>Visible copy</p>',
       '<!-- Hidden comment -->',
-      '<script type="application/json">Hidden script copy</script >',
+      '<script type="application/json" data-note="quoted > attribute">Hidden script copy</script >',
       '<style media="screen">Hidden style copy</style >',
       '<svg aria-hidden="true"><text>Hidden svg copy</text></svg >',
       '<p>Readable <strong>text</strong></p>',

@@ -166,6 +166,29 @@ function getPosterState({ posterUrl, posterStatus, posterMessage } = {}) {
     return null;
 }
 
+function normalizeAdminMediaElementUrl(value, { allowBlob = true } = {}) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    let parsed;
+    try {
+        parsed = new URL(raw, window.location.origin);
+    } catch {
+        return '';
+    }
+    if (parsed.protocol === 'blob:') return allowBlob ? parsed.href : '';
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    if (parsed.origin !== window.location.origin) return '';
+    if (raw.startsWith('/')) return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return parsed.href;
+}
+
+function createLocalVideoObjectUrl(source) {
+    if (typeof Blob === 'undefined' || !(source instanceof Blob)) {
+        throw new Error('Poster frame generation requires a local video Blob.');
+    }
+    return URL.createObjectURL(source);
+}
+
 function renderPreview({ fileUrl, posterUrl, title, posterStatus, posterMessage }) {
     const preview = el('div', 'admin-hero-videos__preview');
     const posterState = getPosterState({ posterUrl, posterStatus, posterMessage });
@@ -177,24 +200,26 @@ function renderPreview({ fileUrl, posterUrl, title, posterStatus, posterMessage 
         preview.append(state);
         return preview;
     }
-    if (fileUrl) {
+    const safeFileUrl = normalizeAdminMediaElementUrl(fileUrl);
+    const safePosterUrl = normalizeAdminMediaElementUrl(posterUrl);
+    if (safeFileUrl) {
         const video = document.createElement('video');
         video.className = 'admin-hero-videos__video';
         video.controls = true;
         video.muted = true;
         video.playsInline = true;
         video.preload = 'metadata';
-        video.src = fileUrl;
-        if (posterUrl) video.poster = posterUrl;
+        video.src = safeFileUrl;
+        if (safePosterUrl) video.poster = safePosterUrl;
         preview.append(video);
         return preview;
     }
-    if (posterUrl) {
+    if (safePosterUrl) {
         const image = document.createElement('img');
         image.className = 'admin-hero-videos__poster';
         image.alt = title || 'Hero video poster';
         image.loading = 'lazy';
-        image.src = posterUrl;
+        image.src = safePosterUrl;
         preview.append(image);
         return preview;
     }
@@ -1262,9 +1287,25 @@ export function createHomepageHeroVideosAdmin({
                 return;
             }
             const video = document.createElement('video');
-            const url = objectUrl ? URL.createObjectURL(source) : String(source);
+            let url = '';
+            let revokeObjectUrl = false;
+            try {
+                if (!objectUrl) {
+                    reject(new Error('Poster frame generation requires a local video Blob.'));
+                    return;
+                }
+                url = createLocalVideoObjectUrl(source);
+                revokeObjectUrl = true;
+            } catch (error) {
+                reject(error);
+                return;
+            }
+            if (!url) {
+                reject(new Error('Poster frame generation requires a same-origin or local video URL.'));
+                return;
+            }
             const cleanup = () => {
-                if (objectUrl) URL.revokeObjectURL(url);
+                if (revokeObjectUrl) URL.revokeObjectURL(url);
                 video.removeAttribute('src');
                 try { video.load(); } catch { /* noop */ }
             };
