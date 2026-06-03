@@ -71,10 +71,16 @@ const homepageHeroVideosSource = fs.readFileSync(
   new URL("../js/pages/admin/homepage-hero-videos.js", import.meta.url),
   "utf8",
 );
+const manualHeroVideoUploadSource = fs.readFileSync(
+  new URL("../js/pages/admin/manual-hero-video-upload.js", import.meta.url),
+  "utf8",
+);
 
 assert(!homepageHeroVideosSource.includes("video.setAttribute('src', localObjectUrl)"));
 assert(!homepageHeroVideosSource.includes("localObjectUrl"));
-assert(homepageHeroVideosSource.includes("URL.createObjectURL(videoBlob)"));
-assert(homepageHeroVideosSource.includes("URL.revokeObjectURL(objectUrl)"));
+assert(!manualHeroVideoUploadSource.includes("video.setAttribute('src', localObjectUrl)"));
+assert(!manualHeroVideoUploadSource.includes("localObjectUrl"));
+assert(manualHeroVideoUploadSource.includes("URL.createObjectURL(videoBlob)"));
+assert(manualHeroVideoUploadSource.includes("URL.revokeObjectURL(objectUrl)"));
 
 console.log("CodeQL security helper regression checks passed.");

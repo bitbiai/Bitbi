@@ -8059,6 +8059,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('main')).not.toContainText('Storage is separate from credits');
     await expect(page.locator('#studioViewRefresh')).toHaveText('Refresh latest');
     await expect(page.locator('#studioViewShowAll')).toHaveText('Show all assets');
+    await expect(page.locator('#studioAdminUploadVideoBtn')).toBeHidden();
 
     await page.locator('#bitbiHelpTrigger').click();
     const assetsHelp = page.locator('#bitbiHelpPanel [data-help-section="assets"]');
@@ -8463,6 +8464,160 @@ test.describe('Assets Manager (authenticated)', () => {
     ]);
     expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x + 1);
     expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(8);
+  });
+
+  test('admin account Assets Manager opens shared manual hero video upload overlay and refreshes assets', async ({
+    page,
+  }) => {
+    const assetStore = createSavedAssetsStore(
+      { folders: [], counts: {}, unfolderedCount: 0 },
+      { all: [], unfoldered: [], folders: {} },
+    );
+    const uploadRequests = [];
+    const assetRequests = [];
+    await mockAuthenticatedAssetsManager(page, assetRequests, {
+      userRole: 'admin',
+      assetStore,
+    });
+
+    await page.route(/\/api\/admin\/homepage\/hero-videos$/, async (route) => {
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          manual_uploads_enabled: true,
+          feature_status: {
+            features: {
+              homepage_hero_manual_uploads: {
+                key: 'homepage_hero_manual_uploads',
+                worker_enabled: true,
+                admin_enabled: true,
+                effective_enabled: true,
+                provider_required: false,
+                provider_configured: true,
+              },
+            },
+          },
+        },
+      });
+    });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/uploads$/, async (route) => {
+      const multipart = route.request().postDataBuffer().toString('latin1');
+      uploadRequests.push({
+        url: new URL(route.request().url()).pathname,
+        multipart,
+      });
+      assetStore.addAsset({
+        id: 'admin-uploaded-assets-manager-video',
+        asset_type: 'video',
+        folder_id: null,
+        title: 'Assets Manager Manual Upload',
+        file_name: 'assets-manager-manual.mp4',
+        mime_type: 'video/mp4',
+        size_bytes: TEST_MP4_BYTES.byteLength,
+        poster_size_bytes: 128,
+        created_at: '2026-05-31T09:00:00.000Z',
+        file_url: '/api/ai/text-assets/admin-uploaded-assets-manager-video/file',
+        poster_url: '/api/ai/text-assets/admin-uploaded-assets-manager-video/poster',
+      });
+      await fulfillJson(route, {
+        ok: true,
+        existing: false,
+        data: {
+          candidate: {
+            source_type: 'admin_asset',
+            source_asset_id: 'admin-uploaded-assets-manager-video',
+            title: 'Assets Manager Manual Upload',
+            file_url: '/api/admin/users/admin-1/assets/admin-uploaded-assets-manager-video/file',
+            poster_url: null,
+            poster_status: 'pending',
+            size_bytes: TEST_MP4_BYTES.byteLength,
+            duration_seconds: 5,
+          },
+        },
+      }, 201);
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    const uploadButton = page.locator('#studioAdminUploadVideoBtn');
+    await expect(uploadButton).toBeVisible();
+    await expect(uploadButton).toHaveText('Upload Video');
+
+    await uploadButton.click();
+    const dialog = page.getByRole('dialog', { name: 'Upload video asset' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Source title')).toBeVisible();
+    await expect(dialog.getByLabel('Video file')).toBeVisible();
+    await expect(dialog.getByLabel('Operator reason')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Upload source' })).toBeDisabled();
+    await expect(dialog.getByLabel('Source title')).toBeEnabled();
+    await expect(dialog.getByLabel('Video file')).toBeEnabled();
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(uploadButton).toBeFocused();
+
+    await uploadButton.click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Source title')).toBeEnabled();
+    await expect(dialog.getByLabel('Video file')).toBeEnabled();
+
+    const displayFormat = dialog.locator('[data-field="upload-aspect-ratio"]');
+    const thumbTimestamp = dialog.locator('[data-field="upload-poster-time"]');
+    const optionsRow = dialog.locator('.admin-hero-videos__upload-options');
+    await expect(displayFormat).toHaveValue('16:9');
+    expect(await displayFormat.locator('option').evaluateAll((options) => options.map((option) => ({
+      value: option.value,
+      text: option.textContent,
+    })))).toEqual([
+      { value: '9:16', text: 'Hochkant (9:16)' },
+      { value: '1:1', text: 'Square (1:1)' },
+      { value: '16:9', text: 'Landscape (16:9)' },
+    ]);
+    await expect(thumbTimestamp).toHaveAttribute('type', 'number');
+    await expect(thumbTimestamp).toHaveAttribute('min', '0');
+    await expect(thumbTimestamp).toHaveAttribute('step', '0.1');
+    await expect(thumbTimestamp).toHaveValue('1');
+    const optionsLayout = await optionsRow.evaluate((row) => {
+      const format = row.querySelector('[data-field="upload-aspect-ratio"]')?.closest('label')?.getBoundingClientRect();
+      const timestamp = row.querySelector('[data-field="upload-poster-time"]')?.closest('label')?.getBoundingClientRect();
+      return {
+        formatLeft: format?.left ?? 0,
+        formatTop: format?.top ?? 0,
+        timestampLeft: timestamp?.left ?? 0,
+        timestampTop: timestamp?.top ?? 0,
+      };
+    });
+    expect(optionsLayout.formatLeft).toBeLessThan(optionsLayout.timestampLeft);
+    expect(Math.abs(optionsLayout.formatTop - optionsLayout.timestampTop)).toBeLessThan(2);
+
+    await dialog.getByLabel('Operator reason').fill('Operator-approved assets manager upload');
+    await dialog.getByLabel('Source title').fill('Assets Manager Manual Upload');
+    await displayFormat.selectOption('9:16');
+    await thumbTimestamp.fill('0.4');
+    await dialog.getByLabel('Video file').setInputFiles({
+      name: 'assets-manager-manual.mp4',
+      mimeType: 'video/mp4',
+      buffer: TEST_MP4_BYTES,
+    });
+
+    await expect(dialog.getByRole('button', { name: 'Upload source' })).toBeEnabled({ timeout: 10_000 });
+    await dialog.getByRole('button', { name: 'Upload source' }).click();
+
+    await expect.poll(() => uploadRequests.length).toBe(1);
+    expect(uploadRequests[0].url).toBe('/api/admin/homepage/hero-videos/uploads');
+    expect(uploadRequests[0].multipart).toContain('aspect_ratio');
+    expect(uploadRequests[0].multipart).toContain('9:16');
+    expect(uploadRequests[0].multipart).toContain('poster_time_seconds');
+    expect(uploadRequests[0].multipart).toContain('0.4');
+    expect(uploadRequests[0].multipart).toContain('operator_reason');
+    expect(uploadRequests[0].multipart).toContain('Operator-approved assets manager upload');
+    await expect(dialog).toBeHidden({ timeout: 10_000 });
+    await expect(uploadButton).toBeFocused();
+    await expect(page.locator('#studioImageGrid')).toContainText('Assets Manager Manual Upload');
+    await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset');
   });
 
   test('account Assets Manager refreshes storage usage after image save and delete', async ({

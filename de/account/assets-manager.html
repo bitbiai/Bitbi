@@ -183,6 +183,7 @@
                         <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Ordner</button>
                         <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Ordner</button>
                         <button type="button" id="studioSelectBtn" class="studio__new-folder-btn studio__folder-action">Auswählen</button>
+                        <button type="button" id="studioAdminUploadVideoBtn" class="studio__new-folder-btn studio__folder-action" hidden>Video hochladen</button>
                         <div class="studio__mobile-actions" id="studioMobileActions">
                             <button type="button" class="studio__mobile-actions-toggle" id="studioMobileActionsToggle" aria-label="Asset-Aktionen" aria-expanded="false">Aktionen</button>
                             <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu" aria-label="Mobile Asset-Aktionen">
@@ -190,6 +191,7 @@
                                 <button type="button" data-action="new-folder">Ordner erstellen</button>
                                 <button type="button" data-action="delete-folder">Ordner löschen</button>
                                 <button type="button" data-action="select">Assets auswählen</button>
+                                <button type="button" data-action="upload-video" id="studioAdminUploadVideoMobileBtn" hidden>Video hochladen</button>
                             </div>
                         </div>
                     </div>
@@ -279,6 +281,25 @@
 
                 <div id="studioImageGrid" class="studio__image-grid">
                     <div class="studio__gallery-empty">Gespeicherte Assets werden geladen...</div>
+                </div>
+
+                <div id="studioAdminUploadVideoModal" class="assets-manager__admin-upload-modal" hidden aria-hidden="true">
+                    <div class="assets-manager__admin-upload-backdrop" data-assets-upload-close></div>
+                    <div class="assets-manager__admin-upload-dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="studioAdminUploadVideoTitle">
+                        <div class="assets-manager__admin-upload-head">
+                            <div>
+                                <h4 id="studioAdminUploadVideoTitle" class="admin-section-title" tabindex="-1">Video-Asset hochladen</h4>
+                                <p class="admin-shell__desc">Erstellt dasselbe private Admin-Quellasset wie manuelle Uploads in Homepage Hero Videos.</p>
+                            </div>
+                            <button type="button" class="assets-manager__toolbar-btn" data-assets-upload-close>Schließen</button>
+                        </div>
+                        <p id="studioAdminUploadVideoStatus" class="assets-manager__admin-upload-status" role="status" aria-live="polite">Bereit zum Hochladen.</p>
+                        <label class="admin-hero-videos__field">
+                            <span>Operator-Grund</span>
+                            <textarea id="studioAdminUploadVideoReason" class="admin-search__input admin-hero-videos__reason" rows="3" maxlength="500" placeholder="Für manuelle Admin-Uploads erforderlich."></textarea>
+                        </label>
+                        <div id="studioAdminUploadVideoForm"></div>
+                    </div>
                 </div>
             </div>
 

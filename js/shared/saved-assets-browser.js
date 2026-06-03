@@ -408,6 +408,7 @@ export function createSavedAssetsBrowser({
     foldersUnavailableMessage = localeText('assets.foldersUnavailable'),
     handoffActive = false,
     onFoldersChange = null,
+    onUploadVideo = null,
 } = {}) {
     const root = refs.root;
     const $galleryFilter = refs.galleryFilter;
@@ -426,6 +427,7 @@ export function createSavedAssetsBrowser({
     const $viewOrder = refs.viewOrder;
     const $viewRefresh = refs.viewRefresh;
     const $viewShowAll = refs.viewShowAll;
+    const $uploadVideoBtn = refs.uploadVideoBtn;
     const $viewGenerateLab = refs.viewGenerateLab;
     const $viewCredits = refs.viewCredits;
     const $newFolderBtn = refs.newFolderBtn;
@@ -2717,6 +2719,9 @@ export function createSavedAssetsBrowser({
         $folderBackBtn?.addEventListener('click', showFolderView);
         $viewRefresh?.addEventListener('click', handleViewRefresh);
         $viewShowAll?.addEventListener('click', handleViewShowAll);
+        $uploadVideoBtn?.addEventListener('click', () => {
+            if (typeof onUploadVideo === 'function') onUploadVideo($uploadVideoBtn);
+        });
         $newFolderBtn?.addEventListener('click', showNewFolderForm);
         $deleteFolderBtn?.addEventListener('click', showDeleteFolderForm);
         $deleteFolderConfirm?.addEventListener('click', handleDeleteFolder);
@@ -2780,6 +2785,7 @@ export function createSavedAssetsBrowser({
             if (action === 'new-folder') showNewFolderForm();
             else if (action === 'delete-folder') showDeleteFolderForm();
             else if (action === 'select') enterSelectMode();
+            else if (action === 'upload-video' && typeof onUploadVideo === 'function') onUploadVideo(event.target.closest('button'));
         });
         document.addEventListener('click', (event) => {
             if (!root?.contains(event.target)) closeMobileMenu();

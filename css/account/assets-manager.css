@@ -314,6 +314,212 @@
         opacity: 0.7;
     }
 
+    .assets-manager__admin-upload-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: grid;
+        place-items: center;
+        padding: var(--space-4);
+    }
+
+    .assets-manager__admin-upload-modal[hidden] {
+        display: none;
+    }
+
+    .assets-manager__admin-upload-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(6, 10, 16, 0.72);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .assets-manager__admin-upload-dialog {
+        position: relative;
+        z-index: 1;
+        inline-size: min(100%, 38rem);
+        max-block-size: min(86vh, 48rem);
+        overflow: auto;
+        padding: var(--space-6);
+    }
+
+    .assets-manager__admin-upload-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        margin-block-end: var(--space-4);
+    }
+
+    .assets-manager__admin-upload-modal .admin-section-title {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.92);
+        font: 800 clamp(1.2rem, 2vw, 1.55rem)/1.15 var(--font-display);
+    }
+
+    .assets-manager__admin-upload-modal .admin-shell__desc {
+        margin-block: var(--space-1) 0;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.86rem;
+        line-height: 1.55;
+    }
+
+    .assets-manager__admin-upload-modal .admin-search__input {
+        inline-size: 100%;
+        min-block-size: 2.7rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: var(--radius-md);
+        padding: 0.7rem 0.85rem;
+        background: rgba(255, 255, 255, 0.055);
+        color: rgba(255, 255, 255, 0.88);
+        font: 600 0.86rem/1.4 var(--font-sans);
+    }
+
+    .assets-manager__admin-upload-modal .admin-search__input:focus-visible {
+        border-color: rgba(0, 240, 255, 0.55);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.12);
+    }
+
+    .assets-manager__admin-upload-modal .btn-action {
+        min-block-size: 2.35rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(0, 240, 255, 0.28);
+        border-radius: 999px;
+        padding: 0.62rem 0.9rem;
+        background: rgba(0, 240, 255, 0.13);
+        color: rgba(0, 240, 255, 0.92);
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        line-height: 1.2;
+        text-align: center;
+        text-transform: uppercase;
+        cursor: pointer;
+    }
+
+    .assets-manager__admin-upload-modal .btn-action:hover,
+    .assets-manager__admin-upload-modal .btn-action:focus-visible {
+        border-color: rgba(0, 240, 255, 0.46);
+        background: rgba(0, 240, 255, 0.18);
+        outline: none;
+    }
+
+    .assets-manager__admin-upload-modal .btn-action:disabled {
+        cursor: wait;
+        opacity: 0.7;
+    }
+
+    .assets-manager__admin-upload-status {
+        margin-block: 0 var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-md);
+        padding: var(--space-3);
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.68);
+        font: 700 0.76rem/1.5 var(--font-mono);
+    }
+
+    .assets-manager__admin-upload-status[data-state="success"] {
+        border-color: rgba(0, 240, 255, 0.24);
+        color: rgba(0, 240, 255, 0.88);
+    }
+
+    .assets-manager__admin-upload-status[data-state="error"] {
+        border-color: rgba(255, 96, 120, 0.28);
+        color: rgba(255, 150, 168, 0.9);
+    }
+
+    .assets-manager__admin-upload-status[data-state="warning"] {
+        border-color: rgba(255, 210, 122, 0.28);
+        color: rgba(255, 220, 150, 0.9);
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__upload {
+        display: grid;
+        gap: var(--space-4);
+        margin-block-start: var(--space-4);
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__upload-title {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.86);
+        font: 800 0.9rem/1.3 var(--font-mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__field {
+        display: grid;
+        gap: var(--space-2);
+        color: rgba(255, 255, 255, 0.66);
+        font: 700 0.76rem/1.4 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__upload-options {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-3);
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__field-help {
+        color: rgba(255, 255, 255, 0.48);
+        font: 500 0.76rem/1.4 var(--font-sans);
+        text-transform: none;
+        letter-spacing: 0;
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__reason {
+        min-block-size: 5.5rem;
+        resize: vertical;
+        text-transform: none;
+        letter-spacing: 0;
+        font-family: var(--font-sans);
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__meta-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        padding-block-start: var(--space-2);
+        color: rgba(255, 255, 255, 0.52);
+        font-size: 0.78rem;
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__meta-row strong {
+        color: rgba(255, 255, 255, 0.82);
+        font-weight: 800;
+    }
+
+    .assets-manager__admin-upload-modal .admin-hero-videos__feature-warning {
+        margin-block-start: var(--space-1);
+        color: rgba(255, 210, 122, 0.88);
+        font-size: 0.78rem;
+        text-transform: none;
+        letter-spacing: 0;
+    }
+
+    @media (min-width: 760px) {
+        .assets-manager__admin-upload-modal .admin-hero-videos__upload-options {
+            grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.72fr);
+            align-items: start;
+        }
+    }
+
     .assets-manager .studio__folder-grid,
     .assets-manager .studio__image-grid {
         margin-block-start: var(--space-5);
@@ -361,6 +567,10 @@
 
         .assets-manager__toolbar-actions {
             justify-content: stretch;
+        }
+
+        .assets-manager__admin-upload-head {
+            flex-direction: column;
         }
 
         .assets-manager__handoff-btn,

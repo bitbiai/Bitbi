@@ -10,16 +10,57 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
-import { apiGetMe } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    apiAdminHomepageHeroVideos,
+    apiGetMe,
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
+import { createManualHeroVideoUploadController } from '../admin/manual-hero-video-upload.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('loadingState');
 const $denied  = document.getElementById('deniedState');
 const $content = document.getElementById('studioContent');
 
 let savedAssetsBrowser = null;
+let adminUploadController = null;
+let adminUploadEnabled = false;
+let adminUploadLastTrigger = null;
+let adminUploadStatusAbort = null;
+
+const isGermanPage = document.documentElement.lang?.toLowerCase().startsWith('de');
+const adminUploadCopy = isGermanPage
+    ? {
+        ready: 'Bereit zum Hochladen.',
+        checking: 'Status der manuellen Uploads wird geprüft...',
+        enabled: 'Manuelle Uploads sind aktiviert.',
+        disabled: 'Manuelle Uploads sind derzeit deaktiviert.',
+        statusFailed: 'Der Status manueller Uploads konnte nicht geladen werden.',
+        success: 'Video-Asset hochgeladen. Die Asset-Liste wurde aktualisiert.',
+        successToast: 'Video-Asset hochgeladen.',
+        uploadStatus: 'Privates Video-Asset wird hochgeladen...',
+        error: 'Video-Upload fehlgeschlagen.',
+        reasonError: 'Geben Sie vor dem Upload einen Operator-Grund ein.',
+        disabledMessage: 'Manuelle Uploads sind durch den Admin-Schalter oder Worker deaktiviert.',
+        title: 'Manual source upload',
+        description: 'Uploads create private admin source assets only. Public playback still requires an optimized derivative.',
+    }
+    : {
+        ready: 'Ready to upload.',
+        checking: 'Checking manual upload availability...',
+        enabled: 'Manual uploads are enabled.',
+        disabled: 'Manual uploads are currently disabled.',
+        statusFailed: 'Manual upload status could not be loaded.',
+        success: 'Video asset uploaded. Assets Manager refreshed.',
+        successToast: 'Video asset uploaded.',
+        uploadStatus: 'Uploading private video asset...',
+        error: 'Video upload failed.',
+        reasonError: 'Enter an operator reason before uploading.',
+        disabledMessage: 'Manual uploads are disabled by the Admin switch or Worker hard-disable.',
+        title: 'Manual source upload',
+        description: 'Uploads create private admin source assets only. Public playback still requires an optimized derivative.',
+    };
 
 function hasGenerateLabHandoff() {
     try {
@@ -71,7 +112,169 @@ function showDeniedState({ sessionExpired = false } = {}) {
     $denied.classList.add('visible');
 }
 
-function createBrowser({ fromGenerateLab = false } = {}) {
+function isAdminUser(user) {
+    return String(user?.role || '').toLowerCase() === 'admin';
+}
+
+function setAdminUploadStatus(message, state = '') {
+    const status = document.getElementById('studioAdminUploadVideoStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    if (state) status.dataset.state = state;
+    else delete status.dataset.state;
+}
+
+function formatApiError(res, fallback) {
+    return res?.data?.error || res?.error || fallback;
+}
+
+function adminManualUploadsEnabledFromPayload(payload = {}) {
+    if (typeof payload.manual_uploads_enabled === 'boolean') return payload.manual_uploads_enabled;
+    const feature = payload.feature_status?.features?.homepage_hero_manual_uploads;
+    if (typeof feature?.effective_enabled === 'boolean') return feature.effective_enabled;
+    return false;
+}
+
+function renderAdminUploadForm() {
+    const mount = document.getElementById('studioAdminUploadVideoForm');
+    if (!mount || !adminUploadController) return;
+    mount.replaceChildren(adminUploadController.renderPanel());
+}
+
+async function refreshAdminUploadAvailability() {
+    if (adminUploadStatusAbort) {
+        adminUploadStatusAbort.abort();
+    }
+    adminUploadStatusAbort = new AbortController();
+    adminUploadEnabled = false;
+    setAdminUploadStatus(adminUploadCopy.checking);
+    renderAdminUploadForm();
+    try {
+        const res = await apiAdminHomepageHeroVideos({ signal: adminUploadStatusAbort.signal });
+        if (!res.ok) {
+            adminUploadEnabled = false;
+            setAdminUploadStatus(formatApiError(res, adminUploadCopy.statusFailed), 'error');
+            renderAdminUploadForm();
+            return;
+        }
+        adminUploadEnabled = adminManualUploadsEnabledFromPayload(res.data?.data || res.data || {});
+        setAdminUploadStatus(
+            adminUploadEnabled ? adminUploadCopy.enabled : adminUploadCopy.disabled,
+            adminUploadEnabled ? '' : 'warning',
+        );
+        renderAdminUploadForm();
+    } catch (error) {
+        if (error?.name === 'AbortError') return;
+        console.warn('Assets Manager manual upload status failed:', error);
+        adminUploadEnabled = false;
+        setAdminUploadStatus(adminUploadCopy.statusFailed, 'error');
+        renderAdminUploadForm();
+    }
+}
+
+function closeAdminUploadModal() {
+    const modal = document.getElementById('studioAdminUploadVideoModal');
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    adminUploadStatusAbort?.abort();
+    adminUploadStatusAbort = null;
+    adminUploadController?.reset();
+    renderAdminUploadForm();
+    const reason = document.getElementById('studioAdminUploadVideoReason');
+    if (reason) reason.value = '';
+    setAdminUploadStatus(adminUploadCopy.ready);
+    adminUploadLastTrigger?.focus?.({ preventScroll: true });
+    adminUploadLastTrigger = null;
+}
+
+function openAdminUploadModal(trigger = null) {
+    const modal = document.getElementById('studioAdminUploadVideoModal');
+    const title = document.getElementById('studioAdminUploadVideoTitle');
+    const reason = document.getElementById('studioAdminUploadVideoReason');
+    if (!modal || !adminUploadController) return;
+    adminUploadLastTrigger = trigger instanceof HTMLElement ? trigger : document.getElementById('studioAdminUploadVideoBtn');
+    adminUploadController.reset();
+    if (reason) reason.value = '';
+    setAdminUploadStatus(adminUploadCopy.checking);
+    renderAdminUploadForm();
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    window.requestAnimationFrame(() => {
+        title?.focus?.({ preventScroll: true });
+    });
+    refreshAdminUploadAvailability().catch((error) => {
+        console.warn('Assets Manager manual upload status failed:', error);
+    });
+}
+
+function setupAdminVideoUpload({ enabled = false } = {}) {
+    const desktopBtn = document.getElementById('studioAdminUploadVideoBtn');
+    const mobileBtn = document.getElementById('studioAdminUploadVideoMobileBtn');
+    const modal = document.getElementById('studioAdminUploadVideoModal');
+    const reason = document.getElementById('studioAdminUploadVideoReason');
+
+    if (!desktopBtn || !modal) {
+        return;
+    }
+
+    if (!enabled) {
+        desktopBtn.hidden = true;
+        if (mobileBtn) mobileBtn.hidden = true;
+        return;
+    }
+
+    desktopBtn.hidden = false;
+    if (mobileBtn) mobileBtn.hidden = false;
+    adminUploadEnabled = false;
+    adminUploadController = createManualHeroVideoUploadController({
+        isEnabled: () => adminUploadEnabled,
+        getOperatorReason: () => reason?.value || '',
+        setStatus: setAdminUploadStatus,
+        render: renderAdminUploadForm,
+        formatApiError,
+        panelTitle: adminUploadCopy.title,
+        panelDescription: adminUploadCopy.description,
+        disabledMessage: adminUploadCopy.disabledMessage,
+        successStatus: adminUploadCopy.success,
+        successToast: adminUploadCopy.successToast,
+        errorFallback: adminUploadCopy.error,
+        reasonError: adminUploadCopy.reasonError,
+        uploadStatus: adminUploadCopy.uploadStatus,
+        async onUploadSuccess() {
+            if (savedAssetsBrowser) {
+                await savedAssetsBrowser.openAllAssets();
+            }
+            window.setTimeout(closeAdminUploadModal, 0);
+        },
+    });
+    renderAdminUploadForm();
+
+    const handleModalInput = (event) => {
+        if (adminUploadController?.handleInput(event)) return;
+    };
+    const handleModalChange = (event) => {
+        if (adminUploadController?.handleChange(event)) return;
+    };
+    const handleModalClick = (event) => {
+        if (event.target?.closest?.('[data-assets-upload-close]')) {
+            closeAdminUploadModal();
+            return;
+        }
+        adminUploadController?.handleClick(event);
+    };
+
+    modal.addEventListener('input', handleModalInput);
+    modal.addEventListener('change', handleModalChange);
+    modal.addEventListener('click', handleModalClick);
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !modal.hidden) {
+            closeAdminUploadModal();
+        }
+    });
+}
+
+function createBrowser({ fromGenerateLab = false, enableAdminUpload = false } = {}) {
     savedAssetsBrowser = createSavedAssetsBrowser({
         refs: {
             root: document.getElementById('studioSavedAssetsCard'),
@@ -85,6 +288,7 @@ function createBrowser({ fromGenerateLab = false } = {}) {
             listStatus: document.getElementById('studioListStatus'),
             viewRefresh: document.getElementById('studioViewRefresh'),
             viewShowAll: document.getElementById('studioViewShowAll'),
+            uploadVideoBtn: document.getElementById('studioAdminUploadVideoBtn'),
             newFolderBtn: document.getElementById('studioNewFolderBtn'),
             deleteFolderBtn: document.getElementById('studioDeleteFolderBtn'),
             newFolderForm: document.getElementById('studioNewFolderForm'),
@@ -134,6 +338,9 @@ function createBrowser({ fromGenerateLab = false } = {}) {
         loadFailedListStatus: fromGenerateLab ? localeText('assets.handoffLoadFailedStatus') : localeText('assets.listLoadFailedStatus'),
         foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
         handoffActive: fromGenerateLab,
+        onUploadVideo: enableAdminUpload
+            ? (trigger) => openAdminUploadModal(trigger || document.getElementById('studioAdminUploadVideoBtn'))
+            : null,
     });
 
     return savedAssetsBrowser;
@@ -211,6 +418,8 @@ async function init() {
     }
 
     const fromGenerateLab = hasGenerateLabHandoff();
+    const user = res.data?.user || {};
+    const enableAdminUpload = isAdminUser(user);
 
     showState($content);
     renderPostAuthHint({
@@ -218,7 +427,8 @@ async function init() {
         pageSource: 'assets-manager',
         signedIn: true,
     });
-    createBrowser({ fromGenerateLab });
+    setupAdminVideoUpload({ enabled: enableAdminUpload });
+    createBrowser({ fromGenerateLab, enableAdminUpload });
     await savedAssetsBrowser.init();
     if (fromGenerateLab) {
         initGenerateLabHandoff();
