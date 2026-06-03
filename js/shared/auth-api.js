@@ -337,15 +337,21 @@ export async function apiAdminUploadHomepageHeroVideoSource(file, {
     title = '',
     operatorReason = '',
     poster = null,
+    aspectRatio = '',
+    displayAspectRatio = '',
     idempotencyKey,
     signal,
 } = {}) {
     try {
         const formData = new FormData();
         const path = '/admin/homepage/hero-videos/uploads';
+        const normalizedAspectRatio = ['9:16', '1:1', '16:9'].includes(aspectRatio)
+            ? aspectRatio
+            : (['9:16', '1:1', '16:9'].includes(displayAspectRatio) ? displayAspectRatio : '');
         formData.append('video', file);
         if (poster) formData.append('poster', poster, 'hero-source-poster.webp');
         if (title) formData.append('title', title);
+        if (normalizedAspectRatio) formData.append('aspect_ratio', normalizedAspectRatio);
         formData.append('operator_reason', operatorReason);
         const headers = {};
         if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;

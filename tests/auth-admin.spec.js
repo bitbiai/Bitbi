@@ -12779,6 +12779,7 @@ test.describe('Admin Control Plane', () => {
     const slotRequests = [];
     const posterRetryRequests = [];
     const streamRunRequests = [];
+    const uploadRequests = [];
     let recentDerivatives = [];
     const featureStatus = {
       features: {
@@ -13017,6 +13018,26 @@ test.describe('Admin Control Plane', () => {
         },
       });
     });
+    await page.route(/\/api\/admin\/homepage\/hero-videos\/uploads$/, async (route) => {
+      uploadRequests.push(route.request().postDataBuffer().toString('latin1'));
+      await fulfillJson(route, {
+        ok: true,
+        existing: false,
+        data: {
+          candidate: {
+            source_type: 'admin_asset',
+            source_asset_id: 'admin_uploaded_portrait_1',
+            title: 'Manual Portrait Source',
+            file_url: '/api/admin/users/admin-1/assets/admin_uploaded_portrait_1/file',
+            poster_url: null,
+            poster_status: 'pending',
+            poster_retryable: true,
+            size_bytes: TEST_MP4_BYTES.byteLength,
+            duration_seconds: 5,
+          },
+        },
+      }, 201);
+    });
     await page.route(/\/api\/homepage\/hero-videos\/[^/]+\/[^/]+\/file$/, fulfillTestMp4);
     await page.route(/\/api\/homepage\/hero-videos\/[^/]+\/[^/]+\/poster$/, async (route) => {
       await route.fulfill({
@@ -13094,6 +13115,17 @@ test.describe('Admin Control Plane', () => {
     await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Unsafe Preview Candidate');
+    const displayFormat = page.locator('#homepageHeroVideosAdmin [data-field="upload-aspect-ratio"]');
+    await expect(displayFormat).toHaveValue('16:9');
+    await expect(displayFormat.locator('option')).toHaveCount(3);
+    expect(await displayFormat.locator('option').evaluateAll((options) => options.map((option) => ({
+      value: option.value,
+      text: option.textContent,
+    })))).toEqual([
+      { value: '9:16', text: 'Hochkant (9:16)' },
+      { value: '1:1', text: 'Square (1:1)' },
+      { value: '16:9', text: 'Landscape (16:9)' },
+    ]);
     const unsafePreview = await page.locator('.admin-hero-videos__candidate-card', { hasText: 'Unsafe Preview Candidate' }).evaluate((card) => ({
       videoSrc: card.querySelector('video')?.getAttribute('src') || '',
       imageSrc: card.querySelector('img')?.getAttribute('src') || '',
@@ -13150,6 +13182,20 @@ test.describe('Admin Control Plane', () => {
     });
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Slot assignment saved.');
     await expect(page.locator('.admin-hero-videos__slot-card[data-slot="right_top"]')).toContainText('Enabled');
+
+    await displayFormat.selectOption('9:16');
+    await page.locator('#homepageHeroVideosAdmin [data-field="upload-title"]').fill('Manual Portrait Source');
+    await page.locator('#homepageHeroVideosAdmin [data-field="upload-file"]').setInputFiles({
+      name: 'manual-portrait.mp4',
+      mimeType: 'video/mp4',
+      buffer: TEST_MP4_BYTES,
+    });
+    await expect(page.getByRole('button', { name: 'Upload source' })).toBeEnabled({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Upload source' }).click();
+    await expect.poll(() => uploadRequests.length).toBe(1);
+    expect(uploadRequests[0]).toContain('aspect_ratio');
+    expect(uploadRequests[0]).toContain('9:16');
+    await expect(displayFormat).toHaveValue('16:9');
   });
 
   test('homepage hero admin recovers completed unassigned derivatives after refresh', async ({

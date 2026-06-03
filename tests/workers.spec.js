@@ -40910,6 +40910,130 @@ test.describe('Worker routes', () => {
     expect(avatarRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
+  test('public Memvid list uses manual hero upload display aspect ratio only when poster dimensions are missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'manual-memvid-owner', role: 'user' })],
+      profiles: [{
+        user_id: 'manual-memvid-owner',
+        display_name: 'Manual Owner',
+        has_avatar: 0,
+        created_at: '2026-04-01T00:00:00.000Z',
+        updated_at: '2026-04-01T00:00:00.000Z',
+      }],
+      aiTextAssets: [
+        {
+          id: 'manual916',
+          user_id: 'manual-memvid-owner',
+          title: 'Manual Portrait',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: JSON.stringify({
+            aspect_ratio: '9:16',
+            homepage_hero_source: JSON.stringify({
+              is_manual_upload: true,
+              display_aspect_ratio: '9:16',
+            }),
+          }),
+          created_at: '2026-04-14T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T12:00:00.000Z',
+          r2_key: 'users/manual-memvid-owner/folders/video/manual916.mp4',
+          poster_r2_key: 'users/manual-memvid-owner/derivatives/v1/manual916/poster.webp',
+          poster_width: null,
+          poster_height: null,
+        },
+        {
+          id: 'manualreal',
+          user_id: 'manual-memvid-owner',
+          title: 'Manual Real Dimensions',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: JSON.stringify({
+            aspect_ratio: '9:16',
+            homepage_hero_source: {
+              is_manual_upload: true,
+              display_aspect_ratio: '9:16',
+            },
+          }),
+          created_at: '2026-04-14T08:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T11:00:00.000Z',
+          r2_key: 'users/manual-memvid-owner/folders/video/manualreal.mp4',
+          poster_r2_key: 'users/manual-memvid-owner/derivatives/v1/manualreal/poster.webp',
+          poster_width: 1280,
+          poster_height: 720,
+        },
+        {
+          id: 'generated916',
+          user_id: 'manual-memvid-owner',
+          title: 'Generated Portrait',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: JSON.stringify({ aspect_ratio: '9:16' }),
+          created_at: '2026-04-14T07:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T10:00:00.000Z',
+          r2_key: 'users/manual-memvid-owner/folders/video/generated916.mp4',
+          poster_r2_key: 'users/manual-memvid-owner/derivatives/v1/generated916/poster.webp',
+          poster_width: null,
+          poster_height: null,
+        },
+      ],
+      userImages: {
+        'users/manual-memvid-owner/folders/video/manual916.mp4': {
+          body: new TextEncoder().encode('manual-portrait-video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+        'users/manual-memvid-owner/derivatives/v1/manual916/poster.webp': {
+          body: new TextEncoder().encode('manual-portrait-poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/manual-memvid-owner/folders/video/manualreal.mp4': {
+          body: new TextEncoder().encode('manual-real-video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+        'users/manual-memvid-owner/derivatives/v1/manualreal/poster.webp': {
+          body: new TextEncoder().encode('manual-real-poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/manual-memvid-owner/folders/video/generated916.mp4': {
+          body: new TextEncoder().encode('generated-video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+        'users/manual-memvid-owner/derivatives/v1/generated916/poster.webp': {
+          body: new TextEncoder().encode('generated-poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const listRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids?limit=10'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    const body = await listRes.json();
+    const byId = new Map(body.data.items.map((item) => [item.id, item]));
+
+    expect(byId.get('manual916')).toMatchObject({
+      poster: { w: 9, h: 16 },
+      width: 9,
+      height: 16,
+      video_width: 9,
+      video_height: 16,
+    });
+    expect(byId.get('manualreal')).toMatchObject({
+      poster: { w: 1280, h: 720 },
+    });
+    expect(byId.get('manualreal')).not.toHaveProperty('width');
+    expect(byId.get('generated916')).toMatchObject({
+      poster: { w: null, h: null },
+    });
+    expect(byId.get('generated916')).not.toHaveProperty('width');
+  });
+
   test('public Memvids pagination keeps ordering stable across page boundaries', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -41695,10 +41819,16 @@ test.describe('Worker routes', () => {
     });
     const adminToken = await seedSession(env, admin.id);
 
-    const makeUploadRequest = ({ idempotencyKey = 'homepage-hero-upload-1', mimeType = 'video/mp4' } = {}) => {
+    const makeUploadRequest = ({
+      idempotencyKey = 'homepage-hero-upload-1',
+      mimeType = 'video/mp4',
+      aspectRatio = '9:16',
+      title = 'Uploaded Hero Source',
+    } = {}) => {
       const form = new FormData();
-      form.append('title', 'Uploaded Hero Source');
+      form.append('title', title);
       form.append('operator_reason', 'Testing private hero source upload.');
+      if (aspectRatio !== null) form.append('aspect_ratio', aspectRatio);
       form.append('video', new Blob([Buffer.from('mock-video-source')], { type: mimeType }), 'hero-source.mp4');
       form.append('poster', new Blob([Buffer.from('mock-poster-image')], { type: 'image/png' }), 'hero-source-poster.png');
       const headers = {
@@ -41727,6 +41857,17 @@ test.describe('Worker routes', () => {
     );
     expect(invalidMimeRes.status).toBe(415);
 
+    const invalidAspectRes = await authWorker.fetch(
+      makeUploadRequest({ idempotencyKey: 'homepage-hero-upload-invalid-aspect', aspectRatio: '4:3' }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidAspectRes.status).toBe(400);
+    await expect(invalidAspectRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_aspect_ratio',
+    });
+
     const uploadRes = await authWorker.fetch(
       makeUploadRequest(),
       env,
@@ -41749,7 +41890,40 @@ test.describe('Worker routes', () => {
       visibility: 'private',
       poster_r2_key: expect.stringContaining(`/derivatives/v1/${uploaded.data.candidate.source_asset_id}/poster.webp`),
     });
+    expect(JSON.parse(sourceAsset.metadata_json)).toMatchObject({
+      aspect_ratio: '9:16',
+      homepage_hero_source: {
+        is_manual_upload: true,
+        display_aspect_ratio: '9:16',
+      },
+    });
     expect(sourceAsset.poster_size_bytes).toBeGreaterThan(0);
+
+    for (const [aspectRatio, expected] of [
+      ['1:1', '1:1'],
+      ['16:9', '16:9'],
+      [null, '16:9'],
+    ]) {
+      const aspectUploadRes = await authWorker.fetch(
+        makeUploadRequest({
+          idempotencyKey: `homepage-hero-upload-${expected.replace(':', '-')}-${aspectRatio === null ? 'default' : 'explicit'}`,
+          aspectRatio,
+          title: `Uploaded Hero Source ${expected}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(aspectUploadRes.status).toBe(201);
+      const aspectUploaded = await aspectUploadRes.json();
+      const aspectAsset = env.DB.state.aiTextAssets.find((row) => row.id === aspectUploaded.data.candidate.source_asset_id);
+      expect(JSON.parse(aspectAsset.metadata_json)).toMatchObject({
+        aspect_ratio: expected,
+        homepage_hero_source: {
+          is_manual_upload: true,
+          display_aspect_ratio: expected,
+        },
+      });
+    }
 
     const publicHeroRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/homepage/hero-videos'),

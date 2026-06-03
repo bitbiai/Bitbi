@@ -26,6 +26,11 @@ import { nowIso, randomTokenHex } from "../lib/tokens.js";
 const DEFAULT_MEMVIDS_LIMIT = 60;
 const MAX_MEMVIDS_LIMIT = 120;
 const PUBLIC_MEMVIDS_CURSOR_TYPE = "public_memvids";
+const MANUAL_UPLOAD_ASPECT_DIMENSIONS = Object.freeze({
+  "9:16": { width: 9, height: 16 },
+  "1:1": { width: 1, height: 1 },
+  "16:9": { width: 16, height: 9 },
+});
 
 function buildPublicPublisherAvatarVersion(avatarUpdatedAt) {
   const timestamp = Date.parse(String(avatarUpdatedAt || ""));
@@ -49,8 +54,33 @@ function getPublicMemvidCaption(displayName, publishedAt) {
   return `Published by ${ownerLabel}.`;
 }
 
+function readHomepageHeroSourceMetadata(metadata) {
+  const source = metadata?.homepage_hero_source;
+  if (source && typeof source === "object" && !Array.isArray(source)) return source;
+  if (typeof source === "string") {
+    try {
+      const parsed = JSON.parse(source);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function getManualUploadAspectDimensions(metadata) {
+  const source = readHomepageHeroSourceMetadata(metadata);
+  if (source?.is_manual_upload !== true) return null;
+  const aspectRatio = String(source.display_aspect_ratio || metadata.aspect_ratio || "").trim();
+  return MANUAL_UPLOAD_ASPECT_DIMENSIONS[aspectRatio] || null;
+}
+
 function toPublicMemvidRecord(row, streamPreview = null) {
   const meta = parseMetadataJson(row.metadata_json);
+  const fallbackDimensions = getManualUploadAspectDimensions(meta);
+  const canUseFallbackDimensions = row.poster_width == null && row.poster_height == null && fallbackDimensions;
+  const posterWidth = row.poster_width ?? (canUseFallbackDimensions ? fallbackDimensions.width : null);
+  const posterHeight = row.poster_height ?? (canUseFallbackDimensions ? fallbackDimensions.height : null);
   const version = buildPublicMemvidVersion(row);
   const avatarVersion = Number(row.owner_has_avatar) ? buildPublicPublisherAvatarVersion(row.owner_avatar_updated_at) : null;
   const publisher = {
@@ -69,6 +99,12 @@ function toPublicMemvidRecord(row, streamPreview = null) {
     },
     duration_seconds: meta.duration_seconds ?? null,
   };
+  if (canUseFallbackDimensions) {
+    record.width = fallbackDimensions.width;
+    record.height = fallbackDimensions.height;
+    record.video_width = fallbackDimensions.width;
+    record.video_height = fallbackDimensions.height;
+  }
   if (avatarVersion) {
     record.publisher.avatar = {
       url: `/api/gallery/memvids/${row.id}/${avatarVersion}/avatar`,
@@ -77,8 +113,8 @@ function toPublicMemvidRecord(row, streamPreview = null) {
   if (row.poster_r2_key) {
     record.poster = {
       url: buildPublicMemvidUrl(row.id, version, "poster"),
-      w: row.poster_width ?? null,
-      h: row.poster_height ?? null,
+      w: posterWidth,
+      h: posterHeight,
     };
   }
   if (streamPreview) {

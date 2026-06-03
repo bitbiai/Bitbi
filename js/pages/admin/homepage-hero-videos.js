@@ -31,6 +31,12 @@ const FEATURE_LABELS = {
     memvid_stream_previews: 'Memvid Stream previews',
     memvid_stream_preview_autoplay: 'Memvid hover autoplay',
 };
+const MANUAL_UPLOAD_ASPECT_RATIOS = Object.freeze([
+    ['9:16', 'Hochkant (9:16)'],
+    ['1:1', 'Square (1:1)'],
+    ['16:9', 'Landscape (16:9)'],
+]);
+const DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO = '16:9';
 const DERIVATIVE_POLL_INTERVAL_MS = 4000;
 
 function el(tag, className, text = null) {
@@ -378,6 +384,7 @@ export function createHomepageHeroVideosAdmin({
         uploadPosterWarning: '',
         uploadPosterBusy: false,
         uploadTitle: '',
+        uploadAspectRatio: DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO,
         uploadBusy: false,
         posterRetryAssetId: '',
         savingFeatureKey: '',
@@ -766,6 +773,22 @@ export function createHomepageHeroVideosAdmin({
         fileLabel.append(file);
         panel.append(fileLabel);
 
+        const aspectLabel = el('label', 'admin-hero-videos__field');
+        aspectLabel.append(el('span', null, 'Display format'));
+        const aspect = document.createElement('select');
+        aspect.className = 'admin-search__input';
+        aspect.dataset.field = 'upload-aspect-ratio';
+        aspect.disabled = !state.manualUploadsEnabled || state.uploadBusy;
+        MANUAL_UPLOAD_ASPECT_RATIOS.forEach(([value, label]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            option.selected = (state.uploadAspectRatio || DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO) === value;
+            aspect.append(option);
+        });
+        aspectLabel.append(aspect);
+        panel.append(aspectLabel);
+
         const actions = el('div', 'admin-hero-videos__actions');
         const uploadBtn = el('button', 'btn-action', state.uploadBusy ? 'Uploading...' : 'Upload source');
         uploadBtn.type = 'button';
@@ -1068,6 +1091,7 @@ export function createHomepageHeroVideosAdmin({
             title: state.uploadTitle,
             operatorReason: reason,
             poster: state.uploadPoster,
+            aspectRatio: state.uploadAspectRatio,
             idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-upload'),
         });
         state.uploadBusy = false;
@@ -1090,6 +1114,7 @@ export function createHomepageHeroVideosAdmin({
         state.uploadPoster = null;
         state.uploadPosterWarning = '';
         state.uploadTitle = '';
+        state.uploadAspectRatio = DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO;
         setStatus('Private hero source uploaded. Convert it before assigning a public slot.', 'success');
         showToast?.('Hero source uploaded.', 'success');
         renderShell();
@@ -1549,6 +1574,12 @@ export function createHomepageHeroVideosAdmin({
         refs.container.addEventListener('change', (event) => {
             if (event.target?.dataset?.field === 'provider') {
                 state.provider = event.target.value || 'external_ffmpeg';
+            }
+            if (event.target?.dataset?.field === 'upload-aspect-ratio') {
+                const value = event.target.value || DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO;
+                state.uploadAspectRatio = MANUAL_UPLOAD_ASPECT_RATIOS.some(([ratio]) => ratio === value)
+                    ? value
+                    : DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO;
             }
             if (event.target?.dataset?.presetField) {
                 const draft = getPresetDraft();

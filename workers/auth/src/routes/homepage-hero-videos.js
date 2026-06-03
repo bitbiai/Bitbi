@@ -77,6 +77,8 @@ const HERO_SOURCE_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/
 const HERO_SOURCE_POSTER_MIME_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
 const HERO_DERIVATIVE_VIDEO_MIME_TYPES = new Set(["video/mp4"]);
 const HERO_DERIVATIVE_POSTER_MIME_TYPES = new Set(["image/webp"]);
+const MANUAL_UPLOAD_DISPLAY_ASPECT_RATIOS = new Set(["9:16", "1:1", "16:9"]);
+const DEFAULT_MANUAL_UPLOAD_DISPLAY_ASPECT_RATIO = "16:9";
 const TARGET_PRESET = DEFAULT_HERO_FFMPEG_PRESET;
 const SOURCE_POSTER_PROCESSOR_JOB_LIMIT = 8;
 const SOURCE_POSTER_PROCESSOR_SCAN_LIMIT = 48;
@@ -117,6 +119,12 @@ function normalizeProvider(env, value) {
 function normalizeVideoMimeType(value) {
   const mimeType = String(value || "").split(";")[0].trim().toLowerCase();
   return HERO_SOURCE_VIDEO_MIME_TYPES.has(mimeType) ? mimeType : null;
+}
+
+function normalizeManualUploadDisplayAspectRatio(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return DEFAULT_MANUAL_UPLOAD_DISPLAY_ASPECT_RATIO;
+  return MANUAL_UPLOAD_DISPLAY_ASPECT_RATIOS.has(normalized) ? normalized : null;
 }
 
 function normalizeDerivativeVideoMimeType(value) {
@@ -366,11 +374,19 @@ function parseJson(raw) {
   }
 }
 
+function readHomepageHeroSourceMetadata(metadata) {
+  const source = metadata?.homepage_hero_source;
+  if (source && typeof source === "object" && !Array.isArray(source)) return source;
+  if (typeof source === "string") {
+    const parsed = parseJson(source);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  }
+  return {};
+}
+
 function getHeroSourcePosterState(row) {
   const metadata = parseJson(row?.metadata_json) || {};
-  const state = metadata.homepage_hero_source && typeof metadata.homepage_hero_source === "object"
-    ? metadata.homepage_hero_source
-    : {};
+  const state = readHomepageHeroSourceMetadata(metadata);
   if (row?.poster_r2_key) {
     return {
       status: "ready",
@@ -784,9 +800,7 @@ async function listQueuedProcessorJobs(env, limit) {
 function isSourcePosterProcessorClaimable(row) {
   if (!row || row.poster_r2_key) return false;
   const metadata = parseJson(row.metadata_json) || {};
-  const sourceState = metadata.homepage_hero_source && typeof metadata.homepage_hero_source === "object"
-    ? metadata.homepage_hero_source
-    : {};
+  const sourceState = readHomepageHeroSourceMetadata(metadata);
   const status = String(sourceState.poster_status || "").toLowerCase();
   if (status === "ready") return false;
   if (status === "failed" && sourceState.poster_retryable === false) return false;
@@ -1038,9 +1052,7 @@ async function updateHeroSourcePosterState(env, {
 
   const metadata = parseJson(existing.metadata_json) || {};
   const nextSource = {
-    ...(metadata.homepage_hero_source && typeof metadata.homepage_hero_source === "object"
-      ? metadata.homepage_hero_source
-      : {}),
+    ...readHomepageHeroSourceMetadata(metadata),
     is_manual_upload: true,
     poster_status: existing.poster_r2_key ? "ready" : status,
     poster_retryable: existing.poster_r2_key ? false : retryable !== false,
@@ -2052,6 +2064,20 @@ async function handleAdminUploadSource(ctx) {
     return json({ ok: false, error: "Uploaded video is too large.", code: "payload_too_large" }, { status: 413 });
   }
 
+  const normalizedAspectRatio = normalizeManualUploadDisplayAspectRatio(
+    formData.get("aspect_ratio")
+      || formData.get("aspectRatio")
+      || formData.get("display_aspect_ratio")
+      || formData.get("displayAspectRatio")
+  );
+  if (!normalizedAspectRatio) {
+    return json({
+      ok: false,
+      error: "aspect_ratio must be one of 9:16, 1:1, or 16:9.",
+      code: "invalid_aspect_ratio",
+    }, { status: 400 });
+  }
+
   const poster = formData.get("poster");
   let posterBytes = null;
   let posterWarning = null;
@@ -2075,6 +2101,7 @@ async function handleAdminUploadSource(ctx) {
     originalFileName,
     mimeType,
     sizeBytes,
+    aspectRatio: normalizedAspectRatio,
     posterSizeBytes: posterBytes?.byteLength || 0,
     operatorReason,
   }));
@@ -2111,10 +2138,12 @@ async function handleAdminUploadSource(ctx) {
       payload: {
         prompt: "Homepage hero manual source upload",
         source: "admin_homepage_hero_videos",
+        aspect_ratio: normalizedAspectRatio,
         original_file_name: originalFileName,
         operator_reason_present: true,
         homepage_hero_source: {
           is_manual_upload: true,
+          display_aspect_ratio: normalizedAspectRatio,
           poster_status: "pending",
           poster_retryable: true,
           poster_message: posterBytes?.byteLength
