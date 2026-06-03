@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { extractInlineScripts } from "./runtime-work-inventory.mjs";
 import { escapeMarkdownTableCell } from "./lib/markdown-table.mjs";
+import { escapeMediaInventoryMarkdownCell } from "./media-derivative-inventory.mjs";
 import { renderTenantAssetEvidenceSummaryMarkdown } from "./summarize-tenant-asset-evidence.mjs";
 import { exportManualReviewPostCleanupEvidenceMarkdown } from "../workers/auth/src/lib/tenant-asset-manual-review-post-cleanup.js";
 
@@ -21,6 +22,8 @@ assert.deepEqual(inlineScripts, [
 ]);
 
 assert.equal(escapeMarkdownTableCell("a\\b|c\r\nnext"), "a\\\\b\\|c next");
+assert.equal(escapeMediaInventoryMarkdownCell("a\\b|c\nnext"), "a\\\\b\\|c next");
+assert(!escapeMediaInventoryMarkdownCell("a\\b|c\nnext").includes("\n"));
 
 const tenantSummaryMarkdown = renderTenantAssetEvidenceSummaryMarkdown({
   generatedAt: "2026-06-03T00:00:00.000Z",

@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { escapeMarkdownTableCell } from './lib/markdown-table.mjs';
 
 const ROOT = process.cwd();
@@ -41,6 +42,14 @@ function formatBytes(bytes) {
     unitIndex += 1;
   }
   return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function cssEscapedAssetReferencePath(assetPath) {
+  return String(assetPath || '').split('/').join('\\/');
+}
+
+export function escapeMediaInventoryMarkdownCell(value) {
+  return escapeMarkdownTableCell(value);
 }
 
 function toRepoPath(absolutePath) {
@@ -264,7 +273,7 @@ function traceReferences(assets, textFiles) {
       const needles = [
         asset.path,
         `/${asset.path}`,
-        asset.path.replace(/\//g, '\\/'),
+        cssEscapedAssetReferencePath(asset.path),
       ];
       const matchedNeedle = needles.find((needle) => file.content.includes(needle));
       if (!matchedNeedle) continue;
@@ -326,9 +335,9 @@ function renderTable(headers, rows) {
     return [renderRow(headers), renderRow(widths.map((width) => '-'.repeat(width))), ...rows.map(renderRow)].join('\n');
   }
 
-  const headerLine = `| ${headers.map((header) => escapeMarkdownTableCell(header)).join(' | ')} |`;
+  const headerLine = `| ${headers.map((header) => escapeMediaInventoryMarkdownCell(header)).join(' | ')} |`;
   const dividerLine = `| ${headers.map(() => '---').join(' | ')} |`;
-  const rowLines = rows.map((row) => `| ${row.map((cell) => escapeMarkdownTableCell(cell)).join(' | ')} |`);
+  const rowLines = rows.map((row) => `| ${row.map((cell) => escapeMediaInventoryMarkdownCell(cell)).join(' | ')} |`);
   return [headerLine, dividerLine, ...rowLines].join('\n');
 }
 
@@ -460,4 +469,6 @@ function printReport() {
   process.stdout.write(`${lines.join('\n')}\n`);
 }
 
-printReport();
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  printReport();
+}

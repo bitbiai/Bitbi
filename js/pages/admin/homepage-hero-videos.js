@@ -166,23 +166,36 @@ function getPosterState({ posterUrl, posterStatus, posterMessage } = {}) {
     return null;
 }
 
-function normalizeAdminMediaElementUrl(value, { allowBlob = true } = {}) {
+function createTrustedAdminMediaUrl(value, { allowBlob = true } = {}) {
     const raw = String(value || '').trim();
-    if (!raw) return '';
+    if (!raw) return null;
     let parsed;
     try {
         parsed = new URL(raw, window.location.origin);
     } catch {
-        return '';
+        return null;
     }
-    if (parsed.protocol === 'blob:') return allowBlob ? parsed.href : '';
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
-    if (parsed.origin !== window.location.origin) return '';
-    if (raw.startsWith('/')) return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    return parsed.href;
+    if (parsed.protocol === 'blob:') return allowBlob ? parsed : null;
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (parsed.origin !== window.location.origin) return null;
+    return parsed;
 }
 
-function createLocalVideoObjectUrl(source) {
+function serializeTrustedAdminMediaUrl(url) {
+    if (!(url instanceof URL)) return '';
+    if (url.protocol === 'blob:') return url.href;
+    if (url.origin !== window.location.origin) return '';
+    return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function setTrustedElementUrl(element, attribute, url) {
+    const serialized = serializeTrustedAdminMediaUrl(url);
+    if (!serialized) return false;
+    element.setAttribute(attribute, serialized);
+    return true;
+}
+
+function createLocalBlobVideoObjectUrl(source) {
     if (typeof Blob === 'undefined' || !(source instanceof Blob)) {
         throw new Error('Poster frame generation requires a local video Blob.');
     }
@@ -200,8 +213,8 @@ function renderPreview({ fileUrl, posterUrl, title, posterStatus, posterMessage 
         preview.append(state);
         return preview;
     }
-    const safeFileUrl = normalizeAdminMediaElementUrl(fileUrl);
-    const safePosterUrl = normalizeAdminMediaElementUrl(posterUrl);
+    const safeFileUrl = createTrustedAdminMediaUrl(fileUrl);
+    const safePosterUrl = createTrustedAdminMediaUrl(posterUrl);
     if (safeFileUrl) {
         const video = document.createElement('video');
         video.className = 'admin-hero-videos__video';
@@ -209,8 +222,8 @@ function renderPreview({ fileUrl, posterUrl, title, posterStatus, posterMessage 
         video.muted = true;
         video.playsInline = true;
         video.preload = 'metadata';
-        video.src = safeFileUrl;
-        if (safePosterUrl) video.poster = safePosterUrl;
+        setTrustedElementUrl(video, 'src', safeFileUrl);
+        if (safePosterUrl) setTrustedElementUrl(video, 'poster', safePosterUrl);
         preview.append(video);
         return preview;
     }
@@ -219,7 +232,7 @@ function renderPreview({ fileUrl, posterUrl, title, posterStatus, posterMessage 
         image.className = 'admin-hero-videos__poster';
         image.alt = title || 'Hero video poster';
         image.loading = 'lazy';
-        image.src = safePosterUrl;
+        setTrustedElementUrl(image, 'src', safePosterUrl);
         preview.append(image);
         return preview;
     }
@@ -1280,32 +1293,30 @@ export function createHomepageHeroVideosAdmin({
         renderShell();
     }
 
-    function generatePosterBlobFromVideoSource(source, { objectUrl = false } = {}) {
+    function generatePosterBlobFromVideoSource(source, { objectUrl: useObjectUrl = false } = {}) {
         return new Promise((resolve, reject) => {
             if (!source) {
                 resolve(null);
                 return;
             }
             const video = document.createElement('video');
-            let url = '';
-            let revokeObjectUrl = false;
+            let localObjectUrl = '';
             try {
-                if (!objectUrl) {
+                if (!useObjectUrl) {
                     reject(new Error('Poster frame generation requires a local video Blob.'));
                     return;
                 }
-                url = createLocalVideoObjectUrl(source);
-                revokeObjectUrl = true;
+                localObjectUrl = createLocalBlobVideoObjectUrl(source);
             } catch (error) {
                 reject(error);
                 return;
             }
-            if (!url) {
+            if (!localObjectUrl) {
                 reject(new Error('Poster frame generation requires a same-origin or local video URL.'));
                 return;
             }
             const cleanup = () => {
-                if (revokeObjectUrl) URL.revokeObjectURL(url);
+                URL.revokeObjectURL(localObjectUrl);
                 video.removeAttribute('src');
                 try { video.load(); } catch { /* noop */ }
             };
@@ -1339,7 +1350,7 @@ export function createHomepageHeroVideosAdmin({
                     resolve(blob);
                 }, 'image/webp', 0.82);
             }, { once: true });
-            video.src = url;
+            video.setAttribute('src', localObjectUrl);
         });
     }
 
