@@ -195,11 +195,27 @@ function setTrustedElementUrl(element, attribute, url) {
     return true;
 }
 
-function createLocalBlobVideoObjectUrl(source) {
+async function createTrustedLocalVideoBlob(source) {
     if (typeof Blob === 'undefined' || !(source instanceof Blob)) {
         throw new Error('Poster frame generation requires a local video Blob.');
     }
-    return URL.createObjectURL(source);
+    const mimeType = String(source.type || '').toLowerCase();
+    if (mimeType && !mimeType.startsWith('video/')) {
+        throw new Error('Poster frame generation requires a local video Blob.');
+    }
+    const bytes = await source.arrayBuffer();
+    return new Blob([bytes], { type: mimeType || 'video/mp4' });
+}
+
+function loadTrustedLocalVideoBlob(video, videoBlob) {
+    video.src = URL.createObjectURL(videoBlob);
+}
+
+function revokeTrustedLocalVideoBlob(video) {
+    const objectUrl = video.currentSrc || video.src || '';
+    if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+    video.removeAttribute('src');
+    try { video.load(); } catch { /* noop */ }
 }
 
 function renderPreview({ fileUrl, posterUrl, title, posterStatus, posterMessage }) {
@@ -1293,35 +1309,11 @@ export function createHomepageHeroVideosAdmin({
         renderShell();
     }
 
-    function generatePosterBlobFromVideoSource(source, { objectUrl: useObjectUrl = false } = {}) {
+    async function capturePosterFromLocalVideoBlob(source) {
+        const videoBlob = await createTrustedLocalVideoBlob(source);
+        const video = document.createElement('video');
         return new Promise((resolve, reject) => {
-            if (!source) {
-                resolve(null);
-                return;
-            }
-            const video = document.createElement('video');
-            let localObjectUrl = '';
-            try {
-                if (!useObjectUrl) {
-                    reject(new Error('Poster frame generation requires a local video Blob.'));
-                    return;
-                }
-                localObjectUrl = createLocalBlobVideoObjectUrl(source);
-            } catch (error) {
-                reject(error);
-                return;
-            }
-            if (!localObjectUrl) {
-                reject(new Error('Poster frame generation requires a same-origin or local video URL.'));
-                return;
-            }
-            const cleanup = () => {
-                URL.revokeObjectURL(localObjectUrl);
-                video.removeAttribute('src');
-                try { video.load(); } catch { /* noop */ }
-            };
             const fail = () => {
-                cleanup();
                 reject(new Error('Poster frame could not be generated from this video.'));
             };
             video.muted = true;
@@ -1342,7 +1334,6 @@ export function createHomepageHeroVideosAdmin({
                 }
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
                 canvas.toBlob((blob) => {
-                    cleanup();
                     if (!blob) {
                         reject(new Error('Poster frame could not be encoded.'));
                         return;
@@ -1350,12 +1341,15 @@ export function createHomepageHeroVideosAdmin({
                     resolve(blob);
                 }, 'image/webp', 0.82);
             }, { once: true });
-            video.setAttribute('src', localObjectUrl);
+            loadTrustedLocalVideoBlob(video, videoBlob);
+        }).finally(() => {
+            revokeTrustedLocalVideoBlob(video);
         });
     }
 
     function generatePosterBlobFromVideoFile(file) {
-        return generatePosterBlobFromVideoSource(file, { objectUrl: true });
+        if (!file) return Promise.resolve(null);
+        return capturePosterFromLocalVideoBlob(file);
     }
 
     async function prepareUploadPoster(file) {

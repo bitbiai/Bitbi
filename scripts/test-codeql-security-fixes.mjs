@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { extractInlineScripts } from "./runtime-work-inventory.mjs";
 import { escapeMarkdownTableCell } from "./lib/markdown-table.mjs";
 import { escapeMediaInventoryMarkdownCell } from "./media-derivative-inventory.mjs";
@@ -65,5 +66,15 @@ const manualReviewMarkdown = exportManualReviewPostCleanupEvidenceMarkdown({
 
 assert(manualReviewMarkdown.includes("item\\\\id\\|pipe next"));
 assert(manualReviewMarkdown.includes("reason\\\\with\\|pipe"));
+
+const homepageHeroVideosSource = fs.readFileSync(
+  new URL("../js/pages/admin/homepage-hero-videos.js", import.meta.url),
+  "utf8",
+);
+
+assert(!homepageHeroVideosSource.includes("video.setAttribute('src', localObjectUrl)"));
+assert(!homepageHeroVideosSource.includes("localObjectUrl"));
+assert(homepageHeroVideosSource.includes("URL.createObjectURL(videoBlob)"));
+assert(homepageHeroVideosSource.includes("URL.revokeObjectURL(objectUrl)"));
 
 console.log("CodeQL security helper regression checks passed.");
