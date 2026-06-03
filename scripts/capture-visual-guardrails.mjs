@@ -10,6 +10,7 @@ const ROOT = process.cwd();
 const SERVE_ROOT = fs.existsSync(path.join(ROOT, '_site')) ? path.join(ROOT, '_site') : ROOT;
 const ARTIFACT_ROOT = path.join(ROOT, 'test-results/visual-guardrails/latest');
 const NEWS_THUMB_PATH = path.join(ROOT, 'assets/favicons/favicon-16x16.png');
+const VISUAL_MEMBER_COOKIE_NAME = 'bitbi_visual_auth';
 
 const MIME_TYPES = new Map([
   ['.css', 'text/css; charset=utf-8'],
@@ -52,6 +53,7 @@ const ROUTES = Object.freeze([
   { path: '/account/assets-manager.html', name: 'account-assets-guest' },
   { path: '/admin/', name: 'admin' },
 ]);
+const MEMBER_HOME_ROUTE = Object.freeze({ path: '/', name: 'home-en-member', authState: 'member' });
 
 function buildRunPlan(browserName) {
   if (browserName === 'chromium') {
@@ -59,6 +61,7 @@ function buildRunPlan(browserName) {
     for (const route of ROUTES) {
       for (const scenario of SCENARIOS) scenarios.push({ route, scenario, reducedMotion: false });
     }
+    scenarios.push({ route: MEMBER_HOME_ROUTE, scenario: SCENARIOS[0], reducedMotion: false });
     scenarios.push({ route: ROUTES[0], scenario: SCENARIOS[0], reducedMotion: true });
     scenarios.push({ route: ROUTES[0], scenario: SCENARIOS[1], reducedMotion: true });
     return scenarios;
@@ -93,6 +96,14 @@ function writeTinyImage(response) {
     'Content-Length': png.length,
   });
   response.end(png);
+}
+
+function isVisualMemberRequest(request) {
+  const cookieHeader = String(request.headers.cookie || '');
+  return cookieHeader.split(';').some((part) => {
+    const [name, value] = part.trim().split('=');
+    return name === VISUAL_MEMBER_COOKIE_NAME && value === 'member';
+  });
 }
 
 function handleApiRequest(request, response, pathname) {
@@ -145,6 +156,79 @@ function handleApiRequest(request, response, pathname) {
   }
 
   if (pathname === '/api/me') {
+    if (isVisualMemberRequest(request)) {
+      writeJson(response, {
+        ok: true,
+        loggedIn: true,
+        user: {
+          id: 'visual-guardrail-member',
+          email: 'visual-member@example.test',
+          display_name: 'Visual Member',
+          role: 'member',
+        },
+      });
+      return true;
+    }
+    writeJson(response, { ok: false, error: 'not_authenticated' }, 401);
+    return true;
+  }
+
+  if (pathname === '/api/ai/quota') {
+    if (isVisualMemberRequest(request)) {
+      writeJson(response, {
+        ok: true,
+        data: {
+          credits: 42,
+          creditBalance: 42,
+          isAdmin: false,
+        },
+      });
+      return true;
+    }
+    writeJson(response, { ok: false, error: 'not_authenticated' }, 401);
+    return true;
+  }
+
+  if (pathname === '/api/ai/folders') {
+    if (isVisualMemberRequest(request)) {
+      writeJson(response, {
+        ok: true,
+        data: {
+          folders: [],
+          counts: {},
+          unfolderedCount: 0,
+          storageUsage: {
+            usedBytes: 0,
+            limitBytes: 52428800,
+            remainingBytes: 52428800,
+            isUnlimited: false,
+          },
+        },
+      });
+      return true;
+    }
+    writeJson(response, { ok: false, error: 'not_authenticated' }, 401);
+    return true;
+  }
+
+  if (pathname === '/api/favorites') {
+    if (isVisualMemberRequest(request)) {
+      writeJson(response, { ok: true, favorites: [] });
+      return true;
+    }
+    writeJson(response, { ok: false, error: 'not_authenticated' }, 401);
+    return true;
+  }
+
+  if (pathname === '/api/wallet/status') {
+    if (isVisualMemberRequest(request)) {
+      writeJson(response, {
+        ok: true,
+        authenticated: true,
+        linked_wallet: null,
+      });
+      return true;
+    }
     writeJson(response, { ok: false, error: 'not_authenticated' }, 401);
     return true;
   }
@@ -330,6 +414,15 @@ async function captureScenario({ browserName, browser, origin, route, scenario, 
     contextOptions.isMobile = scenario.isMobile || false;
   }
   const context = await browser.newContext(contextOptions);
+  if (route.authState === 'member') {
+    const host = new URL(origin).hostname;
+    await context.addCookies([{
+      domain: host,
+      name: VISUAL_MEMBER_COOKIE_NAME,
+      path: '/',
+      value: 'member',
+    }]);
+  }
   const page = await context.newPage();
   const consoleErrors = [];
   const expectedConsoleNotices = [];
@@ -412,6 +505,53 @@ async function captureScenario({ browserName, browser, origin, route, scenario, 
       if (didClickMobileNav) {
         await page.waitForTimeout(100);
         await captureNamedState(page, runId, screenshots, metrics, 'mobileNavOpen', 'mobile-nav');
+      }
+    } else if (route.authState === 'member') {
+      const didClickMemberCreate = await clickVisibleCandidate(page, [
+        '.gallery-mode__btn[data-mode="create"]',
+      ]).catch((error) => {
+        warnings.push(`member create click failed: ${error.message}`);
+        return false;
+      });
+      if (didClickMemberCreate) {
+        await page.waitForFunction(() => {
+          const panel = document.querySelector('#galleryStudio');
+          const panelStyle = panel ? window.getComputedStyle(panel) : null;
+          const hasAssetsStyles = [...document.querySelectorAll('link[rel~="stylesheet"]')]
+            .some((link) => String(link.href || '').includes('/css/account/assets-manager.css'));
+          return Boolean(
+            panel
+            && panelStyle
+            && panelStyle.display !== 'none'
+            && hasAssetsStyles
+          );
+        }, null, { timeout: 4000 }).catch((error) => {
+          warnings.push(`member create ready wait failed: ${error.message}`);
+        });
+        await captureNamedState(page, runId, screenshots, metrics, 'memberCreate', 'member-create');
+      }
+
+      const didClickModels = await page.evaluate(() => {
+        const candidates = [...document.querySelectorAll('[data-models-link]')];
+        const visible = candidates.find((element) => {
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && rect.width > 0
+            && rect.height > 0;
+        });
+        const trigger = visible || candidates[0];
+        if (!trigger) return false;
+        trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        return true;
+      }).catch((error) => {
+        warnings.push(`models click failed: ${error.message}`);
+        return false;
+      });
+      if (didClickModels) {
+        await page.waitForTimeout(150);
+        await captureNamedState(page, runId, screenshots, metrics, 'modelsClick', 'models');
       }
     } else {
       const didClickCreateGate = await clickVisibleCandidate(page, [
@@ -512,6 +652,7 @@ async function captureScenario({ browserName, browser, origin, route, scenario, 
     pageErrors,
     reducedMotion,
     route: route.path,
+    authState: route.authState || 'guest',
     routeName: route.name,
     scenario: scenario.name,
     screenshots,

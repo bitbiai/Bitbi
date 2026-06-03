@@ -48,8 +48,43 @@ const createModulePromises = {
 const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([
     '@cf/black-forest-labs/flux-2-dev',
 ]);
+const HOMEPAGE_ASSETS_MANAGER_STYLES_ID = 'bitbiHomepageAssetsManagerStyles';
+const HOMEPAGE_ASSETS_MANAGER_STYLES_HREF = '/css/account/assets-manager.css?v=__ASSET_VERSION__';
 let modelsOverlayModulePromise = null;
 let modelsOverlayInitialized = false;
+let homepageAssetsManagerStylesPromise = null;
+
+function findLoadedHomepageAssetsManagerStyles() {
+    return document.getElementById(HOMEPAGE_ASSETS_MANAGER_STYLES_ID)
+        || document.querySelector('link[rel="stylesheet"][href*="css/account/assets-manager.css"]');
+}
+
+function loadHomepageAssetsManagerStyles() {
+    const existing = findLoadedHomepageAssetsManagerStyles();
+    if (existing) return Promise.resolve(existing);
+    if (homepageAssetsManagerStylesPromise) return homepageAssetsManagerStylesPromise;
+
+    homepageAssetsManagerStylesPromise = new Promise((resolve, reject) => {
+        const link = document.createElement('link');
+        link.id = HOMEPAGE_ASSETS_MANAGER_STYLES_ID;
+        link.rel = 'stylesheet';
+        link.href = HOMEPAGE_ASSETS_MANAGER_STYLES_HREF;
+        link.addEventListener('load', () => resolve(link), { once: true });
+        link.addEventListener('error', () => {
+            homepageAssetsManagerStylesPromise = null;
+            reject(new Error('Homepage Assets Manager stylesheet failed to load'));
+        }, { once: true });
+        document.head.appendChild(link);
+    });
+
+    return homepageAssetsManagerStylesPromise;
+}
+
+function ensureHomepageAssetsManagerStyles() {
+    return loadHomepageAssetsManagerStyles().catch((error) => {
+        console.warn('homepageAssetsManagerStyles:', error);
+    });
+}
 
 function loadCreateModule(cacheKey, importer) {
     if (!createModulePromises[cacheKey]) {
@@ -62,8 +97,11 @@ function loadCreateModule(cacheKey, importer) {
 }
 
 function initCreateModule(cacheKey, importer, exportName, warningLabel) {
-    return loadCreateModule(cacheKey, importer)
-        .then((module) => {
+    return Promise.all([
+        ensureHomepageAssetsManagerStyles(),
+        loadCreateModule(cacheKey, importer),
+    ])
+        .then(([, module]) => {
             const init = module?.[exportName];
             if (typeof init !== 'function') {
                 throw new Error(`${exportName} export unavailable`);
@@ -401,23 +439,21 @@ try {
     const explorePane = document.getElementById('galleryExplore');
     const studioPane = document.getElementById('galleryStudio');
     if (modeBtns.length && explorePane && studioPane) {
-        let studioInited = false;
         let studioReady = false;
         let studioInitPromise = null;
         let currentMode = 'explore';
         let pendingCreate = false;
+        let createModeLoadRequested = false;
         const createBtn = document.querySelector('.gallery-mode__btn[data-mode="create"]');
 
         function ensureGalleryStudioReady() {
             if (studioReady) return Promise.resolve();
             if (!studioInitPromise) {
-                studioInited = true;
                 studioInitPromise = initGalleryStudioLazy()
                     .then(() => {
                         studioReady = true;
                     })
                     .catch((error) => {
-                        studioInited = false;
                         studioInitPromise = null;
                         throw error;
                     });
@@ -437,7 +473,7 @@ try {
                 .catch(() => {});
         }, true);
 
-        function setGalleryMode(mode) {
+        function renderGalleryMode(mode) {
             currentMode = mode;
             pendingCreate = false;
             modeBtns.forEach(btn => {
@@ -448,15 +484,28 @@ try {
             });
             explorePane.style.display = mode === 'explore' ? '' : 'none';
             studioPane.style.display = mode === 'create' ? '' : 'none';
-            if (mode === 'create' && !studioInited) {
-                ensureGalleryStudioReady().catch(() => {});
+        }
+
+        function setGalleryMode(mode) {
+            if (mode === 'create' && !studioReady) {
+                createModeLoadRequested = true;
+                ensureGalleryStudioReady()
+                    .then(() => {
+                        if (createModeLoadRequested) renderGalleryMode(mode);
+                    })
+                    .catch(() => {
+                        createModeLoadRequested = false;
+                    });
+                return;
             }
+            createModeLoadRequested = false;
+            renderGalleryMode(mode);
         }
 
         modeBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const mode = btn.dataset.mode;
-                if (mode === currentMode) return;
+                if (mode === currentMode && !(mode === 'explore' && createModeLoadRequested)) return;
                 if (mode === 'create') {
                     const { loggedIn } = getAuthState();
                     if (!loggedIn) {
@@ -497,24 +546,22 @@ try {
     const paginationPane = document.getElementById('videoPagination');
     const createPane = document.getElementById('videoCreate');
     if (modeBtns.length && explorePane && createPane) {
-        let createInited = false;
         let createReady = false;
         let createInitPromise = null;
         let currentMode = 'explore';
         let pendingCreate = false;
+        let createModeLoadRequested = false;
         let paginationDisplayBeforeCreate = paginationPane?.style.display || '';
         const createBtn = document.querySelector('#video-creations .video-mode__btn[data-video-mode="create"]');
 
         function ensureVideoCreateReady() {
             if (createReady) return Promise.resolve();
             if (!createInitPromise) {
-                createInited = true;
                 createInitPromise = initVideoCreateLazy()
                     .then(() => {
                         createReady = true;
                     })
                     .catch((error) => {
-                        createInited = false;
                         createInitPromise = null;
                         throw error;
                     });
@@ -534,7 +581,7 @@ try {
                 .catch(() => {});
         }, true);
 
-        function setVideoMode(mode) {
+        function renderVideoMode(mode) {
             currentMode = mode;
             pendingCreate = false;
             modeBtns.forEach(btn => {
@@ -553,15 +600,28 @@ try {
                 }
             }
             createPane.style.display = mode === 'create' ? '' : 'none';
-            if (mode === 'create' && !createInited) {
-                ensureVideoCreateReady().catch(() => {});
+        }
+
+        function setVideoMode(mode) {
+            if (mode === 'create' && !createReady) {
+                createModeLoadRequested = true;
+                ensureVideoCreateReady()
+                    .then(() => {
+                        if (createModeLoadRequested) renderVideoMode(mode);
+                    })
+                    .catch(() => {
+                        createModeLoadRequested = false;
+                    });
+                return;
             }
+            createModeLoadRequested = false;
+            renderVideoMode(mode);
         }
 
         modeBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const mode = btn.dataset.videoMode;
-                if (mode === currentMode) return;
+                if (mode === currentMode && !(mode === 'explore' && createModeLoadRequested)) return;
                 if (mode === 'create') {
                     const { loggedIn } = getAuthState();
                     if (!loggedIn) {
@@ -600,23 +660,21 @@ try {
     const explorePane = document.getElementById('soundLabExplore');
     const createPane = document.getElementById('soundLabCreate');
     if (modeBtns.length && explorePane && createPane) {
-        let createInited = false;
         let createReady = false;
         let createInitPromise = null;
         let currentMode = 'explore';
         let pendingCreate = false;
+        let createModeLoadRequested = false;
         const createBtn = document.querySelector('#soundlab .video-mode__btn[data-sound-mode="create"]');
 
         function ensureSoundLabCreateReady() {
             if (createReady) return Promise.resolve();
             if (!createInitPromise) {
-                createInited = true;
                 createInitPromise = initSoundLabCreateLazy()
                     .then(() => {
                         createReady = true;
                     })
                     .catch((error) => {
-                        createInited = false;
                         createInitPromise = null;
                         throw error;
                     });
@@ -636,7 +694,7 @@ try {
                 .catch(() => {});
         }, true);
 
-        function setSoundMode(mode) {
+        function renderSoundMode(mode) {
             currentMode = mode;
             pendingCreate = false;
             modeBtns.forEach(btn => {
@@ -647,15 +705,28 @@ try {
             });
             explorePane.style.display = mode === 'explore' ? '' : 'none';
             createPane.style.display = mode === 'create' ? '' : 'none';
-            if (mode === 'create' && !createInited) {
-                ensureSoundLabCreateReady().catch(() => {});
+        }
+
+        function setSoundMode(mode) {
+            if (mode === 'create' && !createReady) {
+                createModeLoadRequested = true;
+                ensureSoundLabCreateReady()
+                    .then(() => {
+                        if (createModeLoadRequested) renderSoundMode(mode);
+                    })
+                    .catch(() => {
+                        createModeLoadRequested = false;
+                    });
+                return;
             }
+            createModeLoadRequested = false;
+            renderSoundMode(mode);
         }
 
         modeBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const mode = btn.dataset.soundMode;
-                if (mode === currentMode) return;
+                if (mode === currentMode && !(mode === 'explore' && createModeLoadRequested)) return;
                 if (mode === 'create') {
                     const { loggedIn } = getAuthState();
                     if (!loggedIn) {
