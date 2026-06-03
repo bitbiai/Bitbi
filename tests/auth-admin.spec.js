@@ -4800,6 +4800,17 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
   const creditBalance = typeof options.creditBalance === 'number' ? options.creditBalance : 10;
   const userRole = options.userRole || 'user';
   const catalog = options.aiCatalog || createMockAiCatalog();
+  const adminOrganizations = Array.isArray(options.adminOrganizations)
+    ? options.adminOrganizations
+    : [{
+        id: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        name: 'Admin Image Billing Org',
+        slug: 'admin-image-billing-org',
+        status: 'active',
+      }];
+  const adminOrgBilling = options.adminOrgBilling || Object.fromEntries(
+    adminOrganizations.map((org) => [org.id, { organizationId: org.id, creditBalance: 100 }]),
+  );
 
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -4850,13 +4861,71 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
     });
   });
 
+  await page.route('**/api/admin/orgs**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/admin/orgs') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          organizations: adminOrganizations,
+        }),
+      });
+      return;
+    }
+    const billingMatch = url.pathname.match(/^\/api\/admin\/orgs\/([^/]+)\/billing$/);
+    if (billingMatch) {
+      const billing = adminOrgBilling[billingMatch[1]];
+      if (!billing) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Organization not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          billing,
+        }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
   await page.route('**/api/admin/ai/test-image', async (route) => {
     const body = route.request().postDataJSON();
+    const idempotencyKey = route.request().headers()['idempotency-key'] || '';
     imageTestRequests.push({
       body,
-      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      idempotencyKey,
     });
     const model = catalog.models.image.find((entry) => entry.id === body.model) || catalog.models.image[0];
+    const chargedModelIds = new Set([
+      '@cf/black-forest-labs/flux-1-schnell',
+      '@cf/black-forest-labs/flux-2-klein-9b',
+      'black-forest-labs/flux-2-max',
+      'openai/gpt-image-2',
+    ]);
+    if (chargedModelIds.has(model.id) && (!body.organization_id || !idempotencyKey)) {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: body.organization_id ? 'idempotency_key_required' : 'organization_required',
+          error: body.organization_id
+            ? 'Charged admin image tests require organization context and idempotency.'
+            : 'Select an organization before running this charged image test.',
+        }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -4870,6 +4939,13 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
           prompt: body.prompt,
           saveReference: 'assets-manager-music-cover-reference',
         },
+        billing: body.organization_id ? {
+          organization_id: body.organization_id,
+          organization_name: adminOrganizations.find((org) => org.id === body.organization_id)?.name || null,
+          credits_charged: model.id === '@cf/black-forest-labs/flux-2-klein-9b' ? 10 : 1,
+          balance_before: adminOrgBilling[body.organization_id]?.creditBalance ?? 100,
+          balance_after: Math.max(0, (adminOrgBilling[body.organization_id]?.creditBalance ?? 100) - (model.id === '@cf/black-forest-labs/flux-2-klein-9b' ? 10 : 1)),
+        } : undefined,
       }),
     });
   });
@@ -8756,6 +8832,7 @@ test.describe('Assets Manager (authenticated)', () => {
       disabled: option.disabled,
       text: option.textContent,
     })));
+    expect(modelOptions.some((option) => option.value === '@cf/black-forest-labs/flux-1-schnell' && !option.disabled)).toBe(true);
     expect(modelOptions.some((option) => option.value === '@cf/black-forest-labs/flux-2-dev' && !option.disabled)).toBe(true);
 
     await dialog.getByLabel('MP3 file').setInputFiles({
@@ -8778,6 +8855,7 @@ test.describe('Assets Manager (authenticated)', () => {
       prompt: 'A neon album cover with warm sunrise gradients',
       model: '@cf/black-forest-labs/flux-2-dev',
     });
+    expect(imageTestRequests[0].body).not.toHaveProperty('organization_id');
     for (const advancedKey of ['width', 'height', 'steps', 'quality', 'size', 'outputFormat', 'safetyTolerance', 'seed']) {
       expect(imageTestRequests[0].body).not.toHaveProperty(advancedKey);
     }
@@ -8798,6 +8876,116 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(uploadButton).toBeFocused();
     await expect(page.locator('#studioImageGrid')).toContainText('Sunrise Loop');
     await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset');
+  });
+
+  test('admin account Assets Manager charges organization credits for priced music cover models', async ({
+    page,
+  }) => {
+    const assetStore = createSavedAssetsStore(
+      { folders: [], counts: {}, unfolderedCount: 0 },
+      { all: [], unfoldered: [], folders: {} },
+    );
+    const imageTestRequests = [];
+    const saveAudioRequests = [];
+    const billingOrgId = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    await mockAuthenticatedAssetsManager(page, [], {
+      userRole: 'admin',
+      assetStore,
+      imageTestRequests,
+      saveAudioRequests,
+      adminOrganizations: [{
+        id: billingOrgId,
+        name: 'Admin Image Billing Org',
+      }],
+      adminOrgBilling: {
+        [billingOrgId]: { organizationId: billingOrgId, creditBalance: 100 },
+      },
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioAdminUploadVideoBtn').click();
+    await page.getByRole('dialog', { name: 'Upload asset' }).getByRole('button', { name: /Music upload/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Upload music asset' });
+    const modelSelect = dialog.getByLabel('Admin AI image model');
+    await expect(modelSelect).toBeEnabled({ timeout: 10_000 });
+    await modelSelect.selectOption('@cf/black-forest-labs/flux-1-schnell');
+
+    const orgSelect = dialog.locator('#studioAdminUploadMusicOrganization');
+    await expect(orgSelect).toBeVisible({ timeout: 10_000 });
+    await expect(orgSelect).toHaveValue(billingOrgId);
+    await expect(dialog.locator('#studioAdminUploadMusicOrganizationState')).toContainText('Selected organization: Admin Image Billing Org');
+    await expect(dialog.locator('#studioAdminUploadMusicOrganizationState')).toContainText('Balance: 100 credits');
+    await expect(dialog.locator('#studioAdminUploadMusicOrganizationState')).toContainText('Estimated cover cost: 1 credit');
+
+    await dialog.getByLabel('MP3 file').setInputFiles({
+      name: 'charged-cover.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('ID3\u0004\u0000\u0000mock-charged-mp3', 'binary'),
+    });
+    await dialog.getByLabel('Title').fill('Charged Cover');
+    await dialog.getByLabel('Cover prompt').fill('A premium organization billed cover');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Upload music' }).click();
+
+    await expect.poll(() => imageTestRequests.length).toBe(1);
+    await expect.poll(() => saveAudioRequests.length).toBe(1);
+    expect(imageTestRequests[0].idempotencyKey).toMatch(/^admin-assets-music-cover-/);
+    expect(imageTestRequests[0].body).toEqual({
+      prompt: 'A premium organization billed cover',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      organization_id: billingOrgId,
+    });
+    expect(saveAudioRequests[0]).toEqual(expect.objectContaining({
+      title: 'Charged Cover',
+      coverModel: '@cf/black-forest-labs/flux-1-schnell',
+      coverPrompt: 'A premium organization billed cover',
+      source: 'admin_assets_manager_upload',
+    }));
+    await expect(dialog).toBeHidden({ timeout: 10_000 });
+    await expect(page.locator('#studioImageGrid')).toContainText('Charged Cover');
+  });
+
+  test('admin account Assets Manager blocks charged music covers when organization credits are insufficient', async ({
+    page,
+  }) => {
+    const imageTestRequests = [];
+    const billingOrgId = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    await mockAuthenticatedAssetsManager(page, [], {
+      userRole: 'admin',
+      imageTestRequests,
+      adminOrganizations: [{
+        id: billingOrgId,
+        name: 'Empty Billing Org',
+      }],
+      adminOrgBilling: {
+        [billingOrgId]: { organizationId: billingOrgId, creditBalance: 0 },
+      },
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioAdminUploadVideoBtn').click();
+    await page.getByRole('dialog', { name: 'Upload asset' }).getByRole('button', { name: /Music upload/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Upload music asset' });
+    await expect(dialog.locator('#studioAdminUploadMusicOrganization')).toHaveValue(billingOrgId, { timeout: 10_000 });
+    await expect(dialog.locator('#studioAdminUploadMusicOrganizationState')).toContainText('Insufficient credits');
+
+    await dialog.getByLabel('MP3 file').setInputFiles({
+      name: 'blocked-cover.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('ID3\u0004\u0000\u0000mock-blocked-mp3', 'binary'),
+    });
+    await dialog.getByLabel('Title').fill('Blocked Cover');
+    await dialog.getByLabel('Cover prompt').fill('A cover that cannot be billed');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    expect(imageTestRequests).toHaveLength(0);
   });
 
   test('account Assets Manager refreshes storage usage after image save and delete', async ({

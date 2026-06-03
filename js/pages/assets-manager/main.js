@@ -15,10 +15,13 @@ import {
     apiAdminAiModels,
     apiAdminAiTestImage,
     apiAdminHomepageHeroVideos,
+    apiAdminOrganizationBilling,
+    apiAdminOrganizations,
     apiGetMe,
     createAdminIdempotencyKey,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
+    calculateAiImageCreditCost,
     FLUX_1_SCHNELL_IMAGE_MODEL_ID,
     isPricedAiImageModel,
 } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
@@ -26,6 +29,11 @@ import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v
 import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
 import { createManualHeroVideoUploadController } from '../admin/manual-hero-video-upload.js?v=__ASSET_VERSION__';
+import {
+    clearActiveOrganizationId,
+    resolveActiveOrganizationId,
+    setActiveOrganizationId,
+} from '../../shared/active-organization.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('loadingState');
 const $denied  = document.getElementById('deniedState');
@@ -37,6 +45,7 @@ let adminUploadEnabled = false;
 let adminUploadLastTrigger = null;
 let adminUploadStatusAbort = null;
 let adminMusicCatalogAbort = null;
+let adminMusicOrganizationLoadSeq = 0;
 
 const MUSIC_UPLOAD_DEFAULT_MODEL_ID = FLUX_1_SCHNELL_IMAGE_MODEL_ID;
 const MUSIC_UPLOAD_ALLOWED_MIME_TYPES = new Set(['audio/mpeg', 'audio/mp3', 'audio/x-mpeg']);
@@ -50,6 +59,12 @@ const adminMusicUploadState = {
     models: [],
     selectedModel: '',
     file: null,
+    organizationStatus: 'idle',
+    billingStatus: 'idle',
+    organizationError: '',
+    organizations: [],
+    selectedOrganizationId: '',
+    selectedOrganizationBalance: null,
 };
 
 const isGermanPage = document.documentElement.lang?.toLowerCase().startsWith('de');
@@ -74,7 +89,14 @@ const adminUploadCopy = isGermanPage
         musicCatalogReady: 'Bildmodell-Katalog geladen.',
         musicCatalogFailed: 'Der Bildmodell-Katalog konnte nicht geladen werden.',
         musicNoModels: 'Für diesen Upload sind keine kompatiblen Admin-AI-Bildmodelle verfügbar.',
-        musicChargedModelHelp: 'Modelle mit Organisationsabrechnung werden hier angezeigt, sind aber deaktiviert; nutze dafür Admin AI Lab.',
+        musicCatalogHelp: 'Kostenpflichtige Bildmodelle nutzen die ausgewählten Organisations-Credits.',
+        musicOrganizationLoading: 'Organisationen für kostenpflichtige Cover-Generierung werden geladen...',
+        musicOrganizationSelect: 'Wähle eine Organisation für dieses kostenpflichtige Cover.',
+        musicOrganizationUnavailable: 'Für dieses Bildmodell ist kein Organisationsabrechnungskontext verfügbar.',
+        musicOrganizationNoCharge: 'Für dieses Bildmodell fällt keine Admin-Image-Credit-Abrechnung an.',
+        musicOrganizationBillingLoading: 'Organisationsguthaben wird geladen...',
+        musicOrganizationBillingFailed: 'Organisationsabrechnung konnte nicht geladen werden.',
+        musicOrganizationInsufficient: 'Nicht genügend Organisations-Credits für diese Cover-Generierung.',
         musicUploadStatus: 'Cover wird generiert und MP3 gespeichert...',
         musicSuccess: 'Musik-Asset hochgeladen. Assets Manager aktualisiert.',
         musicError: 'Musik-Upload fehlgeschlagen.',
@@ -82,6 +104,7 @@ const adminUploadCopy = isGermanPage
         musicFileError: 'Wähle vor dem Upload eine MP3-Datei aus.',
         musicPromptError: 'Gib vor dem Upload einen Cover-Prompt ein.',
         musicModelError: 'Wähle ein verfügbares Admin-AI-Bildmodell.',
+        musicOrganizationError: 'Wähle eine Organisation mit genügend Credits für dieses kostenpflichtige Bildmodell.',
         musicFileTypeError: 'Wähle eine MP3-Audiodatei aus.',
         musicCoverError: 'Cover-Generierung fehlgeschlagen.',
         musicSaveError: 'Audio-Speicherung fehlgeschlagen.',
@@ -106,7 +129,14 @@ const adminUploadCopy = isGermanPage
         musicCatalogReady: 'Image model catalog loaded.',
         musicCatalogFailed: 'Image model catalog could not be loaded.',
         musicNoModels: 'No compatible Admin AI image models are available for this upload.',
-        musicChargedModelHelp: 'Models requiring organization billing are shown but disabled here; use Admin AI Lab for those charged tests.',
+        musicCatalogHelp: 'Charged image models use the selected organization credits.',
+        musicOrganizationLoading: 'Loading organizations for charged cover generation...',
+        musicOrganizationSelect: 'Select an organization for this charged cover.',
+        musicOrganizationUnavailable: 'No organization billing context is available for this image model.',
+        musicOrganizationNoCharge: 'No admin image credit charge for this image model.',
+        musicOrganizationBillingLoading: 'Loading organization credit balance...',
+        musicOrganizationBillingFailed: 'Organization billing could not be loaded.',
+        musicOrganizationInsufficient: 'Insufficient organization credits for this cover generation.',
         musicUploadStatus: 'Generating cover and saving MP3...',
         musicSuccess: 'Music asset uploaded. Assets Manager refreshed.',
         musicError: 'Music upload failed.',
@@ -114,6 +144,7 @@ const adminUploadCopy = isGermanPage
         musicFileError: 'Choose an MP3 file before uploading.',
         musicPromptError: 'Enter a cover prompt before uploading.',
         musicModelError: 'Choose an available Admin AI image model.',
+        musicOrganizationError: 'Choose an organization with enough credits for this charged image model.',
         musicFileTypeError: 'Choose an MP3 audio file.',
         musicCoverError: 'Cover image generation failed.',
         musicSaveError: 'Audio save failed.',
@@ -191,13 +222,91 @@ function setModalVisibility(modal, visible) {
     modal.setAttribute('aria-hidden', visible ? 'false' : 'true');
 }
 
-function isMusicUploadModelEnabled(modelId) {
-    return !!modelId && !isPricedAiImageModel(modelId);
-}
-
 function getImageCatalogModels(catalog) {
     const source = catalog?.data && typeof catalog.data === 'object' ? catalog.data : catalog;
     return Array.isArray(source?.models?.image) ? source.models.image : [];
+}
+
+function normalizeAdminOrgRows(data) {
+    const rows = Array.isArray(data?.organizations)
+        ? data.organizations
+        : Array.isArray(data?.orgs)
+            ? data.orgs
+            : Array.isArray(data?.items)
+                ? data.items
+                : [];
+    return rows
+        .map((org) => ({
+            id: String(org?.id || org?.organizationId || '').trim(),
+            name: String(org?.name || org?.slug || org?.id || '').trim(),
+        }))
+        .filter((org) => /^org_[a-f0-9]{32}$/.test(org.id));
+}
+
+function extractCreditBalance(data) {
+    const candidates = [
+        data?.billing?.creditBalance,
+        data?.creditBalance,
+        data?.state?.creditBalance,
+        data?.organization?.creditBalance,
+    ];
+    for (const value of candidates) {
+        const number = Number(value);
+        if (Number.isFinite(number)) return number;
+    }
+    return null;
+}
+
+function getSelectedMusicModelId() {
+    const { model } = getMusicUploadElements();
+    return String(model?.value || adminMusicUploadState.selectedModel || '').trim();
+}
+
+function getSelectedMusicModelInfo(modelId = getSelectedMusicModelId()) {
+    return adminMusicUploadState.models.find((entry) => entry?.id === modelId) || null;
+}
+
+function isMusicUploadModelKnown(modelId) {
+    return !!modelId && !!getSelectedMusicModelInfo(modelId);
+}
+
+function isSelectedMusicModelChargeable(modelId = getSelectedMusicModelId()) {
+    return isPricedAiImageModel(modelId);
+}
+
+function getSelectedMusicCreditCost(modelId = getSelectedMusicModelId()) {
+    try {
+        return calculateAiImageCreditCost(modelId, {})?.credits || null;
+    } catch {
+        return null;
+    }
+}
+
+function getSelectedMusicOrganization() {
+    const selectedOrgId = adminMusicUploadState.selectedOrganizationId || '';
+    return adminMusicUploadState.organizations.find((org) => org.id === selectedOrgId) || null;
+}
+
+function getSelectedMusicBillingBlocker(modelId = getSelectedMusicModelId()) {
+    if (!isMusicUploadModelKnown(modelId)) return adminUploadCopy.musicModelError;
+    if (!isSelectedMusicModelChargeable(modelId)) return '';
+    if (adminMusicUploadState.organizationStatus === 'loading') return adminUploadCopy.musicOrganizationLoading;
+    if (adminMusicUploadState.organizationStatus === 'error') {
+        return adminMusicUploadState.organizationError || adminUploadCopy.musicOrganizationUnavailable;
+    }
+    if (!adminMusicUploadState.selectedOrganizationId) return adminUploadCopy.musicOrganizationSelect;
+    if (adminMusicUploadState.billingStatus === 'loading') return adminUploadCopy.musicOrganizationBillingLoading;
+    if (adminMusicUploadState.billingStatus === 'error') {
+        return adminMusicUploadState.organizationError || adminUploadCopy.musicOrganizationBillingFailed;
+    }
+    const credits = getSelectedMusicCreditCost(modelId);
+    const balance = adminMusicUploadState.selectedOrganizationBalance;
+    if (credits && adminMusicUploadState.billingStatus !== 'ready') return adminUploadCopy.musicOrganizationBillingLoading;
+    if (credits && typeof balance === 'number' && balance < credits) {
+        return adminUploadCopy.musicOrganizationInsufficient;
+    }
+    if (credits && typeof balance !== 'number') return adminUploadCopy.musicOrganizationBillingFailed;
+    return '';
 }
 
 function getMusicUploadElements() {
@@ -209,6 +318,9 @@ function getMusicUploadElements() {
         prompt: document.getElementById('studioAdminUploadMusicPrompt'),
         model: document.getElementById('studioAdminUploadMusicModel'),
         modelHelp: document.getElementById('studioAdminUploadMusicModelHelp'),
+        organizationField: document.getElementById('studioAdminUploadMusicOrganizationField'),
+        organization: document.getElementById('studioAdminUploadMusicOrganization'),
+        organizationState: document.getElementById('studioAdminUploadMusicOrganizationState'),
         submit: document.getElementById('studioAdminUploadMusicSubmit'),
         status: document.getElementById('studioAdminUploadMusicStatus'),
     };
@@ -266,13 +378,101 @@ function extractGeneratedCoverImage(responseData) {
 }
 
 function selectDefaultMusicUploadModel(models) {
-    const defaultEnabled = models.find((model) => (
-        model?.id === MUSIC_UPLOAD_DEFAULT_MODEL_ID && isMusicUploadModelEnabled(model.id)
-    ));
-    if (defaultEnabled?.id) return defaultEnabled.id;
-    const firstEnabled = models.find((model) => isMusicUploadModelEnabled(model?.id));
-    if (firstEnabled?.id) return firstEnabled.id;
+    const defaultModel = models.find((model) => model?.id === MUSIC_UPLOAD_DEFAULT_MODEL_ID);
+    if (defaultModel?.id) return defaultModel.id;
+    const firstUnpriced = models.find((model) => model?.id && !isPricedAiImageModel(model.id));
+    if (firstUnpriced?.id) return firstUnpriced.id;
     return models[0]?.id || '';
+}
+
+function populateAdminMusicOrganizationSelect() {
+    const { organization } = getMusicUploadElements();
+    if (!organization) return;
+    const current = adminMusicUploadState.selectedOrganizationId || '';
+    organization.replaceChildren();
+    if (adminMusicUploadState.organizationStatus === 'loading') {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = adminUploadCopy.musicOrganizationLoading;
+        organization.appendChild(option);
+        organization.value = '';
+        return;
+    }
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = adminUploadCopy.musicOrganizationSelect;
+    organization.appendChild(placeholder);
+    for (const org of adminMusicUploadState.organizations) {
+        organization.append(new Option(org.name || org.id, org.id));
+    }
+    if (current && adminMusicUploadState.organizations.some((org) => org.id === current)) {
+        organization.value = current;
+    } else {
+        organization.value = '';
+    }
+}
+
+function syncAdminMusicBillingUi() {
+    const { organizationField, organization, organizationState } = getMusicUploadElements();
+    const selectedModel = getSelectedMusicModelId();
+    const isChargeable = isSelectedMusicModelChargeable(selectedModel);
+    const busy = adminMusicUploadState.busy;
+    const credits = getSelectedMusicCreditCost(selectedModel);
+    const selectedOrg = getSelectedMusicOrganization();
+
+    if (organizationField) organizationField.hidden = !isChargeable && adminMusicUploadState.organizationStatus !== 'loading';
+    if (organization) {
+        organization.disabled = busy
+            || !isChargeable
+            || adminMusicUploadState.organizationStatus === 'loading'
+            || !adminMusicUploadState.organizations.length;
+    }
+    if (!organizationState) return;
+
+    if (adminMusicUploadState.organizationStatus === 'loading') {
+        organizationState.textContent = adminUploadCopy.musicOrganizationLoading;
+        return;
+    }
+    if (!isChargeable) {
+        organizationState.textContent = adminUploadCopy.musicOrganizationNoCharge;
+        return;
+    }
+    if (adminMusicUploadState.organizationStatus === 'error') {
+        organizationState.textContent = adminMusicUploadState.organizationError || adminUploadCopy.musicOrganizationUnavailable;
+        return;
+    }
+    if (!adminMusicUploadState.selectedOrganizationId) {
+        organizationState.textContent = adminUploadCopy.musicOrganizationSelect;
+        return;
+    }
+    if (adminMusicUploadState.billingStatus === 'loading') {
+        organizationState.textContent = adminUploadCopy.musicOrganizationBillingLoading;
+        return;
+    }
+    if (adminMusicUploadState.billingStatus === 'error') {
+        organizationState.textContent = adminMusicUploadState.organizationError || adminUploadCopy.musicOrganizationBillingFailed;
+        return;
+    }
+    if (credits && adminMusicUploadState.billingStatus !== 'ready') {
+        organizationState.textContent = adminUploadCopy.musicOrganizationBillingLoading;
+        return;
+    }
+
+    const prefix = selectedOrg?.name
+        ? `Selected organization: ${selectedOrg.name}. `
+        : `Selected organization: ${adminMusicUploadState.selectedOrganizationId}. `;
+    const balance = adminMusicUploadState.selectedOrganizationBalance;
+    if (credits && typeof balance === 'number') {
+        organizationState.textContent = balance >= credits
+            ? `${prefix}Balance: ${balance} credits. Estimated cover cost: ${credits} credit${credits === 1 ? '' : 's'}.`
+            : `${prefix}Insufficient credits: balance ${balance}; estimated cover cost ${credits}.`;
+        return;
+    }
+    if (credits) {
+        organizationState.textContent = `${prefix}Estimated cover cost: ${credits} credit${credits === 1 ? '' : 's'}. The server verifies final billing after provider success.`;
+        return;
+    }
+    organizationState.textContent = `${prefix}This charged cover uses organization credits. The server verifies final billing after provider success.`;
 }
 
 function renderAdminMusicModelOptions() {
@@ -305,8 +505,7 @@ function renderAdminMusicModelOptions() {
     for (const entry of adminMusicUploadState.models) {
         const option = document.createElement('option');
         option.value = entry.id;
-        option.disabled = !isMusicUploadModelEnabled(entry.id);
-        option.textContent = `${entry.label || entry.name || entry.id} (${entry.id})${option.disabled ? ' · Admin AI Lab billing required' : ''}`;
+        option.textContent = `${entry.label || entry.name || entry.id} (${entry.id})${isPricedAiImageModel(entry.id) ? ' · organization credits' : ''}`;
         model.appendChild(option);
     }
 
@@ -315,10 +514,11 @@ function renderAdminMusicModelOptions() {
     model.disabled = adminMusicUploadState.busy;
     if (selected) model.value = selected;
     if (modelHelp) {
-        modelHelp.textContent = adminMusicUploadState.models.some((entry) => !isMusicUploadModelEnabled(entry.id))
-            ? adminUploadCopy.musicChargedModelHelp
+        modelHelp.textContent = adminMusicUploadState.models.some((entry) => isPricedAiImageModel(entry.id))
+            ? adminUploadCopy.musicCatalogHelp
             : adminUploadCopy.musicCatalogReady;
     }
+    syncAdminMusicBillingUi();
 }
 
 function syncAdminMusicUploadUi() {
@@ -326,17 +526,19 @@ function syncAdminMusicUploadUi() {
     const busy = adminMusicUploadState.busy;
     const title = String(titleInput?.value || '').trim();
     const coverPrompt = String(prompt?.value || '').trim();
-    const selectedModel = model?.value || adminMusicUploadState.selectedModel || '';
+    const selectedModel = String(model?.value || adminMusicUploadState.selectedModel || '').trim();
+    const billingBlocker = getSelectedMusicBillingBlocker(selectedModel);
     const canSubmit = !busy
         && !!title
         && !!adminMusicUploadState.file
         && !!coverPrompt
-        && isMusicUploadModelEnabled(selectedModel);
+        && !billingBlocker;
 
     if (titleInput) titleInput.disabled = busy;
     if (fileInput) fileInput.disabled = busy;
     if (prompt) prompt.disabled = busy;
     if (model) model.disabled = busy || !adminMusicUploadState.models.length;
+    syncAdminMusicBillingUi();
     if (submit) submit.disabled = !canSubmit;
 }
 
@@ -349,6 +551,7 @@ function resetAdminMusicUploadForm() {
     if (prompt) prompt.value = '';
     adminMusicUploadState.selectedModel = selectDefaultMusicUploadModel(adminMusicUploadState.models);
     renderAdminMusicModelOptions();
+    populateAdminMusicOrganizationSelect();
     if (model && adminMusicUploadState.selectedModel) model.value = adminMusicUploadState.selectedModel;
     setAdminMusicUploadStatus(adminUploadCopy.musicReady);
     syncAdminMusicUploadUi();
@@ -396,6 +599,69 @@ async function loadAdminMusicImageModels() {
     }
 }
 
+async function loadSelectedAdminMusicOrganizationBilling() {
+    const orgId = adminMusicUploadState.selectedOrganizationId || '';
+    adminMusicUploadState.selectedOrganizationBalance = null;
+    if (!orgId) {
+        adminMusicUploadState.billingStatus = 'idle';
+        syncAdminMusicUploadUi();
+        return;
+    }
+    adminMusicUploadState.billingStatus = 'loading';
+    adminMusicUploadState.organizationError = '';
+    syncAdminMusicUploadUi();
+    const res = await apiAdminOrganizationBilling(orgId);
+    if (!res.ok) {
+        adminMusicUploadState.billingStatus = 'error';
+        adminMusicUploadState.selectedOrganizationBalance = null;
+        adminMusicUploadState.organizationError = formatApiError(res, adminUploadCopy.musicOrganizationBillingFailed);
+        syncAdminMusicUploadUi();
+        return;
+    }
+    adminMusicUploadState.billingStatus = 'ready';
+    adminMusicUploadState.organizationError = '';
+    adminMusicUploadState.selectedOrganizationBalance = extractCreditBalance(res.data);
+    syncAdminMusicUploadUi();
+}
+
+async function loadAdminMusicOrganizations() {
+    const seq = ++adminMusicOrganizationLoadSeq;
+    adminMusicUploadState.organizationStatus = 'loading';
+    adminMusicUploadState.billingStatus = 'idle';
+    adminMusicUploadState.organizationError = '';
+    adminMusicUploadState.organizations = [];
+    adminMusicUploadState.selectedOrganizationId = '';
+    adminMusicUploadState.selectedOrganizationBalance = null;
+    populateAdminMusicOrganizationSelect();
+    syncAdminMusicUploadUi();
+
+    const res = await apiAdminOrganizations({ limit: 100 });
+    if (seq !== adminMusicOrganizationLoadSeq) return;
+    if (!res.ok) {
+        adminMusicUploadState.organizationStatus = 'error';
+        adminMusicUploadState.organizationError = formatApiError(res, adminUploadCopy.musicOrganizationUnavailable);
+        adminMusicUploadState.organizations = [];
+        populateAdminMusicOrganizationSelect();
+        syncAdminMusicUploadUi();
+        return;
+    }
+
+    adminMusicUploadState.organizations = normalizeAdminOrgRows(res.data);
+    adminMusicUploadState.organizationStatus = adminMusicUploadState.organizations.length ? 'ready' : 'error';
+    if (!adminMusicUploadState.organizations.length) {
+        adminMusicUploadState.organizationError = adminUploadCopy.musicOrganizationUnavailable;
+    }
+    const activeOrganizationId = resolveActiveOrganizationId(adminMusicUploadState.organizations);
+    adminMusicUploadState.selectedOrganizationId = adminMusicUploadState.organizations.some((org) => org.id === activeOrganizationId)
+        ? activeOrganizationId
+        : '';
+    populateAdminMusicOrganizationSelect();
+    syncAdminMusicUploadUi();
+    if (adminMusicUploadState.selectedOrganizationId) {
+        await loadSelectedAdminMusicOrganizationBilling();
+    }
+}
+
 function closeAdminUploadChooser({ restoreFocus = true } = {}) {
     const modal = document.getElementById('studioAdminUploadChooserModal');
     if (!modal || modal.hidden) return;
@@ -422,6 +688,7 @@ function closeAdminMusicUploadModal({ restoreFocus = true } = {}) {
     if (!modal || modal.hidden) return;
     adminMusicCatalogAbort?.abort();
     adminMusicCatalogAbort = null;
+    adminMusicOrganizationLoadSeq += 1;
     setModalVisibility(modal, false);
     resetAdminMusicUploadForm();
     if (restoreFocus) {
@@ -442,6 +709,13 @@ function openAdminMusicUploadModal(trigger = null) {
     });
     loadAdminMusicImageModels().catch((error) => {
         console.warn('Assets Manager music upload catalog load failed:', error);
+    });
+    loadAdminMusicOrganizations().catch((error) => {
+        console.warn('Assets Manager music upload organization load failed:', error);
+        adminMusicUploadState.organizationStatus = 'error';
+        adminMusicUploadState.organizationError = adminUploadCopy.musicOrganizationUnavailable;
+        populateAdminMusicOrganizationSelect();
+        syncAdminMusicUploadUi();
     });
 }
 
@@ -474,8 +748,9 @@ async function handleAdminMusicUpload() {
         syncAdminMusicUploadUi();
         return;
     }
-    if (!isMusicUploadModelEnabled(selectedModel)) {
-        setAdminMusicUploadStatus(adminUploadCopy.musicModelError, 'error');
+    const billingBlocker = getSelectedMusicBillingBlocker(selectedModel);
+    if (billingBlocker) {
+        setAdminMusicUploadStatus(billingBlocker, 'error');
         syncAdminMusicUploadUi();
         return;
     }
@@ -485,10 +760,14 @@ async function handleAdminMusicUpload() {
     syncAdminMusicUploadUi();
 
     try {
-        const coverRes = await apiAdminAiTestImage({
+        const coverPayload = {
             prompt: coverPrompt,
             model: selectedModel,
-        }, {
+        };
+        if (isSelectedMusicModelChargeable(selectedModel)) {
+            coverPayload.organization_id = adminMusicUploadState.selectedOrganizationId;
+        }
+        const coverRes = await apiAdminAiTestImage(coverPayload, {
             headers: {
                 'Idempotency-Key': createAdminIdempotencyKey('admin-assets-music-cover'),
             },
@@ -496,6 +775,11 @@ async function handleAdminMusicUpload() {
         if (!coverRes.ok) {
             setAdminMusicUploadStatus(formatApiError(coverRes, adminUploadCopy.musicCoverError), 'error');
             return;
+        }
+        if (typeof coverRes.data?.billing?.balance_after === 'number') {
+            adminMusicUploadState.selectedOrganizationBalance = coverRes.data.billing.balance_after;
+            adminMusicUploadState.billingStatus = 'ready';
+            syncAdminMusicUploadUi();
         }
         const cover = extractGeneratedCoverImage(coverRes.data);
         if (!cover) {
@@ -633,6 +917,7 @@ function setupAdminVideoUpload({ enabled = false } = {}) {
     const musicTitle = document.getElementById('studioAdminUploadMusicTitleInput');
     const musicPrompt = document.getElementById('studioAdminUploadMusicPrompt');
     const musicModel = document.getElementById('studioAdminUploadMusicModel');
+    const musicOrganization = document.getElementById('studioAdminUploadMusicOrganization');
     const musicSubmit = document.getElementById('studioAdminUploadMusicSubmit');
     const reason = document.getElementById('studioAdminUploadVideoReason');
 
@@ -731,6 +1016,24 @@ function setupAdminVideoUpload({ enabled = false } = {}) {
         if (event.target === musicModel) {
             adminMusicUploadState.selectedModel = musicModel.value || '';
             syncAdminMusicUploadUi();
+            return;
+        }
+        if (event.target === musicOrganization) {
+            adminMusicUploadState.selectedOrganizationId = musicOrganization.value || '';
+            adminMusicUploadState.selectedOrganizationBalance = null;
+            if (adminMusicUploadState.selectedOrganizationId) {
+                setActiveOrganizationId(adminMusicUploadState.selectedOrganizationId);
+                loadSelectedAdminMusicOrganizationBilling().catch((error) => {
+                    console.warn('Assets Manager music upload billing load failed:', error);
+                    adminMusicUploadState.billingStatus = 'error';
+                    adminMusicUploadState.organizationError = adminUploadCopy.musicOrganizationBillingFailed;
+                    syncAdminMusicUploadUi();
+                });
+            } else {
+                clearActiveOrganizationId();
+                adminMusicUploadState.billingStatus = 'idle';
+                syncAdminMusicUploadUi();
+            }
         }
     };
     musicModal.addEventListener('input', handleMusicInput);
