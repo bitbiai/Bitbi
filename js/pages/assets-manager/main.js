@@ -97,7 +97,8 @@ const adminUploadCopy = isGermanPage
         musicOrganizationBillingLoading: 'Organisationsguthaben wird geladen...',
         musicOrganizationBillingFailed: 'Organisationsabrechnung konnte nicht geladen werden.',
         musicOrganizationInsufficient: 'Nicht genügend Organisations-Credits für diese Cover-Generierung.',
-        musicUploadStatus: 'Cover wird generiert und MP3 gespeichert...',
+        musicCoverGenerating: 'Cover wird generiert...',
+        musicSaveStatus: 'MP3 wird gespeichert und Cover angehängt...',
         musicSuccess: 'Musik-Asset hochgeladen. Assets Manager aktualisiert.',
         musicError: 'Musik-Upload fehlgeschlagen.',
         musicTitleError: 'Gib vor dem Upload einen Titel ein.',
@@ -137,7 +138,8 @@ const adminUploadCopy = isGermanPage
         musicOrganizationBillingLoading: 'Loading organization credit balance...',
         musicOrganizationBillingFailed: 'Organization billing could not be loaded.',
         musicOrganizationInsufficient: 'Insufficient organization credits for this cover generation.',
-        musicUploadStatus: 'Generating cover and saving MP3...',
+        musicCoverGenerating: 'Generating cover...',
+        musicSaveStatus: 'Saving MP3 and attaching cover...',
         musicSuccess: 'Music asset uploaded. Assets Manager refreshed.',
         musicError: 'Music upload failed.',
         musicTitleError: 'Enter a title before uploading.',
@@ -756,7 +758,7 @@ async function handleAdminMusicUpload() {
     }
 
     adminMusicUploadState.busy = true;
-    setAdminMusicUploadStatus(adminUploadCopy.musicUploadStatus, 'loading');
+    setAdminMusicUploadStatus(adminUploadCopy.musicCoverGenerating, 'loading');
     syncAdminMusicUploadUi();
 
     try {
@@ -787,6 +789,7 @@ async function handleAdminMusicUpload() {
             return;
         }
 
+        setAdminMusicUploadStatus(adminUploadCopy.musicSaveStatus, 'loading');
         const audioBase64 = await readFileAsBase64(file);
         const saveRes = await apiAiSaveAudio({
             title,

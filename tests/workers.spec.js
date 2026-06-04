@@ -39109,6 +39109,58 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('member audio save endpoint accepts large generated covers and normalizes them through the poster pipeline', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-large-cover', role: 'user' })],
+      imagesBinding: {
+        originalInfo: { width: 2048, height: 2048, format: 'image/png' },
+      },
+    });
+    const largeCoverBase64 = Buffer.alloc(2_500_000, 0x41).toString('base64');
+
+    const token = await seedSession(env, 'member-audio-large-cover');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'Large Cover Track',
+        audioBase64: btoa('fake-mp3-binary-data'),
+        mimeType: 'audio/mpeg',
+        prompt: 'A large generated cover',
+        model: 'openai/gpt-image-2',
+        mode: 'admin_assets_manager_upload',
+        source: 'admin_assets_manager_upload',
+        coverImageBase64: `data:image/png;base64,${largeCoverBase64}`,
+        coverMimeType: 'image/png',
+        coverPrompt: 'A large generated cover',
+        coverModel: 'openai/gpt-image-2',
+        sizeBytes: 400000,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.53',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        source_module: 'music',
+        poster_r2_key: expect.stringMatching(/\/derivatives\/v1\/.+\/poster\.webp$/),
+        poster_width: 320,
+        poster_height: 320,
+        poster_size_bytes: expect.any(Number),
+      },
+    });
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+    expect(env.USER_IMAGES.objects.has(row.poster_r2_key)).toBe(true);
+    expect(env.IMAGES.transformCalls).toHaveLength(1);
+  });
+
   test('member audio save endpoint rejects invalid generated cover payloads before saving audio', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -39122,6 +39174,70 @@ test.describe('Worker routes', () => {
         audioBase64: btoa('fake-mp3-binary-data'),
         mimeType: 'audio/mpeg',
         coverImageBase64: 'not base64',
+        coverMimeType: 'image/png',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.53',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      code: 'invalid_cover_image',
+    }));
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(0);
+  });
+
+  test('member audio save endpoint rejects unsupported generated cover MIME types before saving audio', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-unsupported-cover', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'member-audio-unsupported-cover');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'Unsupported Cover Track',
+        audioBase64: btoa('fake-mp3-binary-data'),
+        mimeType: 'audio/mpeg',
+        coverImageBase64: `data:image/gif;base64,${Buffer.from('GIF89a').toString('base64')}`,
+        coverMimeType: 'image/gif',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.53',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      code: 'invalid_cover_image',
+    }));
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(0);
+  });
+
+  test('member audio save endpoint rejects absurdly large generated cover payloads before saving audio', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-absurd-cover', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'member-audio-absurd-cover');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'Absurd Cover Track',
+        audioBase64: btoa('fake-mp3-binary-data'),
+        mimeType: 'audio/mpeg',
+        coverImageBase64: 'A'.repeat(11_000_001),
         coverMimeType: 'image/png',
       }, {
         Origin: 'https://bitbi.ai',

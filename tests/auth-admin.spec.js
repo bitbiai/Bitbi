@@ -4796,6 +4796,8 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
   const saveImageRequests = options.saveImageRequests || [];
   const imageTestRequests = options.imageTestRequests || [];
   const saveAudioRequests = options.saveAudioRequests || [];
+  const imageTestResultBase64 = options.imageTestResultBase64 || ONE_PX_PNG_BASE64;
+  const imageTestResultMimeType = options.imageTestResultMimeType || 'image/png';
   const assetStore = options.assetStore || createSavedAssetsStore(folderPayload, assetsPayload);
   const creditBalance = typeof options.creditBalance === 'number' ? options.creditBalance : 10;
   const userRole = options.userRole || 'user';
@@ -4934,8 +4936,8 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
         task: 'image',
         model,
         result: {
-          imageBase64: ONE_PX_PNG_BASE64,
-          mimeType: 'image/png',
+          imageBase64: imageTestResultBase64,
+          mimeType: imageTestResultMimeType,
           prompt: body.prompt,
           saveReference: 'assets-manager-music-cover-reference',
         },
@@ -8947,6 +8949,54 @@ test.describe('Assets Manager (authenticated)', () => {
     }));
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(page.locator('#studioImageGrid')).toContainText('Charged Cover');
+  });
+
+  test('admin account Assets Manager sends large generated music covers through the audio save flow', async ({
+    page,
+  }) => {
+    const imageTestRequests = [];
+    const saveAudioRequests = [];
+    const largeGeneratedCover = 'A'.repeat(3_100_000);
+    await mockAuthenticatedAssetsManager(page, [], {
+      userRole: 'admin',
+      imageTestRequests,
+      saveAudioRequests,
+      imageTestResultBase64: largeGeneratedCover,
+      imageTestResultMimeType: 'image/png',
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioAdminUploadVideoBtn').click();
+    await page.getByRole('dialog', { name: 'Upload asset' }).getByRole('button', { name: /Music upload/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Upload music asset' });
+    await dialog.getByLabel('MP3 file').setInputFiles({
+      name: 'large-cover.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('ID3\u0004\u0000\u0000mock-mp3', 'binary'),
+    });
+    await dialog.getByLabel('Title').fill('Large Cover Track');
+    await dialog.getByLabel('Cover prompt').fill('A large generated cover payload');
+    await dialog.getByLabel('Admin AI image model').selectOption('@cf/black-forest-labs/flux-2-dev');
+
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Upload music' }).click();
+
+    await expect.poll(() => imageTestRequests.length).toBe(1);
+    await expect.poll(() => saveAudioRequests.length).toBe(1);
+    expect(saveAudioRequests[0]).toEqual(expect.objectContaining({
+      title: 'Large Cover Track',
+      coverImageBase64: largeGeneratedCover,
+      coverMimeType: 'image/png',
+      coverPrompt: 'A large generated cover payload',
+      coverModel: '@cf/black-forest-labs/flux-2-dev',
+    }));
+    expect(saveAudioRequests[0].coverImageBase64.length).toBeGreaterThan(3_000_000);
+    await expect(dialog).toBeHidden({ timeout: 10_000 });
+    await expect(page.locator('#studioImageGrid')).toContainText('Large Cover Track');
   });
 
   test('admin account Assets Manager blocks charged music covers when organization credits are insufficient', async ({

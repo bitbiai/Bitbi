@@ -33,8 +33,11 @@ import { AiAssetLifecycleError, deleteUserAiTextAsset } from "./lifecycle.js";
 
 const MAX_PROMPT_LENGTH = 1000;
 const MAX_SAVED_FILE_TITLE_LENGTH = 120;
-const MAX_AUDIO_SAVE_COVER_BASE64_CHARS = 3_000_000;
-const MAX_AUDIO_SAVE_COVER_BYTES = 2_000_000;
+// Generated admin image outputs can be larger than the final saved-assets poster.
+// Keep this cover-only raw input cap bounded, then immediately normalize through
+// the existing 320px poster pipeline instead of storing the raw generated image.
+const MAX_AUDIO_SAVE_COVER_BASE64_CHARS = 11_000_000;
+const MAX_AUDIO_SAVE_COVER_BYTES = 8_000_000;
 const AUDIO_SAVE_COVER_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function decodeAudioSaveCoverPayload(body) {

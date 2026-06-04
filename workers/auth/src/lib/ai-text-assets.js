@@ -23,6 +23,7 @@ const POSTER_MAX_HEIGHT = 320;
 const POSTER_QUALITY = 82;
 const POSTER_FORMAT = "image/webp";
 const POSTER_MAX_BYTES = 2_000_000;
+const MUSIC_COVER_RAW_INPUT_MAX_BYTES = 8_000_000;
 const AI_VIDEO_ASSET_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 const METADATA_JSON_LIMITS = {
   maxEntries: 32,
@@ -1274,9 +1275,10 @@ async function processAiTextAssetPosterBytes(env, {
   successEvent,
   failureEvent,
   propagateQuotaErrors = false,
+  maxInputBytes = POSTER_MAX_BYTES,
 }) {
   try {
-    if (posterBytes.byteLength === 0 || posterBytes.byteLength > POSTER_MAX_BYTES) {
+    if (posterBytes.byteLength === 0 || posterBytes.byteLength > maxInputBytes) {
       return null;
     }
 
@@ -1332,6 +1334,9 @@ async function processAiTextAssetPosterBytes(env, {
     }
 
     const outputBytes = new Uint8Array(buffer);
+    if (outputBytes.byteLength > POSTER_MAX_BYTES) {
+      return null;
+    }
 
     let outputInfo;
     try {
@@ -1412,5 +1417,6 @@ export async function processGeneratedMusicCoverPoster(env, { userId, assetId, c
     posterBytes: coverBytes,
     successEvent: "music_cover_saved",
     failureEvent: "music_cover_save_failed",
+    maxInputBytes: MUSIC_COVER_RAW_INPUT_MAX_BYTES,
   });
 }
