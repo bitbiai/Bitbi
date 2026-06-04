@@ -1283,6 +1283,15 @@ export function apiAdminAiRecoverVideoJob(jobId, payload, options) {
     return request('POST', `/admin/ai/video-jobs/${encodeURIComponent(jobId)}/recover`, payload, options);
 }
 
+export function apiAdminAiVideoSourceCandidates({ scope, limit, cursor } = {}, options) {
+    const params = new URLSearchParams();
+    if (scope) params.set('scope', String(scope));
+    if (limit != null) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request('GET', '/admin/ai/video-source-candidates' + qs, undefined, options);
+}
+
 export function apiAdminAiListVideoJobPoisonMessages({ limit, cursor } = {}, options) {
     const params = new URLSearchParams();
     if (limit != null) params.set('limit', String(limit));

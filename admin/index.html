@@ -2277,8 +2277,26 @@
                                 <label id="aiVideoVideoUrlField" class="admin-ai__field">
                                     <span class="admin-ai__label">Source video URL</span>
                                     <input id="aiVideoVideoUrl" class="admin-ai__input" type="url" inputmode="url" maxlength="2048" placeholder="https://...">
-                                    <span class="admin-ai__hint">Required for edit and extend operations.</span>
+                                    <span class="admin-ai__hint">Required for edit operations. Extend uses internal BITBI videos below.</span>
                                 </label>
+                            </div>
+                            <div id="aiVideoSourcePickerField" class="admin-ai__field admin-ai__video-source-picker" hidden>
+                                <div class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Internal source video</span>
+                                    <button type="button" id="aiVideoSourceRefresh" class="btn-action">Refresh sources</button>
+                                </div>
+                                <p class="admin-ai__hint">Extend uses only internal BITBI videos. Choose a saved video asset or published Memvid. External URLs are not accepted for extend.</p>
+                                <div class="admin-ai__video-source-tabs" role="tablist" aria-label="Video source scope">
+                                    <button type="button" id="aiVideoSourceScopeSaved" class="admin-ai__video-source-tab" data-source-scope="saved_assets" aria-selected="true">My video assets</button>
+                                    <button type="button" id="aiVideoSourceScopeMemvids" class="admin-ai__video-source-tab" data-source-scope="memvids" aria-selected="false">Memvids</button>
+                                </div>
+                                <div id="aiVideoSourceSelected" class="admin-ai__video-source-selected" hidden>
+                                    <span id="aiVideoSourceSelectedText"></span>
+                                    <button type="button" id="aiVideoSourceClear" class="btn-action">Clear</button>
+                                </div>
+                                <div id="aiVideoSourceStatus" class="admin-ai__hint" role="status" aria-live="polite">No source selected.</div>
+                                <div id="aiVideoSourceList" class="admin-ai__video-source-list" role="list"></div>
+                                <button type="button" id="aiVideoSourceLoadMore" class="btn-action" hidden>Load more sources</button>
                             </div>
                             <label id="aiVideoReferenceUrlsField" class="admin-ai__field">
                                 <span class="admin-ai__label">Reference image URLs (optional)</span>

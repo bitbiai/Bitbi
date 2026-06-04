@@ -49,6 +49,7 @@ import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
 import { fetchWithGenerationTimeout } from "./generation-timeout.js";
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
+import { resolveAdminAiGrokPreviewExtendSourceForProvider } from "./admin-ai-video-sources.js";
 
 export const AI_VIDEO_JOBS_QUEUE_NAME = "bitbi-ai-video-jobs";
 export const AI_VIDEO_JOB_QUEUE_SCHEMA_VERSION = 1;
@@ -260,7 +261,7 @@ function calculateAdminVideoBudgetPricing(modelId, payload = {}) {
     audio: payload.audio,
     watermark: payload.watermark,
     hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image),
-    hasVideoInput: !!(payload.video || payload.video_url),
+    hasVideoInput: !!(payload.video || payload.video_url || payload.source_video),
     referenceImageCount: Array.isArray(payload.reference_images)
       ? payload.reference_images.length
       : Array.isArray(payload.referenceImages)
@@ -338,7 +339,9 @@ function buildGrokImaginePricingMetadata(modelId, payload = {}, createdAt = nowI
   const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
   const operation = typeof payload._operation === "string" ? payload._operation : "generate";
   const hasImageInput = !!(payload.image || payload.image_url || payload.image_input || payload.start_image);
-  const hasVideoInput = !!(payload.video || payload.video_url);
+  const hasVideoInput = !!(payload.video || payload.video_url || payload.source_video);
+  const sourceType = typeof payload.source_video?.source_type === "string" ? payload.source_video.source_type : null;
+  const sourceAssetId = typeof payload.source_video?.asset_id === "string" ? payload.source_video.asset_id : null;
   const referenceImageCount = Array.isArray(payload.reference_images)
     ? payload.reference_images.length
     : Array.isArray(payload.referenceImages)
@@ -370,6 +373,8 @@ function buildGrokImaginePricingMetadata(modelId, payload = {}, createdAt = nowI
     workflow,
     has_image_input: hasImageInput,
     has_video_input: hasVideoInput,
+    source_type: sourceType,
+    source_asset_id: sourceAssetId,
     reference_image_count: referenceImageCount,
     output_upload_url_present: outputUploadUrlPresent,
     recorded_at: createdAt,
@@ -559,6 +564,8 @@ function safeBudgetPolicyForResponse(value) {
       workflow: policy.grok_imagine_pricing.workflow || null,
       has_image_input: policy.grok_imagine_pricing.has_image_input === true,
       has_video_input: policy.grok_imagine_pricing.has_video_input === true,
+      source_type: policy.grok_imagine_pricing.source_type || null,
+      source_asset_id: policy.grok_imagine_pricing.source_asset_id || null,
       reference_image_count: Number(policy.grok_imagine_pricing.reference_image_count || 0),
       output_upload_url_present: policy.grok_imagine_pricing.output_upload_url_present === true,
       recorded_at: policy.grok_imagine_pricing.recorded_at || null,
@@ -603,7 +610,7 @@ function buildJobStoredInput(payload, modelId) {
     size: payload.size,
     watermark: payload.watermark,
     hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image),
-    hasVideoInput: !!(payload.video || payload.video_url),
+    hasVideoInput: !!(payload.video || payload.video_url || payload.source_video),
     referenceImageCount: Array.isArray(payload.reference_images) ? payload.reference_images.length : 0,
     outputUploadUrlPresent: !!(payload.output?.upload_url || payload.output_upload_url),
   });
@@ -2032,7 +2039,36 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     });
     return { status: "failed", jobId: job.id, reason: code };
   }
-  const response = await callVideoProviderTask(env, providerPath, job, parsedInput, payload.correlationId, budgetPolicy);
+  let providerInput;
+  try {
+    providerInput = await resolveAdminAiGrokPreviewExtendSourceForProvider(
+      env,
+      { id: job.user_id, email: job.user_email || "" },
+      parsedInput,
+      {
+        correlationId: payload.correlationId,
+        jobId: job.id,
+      }
+    );
+  } catch (error) {
+    const failedAt = nowIso();
+    await updateJobFailed(env, job.id, error?.code || "video_source_resolution_failed", "Video source could not be resolved.", failedAt);
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-video-jobs-queue",
+      event: "ai_video_job_source_resolution_failed",
+      level: "error",
+      correlationId: payload.correlationId,
+      job_id: job.id,
+      provider: job.provider,
+      model: job.model,
+      error_code: error?.code || "video_source_resolution_failed",
+      duration_ms: getDurationMs(startedAt),
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    return { status: "failed", jobId: job.id, reason: error?.code || "video_source_resolution_failed" };
+  }
+  const response = await callVideoProviderTask(env, providerPath, job, providerInput, payload.correlationId, budgetPolicy);
 
   let responseBody = null;
   try {
@@ -2111,6 +2147,8 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
           grok_imagine_workflow: budgetPolicy.grok_imagine_pricing.workflow || null,
           grok_imagine_has_image_input: budgetPolicy.grok_imagine_pricing.has_image_input === true,
           grok_imagine_has_video_input: budgetPolicy.grok_imagine_pricing.has_video_input === true,
+          grok_imagine_source_type: budgetPolicy.grok_imagine_pricing.source_type || null,
+          grok_imagine_source_asset_id: budgetPolicy.grok_imagine_pricing.source_asset_id || null,
           grok_imagine_reference_image_count: budgetPolicy.grok_imagine_pricing.reference_image_count || 0,
           grok_imagine_output_upload_url_present: budgetPolicy.grok_imagine_pricing.output_upload_url_present === true,
         } : {}),

@@ -63,6 +63,10 @@ import {
   serializeAiVideoJob,
 } from "../lib/ai-video-jobs.js";
 import {
+  listAdminAiVideoSourceCandidates,
+  resolveAdminAiGrokPreviewExtendSourceForProvider,
+} from "../lib/admin-ai-video-sources.js";
+import {
   adminAiUsageAttemptCursorExpiry,
   beginAiUsageAttempt,
   buildAdminAiUsageAttemptFilterHash,
@@ -2323,6 +2327,31 @@ export async function handleAdminAI(ctx) {
     return proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId, requestInfo);
   }
 
+  // route-policy: admin.ai.video-source-candidates
+  if (pathname === "/api/admin/ai/video-source-candidates" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-source-candidates-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const data = await listAdminAiVideoSourceCandidates(env, result.user, url.searchParams);
+      return withCorrelationId(json({ ok: true, data }, {
+        headers: { "Cache-Control": "private, no-store" },
+      }), correlationId);
+    } catch (error) {
+      if (error?.code === "video_sources_unavailable"
+        || String(error?.message || error).includes("no such table")) {
+        return withCorrelationId(json({
+          ok: false,
+          error: "Video source candidates are temporarily unavailable.",
+          code: "video_sources_unavailable",
+        }, {
+          status: 503,
+          headers: { "Cache-Control": "private, no-store" },
+        }), correlationId);
+      }
+      throw error;
+    }
+  }
+
   if (pathname === "/api/admin/ai/usage-attempts" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-usage-attempts-ip", 60, 600_000, correlationId);
     if (limited) return limited;
@@ -3220,7 +3249,15 @@ export async function handleAdminAI(ctx) {
         model: validated.model,
       });
       assertAdminVideoPricingConfigured(validatedSelection.model.id, validated);
-      if (minimalMode) validated.minimal_mode = true;
+      const providerPayload = await resolveAdminAiGrokPreviewExtendSourceForProvider(
+        env,
+        result.user,
+        validated,
+        {
+          correlationId,
+          origin: url.origin,
+        }
+      );
       logDiagnostic({
         service: "bitbi-auth",
         component: "admin-ai-video",
@@ -3237,7 +3274,7 @@ export async function handleAdminAI(ctx) {
         "/internal/ai/test-video",
         {
           method: "POST",
-          body: validated,
+          body: minimalMode ? { ...providerPayload, minimal_mode: true } : providerPayload,
           callerPolicy: buildAdminAiCallerPolicy({
             operationId: "admin.video.sync_debug",
             budgetScope: AI_CALLER_POLICY_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,

@@ -5059,6 +5059,19 @@ test.describe('Phase 1-E auth route policy registry', () => {
         idempotency: expect.stringContaining('Idempotency-Key'),
       }),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/video-source-candidates')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-source-candidates',
+      auth: 'admin',
+      csrf: 'safe-method',
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/internal/ai/video-source/signed-token')).toEqual(expect.objectContaining({
+      id: 'internal.admin-ai.video-source',
+      auth: 'anonymous',
+      csrf: 'not-browser-facing',
+      providerSignature: 'hmac-token-path',
+      config: expect.arrayContaining(['DB', 'USER_IMAGES', 'AI_SAVE_REFERENCE_SIGNING_SECRET']),
+    }));
     expect(getRoutePolicy('POST', '/api/admin/ai/video-jobs/job-123/recover')).toEqual(expect.objectContaining({
       id: 'admin.ai.video-jobs.recover',
       auth: 'admin',
@@ -23702,11 +23715,17 @@ test.describe('Worker routes', () => {
         duration: 12,
         aspect_ratio: '16:9',
         resolution: '480p',
-        video_url: 'https://cdn.example.com/source.mp4',
+        source_video: {
+          source_type: 'saved_asset',
+          asset_id: 'video_asset_123',
+        },
       });
       expect(extend).toMatchObject({
         _operation: 'extend',
-        video: { url: 'https://cdn.example.com/source.mp4' },
+        source_video: {
+          source_type: 'saved_asset',
+          asset_id: 'video_asset_123',
+        },
       });
 
       expect(() => validateAdminAiVideoBody({
@@ -23723,7 +23742,24 @@ test.describe('Worker routes', () => {
         model: 'xai/grok-imagine-video-1.5-preview',
         prompt: 'Edit without video.',
         _operation: 'edit',
-      })).toThrow('video.url is required for edit and extend operations');
+      })).toThrow('video.url is required for edit operations');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Extend without internal source.',
+        _operation: 'extend',
+      })).toThrow('source_video is required for extend operations');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Extend with external URL.',
+        _operation: 'extend',
+        video_url: 'https://cdn.example.com/source.mp4',
+      })).toThrow('video.url is not accepted for extend operations');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Generate with source video.',
+        _operation: 'generate',
+        source_video: { source_type: 'memvid', asset_id: 'memvid_123' },
+      })).toThrow('source_video is only supported for extend operations');
       expect(() => validateAdminAiVideoBody({
         model: 'xai/grok-imagine-video-1.5-preview',
         prompt: 'Remote URL must be https.',
@@ -24172,6 +24208,269 @@ test.describe('Worker routes', () => {
         grok_imagine_has_video_input: true,
         grok_imagine_reference_image_count: 1,
         grok_imagine_output_upload_url_present: true,
+      });
+      expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
+    });
+
+    test('GET /api/admin/ai/video-source-candidates lists only own video assets and published Memvids', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('grok15-source-candidates-admin');
+      const other = createAdminUser('grok15-source-candidates-other');
+      const env = createAuthTestEnv({
+        users: [admin, other],
+        aiTextAssets: [
+          {
+            id: 'asset-own-video',
+            user_id: admin.id,
+            title: 'Own private source',
+            file_name: 'own-source.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 1234,
+            r2_key: `users/${admin.id}/video/own-source.mp4`,
+            poster_r2_key: `users/${admin.id}/video/own-source.webp`,
+            created_at: '2026-06-04T10:00:00.000Z',
+          },
+          {
+            id: 'asset-other-private',
+            user_id: other.id,
+            title: 'Other private source',
+            file_name: 'other-source.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 2345,
+            r2_key: `users/${other.id}/video/other-source.mp4`,
+            created_at: '2026-06-04T09:00:00.000Z',
+          },
+          {
+            id: 'asset-own-audio',
+            user_id: admin.id,
+            title: 'Own audio source',
+            file_name: 'song.mp3',
+            source_module: 'music',
+            mime_type: 'audio/mpeg',
+            size_bytes: 3456,
+            r2_key: `users/${admin.id}/music/song.mp3`,
+            created_at: '2026-06-04T08:00:00.000Z',
+          },
+          {
+            id: 'memvid-public',
+            user_id: other.id,
+            title: 'Published Memvid',
+            file_name: 'published.mp4',
+            source_module: 'video',
+            visibility: 'public',
+            mime_type: 'video/mp4',
+            size_bytes: 4567,
+            r2_key: `users/${other.id}/video/published.mp4`,
+            poster_r2_key: `users/${other.id}/video/published.webp`,
+            created_at: '2026-06-03T10:00:00.000Z',
+            published_at: '2026-06-04T11:00:00.000Z',
+          },
+          {
+            id: 'memvid-private',
+            user_id: other.id,
+            title: 'Private Memvid',
+            file_name: 'private.mp4',
+            source_module: 'video',
+            visibility: 'private',
+            mime_type: 'video/mp4',
+            size_bytes: 5678,
+            r2_key: `users/${other.id}/video/private.mp4`,
+            created_at: '2026-06-02T10:00:00.000Z',
+          },
+        ],
+      });
+      const token = await seedSession(env, admin.id);
+      const headers = {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      };
+
+      const savedRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-source-candidates?scope=saved_assets&limit=10', 'GET', undefined, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(savedRes.status).toBe(200);
+      const savedBody = await savedRes.json();
+      expect(savedBody.data.candidates).toEqual([
+        expect.objectContaining({
+          source_type: 'saved_asset',
+          asset_id: 'asset-own-video',
+          title: 'Own private source',
+          mime_type: 'video/mp4',
+          poster_url: '/api/ai/text-assets/asset-own-video/poster',
+          preview_url: '/api/ai/text-assets/asset-own-video/file',
+        }),
+      ]);
+      expect(JSON.stringify(savedBody)).not.toContain('asset-other-private');
+      expect(JSON.stringify(savedBody)).not.toContain('r2_key');
+      expect(JSON.stringify(savedBody)).not.toContain('/api/internal/ai/video-source/');
+
+      const memvidRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-source-candidates?scope=memvids&limit=10', 'GET', undefined, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(memvidRes.status).toBe(200);
+      const memvidBody = await memvidRes.json();
+      expect(memvidBody.data.candidates).toEqual([
+        expect.objectContaining({
+          source_type: 'memvid',
+          asset_id: 'memvid-public',
+          title: 'Published Memvid',
+          mime_type: 'video/mp4',
+        }),
+      ]);
+      expect(JSON.stringify(memvidBody)).not.toContain('memvid-private');
+      expect(JSON.stringify(memvidBody)).not.toContain('r2_key');
+      expect(JSON.stringify(memvidBody)).not.toContain('/api/internal/ai/video-source/');
+    });
+
+    test('Grok Imagine Video 1.5 Preview extend resolves structured source to a signed internal URL at provider invocation', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { calculateGrokImagineVideo15PreviewCreditPricing } = await loadGrokImagineVideo15PreviewPricingModule();
+      const admin = createAdminUser('grok15-extend-source-admin');
+      const service = createAiVideoJobServiceBinding();
+      const assetFetch = createVideoAssetFetchStub();
+      const sourceKey = `users/${admin.id}/video/internal-source.mp4`;
+      const sourceBytes = new Uint8Array([7, 8, 9, 10, 11]);
+      const env = createAuthTestEnv({
+        users: [admin],
+        fetch: assetFetch,
+        userImages: {
+          [sourceKey]: {
+            body: sourceBytes,
+            httpMetadata: { contentType: 'video/mp4' },
+            size: sourceBytes.byteLength,
+          },
+        },
+        aiTextAssets: [
+          {
+            id: 'asset-extend-own',
+            user_id: admin.id,
+            title: 'Internal extend source',
+            file_name: 'internal-source.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: sourceBytes.byteLength,
+            r2_key: sourceKey,
+            created_at: '2026-06-04T10:00:00.000Z',
+          },
+        ],
+      });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+      const expectedPricing = calculateGrokImagineVideo15PreviewCreditPricing({
+        _operation: 'extend',
+        duration: 5,
+        resolution: '480p',
+        aspect_ratio: '16:9',
+        hasVideoInput: true,
+      });
+
+      const createRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'xai/grok-imagine-video-1.5-preview',
+          prompt: 'Continue this internal source.',
+          _operation: 'extend',
+          duration: 5,
+          aspect_ratio: '16:9',
+          resolution: '480p',
+          source_video: {
+            source_type: 'saved_asset',
+            asset_id: 'asset-extend-own',
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-grok15-extend-source-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(createRes.status).toBe(202);
+      const createBody = await createRes.json();
+      expect(createBody.job.budgetPolicy.grok_imagine_pricing).toMatchObject({
+        model_id: 'xai/grok-imagine-video-1.5-preview',
+        operation: 'extend',
+        workflow: 'video_extend',
+        has_video_input: true,
+        source_type: 'saved_asset',
+        source_asset_id: 'asset-extend-own',
+        provider_cost_usd: expectedPricing.providerCostUsd,
+        estimated_credits: expectedPricing.credits,
+      });
+      const storedInput = JSON.parse(env.DB.state.aiVideoJobs[0].input_json);
+      expect(storedInput).toMatchObject({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        _operation: 'extend',
+        source_video: {
+          source_type: 'saved_asset',
+          asset_id: 'asset-extend-own',
+        },
+      });
+      expect(JSON.stringify(storedInput)).not.toContain('/api/internal/ai/video-source/');
+
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+      const batch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(1);
+      const {
+        __bitbi_ai_caller_policy: callerPolicy,
+        ...providerBody
+      } = service.calls[0].body;
+      expect(providerBody).toMatchObject({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        _operation: 'extend',
+        prompt: 'Continue this internal source.',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '480p',
+      });
+      expect(providerBody.source_video).toBeUndefined();
+      expect(providerBody.video?.url).toEqual(expect.stringContaining('/api/internal/ai/video-source/'));
+      expect(callerPolicy).toMatchObject({
+        operation_id: 'admin.video.task.create',
+        provider_family: 'xai',
+        model_id: 'xai/grok-imagine-video-1.5-preview',
+      });
+      expect(JSON.stringify(env.DB.state.aiVideoJobs[0].input_json)).not.toContain('/api/internal/ai/video-source/');
+      expect(JSON.stringify(env.DB.state.aiVideoJobs[0].budget_policy_json)).not.toContain('/api/internal/ai/video-source/');
+
+      const signedUrl = providerBody.video.url;
+      const sourceRes = await authWorker.fetch(
+        new Request(signedUrl, { method: 'GET' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(sourceRes.status).toBe(200);
+      expect(sourceRes.headers.get('content-type')).toBe('video/mp4');
+      expect(sourceRes.headers.get('cache-control')).toBe('private, no-store');
+      expect(new Uint8Array(await sourceRes.arrayBuffer())).toEqual(sourceBytes);
+
+      const headRes = await authWorker.fetch(
+        new Request(signedUrl, { method: 'HEAD' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(headRes.status).toBe(200);
+      expect(headRes.headers.get('content-type')).toBe('video/mp4');
+
+      const tamperedUrl = `${signedUrl.slice(0, -1)}${signedUrl.endsWith('a') ? 'b' : 'a'}`;
+      const tampered = await authWorker.fetch(
+        new Request(tamperedUrl, { method: 'GET' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(tampered.status).toBe(403);
+      await expect(tampered.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'invalid_video_source_token',
       });
       expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
     });

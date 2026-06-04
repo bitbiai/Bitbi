@@ -1325,6 +1325,41 @@ function optionalGrokPreviewReferenceImages(value, field, maxItems) {
   });
 }
 
+function normalizeGrokPreviewSourceVideo(value, field = "source_video") {
+  if (value === undefined || value === null || value === "") return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AdminAiValidationError(`${field} must be an object.`, 400, "validation_error");
+  }
+  const sourceType = typeof value.source_type === "string"
+    ? value.source_type.trim()
+    : typeof value.sourceType === "string"
+      ? value.sourceType.trim()
+      : "";
+  if (!["saved_asset", "memvid"].includes(sourceType)) {
+    throw new AdminAiValidationError(
+      `${field}.source_type must be saved_asset or memvid.`,
+      400,
+      "validation_error"
+    );
+  }
+  const assetId = typeof value.asset_id === "string"
+    ? value.asset_id.trim()
+    : typeof value.assetId === "string"
+      ? value.assetId.trim()
+      : "";
+  if (!/^[A-Za-z0-9_-]{1,160}$/.test(assetId)) {
+    throw new AdminAiValidationError(
+      `${field}.asset_id is invalid.`,
+      400,
+      "validation_error"
+    );
+  }
+  return {
+    source_type: sourceType,
+    asset_id: assetId,
+  };
+}
+
 function firstNonEmptyValue(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== "") return value;
@@ -2078,6 +2113,8 @@ export function validateAdminAiVideoBody(body) {
         "video",
         "video_url",
         "videoInput",
+        "source_video",
+        "sourceVideo",
         "reference_images",
         "referenceImages",
         "output",
@@ -2122,6 +2159,10 @@ export function validateAdminAiVideoBody(body) {
       firstNonEmptyValue(input.video, input.video_url, input.videoInput),
       "video"
     );
+    const source_video = normalizeGrokPreviewSourceVideo(
+      firstNonEmptyValue(input.source_video, input.sourceVideo),
+      "source_video"
+    );
     const reference_images = optionalGrokPreviewReferenceImages(
       firstNonEmptyValue(input.reference_images, input.referenceImages),
       "reference_images",
@@ -2140,9 +2181,37 @@ export function validateAdminAiVideoBody(body) {
         "validation_error"
       );
     }
-    if ((operation === "edit" || operation === "extend") && !video) {
+    if (operation === "generate" && source_video) {
       throw new AdminAiValidationError(
-        "video.url is required for edit and extend operations.",
+        "source_video is only supported for extend operations.",
+        400,
+        "validation_error"
+      );
+    }
+    if (operation === "edit" && source_video) {
+      throw new AdminAiValidationError(
+        "source_video is only supported for extend operations.",
+        400,
+        "validation_error"
+      );
+    }
+    if (operation === "edit" && !video) {
+      throw new AdminAiValidationError(
+        "video.url is required for edit operations.",
+        400,
+        "validation_error"
+      );
+    }
+    if (operation === "extend" && video) {
+      throw new AdminAiValidationError(
+        "video.url is not accepted for extend operations. Choose an internal source_video.",
+        400,
+        "validation_error"
+      );
+    }
+    if (operation === "extend" && !source_video) {
+      throw new AdminAiValidationError(
+        "source_video is required for extend operations.",
         400,
         "validation_error"
       );
@@ -2156,7 +2225,7 @@ export function validateAdminAiVideoBody(body) {
         resolution,
         size,
         hasImageInput: !!image,
-        hasVideoInput: !!video,
+        hasVideoInput: !!(video || source_video),
         referenceImageCount: reference_images.length,
         outputUploadUrlPresent: !!output,
       });
@@ -2180,6 +2249,7 @@ export function validateAdminAiVideoBody(body) {
     if (size) validated.size = size;
     if (image) validated.image = image;
     if (video) validated.video = video;
+    if (source_video) validated.source_video = source_video;
     if (reference_images.length > 0) validated.reference_images = reference_images;
     if (output) validated.output = output;
     if (user) validated.user = user;

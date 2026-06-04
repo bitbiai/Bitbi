@@ -11367,6 +11367,76 @@ class MockD1 {
       } : null;
     }
 
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key')
+      && query.includes('FROM ai_text_assets')
+      && query.includes('WHERE user_id = ?')
+      && query.includes("AND source_module = 'video'")
+      && query.includes('AND r2_key IS NOT NULL')
+      && query.includes("AND mime_type LIKE 'video/%'")
+      && query.includes('LIMIT ? OFFSET ?')) {
+      const [userId, limit, offset] = bindings;
+      const rows = this.state.aiTextAssets
+        .filter((row) => row.user_id === userId && row.source_module === 'video' && row.r2_key && String(row.mime_type || '').startsWith('video/'))
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+        .slice(Number(offset || 0), Number(offset || 0) + Number(limit || 0));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key')
+      && query.includes('FROM ai_text_assets')
+      && query.includes("WHERE visibility = 'public'")
+      && query.includes("AND source_module = 'video'")
+      && query.includes('AND r2_key IS NOT NULL')
+      && query.includes("AND mime_type LIKE 'video/%'")
+      && query.includes('LIMIT ? OFFSET ?')) {
+      const [limit, offset] = bindings;
+      const rows = this.state.aiTextAssets
+        .filter((row) => row.visibility === 'public' && row.source_module === 'video' && row.r2_key && String(row.mime_type || '').startsWith('video/'))
+        .slice()
+        .sort((a, b) => String(b.published_at || b.created_at || '').localeCompare(String(a.published_at || a.created_at || ''))
+          || String(b.created_at || '').localeCompare(String(a.created_at || ''))
+          || String(b.id || '').localeCompare(String(a.id || '')))
+        .slice(Number(offset || 0), Number(offset || 0) + Number(limit || 0));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key')
+      && query.includes('FROM ai_text_assets')
+      && query.includes('WHERE id = ?')
+      && query.includes('AND user_id = ?')
+      && query.includes("AND source_module = 'video'")
+      && query.includes('AND r2_key IS NOT NULL')
+      && query.includes("AND mime_type LIKE 'video/%'")
+      && query.includes('LIMIT 1')) {
+      const [assetId, userId] = bindings;
+      return this.state.aiTextAssets.find((row) => (
+        row.id === assetId
+        && row.user_id === userId
+        && row.source_module === 'video'
+        && row.r2_key
+        && String(row.mime_type || '').startsWith('video/')
+      )) || null;
+    }
+
+    if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key')
+      && query.includes('FROM ai_text_assets')
+      && query.includes('WHERE id = ?')
+      && query.includes("AND visibility = 'public'")
+      && query.includes("AND source_module = 'video'")
+      && query.includes('AND r2_key IS NOT NULL')
+      && query.includes("AND mime_type LIKE 'video/%'")
+      && query.includes('LIMIT 1')) {
+      const [assetId] = bindings;
+      return this.state.aiTextAssets.find((row) => (
+        row.id === assetId
+        && row.visibility === 'public'
+        && row.source_module === 'video'
+        && row.r2_key
+        && String(row.mime_type || '').startsWith('video/')
+      )) || null;
+    }
+
     if (query.startsWith('SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, created_at, published_at, r2_key, poster_r2_key')) {
       const limit = bindings[0];
       const rows = this.state.aiTextAssets

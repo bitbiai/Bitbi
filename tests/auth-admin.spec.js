@@ -18269,6 +18269,44 @@ test.describe('Admin AI Lab', () => {
     await page.route('**/api/admin/ai/video-jobs/vidjob_grok15/output', async (route) => {
       await fulfillTestMp4(route);
     });
+    await page.route('**/api/admin/ai/video-source-candidates**', async (route) => {
+      const url = new URL(route.request().url());
+      const scope = url.searchParams.get('scope') || 'saved_assets';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            candidates: scope === 'memvids'
+              ? [{
+                  source_type: 'memvid',
+                  asset_id: 'memvid_public_1',
+                  title: 'Published Memvid source',
+                  mime_type: 'video/mp4',
+                  size_bytes: 2048,
+                  duration_seconds: 5,
+                  published_at: '2026-06-04T00:00:00.000Z',
+                  poster_url: '/api/gallery/memvids/memvid_public_1/v1/poster',
+                  preview_url: '/api/gallery/memvids/memvid_public_1/v1/file',
+                }]
+              : [{
+                  source_type: 'saved_asset',
+                  asset_id: 'asset_saved_video_1',
+                  title: 'Saved video source',
+                  mime_type: 'video/mp4',
+                  size_bytes: 1024,
+                  duration_seconds: 5,
+                  created_at: '2026-06-04T00:00:00.000Z',
+                  poster_url: '/api/ai/text-assets/asset_saved_video_1/poster',
+                  preview_url: '/api/ai/text-assets/asset_saved_video_1/file',
+                }],
+            next_cursor: null,
+            has_more: false,
+          },
+        }),
+      });
+    });
     await page.route('**/api/admin/ai/video-jobs', async (route) => {
       requests.push(route.request().postDataJSON());
       await route.fulfill({
@@ -18294,7 +18332,11 @@ test.describe('Admin AI Lab', () => {
                 model_id: 'xai/grok-imagine-video-1.5-preview',
                 estimated_credits: 16,
                 operation: requests.at(-1)?._operation || 'generate',
-                workflow: requests.at(-1)?._operation === 'edit' ? 'video_edit' : 'text_to_video',
+                workflow: requests.at(-1)?._operation === 'edit'
+                  ? 'video_edit'
+                  : requests.at(-1)?._operation === 'extend'
+                    ? 'video_extend'
+                    : 'text_to_video',
               },
             },
           },
@@ -18311,6 +18353,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoSizeField')).toBeVisible();
     await expect(page.locator('#aiVideoImageUrlField')).toBeVisible();
     await expect(page.locator('#aiVideoVideoUrlField')).toBeHidden();
+    await expect(page.locator('#aiVideoSourcePickerField')).toBeHidden();
     await expect(page.locator('#aiVideoReferenceUrlsField')).toBeVisible();
     await expect(page.locator('#aiVideoOutputUploadUrlField')).toBeVisible();
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
@@ -18367,6 +18410,31 @@ test.describe('Admin AI Lab', () => {
       video: { url: 'https://cdn.example.com/source.mp4' },
       output: { upload_url: 'https://uploads.example.com/output' },
     });
+    await expect.poll(() => statusPolls).toBeGreaterThan(0);
+
+    await page.locator('#aiVideoOperation').selectOption('extend');
+    await expect(page.locator('#aiVideoVideoUrlField')).toBeHidden();
+    await expect(page.locator('#aiVideoSourcePickerField')).toBeVisible();
+    await expect(page.locator('#aiVideoSourceList')).toContainText('Saved video source');
+    await page.locator('#aiVideoSourceList .admin-ai__video-source-card', { hasText: 'Saved video source' }).click();
+    await expect(page.locator('#aiVideoSourceSelected')).toContainText('Saved asset selected: Saved video source');
+    await page.locator('#aiVideoRun').click();
+    await expect.poll(() => requests.length).toBe(3);
+    expect(requests[2]).toMatchObject({
+      preset: 'video_grok_imagine_15_preview',
+      model: 'xai/grok-imagine-video-1.5-preview',
+      _operation: 'extend',
+      prompt: 'A Grok Imagine 1.5 preview smoke test',
+      resolution: '720p',
+      source_video: {
+        source_type: 'saved_asset',
+        asset_id: 'asset_saved_video_1',
+      },
+      output: { upload_url: 'https://uploads.example.com/output' },
+    });
+    expect(requests[2].video).toBeUndefined();
+    expect(requests[2].video_url).toBeUndefined();
+    expect(requests[2].videoInput).toBeUndefined();
     await expect.poll(() => statusPolls).toBeGreaterThan(0);
   });
 
