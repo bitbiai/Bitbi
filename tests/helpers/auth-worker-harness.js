@@ -6604,6 +6604,135 @@ class MockD1 {
       return row ? { r2_key: row.r2_key } : null;
     }
 
+    if (
+      query.startsWith('SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at, created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version, derivatives_ready_at, thumb_mime_type, medium_mime_type FROM ai_images WHERE id = ?')
+      && query.includes('AND r2_key IS NOT NULL')
+      && query.endsWith('LIMIT 1')
+    ) {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => {
+        if (item.id !== imageId || item.r2_key == null) return false;
+        if (query.includes('AND user_id = ?')) {
+          return item.user_id === userId;
+        }
+        if (query.includes("AND visibility = 'public'")) {
+          return item.visibility === 'public'
+            && item.derivatives_status === 'ready'
+            && item.thumb_key != null
+            && item.medium_key != null;
+        }
+        return false;
+      });
+      return row
+        ? {
+            id: row.id,
+            user_id: row.user_id,
+            prompt: row.prompt,
+            model: row.model,
+            r2_key: row.r2_key,
+            size_bytes: row.size_bytes ?? null,
+            visibility: row.visibility,
+            published_at: row.published_at,
+            created_at: row.created_at,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+            thumb_width: row.thumb_width,
+            thumb_height: row.thumb_height,
+            medium_width: row.medium_width,
+            medium_height: row.medium_height,
+            derivatives_status: row.derivatives_status,
+            derivatives_version: row.derivatives_version,
+            derivatives_ready_at: row.derivatives_ready_at,
+            thumb_mime_type: row.thumb_mime_type,
+            medium_mime_type: row.medium_mime_type,
+          }
+        : null;
+    }
+
+    if (
+      query.startsWith('SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at, created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version, derivatives_ready_at, thumb_mime_type, medium_mime_type FROM ai_images WHERE user_id = ?')
+      && query.includes('AND r2_key IS NOT NULL')
+      && query.endsWith('LIMIT ? OFFSET ?')
+    ) {
+      const [userId, limit, offset] = bindings;
+      const rows = this.state.aiImages
+        .filter((row) => row.user_id === userId && row.r2_key != null)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+        .slice(Number(offset) || 0, (Number(offset) || 0) + (Number(limit) || 0));
+      return {
+        results: rows.map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          prompt: row.prompt,
+          model: row.model,
+          r2_key: row.r2_key,
+          size_bytes: row.size_bytes ?? null,
+          visibility: row.visibility,
+          published_at: row.published_at,
+          created_at: row.created_at,
+          thumb_key: row.thumb_key,
+          medium_key: row.medium_key,
+          thumb_width: row.thumb_width,
+          thumb_height: row.thumb_height,
+          medium_width: row.medium_width,
+          medium_height: row.medium_height,
+          derivatives_status: row.derivatives_status,
+          derivatives_version: row.derivatives_version,
+          derivatives_ready_at: row.derivatives_ready_at,
+          thumb_mime_type: row.thumb_mime_type,
+          medium_mime_type: row.medium_mime_type,
+        })),
+      };
+    }
+
+    if (
+      query.startsWith("SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at, created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version, derivatives_ready_at, thumb_mime_type, medium_mime_type FROM ai_images WHERE visibility = 'public'")
+      && query.includes('AND r2_key IS NOT NULL')
+      && query.endsWith('LIMIT ? OFFSET ?')
+    ) {
+      const [limit, offset] = bindings;
+      const rows = this.state.aiImages
+        .filter((row) =>
+          row.visibility === 'public'
+          && row.derivatives_status === 'ready'
+          && row.thumb_key != null
+          && row.medium_key != null
+          && row.r2_key != null
+        )
+        .slice()
+        .sort((a, b) => (
+          String(b.published_at || b.created_at || '').localeCompare(String(a.published_at || a.created_at || ''))
+          || String(b.created_at || '').localeCompare(String(a.created_at || ''))
+          || String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(Number(offset) || 0, (Number(offset) || 0) + (Number(limit) || 0));
+      return {
+        results: rows.map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          prompt: row.prompt,
+          model: row.model,
+          r2_key: row.r2_key,
+          size_bytes: row.size_bytes ?? null,
+          visibility: row.visibility,
+          published_at: row.published_at,
+          created_at: row.created_at,
+          thumb_key: row.thumb_key,
+          medium_key: row.medium_key,
+          thumb_width: row.thumb_width,
+          thumb_height: row.thumb_height,
+          medium_width: row.medium_width,
+          medium_height: row.medium_height,
+          derivatives_status: row.derivatives_status,
+          derivatives_version: row.derivatives_version,
+          derivatives_ready_at: row.derivatives_ready_at,
+          thumb_mime_type: row.thumb_mime_type,
+          medium_mime_type: row.medium_mime_type,
+        })),
+      };
+    }
+
     if (query === 'SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE id = ? AND user_id = ?') {
       const [imageId, userId] = bindings;
       const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);

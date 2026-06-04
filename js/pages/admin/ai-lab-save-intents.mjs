@@ -188,6 +188,52 @@ export function buildMusicSaveIntent({
     };
 }
 
+function finiteNumberOrNull(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function shortStringOrNull(value, maxLength = 160) {
+    if (value === undefined || value === null || value === '') return null;
+    return String(value).trim().slice(0, maxLength) || null;
+}
+
+function compactVideoPricingForSave(pricing) {
+    if (!pricing || typeof pricing !== 'object' || Array.isArray(pricing)) return null;
+    const formula = pricing.formula && typeof pricing.formula === 'object' && !Array.isArray(pricing.formula)
+        ? pricing.formula
+        : {};
+    const normalized = pricing.normalized && typeof pricing.normalized === 'object' && !Array.isArray(pricing.normalized)
+        ? pricing.normalized
+        : {};
+    return {
+        modelId: shortStringOrNull(pricing.modelId || pricing.model_id || pricing.model, 160),
+        credits: finiteNumberOrNull(pricing.credits),
+        providerCostUsd: finiteNumberOrNull(pricing.providerCostUsd),
+        internalCostUsd: finiteNumberOrNull(pricing.internalCostUsd),
+        chargedValueUsd: finiteNumberOrNull(pricing.chargedValueUsd),
+        effectiveProfitMargin: finiteNumberOrNull(pricing.effectiveProfitMargin),
+        adminCreditsCharged: finiteNumberOrNull(pricing.adminCreditsCharged) ?? 0,
+        normalized: {
+            operation: shortStringOrNull(normalized.operation || pricing.operation, 32),
+            duration: finiteNumberOrNull(normalized.duration ?? normalized.durationSeconds ?? pricing.duration),
+            aspectRatio: shortStringOrNull(normalized.aspectRatio || normalized.aspect_ratio || pricing.aspect_ratio, 24),
+            resolution: shortStringOrNull(normalized.resolution || pricing.resolution, 24),
+            size: shortStringOrNull(normalized.size || pricing.size, 32),
+            rateUsdPerSecond: finiteNumberOrNull(normalized.rateUsdPerSecond ?? normalized.rate_usd_per_second),
+            hasImageInput: normalized.hasImageInput === true || pricing.hasImageInput === true,
+            hasVideoInput: normalized.hasVideoInput === true || pricing.hasVideoInput === true,
+            referenceImageCount: finiteNumberOrNull(normalized.referenceImageCount ?? pricing.referenceImageCount) ?? 0,
+            outputUploadUrlPresent: normalized.outputUploadUrlPresent === true || pricing.outputUploadUrlPresent === true,
+        },
+        formula: {
+            pricingVersion: shortStringOrNull(formula.pricingVersion || pricing.pricingVersion, 80),
+            billingMode: shortStringOrNull(formula.billingMode || pricing.billingMode, 80),
+            pricingSource: shortStringOrNull(formula.pricingSource || pricing.pricingSource, 220),
+        },
+    };
+}
+
 export function buildVideoSaveIntent({
     response,
     prompt,
@@ -219,7 +265,7 @@ export function buildVideoSaveIntent({
             hasImageInput: result.hasImageInput ?? null,
             hasEndImageInput: result.hasEndImageInput ?? null,
             workflow: result.workflow || null,
-            pricing: result.pricing || null,
+            pricing: compactVideoPricingForSave(result.pricing),
             posterUrl: result.posterUrl || null,
             warnings,
             elapsedMs: response?.elapsedMs || null,

@@ -6,7 +6,9 @@ export {
   validateAdminAiLiveAgentBody as validateLiveAgentBody,
   validateAdminAiMusicBody as validateMusicBody,
   validateAdminAiTextBody as validateTextBody,
-  validateAdminAiVideoBody as validateVideoBody,
+} from "../../../../js/shared/admin-ai-contract.mjs";
+import {
+  validateAdminAiVideoBody,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
   isRequestBodyError,
@@ -16,6 +18,10 @@ import { AdminAiValidationError } from "../../../../js/shared/admin-ai-contract.
 import { stripAiCallerPolicyFromBody } from "../../../shared/ai-caller-policy.mjs";
 
 export const INTERNAL_AI_JSON_MAX_BYTES = 512 * 1024;
+
+export function validateVideoBody(body) {
+  return validateAdminAiVideoBody(body, { allowResolvedGrokPreviewMediaUrls: true });
+}
 
 export async function readJsonBody(request) {
   try {

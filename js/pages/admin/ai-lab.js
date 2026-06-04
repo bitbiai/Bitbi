@@ -5,7 +5,7 @@ import {
     apiAdminAiCompare,
     apiAdminAiLiveAgent,
     apiAdminAiModels,
-    apiAdminAiVideoSourceCandidates,
+    apiAdminAiMediaSourceCandidates,
     apiAdminAiCreateVideoJob,
     apiAdminAiGetVideoJob,
     apiAdminAiRecoverVideoJob,
@@ -200,6 +200,7 @@ const DEFAULT_FORMS = {
         videoUrl: '',
         referenceImageUrls: '',
         outputUploadUrl: '',
+        sourceImage: null,
         sourceVideo: null,
         user: '',
     },
@@ -904,6 +905,7 @@ export function createAdminAiLab({ showToast } = {}) {
             error: '',
         },
         videoSources: {
+            media: 'video',
             scope: 'saved_assets',
             status: 'idle',
             candidates: [],
@@ -1385,17 +1387,32 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
-    function normalizeVideoSourceCandidate(candidate) {
+    function getPreviewMediaTypeForOperation(operation = state.forms.video.operation) {
+        return String(operation || 'generate') === 'generate' ? 'image' : 'video';
+    }
+
+    function normalizePreviewMediaSourceScope(scope, media = getPreviewMediaTypeForOperation()) {
+        const value = String(scope || '').trim();
+        if (value === 'saved_assets') return 'saved_assets';
+        if (value === 'public' || value === 'memvids' || value === 'mempics') return 'public';
+        return 'saved_assets';
+    }
+
+    function normalizeMediaSourceCandidate(candidate, expectedMedia = getPreviewMediaTypeForOperation()) {
         if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+        const mediaType = String(candidate.media_type || candidate.mediaType || expectedMedia || '').trim();
+        if (!['image', 'video'].includes(mediaType) || mediaType !== expectedMedia) return null;
         const sourceType = String(candidate.source_type || candidate.sourceType || '').trim();
         const assetId = String(candidate.asset_id || candidate.assetId || '').trim();
-        if (!['saved_asset', 'memvid'].includes(sourceType) || !/^[A-Za-z0-9_-]{1,160}$/.test(assetId)) {
+        const allowedSourceTypes = mediaType === 'image' ? ['saved_asset', 'mempic'] : ['saved_asset', 'memvid'];
+        if (!allowedSourceTypes.includes(sourceType) || !/^[A-Za-z0-9_-]{1,160}$/.test(assetId)) {
             return null;
         }
         return {
+            media_type: mediaType,
             source_type: sourceType,
             asset_id: assetId,
-            title: String(candidate.title || 'Video source').trim().slice(0, 180) || 'Video source',
+            title: String(candidate.title || (mediaType === 'image' ? 'Image source' : 'Video source')).trim().slice(0, 180) || (mediaType === 'image' ? 'Image source' : 'Video source'),
             mime_type: String(candidate.mime_type || candidate.mimeType || '').trim().slice(0, 120),
             size_bytes: Number.isFinite(Number(candidate.size_bytes ?? candidate.sizeBytes))
                 ? Number(candidate.size_bytes ?? candidate.sizeBytes)
@@ -1406,16 +1423,37 @@ export function createAdminAiLab({ showToast } = {}) {
             created_at: typeof candidate.created_at === 'string' ? candidate.created_at : '',
             published_at: typeof candidate.published_at === 'string' ? candidate.published_at : '',
             poster_url: normalizeInternalApiPath(candidate.poster_url || candidate.posterUrl),
+            thumb_url: normalizeInternalApiPath(candidate.thumb_url || candidate.thumbUrl),
             preview_url: normalizeInternalApiPath(candidate.preview_url || candidate.previewUrl),
         };
+    }
+
+    function normalizeVideoSourceCandidate(candidate) {
+        return normalizeMediaSourceCandidate(candidate, 'video');
+    }
+
+    function normalizeImageSourceCandidate(candidate) {
+        return normalizeMediaSourceCandidate(candidate, 'image');
+    }
+
+    function getSelectedSourceImage() {
+        return normalizeImageSourceCandidate(state.forms.video.sourceImage);
     }
 
     function getSelectedSourceVideo() {
         return normalizeVideoSourceCandidate(state.forms.video.sourceVideo);
     }
 
-    function getVideoSourceScopeLabel(sourceType) {
-        return sourceType === 'memvid' ? 'Memvid' : 'Saved asset';
+    function getSelectedPreviewMediaSource() {
+        return getPreviewMediaTypeForOperation() === 'image'
+            ? getSelectedSourceImage()
+            : getSelectedSourceVideo();
+    }
+
+    function getMediaSourceScopeLabel(sourceType) {
+        if (sourceType === 'mempic') return 'Mempic';
+        if (sourceType === 'memvid') return 'Memvid';
+        return 'Saved asset';
     }
 
     function formatVideoSourceDuration(value) {
@@ -1427,10 +1465,35 @@ export function createAdminAiLab({ showToast } = {}) {
         return `${minutes}:${String(remainder).padStart(2, '0')}`;
     }
 
-    function setSelectedSourceVideo(candidate) {
-        const normalized = normalizeVideoSourceCandidate(candidate);
-        state.forms.video.sourceVideo = normalized;
+    function setSelectedMediaSource(candidate) {
+        const media = getPreviewMediaTypeForOperation();
+        const normalized = normalizeMediaSourceCandidate(candidate, media);
+        if (media === 'image') {
+            state.forms.video.sourceImage = normalized;
+        } else {
+            state.forms.video.sourceVideo = normalized;
+        }
         persistState();
+        renderVideoSourcePicker();
+        syncVideoFieldState();
+        if (!state.results.video) renderVideoResult();
+    }
+
+    function setSelectedSourceVideo(candidate) {
+        state.forms.video.sourceVideo = normalizeVideoSourceCandidate(candidate);
+        persistState();
+        renderVideoSourcePicker();
+        syncVideoFieldState();
+        if (!state.results.video) renderVideoResult();
+    }
+
+    function clearSelectedMediaSource({ persist = true } = {}) {
+        if (getPreviewMediaTypeForOperation() === 'image') {
+            state.forms.video.sourceImage = null;
+        } else {
+            state.forms.video.sourceVideo = null;
+        }
+        if (persist) persistState();
         renderVideoSourcePicker();
         syncVideoFieldState();
         if (!state.results.video) renderVideoResult();
@@ -1444,7 +1507,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!state.results.video) renderVideoResult();
     }
 
-    function buildVideoSourceCard(candidate, selected) {
+    function buildMediaSourceCard(candidate, selected) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'admin-ai__video-source-card';
@@ -1459,15 +1522,18 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const thumb = document.createElement('span');
         thumb.className = 'admin-ai__video-source-thumb';
-        if (candidate.poster_url) {
+        const thumbUrl = candidate.media_type === 'image'
+            ? (candidate.thumb_url || candidate.preview_url)
+            : candidate.poster_url;
+        if (thumbUrl) {
             const img = document.createElement('img');
             img.alt = '';
             img.loading = 'lazy';
             img.decoding = 'async';
-            img.src = candidate.poster_url;
+            img.src = thumbUrl;
             thumb.append(img);
         } else {
-            thumb.textContent = getVideoSourceScopeLabel(candidate.source_type).slice(0, 1);
+            thumb.textContent = getMediaSourceScopeLabel(candidate.source_type).slice(0, 1);
         }
 
         const body = document.createElement('span');
@@ -1478,30 +1544,81 @@ export function createAdminAiLab({ showToast } = {}) {
         const meta = document.createElement('span');
         meta.className = 'admin-ai__video-source-meta';
         const metaParts = [
-            getVideoSourceScopeLabel(candidate.source_type),
+            getMediaSourceScopeLabel(candidate.source_type),
             candidate.mime_type || '',
             candidate.size_bytes ? formatBytes(candidate.size_bytes) : '',
-            candidate.duration_seconds ? formatVideoSourceDuration(candidate.duration_seconds) : '',
+            candidate.media_type === 'video' && candidate.duration_seconds ? formatVideoSourceDuration(candidate.duration_seconds) : '',
             formatAdminDate(candidate.published_at || candidate.created_at),
         ].filter(Boolean);
         meta.textContent = metaParts.join(' · ');
         body.append(title, meta);
 
         button.append(thumb, body);
-        button.addEventListener('click', () => setSelectedSourceVideo(candidate));
+        button.addEventListener('click', () => setSelectedMediaSource(candidate));
         return button;
+    }
+
+    function getMediaPickerCopy() {
+        const media = getPreviewMediaTypeForOperation();
+        const operation = String(state.forms.video.operation || 'generate');
+        if (media === 'image') {
+            return {
+                label: 'Internal source image',
+                saved: 'My image assets',
+                published: 'Mempics',
+                loading: 'Loading internal image sources...',
+                unavailable: 'Internal image sources are unavailable.',
+                selected: 'Selected image will be resolved server-side into a temporary provider URL.',
+                emptySaved: 'No saved image assets are available.',
+                emptyPublic: 'No published Mempics are available.',
+                choose: 'Generate uses an internal BITBI image. Text-only generation is not supported by the provider.',
+            };
+        }
+        return {
+            label: operation === 'edit' ? 'Internal source video' : 'Internal source video',
+            saved: 'My video assets',
+            published: 'Memvids',
+            loading: 'Loading internal video sources...',
+            unavailable: 'Internal video sources are unavailable.',
+            selected: 'Selected video will be resolved server-side into a temporary provider URL.',
+            emptySaved: 'No saved video assets are available.',
+            emptyPublic: 'No published Memvids are available.',
+            choose: operation === 'edit'
+                ? 'Edit uses an internal BITBI video. External URLs are not accepted.'
+                : 'Extend uses an internal BITBI video. External URLs are not accepted.',
+        };
+    }
+
+    function ensureMediaSourcePickerState() {
+        const media = getPreviewMediaTypeForOperation();
+        if (state.videoSources.media !== media) {
+            state.videoSources.media = media;
+            state.videoSources.scope = 'saved_assets';
+            state.videoSources.candidates = [];
+            state.videoSources.nextCursor = null;
+            state.videoSources.hasMore = false;
+            state.videoSources.error = '';
+            state.videoSources.status = 'idle';
+        }
+        state.videoSources.scope = normalizePreviewMediaSourceScope(state.videoSources.scope, media);
     }
 
     function renderVideoSourcePicker() {
         if (!refs.video.sourcePickerField || !refs.video.sourceList) return;
-        const selected = getSelectedSourceVideo();
+        ensureMediaSourcePickerState();
+        const copy = getMediaPickerCopy();
+        const selected = getSelectedPreviewMediaSource();
         const isBusy = state.results.video?.status === 'loading';
         const isLoading = state.videoSources.status === 'loading';
         const activeScope = state.videoSources.scope || 'saved_assets';
+        const label = refs.video.sourcePickerField.querySelector('.admin-ai__label');
+        if (label) label.textContent = copy.label;
+        if (refs.video.sourceScopeSaved) refs.video.sourceScopeSaved.textContent = copy.saved;
+        if (refs.video.sourceScopeMemvids) refs.video.sourceScopeMemvids.textContent = copy.published;
 
         [
             [refs.video.sourceScopeSaved, 'saved_assets'],
-            [refs.video.sourceScopeMemvids, 'memvids'],
+            [refs.video.sourceScopeMemvids, 'public'],
         ].forEach(([button, scope]) => {
             if (!button) return;
             const isActive = activeScope === scope;
@@ -1519,56 +1636,58 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.sourceSelected && refs.video.sourceSelectedText) {
             refs.video.sourceSelected.hidden = !selected;
             refs.video.sourceSelectedText.textContent = selected
-                ? `${getVideoSourceScopeLabel(selected.source_type)} selected: ${selected.title}`
+                ? `${getMediaSourceScopeLabel(selected.source_type)} selected: ${selected.title}`
                 : '';
         }
 
         if (refs.video.sourceStatus) {
             if (state.videoSources.status === 'loading') {
-                refs.video.sourceStatus.textContent = 'Loading internal video sources...';
+                refs.video.sourceStatus.textContent = copy.loading;
             } else if (state.videoSources.status === 'error') {
-                refs.video.sourceStatus.textContent = state.videoSources.error || 'Internal video sources are unavailable.';
+                refs.video.sourceStatus.textContent = state.videoSources.error || copy.unavailable;
             } else if (selected) {
-                refs.video.sourceStatus.textContent = 'Selected source will be resolved server-side into a temporary provider URL.';
+                refs.video.sourceStatus.textContent = copy.selected;
             } else {
-                refs.video.sourceStatus.textContent = 'Choose an internal source video before running extend.';
+                refs.video.sourceStatus.textContent = copy.choose;
             }
         }
 
         refs.video.sourceList.replaceChildren();
         const candidates = state.videoSources.candidates
-            .map(normalizeVideoSourceCandidate)
+            .map((candidate) => normalizeMediaSourceCandidate(candidate, state.videoSources.media))
             .filter(Boolean);
         if (!candidates.length) {
             const empty = document.createElement('p');
             empty.className = 'admin-ai__video-source-empty';
             empty.textContent = state.videoSources.status === 'loading'
                 ? 'Loading sources...'
-                : activeScope === 'memvids'
-                    ? 'No published Memvids are available.'
-                    : 'No saved video assets are available.';
+                : activeScope === 'public'
+                    ? copy.emptyPublic
+                    : copy.emptySaved;
             refs.video.sourceList.append(empty);
             return;
         }
         candidates.forEach((candidate) => {
-            refs.video.sourceList.append(buildVideoSourceCard(candidate, selected));
+            refs.video.sourceList.append(buildMediaSourceCard(candidate, selected));
         });
     }
 
     async function loadVideoSourceCandidates({ append = false } = {}) {
         if (!refs.video.sourcePickerField || state.videoSources.status === 'loading') return;
+        ensureMediaSourcePickerState();
         const cursor = append ? state.videoSources.nextCursor : null;
         state.videoSources.status = 'loading';
         state.videoSources.error = '';
         renderVideoSourcePicker();
-        const res = await apiAdminAiVideoSourceCandidates({
+        const res = await apiAdminAiMediaSourceCandidates({
+            media: state.videoSources.media,
             scope: state.videoSources.scope,
             limit: 24,
             cursor,
         });
         if (!res.ok) {
             state.videoSources.status = 'error';
-            state.videoSources.error = res.error || 'Internal video sources are unavailable.';
+            state.videoSources.error = res.error || getMediaPickerCopy().unavailable;
             state.videoSources.candidates = append ? state.videoSources.candidates : [];
             state.videoSources.nextCursor = null;
             state.videoSources.hasMore = false;
@@ -1577,12 +1696,12 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         const data = res.data?.data || res.data || {};
         const incoming = Array.isArray(data.candidates)
-            ? data.candidates.map(normalizeVideoSourceCandidate).filter(Boolean)
+            ? data.candidates.map((candidate) => normalizeMediaSourceCandidate(candidate, state.videoSources.media)).filter(Boolean)
             : [];
         const existing = append ? state.videoSources.candidates.slice() : [];
-        const seen = new Set(existing.map((candidate) => `${candidate.source_type}:${candidate.asset_id}`));
+        const seen = new Set(existing.map((candidate) => `${candidate.media_type}:${candidate.source_type}:${candidate.asset_id}`));
         incoming.forEach((candidate) => {
-            const key = `${candidate.source_type}:${candidate.asset_id}`;
+            const key = `${candidate.media_type}:${candidate.source_type}:${candidate.asset_id}`;
             if (!seen.has(key)) {
                 seen.add(key);
                 existing.push(candidate);
@@ -1596,7 +1715,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function setVideoSourceScope(scope) {
-        const normalized = scope === 'memvids' ? 'memvids' : 'saved_assets';
+        const normalized = normalizePreviewMediaSourceScope(scope);
         if (state.videoSources.scope === normalized && state.videoSources.status !== 'error') return;
         state.videoSources.scope = normalized;
         state.videoSources.candidates = [];
@@ -1611,6 +1730,8 @@ export function createAdminAiLab({ showToast } = {}) {
     function getSelectedVideoCreditCost() {
         const spec = getSelectedVideoModelSpec();
         const operation = state.forms.video.operation || 'generate';
+        const sourceImage = getSelectedSourceImage();
+        const sourceVideo = getSelectedSourceVideo();
         const pricing = getVideoPricingForPayload({
             model: spec.id,
             _operation: operation,
@@ -1620,19 +1741,18 @@ export function createAdminAiLab({ showToast } = {}) {
             duration: Number(state.forms.video.duration),
             size: state.forms.video.size,
             watermark: state.forms.video.generateAudio === true,
-            image: (operation === 'generate' || operation === 'edit') && state.forms.video.imageUrl
-                ? { url: state.forms.video.imageUrl }
-                : null,
-            video: operation === 'edit' && state.forms.video.videoUrl ? { url: state.forms.video.videoUrl } : null,
-            source_video: operation === 'extend' && state.forms.video.sourceVideo
+            source_image: operation === 'generate' && sourceImage
                 ? {
-                    source_type: state.forms.video.sourceVideo.source_type || state.forms.video.sourceVideo.sourceType,
-                    asset_id: state.forms.video.sourceVideo.asset_id || state.forms.video.sourceVideo.assetId,
+                    source_type: sourceImage.source_type,
+                    asset_id: sourceImage.asset_id,
                 }
                 : null,
-            reference_images: (operation === 'generate' || operation === 'edit')
-                ? parsePreviewReferenceImageUrls(state.forms.video.referenceImageUrls).map((url) => ({ url }))
-                : [],
+            source_video: (operation === 'edit' || operation === 'extend') && sourceVideo
+                ? {
+                    source_type: sourceVideo.source_type,
+                    asset_id: sourceVideo.asset_id,
+                }
+                : null,
             output: state.forms.video.outputUploadUrl ? { upload_url: state.forms.video.outputUploadUrl } : null,
         });
         return pricing?.credits || null;
@@ -1697,6 +1817,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 state.forms.video.size = '';
                 state.forms.video.imageUrl = '';
                 state.forms.video.videoUrl = '';
+                state.forms.video.sourceImage = null;
                 state.forms.video.sourceVideo = null;
                 state.forms.video.referenceImageUrls = '';
                 state.forms.video.outputUploadUrl = '';
@@ -1708,12 +1829,22 @@ export function createAdminAiLab({ showToast } = {}) {
             if (state.forms.video.size && (!Array.isArray(spec.allowedSizes) || !spec.allowedSizes.includes(state.forms.video.size))) {
                 state.forms.video.size = '';
             }
+            state.forms.video.imageUrl = '';
+            state.forms.video.videoUrl = '';
+            state.forms.video.referenceImageUrls = '';
+            state.forms.video.sourceImage = normalizeImageSourceCandidate(state.forms.video.sourceImage);
             state.forms.video.sourceVideo = normalizeVideoSourceCandidate(state.forms.video.sourceVideo);
+            if (state.forms.video.operation === 'generate') {
+                state.forms.video.sourceVideo = null;
+            } else {
+                state.forms.video.sourceImage = null;
+            }
         } else {
             state.forms.video.operation = 'generate';
             state.forms.video.size = '';
             state.forms.video.imageUrl = '';
             state.forms.video.videoUrl = '';
+            state.forms.video.sourceImage = null;
             state.forms.video.sourceVideo = null;
             state.forms.video.referenceImageUrls = '';
             state.forms.video.outputUploadUrl = '';
@@ -2155,10 +2286,19 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.size.value = state.forms.video.size || '';
             refs.video.size.disabled = isBusy || !isGrokImagine15Preview;
         }
-        const showPreviewImageUrl = isGrokImagine15Preview && (previewOperation === 'generate' || previewOperation === 'edit');
-        const showPreviewVideoUrl = isGrokImagine15Preview && previewOperation === 'edit';
-        const showPreviewSourcePicker = isGrokImagine15Preview && previewOperation === 'extend';
-        const showPreviewReferenceUrls = isGrokImagine15Preview && (previewOperation === 'generate' || previewOperation === 'edit');
+        if (isGrokImagine15Preview) {
+            state.forms.video.imageUrl = '';
+            state.forms.video.videoUrl = '';
+            state.forms.video.referenceImageUrls = '';
+            if (refs.video.imageUrl) refs.video.imageUrl.value = '';
+            if (refs.video.videoUrl) refs.video.videoUrl.value = '';
+            if (refs.video.referenceImageUrls) refs.video.referenceImageUrls.value = '';
+            ensureMediaSourcePickerState();
+        }
+        const showPreviewImageUrl = false;
+        const showPreviewVideoUrl = false;
+        const showPreviewSourcePicker = isGrokImagine15Preview;
+        const showPreviewReferenceUrls = false;
         if (refs.video.imageUrlField) refs.video.imageUrlField.hidden = !showPreviewImageUrl;
         if (refs.video.imageUrl) refs.video.imageUrl.disabled = isBusy || !showPreviewImageUrl;
         if (refs.video.videoUrlField) refs.video.videoUrlField.hidden = !showPreviewVideoUrl;
@@ -4315,39 +4455,27 @@ export function createAdminAiLab({ showToast } = {}) {
             if (state.forms.video.size && (!Array.isArray(spec.allowedSizes) || !spec.allowedSizes.includes(state.forms.video.size))) {
                 return 'Size is not supported by the selected video model.';
             }
-            const imageUrl = String(state.forms.video.imageUrl || '').trim();
-            const videoUrl = String(state.forms.video.videoUrl || '').trim();
+            state.forms.video.imageUrl = '';
+            state.forms.video.videoUrl = '';
+            state.forms.video.referenceImageUrls = '';
+            const sourceImage = getSelectedSourceImage();
             const sourceVideo = getSelectedSourceVideo();
             const outputUploadUrl = String(state.forms.video.outputUploadUrl || '').trim();
-            const referenceUrls = parsePreviewReferenceImageUrls(state.forms.video.referenceImageUrls);
-            if (operation === 'edit' && !videoUrl) {
-                return 'Source video URL is required for edit operations.';
+            if (operation === 'generate' && !sourceImage) {
+                return 'Grok Imagine Video 1.5 Preview requires an internal image source for generate. Text-only video generation is not supported by the provider.';
+            }
+            if (operation === 'edit') {
+                if (!sourceVideo) {
+                    return 'Choose an internal source video before running edit.';
+                }
             }
             if (operation === 'extend') {
-                if (videoUrl) {
-                    return 'External source video URLs are not accepted for extend. Choose an internal source video.';
-                }
                 if (!sourceVideo) {
                     return 'Choose an internal source video before running extend.';
                 }
             }
-            if (operation === 'generate' && videoUrl) {
-                return 'Source video URL is only supported for edit operations.';
-            }
-            if ((operation === 'generate' || operation === 'edit') && imageUrl && !normalizePreviewHttpsUrl(imageUrl)) {
-                return 'Image URL must be a valid HTTPS URL without credentials.';
-            }
-            if (videoUrl && !normalizePreviewHttpsUrl(videoUrl)) {
-                return 'Source video URL must be a valid HTTPS URL without credentials.';
-            }
             if (outputUploadUrl && !normalizePreviewHttpsUrl(outputUploadUrl)) {
                 return 'Output upload URL must be a valid HTTPS URL without credentials.';
-            }
-            if ((operation === 'generate' || operation === 'edit') && referenceUrls.length > (spec.maxReferenceImages || 10)) {
-                return `Reference image URLs must contain at most ${spec.maxReferenceImages || 10} items.`;
-            }
-            if ((operation === 'generate' || operation === 'edit') && referenceUrls.some((url) => !normalizePreviewHttpsUrl(url))) {
-                return 'Reference image URLs must be valid HTTPS URLs without credentials.';
             }
             return '';
         }
@@ -4363,6 +4491,48 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         const suffix = Math.random().toString(36).slice(2, 12);
         return `admin-video:${Date.now()}:${suffix}`;
+    }
+
+    function buildGrokPreview15VideoPayload(videoSpec, prompt) {
+        const operation = state.forms.video.operation || 'generate';
+        const payload = {
+            preset: videoSpec.defaultPreset || state.forms.video.preset || undefined,
+            model: videoSpec.id,
+            prompt,
+            _operation: operation,
+            duration: Number(state.forms.video.duration),
+            aspect_ratio: state.forms.video.aspectRatio,
+            resolution: state.forms.video.resolution,
+        };
+        if (state.forms.video.size) {
+            payload.size = state.forms.video.size;
+        }
+        if (operation === 'generate') {
+            const sourceImage = getSelectedSourceImage();
+            if (sourceImage) {
+                payload.source_image = {
+                    source_type: sourceImage.source_type,
+                    asset_id: sourceImage.asset_id,
+                };
+            }
+        } else if (operation === 'edit' || operation === 'extend') {
+            const sourceVideo = getSelectedSourceVideo();
+            if (sourceVideo) {
+                payload.source_video = {
+                    source_type: sourceVideo.source_type,
+                    asset_id: sourceVideo.asset_id,
+                };
+            }
+        }
+        const outputUploadUrl = normalizePreviewHttpsUrl(state.forms.video.outputUploadUrl);
+        if (outputUploadUrl) {
+            payload.output = { upload_url: outputUploadUrl };
+        }
+        const userTag = String(state.forms.video.user || '').trim();
+        if (userTag) {
+            payload.user = userTag;
+        }
+        return payload;
     }
 
     function isTerminalVideoJobStatus(status) {
@@ -4418,7 +4588,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 seed: payload.seed ?? null,
                 generate_audio: payload.generate_audio ?? payload.audio ?? null,
                 watermark: payload.watermark ?? null,
-                hasImageInput: !!(payload.image || payload.image_input || payload.start_image || payload.hasImageInput),
+                hasImageInput: !!(payload.image || payload.image_input || payload.start_image || payload.source_image || payload.hasImageInput),
                 hasVideoInput: !!(payload.video || payload.source_video),
                 hasEndImageInput: !!(payload.end_image || payload.hasEndImageInput),
                 referenceImageCount: Array.isArray(payload.reference_images) ? payload.reference_images.length : 0,
@@ -4429,7 +4599,7 @@ export function createAdminAiLab({ showToast } = {}) {
                         ? 'video_edit'
                         : payload._operation === 'extend'
                             ? 'video_extend'
-                            : payload.start_image || payload.image_input || payload.image
+                            : payload.start_image || payload.image_input || payload.image || payload.source_image
                         ? 'image_to_video'
                         : payload.workflow || 'text_to_video',
                 pricing,
@@ -5492,7 +5662,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const videoSpec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
-        const payload = {
+        let payload = {
             preset: videoSpec.defaultPreset || state.forms.video.preset || undefined,
             model: videoSpec.id,
             duration: Number(state.forms.video.duration),
@@ -5534,46 +5704,7 @@ export function createAdminAiLab({ showToast } = {}) {
             payload.aspect_ratio = state.forms.video.aspectRatio;
             payload.resolution = state.forms.video.resolution;
         } else if (videoSpec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
-            const operation = state.forms.video.operation || 'generate';
-            const imageUrl = normalizePreviewHttpsUrl(state.forms.video.imageUrl);
-            const videoUrl = normalizePreviewHttpsUrl(state.forms.video.videoUrl);
-            const outputUploadUrl = normalizePreviewHttpsUrl(state.forms.video.outputUploadUrl);
-            const referenceImages = parsePreviewReferenceImageUrls(state.forms.video.referenceImageUrls)
-                .map((url) => normalizePreviewHttpsUrl(url))
-                .filter(Boolean)
-                .map((url) => ({ url }));
-            payload.prompt = prompt;
-            payload._operation = operation;
-            payload.aspect_ratio = state.forms.video.aspectRatio;
-            payload.resolution = state.forms.video.resolution;
-            if (state.forms.video.size) {
-                payload.size = state.forms.video.size;
-            }
-            if (imageUrl && (operation === 'generate' || operation === 'edit')) {
-                payload.image = { url: imageUrl };
-            }
-            if (videoUrl && operation === 'edit') {
-                payload.video = { url: videoUrl };
-            }
-            if (operation === 'extend') {
-                const sourceVideo = getSelectedSourceVideo();
-                if (sourceVideo) {
-                    payload.source_video = {
-                        source_type: sourceVideo.source_type,
-                        asset_id: sourceVideo.asset_id,
-                    };
-                }
-            }
-            if (referenceImages.length > 0 && (operation === 'generate' || operation === 'edit')) {
-                payload.reference_images = referenceImages;
-            }
-            if (outputUploadUrl) {
-                payload.output = { upload_url: outputUploadUrl };
-            }
-            const userTag = String(state.forms.video.user || '').trim();
-            if (userTag) {
-                payload.user = userTag;
-            }
+            payload = buildGrokPreview15VideoPayload(videoSpec, prompt);
         } else {
             payload.prompt = prompt;
             payload.aspect_ratio = state.forms.video.aspectRatio;
@@ -6372,24 +6503,20 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.operation?.addEventListener('change', refreshVideoEstimateUi);
             refs.video.operation?.addEventListener('change', () => {
                 const operation = state.forms.video.operation || 'generate';
+                state.forms.video.imageUrl = '';
+                state.forms.video.videoUrl = '';
+                state.forms.video.referenceImageUrls = '';
+                if (refs.video.imageUrl) refs.video.imageUrl.value = '';
+                if (refs.video.videoUrl) refs.video.videoUrl.value = '';
+                if (refs.video.referenceImageUrls) refs.video.referenceImageUrls.value = '';
                 if (operation === 'generate') {
-                    state.forms.video.videoUrl = '';
                     state.forms.video.sourceVideo = null;
-                    if (refs.video.videoUrl) refs.video.videoUrl.value = '';
+                } else {
+                    state.forms.video.sourceImage = null;
                 }
-                if (operation === 'extend') {
-                    state.forms.video.imageUrl = '';
-                    state.forms.video.videoUrl = '';
-                    state.forms.video.referenceImageUrls = '';
-                    if (refs.video.imageUrl) refs.video.imageUrl.value = '';
-                    if (refs.video.videoUrl) refs.video.videoUrl.value = '';
-                    if (refs.video.referenceImageUrls) refs.video.referenceImageUrls.value = '';
-                    if (state.videoSources.status === 'idle' || !state.videoSources.candidates.length) {
-                        loadVideoSourceCandidates();
-                    }
-                }
-                if (operation === 'edit') {
-                    state.forms.video.sourceVideo = null;
+                ensureMediaSourcePickerState();
+                if (state.videoSources.status === 'idle' || !state.videoSources.candidates.length) {
+                    loadVideoSourceCandidates();
                 }
                 persistState();
                 syncVideoFieldState();
@@ -6398,9 +6525,9 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.size?.addEventListener('change', refreshVideoEstimateUi);
             refs.video.sourceRefresh?.addEventListener('click', () => loadVideoSourceCandidates());
             refs.video.sourceLoadMore?.addEventListener('click', () => loadVideoSourceCandidates({ append: true }));
-            refs.video.sourceClear?.addEventListener('click', () => clearSelectedSourceVideo());
+            refs.video.sourceClear?.addEventListener('click', () => clearSelectedMediaSource());
             refs.video.sourceScopeSaved?.addEventListener('click', () => setVideoSourceScope('saved_assets'));
-            refs.video.sourceScopeMemvids?.addEventListener('click', () => setVideoSourceScope('memvids'));
+            refs.video.sourceScopeMemvids?.addEventListener('click', () => setVideoSourceScope('public'));
             refs.video.imageFile?.addEventListener('change', handleVideoImageFile);
             refs.video.imageClear?.addEventListener('click', clearVideoImage);
             refs.video.startImageFile?.addEventListener('change', handleVideoStartImageFile);

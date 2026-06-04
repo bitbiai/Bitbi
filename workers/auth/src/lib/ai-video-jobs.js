@@ -49,7 +49,7 @@ import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
 import { fetchWithGenerationTimeout } from "./generation-timeout.js";
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
-import { resolveAdminAiGrokPreviewExtendSourceForProvider } from "./admin-ai-video-sources.js";
+import { resolveAdminAiGrokPreviewMediaSourcesForProvider } from "./admin-ai-video-sources.js";
 
 export const AI_VIDEO_JOBS_QUEUE_NAME = "bitbi-ai-video-jobs";
 export const AI_VIDEO_JOB_QUEUE_SCHEMA_VERSION = 1;
@@ -260,7 +260,7 @@ function calculateAdminVideoBudgetPricing(modelId, payload = {}) {
     generate_audio: payload.generate_audio,
     audio: payload.audio,
     watermark: payload.watermark,
-    hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image),
+    hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image || payload.source_image),
     hasVideoInput: !!(payload.video || payload.video_url || payload.source_video),
     referenceImageCount: Array.isArray(payload.reference_images)
       ? payload.reference_images.length
@@ -338,10 +338,12 @@ function buildGrokImaginePricingMetadata(modelId, payload = {}, createdAt = nowI
   if (!isAdminAiVideoGrokImagineModelId(modelId)) return null;
   const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
   const operation = typeof payload._operation === "string" ? payload._operation : "generate";
-  const hasImageInput = !!(payload.image || payload.image_url || payload.image_input || payload.start_image);
+  const hasImageInput = !!(payload.image || payload.image_url || payload.image_input || payload.start_image || payload.source_image);
   const hasVideoInput = !!(payload.video || payload.video_url || payload.source_video);
-  const sourceType = typeof payload.source_video?.source_type === "string" ? payload.source_video.source_type : null;
-  const sourceAssetId = typeof payload.source_video?.asset_id === "string" ? payload.source_video.asset_id : null;
+  const sourceMediaType = payload.source_image ? "image" : payload.source_video ? "video" : null;
+  const sourceRef = payload.source_image || payload.source_video || null;
+  const sourceType = typeof sourceRef?.source_type === "string" ? sourceRef.source_type : null;
+  const sourceAssetId = typeof sourceRef?.asset_id === "string" ? sourceRef.asset_id : null;
   const referenceImageCount = Array.isArray(payload.reference_images)
     ? payload.reference_images.length
     : Array.isArray(payload.referenceImages)
@@ -373,6 +375,7 @@ function buildGrokImaginePricingMetadata(modelId, payload = {}, createdAt = nowI
     workflow,
     has_image_input: hasImageInput,
     has_video_input: hasVideoInput,
+    source_media_type: sourceMediaType,
     source_type: sourceType,
     source_asset_id: sourceAssetId,
     reference_image_count: referenceImageCount,
@@ -564,6 +567,7 @@ function safeBudgetPolicyForResponse(value) {
       workflow: policy.grok_imagine_pricing.workflow || null,
       has_image_input: policy.grok_imagine_pricing.has_image_input === true,
       has_video_input: policy.grok_imagine_pricing.has_video_input === true,
+      source_media_type: policy.grok_imagine_pricing.source_media_type || null,
       source_type: policy.grok_imagine_pricing.source_type || null,
       source_asset_id: policy.grok_imagine_pricing.source_asset_id || null,
       reference_image_count: Number(policy.grok_imagine_pricing.reference_image_count || 0),
@@ -609,7 +613,7 @@ function buildJobStoredInput(payload, modelId) {
     duration: payload.duration,
     size: payload.size,
     watermark: payload.watermark,
-    hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image),
+    hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image || payload.source_image),
     hasVideoInput: !!(payload.video || payload.video_url || payload.source_video),
     referenceImageCount: Array.isArray(payload.reference_images) ? payload.reference_images.length : 0,
     outputUploadUrlPresent: !!(payload.output?.upload_url || payload.output_upload_url),
@@ -2041,7 +2045,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   }
   let providerInput;
   try {
-    providerInput = await resolveAdminAiGrokPreviewExtendSourceForProvider(
+    providerInput = await resolveAdminAiGrokPreviewMediaSourcesForProvider(
       env,
       { id: job.user_id, email: job.user_email || "" },
       parsedInput,
@@ -2147,6 +2151,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
           grok_imagine_workflow: budgetPolicy.grok_imagine_pricing.workflow || null,
           grok_imagine_has_image_input: budgetPolicy.grok_imagine_pricing.has_image_input === true,
           grok_imagine_has_video_input: budgetPolicy.grok_imagine_pricing.has_video_input === true,
+          grok_imagine_source_media_type: budgetPolicy.grok_imagine_pricing.source_media_type || null,
           grok_imagine_source_type: budgetPolicy.grok_imagine_pricing.source_type || null,
           grok_imagine_source_asset_id: budgetPolicy.grok_imagine_pricing.source_asset_id || null,
           grok_imagine_reference_image_count: budgetPolicy.grok_imagine_pricing.reference_image_count || 0,

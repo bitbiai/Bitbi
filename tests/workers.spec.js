@@ -5065,8 +5065,21 @@ test.describe('Phase 1-E auth route policy registry', () => {
       csrf: 'safe-method',
       config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/media-source-candidates')).toEqual(expect.objectContaining({
+      id: 'admin.ai.media-source-candidates',
+      auth: 'admin',
+      csrf: 'safe-method',
+      config: expect.arrayContaining(['DB', 'PUBLIC_RATE_LIMITER']),
+    }));
     expect(getRoutePolicy('GET', '/api/internal/ai/video-source/signed-token')).toEqual(expect.objectContaining({
       id: 'internal.admin-ai.video-source',
+      auth: 'anonymous',
+      csrf: 'not-browser-facing',
+      providerSignature: 'hmac-token-path',
+      config: expect.arrayContaining(['DB', 'USER_IMAGES', 'AI_SAVE_REFERENCE_SIGNING_SECRET']),
+    }));
+    expect(getRoutePolicy('GET', '/api/internal/ai/media-source/signed-token')).toEqual(expect.objectContaining({
+      id: 'internal.admin-ai.media-source',
       auth: 'anonymous',
       csrf: 'not-browser-facing',
       providerSignature: 'hmac-token-path',
@@ -23668,11 +23681,7 @@ test.describe('Worker routes', () => {
         duration: 5,
         aspect_ratio: '16:9',
         resolution: '480p',
-        image_url: 'https://cdn.example.com/input.png#frag',
-        referenceImages: [
-          'https://cdn.example.com/ref-1.png',
-          { url: 'https://cdn.example.com/ref-2.webp' },
-        ],
+        source_image: { source_type: 'mempic', asset_id: 'mempic_123' },
       });
       expect(generate).toMatchObject({
         model: 'xai/grok-imagine-video-1.5-preview',
@@ -23681,11 +23690,7 @@ test.describe('Worker routes', () => {
         duration: 5,
         aspect_ratio: '16:9',
         resolution: '480p',
-        image: { url: 'https://cdn.example.com/input.png' },
-        reference_images: [
-          { url: 'https://cdn.example.com/ref-1.png' },
-          { url: 'https://cdn.example.com/ref-2.webp' },
-        ],
+        source_image: { source_type: 'mempic', asset_id: 'mempic_123' },
       });
 
       const edit = validateAdminAiVideoBody({
@@ -23696,16 +23701,30 @@ test.describe('Worker routes', () => {
         aspect_ratio: '9:16',
         resolution: '720p',
         size: '1920x1080',
-        video: { url: 'https://cdn.example.com/source.mp4' },
+        source_video: { source_type: 'memvid', asset_id: 'memvid_123' },
         output_upload_url: 'https://uploads.example.com/output.mp4',
         user: 'admin-test',
       });
       expect(edit).toMatchObject({
         _operation: 'edit',
-        video: { url: 'https://cdn.example.com/source.mp4' },
+        source_video: { source_type: 'memvid', asset_id: 'memvid_123' },
         output: { upload_url: 'https://uploads.example.com/output.mp4' },
         user: 'admin-test',
         size: '1920x1080',
+      });
+
+      const providerResolvedGenerate = validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Provider generate.',
+        _operation: 'generate',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '480p',
+        image: { url: 'https://bitbi.ai/api/internal/ai/media-source/signed' },
+      }, { allowResolvedGrokPreviewMediaUrls: true });
+      expect(providerResolvedGenerate).toMatchObject({
+        _operation: 'generate',
+        image: { url: 'https://bitbi.ai/api/internal/ai/media-source/signed' },
       });
 
       const extend = validateAdminAiVideoBody({
@@ -23735,14 +23754,14 @@ test.describe('Worker routes', () => {
       })).toThrow('_operation must be one of generate, edit, extend');
       expect(() => validateAdminAiVideoBody({
         model: 'xai/grok-imagine-video-1.5-preview',
-        prompt: 'Too many references.',
-        reference_images: Array.from({ length: 11 }, (_, index) => ({ url: `https://cdn.example.com/${index}.png` })),
-      })).toThrow('reference_images must contain at most 10 items');
+        prompt: 'Generate without internal image.',
+        _operation: 'generate',
+      })).toThrow('requires an internal image source');
       expect(() => validateAdminAiVideoBody({
         model: 'xai/grok-imagine-video-1.5-preview',
         prompt: 'Edit without video.',
         _operation: 'edit',
-      })).toThrow('video.url is required for edit operations');
+      })).toThrow('source_video is required for edit operations');
       expect(() => validateAdminAiVideoBody({
         model: 'xai/grok-imagine-video-1.5-preview',
         prompt: 'Extend without internal source.',
@@ -23759,12 +23778,25 @@ test.describe('Worker routes', () => {
         prompt: 'Generate with source video.',
         _operation: 'generate',
         source_video: { source_type: 'memvid', asset_id: 'memvid_123' },
-      })).toThrow('source_video is only supported for extend operations');
+      })).toThrow('source_video is only supported for edit and extend operations');
       expect(() => validateAdminAiVideoBody({
         model: 'xai/grok-imagine-video-1.5-preview',
-        prompt: 'Remote URL must be https.',
-        image_url: 'http://cdn.example.com/input.png',
-      })).toThrow('image must use https');
+        prompt: 'Generate with external image.',
+        _operation: 'generate',
+        image_url: 'https://cdn.example.com/input.png',
+      })).toThrow('image.url is not accepted for generate operations');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Edit with external video.',
+        _operation: 'edit',
+        video_url: 'https://cdn.example.com/source.mp4',
+      })).toThrow('video.url is not accepted for edit operations');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Reference URLs are external.',
+        _operation: 'generate',
+        reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+      })).toThrow('reference_images are not accepted');
       expect(() => validateAdminAiVideoBody({
         model: 'xai/grok-imagine-video-1.5-preview',
         prompt: 'Unsupported field.',
@@ -24070,7 +24102,28 @@ test.describe('Worker routes', () => {
       const admin = createAdminUser('async-video-grok15-budget-admin');
       const service = createAiVideoJobServiceBinding();
       const assetFetch = createVideoAssetFetchStub();
-      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
+      const sourceKey = `users/${admin.id}/video/edit-source.mp4`;
+      const env = createAuthTestEnv({
+        users: [admin],
+        fetch: assetFetch,
+        aiTextAssets: [{
+          id: 'asset-edit-own',
+          user_id: admin.id,
+          title: 'Edit source',
+          file_name: 'edit-source.mp4',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: 1234,
+          r2_key: sourceKey,
+          created_at: '2026-06-04T10:00:00.000Z',
+        }],
+        userImages: {
+          [sourceKey]: {
+            body: new Uint8Array([1, 2, 3, 4]),
+            httpMetadata: { contentType: 'video/mp4' },
+          },
+        },
+      });
       env.AI_LAB = service.binding;
       const token = await seedSession(env, admin.id);
       const expectedPricing = calculateGrokImagineVideo15PreviewCreditPricing({
@@ -24080,7 +24133,7 @@ test.describe('Worker routes', () => {
         aspect_ratio: '16:9',
         size: '1280x720',
         hasVideoInput: true,
-        referenceImageCount: 1,
+        referenceImageCount: 0,
         outputUploadUrlPresent: true,
       });
 
@@ -24093,8 +24146,7 @@ test.describe('Worker routes', () => {
           aspect_ratio: '16:9',
           resolution: '720p',
           size: '1280x720',
-          video: { url: 'https://cdn.example.com/source.mp4' },
-          reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+          source_video: { source_type: 'saved_asset', asset_id: 'asset-edit-own' },
           output: { upload_url: 'https://uploads.example.com/output.mp4' },
         }, {
           Origin: 'https://bitbi.ai',
@@ -24138,7 +24190,10 @@ test.describe('Worker routes', () => {
               input_mode: 'video_input',
               workflow: 'video_edit',
               has_video_input: true,
-              reference_image_count: 1,
+              source_media_type: 'video',
+              source_type: 'saved_asset',
+              source_asset_id: 'asset-edit-own',
+              reference_image_count: 0,
               output_upload_url_present: true,
             }),
           }),
@@ -24155,8 +24210,7 @@ test.describe('Worker routes', () => {
         aspect_ratio: '16:9',
         resolution: '720p',
         size: '1280x720',
-        video: { url: 'https://cdn.example.com/source.mp4' },
-        reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+        source_video: { source_type: 'saved_asset', asset_id: 'asset-edit-own' },
         output: { upload_url: 'https://uploads.example.com/output.mp4' },
         __admin_generation_metadata: {
           releaseStatus: 'admin_only',
@@ -24188,10 +24242,10 @@ test.describe('Worker routes', () => {
         aspect_ratio: '16:9',
         resolution: '720p',
         size: '1280x720',
-        video: { url: 'https://cdn.example.com/source.mp4' },
-        reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+        video: { url: expect.stringContaining('/api/internal/ai/media-source/') },
         output: { upload_url: 'https://uploads.example.com/output.mp4' },
       });
+      expect(internalProviderBody.source_video).toBeUndefined();
       expect(callerPolicy).toMatchObject({
         operation_id: 'admin.video.task.create',
         provider_family: 'xai',
@@ -24206,7 +24260,10 @@ test.describe('Worker routes', () => {
         size: '1280x720',
         grok_imagine_workflow: 'video_edit',
         grok_imagine_has_video_input: true,
-        grok_imagine_reference_image_count: 1,
+        grok_imagine_source_media_type: 'video',
+        grok_imagine_source_type: 'saved_asset',
+        grok_imagine_source_asset_id: 'asset-edit-own',
+        grok_imagine_reference_image_count: 0,
         grok_imagine_output_upload_url_present: true,
       });
       expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
@@ -24328,6 +24385,115 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(memvidBody)).not.toContain('/api/internal/ai/video-source/');
     });
 
+    test('GET /api/admin/ai/media-source-candidates lists own image assets and published Mempics without storage keys', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('grok15-image-source-admin');
+      const other = createAdminUser('grok15-image-source-other');
+      const env = createAuthTestEnv({
+        users: [admin, other],
+        aiImages: [
+          {
+            id: 'image-own',
+            user_id: admin.id,
+            prompt: 'Own saved image',
+            model: 'test-image-model',
+            r2_key: `users/${admin.id}/images/own.png`,
+            size_bytes: 123,
+            thumb_key: `users/${admin.id}/images/own-thumb.webp`,
+            medium_key: `users/${admin.id}/images/own-medium.webp`,
+            thumb_mime_type: 'image/webp',
+            medium_mime_type: 'image/webp',
+            created_at: '2026-06-04T10:00:00.000Z',
+          },
+          {
+            id: 'image-other-private',
+            user_id: other.id,
+            prompt: 'Other private image',
+            model: 'test-image-model',
+            r2_key: `users/${other.id}/images/private.png`,
+            size_bytes: 234,
+            created_at: '2026-06-04T09:00:00.000Z',
+          },
+          {
+            id: 'mempic-public',
+            user_id: other.id,
+            prompt: 'Published Mempic',
+            model: 'test-image-model',
+            visibility: 'public',
+            r2_key: `users/${other.id}/images/public.png`,
+            size_bytes: 345,
+            thumb_key: `users/${other.id}/images/public-thumb.webp`,
+            medium_key: `users/${other.id}/images/public-medium.webp`,
+            derivatives_status: 'ready',
+            derivatives_version: 'v1',
+            derivatives_ready_at: '2026-06-04T11:00:00.000Z',
+            thumb_mime_type: 'image/webp',
+            medium_mime_type: 'image/webp',
+            created_at: '2026-06-03T10:00:00.000Z',
+            published_at: '2026-06-04T11:00:00.000Z',
+          },
+          {
+            id: 'mempic-not-ready',
+            user_id: other.id,
+            prompt: 'Not ready public image',
+            model: 'test-image-model',
+            visibility: 'public',
+            r2_key: `users/${other.id}/images/not-ready.png`,
+            derivatives_status: 'pending',
+            created_at: '2026-06-02T10:00:00.000Z',
+          },
+        ],
+      });
+      const token = await seedSession(env, admin.id);
+      const headers = {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      };
+
+      const savedRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/media-source-candidates?media=image&scope=saved_assets&limit=10', 'GET', undefined, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(savedRes.status).toBe(200);
+      const savedBody = await savedRes.json();
+      expect(savedBody.data).toEqual(expect.objectContaining({ media: 'image', scope: 'saved_assets' }));
+      expect(savedBody.data.candidates).toEqual([
+        expect.objectContaining({
+          media_type: 'image',
+          source_type: 'saved_asset',
+          asset_id: 'image-own',
+          title: 'Own saved image',
+          thumb_url: '/api/ai/images/image-own/thumb',
+          preview_url: '/api/ai/images/image-own/medium',
+        }),
+      ]);
+      expect(JSON.stringify(savedBody)).not.toContain('image-other-private');
+      expect(JSON.stringify(savedBody)).not.toContain('r2_key');
+      expect(JSON.stringify(savedBody)).not.toContain('/api/internal/ai/media-source/');
+
+      const publicRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/media-source-candidates?media=image&scope=public&limit=10', 'GET', undefined, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(publicRes.status).toBe(200);
+      const publicBody = await publicRes.json();
+      expect(publicBody.data.candidates).toEqual([
+        expect.objectContaining({
+          media_type: 'image',
+          source_type: 'mempic',
+          asset_id: 'mempic-public',
+          title: 'Published Mempic',
+          thumb_url: expect.stringContaining('/api/gallery/mempics/mempic-public/'),
+          preview_url: expect.stringContaining('/api/gallery/mempics/mempic-public/'),
+        }),
+      ]);
+      expect(JSON.stringify(publicBody)).not.toContain('mempic-not-ready');
+      expect(JSON.stringify(publicBody)).not.toContain('r2_key');
+      expect(JSON.stringify(publicBody)).not.toContain('/api/internal/ai/media-source/');
+    });
+
     test('Grok Imagine Video 1.5 Preview extend resolves structured source to a signed internal URL at provider invocation', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const { calculateGrokImagineVideo15PreviewCreditPricing } = await loadGrokImagineVideo15PreviewPricingModule();
@@ -24398,6 +24564,7 @@ test.describe('Worker routes', () => {
         operation: 'extend',
         workflow: 'video_extend',
         has_video_input: true,
+        source_media_type: 'video',
         source_type: 'saved_asset',
         source_asset_id: 'asset-extend-own',
         provider_cost_usd: expectedPricing.providerCostUsd,
@@ -24412,7 +24579,7 @@ test.describe('Worker routes', () => {
           asset_id: 'asset-extend-own',
         },
       });
-      expect(JSON.stringify(storedInput)).not.toContain('/api/internal/ai/video-source/');
+      expect(JSON.stringify(storedInput)).not.toContain('/api/internal/ai/media-source/');
 
       const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
       const batch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
@@ -24433,14 +24600,14 @@ test.describe('Worker routes', () => {
         resolution: '480p',
       });
       expect(providerBody.source_video).toBeUndefined();
-      expect(providerBody.video?.url).toEqual(expect.stringContaining('/api/internal/ai/video-source/'));
+      expect(providerBody.video?.url).toEqual(expect.stringContaining('/api/internal/ai/media-source/'));
       expect(callerPolicy).toMatchObject({
         operation_id: 'admin.video.task.create',
         provider_family: 'xai',
         model_id: 'xai/grok-imagine-video-1.5-preview',
       });
-      expect(JSON.stringify(env.DB.state.aiVideoJobs[0].input_json)).not.toContain('/api/internal/ai/video-source/');
-      expect(JSON.stringify(env.DB.state.aiVideoJobs[0].budget_policy_json)).not.toContain('/api/internal/ai/video-source/');
+      expect(JSON.stringify(env.DB.state.aiVideoJobs[0].input_json)).not.toContain('/api/internal/ai/media-source/');
+      expect(JSON.stringify(env.DB.state.aiVideoJobs[0].budget_policy_json)).not.toContain('/api/internal/ai/media-source/');
 
       const signedUrl = providerBody.video.url;
       const sourceRes = await authWorker.fetch(
@@ -24470,8 +24637,93 @@ test.describe('Worker routes', () => {
       expect(tampered.status).toBe(403);
       await expect(tampered.json()).resolves.toMatchObject({
         ok: false,
-        code: 'invalid_video_source_token',
+        code: 'invalid_media_source_token',
       });
+      expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
+    });
+
+    test('Grok Imagine Video 1.5 Preview generate resolves structured image source to a signed internal URL at provider invocation', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('grok15-generate-source-admin');
+      const service = createAiVideoJobServiceBinding();
+      const assetFetch = createVideoAssetFetchStub();
+      const sourceKey = `users/${admin.id}/images/internal-source.png`;
+      const sourceBytes = new Uint8Array([137, 80, 78, 71]);
+      const env = createAuthTestEnv({
+        users: [admin],
+        fetch: assetFetch,
+        userImages: {
+          [sourceKey]: {
+            body: sourceBytes,
+            httpMetadata: { contentType: 'image/png' },
+            size: sourceBytes.byteLength,
+          },
+        },
+        aiImages: [
+          {
+            id: 'image-generate-own',
+            user_id: admin.id,
+            prompt: 'Internal image source',
+            model: 'test-image-model',
+            r2_key: sourceKey,
+            size_bytes: sourceBytes.byteLength,
+            created_at: '2026-06-04T10:00:00.000Z',
+          },
+        ],
+      });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+
+      const createRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'xai/grok-imagine-video-1.5-preview',
+          prompt: 'Animate this internal image.',
+          _operation: 'generate',
+          duration: 5,
+          aspect_ratio: '16:9',
+          resolution: '480p',
+          source_image: {
+            source_type: 'saved_asset',
+            asset_id: 'image-generate-own',
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-grok15-generate-source-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(createRes.status).toBe(202);
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+      const batch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(1);
+      const {
+        __bitbi_ai_caller_policy: _callerPolicy,
+        ...providerBody
+      } = service.calls[0].body;
+      expect(providerBody).toMatchObject({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        _operation: 'generate',
+        prompt: 'Animate this internal image.',
+        image: { url: expect.stringContaining('/api/internal/ai/media-source/') },
+      });
+      expect(providerBody.source_image).toBeUndefined();
+      expect(providerBody.image_url).toBeUndefined();
+      expect(JSON.stringify(env.DB.state.aiVideoJobs[0].input_json)).not.toContain('/api/internal/ai/media-source/');
+
+      const sourceRes = await authWorker.fetch(
+        new Request(providerBody.image.url, { method: 'GET' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(sourceRes.status).toBe(200);
+      expect(sourceRes.headers.get('content-type')).toBe('image/png');
+      expect(new Uint8Array(await sourceRes.arrayBuffer())).toEqual(sourceBytes);
       expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
     });
 
@@ -30754,7 +31006,29 @@ test.describe('Worker routes', () => {
 
     test('POST /api/admin/ai/test-video dispatches Grok Imagine Video 1.5 Preview edit payload', async () => {
       const aiRunCalls = [];
+      const user = createAdminUser('grok15-sync-edit-admin');
+      const sourceKey = `users/${user.id}/video/sync-edit-source.mp4`;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        user,
+        authEnv: {
+          aiTextAssets: [{
+            id: 'sync-edit-source',
+            user_id: user.id,
+            title: 'Sync edit source',
+            file_name: 'sync-edit-source.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 1234,
+            r2_key: sourceKey,
+            created_at: '2026-06-04T10:00:00.000Z',
+          }],
+          userImages: {
+            [sourceKey]: {
+              body: new Uint8Array([1, 2, 3, 4]),
+              httpMetadata: { contentType: 'video/mp4' },
+            },
+          },
+        },
         aiEnv: { AI_GATEWAY_ID: 'admin-gateway' },
         aiRun: async (...args) => {
           aiRunCalls.push(args);
@@ -30773,8 +31047,7 @@ test.describe('Worker routes', () => {
           aspect_ratio: '16:9',
           resolution: '720p',
           size: '1280x720',
-          video: { url: 'https://cdn.example.com/source.mp4' },
-          reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+          source_video: { source_type: 'saved_asset', asset_id: 'sync-edit-source' },
           output: { upload_url: 'https://uploads.example.com/output.mp4' },
         }, authHeaders),
         env,
@@ -30800,7 +31073,7 @@ test.describe('Worker routes', () => {
           hasImageInput: false,
           hasVideoInput: true,
           hasEndImageInput: false,
-          referenceImageCount: 1,
+          referenceImageCount: 0,
           outputUploadUrlPresent: true,
           workflow: 'video_edit',
         },
@@ -30814,8 +31087,7 @@ test.describe('Worker routes', () => {
         aspect_ratio: '16:9',
         resolution: '720p',
         size: '1280x720',
-        video: { url: 'https://cdn.example.com/source.mp4' },
-        reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+        video: { url: expect.stringContaining('/api/internal/ai/media-source/') },
         output: { upload_url: 'https://uploads.example.com/output.mp4' },
       });
       expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'admin-gateway' } });
@@ -39413,6 +39685,27 @@ test.describe('Worker routes', () => {
           seed: 99,
           generate_audio: true,
           hasImageInput: false,
+          pricing: {
+            modelId: 'xai/grok-imagine-video-1.5-preview',
+            credits: 16,
+            providerCostUsd: 0.4,
+            internalCostUsd: 0.5,
+            adminCreditsCharged: 0,
+            normalized: {
+              operation: 'generate',
+              duration: 5,
+              aspectRatio: '16:9',
+              resolution: '480p',
+              hasImageInput: true,
+              hasVideoInput: false,
+            },
+            formula: {
+              pricingVersion: 'grok-imagine-video-1-5-preview-v1',
+              billingMode: 'cloudflare_ai_gateway_unified_billing',
+              pricingSource: 'operator_requested_grok_imagine_video_1_5_preview_pricing_2026_06_04',
+              oversizedDetails: 'x'.repeat(2000),
+            },
+          },
           warnings: ['Mock video warning'],
           elapsedMs: 645,
           receivedAt: nowIso(),
@@ -39459,6 +39752,26 @@ test.describe('Worker routes', () => {
     const metadata = JSON.parse(row.metadata_json);
     expect(metadata.video_job_id).toBe('vidjob_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(metadata.provider).toBe('workers-ai');
+    const metadataPricing = typeof metadata.pricing === 'string'
+      ? JSON.parse(metadata.pricing)
+      : metadata.pricing;
+    expect(metadataPricing).toEqual(expect.objectContaining({
+      modelId: 'xai/grok-imagine-video-1.5-preview',
+      credits: 16,
+      providerCostUsd: 0.4,
+      adminCreditsCharged: 0,
+      normalized: expect.objectContaining({
+        operation: 'generate',
+        resolution: '480p',
+        hasImageInput: true,
+      }),
+      formula: expect.objectContaining({
+        pricingVersion: 'grok-imagine-video-1-5-preview-v1',
+        pricingSource: 'operator_requested_grok_imagine_video_1_5_preview_pricing_2026_06_04',
+      }),
+    }));
+    expect(JSON.stringify(metadataPricing)).not.toContain('oversizedDetails');
+    expect(JSON.stringify(metadataPricing)).not.toContain('xxxxxxxxxxxxxxxxxxxxxxxx');
   });
 
   test('admin AI save-text-asset rejects remote video save requests before any fetch occurs', async () => {

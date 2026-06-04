@@ -833,6 +833,11 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.adminAi,
     rateLimit: { id: "admin-ai-models-ip", failClosed: true },
   }),
+  adminRead("admin.ai.media-source-candidates", "/api/admin/ai/media-source-candidates", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-media-source-candidates-ip", failClosed: true },
+    notes: "Read-only Admin AI Lab source picker for Grok Imagine 1.5 Preview. Returns bounded sanitized own saved image/video assets and published Mempic/Memvid metadata only; no R2 keys, signed provider URLs, raw tokens, or private media from other users.",
+  }),
   adminRead("admin.ai.video-source-candidates", "/api/admin/ai/video-source-candidates", "admin-ai", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     rateLimit: { id: "admin-ai-video-source-candidates-ip", failClosed: true },
@@ -1363,6 +1368,24 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { noneReason: "Provider-readable HEAD source check is protected by the same short-lived HMAC token as GET." },
     providerSignature: "hmac-token-path",
     notes: "HEAD only returns metadata for the exact token-scoped internal source. It does not expose R2 keys, signed provider URLs, cookies, or private storage paths.",
+  }),
+  safeRead("internal.admin-ai.media-source", "GET", "/api/internal/ai/media-source/:token", "admin-ai", {
+    auth: "anonymous",
+    csrf: "not-browser-facing",
+    sensitivity: "high",
+    config: REQUIRED_CONFIG.adminAiVideoSource,
+    rateLimit: { noneReason: "Provider-readable source endpoint is protected by a short-lived HMAC token scoped to one validated internal image or video source." },
+    providerSignature: "hmac-token-path",
+    notes: "Serves only the exact saved image/video asset or published Mempic/Memvid encoded in a server-generated token for Grok Imagine 1.5 Preview. It does not accept URLs, R2 keys, cookies, sessions, or user-supplied storage paths; tokens and signed URLs are not stored in D1.",
+  }),
+  safeRead("internal.admin-ai.media-source.head", "HEAD", "/api/internal/ai/media-source/:token", "admin-ai", {
+    auth: "anonymous",
+    csrf: "not-browser-facing",
+    sensitivity: "high",
+    config: REQUIRED_CONFIG.adminAiVideoSource,
+    rateLimit: { noneReason: "Provider-readable HEAD source check is protected by the same short-lived HMAC token as GET." },
+    providerSignature: "hmac-token-path",
+    notes: "HEAD only returns metadata for the exact token-scoped internal image or video source. It does not expose R2 keys, signed provider URLs, cookies, or private storage paths.",
   }),
   policy({
     id: "internal.homepage.hero-videos.jobs.claim",

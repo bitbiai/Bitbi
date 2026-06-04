@@ -18242,6 +18242,24 @@ test.describe('Admin AI Lab', () => {
     const requests = [];
     let statusPolls = 0;
 
+    await page.addInitScript(() => {
+      localStorage.setItem('bitbi_admin_ai_lab_state_v1', JSON.stringify({
+        forms: {
+          video: {
+            model: 'xai/grok-imagine-video-1.5-preview',
+            preset: 'video_grok_imagine_15_preview',
+            prompt: 'stale preview prompt',
+            operation: 'extend',
+            videoUrl: 'https://cdn.example.com/stale-source.mp4',
+            imageUrl: 'https://cdn.example.com/stale-image.png',
+            referenceImageUrls: 'https://cdn.example.com/stale-ref.png',
+            duration: 5,
+            aspectRatio: '16:9',
+            resolution: '480p',
+          },
+        },
+      }));
+    });
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
@@ -18269,8 +18287,9 @@ test.describe('Admin AI Lab', () => {
     await page.route('**/api/admin/ai/video-jobs/vidjob_grok15/output', async (route) => {
       await fulfillTestMp4(route);
     });
-    await page.route('**/api/admin/ai/video-source-candidates**', async (route) => {
+    await page.route('**/api/admin/ai/media-source-candidates**', async (route) => {
       const url = new URL(route.request().url());
+      const media = url.searchParams.get('media') || 'video';
       const scope = url.searchParams.get('scope') || 'saved_assets';
       await route.fulfill({
         status: 200,
@@ -18278,8 +18297,33 @@ test.describe('Admin AI Lab', () => {
         body: JSON.stringify({
           ok: true,
           data: {
-            candidates: scope === 'memvids'
-              ? [{
+            candidates: media === 'image'
+              ? (scope === 'public'
+                ? [{
+                    media_type: 'image',
+                    source_type: 'mempic',
+                    asset_id: 'mempic_public_1',
+                    title: 'Published Mempic source',
+                    mime_type: 'image/webp',
+                    size_bytes: 2048,
+                    published_at: '2026-06-04T00:00:00.000Z',
+                    thumb_url: '/api/gallery/mempics/mempic_public_1/v1/thumb',
+                    preview_url: '/api/gallery/mempics/mempic_public_1/v1/medium',
+                  }]
+                : [{
+                    media_type: 'image',
+                    source_type: 'saved_asset',
+                    asset_id: 'asset_saved_image_1',
+                    title: 'Saved image source',
+                    mime_type: 'image/png',
+                    size_bytes: 1024,
+                    created_at: '2026-06-04T00:00:00.000Z',
+                    thumb_url: '/api/ai/images/asset_saved_image_1/thumb',
+                    preview_url: '/api/ai/images/asset_saved_image_1/medium',
+                  }])
+              : (scope === 'public'
+                ? [{
+                  media_type: 'video',
                   source_type: 'memvid',
                   asset_id: 'memvid_public_1',
                   title: 'Published Memvid source',
@@ -18291,6 +18335,7 @@ test.describe('Admin AI Lab', () => {
                   preview_url: '/api/gallery/memvids/memvid_public_1/v1/file',
                 }]
               : [{
+                  media_type: 'video',
                   source_type: 'saved_asset',
                   asset_id: 'asset_saved_video_1',
                   title: 'Saved video source',
@@ -18300,7 +18345,7 @@ test.describe('Admin AI Lab', () => {
                   created_at: '2026-06-04T00:00:00.000Z',
                   poster_url: '/api/ai/text-assets/asset_saved_video_1/poster',
                   preview_url: '/api/ai/text-assets/asset_saved_video_1/file',
-                }],
+                }]),
             next_cursor: null,
             has_more: false,
           },
@@ -18336,7 +18381,7 @@ test.describe('Admin AI Lab', () => {
                   ? 'video_edit'
                   : requests.at(-1)?._operation === 'extend'
                     ? 'video_extend'
-                    : 'text_to_video',
+                    : 'image_to_video',
               },
             },
           },
@@ -18351,10 +18396,10 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoGrokPreviewControls')).toBeVisible();
     await expect(page.locator('#aiVideoOperationField')).toBeVisible();
     await expect(page.locator('#aiVideoSizeField')).toBeVisible();
-    await expect(page.locator('#aiVideoImageUrlField')).toBeVisible();
+    await expect(page.locator('#aiVideoImageUrlField')).toBeHidden();
     await expect(page.locator('#aiVideoVideoUrlField')).toBeHidden();
-    await expect(page.locator('#aiVideoSourcePickerField')).toBeHidden();
-    await expect(page.locator('#aiVideoReferenceUrlsField')).toBeVisible();
+    await expect(page.locator('#aiVideoSourcePickerField')).toBeVisible();
+    await expect(page.locator('#aiVideoReferenceUrlsField')).toBeHidden();
     await expect(page.locator('#aiVideoOutputUploadUrlField')).toBeVisible();
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
     await expect(page.locator('#aiVideoImageField')).toBeHidden();
@@ -18365,8 +18410,11 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoOperation option:not([hidden])')).toHaveText(['Generate', 'Edit', 'Extend']);
 
     await page.locator('#aiVideoPrompt').fill('A Grok Imagine 1.5 preview smoke test');
-    await page.locator('#aiVideoImageUrl').fill('https://cdn.example.com/input.png');
-    await page.locator('#aiVideoReferenceUrls').fill('https://cdn.example.com/ref-a.png\nhttps://cdn.example.com/ref-b.webp');
+    await page.locator('#aiVideoOperation').selectOption('generate');
+    await expect(page.locator('#aiVideoSourcePickerField')).toContainText('Internal source image');
+    await expect(page.locator('#aiVideoSourceList')).toContainText('Saved image source');
+    await page.locator('#aiVideoSourceList .admin-ai__video-source-card', { hasText: 'Saved image source' }).click();
+    await expect(page.locator('#aiVideoSourceSelected')).toContainText('Saved asset selected: Saved image source');
     await page.locator('#aiVideoSize').selectOption('848x480');
     await page.locator('#aiVideoUser').fill('admin-smoke');
     await page.locator('#aiVideoRun').click();
@@ -18380,13 +18428,15 @@ test.describe('Admin AI Lab', () => {
       aspect_ratio: '16:9',
       resolution: '480p',
       size: '848x480',
-      image: { url: 'https://cdn.example.com/input.png' },
-      reference_images: [
-        { url: 'https://cdn.example.com/ref-a.png' },
-        { url: 'https://cdn.example.com/ref-b.webp' },
-      ],
+      source_image: {
+        source_type: 'saved_asset',
+        asset_id: 'asset_saved_image_1',
+      },
       user: 'admin-smoke',
     });
+    expect(requests[0].image).toBeUndefined();
+    expect(requests[0].image_url).toBeUndefined();
+    expect(requests[0].reference_images).toBeUndefined();
     expect(requests[0].video).toBeUndefined();
     expect(requests[0].quality).toBeUndefined();
     expect(requests[0].seed).toBeUndefined();
@@ -18395,8 +18445,10 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
 
     await page.locator('#aiVideoOperation').selectOption('edit');
-    await expect(page.locator('#aiVideoVideoUrlField')).toBeVisible();
-    await page.locator('#aiVideoVideoUrl').fill('https://cdn.example.com/source.mp4');
+    await expect(page.locator('#aiVideoVideoUrlField')).toBeHidden();
+    await expect(page.locator('#aiVideoSourcePickerField')).toContainText('Internal source video');
+    await expect(page.locator('#aiVideoSourceList')).toContainText('Saved video source');
+    await page.locator('#aiVideoSourceList .admin-ai__video-source-card', { hasText: 'Saved video source' }).click();
     await page.locator('#aiVideoOutputUploadUrl').fill('https://uploads.example.com/output');
     await page.locator('#aiVideoResolution').selectOption('720p');
     await page.locator('#aiVideoRun').click();
@@ -18407,9 +18459,14 @@ test.describe('Admin AI Lab', () => {
       _operation: 'edit',
       prompt: 'A Grok Imagine 1.5 preview smoke test',
       resolution: '720p',
-      video: { url: 'https://cdn.example.com/source.mp4' },
+      source_video: {
+        source_type: 'saved_asset',
+        asset_id: 'asset_saved_video_1',
+      },
       output: { upload_url: 'https://uploads.example.com/output' },
     });
+    expect(requests[1].video).toBeUndefined();
+    expect(requests[1].video_url).toBeUndefined();
     await expect.poll(() => statusPolls).toBeGreaterThan(0);
 
     await page.locator('#aiVideoOperation').selectOption('extend');

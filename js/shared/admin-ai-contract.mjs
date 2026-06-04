@@ -1360,6 +1360,41 @@ function normalizeGrokPreviewSourceVideo(value, field = "source_video") {
   };
 }
 
+function normalizeGrokPreviewSourceImage(value, field = "source_image") {
+  if (value === undefined || value === null || value === "") return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AdminAiValidationError(`${field} must be an object.`, 400, "validation_error");
+  }
+  const sourceType = typeof value.source_type === "string"
+    ? value.source_type.trim()
+    : typeof value.sourceType === "string"
+      ? value.sourceType.trim()
+      : "";
+  if (!["saved_asset", "mempic"].includes(sourceType)) {
+    throw new AdminAiValidationError(
+      `${field}.source_type must be saved_asset or mempic.`,
+      400,
+      "validation_error"
+    );
+  }
+  const assetId = typeof value.asset_id === "string"
+    ? value.asset_id.trim()
+    : typeof value.assetId === "string"
+      ? value.assetId.trim()
+      : "";
+  if (!/^[A-Za-z0-9_-]{1,160}$/.test(assetId)) {
+    throw new AdminAiValidationError(
+      `${field}.asset_id is invalid.`,
+      400,
+      "validation_error"
+    );
+  }
+  return {
+    source_type: sourceType,
+    asset_id: assetId,
+  };
+}
+
 function firstNonEmptyValue(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== "") return value;
@@ -1867,8 +1902,9 @@ export function validateAdminAiMusicBody(body) {
   };
 }
 
-export function validateAdminAiVideoBody(body) {
+export function validateAdminAiVideoBody(body, options = {}) {
   const input = ensureObject(body);
+  const allowResolvedGrokPreviewMediaUrls = options?.allowResolvedGrokPreviewMediaUrls === true;
   const preset = optionalString(input.preset, "preset", 64);
   const model = optionalString(input.model, "model", 120);
   const selection = resolveAdminAiModelSelection("video", { preset, model });
@@ -2113,6 +2149,8 @@ export function validateAdminAiVideoBody(body) {
         "video",
         "video_url",
         "videoInput",
+        "source_image",
+        "sourceImage",
         "source_video",
         "sourceVideo",
         "reference_images",
@@ -2159,6 +2197,10 @@ export function validateAdminAiVideoBody(body) {
       firstNonEmptyValue(input.video, input.video_url, input.videoInput),
       "video"
     );
+    const source_image = normalizeGrokPreviewSourceImage(
+      firstNonEmptyValue(input.source_image, input.sourceImage),
+      "source_image"
+    );
     const source_video = normalizeGrokPreviewSourceVideo(
       firstNonEmptyValue(input.source_video, input.sourceVideo),
       "source_video"
@@ -2173,7 +2215,25 @@ export function validateAdminAiVideoBody(body) {
       "output"
     );
     const user = optionalString(input.user, "user", 120);
+    const hasBrowserImageUrlInput = input.image !== undefined || input.image_url !== undefined || input.imageInput !== undefined;
+    const hasBrowserVideoUrlInput = input.video !== undefined || input.video_url !== undefined || input.videoInput !== undefined;
+    const hasReferenceImageInput = input.reference_images !== undefined || input.referenceImages !== undefined;
 
+    if (!allowResolvedGrokPreviewMediaUrls && hasReferenceImageInput) {
+      throw new AdminAiValidationError(
+        "reference_images are not accepted for Grok Imagine Video 1.5 Preview. Choose an internal source image.",
+        400,
+        "validation_error"
+      );
+    }
+
+    if (operation === "generate" && !allowResolvedGrokPreviewMediaUrls && hasBrowserImageUrlInput) {
+      throw new AdminAiValidationError(
+        "image.url is not accepted for generate operations. Choose an internal source_image.",
+        400,
+        "validation_error"
+      );
+    }
     if (operation === "generate" && video) {
       throw new AdminAiValidationError(
         "video.url is only supported for edit and extend operations.",
@@ -2183,40 +2243,66 @@ export function validateAdminAiVideoBody(body) {
     }
     if (operation === "generate" && source_video) {
       throw new AdminAiValidationError(
-        "source_video is only supported for extend operations.",
+        "source_video is only supported for edit and extend operations.",
         400,
         "validation_error"
       );
     }
-    if (operation === "edit" && source_video) {
+    if (operation === "generate" && !allowResolvedGrokPreviewMediaUrls && !source_image) {
       throw new AdminAiValidationError(
-        "source_video is only supported for extend operations.",
+        "Grok Imagine Video 1.5 Preview requires an internal image source for generate. Text-only video generation is not supported by the provider.",
         400,
         "validation_error"
       );
     }
-    if (operation === "edit" && !video) {
+    if (operation === "generate" && allowResolvedGrokPreviewMediaUrls && !image) {
       throw new AdminAiValidationError(
-        "video.url is required for edit operations.",
-        400,
-        "validation_error"
-      );
-    }
-    if (operation === "extend" && video) {
-      throw new AdminAiValidationError(
-        "video.url is not accepted for extend operations. Choose an internal source_video.",
-        400,
-        "validation_error"
-      );
-    }
-    if (operation === "extend" && !source_video) {
-      throw new AdminAiValidationError(
-        "source_video is required for extend operations.",
+        "image.url is required for generate operations.",
         400,
         "validation_error"
       );
     }
 
+    if ((operation === "edit" || operation === "extend") && source_image) {
+      throw new AdminAiValidationError(
+        "source_image is only supported for generate operations.",
+        400,
+        "validation_error"
+      );
+    }
+    if ((operation === "edit" || operation === "extend") && !allowResolvedGrokPreviewMediaUrls && hasBrowserVideoUrlInput) {
+      throw new AdminAiValidationError(
+        operation === "edit"
+          ? "video.url is not accepted for edit operations. Choose an internal source_video."
+          : "video.url is not accepted for extend operations. Choose an internal source_video.",
+        400,
+        "validation_error"
+      );
+    }
+    if ((operation === "edit" || operation === "extend") && image) {
+      throw new AdminAiValidationError(
+        "image.url is only supported for generate operations.",
+        400,
+        "validation_error"
+      );
+    }
+    if ((operation === "edit" || operation === "extend") && !allowResolvedGrokPreviewMediaUrls && !source_video) {
+      throw new AdminAiValidationError(
+        `source_video is required for ${operation} operations.`,
+        400,
+        "validation_error"
+      );
+    }
+    if ((operation === "edit" || operation === "extend") && allowResolvedGrokPreviewMediaUrls && !video) {
+      throw new AdminAiValidationError(
+        `video.url is required for ${operation} operations.`,
+        400,
+        "validation_error"
+      );
+    }
+
+    const hasImageInput = allowResolvedGrokPreviewMediaUrls ? !!image : !!source_image;
+    const hasVideoInput = allowResolvedGrokPreviewMediaUrls ? !!video : !!source_video;
     try {
       calculateGrokImagineVideo15PreviewCreditPricing({
         _operation: operation,
@@ -2224,9 +2310,9 @@ export function validateAdminAiVideoBody(body) {
         aspect_ratio,
         resolution,
         size,
-        hasImageInput: !!image,
-        hasVideoInput: !!(video || source_video),
-        referenceImageCount: reference_images.length,
+        hasImageInput,
+        hasVideoInput,
+        referenceImageCount: allowResolvedGrokPreviewMediaUrls ? reference_images.length : 0,
         outputUploadUrlPresent: !!output,
       });
     } catch {
@@ -2247,10 +2333,11 @@ export function validateAdminAiVideoBody(body) {
       resolution,
     };
     if (size) validated.size = size;
-    if (image) validated.image = image;
-    if (video) validated.video = video;
-    if (source_video) validated.source_video = source_video;
-    if (reference_images.length > 0) validated.reference_images = reference_images;
+    if (allowResolvedGrokPreviewMediaUrls && image) validated.image = image;
+    if (allowResolvedGrokPreviewMediaUrls && video) validated.video = video;
+    if (!allowResolvedGrokPreviewMediaUrls && source_image) validated.source_image = source_image;
+    if (!allowResolvedGrokPreviewMediaUrls && source_video) validated.source_video = source_video;
+    if (allowResolvedGrokPreviewMediaUrls && reference_images.length > 0) validated.reference_images = reference_images;
     if (output) validated.output = output;
     if (user) validated.user = user;
     return validated;

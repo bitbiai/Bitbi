@@ -86,6 +86,7 @@ import {
   processAiVideoJobMessage,
 } from "./lib/ai-video-jobs.js";
 import {
+  handleAdminAiMediaSourceTokenRequest,
   handleAdminAiVideoSourceTokenRequest,
 } from "./lib/admin-ai-video-sources.js";
 import { getRoutePolicy } from "./app/route-policy.js";
@@ -321,6 +322,11 @@ export default {
     }
     if (pathname.startsWith("/api/internal/memvid-stream-previews/")) {
       const result = await handleHomepageHeroVideos(ctx);
+      if (result) return result;
+    }
+    const adminAiMediaSourceMatch = pathname.match(/^\/api\/internal\/ai\/media-source\/([^/]+)$/);
+    if (adminAiMediaSourceMatch && (method === "GET" || method === "HEAD")) {
+      const result = await handleAdminAiMediaSourceTokenRequest(ctx, adminAiMediaSourceMatch[1]);
       if (result) return result;
     }
     const adminAiVideoSourceMatch = pathname.match(/^\/api\/internal\/ai\/video-source\/([^/]+)$/);

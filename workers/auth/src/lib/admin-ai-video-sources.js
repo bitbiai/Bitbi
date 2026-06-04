@@ -2,6 +2,8 @@ import {
   ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
+  buildPublicMempicUrl,
+  buildPublicMempicVersion,
   buildPublicMemvidUrl,
   buildPublicMemvidVersion,
 } from "../../../../js/shared/public-media-contract.mjs";
@@ -15,6 +17,7 @@ import {
 } from "./security-secrets.js";
 import { randomTokenHex, sha256Hex } from "./tokens.js";
 
+export const ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE = "admin_ai_grok_preview_media_source";
 export const ADMIN_AI_VIDEO_SOURCE_TOKEN_PURPOSE = "admin_ai_grok_preview_video_source";
 export const ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION = 1;
 export const ADMIN_AI_VIDEO_SOURCE_TOKEN_TTL_MS = 45 * 60 * 1000;
@@ -23,6 +26,7 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const signingKeyCache = new Map();
 const SUPPORTED_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 class AdminAiVideoSourceError extends Error {
   constructor(message, { status = 400, code = "invalid_video_source" } = {}) {
@@ -65,7 +69,7 @@ function toBase64Url(value) {
 function fromBase64Url(value) {
   const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
   const padding = normalized.length % 4;
-  if (padding === 1) throw new AdminAiVideoSourceError("Invalid video source token.", { status: 403, code: "invalid_video_source_token" });
+  if (padding === 1) throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   return padding === 0 ? normalized : normalized + "=".repeat(4 - padding);
 }
 
@@ -77,7 +81,7 @@ function stableStringify(value) {
 
 async function getSigningKey(secret) {
   const cacheKey = String(secret || "");
-  if (!cacheKey) throw new AdminAiVideoSourceError("Video source signing is unavailable.", { status: 503, code: "video_source_signing_unavailable" });
+  if (!cacheKey) throw new AdminAiVideoSourceError("Media source signing is unavailable.", { status: 503, code: "media_source_signing_unavailable" });
   if (!signingKeyCache.has(cacheKey)) {
     signingKeyCache.set(
       cacheKey,
@@ -104,14 +108,20 @@ function safeEqualString(left, right) {
   const b = String(right || "");
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let index = 0; index < a.length; index += 1) {
+  for (let index = 0; index < a.length; index++) {
     diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
   }
   return diff === 0;
 }
 
-function normalizeSourceType(value) {
+function normalizeMediaType(value) {
+  const media = String(value || "video").trim().toLowerCase();
+  return media === "image" || media === "video" ? media : "video";
+}
+
+function normalizeSourceType(value, mediaType = "video") {
   const type = String(value || "").trim();
+  if (mediaType === "image") return type === "saved_asset" || type === "mempic" ? type : "";
   return type === "saved_asset" || type === "memvid" ? type : "";
 }
 
@@ -120,9 +130,18 @@ function normalizeAssetId(value) {
   return /^[A-Za-z0-9_-]{1,160}$/.test(id) ? id : "";
 }
 
-function normalizeScope(value) {
+function normalizeScope(value, mediaType = "video") {
   const scope = String(value || "all").trim();
-  return ["all", "saved_assets", "memvids"].includes(scope) ? scope : "all";
+  if (scope === "saved_assets" || scope === "all" || scope === "public") return scope;
+  if (mediaType === "video" && scope === "memvids") return "public";
+  if (mediaType === "image" && scope === "mempics") return "public";
+  return "all";
+}
+
+function normalizeLegacyScope(scope, mediaType) {
+  if (mediaType === "video" && scope === "public") return "memvids";
+  if (mediaType === "image" && scope === "public") return "mempics";
+  return scope;
 }
 
 function normalizeLimit(value) {
@@ -138,7 +157,7 @@ function normalizeCursorOffset(value) {
 }
 
 function safeTitle(row, fallback) {
-  return String(row?.title || row?.file_name || fallback || "Video").trim().slice(0, 180);
+  return String(row?.title || row?.file_name || row?.prompt || fallback || "Media").trim().slice(0, 180);
 }
 
 function parseMetadata(row) {
@@ -156,8 +175,9 @@ function durationFromMetadata(row) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function toSavedAssetCandidate(row) {
+function toSavedVideoCandidate(row) {
   return {
+    media_type: "video",
     source_type: "saved_asset",
     asset_id: row.id,
     title: safeTitle(row, "Saved video asset"),
@@ -174,6 +194,7 @@ function toSavedAssetCandidate(row) {
 function toMemvidCandidate(row) {
   const version = buildPublicMemvidVersion(row);
   return {
+    media_type: "video",
     source_type: "memvid",
     asset_id: row.id,
     title: safeTitle(row, "Published Memvid"),
@@ -187,6 +208,43 @@ function toMemvidCandidate(row) {
   };
 }
 
+function toSavedImageCandidate(row) {
+  return {
+    media_type: "image",
+    source_type: "saved_asset",
+    asset_id: row.id,
+    title: safeTitle(row, "Saved image asset"),
+    mime_type: row.medium_mime_type || row.thumb_mime_type || "image/png",
+    size_bytes: row.size_bytes ?? null,
+    duration_seconds: null,
+    created_at: row.created_at || null,
+    published_at: null,
+    poster_url: null,
+    thumb_url: row.thumb_key ? `/api/ai/images/${encodeURIComponent(row.id)}/thumb` : null,
+    preview_url: row.medium_key
+      ? `/api/ai/images/${encodeURIComponent(row.id)}/medium`
+      : `/api/ai/images/${encodeURIComponent(row.id)}/file`,
+  };
+}
+
+function toMempicCandidate(row) {
+  const version = buildPublicMempicVersion(row);
+  return {
+    media_type: "image",
+    source_type: "mempic",
+    asset_id: row.id,
+    title: safeTitle(row, "Published Mempic"),
+    mime_type: row.medium_mime_type || row.thumb_mime_type || "image/png",
+    size_bytes: row.size_bytes ?? null,
+    duration_seconds: null,
+    created_at: row.created_at || null,
+    published_at: row.published_at || null,
+    poster_url: null,
+    thumb_url: buildPublicMempicUrl(row.id, version, "thumb"),
+    preview_url: buildPublicMempicUrl(row.id, version, "medium"),
+  };
+}
+
 function assertSupportedVideoRow(row) {
   if (!row?.r2_key) {
     throw new AdminAiVideoSourceError("Video source is missing media.", { status: 404, code: "video_source_not_found" });
@@ -197,7 +255,23 @@ function assertSupportedVideoRow(row) {
   }
 }
 
-async function listSavedAssetCandidates(env, adminUserId, limit, offset) {
+function assertSupportedImageRow(row) {
+  if (!row?.r2_key) {
+    throw new AdminAiVideoSourceError("Image source is missing media.", { status: 404, code: "image_source_not_found" });
+  }
+}
+
+function assertSupportedObjectContentType(mediaType, contentType) {
+  const normalized = String(contentType || "").split(";")[0].trim().toLowerCase();
+  if (mediaType === "image" && !SUPPORTED_IMAGE_MIME_TYPES.has(normalized)) {
+    throw new AdminAiVideoSourceError("Image source MIME type is not supported.", { status: 400, code: "unsupported_image_source" });
+  }
+  if (mediaType === "video" && !SUPPORTED_VIDEO_MIME_TYPES.has(normalized)) {
+    throw new AdminAiVideoSourceError("Video source MIME type is not supported.", { status: 400, code: "unsupported_video_source" });
+  }
+}
+
+async function listSavedVideoCandidates(env, adminUserId, limit, offset) {
   const rows = await env.DB.prepare(
     `SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key,
             created_at, published_at, poster_r2_key, poster_width, poster_height, poster_size_bytes
@@ -210,7 +284,7 @@ async function listSavedAssetCandidates(env, adminUserId, limit, offset) {
      LIMIT ? OFFSET ?`
   ).bind(adminUserId, limit + 1, offset).all();
   const resultRows = Array.isArray(rows?.results) ? rows.results : [];
-  return resultRows.map(toSavedAssetCandidate);
+  return resultRows.map(toSavedVideoCandidate);
 }
 
 async function listMemvidCandidates(env, limit, offset) {
@@ -229,24 +303,72 @@ async function listMemvidCandidates(env, limit, offset) {
   return resultRows.map(toMemvidCandidate);
 }
 
-export async function listAdminAiVideoSourceCandidates(env, adminUser, searchParams = new URLSearchParams()) {
+async function listSavedImageCandidates(env, adminUserId, limit, offset) {
+  const rows = await env.DB.prepare(
+    `SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at,
+            created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width,
+            medium_height, derivatives_status, derivatives_version, derivatives_ready_at,
+            thumb_mime_type, medium_mime_type
+     FROM ai_images
+     WHERE user_id = ?
+       AND r2_key IS NOT NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT ? OFFSET ?`
+  ).bind(adminUserId, limit + 1, offset).all();
+  const resultRows = Array.isArray(rows?.results) ? rows.results : [];
+  return resultRows.map(toSavedImageCandidate);
+}
+
+async function listMempicCandidates(env, limit, offset) {
+  const rows = await env.DB.prepare(
+    `SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at,
+            created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width,
+            medium_height, derivatives_status, derivatives_version, derivatives_ready_at,
+            thumb_mime_type, medium_mime_type
+     FROM ai_images
+     WHERE visibility = 'public'
+       AND derivatives_status = 'ready'
+       AND thumb_key IS NOT NULL
+       AND medium_key IS NOT NULL
+       AND r2_key IS NOT NULL
+     ORDER BY COALESCE(published_at, created_at) DESC, created_at DESC, id DESC
+     LIMIT ? OFFSET ?`
+  ).bind(limit + 1, offset).all();
+  const resultRows = Array.isArray(rows?.results) ? rows.results : [];
+  return resultRows.map(toMempicCandidate);
+}
+
+async function listSavedCandidates(env, adminUserId, mediaType, limit, offset) {
+  return mediaType === "image"
+    ? listSavedImageCandidates(env, adminUserId, limit, offset)
+    : listSavedVideoCandidates(env, adminUserId, limit, offset);
+}
+
+async function listPublicCandidates(env, mediaType, limit, offset) {
+  return mediaType === "image"
+    ? listMempicCandidates(env, limit, offset)
+    : listMemvidCandidates(env, limit, offset);
+}
+
+export async function listAdminAiMediaSourceCandidates(env, adminUser, searchParams = new URLSearchParams()) {
   if (!env?.DB) {
-    throw new AdminAiVideoSourceError("Video sources are unavailable.", { status: 503, code: "video_sources_unavailable" });
+    throw new AdminAiVideoSourceError("Media sources are unavailable.", { status: 503, code: "media_sources_unavailable" });
   }
-  const scope = normalizeScope(searchParams.get("scope"));
+  const mediaType = normalizeMediaType(searchParams.get("media"));
+  const scope = normalizeScope(searchParams.get("scope"), mediaType);
   const limit = normalizeLimit(searchParams.get("limit"));
   const offset = normalizeCursorOffset(searchParams.get("cursor"));
   let candidates = [];
   if (scope === "saved_assets") {
-    candidates = await listSavedAssetCandidates(env, adminUser.id, limit, offset);
-  } else if (scope === "memvids") {
-    candidates = await listMemvidCandidates(env, limit, offset);
+    candidates = await listSavedCandidates(env, adminUser.id, mediaType, limit, offset);
+  } else if (scope === "public") {
+    candidates = await listPublicCandidates(env, mediaType, limit, offset);
   } else {
-    const [saved, memvids] = await Promise.all([
-      listSavedAssetCandidates(env, adminUser.id, limit, offset),
-      listMemvidCandidates(env, limit, offset),
+    const [saved, published] = await Promise.all([
+      listSavedCandidates(env, adminUser.id, mediaType, limit, offset),
+      listPublicCandidates(env, mediaType, limit, offset),
     ]);
-    candidates = [...saved, ...memvids]
+    candidates = [...saved, ...published]
       .sort((a, b) => String(b.published_at || b.created_at || "").localeCompare(String(a.published_at || a.created_at || "")));
   }
   const page = candidates.slice(0, limit);
@@ -256,23 +378,40 @@ export async function listAdminAiVideoSourceCandidates(env, adminUser, searchPar
     next_cursor: hasMore ? String(offset + limit) : null,
     has_more: hasMore,
     scope,
+    media: mediaType,
     applied_limit: limit,
   };
 }
 
-export function normalizeAdminAiVideoSourceReference(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new AdminAiVideoSourceError("source_video is required.", { status: 400, code: "invalid_source_video" });
-  }
-  const sourceType = normalizeSourceType(value.source_type || value.sourceType);
-  const assetId = normalizeAssetId(value.asset_id || value.assetId);
-  if (!sourceType || !assetId) {
-    throw new AdminAiVideoSourceError("source_video is invalid.", { status: 400, code: "invalid_source_video" });
-  }
-  return { source_type: sourceType, asset_id: assetId };
+export async function listAdminAiVideoSourceCandidates(env, adminUser, searchParams = new URLSearchParams()) {
+  const params = new URLSearchParams(searchParams);
+  params.set("media", "video");
+  const result = await listAdminAiMediaSourceCandidates(env, adminUser, params);
+  return {
+    ...result,
+    scope: normalizeLegacyScope(result.scope, "video"),
+  };
 }
 
-async function getSavedAssetSource(env, adminUserId, assetId) {
+export function normalizeAdminAiMediaSourceReference(value, mediaType = "video", field = mediaType === "image" ? "source_image" : "source_video") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AdminAiVideoSourceError(`${field} is required.`, { status: 400, code: `invalid_${field}` });
+  }
+  const normalizedMedia = normalizeMediaType(mediaType);
+  const sourceType = normalizeSourceType(value.source_type || value.sourceType, normalizedMedia);
+  const assetId = normalizeAssetId(value.asset_id || value.assetId);
+  if (!sourceType || !assetId) {
+    throw new AdminAiVideoSourceError(`${field} is invalid.`, { status: 400, code: `invalid_${field}` });
+  }
+  return { media_type: normalizedMedia, source_type: sourceType, asset_id: assetId };
+}
+
+export function normalizeAdminAiVideoSourceReference(value) {
+  const ref = normalizeAdminAiMediaSourceReference(value, "video", "source_video");
+  return { source_type: ref.source_type, asset_id: ref.asset_id };
+}
+
+async function getSavedVideoSource(env, adminUserId, assetId) {
   const row = await env.DB.prepare(
     `SELECT id, user_id, title, file_name, mime_type, size_bytes, metadata_json, r2_key,
             created_at, published_at, poster_r2_key, poster_width, poster_height, poster_size_bytes
@@ -310,9 +449,55 @@ async function getMemvidSource(env, assetId) {
   return row;
 }
 
+async function getSavedImageSource(env, adminUserId, assetId) {
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at,
+            created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width,
+            medium_height, derivatives_status, derivatives_version, derivatives_ready_at,
+            thumb_mime_type, medium_mime_type
+     FROM ai_images
+     WHERE id = ?
+       AND user_id = ?
+       AND r2_key IS NOT NULL
+     LIMIT 1`
+  ).bind(assetId, adminUserId).first();
+  if (!row) {
+    throw new AdminAiVideoSourceError("Image source was not found.", { status: 404, code: "image_source_not_found" });
+  }
+  assertSupportedImageRow(row);
+  return row;
+}
+
+async function getMempicSource(env, assetId) {
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at,
+            created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width,
+            medium_height, derivatives_status, derivatives_version, derivatives_ready_at,
+            thumb_mime_type, medium_mime_type
+     FROM ai_images
+     WHERE id = ?
+       AND visibility = 'public'
+       AND derivatives_status = 'ready'
+       AND thumb_key IS NOT NULL
+       AND medium_key IS NOT NULL
+       AND r2_key IS NOT NULL
+     LIMIT 1`
+  ).bind(assetId).first();
+  if (!row) {
+    throw new AdminAiVideoSourceError("Image source was not found.", { status: 404, code: "image_source_not_found" });
+  }
+  assertSupportedImageRow(row);
+  return row;
+}
+
 async function getSourceRow(env, sourceRef, adminUserId) {
+  if (sourceRef.media_type === "image") {
+    return sourceRef.source_type === "saved_asset"
+      ? getSavedImageSource(env, adminUserId, sourceRef.asset_id)
+      : getMempicSource(env, sourceRef.asset_id);
+  }
   return sourceRef.source_type === "saved_asset"
-    ? getSavedAssetSource(env, adminUserId, sourceRef.asset_id)
+    ? getSavedVideoSource(env, adminUserId, sourceRef.asset_id)
     : getMemvidSource(env, sourceRef.asset_id);
 }
 
@@ -327,16 +512,18 @@ function getProviderOrigin(env, origin = null) {
   }
 }
 
-async function createVideoSourceToken(env, sourceRef, {
+async function createMediaSourceToken(env, sourceRef, {
+  operation = "extend",
   userId = null,
   jobId = null,
   expiresAt = Date.now() + ADMIN_AI_VIDEO_SOURCE_TOKEN_TTL_MS,
 } = {}) {
   const payload = {
     v: ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION,
-    purpose: ADMIN_AI_VIDEO_SOURCE_TOKEN_PURPOSE,
+    purpose: ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE,
     model: ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
-    operation: "extend",
+    operation,
+    media: sourceRef.media_type,
     source_type: sourceRef.source_type,
     asset_id: sourceRef.asset_id,
     user_id: userId || null,
@@ -349,20 +536,20 @@ async function createVideoSourceToken(env, sourceRef, {
   return `${unsigned}.${sig}`;
 }
 
-async function parseVideoSourceToken(env, token, { now = Date.now() } = {}) {
+async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   const raw = String(token || "").trim();
   const separator = raw.lastIndexOf(".");
-  if (separator <= 0 || separator === raw.length - 1 || raw.length > 2000) {
-    throw new AdminAiVideoSourceError("Invalid video source token.", { status: 403, code: "invalid_video_source_token" });
+  if (separator <= 0 || separator === raw.length - 1 || raw.length > 2200) {
+    throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
   let payload;
   try {
     payload = JSON.parse(textDecoder.decode(base64ToBytes(fromBase64Url(raw.slice(0, separator)))));
   } catch {
-    throw new AdminAiVideoSourceError("Invalid video source token.", { status: 403, code: "invalid_video_source_token" });
+    throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new AdminAiVideoSourceError("Invalid video source token.", { status: 403, code: "invalid_video_source_token" });
+    throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
   const signature = raw.slice(separator + 1);
   let matched = false;
@@ -373,22 +560,33 @@ async function parseVideoSourceToken(env, token, { now = Date.now() } = {}) {
     }
   }
   if (!matched) {
-    throw new AdminAiVideoSourceError("Invalid video source token.", { status: 403, code: "invalid_video_source_token" });
+    throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
+  const isLegacyVideoToken = payload.purpose === ADMIN_AI_VIDEO_SOURCE_TOKEN_PURPOSE;
+  const mediaType = isLegacyVideoToken ? "video" : String(payload.media || "").trim().toLowerCase();
+  const operation = String(payload.operation || "").trim();
   if (
     payload.v !== ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION ||
-    payload.purpose !== ADMIN_AI_VIDEO_SOURCE_TOKEN_PURPOSE ||
+    (payload.purpose !== ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE && !isLegacyVideoToken) ||
     payload.model !== ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID ||
-    payload.operation !== "extend" ||
-    !normalizeSourceType(payload.source_type) ||
+    !["image", "video"].includes(mediaType) ||
+    !["generate", "edit", "extend"].includes(operation) ||
+    (operation === "generate" && mediaType !== "image") ||
+    ((operation === "edit" || operation === "extend") && mediaType !== "video") ||
+    !normalizeSourceType(payload.source_type, mediaType) ||
     !normalizeAssetId(payload.asset_id)
   ) {
-    throw new AdminAiVideoSourceError("Invalid video source token.", { status: 403, code: "invalid_video_source_token" });
+    throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
+  }
+  if (isLegacyVideoToken && operation !== "extend") {
+    throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
   if (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now) {
-    throw new AdminAiVideoSourceError("Video source token expired.", { status: 410, code: "video_source_token_expired" });
+    throw new AdminAiVideoSourceError("Media source token expired.", { status: 410, code: "media_source_token_expired" });
   }
   return {
+    media_type: mediaType,
+    operation,
     source_type: payload.source_type,
     asset_id: payload.asset_id,
     user_id: typeof payload.user_id === "string" && payload.user_id ? payload.user_id : null,
@@ -396,52 +594,83 @@ async function parseVideoSourceToken(env, token, { now = Date.now() } = {}) {
   };
 }
 
-export async function resolveAdminAiGrokPreviewExtendSourceForProvider(env, adminUser, payload, {
+function getSourceRefForOperation(payload) {
+  const operation = String(payload?._operation || "generate").trim() || "generate";
+  if (operation === "generate") {
+    return normalizeAdminAiMediaSourceReference(payload.source_image, "image", "source_image");
+  }
+  return normalizeAdminAiMediaSourceReference(payload.source_video, "video", "source_video");
+}
+
+function stripPreviewMediaSourceFields(payload) {
+  const {
+    source_image: _sourceImage,
+    sourceImage: _sourceImageAlias,
+    source_video: _sourceVideo,
+    sourceVideo: _sourceVideoAlias,
+    image: _image,
+    image_url: _imageUrl,
+    imageInput: _imageInput,
+    video: _video,
+    video_url: _videoUrl,
+    videoInput: _videoInput,
+    reference_images: _referenceImages,
+    referenceImages: _referenceImagesAlias,
+    ...rest
+  } = payload || {};
+  return rest;
+}
+
+export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, {
   correlationId = null,
   jobId = null,
   origin = null,
 } = {}) {
-  if (
-    payload?.model !== ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID ||
-    payload?._operation !== "extend"
-  ) {
+  if (payload?.model !== ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
     return payload;
   }
-  const sourceRef = normalizeAdminAiVideoSourceReference(payload.source_video);
+  const operation = String(payload?._operation || "generate").trim() || "generate";
+  if (!["generate", "edit", "extend"].includes(operation)) return payload;
+  const sourceRef = getSourceRefForOperation(payload);
   const source = await getSourceRow(env, sourceRef, adminUser?.id || null);
-  const token = await createVideoSourceToken(env, sourceRef, {
+  const token = await createMediaSourceToken(env, sourceRef, {
+    operation,
     userId: sourceRef.source_type === "saved_asset" ? adminUser?.id || null : null,
     jobId,
   });
-  const providerUrl = `${getProviderOrigin(env, origin)}/api/internal/ai/video-source/${encodeURIComponent(token)}`;
+  const providerUrl = `${getProviderOrigin(env, origin)}/api/internal/ai/media-source/${encodeURIComponent(token)}`;
   const sourceIdHash = await sha256Hex(sourceRef.asset_id);
   logDiagnostic({
     service: "bitbi-auth",
-    component: "admin-ai-video-source",
-    event: "admin_ai_grok_preview_extend_source_resolved",
+    component: "admin-ai-media-source",
+    event: "admin_ai_grok_preview_media_source_resolved",
     level: "info",
     correlationId,
     job_id: jobId || null,
     model: ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
-    operation: "extend",
+    operation,
+    source_media_type: sourceRef.media_type,
     source_type: sourceRef.source_type,
     source_asset_id_hash: sourceIdHash,
     source_mime_type: source.mime_type || null,
     source_size_bytes: source.size_bytes ?? null,
   });
-  const { source_video: _sourceVideo, video: _video, video_url: _videoUrl, videoInput: _videoInput, ...rest } = payload;
-  return {
-    ...rest,
-    video: { url: providerUrl },
-  };
+  const rest = stripPreviewMediaSourceFields(payload);
+  return operation === "generate"
+    ? { ...rest, image: { url: providerUrl } }
+    : { ...rest, video: { url: providerUrl } };
+}
+
+export async function resolveAdminAiGrokPreviewExtendSourceForProvider(env, adminUser, payload, options = {}) {
+  return resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, options);
 }
 
 function errorResponse(error) {
   const status = Number(error?.status || 500);
   return new Response(JSON.stringify({
     ok: false,
-    error: status >= 500 ? "Video source is unavailable." : error.message,
-    code: error?.code || "video_source_error",
+    error: status >= 500 ? "Media source is unavailable." : error.message,
+    code: error?.code || "media_source_error",
   }), {
     status,
     headers: {
@@ -452,19 +681,20 @@ function errorResponse(error) {
   });
 }
 
-export async function handleAdminAiVideoSourceTokenRequest(ctx, token) {
+export async function handleAdminAiMediaSourceTokenRequest(ctx, token) {
   const { env, method, correlationId } = ctx;
   if (method !== "GET" && method !== "HEAD") return null;
   try {
-    const ref = await parseVideoSourceToken(env, token);
-    const source = ref.source_type === "saved_asset"
-      ? await getSavedAssetSource(env, ref.user_id, ref.asset_id)
-      : await getMemvidSource(env, ref.asset_id);
+    const ref = await parseMediaSourceToken(env, token);
+    const source = await getSourceRow(env, ref, ref.user_id);
     const object = await env.USER_IMAGES.get(source.r2_key);
     if (!object) {
-      throw new AdminAiVideoSourceError("Video source was not found.", { status: 404, code: "video_source_not_found" });
+      throw new AdminAiVideoSourceError("Media source was not found.", { status: 404, code: "media_source_not_found" });
     }
-    const contentType = source.mime_type || object.httpMetadata?.contentType || "video/mp4";
+    const contentType = ref.media_type === "image"
+      ? object.httpMetadata?.contentType || source.medium_mime_type || source.thumb_mime_type || "image/png"
+      : source.mime_type || object.httpMetadata?.contentType || "video/mp4";
+    assertSupportedObjectContentType(ref.media_type, contentType);
     const headers = new Headers({
       "Content-Type": contentType,
       "Cache-Control": "private, no-store",
@@ -476,13 +706,17 @@ export async function handleAdminAiVideoSourceTokenRequest(ctx, token) {
   } catch (error) {
     logDiagnostic({
       service: "bitbi-auth",
-      component: "admin-ai-video-source",
-      event: "admin_ai_video_source_token_failed",
+      component: "admin-ai-media-source",
+      event: "admin_ai_media_source_token_failed",
       level: Number(error?.status || 500) >= 500 ? "error" : "warn",
       correlationId,
-      error_code: error?.code || "video_source_error",
+      error_code: error?.code || "media_source_error",
       ...getErrorFields(error, { includeMessage: false }),
     });
     return errorResponse(error);
   }
+}
+
+export async function handleAdminAiVideoSourceTokenRequest(ctx, token) {
+  return handleAdminAiMediaSourceTokenRequest(ctx, token);
 }

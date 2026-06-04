@@ -230,6 +230,43 @@ function optionalUsageSummary(value, field = "usage") {
   }
 }
 
+function optionalVideoPricingSummary(value, field = "data.pricing") {
+  if (value === undefined || value === null) return null;
+  const input = ensurePlainObject(value, field);
+  const normalizedInput = input.normalized && typeof input.normalized === "object" && !Array.isArray(input.normalized)
+    ? input.normalized
+    : {};
+  const formulaInput = input.formula && typeof input.formula === "object" && !Array.isArray(input.formula)
+    ? input.formula
+    : {};
+  return {
+    modelId: optionalString(input.modelId || input.model_id || input.model, `${field}.modelId`, 160),
+    credits: optionalNumber(input.credits, `${field}.credits`, 0, 1_000_000),
+    providerCostUsd: optionalNumber(input.providerCostUsd, `${field}.providerCostUsd`, 0, 1_000_000),
+    internalCostUsd: optionalNumber(input.internalCostUsd, `${field}.internalCostUsd`, 0, 1_000_000),
+    chargedValueUsd: optionalNumber(input.chargedValueUsd, `${field}.chargedValueUsd`, 0, 1_000_000),
+    effectiveProfitMargin: optionalNumber(input.effectiveProfitMargin, `${field}.effectiveProfitMargin`, -10, 10),
+    adminCreditsCharged: optionalNumber(input.adminCreditsCharged, `${field}.adminCreditsCharged`, 0, 1_000_000),
+    normalized: {
+      operation: optionalString(normalizedInput.operation || input.operation, `${field}.normalized.operation`, 32),
+      duration: optionalNumber(normalizedInput.duration ?? normalizedInput.durationSeconds ?? input.duration, `${field}.normalized.duration`, 0, 10_000),
+      aspectRatio: optionalString(normalizedInput.aspectRatio || normalizedInput.aspect_ratio || input.aspect_ratio, `${field}.normalized.aspectRatio`, 24),
+      resolution: optionalString(normalizedInput.resolution || input.resolution, `${field}.normalized.resolution`, 24),
+      size: optionalString(normalizedInput.size || input.size, `${field}.normalized.size`, 32),
+      rateUsdPerSecond: optionalNumber(normalizedInput.rateUsdPerSecond ?? normalizedInput.rate_usd_per_second, `${field}.normalized.rateUsdPerSecond`, 0, 1_000),
+      hasImageInput: optionalBoolean(normalizedInput.hasImageInput ?? input.hasImageInput, `${field}.normalized.hasImageInput`, null),
+      hasVideoInput: optionalBoolean(normalizedInput.hasVideoInput ?? input.hasVideoInput, `${field}.normalized.hasVideoInput`, null),
+      referenceImageCount: optionalInteger(normalizedInput.referenceImageCount ?? input.referenceImageCount, `${field}.normalized.referenceImageCount`, 0, 10, null),
+      outputUploadUrlPresent: optionalBoolean(normalizedInput.outputUploadUrlPresent ?? input.outputUploadUrlPresent, `${field}.normalized.outputUploadUrlPresent`, null),
+    },
+    formula: {
+      pricingVersion: optionalString(formulaInput.pricingVersion || input.pricingVersion, `${field}.formula.pricingVersion`, 80),
+      billingMode: optionalString(formulaInput.billingMode || input.billingMode, `${field}.formula.billingMode`, 80),
+      pricingSource: optionalString(formulaInput.pricingSource || input.pricingSource, `${field}.formula.pricingSource`, 240),
+    },
+  };
+}
+
 function optionalHexId(value, field) {
   const normalized = optionalString(value, field, 64);
   if (!normalized) return null;
@@ -552,7 +589,7 @@ function validateSavedVideoData(data) {
     hasImageInput: optionalBoolean(input.hasImageInput, "data.hasImageInput", null),
     hasEndImageInput: optionalBoolean(input.hasEndImageInput, "data.hasEndImageInput", null),
     workflow: optionalString(input.workflow, "data.workflow", 80),
-    pricing: optionalUsageSummary(input.pricing, "data.pricing"),
+    pricing: optionalVideoPricingSummary(input.pricing, "data.pricing"),
     posterBase64: optionalString(input.posterBase64, "data.posterBase64", SAVE_TEXT_ASSET_LIMITS.maxPosterBase64Length),
     posterUrl: optionalString(input.posterUrl, "data.posterUrl", 2048),
     warnings: optionalWarnings(input.warnings),

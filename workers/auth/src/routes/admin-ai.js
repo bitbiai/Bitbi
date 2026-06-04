@@ -63,8 +63,9 @@ import {
   serializeAiVideoJob,
 } from "../lib/ai-video-jobs.js";
 import {
+  listAdminAiMediaSourceCandidates,
   listAdminAiVideoSourceCandidates,
-  resolveAdminAiGrokPreviewExtendSourceForProvider,
+  resolveAdminAiGrokPreviewMediaSourcesForProvider,
 } from "../lib/admin-ai-video-sources.js";
 import {
   adminAiUsageAttemptCursorExpiry,
@@ -2327,6 +2328,32 @@ export async function handleAdminAI(ctx) {
     return proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId, requestInfo);
   }
 
+  // route-policy: admin.ai.media-source-candidates
+  if (pathname === "/api/admin/ai/media-source-candidates" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-media-source-candidates-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    try {
+      const data = await listAdminAiMediaSourceCandidates(env, result.user, url.searchParams);
+      return withCorrelationId(json({ ok: true, data }, {
+        headers: { "Cache-Control": "private, no-store" },
+      }), correlationId);
+    } catch (error) {
+      if (error?.code === "media_sources_unavailable"
+        || error?.code === "video_sources_unavailable"
+        || String(error?.message || error).includes("no such table")) {
+        return withCorrelationId(json({
+          ok: false,
+          error: "Media source candidates are temporarily unavailable.",
+          code: "media_sources_unavailable",
+        }, {
+          status: 503,
+          headers: { "Cache-Control": "private, no-store" },
+        }), correlationId);
+      }
+      throw error;
+    }
+  }
+
   // route-policy: admin.ai.video-source-candidates
   if (pathname === "/api/admin/ai/video-source-candidates" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-video-source-candidates-ip", 30, 600_000, correlationId);
@@ -2338,6 +2365,7 @@ export async function handleAdminAI(ctx) {
       }), correlationId);
     } catch (error) {
       if (error?.code === "video_sources_unavailable"
+        || error?.code === "media_sources_unavailable"
         || String(error?.message || error).includes("no such table")) {
         return withCorrelationId(json({
           ok: false,
@@ -3249,7 +3277,7 @@ export async function handleAdminAI(ctx) {
         model: validated.model,
       });
       assertAdminVideoPricingConfigured(validatedSelection.model.id, validated);
-      const providerPayload = await resolveAdminAiGrokPreviewExtendSourceForProvider(
+      const providerPayload = await resolveAdminAiGrokPreviewMediaSourcesForProvider(
         env,
         result.user,
         validated,
