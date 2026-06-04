@@ -308,6 +308,13 @@ async function loadGrokImagineVideoPricingModule() {
   return import(modulePath);
 }
 
+async function loadGrokImagineVideo15PreviewPricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/grok-imagine-video-15-preview-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadAiModelPricingModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/ai-model-pricing.mjs')
@@ -12979,6 +12986,93 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     })).toThrow('Unsupported Grok Imagine Video resolution.');
   });
 
+  test('Grok Imagine Video 1.5 Preview pricing uses operator-provided per-resolution rates', async () => {
+    const {
+      GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID,
+      GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_PROVIDER_RATE_USD_PER_SECOND,
+      GROK_IMAGINE_VIDEO_15_PREVIEW_PROVIDER_RATE_USD_PER_SECOND_BY_RESOLUTION,
+      GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION,
+      GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION,
+      GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS,
+      GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS,
+      calculateGrokImagineVideo15PreviewCreditPricing,
+      listGrokImagineVideo15PreviewPricingMatrix,
+    } = await loadGrokImagineVideo15PreviewPricingModule();
+    const modelPricing = await loadAiModelPricingModule();
+
+    expect(GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID).toBe('xai/grok-imagine-video-1.5-preview');
+    expect(GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_PROVIDER_RATE_USD_PER_SECOND).toBe(0.08);
+    expect(GROK_IMAGINE_VIDEO_15_PREVIEW_PROVIDER_RATE_USD_PER_SECOND_BY_RESOLUTION).toEqual({
+      '480p': 0.08,
+      '720p': 0.14,
+    });
+    expect(listGrokImagineVideo15PreviewPricingMatrix()).toHaveLength(
+      GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS.length
+      * GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS.length
+      * (GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION - GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION + 1)
+    );
+
+    const priced480 = calculateGrokImagineVideo15PreviewCreditPricing({
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '480p',
+    });
+    expect(priced480.providerCostUsd).toBeCloseTo(0.40, 12);
+    expect(priced480.normalized.resolution).toBe('480p');
+    expect(priced480.normalized.rateUsdPerSecond).toBe(0.08);
+    expect(priced480.formula).toMatchObject({
+      pricingVersion: 'grok-imagine-video-1-5-preview-v1',
+      billingMode: 'cloudflare_ai_gateway_unified_billing_duration_seconds_resolution',
+      pricingSource: 'operator_requested_grok_imagine_video_1_5_preview_pricing_2026_06_04',
+    });
+
+    const priced720 = calculateGrokImagineVideo15PreviewCreditPricing({
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      _operation: 'edit',
+      hasVideoInput: true,
+      referenceImageCount: 2,
+      outputUploadUrlPresent: true,
+    });
+    expect(priced720.providerCostUsd).toBeCloseTo(0.70, 12);
+    expect(priced720.normalized).toMatchObject({
+      operation: 'edit',
+      resolution: '720p',
+      hasVideoInput: true,
+      referenceImageCount: 2,
+      outputUploadUrlPresent: true,
+      rateUsdPerSecond: 0.14,
+    });
+
+    const defaultResolution = calculateGrokImagineVideo15PreviewCreditPricing({
+      duration: 5,
+      aspect_ratio: '16:9',
+    });
+    expect(defaultResolution.providerCostUsd).toBeCloseTo(0.40, 12);
+    expect(defaultResolution.normalized.resolution).toBe('480p');
+    expect(modelPricing.calculateAiVideoCreditCost('xai/grok-imagine-video-1.5-preview', {
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+    })).toEqual(calculateGrokImagineVideo15PreviewCreditPricing({
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+    }));
+
+    expect(() => calculateGrokImagineVideo15PreviewCreditPricing({ duration: 16 })).toThrow('Unsupported Grok Imagine Video 1.5 Preview duration.');
+    expect(() => calculateGrokImagineVideo15PreviewCreditPricing({
+      duration: 5,
+      aspect_ratio: '21:9',
+    })).toThrow('Unsupported Grok Imagine Video 1.5 Preview aspect ratio.');
+    expect(() => calculateGrokImagineVideo15PreviewCreditPricing({
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '1080p',
+    })).toThrow('Unsupported Grok Imagine Video 1.5 Preview resolution.');
+  });
+
   test('model margin helper derives its credit value from the static live Stripe pack catalog', async () => {
     const stripeBilling = await loadStripeBillingModule();
     const livePacks = await loadLiveCreditPacksModule();
@@ -13858,6 +13952,41 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       label: 'Grok Imagine Video',
       vendor: 'xAI',
     }));
+  });
+
+  test('member video generation rejects Grok Imagine Video 1.5 Preview as admin-only', async () => {
+    const { authWorker, env, token, calls } = await createMemberVideoHarness({
+      creditBalance: 1000,
+    });
+
+    const res = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      includePixverseDefaults: false,
+      body: {
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'This admin preview model must not be member-visible.',
+        duration: 5,
+        resolution: '480p',
+        aspect_ratio: '16:9',
+      },
+      idempotencyKey: 'member-grok15-preview-admin-only-blocked',
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'model_not_allowed',
+    });
+    expect(calls).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents.filter((row) =>
+      row.feature_key === 'ai.video.generate'
+    )).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.video.generate' && row.entry_type === 'consume'
+    )).toHaveLength(0);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
   });
 
   test('member Grok Imagine Video rejects unsupported fields and provider failures do not consume credits', async () => {
@@ -20979,6 +21108,110 @@ test.describe('Worker routes', () => {
       )).toThrow(/resolution must be one of 480p, 720p/i);
     });
 
+    test('invoke-video payload builder serializes Grok Imagine Video 1.5 Preview schema fields', async () => {
+      const { buildVideoPayload } = await loadInvokeAiVideoModule();
+
+      const generate = buildVideoPayload(
+        { id: 'xai/grok-imagine-video-1.5-preview' },
+        {
+          prompt: '  preview text-to-video  ',
+          _operation: 'generate',
+          duration: 5,
+          resolution: '480p',
+          aspect_ratio: '16:9',
+          size: '848x480',
+          image: { url: 'https://cdn.example.com/input.png' },
+          reference_images: [
+            { url: 'https://cdn.example.com/ref-1.png' },
+            { url: 'https://cdn.example.com/ref-2.webp' },
+          ],
+          quality: 'high',
+          seed: 42,
+          negative_prompt: 'unsupported',
+          generate_audio: true,
+        }
+      );
+
+      expect(generate.payload).toEqual({
+        _operation: 'generate',
+        prompt: 'preview text-to-video',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '480p',
+        size: '848x480',
+        image: { url: 'https://cdn.example.com/input.png' },
+        reference_images: [
+          { url: 'https://cdn.example.com/ref-1.png' },
+          { url: 'https://cdn.example.com/ref-2.webp' },
+        ],
+      });
+      expect(generate.normalized).toMatchObject({
+        operation: 'generate',
+        size: '848x480',
+        hasImageInput: true,
+        hasVideoInput: false,
+        referenceImageCount: 2,
+        outputUploadUrlPresent: false,
+        workflow: 'image_to_video',
+      });
+      expect(generate.payload.quality).toBeUndefined();
+      expect(generate.payload.seed).toBeUndefined();
+      expect(generate.payload.negative_prompt).toBeUndefined();
+      expect(generate.payload.generate_audio).toBeUndefined();
+
+      const edit = buildVideoPayload(
+        { id: 'xai/grok-imagine-video-1.5-preview' },
+        {
+          prompt: 'edit the source',
+          _operation: 'edit',
+          duration: 7,
+          resolution: '720p',
+          aspect_ratio: '9:16',
+          video: { url: 'https://cdn.example.com/source.mp4' },
+          output: { upload_url: 'https://uploads.example.com/result' },
+          user: 'admin-user',
+        }
+      );
+      expect(edit.payload).toEqual({
+        _operation: 'edit',
+        prompt: 'edit the source',
+        duration: 7,
+        aspect_ratio: '9:16',
+        resolution: '720p',
+        video: { url: 'https://cdn.example.com/source.mp4' },
+        output: { upload_url: 'https://uploads.example.com/result' },
+        user: 'admin-user',
+      });
+      expect(edit.normalized).toMatchObject({
+        operation: 'edit',
+        hasVideoInput: true,
+        workflow: 'video_edit',
+        outputUploadUrlPresent: true,
+      });
+
+      expect(() => buildVideoPayload(
+        { id: 'xai/grok-imagine-video-1.5-preview' },
+        {
+          prompt: 'edit needs video',
+          _operation: 'edit',
+          duration: 5,
+          resolution: '480p',
+          aspect_ratio: '16:9',
+        }
+      )).toThrow(/video is required for edit and extend/i);
+      expect(() => buildVideoPayload(
+        { id: 'xai/grok-imagine-video-1.5-preview' },
+        {
+          prompt: 'too many refs',
+          _operation: 'generate',
+          duration: 5,
+          resolution: '480p',
+          aspect_ratio: '16:9',
+          reference_images: Array.from({ length: 11 }, (_, index) => ({ url: `https://cdn.example.com/${index}.png` })),
+        }
+      )).toThrow(/reference_images must contain at most 10/i);
+    });
+
     test('GET /api/admin/ai/models returns the catalog shape used by the UI', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
       const contractModule = await loadAdminAiContractModule();
@@ -21056,9 +21289,13 @@ test.describe('Worker routes', () => {
         'bytedance/seedance-2.0-fast',
         'bytedance/seedance-2.0',
         'xai/grok-imagine-video',
+        'xai/grok-imagine-video-1.5-preview',
       ]));
       expect(body.presets.find((preset) => preset.task === 'video' && preset.name === 'video_grok_imagine')).toEqual(expect.objectContaining({
         model: 'xai/grok-imagine-video',
+      }));
+      expect(body.presets.find((preset) => preset.task === 'video' && preset.name === 'video_grok_imagine_15_preview')).toEqual(expect.objectContaining({
+        model: 'xai/grok-imagine-video-1.5-preview',
       }));
       expect(body.presets.find((preset) => preset.task === 'video' && preset.name === 'video_studio')).toEqual(expect.objectContaining({
         model: 'pixverse/v6',
@@ -21133,6 +21370,37 @@ test.describe('Worker routes', () => {
           defaultResolution: '720p',
           defaultPreset: 'video_grok_imagine',
           supportedOperations: ['generate'],
+        }),
+      });
+      const grokImagine15Preview = body.models.video.find((model) => model.id === 'xai/grok-imagine-video-1.5-preview');
+      expect(grokImagine15Preview).toMatchObject({
+        label: 'Grok Imagine Video 1.5 Preview',
+        vendor: 'xAI',
+        providerLabel: 'Cloudflare AI Gateway',
+        capabilities: expect.objectContaining({
+          adminOnly: true,
+          pricingRequired: false,
+          generationEnabled: true,
+          supportsImageInput: true,
+          supportsVideoInput: true,
+          supportsReferenceImages: true,
+          maxReferenceImages: 10,
+          supportsOutputUploadUrl: true,
+          supportsSize: true,
+          supportsNegativePrompt: false,
+          supportsSeed: false,
+          supportsAudioToggle: false,
+          supportsWatermark: false,
+          resolutionOptions: ['480p', '720p'],
+          sizeOptions: ['848x480', '1696x960', '1280x720', '1920x1080'],
+          aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
+          minDuration: 1,
+          maxDuration: 15,
+          defaultDuration: 5,
+          defaultAspectRatio: '16:9',
+          defaultResolution: '480p',
+          defaultPreset: 'video_grok_imagine_15_preview',
+          supportedOperations: ['generate', 'edit', 'extend'],
         }),
       });
       expect(body.presets[0]).toEqual(expect.objectContaining({
@@ -23374,6 +23642,105 @@ test.describe('Worker routes', () => {
       expect(service.calls).toHaveLength(0);
     });
 
+    test('validateAdminAiVideoBody accepts Grok Imagine Video 1.5 Preview operations and rejects unsafe shapes', async () => {
+      const {
+        AdminAiValidationError,
+        validateAdminAiVideoBody,
+      } = await loadAdminAiContractModule();
+
+      const generate = validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Preview generate.',
+        _operation: 'generate',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '480p',
+        image_url: 'https://cdn.example.com/input.png#frag',
+        referenceImages: [
+          'https://cdn.example.com/ref-1.png',
+          { url: 'https://cdn.example.com/ref-2.webp' },
+        ],
+      });
+      expect(generate).toMatchObject({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Preview generate.',
+        _operation: 'generate',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '480p',
+        image: { url: 'https://cdn.example.com/input.png' },
+        reference_images: [
+          { url: 'https://cdn.example.com/ref-1.png' },
+          { url: 'https://cdn.example.com/ref-2.webp' },
+        ],
+      });
+
+      const edit = validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Preview edit.',
+        _operation: 'edit',
+        duration: 8,
+        aspect_ratio: '9:16',
+        resolution: '720p',
+        size: '1920x1080',
+        video: { url: 'https://cdn.example.com/source.mp4' },
+        output_upload_url: 'https://uploads.example.com/output.mp4',
+        user: 'admin-test',
+      });
+      expect(edit).toMatchObject({
+        _operation: 'edit',
+        video: { url: 'https://cdn.example.com/source.mp4' },
+        output: { upload_url: 'https://uploads.example.com/output.mp4' },
+        user: 'admin-test',
+        size: '1920x1080',
+      });
+
+      const extend = validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Continue this clip.',
+        _operation: 'extend',
+        duration: 12,
+        aspect_ratio: '16:9',
+        resolution: '480p',
+        video_url: 'https://cdn.example.com/source.mp4',
+      });
+      expect(extend).toMatchObject({
+        _operation: 'extend',
+        video: { url: 'https://cdn.example.com/source.mp4' },
+      });
+
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Bad operation.',
+        _operation: 'remix',
+      })).toThrow('_operation must be one of generate, edit, extend');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Too many references.',
+        reference_images: Array.from({ length: 11 }, (_, index) => ({ url: `https://cdn.example.com/${index}.png` })),
+      })).toThrow('reference_images must contain at most 10 items');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Edit without video.',
+        _operation: 'edit',
+      })).toThrow('video.url is required for edit and extend operations');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Remote URL must be https.',
+        image_url: 'http://cdn.example.com/input.png',
+      })).toThrow('image must use https');
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Unsupported field.',
+        negative_prompt: 'no',
+      })).toThrow(AdminAiValidationError);
+      expect(() => validateAdminAiVideoBody({
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Unsupported field.',
+        negative_prompt: 'no',
+      })).toThrow('negative_prompt is not supported by model "xai/grok-imagine-video-1.5-preview"');
+    });
+
     test('POST /api/admin/ai/video-jobs queues priced Seedance admin video job with bounded metadata', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const { calculateSeedance2CreditPricing } = await loadSeedance2PricingModule();
@@ -23657,6 +24024,154 @@ test.describe('Worker routes', () => {
         duration: 5,
         resolution: '720p',
         aspect_ratio: '16:9',
+      });
+      expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
+    });
+
+    test('POST /api/admin/ai/video-jobs queues Grok Imagine Video 1.5 Preview with operation metadata', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { calculateGrokImagineVideo15PreviewCreditPricing } = await loadGrokImagineVideo15PreviewPricingModule();
+      const admin = createAdminUser('async-video-grok15-budget-admin');
+      const service = createAiVideoJobServiceBinding();
+      const assetFetch = createVideoAssetFetchStub();
+      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+      const expectedPricing = calculateGrokImagineVideo15PreviewCreditPricing({
+        _operation: 'edit',
+        duration: 5,
+        resolution: '720p',
+        aspect_ratio: '16:9',
+        size: '1280x720',
+        hasVideoInput: true,
+        referenceImageCount: 1,
+        outputUploadUrlPresent: true,
+      });
+
+      const createRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'xai/grok-imagine-video-1.5-preview',
+          prompt: 'Grok Imagine preview edit queue test.',
+          _operation: 'edit',
+          duration: 5,
+          aspect_ratio: '16:9',
+          resolution: '720p',
+          size: '1280x720',
+          video: { url: 'https://cdn.example.com/source.mp4' },
+          reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+          output: { upload_url: 'https://uploads.example.com/output.mp4' },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-grok15-priced-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(createRes.status).toBe(202);
+      const createBody = await createRes.json();
+      expect(createBody).toMatchObject({
+        ok: true,
+        job: {
+          status: 'queued',
+          provider: 'xai',
+          model: 'xai/grok-imagine-video-1.5-preview',
+          budgetPolicy: expect.objectContaining({
+            operation_id: 'admin.video.job.create',
+            budget_scope: 'platform_admin_lab_budget',
+            provider_family: 'xai',
+            credit_debit: false,
+            live_platform_budget_cap: expect.objectContaining({
+              requested_units: expectedPricing.credits,
+            }),
+            grok_imagine_pricing: expect.objectContaining({
+              status: 'operator_approved_admin_pricing',
+              pricing_configured: true,
+              credit_debit: false,
+              model_id: 'xai/grok-imagine-video-1.5-preview',
+              operation: 'edit',
+              duration: 5,
+              resolution: '720p',
+              aspect_ratio: '16:9',
+              size: '1280x720',
+              provider_cost_usd: expectedPricing.providerCostUsd,
+              estimated_credits: expectedPricing.credits,
+              pricing_version: 'grok-imagine-video-1-5-preview-v1',
+              pricing_source: 'operator_requested_grok_imagine_video_1_5_preview_pricing_2026_06_04',
+              input_mode: 'video_input',
+              workflow: 'video_edit',
+              has_video_input: true,
+              reference_image_count: 1,
+              output_upload_url_present: true,
+            }),
+          }),
+        },
+      });
+      expect(env.DB.state.aiVideoJobs).toHaveLength(1);
+      const storedInput = JSON.parse(env.DB.state.aiVideoJobs[0].input_json);
+      expect(storedInput).toMatchObject({
+        preset: null,
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Grok Imagine preview edit queue test.',
+        _operation: 'edit',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        size: '1280x720',
+        video: { url: 'https://cdn.example.com/source.mp4' },
+        reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+        output: { upload_url: 'https://uploads.example.com/output.mp4' },
+        __admin_generation_metadata: {
+          releaseStatus: 'admin_only',
+          adminCreditsCharged: 0,
+          futureMemberPricing: {
+            credits: expectedPricing.credits,
+            providerCostUsd: expectedPricing.providerCostUsd,
+            minimumSellPriceUsd: expectedPricing.minimumSellPriceUsd,
+          },
+        },
+      });
+
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+      const batch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(1);
+      const {
+        __bitbi_ai_caller_policy: callerPolicy,
+        ...internalProviderBody
+      } = service.calls[0].body;
+      expect(internalProviderBody).toEqual({
+        preset: null,
+        model: 'xai/grok-imagine-video-1.5-preview',
+        prompt: 'Grok Imagine preview edit queue test.',
+        _operation: 'edit',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        size: '1280x720',
+        video: { url: 'https://cdn.example.com/source.mp4' },
+        reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+        output: { upload_url: 'https://uploads.example.com/output.mp4' },
+      });
+      expect(callerPolicy).toMatchObject({
+        operation_id: 'admin.video.task.create',
+        provider_family: 'xai',
+        model_id: 'xai/grok-imagine-video-1.5-preview',
+      });
+      const usageMetadata = JSON.parse(env.DB.state.platformBudgetUsageEvents[0].metadata_json);
+      expect(usageMetadata).toMatchObject({
+        model_id: 'xai/grok-imagine-video-1.5-preview',
+        provider_family: 'xai',
+        result_status: 'succeeded',
+        operation: 'edit',
+        size: '1280x720',
+        grok_imagine_workflow: 'video_edit',
+        grok_imagine_has_video_input: true,
+        grok_imagine_reference_image_count: 1,
+        grok_imagine_output_upload_url_present: true,
       });
       expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
     });
@@ -29936,6 +30451,78 @@ test.describe('Worker routes', () => {
         error: expect.stringContaining('seed is not supported by model "xai/grok-imagine-video"'),
       }));
       expect(aiRunCalls).toHaveLength(1);
+    });
+
+    test('POST /api/admin/ai/test-video dispatches Grok Imagine Video 1.5 Preview edit payload', async () => {
+      const aiRunCalls = [];
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiEnv: { AI_GATEWAY_ID: 'admin-gateway' },
+        aiRun: async (...args) => {
+          aiRunCalls.push(args);
+          return {
+            video: 'https://cdn.example.com/video/grok15.mp4',
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'xai/grok-imagine-video-1.5-preview',
+          prompt: 'Grok Imagine 1.5 preview route.',
+          _operation: 'edit',
+          duration: 5,
+          aspect_ratio: '16:9',
+          resolution: '720p',
+          size: '1280x720',
+          video: { url: 'https://cdn.example.com/source.mp4' },
+          reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+          output: { upload_url: 'https://uploads.example.com/output.mp4' },
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        model: {
+          id: 'xai/grok-imagine-video-1.5-preview',
+        },
+        result: {
+          videoUrl: 'https://cdn.example.com/video/grok15.mp4',
+          prompt: 'Grok Imagine 1.5 preview route.',
+          duration: 5,
+          aspect_ratio: '16:9',
+          ratio: '16:9',
+          quality: null,
+          resolution: '720p',
+          size: '1280x720',
+          operation: 'edit',
+          hasImageInput: false,
+          hasVideoInput: true,
+          hasEndImageInput: false,
+          referenceImageCount: 1,
+          outputUploadUrlPresent: true,
+          workflow: 'video_edit',
+        },
+      });
+      expect(aiRunCalls).toHaveLength(1);
+      expect(aiRunCalls[0][0]).toBe('xai/grok-imagine-video-1.5-preview');
+      expect(aiRunCalls[0][1]).toEqual({
+        _operation: 'edit',
+        prompt: 'Grok Imagine 1.5 preview route.',
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        size: '1280x720',
+        video: { url: 'https://cdn.example.com/source.mp4' },
+        reference_images: [{ url: 'https://cdn.example.com/ref.png' }],
+        output: { upload_url: 'https://uploads.example.com/output.mp4' },
+      });
+      expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'admin-gateway' } });
+      expect(aiRunCalls[0][1].quality).toBeUndefined();
+      expect(aiRunCalls[0][1].seed).toBeUndefined();
+      expect(aiRunCalls[0][1].negative_prompt).toBeUndefined();
     });
 
     test('POST /api/admin/ai/test-video accepts image_input for image-to-video', async () => {

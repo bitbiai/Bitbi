@@ -1,4 +1,5 @@
 import {
+  ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
   ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
   ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
@@ -225,7 +226,10 @@ function sanitizePublicError(value, fallback = "Video job failed.") {
 
 function resolveProvider(modelId) {
   if (modelId === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return "vidu";
-  if (modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) return "xai";
+  if (
+    modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
+    || modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID
+  ) return "xai";
   if (
     modelId === ADMIN_AI_VIDEO_MODEL_ID
     || modelId === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID
@@ -244,14 +248,25 @@ function adminVideoBudgetProviderFamily(modelId) {
 
 function calculateAdminVideoBudgetPricing(modelId, payload = {}) {
   return calculateAiVideoCreditCost(modelId, {
+    _operation: payload._operation,
+    operation: payload.operation,
     duration: payload.duration,
     aspect_ratio: payload.aspect_ratio,
     ratio: payload.ratio,
     quality: payload.quality,
     resolution: payload.resolution,
+    size: payload.size,
     generate_audio: payload.generate_audio,
     audio: payload.audio,
     watermark: payload.watermark,
+    hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image),
+    hasVideoInput: !!(payload.video || payload.video_url),
+    referenceImageCount: Array.isArray(payload.reference_images)
+      ? payload.reference_images.length
+      : Array.isArray(payload.referenceImages)
+        ? payload.referenceImages.length
+        : 0,
+    outputUploadUrlPresent: !!(payload.output?.upload_url || payload.output_upload_url),
   });
 }
 
@@ -321,20 +336,42 @@ function buildSeedancePricingMetadata(modelId, payload = {}, createdAt = nowIso(
 function buildGrokImaginePricingMetadata(modelId, payload = {}, createdAt = nowIso()) {
   if (!isAdminAiVideoGrokImagineModelId(modelId)) return null;
   const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
+  const operation = typeof payload._operation === "string" ? payload._operation : "generate";
+  const hasImageInput = !!(payload.image || payload.image_url || payload.image_input || payload.start_image);
+  const hasVideoInput = !!(payload.video || payload.video_url);
+  const referenceImageCount = Array.isArray(payload.reference_images)
+    ? payload.reference_images.length
+    : Array.isArray(payload.referenceImages)
+      ? payload.referenceImages.length
+      : 0;
+  const outputUploadUrlPresent = !!(payload.output?.upload_url || payload.output_upload_url);
+  const workflow = operation === "edit"
+    ? "video_edit"
+    : operation === "extend"
+      ? "video_extend"
+      : hasImageInput
+        ? "image_to_video"
+        : "text_to_video";
   return {
     status: "operator_approved_admin_pricing",
     pricing_configured: true,
     credit_debit: false,
     model_id: modelId,
+    operation,
     duration: Number(payload.duration || 0) || null,
     resolution: typeof payload.resolution === "string" ? payload.resolution : null,
     aspect_ratio: typeof payload.aspect_ratio === "string" ? payload.aspect_ratio : null,
+    size: typeof payload.size === "string" ? payload.size : null,
     provider_cost_usd: pricing?.providerCostUsd ?? null,
     estimated_credits: pricing?.credits ?? null,
     pricing_version: pricing?.formula?.pricingVersion || null,
     pricing_source: pricing?.formula?.pricingSource || null,
-    input_mode: "prompt_only",
-    workflow: "text_to_video",
+    input_mode: hasVideoInput ? "video_input" : hasImageInput ? "image_input" : "prompt_only",
+    workflow,
+    has_image_input: hasImageInput,
+    has_video_input: hasVideoInput,
+    reference_image_count: referenceImageCount,
+    output_upload_url_present: outputUploadUrlPresent,
     recorded_at: createdAt,
   };
 }
@@ -509,15 +546,21 @@ function safeBudgetPolicyForResponse(value) {
       pricing_configured: policy.grok_imagine_pricing.pricing_configured === true,
       credit_debit: policy.grok_imagine_pricing.credit_debit === true,
       model_id: policy.grok_imagine_pricing.model_id || null,
+      operation: policy.grok_imagine_pricing.operation || null,
       duration: Number(policy.grok_imagine_pricing.duration || 0) || null,
       resolution: policy.grok_imagine_pricing.resolution || null,
       aspect_ratio: policy.grok_imagine_pricing.aspect_ratio || null,
+      size: policy.grok_imagine_pricing.size || null,
       provider_cost_usd: Number(policy.grok_imagine_pricing.provider_cost_usd || 0) || null,
       estimated_credits: Number(policy.grok_imagine_pricing.estimated_credits || 0) || null,
       pricing_version: policy.grok_imagine_pricing.pricing_version || null,
       pricing_source: policy.grok_imagine_pricing.pricing_source || null,
       input_mode: policy.grok_imagine_pricing.input_mode || null,
       workflow: policy.grok_imagine_pricing.workflow || null,
+      has_image_input: policy.grok_imagine_pricing.has_image_input === true,
+      has_video_input: policy.grok_imagine_pricing.has_video_input === true,
+      reference_image_count: Number(policy.grok_imagine_pricing.reference_image_count || 0),
+      output_upload_url_present: policy.grok_imagine_pricing.output_upload_url_present === true,
       recorded_at: policy.grok_imagine_pricing.recorded_at || null,
     } : null,
     fingerprint: policy.fingerprint || null,
@@ -552,11 +595,17 @@ function buildJobStoredInput(payload, modelId) {
     return payload;
   }
   const pricing = calculateAiVideoCreditCost(modelId, {
+    _operation: payload._operation,
     resolution: payload.resolution,
     ratio: payload.ratio,
     aspect_ratio: payload.aspect_ratio,
     duration: payload.duration,
+    size: payload.size,
     watermark: payload.watermark,
+    hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image),
+    hasVideoInput: !!(payload.video || payload.video_url),
+    referenceImageCount: Array.isArray(payload.reference_images) ? payload.reference_images.length : 0,
+    outputUploadUrlPresent: !!(payload.output?.upload_url || payload.output_upload_url),
   });
   return {
     ...payload,
@@ -2040,9 +2089,11 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         model_id: job.model,
         provider_family: budgetPolicy.provider_family || job.provider,
         result_status: "succeeded",
+        operation: budgetPolicy.grok_imagine_pricing?.operation || null,
         duration: budgetPolicy.seedance_pricing?.duration || budgetPolicy.grok_imagine_pricing?.duration || null,
         resolution: budgetPolicy.seedance_pricing?.resolution || budgetPolicy.grok_imagine_pricing?.resolution || null,
         aspect_ratio: budgetPolicy.seedance_pricing?.aspect_ratio || budgetPolicy.grok_imagine_pricing?.aspect_ratio || null,
+        size: budgetPolicy.grok_imagine_pricing?.size || null,
         ...(budgetPolicy.seedance_pricing ? {
           seedance_pricing_status: budgetPolicy.seedance_pricing.status || null,
           seedance_pricing_configured: budgetPolicy.seedance_pricing.pricing_configured === true,
@@ -2057,6 +2108,11 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
           grok_imagine_credit_debit: budgetPolicy.grok_imagine_pricing.credit_debit === true,
           grok_imagine_estimated_credits: budgetPolicy.grok_imagine_pricing.estimated_credits || null,
           grok_imagine_provider_cost_usd: budgetPolicy.grok_imagine_pricing.provider_cost_usd || null,
+          grok_imagine_workflow: budgetPolicy.grok_imagine_pricing.workflow || null,
+          grok_imagine_has_image_input: budgetPolicy.grok_imagine_pricing.has_image_input === true,
+          grok_imagine_has_video_input: budgetPolicy.grok_imagine_pricing.has_video_input === true,
+          grok_imagine_reference_image_count: budgetPolicy.grok_imagine_pricing.reference_image_count || 0,
+          grok_imagine_output_upload_url_present: budgetPolicy.grok_imagine_pricing.output_upload_url_present === true,
         } : {}),
       },
     });

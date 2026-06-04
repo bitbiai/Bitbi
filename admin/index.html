@@ -2231,6 +2231,11 @@
                                 <code class="admin-ai__video-model-card-id">xai/grok-imagine-video</code>
                                 <span class="admin-ai__video-model-card-copy">Admin-only xAI video via Cloudflare AI Gateway Unified Billing and platform budget controls.</span>
                             </button>
+                            <button type="button" id="aiVideoCardGrokImagine15Preview" class="admin-ai__video-model-card" data-ai-video-model="xai/grok-imagine-video-1.5-preview" aria-selected="false">
+                                <span class="admin-ai__video-model-card-title">Grok Imagine Video 1.5 Preview</span>
+                                <code class="admin-ai__video-model-card-id">xai/grok-imagine-video-1.5-preview</code>
+                                <span class="admin-ai__video-model-card-copy">Admin-only xAI preview via Cloudflare AI Gateway with generate, edit, and extend operations.</span>
+                            </button>
                         </div>
 
                         <label class="admin-ai__field">
@@ -2240,6 +2245,57 @@
                             </span>
                             <textarea id="aiVideoPrompt" class="admin-ai__textarea" rows="5" maxlength="5000" placeholder="Describe the scene, motion, camera movement, and visual style."></textarea>
                         </label>
+
+                        <div id="aiVideoGrokPreviewControls" hidden>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label id="aiVideoOperationField" class="admin-ai__field">
+                                    <span class="admin-ai__label">Operation</span>
+                                    <select id="aiVideoOperation" class="admin-ai__input">
+                                        <option value="generate" selected>Generate</option>
+                                        <option value="edit">Edit</option>
+                                        <option value="extend">Extend</option>
+                                    </select>
+                                    <span class="admin-ai__hint">Generate from text/image, edit a source video, or extend a source video.</span>
+                                </label>
+                                <label id="aiVideoSizeField" class="admin-ai__field">
+                                    <span class="admin-ai__label">Size (optional)</span>
+                                    <select id="aiVideoSize" class="admin-ai__input">
+                                        <option value="">Model default</option>
+                                        <option value="848x480">848x480</option>
+                                        <option value="1696x960">1696x960</option>
+                                        <option value="1280x720">1280x720</option>
+                                        <option value="1920x1080">1920x1080</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label id="aiVideoImageUrlField" class="admin-ai__field">
+                                    <span class="admin-ai__label">Image URL (optional)</span>
+                                    <input id="aiVideoImageUrl" class="admin-ai__input" type="url" inputmode="url" maxlength="2048" placeholder="https://...">
+                                    <span class="admin-ai__hint">Optional HTTPS image URL for image-to-video generation.</span>
+                                </label>
+                                <label id="aiVideoVideoUrlField" class="admin-ai__field">
+                                    <span class="admin-ai__label">Source video URL</span>
+                                    <input id="aiVideoVideoUrl" class="admin-ai__input" type="url" inputmode="url" maxlength="2048" placeholder="https://...">
+                                    <span class="admin-ai__hint">Required for edit and extend operations.</span>
+                                </label>
+                            </div>
+                            <label id="aiVideoReferenceUrlsField" class="admin-ai__field">
+                                <span class="admin-ai__label">Reference image URLs (optional)</span>
+                                <textarea id="aiVideoReferenceUrls" class="admin-ai__textarea" rows="3" maxlength="12000" placeholder="https://example.com/reference-1.png&#10;https://example.com/reference-2.webp"></textarea>
+                                <span class="admin-ai__hint">One HTTPS URL per line. Maximum 10 reference images.</span>
+                            </label>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label id="aiVideoOutputUploadUrlField" class="admin-ai__field">
+                                    <span class="admin-ai__label">Output upload URL (optional)</span>
+                                    <input id="aiVideoOutputUploadUrl" class="admin-ai__input" type="url" inputmode="url" maxlength="2048" placeholder="https://...">
+                                </label>
+                                <label id="aiVideoUserField" class="admin-ai__field">
+                                    <span class="admin-ai__label">User tag (optional)</span>
+                                    <input id="aiVideoUser" class="admin-ai__input" type="text" maxlength="120" placeholder="Admin operator or audit tag">
+                                </label>
+                            </div>
+                        </div>
 
                         <label id="aiVideoNegativePromptField" class="admin-ai__field">
                             <span class="admin-ai__label-row">

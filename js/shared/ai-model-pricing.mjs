@@ -26,6 +26,10 @@ import {
   calculateGrokImagineVideoCreditPricing,
 } from "./grok-imagine-video-pricing.mjs";
 import {
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID,
+  calculateGrokImagineVideo15PreviewCreditPricing,
+} from "./grok-imagine-video-15-preview-pricing.mjs";
+import {
   MINIMAX_MUSIC_2_6_MODEL_ID,
   calculateMinimaxMusic26CreditCost,
 } from "./music-2-6-pricing.mjs";
@@ -37,6 +41,7 @@ export {
   SEEDANCE_2_FAST_MODEL_ID,
   SEEDANCE_2_MODEL_ID,
   GROK_IMAGINE_VIDEO_MODEL_ID,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID,
   MINIMAX_MUSIC_2_6_MODEL_ID,
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -258,6 +263,9 @@ export function calculateAiVideoCreditCost(modelId, params = {}) {
   }
   if (id === GROK_IMAGINE_VIDEO_MODEL_ID) {
     return calculateGrokImagineVideoCreditPricing(params);
+  }
+  if (id === GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID) {
+    return calculateGrokImagineVideo15PreviewCreditPricing(params);
   }
   return null;
 }

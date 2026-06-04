@@ -10,6 +10,7 @@ export const PLATFORM_ADMIN_LAB_BUDGET_SCOPE = ADMIN_PLATFORM_BUDGET_SCOPES.PLAT
 const WINDOW_TYPES = new Set(["daily", "monthly"]);
 const MAX_LIMIT_UNITS = 1_000_000_000;
 const MAX_REASON_LENGTH = 500;
+const MAX_METADATA_KEYS = 24;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._:@/-]{1,180}$/;
 const UNSAFE_METADATA_KEY_PATTERN = /(secret|token|cookie|authorization|auth_header|private[_-]?key|stripe|cloudflare|api[_-]?key|prompt|lyrics|message|provider[_-]?body|raw)/i;
 
@@ -42,7 +43,7 @@ function sanitizeReason(value) {
 function sanitizeMetadata(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const out = {};
-  for (const [key, raw] of Object.entries(value).slice(0, 16)) {
+  for (const [key, raw] of Object.entries(value).slice(0, MAX_METADATA_KEYS)) {
     const safeKey = safeString(key, 80);
     if (!safeKey || UNSAFE_METADATA_KEY_PATTERN.test(safeKey)) continue;
     if (raw == null || typeof raw === "boolean" || typeof raw === "number") {

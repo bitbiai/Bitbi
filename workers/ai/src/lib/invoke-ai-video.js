@@ -1,6 +1,7 @@
 // @ts-check
 
 import {
+  ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
   ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
   ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
@@ -22,6 +23,18 @@ import {
   GROK_IMAGINE_VIDEO_MIN_DURATION,
   GROK_IMAGINE_VIDEO_RESOLUTIONS,
 } from "../../../../js/shared/grok-imagine-video-pricing.mjs";
+import {
+  GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_SIZES,
+} from "../../../../js/shared/grok-imagine-video-15-preview-pricing.mjs";
 import {
   getDurationMs,
   getErrorFields,
@@ -692,7 +705,10 @@ function getAiGatewayId(env) {
 
 function buildVideoRunOptions(env, model) {
   if (!model?.proxied) return undefined;
-  if (model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
+  if (
+    model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
+    || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID
+  ) {
     return { gateway: { id: getAiGatewayId(env) } };
   }
   return { gateway: { id: DEFAULT_AI_GATEWAY_ID } };
@@ -955,6 +971,147 @@ function buildGrokImagineVideoPayload(input) {
   };
 }
 
+function requireGrokPreviewUrlObject(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw videoValidationError(`xai/grok-imagine-video-1.5-preview: ${field} must be an object.`);
+  }
+  const url = typeof value.url === "string" ? value.url.trim() : "";
+  if (!url) {
+    throw videoValidationError(`xai/grok-imagine-video-1.5-preview: ${field}.url is required.`);
+  }
+  return { url };
+}
+
+function optionalGrokPreviewOutput(value) {
+  if (!value) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw videoValidationError("xai/grok-imagine-video-1.5-preview: output must be an object.");
+  }
+  const uploadUrl = typeof value.upload_url === "string" ? value.upload_url.trim() : "";
+  if (!uploadUrl) {
+    throw videoValidationError("xai/grok-imagine-video-1.5-preview: output.upload_url is required.");
+  }
+  return { upload_url: uploadUrl };
+}
+
+function resolveGrokPreviewWorkflow(operation, image, video) {
+  if (operation === "edit") return "video_edit";
+  if (operation === "extend") return "video_extend";
+  return image ? "image_to_video" : video ? "video_to_video" : "text_to_video";
+}
+
+function buildGrokImagineVideo15PreviewPayload(input) {
+  const operation = typeof input._operation === "string" && input._operation.trim()
+    ? input._operation.trim()
+    : "generate";
+  if (!GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS.includes(operation)) {
+    throw videoValidationError(
+      `xai/grok-imagine-video-1.5-preview: _operation must be one of ${GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS.join(", ")}.`
+    );
+  }
+
+  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
+  if (!prompt) {
+    throw videoValidationError("xai/grok-imagine-video-1.5-preview: prompt is required.");
+  }
+
+  const durationValue = input.duration ?? GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_DURATION;
+  const duration = typeof durationValue === "string" ? parseInt(durationValue, 10) : Number(durationValue);
+  if (
+    !Number.isInteger(duration)
+    || duration < GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION
+    || duration > GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION
+  ) {
+    throw videoValidationError(
+      `xai/grok-imagine-video-1.5-preview: duration must be an integer between ${GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION} and ${GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION}.`
+    );
+  }
+
+  const aspectRatio = typeof input.aspect_ratio === "string" && input.aspect_ratio.trim()
+    ? input.aspect_ratio.trim()
+    : GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_ASPECT_RATIO;
+  if (!GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS.includes(aspectRatio)) {
+    throw videoValidationError(
+      `xai/grok-imagine-video-1.5-preview: aspect_ratio must be one of ${GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS.join(", ")}.`
+    );
+  }
+
+  const resolution = typeof input.resolution === "string" && input.resolution.trim()
+    ? input.resolution.trim()
+    : GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_RESOLUTION;
+  if (!GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS.includes(resolution)) {
+    throw videoValidationError(
+      `xai/grok-imagine-video-1.5-preview: resolution must be one of ${GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS.join(", ")}.`
+    );
+  }
+
+  const size = typeof input.size === "string" && input.size.trim()
+    ? input.size.trim()
+    : null;
+  if (size && !GROK_IMAGINE_VIDEO_15_PREVIEW_SIZES.includes(size)) {
+    throw videoValidationError(
+      `xai/grok-imagine-video-1.5-preview: size must be one of ${GROK_IMAGINE_VIDEO_15_PREVIEW_SIZES.join(", ")}.`
+    );
+  }
+
+  const image = input.image ? requireGrokPreviewUrlObject(input.image, "image") : null;
+  const video = input.video ? requireGrokPreviewUrlObject(input.video, "video") : null;
+  const referenceImages = Array.isArray(input.reference_images)
+    ? input.reference_images.map((entry, index) => requireGrokPreviewUrlObject(entry, `reference_images[${index}]`))
+    : [];
+  if (referenceImages.length > GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES) {
+    throw videoValidationError(
+      `xai/grok-imagine-video-1.5-preview: reference_images must contain at most ${GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES} items.`
+    );
+  }
+  const output = optionalGrokPreviewOutput(input.output);
+  const user = typeof input.user === "string" && input.user.trim() ? input.user.trim() : null;
+
+  if (operation === "generate" && video) {
+    throw videoValidationError("xai/grok-imagine-video-1.5-preview: video is only supported for edit and extend operations.");
+  }
+  if ((operation === "edit" || operation === "extend") && !video) {
+    throw videoValidationError("xai/grok-imagine-video-1.5-preview: video is required for edit and extend operations.");
+  }
+
+  const payload = {
+    _operation: operation,
+    prompt,
+    duration,
+    aspect_ratio: aspectRatio,
+    resolution,
+  };
+  if (size) payload.size = size;
+  if (image) payload.image = image;
+  if (video) payload.video = video;
+  if (referenceImages.length > 0) payload.reference_images = referenceImages;
+  if (output) payload.output = output;
+  if (user) payload.user = user;
+
+  return {
+    payload,
+    normalized: {
+      prompt,
+      duration,
+      aspect_ratio: aspectRatio,
+      ratio: null,
+      quality: null,
+      resolution,
+      size,
+      operation,
+      seed: null,
+      generate_audio: false,
+      watermark: null,
+      hasImageInput: !!image,
+      hasVideoInput: !!video,
+      hasEndImageInput: false,
+      referenceImageCount: referenceImages.length,
+      outputUploadUrlPresent: !!output,
+      workflow: resolveGrokPreviewWorkflow(operation, image, video),
+    },
+  };
+}
+
 /**
  * @param {{ id: string }} model
  * @param {Record<string, any>} input
@@ -1015,6 +1172,10 @@ export function buildVideoPayload(model, input) {
     return buildGrokImagineVideoPayload(input);
   }
 
+  if (model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
+    return buildGrokImagineVideo15PreviewPayload(input);
+  }
+
   const error = new Error(`Unsupported video model "${model.id}".`);
   error.status = 400;
   error.code = "model_not_allowed";
@@ -1044,11 +1205,16 @@ function buildVideoTaskResult({
     ratio: request.normalized.ratio,
     quality: request.normalized.quality,
     resolution: request.normalized.resolution,
+    size: request.normalized.size || null,
+    operation: request.normalized.operation || null,
     seed: request.normalized.seed,
     generate_audio: request.normalized.generate_audio,
     watermark: request.normalized.watermark,
     hasImageInput: request.normalized.hasImageInput,
+    hasVideoInput: request.normalized.hasVideoInput || false,
     hasEndImageInput: request.normalized.hasEndImageInput,
+    referenceImageCount: request.normalized.referenceImageCount || 0,
+    outputUploadUrlPresent: request.normalized.outputUploadUrlPresent || false,
     workflow: request.normalized.workflow,
     elapsedMs: getDurationMs(startedAt),
   };
@@ -1065,13 +1231,18 @@ async function runWorkersAiVideoOnce(env, model, input, request, startedAt, runO
     model: model.id,
     ...summarizeGatewayOptions(runOptions),
     has_image_input: !!request.normalized.hasImageInput,
+    has_video_input: !!request.normalized.hasVideoInput,
     has_end_image_input: !!request.normalized.hasEndImageInput,
+    reference_image_count: request.normalized.referenceImageCount || 0,
+    output_upload_url_present: !!request.normalized.outputUploadUrlPresent,
     workflow: request.normalized.workflow,
+    operation: request.normalized.operation || null,
     prompt_length: typeof request.normalized.prompt === "string" ? request.normalized.prompt.length : 0,
     duration: request.payload.duration,
     aspect_ratio: request.payload.aspect_ratio || request.payload.ratio || null,
     quality: request.payload.quality || null,
     resolution: request.payload.resolution || null,
+    size: request.payload.size || null,
     payload_keys: Object.keys(request.payload).sort().join(","),
   });
   const raw = await runWithGenerationTimeout(() => (
@@ -1431,12 +1602,17 @@ export async function invokeVideo(env, model, input) {
     model: model.id,
     ...summarizeGatewayOptions(runOptions),
     has_image_input: !!request.normalized.hasImageInput,
+    has_video_input: !!request.normalized.hasVideoInput,
     has_end_image_input: !!request.normalized.hasEndImageInput,
+    reference_image_count: request.normalized.referenceImageCount || 0,
+    output_upload_url_present: !!request.normalized.outputUploadUrlPresent,
     workflow: request.normalized.workflow,
+    operation: request.normalized.operation || null,
     duration: payload.duration,
     aspect_ratio: payload.aspect_ratio || payload.ratio || null,
     quality: payload.quality || null,
     resolution: payload.resolution || null,
+    size: payload.size || null,
     payload_keys: Object.keys(payload).sort().join(","),
     gateway_mode: gatewayMode,
     minimal_mode_active: minimalModeActive,
@@ -1559,7 +1735,10 @@ export async function invokeVideo(env, model, input) {
             ? summarizeVideoPayload(effectivePayload)
             : undefined,
         has_image_input: !!request.normalized.hasImageInput,
+        has_video_input: !!request.normalized.hasVideoInput,
         has_end_image_input: !!request.normalized.hasEndImageInput,
+        reference_image_count: request.normalized.referenceImageCount || 0,
+        output_upload_url_present: !!request.normalized.outputUploadUrlPresent,
         duration_ms: getDurationMs(startedAt),
         ...getErrorFields(error, { includeMessage: false }),
       });
@@ -1593,11 +1772,16 @@ export async function invokeVideo(env, model, input) {
     ratio: request.normalized.ratio,
     quality: request.normalized.quality,
     resolution: request.normalized.resolution,
+    size: request.normalized.size || null,
+    operation: request.normalized.operation || null,
     seed: request.normalized.seed,
     generate_audio: request.normalized.generate_audio,
     watermark: request.normalized.watermark,
     hasImageInput: request.normalized.hasImageInput,
+    hasVideoInput: request.normalized.hasVideoInput || false,
     hasEndImageInput: request.normalized.hasEndImageInput,
+    referenceImageCount: request.normalized.referenceImageCount || 0,
+    outputUploadUrlPresent: request.normalized.outputUploadUrlPresent || false,
     workflow: request.normalized.workflow,
     elapsedMs: Date.now() - startedAt,
   };

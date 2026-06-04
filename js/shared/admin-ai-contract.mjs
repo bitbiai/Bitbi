@@ -50,6 +50,22 @@ import {
   GROK_IMAGINE_VIDEO_SIZES,
   calculateGrokImagineVideoCreditPricing,
 } from "./grok-imagine-video-pricing.mjs";
+import {
+  GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_LABEL,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_SIZES,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_VENDOR,
+  calculateGrokImagineVideo15PreviewCreditPricing,
+} from "./grok-imagine-video-15-preview-pricing.mjs";
 
 export {
   GPT_IMAGE_2_BACKGROUND_OPTIONS,
@@ -76,6 +92,21 @@ export {
   GROK_IMAGINE_VIDEO_RESOLUTIONS,
   GROK_IMAGINE_VIDEO_SIZES,
 } from "./grok-imagine-video-pricing.mjs";
+export {
+  GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_LABEL,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_SIZES,
+  GROK_IMAGINE_VIDEO_15_PREVIEW_VENDOR,
+} from "./grok-imagine-video-15-preview-pricing.mjs";
 
 export class AdminAiValidationError extends Error {
   constructor(message, status = 400, code = "validation_error") {
@@ -108,6 +139,7 @@ export const ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID = HAPPYHORSE_T2V_MODEL_ID;
 export const ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID = SEEDANCE_2_FAST_MODEL_ID;
 export const ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID = SEEDANCE_2_MODEL_ID;
 export const ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID = GROK_IMAGINE_VIDEO_MODEL_ID;
+export const ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID = GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID;
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE = "model_pricing_required";
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE =
   "Pricing is not configured for this admin Video AI model. Configure verified Cloudflare pricing before generation.";
@@ -262,6 +294,19 @@ export const ADMIN_AI_LIMITS = {
         defaultAspectRatio: GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
         defaultResolution: GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
       },
+      [ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID]: {
+        maxPromptLength: 5000,
+        minDuration: GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION,
+        maxDuration: GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_DURATION,
+        allowedAspectRatios: GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS,
+        allowedResolutions: GROK_IMAGINE_VIDEO_15_PREVIEW_RESOLUTIONS,
+        allowedSizes: GROK_IMAGINE_VIDEO_15_PREVIEW_SIZES,
+        allowedOperations: GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS,
+        maxReferenceImages: GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES,
+        defaultDuration: GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_DURATION,
+        defaultAspectRatio: GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_ASPECT_RATIO,
+        defaultResolution: GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_RESOLUTION,
+      },
     },
   },
 };
@@ -316,7 +361,13 @@ export function isAdminAiVideoSeedanceModelId(modelId) {
 }
 
 export function isAdminAiVideoGrokImagineModelId(modelId) {
-  return String(modelId || "").trim() === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID;
+  const id = String(modelId || "").trim();
+  return id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
+    || id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID;
+}
+
+export function isAdminAiVideoGrokImagine15PreviewModelId(modelId) {
+  return String(modelId || "").trim() === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID;
 }
 
 const TEXT_MODELS = {
@@ -716,6 +767,49 @@ const VIDEO_MODELS = {
     defaultPreset: "video_grok_imagine",
     description: "Admin-only xAI Grok Imagine Video via Cloudflare AI Gateway Unified Billing and platform admin lab budget controls.",
   },
+  [ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID]: {
+    id: ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
+    task: "video",
+    label: GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_LABEL,
+    vendor: GROK_IMAGINE_VIDEO_15_PREVIEW_VENDOR,
+    providerLabel: "Cloudflare AI Gateway",
+    inputFormat: "grok-imagine-video-1.5-preview",
+    proxied: true,
+    adminOnly: true,
+    pricingRequired: false,
+    costDiscoveryEnabled: false,
+    costDiscoveryFlag: null,
+    generationEnabled: true,
+    unavailableCode: null,
+    unavailableMessage: null,
+    supportedOperations: GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS,
+    supportsImageInput: true,
+    supportsVideoInput: true,
+    supportsReferenceImages: true,
+    maxReferenceImages: GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES,
+    supportsOutputUploadUrl: true,
+    supportsSize: true,
+    supportsEndImage: false,
+    supportsNegativePrompt: false,
+    supportsSeed: false,
+    supportsAudioToggle: false,
+    supportsWatermark: false,
+    supportsPromptlessImageMode: false,
+    resolutionField: "resolution",
+    aspectRatioMode: "always",
+    maxPromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].maxPromptLength,
+    minDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].minDuration,
+    maxDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].maxDuration,
+    allowedAspectRatios: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].allowedAspectRatios,
+    allowedResolutions: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].allowedResolutions,
+    allowedSizes: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].allowedSizes,
+    defaultDuration: GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_DURATION,
+    defaultAspectRatio: GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_ASPECT_RATIO,
+    defaultResolution: GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_RESOLUTION,
+    defaultGenerateAudio: false,
+    defaultPreset: "video_grok_imagine_15_preview",
+    description: "Admin-only xAI Grok Imagine Video 1.5 Preview via Cloudflare AI Gateway Unified Billing with generate, edit, and extend operations.",
+  },
 };
 
 const PRESETS = {
@@ -802,6 +896,13 @@ const PRESETS = {
     label: "Grok Imagine Video",
     model: ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
     description: "Admin-only xAI Grok Imagine Video preset through Cloudflare AI Gateway Unified Billing.",
+  },
+  video_grok_imagine_15_preview: {
+    name: "video_grok_imagine_15_preview",
+    task: "video",
+    label: GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_LABEL,
+    model: ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
+    description: "Admin-only Grok Imagine Video 1.5 Preview preset through Cloudflare AI Gateway Unified Billing.",
   },
 };
 
@@ -1143,6 +1244,94 @@ function optionalVideoImageReference(value, field) {
   );
 }
 
+function normalizeAdminAiPreviewHttpsUrl(value, field) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") {
+    throw new AdminAiValidationError(`${field} must be a URL string.`, 400, "validation_error");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > ADMIN_AI_LIMITS.video.maxRemoteImageUrlLength) {
+    throw new AdminAiValidationError(
+      `${field} must be at most ${ADMIN_AI_LIMITS.video.maxRemoteImageUrlLength} characters.`,
+      400,
+      "validation_error"
+    );
+  }
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new AdminAiValidationError(`${field} must be a valid https URL.`, 400, "validation_error");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new AdminAiValidationError(`${field} must use https.`, 400, "validation_error");
+  }
+  if (parsed.username || parsed.password) {
+    throw new AdminAiValidationError(`${field} must not include credentials.`, 400, "validation_error");
+  }
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function optionalGrokPreviewUrlObject(value, field) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "string") {
+    const url = normalizeAdminAiPreviewHttpsUrl(value, field);
+    return url ? { url } : null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AdminAiValidationError(`${field} must be an object with a url string.`, 400, "validation_error");
+  }
+  const url = normalizeAdminAiPreviewHttpsUrl(value.url, `${field}.url`);
+  return url ? { url } : null;
+}
+
+function optionalGrokPreviewOutputObject(value, field) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "string") {
+    const uploadUrl = normalizeAdminAiPreviewHttpsUrl(value, field);
+    return uploadUrl ? { upload_url: uploadUrl } : null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AdminAiValidationError(`${field} must be an object with an upload_url string.`, 400, "validation_error");
+  }
+  const uploadUrl = normalizeAdminAiPreviewHttpsUrl(value.upload_url, `${field}.upload_url`);
+  return uploadUrl ? { upload_url: uploadUrl } : null;
+}
+
+function optionalGrokPreviewReferenceImages(value, field, maxItems) {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value)) {
+    throw new AdminAiValidationError(`${field} must be an array.`, 400, "validation_error");
+  }
+  if (value.length > maxItems) {
+    throw new AdminAiValidationError(
+      `${field} must contain at most ${maxItems} items.`,
+      400,
+      "validation_error"
+    );
+  }
+  return value.map((entry, index) => {
+    const normalized = optionalGrokPreviewUrlObject(entry, `${field}[${index}]`);
+    if (!normalized) {
+      throw new AdminAiValidationError(
+        `${field}[${index}].url is required.`,
+        400,
+        "validation_error"
+      );
+    }
+    return normalized;
+  });
+}
+
+function firstNonEmptyValue(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+
 export function getAdminAiVideoModelSpec(modelId = ADMIN_AI_VIDEO_MODEL_ID) {
   return VIDEO_MODELS[modelId] || VIDEO_MODELS[ADMIN_AI_VIDEO_MODEL_ID];
 }
@@ -1204,8 +1393,11 @@ function toPublicModel(model) {
   if (model.task === "video") {
     pub.capabilities = {
       supportsImageInput: !!model.supportsImageInput,
+      supportsVideoInput: !!model.supportsVideoInput,
       supportsReferenceImages: !!model.supportsReferenceImages,
       maxReferenceImages: model.maxReferenceImages || 0,
+      supportsOutputUploadUrl: !!model.supportsOutputUploadUrl,
+      supportsSize: !!model.supportsSize,
       supportsEndImage: !!model.supportsEndImage,
       supportsNegativePrompt: !!model.supportsNegativePrompt,
       supportsSeed: !!model.supportsSeed,
@@ -1865,6 +2057,133 @@ export function validateAdminAiVideoBody(body) {
       aspect_ratio,
       resolution,
     };
+  }
+
+  if (selectedModel.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
+    assertOnlyAllowedFields(
+      input,
+      [
+        "preset",
+        "model",
+        "prompt",
+        "_operation",
+        "operation",
+        "duration",
+        "aspect_ratio",
+        "resolution",
+        "size",
+        "image",
+        "image_url",
+        "imageInput",
+        "video",
+        "video_url",
+        "videoInput",
+        "reference_images",
+        "referenceImages",
+        "output",
+        "output_upload_url",
+        "user",
+      ],
+      selectedModel.id
+    );
+
+    const operation = optionalEnum(
+      input._operation ?? input.operation,
+      "_operation",
+      selectedModel.supportedOperations,
+      "generate"
+    );
+    const prompt = requiredString(input.prompt, "prompt", selectedModel.maxPromptLength);
+    const duration = optionalInteger(
+      input.duration,
+      "duration",
+      selectedModel.minDuration,
+      selectedModel.maxDuration,
+      selectedModel.defaultDuration
+    );
+    const aspect_ratio = optionalEnum(
+      input.aspect_ratio,
+      "aspect_ratio",
+      selectedModel.allowedAspectRatios,
+      selectedModel.defaultAspectRatio
+    );
+    const resolution = optionalEnum(
+      input.resolution,
+      "resolution",
+      selectedModel.allowedResolutions,
+      selectedModel.defaultResolution
+    );
+    const size = optionalEnum(input.size, "size", selectedModel.allowedSizes, null);
+    const image = optionalGrokPreviewUrlObject(
+      firstNonEmptyValue(input.image, input.image_url, input.imageInput),
+      "image"
+    );
+    const video = optionalGrokPreviewUrlObject(
+      firstNonEmptyValue(input.video, input.video_url, input.videoInput),
+      "video"
+    );
+    const reference_images = optionalGrokPreviewReferenceImages(
+      firstNonEmptyValue(input.reference_images, input.referenceImages),
+      "reference_images",
+      selectedModel.maxReferenceImages
+    );
+    const output = optionalGrokPreviewOutputObject(
+      firstNonEmptyValue(input.output, input.output_upload_url),
+      "output"
+    );
+    const user = optionalString(input.user, "user", 120);
+
+    if (operation === "generate" && video) {
+      throw new AdminAiValidationError(
+        "video.url is only supported for edit and extend operations.",
+        400,
+        "validation_error"
+      );
+    }
+    if ((operation === "edit" || operation === "extend") && !video) {
+      throw new AdminAiValidationError(
+        "video.url is required for edit and extend operations.",
+        400,
+        "validation_error"
+      );
+    }
+
+    try {
+      calculateGrokImagineVideo15PreviewCreditPricing({
+        _operation: operation,
+        duration,
+        aspect_ratio,
+        resolution,
+        size,
+        hasImageInput: !!image,
+        hasVideoInput: !!video,
+        referenceImageCount: reference_images.length,
+        outputUploadUrlPresent: !!output,
+      });
+    } catch {
+      throw new AdminAiValidationError(
+        selectedModel.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
+        409,
+        selectedModel.unavailableCode || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE
+      );
+    }
+
+    const validated = {
+      preset,
+      model,
+      prompt,
+      _operation: operation,
+      duration,
+      aspect_ratio,
+      resolution,
+    };
+    if (size) validated.size = size;
+    if (image) validated.image = image;
+    if (video) validated.video = video;
+    if (reference_images.length > 0) validated.reference_images = reference_images;
+    if (output) validated.output = output;
+    if (user) validated.user = user;
+    return validated;
   }
 
   if (selectedModel.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
