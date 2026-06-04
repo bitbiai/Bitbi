@@ -1777,6 +1777,52 @@
                                 </label>
                                 <span id="aiImageGptCostHint" class="admin-ai__hint admin-ai__hint--wide"></span>
                             </div>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--5" id="aiImageGrokControls" hidden>
+                                <label class="admin-ai__field" id="aiImageAspectRatioField">
+                                    <span class="admin-ai__label">Aspect Ratio</span>
+                                    <select id="aiImageAspectRatio" class="admin-ai__input"></select>
+                                </label>
+                                <label class="admin-ai__field" id="aiImageResolutionField">
+                                    <span class="admin-ai__label">Resolution</span>
+                                    <select id="aiImageResolution" class="admin-ai__input"></select>
+                                </label>
+                                <label class="admin-ai__field" id="aiImageResponseFormatField">
+                                    <span class="admin-ai__label">Response Format</span>
+                                    <select id="aiImageResponseFormat" class="admin-ai__input"></select>
+                                </label>
+                                <label class="admin-ai__field" id="aiImageOutputCountField">
+                                    <span class="admin-ai__label">Output Count</span>
+                                    <input id="aiImageOutputCount" class="admin-ai__input" type="number" min="1" max="10" step="1">
+                                </label>
+                                <label class="admin-ai__field" id="aiImageUserField">
+                                    <span class="admin-ai__label">User Tag</span>
+                                    <input id="aiImageUser" class="admin-ai__input" type="text" maxlength="120" placeholder="Optional">
+                                </label>
+                            </div>
+                            <div class="admin-ai__video-source-picker" id="aiImageSourcePickerField" hidden>
+                                <div class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Internal image sources</span>
+                                    <span class="admin-ai__count">Optional</span>
+                                </div>
+                                <p class="admin-ai__hint">Prompt-only generation is supported. Image guidance uses internal saved images or public Mempics resolved server-side into temporary provider URLs.</p>
+                                <div class="admin-ai__source-role-tabs" role="tablist" aria-label="Grok image source role">
+                                    <button type="button" id="aiImageSourceRolePrimary" class="btn-action" data-image-source-role="primary" aria-selected="true">Primary image</button>
+                                    <button type="button" id="aiImageSourceRoleAdditional" class="btn-action" data-image-source-role="additional" aria-selected="false">Additional images</button>
+                                    <button type="button" id="aiImageSourceRoleMask" class="btn-action" data-image-source-role="mask" aria-selected="false">Mask</button>
+                                </div>
+                                <div class="admin-ai__video-source-tabs" role="tablist" aria-label="Grok image source scope">
+                                    <button type="button" id="aiImageSourceScopeSaved" class="btn-action" data-image-source-scope="saved_assets" aria-selected="true">My image assets</button>
+                                    <button type="button" id="aiImageSourceScopeMempics" class="btn-action" data-image-source-scope="public" aria-selected="false">Mempics</button>
+                                    <button type="button" id="aiImageSourceRefresh" class="btn-action">Refresh</button>
+                                </div>
+                                <div id="aiImageSourceSelected" class="admin-ai__video-source-selected" hidden>
+                                    <span id="aiImageSourceSelectedText"></span>
+                                    <button type="button" id="aiImageSourceClear" class="btn-action">Clear selected role</button>
+                                </div>
+                                <div id="aiImageSourceStatus" class="admin-ai__hint" role="status" aria-live="polite"></div>
+                                <div id="aiImageSourceList" class="admin-ai__video-source-list"></div>
+                                <button type="button" id="aiImageSourceLoadMore" class="btn-action" hidden>Load more sources</button>
+                            </div>
                             <div class="admin-ai__ref-images" id="aiImageRefSection">
                                 <div class="admin-ai__label-row">
                                     <span class="admin-ai__label">Reference Images</span>

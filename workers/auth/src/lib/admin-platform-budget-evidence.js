@@ -353,8 +353,8 @@ function implementedAdminImageEvidence(entry, routeIndex) {
     type: "implemented_admin_budget_operation",
     runtimeStatus: "implemented_hardened",
     idempotencyTarget: "required selected-organization scoped idempotency key",
-    killSwitchTarget: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET",
-    modelClass: "priced Admin image tests (BFL FLUX, FLUX.2 Max, and GPT Image 2)",
+    killSwitchTarget: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET / ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET",
+    modelClass: "priced Admin image tests (BFL FLUX, FLUX.2 Max, GPT Image 2, and xAI Grok Imagine Image)",
     metadataFieldsExpected: [
       "budget_policy_version",
       "operation_id",

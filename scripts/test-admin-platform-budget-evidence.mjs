@@ -36,10 +36,10 @@ assert.equal(report.summary.adminLabDurableIdempotency, 5);
 assert.equal(report.summary.retiredDebugPaths, 1);
 assert.equal(report.summary.adminTextEmbeddingsAttemptsOperable, true);
 assert.equal(report.summary.adminLabAttemptsOperable, true);
-assert.equal(report.summary.adminImageChargedBranches, 5);
+assert.equal(report.summary.adminImageChargedBranches, 6);
 assert.equal(report.summary.adminImageExplicitUnmeteredBranches, 1);
 assert.equal(report.summary.adminImageBlockedUnsupportedGuards, 1);
-assert.equal(report.summary.runtimeBudgetSwitchTargets, 10);
+assert.equal(report.summary.runtimeBudgetSwitchTargets, 11);
 assert.equal(report.summary.runtimeBudgetSwitchesEnabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesDisabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesAppEnabled, null);
@@ -190,8 +190,8 @@ assert(implementedIds.includes("platform.news_pulse.visual.scheduled"));
 const adminBfl = report.implementedOperations.find((entry) => entry.operationId === "admin.image.test.charged");
 assert.equal(adminBfl.budgetScope, "admin_org_credit_account");
 assert.equal(adminBfl.runtimeStatus, "implemented_hardened");
-assert.equal(adminBfl.killSwitchTarget, "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET");
-assert.equal(adminBfl.modelClass, "priced Admin image tests (BFL FLUX, FLUX.2 Max, and GPT Image 2)");
+assert.equal(adminBfl.killSwitchTarget, "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET / ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET");
+assert.equal(adminBfl.modelClass, "priced Admin image tests (BFL FLUX, FLUX.2 Max, GPT Image 2, and xAI Grok Imagine Image)");
 assert(adminBfl.metadataFieldsExpected.includes("budget_policy_version"));
 assert(adminBfl.metadataFieldsExpected.includes("fingerprint"));
 assert(adminBfl.remainingLimitations.some((entry) => entry.includes("runtime budget switch")));
@@ -205,7 +205,7 @@ assert(adminImageUnmetered.explicitUnmeteredAdmin.some((entry) =>
   && entry.killSwitchTarget === "ENABLE_ADMIN_AI_UNMETERED_IMAGE_TESTS"
 ));
 assert(adminImageUnmetered.blockedUnsupported.some((entry) => entry.providerCalls === false));
-assert.equal(report.adminImageBranches.counts.chargedAdminOrgCredit, 5);
+assert.equal(report.adminImageBranches.counts.chargedAdminOrgCredit, 6);
 assert.equal(report.adminImageBranches.counts.explicitUnmeteredAdmin, 1);
 assert.equal(report.adminImageBranches.counts.blockedUnsupportedGuard, 1);
 

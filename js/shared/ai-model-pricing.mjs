@@ -9,6 +9,10 @@ import {
   calculateGptImage2CreditCost,
 } from "./gpt-image-2-pricing.mjs";
 import {
+  GROK_IMAGINE_IMAGE_MODEL_ID,
+  calculateGrokImagineImageCreditPricing,
+} from "./grok-imagine-image-pricing.mjs";
+import {
   PIXVERSE_V6_MODEL_ID,
   calculatePixverseV6CreditPricing,
 } from "./pixverse-v6-pricing.mjs";
@@ -36,6 +40,7 @@ import {
 
 export {
   GPT_IMAGE_2_MODEL_ID,
+  GROK_IMAGINE_IMAGE_MODEL_ID,
   PIXVERSE_V6_MODEL_ID,
   HAPPYHORSE_T2V_MODEL_ID,
   SEEDANCE_2_FAST_MODEL_ID,
@@ -230,13 +235,17 @@ export function isPricedAiImageModel(modelId) {
   return id === FLUX_1_SCHNELL_IMAGE_MODEL_ID
     || FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id)
     || id === FLUX_2_MAX_IMAGE_MODEL_ID
-    || id === GPT_IMAGE_2_MODEL_ID;
+    || id === GPT_IMAGE_2_MODEL_ID
+    || id === GROK_IMAGINE_IMAGE_MODEL_ID;
 }
 
 export function calculateAiImageCreditCost(modelId, params = {}) {
   const id = String(modelId || "").trim();
   if (id === GPT_IMAGE_2_MODEL_ID) {
     return calculateGptImage2CreditCost(params);
+  }
+  if (id === GROK_IMAGINE_IMAGE_MODEL_ID) {
+    return calculateGrokImagineImageCreditPricing(params);
   }
   if (id === FLUX_1_SCHNELL_IMAGE_MODEL_ID) {
     return priceProviderCostModel(id, flux1SchnellCost(params));

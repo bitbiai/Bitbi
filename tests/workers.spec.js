@@ -315,6 +315,13 @@ async function loadGrokImagineVideo15PreviewPricingModule() {
   return import(modulePath);
 }
 
+async function loadGrokImagineImagePricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/grok-imagine-image-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadAiModelPricingModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/ai-model-pricing.mjs')
@@ -539,6 +546,15 @@ function createAiLabRunStub() {
         result: {
           image: ONE_PIXEL_PNG_DATA_URI,
         },
+        gatewayMetadata: {
+          keySource: 'Unified',
+        },
+      };
+    }
+
+    if (modelId === 'xai/grok-imagine-image') {
+      return {
+        image: ONE_PIXEL_PNG_DATA_URI,
         gatewayMetadata: {
           keySource: 'Unified',
         },
@@ -11871,10 +11887,13 @@ test.describe('BITBI Pro member subscriptions', () => {
 });
 
 test.describe('Phase 2-M admin BFL image test pricing helper', () => {
-  test('calculates bounded admin image-test credit costs for chargeable BFL models', async () => {
+  test('calculates bounded admin image-test credit costs for chargeable image models', async () => {
     const {
       calculateAdminImageTestCreditCost,
     } = await loadAdminImageCreditPricingModule();
+    const {
+      calculateGrokImagineImageCreditPricing,
+    } = await loadGrokImagineImagePricingModule();
 
     expect(calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-1-schnell', {
       width: 1024,
@@ -11963,6 +11982,44 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
       size: '1024x1536',
       referenceImageCount: 1,
     }).credits).toBe(65);
+
+    const grokPromptOnly = calculateAdminImageTestCreditCost('xai/grok-imagine-image', {
+      n: 1,
+    });
+    const directGrokPromptOnly = calculateGrokImagineImageCreditPricing({ n: 1 });
+    expect(grokPromptOnly.providerCostUsd).toBeCloseTo(0.020, 6);
+    expect(directGrokPromptOnly.providerCostUsd).toBeCloseTo(grokPromptOnly.providerCostUsd, 6);
+    expect(grokPromptOnly.normalized).toEqual(expect.objectContaining({
+      n: 1,
+      inputImageCount: 0,
+      aspectRatio: 'auto',
+      quality: 'medium',
+      resolution: '1k',
+      responseFormat: 'b64_json',
+    }));
+    expect(grokPromptOnly.formula).toEqual(expect.objectContaining({
+      pricingVersion: 'grok-imagine-image-v1',
+      billingMode: 'cloudflare_ai_gateway_unified_billing_output_and_input_images',
+      pricingSource: 'operator_requested_grok_imagine_image_pricing',
+      outputCostUsdPerImage: 0.020,
+      inputCostUsdPerImage: 0.002,
+    }));
+    expect(calculateAdminImageTestCreditCost('xai/grok-imagine-image', {
+      n: 3,
+    }).providerCostUsd).toBeCloseTo(0.060, 6);
+    expect(calculateAdminImageTestCreditCost('xai/grok-imagine-image', {
+      n: 1,
+      source_image: { source_type: 'saved_asset', asset_id: 'image_1' },
+    }).providerCostUsd).toBeCloseTo(0.022, 6);
+    expect(calculateAdminImageTestCreditCost('xai/grok-imagine-image', {
+      n: 2,
+      source_image: { source_type: 'saved_asset', asset_id: 'image_1' },
+      source_images: [
+        { source_type: 'saved_asset', asset_id: 'image_2' },
+        { source_type: 'mempic', asset_id: 'image_3' },
+      ],
+      source_mask: { source_type: 'saved_asset', asset_id: 'mask_1' },
+    }).providerCostUsd).toBeCloseTo(0.048, 6);
   });
 
   test('ignores client-supplied costs and clamps unsafe params so they cannot lower charges', async () => {
@@ -11988,13 +12045,14 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
     expect(schnell.credits).toBe(1);
   });
 
-  test('marks GPT Image 2 as a chargeable admin image-test model', async () => {
+  test('marks GPT Image 2 and Grok Imagine Image as chargeable admin image-test models', async () => {
     const {
       ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS,
       getAdminImageTestBranchClassification,
       isChargeableAdminImageTestModel,
     } = await loadAdminImageCreditPricingModule();
     expect(isChargeableAdminImageTestModel('openai/gpt-image-2')).toBe(true);
+    expect(isChargeableAdminImageTestModel('xai/grok-imagine-image')).toBe(true);
     expect(isChargeableAdminImageTestModel('black-forest-labs/flux-2-max')).toBe(true);
     expect(getAdminImageTestBranchClassification('black-forest-labs/flux-2-max')).toEqual(expect.objectContaining({
       budgetClassification: ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.CHARGED_ADMIN_ORG_CREDIT,
@@ -12002,6 +12060,13 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
       budgetScope: 'admin_org_credit_account',
       idempotencyPolicy: 'required',
       killSwitchTarget: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+    }));
+    expect(getAdminImageTestBranchClassification('xai/grok-imagine-image')).toEqual(expect.objectContaining({
+      budgetClassification: ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.CHARGED_ADMIN_ORG_CREDIT,
+      providerFamily: 'xai',
+      budgetScope: 'admin_org_credit_account',
+      idempotencyPolicy: 'required',
+      killSwitchTarget: 'ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET',
     }));
   });
 });
@@ -21458,8 +21523,8 @@ test.describe('Worker routes', () => {
           memberGatewayMigrated: 3,
           adminPlatformImplemented: 9,
           adminImageExplicitUnmeteredBranches: 1,
-          runtimeBudgetSwitchTargets: 10,
-          runtimeBudgetSwitchesEnabled: 10,
+          runtimeBudgetSwitchTargets: 11,
+          runtimeBudgetSwitchesEnabled: 11,
           runtimeBudgetSwitchesDisabled: 0,
           platformBudgetReconciliationAvailable: true,
           platformBudgetReconciliationRepairCandidates: 0,
@@ -21493,7 +21558,7 @@ test.describe('Worker routes', () => {
           operationId: 'admin.image.test.charged',
           budgetScope: 'admin_org_credit_account',
           runtimeStatus: 'implemented_hardened',
-          killSwitchTarget: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET',
+          killSwitchTarget: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET / ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET / ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET',
         }),
         expect.objectContaining({
           operationId: 'admin.image.test.unmetered',
@@ -21626,10 +21691,10 @@ test.describe('Worker routes', () => {
       expect(list.status).toBe(200);
       const listBody = await list.json();
       expect(listBody.summary).toEqual(expect.objectContaining({
-        totalSwitches: 10,
-        masterEnabledCount: 10,
-        appEnabledCount: 10,
-        effectiveEnabledCount: 10,
+        totalSwitches: 11,
+        masterEnabledCount: 11,
+        appEnabledCount: 11,
+        effectiveEnabledCount: 11,
         liveBudgetCapsStatus: 'platform_admin_lab_budget_foundation',
       }));
       expect(listBody.switches).toEqual(expect.arrayContaining([
@@ -27389,6 +27454,210 @@ test.describe('Worker routes', () => {
       expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
     });
 
+    test('POST /api/admin/ai/test-image resolves Grok Imagine Image source refs and charges organization credits', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      let capturedOptions = null;
+      const admin = createAdminUser('admin-grok-image-route');
+      const sourceBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+      const primaryKey = `users/${admin.id}/images/grok-primary.png`;
+      const maskKey = `users/${admin.id}/images/grok-mask.webp`;
+      const mempicKey = 'users/public/images/grok-mempic.png';
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        user: admin,
+        aiEnv: {
+          AI_GATEWAY_ID: 'custom-grok-image-gateway',
+        },
+        authEnv: {
+          userImages: {
+            [primaryKey]: {
+              body: sourceBytes,
+              httpMetadata: { contentType: 'image/png' },
+              size: sourceBytes.byteLength,
+            },
+            [maskKey]: {
+              body: sourceBytes,
+              httpMetadata: { contentType: 'image/webp' },
+              size: sourceBytes.byteLength,
+            },
+            [mempicKey]: {
+              body: sourceBytes,
+              httpMetadata: { contentType: 'image/png' },
+              size: sourceBytes.byteLength,
+            },
+          },
+          aiImages: [
+            {
+              id: 'grok-image-primary',
+              user_id: admin.id,
+              prompt: 'Primary source',
+              model: 'test-image-model',
+              r2_key: primaryKey,
+              size_bytes: sourceBytes.byteLength,
+              medium_mime_type: 'image/png',
+              created_at: '2026-06-04T10:00:00.000Z',
+            },
+            {
+              id: 'grok-image-mask',
+              user_id: admin.id,
+              prompt: 'Mask source',
+              model: 'test-image-model',
+              r2_key: maskKey,
+              size_bytes: sourceBytes.byteLength,
+              medium_mime_type: 'image/webp',
+              created_at: '2026-06-04T10:01:00.000Z',
+            },
+            {
+              id: 'grok-image-mempic',
+              user_id: 'other-user',
+              prompt: 'Public Mempic source',
+              model: 'test-image-model',
+              visibility: 'public',
+              r2_key: mempicKey,
+              size_bytes: sourceBytes.byteLength,
+              thumb_key: 'users/public/images/grok-mempic-thumb.webp',
+              medium_key: 'users/public/images/grok-mempic-medium.webp',
+              thumb_mime_type: 'image/webp',
+              medium_mime_type: 'image/png',
+              derivatives_status: 'ready',
+              derivatives_version: 'v1',
+              derivatives_ready_at: '2026-06-04T11:00:00.000Z',
+              created_at: '2026-06-04T09:00:00.000Z',
+              published_at: '2026-06-04T11:00:00.000Z',
+            },
+          ],
+        },
+        aiRun: async (modelId, payload, options) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          capturedOptions = options;
+          return {
+            image: ONE_PIXEL_PNG_DATA_URI,
+            gatewayMetadata: {
+              keySource: 'Unified',
+            },
+          };
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 500, createdByUserId: admin.id });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'xai/grok-imagine-image',
+          prompt: 'Use internal sources for an editorial image.',
+          aspect_ratio: '3:4',
+          quality: 'high',
+          resolution: '2k',
+          response_format: 'b64_json',
+          n: 2,
+          user: 'grok-image-route-test',
+          source_image: { source_type: 'saved_asset', asset_id: 'grok-image-primary' },
+          source_images: [{ source_type: 'mempic', asset_id: 'grok-image-mempic' }],
+          source_mask: { source_type: 'saved_asset', asset_id: 'grok-image-mask' },
+        }), adminImageChargeHeaders(authHeaders, 'admin-grok-imagine-image-source-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'image',
+        model: expect.objectContaining({
+          id: 'xai/grok-imagine-image',
+          label: 'Grok Imagine Image',
+          vendor: 'xAI',
+        }),
+        result: expect.objectContaining({
+          imageBase64: expect.any(String),
+          mimeType: 'image/png',
+          aspectRatio: '3:4',
+          quality: 'high',
+          resolution: '2k',
+          responseFormat: 'b64_json',
+          outputCount: 2,
+          inputImageCount: 3,
+          hasPrimaryImage: true,
+          hasMask: true,
+          gatewayMetadata: { keySource: 'Unified' },
+        }),
+        billing: expect.objectContaining({
+          organization_id: ADMIN_AI_CHARGE_ORG_ID,
+          model_id: 'xai/grok-imagine-image',
+          credits_charged: expect.any(Number),
+          pricing: expect.objectContaining({
+            normalized: expect.objectContaining({
+              n: 2,
+              inputImageCount: 3,
+              aspectRatio: '3:4',
+              quality: 'high',
+              resolution: '2k',
+              responseFormat: 'b64_json',
+            }),
+            formula: expect.objectContaining({
+              pricingVersion: 'grok-imagine-image-v1',
+              pricingSource: 'operator_requested_grok_imagine_image_pricing',
+            }),
+          }),
+        }),
+      }));
+      expect(body.billing.pricing.provider_cost_usd).toBeCloseTo(0.046, 6);
+      expect(capturedModelId).toBe('xai/grok-imagine-image');
+      expect(capturedOptions).toEqual({ gateway: { id: 'custom-grok-image-gateway' } });
+      expect(capturedPayload).toEqual({
+        prompt: 'Use internal sources for an editorial image.',
+        aspect_ratio: '3:4',
+        quality: 'high',
+        resolution: '2k',
+        response_format: 'b64_json',
+        n: 2,
+        user: 'grok-image-route-test',
+        image: {
+          url: expect.stringContaining('/api/internal/ai/media-source/'),
+          type: 'image/png',
+        },
+        images: [{
+          url: expect.stringContaining('/api/internal/ai/media-source/'),
+          type: 'image/png',
+        }],
+        mask: {
+          url: expect.stringContaining('/api/internal/ai/media-source/'),
+          type: 'image/webp',
+        },
+      });
+      expect(capturedPayload).not.toHaveProperty('source_image');
+      expect(capturedPayload).not.toHaveProperty('source_images');
+      expect(capturedPayload).not.toHaveProperty('source_mask');
+      expect(capturedPayload).not.toHaveProperty('organization_id');
+      expect(JSON.stringify(env.DB.state.aiUsageAttempts)).not.toContain('/api/internal/ai/media-source/');
+      expect(JSON.stringify(env.DB.state.creditLedger)).not.toContain('/api/internal/ai/media-source/');
+
+      const signedUrl = capturedPayload.image.url;
+      const sourceRes = await authWorker.fetch(
+        new Request(signedUrl, { method: 'GET' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(sourceRes.status).toBe(200);
+      expect(sourceRes.headers.get('content-type')).toBe('image/png');
+      expect(sourceRes.headers.get('cache-control')).toBe('private, no-store');
+      expect(sourceRes.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(new Uint8Array(await sourceRes.arrayBuffer())).toEqual(sourceBytes);
+
+      const tamperedUrl = `${signedUrl.slice(0, -1)}${signedUrl.endsWith('a') ? 'b' : 'a'}`;
+      const tampered = await authWorker.fetch(
+        new Request(tamperedUrl, { method: 'GET' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(tampered.status).toBe(403);
+      await expect(tampered.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'invalid_media_source_token',
+      });
+    });
+
     test('POST /api/admin/ai/test-image routes FLUX.2 Max through AI Gateway with charged org credits', async () => {
       let capturedModelId = null;
       let capturedPayload = null;
@@ -28315,6 +28584,37 @@ test.describe('Worker routes', () => {
         outputFormatOptions: ['png', 'webp', 'jpeg'],
         backgroundOptions: ['auto', 'opaque'],
       }));
+
+      const grokImageModel = imageModels.find((m) => m.id === 'xai/grok-imagine-image');
+      expect(grokImageModel).toBeDefined();
+      expect(grokImageModel).toEqual(expect.objectContaining({
+        label: 'Grok Imagine Image',
+        vendor: 'xAI',
+        providerLabel: 'Cloudflare AI Gateway',
+      }));
+      expect(grokImageModel.capabilities).toEqual(expect.objectContaining({
+        adminOnly: true,
+        generationEnabled: true,
+        supportsReferenceImages: true,
+        maxReferenceImages: 10,
+        supportsPrimaryImageInput: true,
+        supportsMaskImage: true,
+        supportsOutputCount: true,
+        supportsQuality: true,
+        supportsResolution: true,
+        supportsAspectRatio: true,
+        supportsResponseFormat: true,
+        supportsUserTag: true,
+        aspectRatioOptions: ['1:1', '3:4', '4:3', '9:16', '16:9', '2:3', '3:2', '9:19.5', '19.5:9', '9:20', '20:9', '1:2', '2:1', 'auto'],
+        qualityOptions: ['low', 'medium', 'high'],
+        resolutionOptions: ['1k', '2k'],
+        responseFormatOptions: ['url', 'b64_json'],
+        defaultAspectRatio: 'auto',
+        defaultQuality: 'medium',
+        defaultResolution: '1k',
+        defaultResponseFormat: 'b64_json',
+        defaultOutputCount: 1,
+      }));
     });
 
     test('shared contract validates and builds GPT Image 2 payloads without unsupported fields', async () => {
@@ -28388,6 +28688,131 @@ test.describe('Worker routes', () => {
         [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: Array.from({ length: 17 }, () => validPng) }, 'at most 16'],
         [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: ['not-a-data-uri'] }, 'data URI'],
         [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: ['data:image/gif;base64,AAAA'] }, 'PNG, JPEG, or WebP'],
+      ];
+      for (const [payload, message] of invalidCases) {
+        expect(() => validateAdminAiImageBody(payload)).toThrow(AdminAiValidationError);
+        expect(() => validateAdminAiImageBody(payload)).toThrow(message);
+      }
+    });
+
+    test('shared contract validates and builds Grok Imagine Image provider payloads without browser URL sinks', async () => {
+      const {
+        AdminAiValidationError,
+        buildAdminAiGrokImagineImageRequest,
+        resolveAdminAiModelSelection,
+        validateAdminAiImageBody,
+      } = await loadAdminAiContractModule();
+
+      const promptOnly = validateAdminAiImageBody({
+        model: 'xai/grok-imagine-image',
+        prompt: 'A golden retriever puppy playing in autumn leaves.',
+      });
+      expect(promptOnly).toEqual(expect.objectContaining({
+        model: 'xai/grok-imagine-image',
+        prompt: 'A golden retriever puppy playing in autumn leaves.',
+        aspect_ratio: 'auto',
+        quality: 'medium',
+        resolution: '1k',
+        response_format: 'b64_json',
+        n: 1,
+      }));
+
+      const browserInput = validateAdminAiImageBody({
+        model: 'xai/grok-imagine-image',
+        prompt: 'Blend the internal image sources.',
+        aspect_ratio: '3:4',
+        quality: 'high',
+        resolution: '2k',
+        response_format: 'url',
+        n: 2,
+        user: 'admin-grok-image-test',
+        source_image: { source_type: 'saved_asset', asset_id: 'image_primary' },
+        source_images: [
+          { source_type: 'saved_asset', asset_id: 'image_ref_1' },
+          { source_type: 'mempic', asset_id: 'image_ref_2' },
+        ],
+        source_mask: { source_type: 'saved_asset', asset_id: 'mask_primary' },
+      });
+      expect(browserInput).toEqual(expect.objectContaining({
+        model: 'xai/grok-imagine-image',
+        prompt: 'Blend the internal image sources.',
+        aspect_ratio: '3:4',
+        quality: 'high',
+        resolution: '2k',
+        response_format: 'url',
+        n: 2,
+        user: 'admin-grok-image-test',
+        source_image: { source_type: 'saved_asset', asset_id: 'image_primary' },
+        source_images: [
+          { source_type: 'saved_asset', asset_id: 'image_ref_1' },
+          { source_type: 'mempic', asset_id: 'image_ref_2' },
+        ],
+        source_mask: { source_type: 'saved_asset', asset_id: 'mask_primary' },
+      }));
+      expect(browserInput).not.toHaveProperty('image');
+      expect(browserInput).not.toHaveProperty('images');
+      expect(browserInput).not.toHaveProperty('mask');
+
+      const resolvedInput = validateAdminAiImageBody({
+        model: 'xai/grok-imagine-image',
+        prompt: 'Provider-ready internal image sources.',
+        aspect_ratio: '16:9',
+        quality: 'low',
+        resolution: '1k',
+        response_format: 'b64_json',
+        n: 3,
+        image: { url: 'https://bitbi.ai/api/internal/ai/media-source/primary-token', type: 'image/png' },
+        images: [
+          { url: 'https://bitbi.ai/api/internal/ai/media-source/ref-token', type: 'image/webp' },
+        ],
+        mask: { url: 'https://bitbi.ai/api/internal/ai/media-source/mask-token' },
+      }, { allowResolvedGrokImageMediaUrls: true });
+      const { model } = resolveAdminAiModelSelection('image', resolvedInput);
+      const request = buildAdminAiGrokImagineImageRequest(model, resolvedInput);
+      expect(request).toEqual(expect.objectContaining({
+        appliedQuality: 'low',
+        appliedResolution: '1k',
+        appliedAspectRatio: '16:9',
+        appliedResponseFormat: 'b64_json',
+        appliedOutputCount: 3,
+        inputImageCount: 3,
+        hasPrimaryImage: true,
+        hasMask: true,
+      }));
+      expect(request.payload).toEqual({
+        prompt: 'Provider-ready internal image sources.',
+        aspect_ratio: '16:9',
+        quality: 'low',
+        resolution: '1k',
+        response_format: 'b64_json',
+        n: 3,
+        image: { url: 'https://bitbi.ai/api/internal/ai/media-source/primary-token', type: 'image/png' },
+        images: [
+          { url: 'https://bitbi.ai/api/internal/ai/media-source/ref-token', type: 'image/webp' },
+        ],
+        mask: { url: 'https://bitbi.ai/api/internal/ai/media-source/mask-token' },
+      });
+      expect(request.payload).not.toHaveProperty('source_image');
+      expect(request.payload).not.toHaveProperty('source_images');
+      expect(request.payload).not.toHaveProperty('source_mask');
+      expect(request.payload).not.toHaveProperty('organization_id');
+
+      const invalidCases = [
+        [{ model: 'xai/grok-imagine-image', prompt: '', n: 1 }, 'prompt is required'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', n: 0 }, 'n must be between 1 and 10'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', n: 11 }, 'n must be between 1 and 10'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', aspect_ratio: '21:9' }, 'aspect_ratio'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', quality: 'ultra' }, 'quality'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', resolution: '4k' }, 'resolution'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', response_format: 'json' }, 'response_format'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', image: { url: 'https://example.com/image.png' } }, 'image is not supported'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', images: [{ url: 'https://example.com/image.png' }] }, 'images is not supported'],
+        [{ model: 'xai/grok-imagine-image', prompt: 'x', mask: { url: 'https://example.com/mask.png' } }, 'mask is not supported'],
+        [{
+          model: 'xai/grok-imagine-image',
+          prompt: 'x',
+          source_images: Array.from({ length: 11 }, (_, index) => ({ source_type: 'saved_asset', asset_id: `image_${index}` })),
+        }, 'source_images must contain at most 10 items'],
       ];
       for (const [payload, message] of invalidCases) {
         expect(() => validateAdminAiImageBody(payload)).toThrow(AdminAiValidationError);

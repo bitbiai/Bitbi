@@ -628,6 +628,53 @@ function createMockAiCatalog() {
             proxied: true,
           },
         },
+        {
+          id: 'xai/grok-imagine-image',
+          task: 'image',
+          label: 'Grok Imagine Image',
+          vendor: 'xAI',
+          providerLabel: 'Cloudflare AI Gateway',
+          description: 'Admin-only xAI image generation and image-guided editing through Cloudflare AI Gateway.',
+          adminOnly: true,
+          generationEnabled: true,
+          capabilities: {
+            supportsSeed: false,
+            supportsSteps: false,
+            supportsDimensions: false,
+            supportsGuidance: false,
+            supportsStructuredPrompt: false,
+            supportsReferenceImages: true,
+            supportsQuality: true,
+            supportsSize: false,
+            supportsOutputFormat: false,
+            supportsBackground: false,
+            supportsPrimaryImageInput: true,
+            supportsMaskImage: true,
+            supportsOutputCount: true,
+            supportsResolution: true,
+            supportsAspectRatio: true,
+            supportsResponseFormat: true,
+            supportsUserTag: true,
+            maxReferenceImages: 10,
+            maxSteps: null,
+            defaultSteps: null,
+            minGuidance: null,
+            maxGuidance: null,
+            defaultGuidance: null,
+            qualityOptions: ['low', 'medium', 'high'],
+            aspectRatioOptions: ['1:1', '3:4', '4:3', '9:16', '16:9', '2:3', '3:2', '9:19.5', '19.5:9', '9:20', '20:9', '1:2', '2:1', 'auto'],
+            resolutionOptions: ['1k', '2k'],
+            responseFormatOptions: ['url', 'b64_json'],
+            defaultAspectRatio: 'auto',
+            defaultQuality: 'medium',
+            defaultResolution: '1k',
+            defaultResponseFormat: 'b64_json',
+            defaultOutputCount: 1,
+            minOutputCount: 1,
+            maxOutputCount: 10,
+            proxied: true,
+          },
+        },
       ],
       embeddings: [
         {
@@ -1076,6 +1123,52 @@ async function mockAdminAiLab(page, captures = {}) {
     });
   });
 
+  await page.route('**/api/admin/ai/media-source-candidates**', async (route) => {
+    const url = new URL(route.request().url());
+    const media = url.searchParams.get('media') || 'image';
+    const scope = url.searchParams.get('scope') || 'saved_assets';
+    const isImage = media === 'image';
+    const candidate = isImage
+      ? {
+          media_type: 'image',
+          source_type: scope === 'public' ? 'mempic' : 'saved_asset',
+          asset_id: scope === 'public' ? 'mempic-mock-1' : 'image-source-mock-1',
+          title: scope === 'public' ? 'Mock Mempic Source' : 'Mock Image Source',
+          mime_type: 'image/png',
+          size_bytes: 1024,
+          created_at: '2026-06-04T10:00:00.000Z',
+          published_at: scope === 'public' ? '2026-06-04T11:00:00.000Z' : null,
+          thumb_url: '/tests/fixtures/media/favorite-thumb.jpg',
+          preview_url: '/tests/fixtures/media/favorite-thumb.jpg',
+        }
+      : {
+          media_type: 'video',
+          source_type: scope === 'public' ? 'memvid' : 'saved_asset',
+          asset_id: scope === 'public' ? 'memvid-mock-1' : 'video-source-mock-1',
+          title: scope === 'public' ? 'Mock Memvid Source' : 'Mock Video Source',
+          mime_type: 'video/mp4',
+          size_bytes: 2048,
+          created_at: '2026-06-04T10:00:00.000Z',
+          published_at: scope === 'public' ? '2026-06-04T11:00:00.000Z' : null,
+          poster_url: '/tests/fixtures/media/favorite-thumb.jpg',
+          preview_url: '/tests/fixtures/media/test-video.mp4',
+        };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          candidates: [candidate],
+          next_cursor: null,
+          has_more: false,
+          scope,
+          media,
+        },
+      }),
+    });
+  });
+
   await page.route('**/api/admin/ai/test-text', async (route) => {
     const body = route.request().postDataJSON();
     if (body.prompt === 'force error') {
@@ -1171,6 +1264,7 @@ async function mockAdminAiLab(page, captures = {}) {
         '@cf/black-forest-labs/flux-1-schnell',
         '@cf/black-forest-labs/flux-2-klein-9b',
         'black-forest-labs/flux-2-max',
+        'xai/grok-imagine-image',
         undefined,
       ].includes(body.model) &&
       (!body.organization_id || !idempotencyKey)
@@ -16437,6 +16531,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Max');
     await expect(page.locator('#aiModelsImage')).toContainText('GPT Image 2');
+    await expect(page.locator('#aiModelsImage')).toContainText('Grok Imagine Image');
     await expect(page.locator('#aiModelsImage')).toContainText('OpenAI via Cloudflare AI Gateway');
     await expect(page.locator('#aiModelsMusic')).toContainText('Music 2.6');
 
@@ -16460,7 +16555,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImagePrompt')).toHaveValue(
       /An editorial portrait of a digital artist/,
     );
-    await expect(page.locator('#aiImageModel option')).toHaveCount(6);
+    await expect(page.locator('#aiImageModel option')).toHaveCount(7);
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
     await page.locator('#aiImageRun').click();
     await expect(page.locator('#aiImagePreview img')).toBeVisible();
@@ -19017,6 +19112,64 @@ test.describe('AI Lab Image capability controls', () => {
     await page.selectOption('#aiImageSize', 'auto');
     await expect(page.locator('#aiImageGptCostHint')).toContainText('Estimated credits: 200');
     await expect(page.locator('#aiImageGptCostHint')).toContainText('Auto settings are charged at the safe upper-bound credit price.');
+  });
+
+  test('shows Grok Imagine Image controls and submits internal image source references', async ({ page }) => {
+    const imageTestRequests = [];
+    await mockAdminAiLab(page, { imageTestRequests });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await clickAiLabMode(page, 'image');
+    await page.selectOption('#aiImageModel', 'xai/grok-imagine-image');
+
+    await expect(page.locator('#aiImageGrokControls')).toBeVisible();
+    await expect(page.locator('#aiImageSourcePickerField')).toBeVisible();
+    await expect(page.locator('#aiImageRefSection')).toBeHidden();
+    await expect(page.locator('#aiImageAspectRatio option')).toHaveText([
+      '1:1',
+      '3:4',
+      '4:3',
+      '9:16',
+      '16:9',
+      '2:3',
+      '3:2',
+      '9:19.5',
+      '19.5:9',
+      '9:20',
+      '20:9',
+      '1:2',
+      '2:1',
+      'auto',
+    ]);
+    await expect(page.locator('#aiImageQuality option')).toHaveText(['low', 'medium', 'high']);
+    await expect(page.locator('#aiImageResolution option')).toHaveText(['1k', '2k']);
+    await expect(page.locator('#aiImageResponseFormat option')).toHaveText(['url', 'b64_json']);
+    await expect(page.locator('#aiImageGptCostHint')).toContainText('Estimated credits:');
+
+    await page.locator('#aiImagePrompt').fill('Restyle this source image as a premium editorial cover.');
+    await page.locator('.admin-ai__video-source-card', { hasText: 'Mock Image Source' }).click();
+    await expect(page.locator('#aiImageSourceSelected')).toContainText('Mock Image Source');
+
+    await page.locator('#aiImageRun').click();
+    await expect(page.locator('#aiImageState')).toContainText('Image response ready.');
+    expect(imageTestRequests).toHaveLength(1);
+    expect(imageTestRequests[0]).toMatchObject({
+      model: 'xai/grok-imagine-image',
+      prompt: 'Restyle this source image as a premium editorial cover.',
+      aspect_ratio: 'auto',
+      quality: 'medium',
+      resolution: '1k',
+      response_format: 'b64_json',
+      n: 1,
+      source_image: {
+        source_type: 'saved_asset',
+        asset_id: 'image-source-mock-1',
+      },
+      organization_id: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    });
+    expect(imageTestRequests[0].image).toBeUndefined();
+    expect(imageTestRequests[0].images).toBeUndefined();
+    expect(imageTestRequests[0].mask).toBeUndefined();
   });
 
   test('prompt mode selector toggles between standard and structured prompt fields', async ({

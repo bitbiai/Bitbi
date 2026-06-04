@@ -11,6 +11,26 @@ import {
   GPT_IMAGE_2_SIZE_OPTIONS,
 } from "./gpt-image-2-pricing.mjs";
 import {
+  GROK_IMAGINE_IMAGE_ALIASES,
+  GROK_IMAGINE_IMAGE_ASPECT_RATIOS,
+  GROK_IMAGINE_IMAGE_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_IMAGE_DEFAULT_OUTPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_DEFAULT_QUALITY,
+  GROK_IMAGINE_IMAGE_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_IMAGE_DEFAULT_RESPONSE_FORMAT,
+  GROK_IMAGINE_IMAGE_MAX_INPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_MAX_OUTPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_MIN_OUTPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_MODEL_ID,
+  GROK_IMAGINE_IMAGE_MODEL_LABEL,
+  GROK_IMAGINE_IMAGE_PROVIDER_LABEL,
+  GROK_IMAGINE_IMAGE_QUALITIES,
+  GROK_IMAGINE_IMAGE_RESOLUTIONS,
+  GROK_IMAGINE_IMAGE_RESPONSE_FORMATS,
+  GROK_IMAGINE_IMAGE_VENDOR,
+  calculateGrokImagineImageCreditPricing,
+} from "./grok-imagine-image-pricing.mjs";
+import {
   HAPPYHORSE_T2V_DEFAULT_DURATION,
   HAPPYHORSE_T2V_DEFAULT_RATIO,
   HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
@@ -74,6 +94,25 @@ export {
   GPT_IMAGE_2_QUALITY_OPTIONS,
   GPT_IMAGE_2_SIZE_OPTIONS,
 } from "./gpt-image-2-pricing.mjs";
+export {
+  GROK_IMAGINE_IMAGE_ALIASES,
+  GROK_IMAGINE_IMAGE_ASPECT_RATIOS,
+  GROK_IMAGINE_IMAGE_DEFAULT_ASPECT_RATIO,
+  GROK_IMAGINE_IMAGE_DEFAULT_OUTPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_DEFAULT_QUALITY,
+  GROK_IMAGINE_IMAGE_DEFAULT_RESOLUTION,
+  GROK_IMAGINE_IMAGE_DEFAULT_RESPONSE_FORMAT,
+  GROK_IMAGINE_IMAGE_MAX_INPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_MAX_OUTPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_MIN_OUTPUT_IMAGES,
+  GROK_IMAGINE_IMAGE_MODEL_ID,
+  GROK_IMAGINE_IMAGE_MODEL_LABEL,
+  GROK_IMAGINE_IMAGE_PROVIDER_LABEL,
+  GROK_IMAGINE_IMAGE_QUALITIES,
+  GROK_IMAGINE_IMAGE_RESOLUTIONS,
+  GROK_IMAGINE_IMAGE_RESPONSE_FORMATS,
+  GROK_IMAGINE_IMAGE_VENDOR,
+} from "./grok-imagine-image-pricing.mjs";
 export {
   HAPPYHORSE_T2V_MODEL_ID,
   HAPPYHORSE_T2V_MODEL_LABEL,
@@ -140,6 +179,7 @@ export const ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID = SEEDANCE_2_FAST_MODEL_ID;
 export const ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID = SEEDANCE_2_MODEL_ID;
 export const ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID = GROK_IMAGINE_VIDEO_MODEL_ID;
 export const ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID = GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID;
+export const ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID = GROK_IMAGINE_IMAGE_MODEL_ID;
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE = "model_pricing_required";
 export const ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE =
   "Pricing is not configured for this admin Video AI model. Configure verified Cloudflare pricing before generation.";
@@ -324,6 +364,13 @@ export const ADMIN_AI_IMAGE_CAPABILITY_FALLBACK = {
   supportsBackground: false,
   supportsTransparentBackground: false,
   supportsSafetyTolerance: false,
+  supportsAspectRatio: false,
+  supportsResolution: false,
+  supportsResponseFormat: false,
+  supportsOutputCount: false,
+  supportsPrimaryImageInput: false,
+  supportsMaskImage: false,
+  supportsUserTag: false,
   maxReferenceImages: 0,
   maxSteps: 8,
   defaultSteps: 4,
@@ -340,6 +387,17 @@ export const ADMIN_AI_IMAGE_CAPABILITY_FALLBACK = {
   sizeOptions: [],
   outputFormatOptions: [],
   backgroundOptions: [],
+  aspectRatioOptions: [],
+  resolutionOptions: [],
+  responseFormatOptions: [],
+  defaultQuality: null,
+  defaultSize: null,
+  defaultOutputFormat: null,
+  defaultBackground: null,
+  defaultAspectRatio: null,
+  defaultResolution: null,
+  defaultResponseFormat: null,
+  defaultOutputCount: null,
 };
 
 export const ADMIN_AI_LIVE_AGENT_LIMITS = {
@@ -505,6 +563,47 @@ const IMAGE_MODELS = {
     defaultBackground: "auto",
     defaultMimeType: "image/png",
     description: "OpenAI image generation and editing via Cloudflare AI Gateway.",
+  },
+  [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID]: {
+    id: ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
+    task: "image",
+    label: GROK_IMAGINE_IMAGE_MODEL_LABEL,
+    vendor: GROK_IMAGINE_IMAGE_VENDOR,
+    providerLabel: GROK_IMAGINE_IMAGE_PROVIDER_LABEL,
+    inputFormat: "grok-imagine-image",
+    proxied: true,
+    adminOnly: true,
+    pricingRequired: false,
+    generationEnabled: true,
+    aliases: GROK_IMAGINE_IMAGE_ALIASES,
+    supportsSeed: false,
+    supportsSteps: false,
+    supportsDimensions: false,
+    supportsGuidance: false,
+    supportsStructuredPrompt: false,
+    supportsReferenceImages: true,
+    maxReferenceImages: GROK_IMAGINE_IMAGE_MAX_INPUT_IMAGES,
+    supportsPrimaryImageInput: true,
+    supportsMaskImage: true,
+    supportsOutputCount: true,
+    supportsQuality: true,
+    supportsResolution: true,
+    supportsAspectRatio: true,
+    supportsResponseFormat: true,
+    supportsUserTag: true,
+    aspectRatioOptions: GROK_IMAGINE_IMAGE_ASPECT_RATIOS,
+    qualityOptions: GROK_IMAGINE_IMAGE_QUALITIES,
+    resolutionOptions: GROK_IMAGINE_IMAGE_RESOLUTIONS,
+    responseFormatOptions: GROK_IMAGINE_IMAGE_RESPONSE_FORMATS,
+    defaultAspectRatio: GROK_IMAGINE_IMAGE_DEFAULT_ASPECT_RATIO,
+    defaultQuality: GROK_IMAGINE_IMAGE_DEFAULT_QUALITY,
+    defaultResolution: GROK_IMAGINE_IMAGE_DEFAULT_RESOLUTION,
+    defaultResponseFormat: GROK_IMAGINE_IMAGE_DEFAULT_RESPONSE_FORMAT,
+    defaultOutputCount: GROK_IMAGINE_IMAGE_DEFAULT_OUTPUT_IMAGES,
+    minOutputCount: GROK_IMAGINE_IMAGE_MIN_OUTPUT_IMAGES,
+    maxOutputCount: GROK_IMAGINE_IMAGE_MAX_OUTPUT_IMAGES,
+    defaultMimeType: "image/png",
+    description: "Admin-only xAI image generation and image-guided editing via Cloudflare AI Gateway Unified Billing with operator-approved pricing.",
   },
   [FLUX_2_MAX_MODEL_ID]: {
     id: FLUX_2_MAX_MODEL_ID,
@@ -840,6 +939,13 @@ const PRESETS = {
     label: "Fast Image",
     model: "@cf/black-forest-labs/flux-1-schnell",
     description: "Fast image generation aligned with the existing production image model.",
+  },
+  image_grok_imagine: {
+    name: "image_grok_imagine",
+    task: "image",
+    label: GROK_IMAGINE_IMAGE_MODEL_LABEL,
+    model: ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
+    description: "Admin-only Grok Imagine Image preset through Cloudflare AI Gateway Unified Billing.",
   },
   embedding_default: {
     name: "embedding_default",
@@ -1395,6 +1501,53 @@ function normalizeGrokPreviewSourceImage(value, field = "source_image") {
   };
 }
 
+function normalizeGrokImageUrlObject(value, field) {
+  const object = optionalGrokPreviewUrlObject(value, field);
+  if (!object) return null;
+  const type = optionalString(value?.type, `${field}.type`, 80);
+  return type ? { ...object, type } : object;
+}
+
+function normalizeGrokImageUrlObjectArray(value, field, maxItems) {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value)) {
+    throw new AdminAiValidationError(`${field} must be an array.`, 400, "validation_error");
+  }
+  if (value.length > maxItems) {
+    throw new AdminAiValidationError(
+      `${field} must contain at most ${maxItems} items.`,
+      400,
+      "validation_error"
+    );
+  }
+  return value.map((entry, index) => {
+    const normalized = normalizeGrokImageUrlObject(entry, `${field}[${index}]`);
+    if (!normalized) {
+      throw new AdminAiValidationError(
+        `${field}[${index}].url is required.`,
+        400,
+        "validation_error"
+      );
+    }
+    return normalized;
+  });
+}
+
+function normalizeGrokPreviewSourceImageArray(value, field = "source_images", maxItems = 10) {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value)) {
+    throw new AdminAiValidationError(`${field} must be an array.`, 400, "validation_error");
+  }
+  if (value.length > maxItems) {
+    throw new AdminAiValidationError(
+      `${field} must contain at most ${maxItems} items.`,
+      400,
+      "validation_error"
+    );
+  }
+  return value.map((entry, index) => normalizeGrokPreviewSourceImage(entry, `${field}[${index}]`));
+}
+
 function firstNonEmptyValue(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== "") return value;
@@ -1437,7 +1590,16 @@ function toPublicModel(model) {
       supportsBackground: !!model.supportsBackground,
       supportsTransparentBackground: !!model.supportsTransparentBackground,
       supportsSafetyTolerance: !!model.supportsSafetyTolerance,
+      supportsAspectRatio: !!model.supportsAspectRatio,
+      supportsResolution: !!model.supportsResolution,
+      supportsResponseFormat: !!model.supportsResponseFormat,
+      supportsOutputCount: !!model.supportsOutputCount,
+      supportsPrimaryImageInput: !!model.supportsPrimaryImageInput,
+      supportsMaskImage: !!model.supportsMaskImage,
+      supportsUserTag: !!model.supportsUserTag,
       maxReferenceImages: model.maxReferenceImages || 0,
+      minOutputCount: model.minOutputCount ?? null,
+      maxOutputCount: model.maxOutputCount ?? null,
       maxSteps: model.maxSteps || null,
       defaultSteps: model.defaultSteps || null,
       minDimension: model.minDimension || null,
@@ -1453,11 +1615,20 @@ function toPublicModel(model) {
       sizeOptions: Array.isArray(model.sizeOptions) ? [...model.sizeOptions] : [],
       outputFormatOptions: Array.isArray(model.outputFormatOptions) ? [...model.outputFormatOptions] : [],
       backgroundOptions: Array.isArray(model.backgroundOptions) ? [...model.backgroundOptions] : [],
+      aspectRatioOptions: Array.isArray(model.aspectRatioOptions) ? [...model.aspectRatioOptions] : [],
+      resolutionOptions: Array.isArray(model.resolutionOptions) ? [...model.resolutionOptions] : [],
+      responseFormatOptions: Array.isArray(model.responseFormatOptions) ? [...model.responseFormatOptions] : [],
       defaultQuality: model.defaultQuality || null,
       defaultSize: model.defaultSize || null,
       defaultOutputFormat: model.defaultOutputFormat || null,
       defaultBackground: model.defaultBackground || null,
+      defaultAspectRatio: model.defaultAspectRatio || null,
+      defaultResolution: model.defaultResolution || null,
+      defaultResponseFormat: model.defaultResponseFormat || null,
+      defaultOutputCount: model.defaultOutputCount ?? null,
       proxied: !!model.proxied,
+      adminOnly: model.adminOnly === true,
+      generationEnabled: model.generationEnabled !== false,
     };
   }
   if (model.task === "video") {
@@ -1618,12 +1789,149 @@ export function validateAdminAiTextBody(body) {
   };
 }
 
-export function validateAdminAiImageBody(body) {
+export function validateAdminAiImageBody(body, options = {}) {
   const input = ensureObject(body);
+  const allowResolvedGrokImageMediaUrls = options?.allowResolvedGrokImageMediaUrls === true;
   const preset = optionalString(input.preset, "preset", 64);
   const model = optionalString(input.model, "model", 120);
   const selection = resolveAdminAiModelSelection("image", { preset, model });
   const selectedModel = selection.model;
+
+  if (selectedModel.id === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID) {
+    const commonFields = [
+      "preset",
+      "model",
+      "prompt",
+      "aspect_ratio",
+      "aspectRatio",
+      "quality",
+      "resolution",
+      "response_format",
+      "responseFormat",
+      "n",
+      "user",
+    ];
+    assertOnlyAllowedFields(
+      input,
+      allowResolvedGrokImageMediaUrls
+        ? commonFields.concat(["image", "images", "mask"])
+        : commonFields.concat([
+            "source_image",
+            "sourceImage",
+            "source_images",
+            "sourceImages",
+            "source_mask",
+            "sourceMask",
+            "organization_id",
+            "organizationId",
+          ]),
+      selectedModel.id
+    );
+
+    const prompt = requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.image.maxPromptLength);
+    const aspect_ratio = optionalEnum(
+      input.aspect_ratio ?? input.aspectRatio,
+      "aspect_ratio",
+      GROK_IMAGINE_IMAGE_ASPECT_RATIOS,
+      GROK_IMAGINE_IMAGE_DEFAULT_ASPECT_RATIO
+    );
+    const quality = optionalEnum(
+      input.quality,
+      "quality",
+      GROK_IMAGINE_IMAGE_QUALITIES,
+      GROK_IMAGINE_IMAGE_DEFAULT_QUALITY
+    );
+    const resolution = optionalEnum(
+      input.resolution,
+      "resolution",
+      GROK_IMAGINE_IMAGE_RESOLUTIONS,
+      GROK_IMAGINE_IMAGE_DEFAULT_RESOLUTION
+    );
+    const response_format = optionalEnum(
+      input.response_format ?? input.responseFormat,
+      "response_format",
+      GROK_IMAGINE_IMAGE_RESPONSE_FORMATS,
+      GROK_IMAGINE_IMAGE_DEFAULT_RESPONSE_FORMAT
+    );
+    const n = optionalInteger(
+      input.n,
+      "n",
+      GROK_IMAGINE_IMAGE_MIN_OUTPUT_IMAGES,
+      GROK_IMAGINE_IMAGE_MAX_OUTPUT_IMAGES,
+      GROK_IMAGINE_IMAGE_DEFAULT_OUTPUT_IMAGES
+    );
+    const user = optionalString(input.user, "user", 120);
+
+    const image = allowResolvedGrokImageMediaUrls
+      ? normalizeGrokImageUrlObject(input.image, "image")
+      : null;
+    const images = allowResolvedGrokImageMediaUrls
+      ? normalizeGrokImageUrlObjectArray(input.images, "images", GROK_IMAGINE_IMAGE_MAX_INPUT_IMAGES)
+      : [];
+    const mask = allowResolvedGrokImageMediaUrls
+      ? normalizeGrokImageUrlObject(input.mask, "mask")
+      : null;
+    const source_image = !allowResolvedGrokImageMediaUrls
+      ? normalizeGrokPreviewSourceImage(
+          firstNonEmptyValue(input.source_image, input.sourceImage),
+          "source_image"
+        )
+      : null;
+    const source_images = !allowResolvedGrokImageMediaUrls
+      ? normalizeGrokPreviewSourceImageArray(
+          firstNonEmptyValue(input.source_images, input.sourceImages),
+          "source_images",
+          GROK_IMAGINE_IMAGE_MAX_INPUT_IMAGES
+        )
+      : [];
+    const source_mask = !allowResolvedGrokImageMediaUrls
+      ? normalizeGrokPreviewSourceImage(
+          firstNonEmptyValue(input.source_mask, input.sourceMask),
+          "source_mask"
+        )
+      : null;
+
+    try {
+      calculateGrokImagineImageCreditPricing({
+        n,
+        aspect_ratio,
+        quality,
+        resolution,
+        response_format,
+        ...(allowResolvedGrokImageMediaUrls
+          ? { image, images, mask }
+          : { source_image, source_images, source_mask }),
+      });
+    } catch {
+      throw new AdminAiValidationError(
+        "Pricing is not configured for this admin Image AI model.",
+        409,
+        "model_pricing_required"
+      );
+    }
+
+    const validated = {
+      preset,
+      model,
+      prompt,
+      aspect_ratio,
+      quality,
+      resolution,
+      response_format,
+      n,
+    };
+    if (user) validated.user = user;
+    if (allowResolvedGrokImageMediaUrls) {
+      if (image) validated.image = image;
+      if (images.length > 0) validated.images = images;
+      if (mask) validated.mask = mask;
+    } else {
+      if (source_image) validated.source_image = source_image;
+      if (source_images.length > 0) validated.source_images = source_images;
+      if (source_mask) validated.source_mask = source_mask;
+    }
+    return validated;
+  }
 
   if (selectedModel.id === GPT_IMAGE_2_MODEL_ID) {
     if (typeof input.background === "string" && input.background.trim() === "transparent") {
@@ -2728,6 +3036,35 @@ export function buildAdminAiGptImage2Request(model, input) {
     appliedOutputFormat: payload.output_format,
     appliedBackground: payload.background,
     referenceImageCount: payload.images?.length || 0,
+  };
+}
+
+export function buildAdminAiGrokImagineImageRequest(model, input) {
+  const payload = {
+    prompt: String(input.prompt || "").trim(),
+    aspect_ratio: input.aspect_ratio || model.defaultAspectRatio || GROK_IMAGINE_IMAGE_DEFAULT_ASPECT_RATIO,
+    quality: input.quality || model.defaultQuality || GROK_IMAGINE_IMAGE_DEFAULT_QUALITY,
+    resolution: input.resolution || model.defaultResolution || GROK_IMAGINE_IMAGE_DEFAULT_RESOLUTION,
+    response_format:
+      input.response_format || model.defaultResponseFormat || GROK_IMAGINE_IMAGE_DEFAULT_RESPONSE_FORMAT,
+    n: input.n || model.defaultOutputCount || GROK_IMAGINE_IMAGE_DEFAULT_OUTPUT_IMAGES,
+  };
+  if (input.user) payload.user = String(input.user).trim();
+  if (input.image) payload.image = input.image;
+  if (Array.isArray(input.images) && input.images.length > 0) payload.images = input.images;
+  if (input.mask) payload.mask = input.mask;
+
+  return {
+    payload,
+    appliedQuality: payload.quality,
+    appliedResolution: payload.resolution,
+    appliedAspectRatio: payload.aspect_ratio,
+    appliedResponseFormat: payload.response_format,
+    appliedOutputCount: payload.n,
+    referenceImageCount: payload.images?.length || 0,
+    inputImageCount: (payload.image ? 1 : 0) + (payload.images?.length || 0) + (payload.mask ? 1 : 0),
+    hasPrimaryImage: !!payload.image,
+    hasMask: !!payload.mask,
   };
 }
 

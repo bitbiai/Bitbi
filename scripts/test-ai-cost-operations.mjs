@@ -254,6 +254,12 @@ assert(!policyBaseline.knownGaps.some((gap) => gap.id === "admin-ai-image-unmete
     && branch.killSwitchTarget === "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET"
     && branch.idempotencyPolicy === "required"
   ));
+  assert(classifications.some((branch) =>
+    branch.providerFamily === "xai"
+    && branch.killSwitchTarget === "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET"
+    && branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.CHARGED_ADMIN_ORG_CREDIT
+    && branch.idempotencyPolicy === "required"
+  ));
   assert.equal(
     getAdminImageTestBranchClassification("not-a-real-model").budgetClassification,
     ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.BLOCKED_UNSUPPORTED

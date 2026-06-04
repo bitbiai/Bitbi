@@ -25,6 +25,7 @@ import {
     ADMIN_AI_LIMITS,
     ADMIN_AI_LIVE_AGENT_MODEL,
     ADMIN_AI_MUSIC_KEYS,
+    ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
     ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
     ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
     ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
@@ -159,10 +160,18 @@ const DEFAULT_FORMS = {
         quality: 'medium',
         size: '1024x1024',
         outputFormat: 'png',
+        aspectRatio: 'auto',
+        resolution: '1k',
+        responseFormat: 'b64_json',
+        outputCount: 1,
+        user: '',
         background: 'auto',
         safetyTolerance: 2,
         referenceImages: [],
         referenceImageDimensions: [],
+        sourceImage: null,
+        sourceImages: [],
+        sourceMask: null,
         organizationId: '',
     },
     embeddings: {
@@ -904,6 +913,15 @@ export function createAdminAiLab({ showToast } = {}) {
             balance: null,
             error: '',
         },
+        imageSources: {
+            role: 'primary',
+            scope: 'saved_assets',
+            status: 'idle',
+            candidates: [],
+            nextCursor: null,
+            hasMore: false,
+            error: '',
+        },
         videoSources: {
             media: 'video',
             scope: 'saved_assets',
@@ -1008,6 +1026,30 @@ export function createAdminAiLab({ showToast } = {}) {
             safetyTolerance: document.getElementById('aiImageSafetyTolerance'),
             safetyHint: document.getElementById('aiImageSafetyHint'),
             gptCostHint: document.getElementById('aiImageGptCostHint'),
+            grokControls: document.getElementById('aiImageGrokControls'),
+            aspectRatioField: resolveFieldElement('aiImageAspectRatioField', 'aiImageAspectRatio'),
+            aspectRatio: document.getElementById('aiImageAspectRatio'),
+            resolutionField: resolveFieldElement('aiImageResolutionField', 'aiImageResolution'),
+            resolution: document.getElementById('aiImageResolution'),
+            responseFormatField: resolveFieldElement('aiImageResponseFormatField', 'aiImageResponseFormat'),
+            responseFormat: document.getElementById('aiImageResponseFormat'),
+            outputCountField: resolveFieldElement('aiImageOutputCountField', 'aiImageOutputCount'),
+            outputCount: document.getElementById('aiImageOutputCount'),
+            userField: resolveFieldElement('aiImageUserField', 'aiImageUser'),
+            user: document.getElementById('aiImageUser'),
+            sourcePickerField: document.getElementById('aiImageSourcePickerField'),
+            sourceRolePrimary: document.getElementById('aiImageSourceRolePrimary'),
+            sourceRoleAdditional: document.getElementById('aiImageSourceRoleAdditional'),
+            sourceRoleMask: document.getElementById('aiImageSourceRoleMask'),
+            sourceScopeSaved: document.getElementById('aiImageSourceScopeSaved'),
+            sourceScopeMempics: document.getElementById('aiImageSourceScopeMempics'),
+            sourceRefresh: document.getElementById('aiImageSourceRefresh'),
+            sourceSelected: document.getElementById('aiImageSourceSelected'),
+            sourceSelectedText: document.getElementById('aiImageSourceSelectedText'),
+            sourceClear: document.getElementById('aiImageSourceClear'),
+            sourceStatus: document.getElementById('aiImageSourceStatus'),
+            sourceList: document.getElementById('aiImageSourceList'),
+            sourceLoadMore: document.getElementById('aiImageSourceLoadMore'),
             organization: document.getElementById('aiImageOrganization'),
             organizationState: document.getElementById('aiImageOrganizationState'),
             refSection: document.getElementById('aiImageRefSection'),
@@ -1712,6 +1754,256 @@ export function createAdminAiLab({ showToast } = {}) {
         state.videoSources.hasMore = data.has_more === true;
         state.videoSources.status = 'ready';
         renderVideoSourcePicker();
+    }
+
+    function isGrokImagineImageSelected() {
+        return getSelectedImageModelIdForBilling() === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID;
+    }
+
+    function normalizeImageSourceRole(value) {
+        const role = String(value || '').trim();
+        return ['primary', 'additional', 'mask'].includes(role) ? role : 'primary';
+    }
+
+    function getSelectedImageSourceForRole(role = state.imageSources.role) {
+        const normalizedRole = normalizeImageSourceRole(role);
+        if (normalizedRole === 'primary') return normalizeImageSourceCandidate(state.forms.image.sourceImage);
+        if (normalizedRole === 'mask') return normalizeImageSourceCandidate(state.forms.image.sourceMask);
+        return null;
+    }
+
+    function getAdditionalImageSources() {
+        return Array.isArray(state.forms.image.sourceImages)
+            ? state.forms.image.sourceImages.map((candidate) => normalizeImageSourceCandidate(candidate)).filter(Boolean)
+            : [];
+    }
+
+    function isAdditionalImageSourceSelected(candidate) {
+        return getAdditionalImageSources().some((source) =>
+            source.source_type === candidate.source_type && source.asset_id === candidate.asset_id
+        );
+    }
+
+    function setSelectedImageSourceCandidate(candidate) {
+        const normalized = normalizeImageSourceCandidate(candidate);
+        if (!normalized) return;
+        const role = normalizeImageSourceRole(state.imageSources.role);
+        if (role === 'primary') {
+            state.forms.image.sourceImage = normalized;
+        } else if (role === 'mask') {
+            state.forms.image.sourceMask = normalized;
+        } else {
+            const existing = getAdditionalImageSources();
+            if (!existing.some((source) => source.source_type === normalized.source_type && source.asset_id === normalized.asset_id)) {
+                state.forms.image.sourceImages = existing.concat(normalized).slice(0, 10);
+            } else {
+                state.forms.image.sourceImages = existing;
+            }
+        }
+        persistState();
+        renderImageSourcePicker();
+        syncImageBillingUi();
+    }
+
+    function clearSelectedImageSourceRole({ persist = true } = {}) {
+        const role = normalizeImageSourceRole(state.imageSources.role);
+        if (role === 'primary') {
+            state.forms.image.sourceImage = null;
+        } else if (role === 'mask') {
+            state.forms.image.sourceMask = null;
+        } else {
+            state.forms.image.sourceImages = [];
+        }
+        if (persist) persistState();
+        renderImageSourcePicker();
+        syncImageBillingUi();
+    }
+
+    function buildImageSourceCard(candidate) {
+        const selected = getSelectedImageSourceForRole();
+        const isSelected = state.imageSources.role === 'additional'
+            ? isAdditionalImageSourceSelected(candidate)
+            : selected?.source_type === candidate.source_type && selected?.asset_id === candidate.asset_id;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'admin-ai__video-source-card';
+        if (isSelected) button.classList.add('admin-ai__video-source-card--selected');
+        button.setAttribute('aria-pressed', String(isSelected));
+        button.dataset.sourceType = candidate.source_type;
+        button.dataset.assetId = candidate.asset_id;
+
+        const thumb = document.createElement('span');
+        thumb.className = 'admin-ai__video-source-thumb';
+        const thumbUrl = candidate.thumb_url || candidate.preview_url;
+        if (thumbUrl) {
+            const img = document.createElement('img');
+            img.alt = '';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.src = thumbUrl;
+            thumb.append(img);
+        } else {
+            thumb.textContent = getMediaSourceScopeLabel(candidate.source_type).slice(0, 1);
+        }
+
+        const body = document.createElement('span');
+        body.className = 'admin-ai__video-source-body';
+        const title = document.createElement('span');
+        title.className = 'admin-ai__video-source-title';
+        title.textContent = candidate.title;
+        const meta = document.createElement('span');
+        meta.className = 'admin-ai__video-source-meta';
+        meta.textContent = [
+            getMediaSourceScopeLabel(candidate.source_type),
+            candidate.mime_type || '',
+            candidate.size_bytes ? formatBytes(candidate.size_bytes) : '',
+            formatAdminDate(candidate.published_at || candidate.created_at),
+        ].filter(Boolean).join(' · ');
+        body.append(title, meta);
+        button.append(thumb, body);
+        button.addEventListener('click', () => setSelectedImageSourceCandidate(candidate));
+        return button;
+    }
+
+    function renderImageSourcePicker() {
+        if (!refs.image.sourcePickerField || !refs.image.sourceList) return;
+        const isVisible = isGrokImagineImageSelected();
+        refs.image.sourcePickerField.hidden = !isVisible;
+        if (!isVisible) return;
+        const isBusy = state.results.image?.status === 'loading';
+        const isLoading = state.imageSources.status === 'loading';
+        const role = normalizeImageSourceRole(state.imageSources.role);
+        const scope = normalizePreviewMediaSourceScope(state.imageSources.scope, 'image');
+        state.imageSources.scope = scope;
+        [
+            [refs.image.sourceRolePrimary, 'primary'],
+            [refs.image.sourceRoleAdditional, 'additional'],
+            [refs.image.sourceRoleMask, 'mask'],
+        ].forEach(([button, value]) => {
+            if (!button) return;
+            button.setAttribute('aria-selected', String(role === value));
+            button.disabled = isBusy || isLoading;
+        });
+        [
+            [refs.image.sourceScopeSaved, 'saved_assets'],
+            [refs.image.sourceScopeMempics, 'public'],
+        ].forEach(([button, value]) => {
+            if (!button) return;
+            button.setAttribute('aria-selected', String(scope === value));
+            button.disabled = isBusy || isLoading;
+        });
+        if (refs.image.sourceRefresh) refs.image.sourceRefresh.disabled = isBusy || isLoading;
+        if (refs.image.sourceLoadMore) {
+            refs.image.sourceLoadMore.hidden = !state.imageSources.hasMore;
+            refs.image.sourceLoadMore.disabled = isBusy || isLoading;
+        }
+        if (refs.image.sourceClear) refs.image.sourceClear.disabled = isBusy;
+
+        const primary = normalizeImageSourceCandidate(state.forms.image.sourceImage);
+        const additional = getAdditionalImageSources();
+        const mask = normalizeImageSourceCandidate(state.forms.image.sourceMask);
+        if (refs.image.sourceSelected && refs.image.sourceSelectedText) {
+            refs.image.sourceSelected.hidden = !primary && additional.length === 0 && !mask;
+            refs.image.sourceSelectedText.textContent = [
+                primary ? `Primary: ${primary.title}` : '',
+                additional.length ? `Additional: ${additional.length} selected` : '',
+                mask ? `Mask: ${mask.title}` : '',
+            ].filter(Boolean).join(' · ');
+        }
+        if (refs.image.sourceStatus) {
+            if (state.imageSources.status === 'loading') {
+                refs.image.sourceStatus.textContent = 'Loading internal image sources...';
+            } else if (state.imageSources.status === 'error') {
+                refs.image.sourceStatus.textContent = state.imageSources.error || 'Internal image sources are unavailable.';
+            } else {
+                refs.image.sourceStatus.textContent = role === 'additional'
+                    ? 'Choose up to 10 additional internal image references.'
+                    : role === 'mask'
+                        ? 'Choose an optional internal mask image.'
+                        : 'Choose an optional primary internal image, or leave empty for prompt-only generation.';
+            }
+        }
+
+        refs.image.sourceList.replaceChildren();
+        const candidates = state.imageSources.candidates
+            .map((candidate) => normalizeImageSourceCandidate(candidate))
+            .filter(Boolean);
+        if (!candidates.length) {
+            const empty = document.createElement('p');
+            empty.className = 'admin-ai__video-source-empty';
+            empty.textContent = state.imageSources.status === 'loading'
+                ? 'Loading image sources...'
+                : scope === 'public'
+                    ? 'No published Mempics are available.'
+                    : 'No saved image assets are available.';
+            refs.image.sourceList.append(empty);
+            return;
+        }
+        candidates.forEach((candidate) => {
+            refs.image.sourceList.append(buildImageSourceCard(candidate));
+        });
+    }
+
+    async function loadImageSourceCandidates({ append = false } = {}) {
+        if (!refs.image.sourcePickerField || state.imageSources.status === 'loading' || !isGrokImagineImageSelected()) return;
+        const cursor = append ? state.imageSources.nextCursor : null;
+        state.imageSources.status = 'loading';
+        state.imageSources.error = '';
+        renderImageSourcePicker();
+        const res = await apiAdminAiMediaSourceCandidates({
+            media: 'image',
+            scope: state.imageSources.scope,
+            limit: 24,
+            cursor,
+        });
+        if (!res.ok) {
+            state.imageSources.status = 'error';
+            state.imageSources.error = res.error || 'Internal image sources are unavailable.';
+            state.imageSources.candidates = append ? state.imageSources.candidates : [];
+            state.imageSources.nextCursor = null;
+            state.imageSources.hasMore = false;
+            renderImageSourcePicker();
+            return;
+        }
+        const data = res.data?.data || res.data || {};
+        const incoming = Array.isArray(data.candidates)
+            ? data.candidates.map((candidate) => normalizeImageSourceCandidate(candidate)).filter(Boolean)
+            : [];
+        const existing = append ? state.imageSources.candidates.slice() : [];
+        const seen = new Set(existing.map((candidate) => `${candidate.source_type}:${candidate.asset_id}`));
+        incoming.forEach((candidate) => {
+            const key = `${candidate.source_type}:${candidate.asset_id}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                existing.push(candidate);
+            }
+        });
+        state.imageSources.candidates = existing;
+        state.imageSources.nextCursor = data.next_cursor || null;
+        state.imageSources.hasMore = data.has_more === true;
+        state.imageSources.status = 'ready';
+        renderImageSourcePicker();
+    }
+
+    function setImageSourceRole(role) {
+        const normalized = normalizeImageSourceRole(role);
+        if (state.imageSources.role === normalized) return;
+        state.imageSources.role = normalized;
+        renderImageSourcePicker();
+        persistState();
+    }
+
+    function setImageSourceScope(scope) {
+        const normalized = normalizePreviewMediaSourceScope(scope, 'image');
+        if (state.imageSources.scope === normalized && state.imageSources.status !== 'error') return;
+        state.imageSources.scope = normalized;
+        state.imageSources.candidates = [];
+        state.imageSources.nextCursor = null;
+        state.imageSources.hasMore = false;
+        state.imageSources.error = '';
+        state.imageSources.status = 'idle';
+        renderImageSourcePicker();
+        loadImageSourceCandidates();
     }
 
     function setVideoSourceScope(scope) {
@@ -2653,7 +2945,18 @@ export function createAdminAiLab({ showToast } = {}) {
         const modelId = getSelectedImageModelIdForBilling();
         const caps = getSelectedImageModelCapabilities();
         try {
-            const params = modelId === GPT_IMAGE_2_MODEL_ID
+            const params = modelId === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID
+                ? {
+                    n: Number(state.forms.image.outputCount) || 1,
+                    aspect_ratio: state.forms.image.aspectRatio,
+                    quality: state.forms.image.quality,
+                    resolution: state.forms.image.resolution,
+                    response_format: state.forms.image.responseFormat,
+                    source_image: state.forms.image.sourceImage,
+                    source_images: getAdditionalImageSources(),
+                    source_mask: state.forms.image.sourceMask,
+                }
+                : modelId === GPT_IMAGE_2_MODEL_ID
                 ? {
                     quality: state.forms.image.quality,
                     size: state.forms.image.size,
@@ -2728,6 +3031,11 @@ export function createAdminAiLab({ showToast } = {}) {
                 const refCount = Array.isArray(state.forms.image.referenceImages)
                     ? state.forms.image.referenceImages.filter(Boolean).length
                     : 0;
+                const grokInputCount = isGrokImagineImageSelected()
+                    ? (state.forms.image.sourceImage ? 1 : 0)
+                        + getAdditionalImageSources().length
+                        + (state.forms.image.sourceMask ? 1 : 0)
+                    : 0;
                 const parts = [];
                 parts.push(`Estimated credits: ${credits}`);
                 if (isGptImage2Selected() && isAuto) {
@@ -2735,6 +3043,9 @@ export function createAdminAiLab({ showToast } = {}) {
                 }
                 if (refCount > 0) {
                     parts.push('Reference images affect cost; the server verifies dimensions before generation.');
+                }
+                if (grokInputCount > 0) {
+                    parts.push(`${grokInputCount} internal image input${grokInputCount === 1 ? '' : 's'} included in the estimate.`);
                 }
                 refs.image.gptCostHint.textContent = parts.join(' ');
             } else if (isChargeable) {
@@ -2952,6 +3263,42 @@ export function createAdminAiLab({ showToast } = {}) {
             }
             if (refs.image.outputFormat) refs.image.outputFormat.value = state.forms.image.outputFormat;
         }
+        if (caps.supportsAspectRatio && caps.defaultAspectRatio) {
+            const options = Array.isArray(caps.aspectRatioOptions) && caps.aspectRatioOptions.length
+                ? caps.aspectRatioOptions
+                : [caps.defaultAspectRatio];
+            if (applyDefaults || !options.includes(state.forms.image.aspectRatio)) {
+                state.forms.image.aspectRatio = caps.defaultAspectRatio;
+            }
+            if (refs.image.aspectRatio) refs.image.aspectRatio.value = state.forms.image.aspectRatio;
+        }
+        if (caps.supportsResolution && caps.defaultResolution) {
+            const options = Array.isArray(caps.resolutionOptions) && caps.resolutionOptions.length
+                ? caps.resolutionOptions
+                : [caps.defaultResolution];
+            if (applyDefaults || !options.includes(state.forms.image.resolution)) {
+                state.forms.image.resolution = caps.defaultResolution;
+            }
+            if (refs.image.resolution) refs.image.resolution.value = state.forms.image.resolution;
+        }
+        if (caps.supportsResponseFormat && caps.defaultResponseFormat) {
+            const options = Array.isArray(caps.responseFormatOptions) && caps.responseFormatOptions.length
+                ? caps.responseFormatOptions
+                : [caps.defaultResponseFormat];
+            if (applyDefaults || !options.includes(state.forms.image.responseFormat)) {
+                state.forms.image.responseFormat = caps.defaultResponseFormat;
+            }
+            if (refs.image.responseFormat) refs.image.responseFormat.value = state.forms.image.responseFormat;
+        }
+        if (caps.supportsOutputCount) {
+            const minCount = Number(caps.minOutputCount || 1);
+            const maxCount = Number(caps.maxOutputCount || 10);
+            const count = Number(state.forms.image.outputCount);
+            if (applyDefaults || !Number.isInteger(count) || count < minCount || count > maxCount) {
+                state.forms.image.outputCount = Number(caps.defaultOutputCount || 1);
+            }
+            if (refs.image.outputCount) refs.image.outputCount.value = state.forms.image.outputCount;
+        }
         if (caps.supportsSafetyTolerance && Number.isInteger(Number(caps.defaultSafetyTolerance))) {
             const safetyValue = Number(state.forms.image.safetyTolerance);
             const minSafety = Number(caps.minSafetyTolerance ?? 0);
@@ -2972,9 +3319,25 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!Array.isArray(state.forms.image.referenceImageDimensions)) {
             state.forms.image.referenceImageDimensions = [];
         }
+        if (!Array.isArray(state.forms.image.sourceImages)) {
+            state.forms.image.sourceImages = [];
+        }
+        if (!caps.supportsPrimaryImageInput) {
+            state.forms.image.sourceImage = null;
+            state.forms.image.sourceImages = [];
+        } else if (state.forms.image.sourceImages.length > (caps.maxReferenceImages || 10)) {
+            state.forms.image.sourceImages = state.forms.image.sourceImages.slice(0, caps.maxReferenceImages || 10);
+        }
+        if (!caps.supportsMaskImage) {
+            state.forms.image.sourceMask = null;
+        }
         const maxRef = caps.supportsReferenceImages
             ? (caps.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages)
             : 0;
+        if (isGrokImagineImageSelected()) {
+            state.forms.image.referenceImages = [];
+            state.forms.image.referenceImageDimensions = [];
+        }
         if (maxRef === 0 && state.forms.image.referenceImages.length > 0) {
             state.forms.image.referenceImages = [];
             state.forms.image.referenceImageDimensions = [];
@@ -3007,11 +3370,21 @@ export function createAdminAiLab({ showToast } = {}) {
         const supportsOutputFormat = !!caps.supportsOutputFormat;
         const supportsBackground = !!caps.supportsBackground;
         const supportsSafetyTolerance = !!caps.supportsSafetyTolerance;
+        const supportsAspectRatio = !!caps.supportsAspectRatio;
+        const supportsResolution = !!caps.supportsResolution;
+        const supportsResponseFormat = !!caps.supportsResponseFormat;
+        const supportsOutputCount = !!caps.supportsOutputCount;
+        const supportsUserTag = !!caps.supportsUserTag;
         const extraControlVisible = supportsQuality
             || supportsSize
             || supportsOutputFormat
             || supportsBackground
             || supportsSafetyTolerance;
+        const grokControlVisible = supportsAspectRatio
+            || supportsResolution
+            || supportsResponseFormat
+            || supportsOutputCount
+            || supportsUserTag;
 
         if (refs.image.widthField) refs.image.widthField.hidden = !supportsDimensions;
         if (refs.image.heightField) refs.image.heightField.hidden = !supportsDimensions;
@@ -3031,16 +3404,36 @@ export function createAdminAiLab({ showToast } = {}) {
             }
         }
         if (refs.image.gptControls) refs.image.gptControls.hidden = !extraControlVisible;
+        if (refs.image.grokControls) refs.image.grokControls.hidden = !grokControlVisible;
         if (refs.image.qualityField) refs.image.qualityField.hidden = !supportsQuality;
         if (refs.image.sizeField) refs.image.sizeField.hidden = !supportsSize;
         if (refs.image.outputFormatField) refs.image.outputFormatField.hidden = !supportsOutputFormat;
         if (refs.image.backgroundField) refs.image.backgroundField.hidden = !supportsBackground;
         if (refs.image.safetyField) refs.image.safetyField.hidden = !supportsSafetyTolerance;
+        if (refs.image.aspectRatioField) refs.image.aspectRatioField.hidden = !supportsAspectRatio;
+        if (refs.image.resolutionField) refs.image.resolutionField.hidden = !supportsResolution;
+        if (refs.image.responseFormatField) refs.image.responseFormatField.hidden = !supportsResponseFormat;
+        if (refs.image.outputCountField) refs.image.outputCountField.hidden = !supportsOutputCount;
+        if (refs.image.userField) refs.image.userField.hidden = !supportsUserTag;
         setFieldDisabled(refs.image.qualityField, refs.image.quality, !supportsQuality, null, '');
         setFieldDisabled(refs.image.sizeField, refs.image.size, !supportsSize, null, '');
         setFieldDisabled(refs.image.outputFormatField, refs.image.outputFormat, !supportsOutputFormat, null, '');
         setFieldDisabled(refs.image.backgroundField, refs.image.background, !supportsBackground, null, '');
-        if (refs.image.quality) refs.image.quality.value = state.forms.image.quality || caps.defaultQuality || 'medium';
+        setFieldDisabled(refs.image.aspectRatioField, refs.image.aspectRatio, !supportsAspectRatio, null, '');
+        setFieldDisabled(refs.image.resolutionField, refs.image.resolution, !supportsResolution, null, '');
+        setFieldDisabled(refs.image.responseFormatField, refs.image.responseFormat, !supportsResponseFormat, null, '');
+        setFieldDisabled(refs.image.outputCountField, refs.image.outputCount, !supportsOutputCount, null, '');
+        setFieldDisabled(refs.image.userField, refs.image.user, !supportsUserTag, null, '');
+        if (refs.image.quality) {
+            const qualityOptions = Array.isArray(caps.qualityOptions) && caps.qualityOptions.length
+                ? caps.qualityOptions
+                : ['low', 'medium', 'high', 'auto'];
+            setOptions(refs.image.quality, qualityOptions.map((value) => ({ value, label: value })));
+            if (!qualityOptions.includes(state.forms.image.quality)) {
+                state.forms.image.quality = caps.defaultQuality || qualityOptions[0] || 'medium';
+            }
+            refs.image.quality.value = state.forms.image.quality || caps.defaultQuality || qualityOptions[0] || 'medium';
+        }
         if (refs.image.size) refs.image.size.value = state.forms.image.size || caps.defaultSize || '1024x1024';
         if (refs.image.outputFormat) {
             const outputOptions = Array.isArray(caps.outputFormatOptions) && caps.outputFormatOptions.length
@@ -3061,6 +3454,42 @@ export function createAdminAiLab({ showToast } = {}) {
             }
             refs.image.safetyTolerance.value = state.forms.image.safetyTolerance;
         }
+        if (refs.image.aspectRatio) {
+            const aspectOptions = Array.isArray(caps.aspectRatioOptions) && caps.aspectRatioOptions.length
+                ? caps.aspectRatioOptions
+                : ['auto'];
+            setOptions(refs.image.aspectRatio, aspectOptions.map((value) => ({ value, label: value })));
+            if (!aspectOptions.includes(state.forms.image.aspectRatio)) {
+                state.forms.image.aspectRatio = caps.defaultAspectRatio || aspectOptions[0] || 'auto';
+            }
+            refs.image.aspectRatio.value = state.forms.image.aspectRatio;
+        }
+        if (refs.image.resolution) {
+            const resolutionOptions = Array.isArray(caps.resolutionOptions) && caps.resolutionOptions.length
+                ? caps.resolutionOptions
+                : ['1k'];
+            setOptions(refs.image.resolution, resolutionOptions.map((value) => ({ value, label: value })));
+            if (!resolutionOptions.includes(state.forms.image.resolution)) {
+                state.forms.image.resolution = caps.defaultResolution || resolutionOptions[0] || '1k';
+            }
+            refs.image.resolution.value = state.forms.image.resolution;
+        }
+        if (refs.image.responseFormat) {
+            const responseOptions = Array.isArray(caps.responseFormatOptions) && caps.responseFormatOptions.length
+                ? caps.responseFormatOptions
+                : ['b64_json'];
+            setOptions(refs.image.responseFormat, responseOptions.map((value) => ({ value, label: value })));
+            if (!responseOptions.includes(state.forms.image.responseFormat)) {
+                state.forms.image.responseFormat = caps.defaultResponseFormat || responseOptions[0] || 'b64_json';
+            }
+            refs.image.responseFormat.value = state.forms.image.responseFormat;
+        }
+        if (refs.image.outputCount) {
+            refs.image.outputCount.min = String(caps.minOutputCount || 1);
+            refs.image.outputCount.max = String(caps.maxOutputCount || 10);
+            refs.image.outputCount.value = state.forms.image.outputCount || caps.defaultOutputCount || 1;
+        }
+        if (refs.image.user) refs.image.user.value = state.forms.image.user || '';
 
         setFieldDisabled(
             refs.image.stepsField,
@@ -3118,6 +3547,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const refDisabled = !caps.supportsReferenceImages;
         refs.image.refSection.classList.toggle('admin-ai__ref-images--disabled', refDisabled);
+        refs.image.refSection.hidden = isGrokImagineImageSelected();
         refs.image.refHint.hidden = !refDisabled;
         if (refDisabled) {
             refs.image.refHint.textContent = 'Current model does not support reference images.';
@@ -3135,6 +3565,10 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         refs.image.refCount.textContent = `${state.forms.image.referenceImages.length} / ${maxRef}`;
         updateRefSlots();
+        renderImageSourcePicker();
+        if (isGrokImagineImageSelected() && state.imageSources.status === 'idle') {
+            loadImageSourceCandidates();
+        }
         syncImageBillingUi();
     }
 
@@ -3342,6 +3776,11 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!state.forms.image.quality) state.forms.image.quality = 'medium';
         if (!state.forms.image.size) state.forms.image.size = '1024x1024';
         if (!state.forms.image.outputFormat) state.forms.image.outputFormat = 'png';
+        if (!state.forms.image.aspectRatio) state.forms.image.aspectRatio = 'auto';
+        if (!state.forms.image.resolution) state.forms.image.resolution = '1k';
+        if (!state.forms.image.responseFormat) state.forms.image.responseFormat = 'b64_json';
+        if (!Number.isInteger(Number(state.forms.image.outputCount))) state.forms.image.outputCount = 1;
+        if (!Array.isArray(state.forms.image.sourceImages)) state.forms.image.sourceImages = [];
         if (!state.forms.image.background) state.forms.image.background = 'auto';
         if (state.forms.image.safetyTolerance === undefined || state.forms.image.safetyTolerance === null || state.forms.image.safetyTolerance === '') {
             state.forms.image.safetyTolerance = 2;
@@ -3484,6 +3923,11 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.image.quality) refs.image.quality.value = state.forms.image.quality || 'medium';
         if (refs.image.size) refs.image.size.value = state.forms.image.size || '1024x1024';
         if (refs.image.outputFormat) refs.image.outputFormat.value = state.forms.image.outputFormat || 'png';
+        if (refs.image.aspectRatio) refs.image.aspectRatio.value = state.forms.image.aspectRatio || 'auto';
+        if (refs.image.resolution) refs.image.resolution.value = state.forms.image.resolution || '1k';
+        if (refs.image.responseFormat) refs.image.responseFormat.value = state.forms.image.responseFormat || 'b64_json';
+        if (refs.image.outputCount) refs.image.outputCount.value = state.forms.image.outputCount || 1;
+        if (refs.image.user) refs.image.user.value = state.forms.image.user || '';
         if (refs.image.background) refs.image.background.value = state.forms.image.background || 'auto';
         if (refs.image.safetyTolerance) refs.image.safetyTolerance.value = state.forms.image.safetyTolerance ?? 2;
         if (refs.image.organization) {
@@ -3789,6 +4233,11 @@ export function createAdminAiLab({ showToast } = {}) {
             { label: 'Mime', value: imgPayload.mimeType },
             { label: 'Quality', value: imgPayload.quality },
             { label: 'Size', value: imgPayload.size },
+            { label: 'Aspect Ratio', value: imgPayload.aspectRatio },
+            { label: 'Resolution', value: imgPayload.resolution },
+            { label: 'Response Format', value: imgPayload.responseFormat },
+            { label: 'Output Count', value: imgPayload.outputCount },
+            { label: 'Input Images', value: imgPayload.inputImageCount },
             { label: 'Output Format', value: imgPayload.outputFormat },
             { label: 'Safety Tolerance', value: imgPayload.safetyTolerance },
             { label: 'Background', value: imgPayload.background },
@@ -5336,6 +5785,41 @@ export function createAdminAiLab({ showToast } = {}) {
     function buildSelectedImageTestPayload() {
         sanitizeImageFormForSelectedModel();
         const caps = getSelectedImageModelCapabilities();
+        if (isGrokImagineImageSelected()) {
+            const payload = {
+                preset: state.forms.image.preset || undefined,
+                model: state.forms.image.model || undefined,
+                prompt: state.forms.image.prompt,
+                aspect_ratio: state.forms.image.aspectRatio || caps.defaultAspectRatio || 'auto',
+                quality: state.forms.image.quality || caps.defaultQuality || 'medium',
+                resolution: state.forms.image.resolution || caps.defaultResolution || '1k',
+                response_format: state.forms.image.responseFormat || caps.defaultResponseFormat || 'b64_json',
+                n: Number(state.forms.image.outputCount) || caps.defaultOutputCount || 1,
+            };
+            if (state.forms.image.user) payload.user = state.forms.image.user;
+            const primary = normalizeImageSourceCandidate(state.forms.image.sourceImage);
+            const additional = getAdditionalImageSources();
+            const mask = normalizeImageSourceCandidate(state.forms.image.sourceMask);
+            if (primary) {
+                payload.source_image = {
+                    source_type: primary.source_type,
+                    asset_id: primary.asset_id,
+                };
+            }
+            if (additional.length > 0) {
+                payload.source_images = additional.map((source) => ({
+                    source_type: source.source_type,
+                    asset_id: source.asset_id,
+                }));
+            }
+            if (mask) {
+                payload.source_mask = {
+                    source_type: mask.source_type,
+                    asset_id: mask.asset_id,
+                };
+            }
+            return payload;
+        }
         const payload = {
             preset: state.forms.image.preset || undefined,
             model: state.forms.image.model || undefined,
@@ -6364,6 +6848,11 @@ export function createAdminAiLab({ showToast } = {}) {
         attachFieldSync(refs.image.quality, 'image', 'quality');
         attachFieldSync(refs.image.size, 'image', 'size');
         attachFieldSync(refs.image.outputFormat, 'image', 'outputFormat');
+        attachFieldSync(refs.image.aspectRatio, 'image', 'aspectRatio');
+        attachFieldSync(refs.image.resolution, 'image', 'resolution');
+        attachFieldSync(refs.image.responseFormat, 'image', 'responseFormat');
+        attachFieldSync(refs.image.outputCount, 'image', 'outputCount', (value) => value === '' ? '' : Number(value));
+        attachFieldSync(refs.image.user, 'image', 'user');
         attachFieldSync(refs.image.background, 'image', 'background');
         attachFieldSync(refs.image.safetyTolerance, 'image', 'safetyTolerance', (value) => value === '' ? '' : Number(value));
 
@@ -6391,6 +6880,10 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.quality?.addEventListener('change', () => syncImageBillingUi());
         refs.image.size?.addEventListener('change', () => syncImageBillingUi());
         refs.image.outputFormat?.addEventListener('change', () => syncImageBillingUi());
+        refs.image.aspectRatio?.addEventListener('change', () => syncImageBillingUi());
+        refs.image.resolution?.addEventListener('change', () => syncImageBillingUi());
+        refs.image.responseFormat?.addEventListener('change', () => syncImageBillingUi());
+        refs.image.outputCount?.addEventListener('input', () => syncImageBillingUi());
         refs.image.background?.addEventListener('change', () => syncImageBillingUi());
         refs.image.safetyTolerance?.addEventListener('input', () => syncImageBillingUi());
         refs.image.organization?.addEventListener('change', async () => {
@@ -6426,6 +6919,14 @@ export function createAdminAiLab({ showToast } = {}) {
                 if (Number.isInteger(index)) removeRefImage(index);
             }
         });
+        refs.image.sourceRolePrimary?.addEventListener('click', () => setImageSourceRole('primary'));
+        refs.image.sourceRoleAdditional?.addEventListener('click', () => setImageSourceRole('additional'));
+        refs.image.sourceRoleMask?.addEventListener('click', () => setImageSourceRole('mask'));
+        refs.image.sourceScopeSaved?.addEventListener('click', () => setImageSourceScope('saved_assets'));
+        refs.image.sourceScopeMempics?.addEventListener('click', () => setImageSourceScope('public'));
+        refs.image.sourceRefresh?.addEventListener('click', () => loadImageSourceCandidates());
+        refs.image.sourceLoadMore?.addEventListener('click', () => loadImageSourceCandidates({ append: true }));
+        refs.image.sourceClear?.addEventListener('click', () => clearSelectedImageSourceRole());
         refs.image.refGrid?.addEventListener('change', (event) => {
             const fileInput = event.target.closest?.('.admin-ai__ref-input[id^="aiImageRef"]');
             if (!fileInput || !refs.image.refGrid.contains(fileInput)) return;

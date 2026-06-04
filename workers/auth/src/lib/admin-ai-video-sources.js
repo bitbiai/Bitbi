@@ -1,5 +1,6 @@
 import {
   ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
+  ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
   buildPublicMempicUrl,
@@ -513,7 +514,9 @@ function getProviderOrigin(env, origin = null) {
 }
 
 async function createMediaSourceToken(env, sourceRef, {
+  model = ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
   operation = "extend",
+  sourceRole = null,
   userId = null,
   jobId = null,
   expiresAt = Date.now() + ADMIN_AI_VIDEO_SOURCE_TOKEN_TTL_MS,
@@ -521,9 +524,10 @@ async function createMediaSourceToken(env, sourceRef, {
   const payload = {
     v: ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION,
     purpose: ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE,
-    model: ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
+    model,
     operation,
     media: sourceRef.media_type,
+    source_role: sourceRole || null,
     source_type: sourceRef.source_type,
     asset_id: sourceRef.asset_id,
     user_id: userId || null,
@@ -565,14 +569,19 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   const isLegacyVideoToken = payload.purpose === ADMIN_AI_VIDEO_SOURCE_TOKEN_PURPOSE;
   const mediaType = isLegacyVideoToken ? "video" : String(payload.media || "").trim().toLowerCase();
   const operation = String(payload.operation || "").trim();
+  const modelId = String(payload.model || "").trim();
+  const isGrokVideoModel = modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID;
+  const isGrokImageModel = modelId === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID;
+  const isGrokImageOperation = operation === "image_generate" || operation === "generate";
   if (
     payload.v !== ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION ||
     (payload.purpose !== ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE && !isLegacyVideoToken) ||
-    payload.model !== ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID ||
+    (!isGrokVideoModel && !isGrokImageModel) ||
     !["image", "video"].includes(mediaType) ||
-    !["generate", "edit", "extend"].includes(operation) ||
-    (operation === "generate" && mediaType !== "image") ||
-    ((operation === "edit" || operation === "extend") && mediaType !== "video") ||
+    (isGrokVideoModel && !["generate", "edit", "extend"].includes(operation)) ||
+    (isGrokVideoModel && operation === "generate" && mediaType !== "image") ||
+    (isGrokVideoModel && (operation === "edit" || operation === "extend") && mediaType !== "video") ||
+    (isGrokImageModel && (!isGrokImageOperation || mediaType !== "image")) ||
     !normalizeSourceType(payload.source_type, mediaType) ||
     !normalizeAssetId(payload.asset_id)
   ) {
@@ -589,6 +598,8 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
     operation,
     source_type: payload.source_type,
     asset_id: payload.asset_id,
+    source_role: typeof payload.source_role === "string" && payload.source_role ? payload.source_role : null,
+    model: modelId,
     user_id: typeof payload.user_id === "string" && payload.user_id ? payload.user_id : null,
     job_id: typeof payload.job_id === "string" && payload.job_id ? payload.job_id : null,
   };
@@ -619,6 +630,86 @@ function stripPreviewMediaSourceFields(payload) {
     ...rest
   } = payload || {};
   return rest;
+}
+
+function stripGrokImagineImageSourceFields(payload) {
+  const {
+    source_image: _sourceImage,
+    sourceImage: _sourceImageAlias,
+    source_images: _sourceImages,
+    sourceImages: _sourceImagesAlias,
+    source_mask: _sourceMask,
+    sourceMask: _sourceMaskAlias,
+    image: _image,
+    images: _images,
+    mask: _mask,
+    organization_id: _organizationId,
+    organizationId: _organizationIdAlias,
+    ...rest
+  } = payload || {};
+  return rest;
+}
+
+function optionalSourceRef(value, role) {
+  if (!value) return null;
+  return normalizeAdminAiMediaSourceReference(value, "image", role);
+}
+
+function sourceRefsForGrokImage(payload) {
+  const sourceImage = optionalSourceRef(payload?.source_image || payload?.sourceImage, "source_image");
+  const sourceImagesRaw = Array.isArray(payload?.source_images)
+    ? payload.source_images
+    : Array.isArray(payload?.sourceImages)
+      ? payload.sourceImages
+      : [];
+  const sourceImages = sourceImagesRaw.map((entry, index) =>
+    normalizeAdminAiMediaSourceReference(entry, "image", `source_images[${index}]`)
+  );
+  const sourceMask = optionalSourceRef(payload?.source_mask || payload?.sourceMask, "source_mask");
+  return {
+    sourceImage,
+    sourceImages,
+    sourceMask,
+  };
+}
+
+function imageObjectForProvider(providerUrl, source) {
+  const mimeType = String(source?.medium_mime_type || source?.thumb_mime_type || "").trim();
+  return mimeType ? { url: providerUrl, type: mimeType } : { url: providerUrl };
+}
+
+async function resolveImageSourceForProvider(env, adminUser, sourceRef, {
+  correlationId = null,
+  jobId = null,
+  origin = null,
+  sourceRole = "image",
+} = {}) {
+  const source = await getSourceRow(env, sourceRef, adminUser?.id || null);
+  const token = await createMediaSourceToken(env, sourceRef, {
+    model: ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
+    operation: "image_generate",
+    sourceRole,
+    userId: sourceRef.source_type === "saved_asset" ? adminUser?.id || null : null,
+    jobId,
+  });
+  const providerUrl = `${getProviderOrigin(env, origin)}/api/internal/ai/media-source/${encodeURIComponent(token)}`;
+  const sourceIdHash = await sha256Hex(sourceRef.asset_id);
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "admin-ai-media-source",
+    event: "admin_ai_grok_imagine_image_media_source_resolved",
+    level: "info",
+    correlationId,
+    job_id: jobId || null,
+    model: ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
+    source_role: sourceRole,
+    source_media_type: sourceRef.media_type,
+    source_type: sourceRef.source_type,
+    source_asset_id_hash: sourceIdHash,
+    source_mime_type: source.medium_mime_type || source.thumb_mime_type || null,
+    source_size_bytes: source.size_bytes ?? null,
+  });
+  return imageObjectForProvider(providerUrl, source);
 }
 
 export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, {
@@ -663,6 +754,47 @@ export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, admi
 
 export async function resolveAdminAiGrokPreviewExtendSourceForProvider(env, adminUser, payload, options = {}) {
   return resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, options);
+}
+
+export async function resolveAdminAiGrokImagineImageSourcesForProvider(env, adminUser, payload, {
+  correlationId = null,
+  jobId = null,
+  origin = null,
+} = {}) {
+  if (payload?.model !== ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID) {
+    return payload;
+  }
+  const { sourceImage, sourceImages, sourceMask } = sourceRefsForGrokImage(payload);
+  const rest = stripGrokImagineImageSourceFields(payload);
+  const resolved = { ...rest };
+  if (sourceImage) {
+    resolved.image = await resolveImageSourceForProvider(env, adminUser, sourceImage, {
+      correlationId,
+      jobId,
+      origin,
+      sourceRole: "image",
+    });
+  }
+  if (sourceImages.length > 0) {
+    resolved.images = [];
+    for (const [index, sourceRef] of sourceImages.entries()) {
+      resolved.images.push(await resolveImageSourceForProvider(env, adminUser, sourceRef, {
+        correlationId,
+        jobId,
+        origin,
+        sourceRole: `images.${index}`,
+      }));
+    }
+  }
+  if (sourceMask) {
+    resolved.mask = await resolveImageSourceForProvider(env, adminUser, sourceMask, {
+      correlationId,
+      jobId,
+      origin,
+      sourceRole: "mask",
+    });
+  }
+  return resolved;
 }
 
 function errorResponse(error) {

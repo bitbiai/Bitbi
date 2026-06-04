@@ -6,6 +6,7 @@ export {
   FLUX_2_KLEIN_IMAGE_MODEL_IDS,
   FLUX_2_MAX_IMAGE_MODEL_ID,
   GPT_IMAGE_2_MODEL_ID,
+  GROK_IMAGINE_IMAGE_MODEL_ID,
   calculateAiImageCreditCost,
   isPricedAiImageModel,
 } from "../../../../js/shared/ai-model-pricing.mjs";

@@ -65,6 +65,7 @@ import {
 import {
   listAdminAiMediaSourceCandidates,
   listAdminAiVideoSourceCandidates,
+  resolveAdminAiGrokImagineImageSourcesForProvider,
   resolveAdminAiGrokPreviewMediaSourcesForProvider,
 } from "../lib/admin-ai-video-sources.js";
 import {
@@ -594,6 +595,7 @@ function adminImageBudgetProviderFamily(modelId) {
   const id = String(modelId || "").trim().toLowerCase();
   if (id.includes("black-forest-labs") || id.includes("flux")) return "bfl";
   if (id.includes("gpt-image") || id.includes("openai")) return "openai";
+  if (id.includes("xai") || id.includes("grok-imagine-image")) return "xai";
   return "ai_worker";
 }
 
@@ -601,6 +603,7 @@ function adminImageBudgetKillSwitchFlag(modelId) {
   const providerFamily = adminImageBudgetProviderFamily(modelId);
   if (providerFamily === "bfl") return "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET";
   if (providerFamily === "openai") return "ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET";
+  if (providerFamily === "xai") return "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET";
   return "ENABLE_ADMIN_AI_CHARGED_IMAGE_BUDGET";
 }
 
@@ -1314,7 +1317,30 @@ async function buildAdminImageBudgetPolicyContext({
     routeId: "admin.ai.test-image",
     routePath: "/api/admin/ai/test-image",
     body: payload,
-    hashFields: ["prompt", "structuredPrompt"],
+    hashFields: [
+      "prompt",
+      "structuredPrompt",
+      "width",
+      "height",
+      "steps",
+      "seed",
+      "guidance",
+      "quality",
+      "size",
+      "outputFormat",
+      "output_format",
+      "safetyTolerance",
+      "safety_tolerance",
+      "background",
+      "referenceImages",
+      "aspect_ratio",
+      "resolution",
+      "response_format",
+      "n",
+      "source_image",
+      "source_images",
+      "source_mask",
+    ],
     excludeFields: ["organization_id", "organizationId"],
   });
   return {
@@ -1479,9 +1505,18 @@ async function adminImageRequestFingerprint({ organizationId, userId, payload, m
     seed: payload.seed || null,
     guidance: payload.guidance || null,
     referenceImageCount: Array.isArray(payload.referenceImages) ? payload.referenceImages.length : 0,
+    sourceImage: payload.source_image || null,
+    sourceImages: Array.isArray(payload.source_images) ? payload.source_images : [],
+    sourceMask: payload.source_mask || null,
     inputImageMegapixels: pricing.normalized?.inputImageMegapixels ?? null,
+    inputImageCount: pricing.normalized?.inputImageCount ?? null,
     quality: payload.quality || null,
     size: payload.size || null,
+    aspectRatio: payload.aspect_ratio || null,
+    resolution: payload.resolution || null,
+    responseFormat: payload.response_format || null,
+    outputCount: payload.n ?? null,
+    userTag: payload.user || null,
     outputFormat: payload.outputFormat || null,
     safetyTolerance: payload.safetyTolerance ?? null,
     background: payload.background || null,
@@ -2799,12 +2834,38 @@ export async function handleAdminAI(ctx) {
       }
 
       await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
+      let providerPayload;
+      try {
+        providerPayload = await resolveAdminAiGrokImagineImageSourcesForProvider(
+          env,
+          result.user,
+          payload,
+          {
+            correlationId,
+            origin: url.origin,
+          }
+        );
+      } catch (error) {
+        try {
+          await markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, {
+            code: error?.code || "media_source_failed",
+            message: "Admin image media source resolution failed.",
+          });
+        } catch {}
+        if (Number(error?.status || 500) < 500) {
+          return inputErrorResponse(
+            new InputError(error.message || "Media source is invalid.", error.status || 400, error.code || "media_source_error"),
+            correlationId
+          );
+        }
+        throw error;
+      }
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-image",
         {
           method: "POST",
-          body: payload,
+          body: providerPayload,
           callerPolicy: buildAdminAiCallerPolicy({
             operationId: CHARGED_ADMIN_IMAGE_OPERATION_ID,
             budgetScope: AI_CALLER_POLICY_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT,
@@ -2866,11 +2927,19 @@ export async function handleAdminAI(ctx) {
             steps: pricing.normalized?.steps || payload.steps || null,
             quality: pricing.normalized?.quality || payload.quality || null,
             size: pricing.normalized?.size || payload.size || null,
+            aspect_ratio: pricing.normalized?.aspectRatio || payload.aspect_ratio || null,
+            resolution: pricing.normalized?.resolution || payload.resolution || null,
+            response_format: pricing.normalized?.responseFormat || payload.response_format || null,
+            output_count: pricing.normalized?.n ?? payload.n ?? null,
             output_format: pricing.normalized?.outputFormat || payload.outputFormat || null,
             safety_tolerance: pricing.normalized?.safetyTolerance ?? payload.safetyTolerance ?? null,
             background: pricing.normalized?.background || payload.background || null,
             reference_image_count: pricing.normalized?.referenceImageCount
               ?? (Array.isArray(payload.referenceImages) ? payload.referenceImages.length : null),
+            input_image_count: pricing.normalized?.inputImageCount ?? null,
+            primary_image_source_type: payload.source_image?.source_type || null,
+            additional_image_source_count: Array.isArray(payload.source_images) ? payload.source_images.length : null,
+            mask_source_present: !!payload.source_mask,
             input_image_megapixels: pricing.normalized?.inputImageMegapixels ?? null,
             pricing_version: pricing.formula?.pricingVersion || null,
             budget_policy: budgetPolicy.summary,

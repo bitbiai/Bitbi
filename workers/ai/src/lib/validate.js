@@ -2,12 +2,12 @@ export {
   AdminAiValidationError as ValidationError,
   validateAdminAiCompareBody as validateCompareBody,
   validateAdminAiEmbeddingsBody as validateEmbeddingsBody,
-  validateAdminAiImageBody as validateImageBody,
   validateAdminAiLiveAgentBody as validateLiveAgentBody,
   validateAdminAiMusicBody as validateMusicBody,
   validateAdminAiTextBody as validateTextBody,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
+  validateAdminAiImageBody,
   validateAdminAiVideoBody,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
@@ -18,6 +18,10 @@ import { AdminAiValidationError } from "../../../../js/shared/admin-ai-contract.
 import { stripAiCallerPolicyFromBody } from "../../../shared/ai-caller-policy.mjs";
 
 export const INTERNAL_AI_JSON_MAX_BYTES = 512 * 1024;
+
+export function validateImageBody(body) {
+  return validateAdminAiImageBody(body, { allowResolvedGrokImageMediaUrls: true });
+}
 
 export function validateVideoBody(body) {
   return validateAdminAiVideoBody(body, { allowResolvedGrokPreviewMediaUrls: true });

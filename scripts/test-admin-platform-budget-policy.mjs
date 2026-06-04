@@ -375,7 +375,7 @@ assert.throws(
     },
   };
   const definitions = listAdminPlatformBudgetSwitchDefinitions();
-  assert.equal(definitions.length, 10);
+  assert.equal(definitions.length, 11);
   const enabledEnv = { ENABLE_ADMIN_AI_TEXT_BUDGET: "true", DB: fakeDb };
   await assertBudgetSwitchEffectiveEnabled(enabledEnv, plan);
   const listed = await listAdminRuntimeBudgetSwitchStates(enabledEnv);

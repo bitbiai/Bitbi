@@ -6,6 +6,7 @@ import {
   FLUX_2_KLEIN_IMAGE_MODEL_IDS,
   FLUX_2_MAX_IMAGE_MODEL_ID,
   GPT_IMAGE_2_MODEL_ID,
+  GROK_IMAGINE_IMAGE_MODEL_ID,
   calculateAiImageCreditCost,
   isPricedAiImageModel,
 } from "./ai-image-credit-pricing.js";
@@ -18,6 +19,7 @@ export {
   FLUX_2_KLEIN_IMAGE_MODEL_IDS as ADMIN_IMAGE_TEST_FLUX_2_KLEIN_MODEL_IDS,
   FLUX_2_MAX_IMAGE_MODEL_ID as ADMIN_IMAGE_TEST_FLUX_2_MAX_MODEL_ID,
   GPT_IMAGE_2_MODEL_ID as ADMIN_IMAGE_TEST_GPT_IMAGE_2_MODEL_ID,
+  GROK_IMAGINE_IMAGE_MODEL_ID as ADMIN_IMAGE_TEST_GROK_IMAGINE_IMAGE_MODEL_ID,
   calculateAiImageCreditCost as calculateAdminImageTestCreditCost,
   isPricedAiImageModel as isChargeableAdminImageTestModel,
 };
@@ -34,6 +36,7 @@ export const ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS = Object.freeze({
 function providerFamilyForAdminImageModel(modelId) {
   const id = String(modelId || "").trim().toLowerCase();
   if (id.includes("openai") || id.includes("gpt-image")) return "openai";
+  if (id.includes("xai") || id.includes("grok-imagine-image")) return "xai";
   if (id.includes("black-forest-labs") || id.includes("flux")) return "bfl";
   return "ai_worker";
 }
@@ -51,7 +54,9 @@ function chargedBranch(modelId) {
     budgetScope: "admin_org_credit_account",
     killSwitchTarget: providerFamilyForAdminImageModel(modelId) === "openai"
       ? "ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET"
-      : "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET",
+      : providerFamilyForAdminImageModel(modelId) === "xai"
+        ? "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET"
+        : "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET",
     modelResolverKey: "admin.image.priced_model_catalog",
     notes: "Existing charged Admin image-test path; selected organization credits, Idempotency-Key, no-charge-on-provider-failure, and exactly-once debit remain unchanged.",
   });
@@ -62,6 +67,7 @@ const CHARGED_MODEL_IDS = Object.freeze([
   ...FLUX_2_KLEIN_IMAGE_MODEL_IDS,
   FLUX_2_MAX_IMAGE_MODEL_ID,
   GPT_IMAGE_2_MODEL_ID,
+  GROK_IMAGINE_IMAGE_MODEL_ID,
 ]);
 
 const CHARGED_BRANCHES = Object.freeze(CHARGED_MODEL_IDS.map(chargedBranch));

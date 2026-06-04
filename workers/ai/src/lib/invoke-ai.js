@@ -1,6 +1,7 @@
 import {
   buildAdminAiFlux2MaxRequest,
   buildAdminAiGptImage2Request,
+  buildAdminAiGrokImagineImageRequest,
   buildAdminAiMultipartImageRequest,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
@@ -555,6 +556,13 @@ export async function invokeImage(env, model, input) {
   let appliedOutputFormat = null;
   let appliedBackground = null;
   let appliedSafetyTolerance = null;
+  let appliedAspectRatio = null;
+  let appliedResolution = null;
+  let appliedResponseFormat = null;
+  let appliedOutputCount = null;
+  let inputImageCount = null;
+  let hasPrimaryImage = null;
+  let hasMask = null;
   let referenceImageCount = Array.isArray(input.referenceImages) ? input.referenceImages.length : 0;
   let runOptions;
 
@@ -581,6 +589,38 @@ export async function invokeImage(env, model, input) {
       output_format: appliedOutputFormat,
       background: appliedBackground,
       reference_image_count: referenceImageCount,
+      prompt_length: payload.prompt.length,
+    });
+  } else if (model.inputFormat === "grok-imagine-image") {
+    const grokRequest = buildAdminAiGrokImagineImageRequest(model, input);
+    payload = grokRequest.payload;
+    appliedQuality = grokRequest.appliedQuality;
+    appliedResolution = grokRequest.appliedResolution;
+    appliedAspectRatio = grokRequest.appliedAspectRatio;
+    appliedResponseFormat = grokRequest.appliedResponseFormat;
+    appliedOutputCount = grokRequest.appliedOutputCount;
+    referenceImageCount = grokRequest.referenceImageCount;
+    inputImageCount = grokRequest.inputImageCount;
+    hasPrimaryImage = grokRequest.hasPrimaryImage;
+    hasMask = grokRequest.hasMask;
+    runOptions = { gateway: { id: env.AI_GATEWAY_ID || "default" } };
+
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-image",
+      event: "workers_ai_grok_imagine_image_invoke",
+      level: "info",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      gateway_id: runOptions.gateway.id,
+      quality: appliedQuality,
+      resolution: appliedResolution,
+      aspect_ratio: appliedAspectRatio,
+      response_format: appliedResponseFormat,
+      output_count: appliedOutputCount,
+      input_image_count: inputImageCount,
+      has_primary_image: hasPrimaryImage,
+      has_mask: hasMask,
       prompt_length: payload.prompt.length,
     });
   } else if (model.inputFormat === "flux-2-max") {
@@ -669,6 +709,11 @@ export async function invokeImage(env, model, input) {
       quality: appliedQuality,
       size: payload?.size || null,
       output_format: appliedOutputFormat,
+      response_format: appliedResponseFormat,
+      resolution: appliedResolution,
+      aspect_ratio: appliedAspectRatio,
+      output_count: appliedOutputCount,
+      input_image_count: inputImageCount,
       background: appliedBackground,
       safety_tolerance: appliedSafetyTolerance,
       reference_image_count: referenceImageCount,
@@ -693,7 +738,14 @@ export async function invokeImage(env, model, input) {
     appliedOutputFormat,
     appliedBackground,
     appliedSafetyTolerance,
+    appliedAspectRatio,
+    appliedResolution,
+    appliedResponseFormat,
+    appliedOutputCount,
     referenceImageCount,
+    inputImageCount,
+    hasPrimaryImage,
+    hasMask,
     imageUrl: image.imageUrl || null,
     gatewayMetadata: sanitizeGatewayMetadata(raw?.gatewayMetadata),
     warnings,

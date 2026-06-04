@@ -2198,6 +2198,7 @@
         background: rgba(255, 255, 255, 0.025);
     }
 
+    .admin-ai__source-role-tabs,
     .admin-ai__video-source-tabs {
         display: flex;
         flex-wrap: wrap;
@@ -2216,6 +2217,13 @@
     }
 
     .admin-ai__video-source-tab[aria-selected="true"] {
+        border-color: rgba(0, 240, 255, 0.22);
+        background: rgba(0, 240, 255, 0.1);
+        color: rgba(188, 245, 255, 0.9);
+    }
+
+    .admin-ai__source-role-tabs .btn-action[aria-selected="true"],
+    .admin-ai__video-source-tabs .btn-action[aria-selected="true"] {
         border-color: rgba(0, 240, 255, 0.22);
         background: rgba(0, 240, 255, 0.1);
         color: rgba(188, 245, 255, 0.9);
