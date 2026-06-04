@@ -8818,12 +8818,58 @@ test.describe('Assets Manager (authenticated)', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Upload music asset' });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Title')).toBeVisible();
-    await expect(dialog.getByLabel('MP3 file')).toHaveAttribute('accept', '.mp3,audio/mpeg');
-    await expect(dialog.getByLabel('Cover prompt')).toBeVisible();
+    const assetColumn = dialog.locator('[data-music-upload-column="asset"]');
+    const coverColumn = dialog.locator('[data-music-upload-column="cover"]');
+    await expect(assetColumn).toBeVisible();
+    await expect(coverColumn).toBeVisible();
+    await expect(assetColumn.getByRole('heading', { name: 'Music upload' })).toBeVisible();
+    await expect(assetColumn.getByLabel('Title')).toBeVisible();
+    await expect(assetColumn.getByLabel('MP3 file')).toHaveAttribute('accept', '.mp3,audio/mpeg');
+    await expect(assetColumn.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await expect(coverColumn.getByRole('heading', { name: 'Cover generation' })).toBeVisible();
+    await expect(coverColumn.getByLabel('Cover prompt')).toBeVisible();
+    await expect(coverColumn.getByText('Organization credits', { exact: true })).toBeVisible();
+    await expect(coverColumn.getByText('Cover preview')).toBeVisible();
+    await expect(coverColumn.locator('#studioAdminUploadMusicCoverPreviewState'))
+      .toHaveText('Generate a cover before uploading.');
+    const musicLayout = await dialog.locator('.assets-manager__music-upload-layout').evaluate((node) => {
+      const asset = node.querySelector('[data-music-upload-column="asset"]')?.getBoundingClientRect();
+      const cover = node.querySelector('[data-music-upload-column="cover"]')?.getBoundingClientRect();
+      return {
+        assetLeft: asset?.left ?? 0,
+        assetTop: asset?.top ?? 0,
+        coverLeft: cover?.left ?? 0,
+        coverTop: cover?.top ?? 0,
+      };
+    });
+    expect(musicLayout.assetLeft).toBeLessThan(musicLayout.coverLeft);
+    expect(Math.abs(musicLayout.assetTop - musicLayout.coverTop)).toBeLessThan(2);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileMusicLayout = await dialog.locator('.assets-manager__music-upload-layout').evaluate((node) => {
+      const asset = node.querySelector('[data-music-upload-column="asset"]')?.getBoundingClientRect();
+      const cover = node.querySelector('[data-music-upload-column="cover"]')?.getBoundingClientRect();
+      return {
+        assetLeft: asset?.left ?? 0,
+        assetRight: asset?.right ?? 0,
+        coverLeft: cover?.left ?? 0,
+        coverRight: cover?.right ?? 0,
+        assetTop: asset?.top ?? 0,
+        coverTop: cover?.top ?? 0,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(mobileMusicLayout.coverTop).toBeGreaterThan(mobileMusicLayout.assetTop);
+    expect(mobileMusicLayout.assetLeft).toBeGreaterThanOrEqual(0);
+    expect(mobileMusicLayout.coverLeft).toBeGreaterThanOrEqual(0);
+    expect(mobileMusicLayout.assetRight).toBeLessThanOrEqual(mobileMusicLayout.viewportWidth + 1);
+    expect(mobileMusicLayout.coverRight).toBeLessThanOrEqual(mobileMusicLayout.viewportWidth + 1);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     const modelSelect = dialog.getByLabel('Admin AI image model');
     await expect(modelSelect).toBeEnabled({ timeout: 10_000 });
     await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Generate cover' })).toBeDisabled();
     await expect(dialog.getByText('Width')).toHaveCount(0);
     await expect(dialog.getByText('Height')).toHaveCount(0);
     await expect(dialog.getByText('Quality')).toHaveCount(0);
@@ -8847,11 +8893,19 @@ test.describe('Assets Manager (authenticated)', () => {
     await dialog.getByLabel('Cover prompt').fill('A neon album cover with warm sunrise gradients');
     await modelSelect.selectOption('@cf/black-forest-labs/flux-2-dev');
 
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Generate cover' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Generate cover' }).click();
+
+    await expect.poll(() => imageTestRequests.length).toBe(1);
+    await expect(dialog.locator('#studioAdminUploadMusicCoverPreviewImg')).toBeVisible();
+    await expect(dialog.locator('#studioAdminUploadMusicCoverPreviewState')).toHaveText('Cover ready.');
+    await expect(dialog.getByRole('button', { name: 'Regenerate cover' })).toBeEnabled();
     await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Upload music' }).click();
 
-    await expect.poll(() => imageTestRequests.length).toBe(1);
     await expect.poll(() => saveAudioRequests.length).toBe(1);
+    expect(imageTestRequests).toHaveLength(1);
     expect(imageTestRequests[0].idempotencyKey).toMatch(/^admin-assets-music-cover-/);
     expect(imageTestRequests[0].body).toEqual({
       prompt: 'A neon album cover with warm sunrise gradients',
@@ -8930,11 +8984,18 @@ test.describe('Assets Manager (authenticated)', () => {
     });
     await dialog.getByLabel('Title').fill('Charged Cover');
     await dialog.getByLabel('Cover prompt').fill('A premium organization billed cover');
+
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Generate cover' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Generate cover' }).click();
+    await expect.poll(() => imageTestRequests.length).toBe(1);
+    await expect(dialog.locator('#studioAdminUploadMusicCoverPreviewState')).toHaveText('Cover ready.');
+    await expect(dialog.getByRole('button', { name: 'Regenerate cover' })).toBeEnabled();
     await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Upload music' }).click();
 
-    await expect.poll(() => imageTestRequests.length).toBe(1);
     await expect.poll(() => saveAudioRequests.length).toBe(1);
+    expect(imageTestRequests).toHaveLength(1);
     expect(imageTestRequests[0].idempotencyKey).toMatch(/^admin-assets-music-cover-/);
     expect(imageTestRequests[0].body).toEqual({
       prompt: 'A premium organization billed cover',
@@ -8982,11 +9043,16 @@ test.describe('Assets Manager (authenticated)', () => {
     await dialog.getByLabel('Cover prompt').fill('A large generated cover payload');
     await dialog.getByLabel('Admin AI image model').selectOption('@cf/black-forest-labs/flux-2-dev');
 
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Generate cover' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Generate cover' }).click();
+    await expect.poll(() => imageTestRequests.length).toBe(1);
+    await expect(dialog.locator('#studioAdminUploadMusicCoverPreviewState')).toHaveText('Cover ready.');
     await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Upload music' }).click();
 
-    await expect.poll(() => imageTestRequests.length).toBe(1);
     await expect.poll(() => saveAudioRequests.length).toBe(1);
+    expect(imageTestRequests).toHaveLength(1);
     expect(saveAudioRequests[0]).toEqual(expect.objectContaining({
       title: 'Large Cover Track',
       coverImageBase64: largeGeneratedCover,
@@ -8997,6 +9063,91 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(saveAudioRequests[0].coverImageBase64.length).toBeGreaterThan(3_000_000);
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(page.locator('#studioImageGrid')).toContainText('Large Cover Track');
+  });
+
+  test('admin account Assets Manager marks generated music covers stale when cover settings change', async ({
+    page,
+  }) => {
+    const imageTestRequests = [];
+    const firstOrgId = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const secondOrgId = 'org_cccccccccccccccccccccccccccccccc';
+    await mockAuthenticatedAssetsManager(page, [], {
+      userRole: 'admin',
+      imageTestRequests,
+      adminOrganizations: [
+        { id: firstOrgId, name: 'Primary Billing Org' },
+        { id: secondOrgId, name: 'Secondary Billing Org' },
+      ],
+      adminOrgBilling: {
+        [firstOrgId]: { organizationId: firstOrgId, creditBalance: 100 },
+        [secondOrgId]: { organizationId: secondOrgId, creditBalance: 100 },
+      },
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioAdminUploadVideoBtn').click();
+    await page.getByRole('dialog', { name: 'Upload asset' }).getByRole('button', { name: /Music upload/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Upload music asset' });
+    const modelSelect = dialog.getByLabel('Admin AI image model');
+    const orgSelect = dialog.locator('#studioAdminUploadMusicOrganization');
+    const previewState = dialog.locator('#studioAdminUploadMusicCoverPreviewState');
+    await expect(modelSelect).toBeEnabled({ timeout: 10_000 });
+    await modelSelect.selectOption('@cf/black-forest-labs/flux-1-schnell');
+    await expect(orgSelect).toBeVisible({ timeout: 10_000 });
+    await orgSelect.selectOption(firstOrgId);
+    await expect(orgSelect).toHaveValue(firstOrgId, { timeout: 10_000 });
+    await expect(dialog.locator('#studioAdminUploadMusicOrganizationState')).toContainText('Balance: 100 credits');
+
+    await dialog.getByLabel('MP3 file').setInputFiles({
+      name: 'stale-cover.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('ID3\u0004\u0000\u0000mock-stale-mp3', 'binary'),
+    });
+    await dialog.getByLabel('Title').fill('Stale Cover Track');
+    await dialog.getByLabel('Cover prompt').fill('Original cover prompt');
+
+    await expect(dialog.getByRole('button', { name: 'Generate cover' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Generate cover' }).click();
+    await expect.poll(() => imageTestRequests.length).toBe(1);
+    await expect(previewState).toHaveText('Cover ready.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
+
+    await dialog.getByLabel('Cover prompt').fill('Updated cover prompt');
+    await expect(previewState).toHaveText('Cover settings changed. Regenerate before uploading.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Regenerate cover' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Regenerate cover' }).click();
+    await expect.poll(() => imageTestRequests.length).toBe(2);
+    await expect(previewState).toHaveText('Cover ready.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
+
+    await modelSelect.selectOption('@cf/black-forest-labs/flux-2-dev');
+    await expect(previewState).toHaveText('Cover settings changed. Regenerate before uploading.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Regenerate cover' }).click();
+    await expect.poll(() => imageTestRequests.length).toBe(3);
+    await expect(imageTestRequests[2].body).toEqual({
+      prompt: 'Updated cover prompt',
+      model: '@cf/black-forest-labs/flux-2-dev',
+    });
+    await expect(previewState).toHaveText('Cover ready.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
+
+    await modelSelect.selectOption('@cf/black-forest-labs/flux-1-schnell');
+    await expect(previewState).toHaveText('Cover settings changed. Regenerate before uploading.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Regenerate cover' }).click();
+    await expect.poll(() => imageTestRequests.length).toBe(4);
+    await expect(previewState).toHaveText('Cover ready.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeEnabled();
+
+    await orgSelect.selectOption(secondOrgId);
+    await expect(previewState).toHaveText('Cover settings changed. Regenerate before uploading.');
+    await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
   });
 
   test('admin account Assets Manager blocks charged music covers when organization credits are insufficient', async ({
@@ -9034,6 +9185,7 @@ test.describe('Assets Manager (authenticated)', () => {
     });
     await dialog.getByLabel('Title').fill('Blocked Cover');
     await dialog.getByLabel('Cover prompt').fill('A cover that cannot be billed');
+    await expect(dialog.getByRole('button', { name: 'Generate cover' })).toBeDisabled();
     await expect(dialog.getByRole('button', { name: 'Upload music' })).toBeDisabled();
     expect(imageTestRequests).toHaveLength(0);
   });

@@ -327,40 +327,64 @@
 
                 <div id="studioAdminUploadMusicModal" class="assets-manager__admin-upload-modal" hidden aria-hidden="true">
                     <div class="assets-manager__admin-upload-backdrop" data-assets-music-upload-close></div>
-                    <div class="assets-manager__admin-upload-dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="studioAdminUploadMusicTitle">
+                    <div class="assets-manager__admin-upload-dialog assets-manager__admin-upload-dialog--music glass glass-card" role="dialog" aria-modal="true" aria-labelledby="studioAdminUploadMusicTitle">
                         <div class="assets-manager__admin-upload-head">
                             <div>
                                 <h4 id="studioAdminUploadMusicTitle" class="admin-section-title" tabindex="-1">Upload music asset</h4>
-                                <p class="admin-shell__desc">Upload a private MP3 and generate its saved-assets cover with Admin AI image models.</p>
+                                <p class="admin-shell__desc">Upload a private MP3 and save it with the generated cover.</p>
                             </div>
                             <button type="button" class="assets-manager__toolbar-btn" data-assets-music-upload-close>Close</button>
                         </div>
                         <p id="studioAdminUploadMusicStatus" class="assets-manager__admin-upload-status" role="status" aria-live="polite">Choose an MP3 and cover prompt.</p>
                         <div class="assets-manager__music-upload" id="studioAdminUploadMusicForm">
-                            <label class="admin-hero-videos__field">
-                                <span>Title</span>
-                                <input id="studioAdminUploadMusicTitleInput" class="admin-search__input" type="text" maxlength="120" autocomplete="off">
-                            </label>
-                            <label class="admin-hero-videos__field">
-                                <span>MP3 file</span>
-                                <input id="studioAdminUploadMusicFile" class="admin-search__input" type="file" accept=".mp3,audio/mpeg">
-                            </label>
-                            <label class="admin-hero-videos__field">
-                                <span>Cover prompt</span>
-                                <textarea id="studioAdminUploadMusicPrompt" class="admin-search__input admin-hero-videos__reason" rows="4" maxlength="1000" placeholder="Describe the cover image for this track."></textarea>
-                            </label>
-                            <label class="admin-hero-videos__field">
-                                <span>Admin AI image model</span>
-                                <select id="studioAdminUploadMusicModel" class="admin-search__input"></select>
-                                <span class="admin-hero-videos__field-help" id="studioAdminUploadMusicModelHelp">Load the image model catalog before uploading.</span>
-                            </label>
-                            <label class="admin-hero-videos__field" id="studioAdminUploadMusicOrganizationField" hidden>
-                                <span>Organization credits</span>
-                                <select id="studioAdminUploadMusicOrganization" class="admin-search__input"></select>
-                                <span class="admin-hero-videos__field-help" id="studioAdminUploadMusicOrganizationState">Organization billing is required for charged image models.</span>
-                            </label>
-                            <div class="admin-hero-videos__actions">
-                                <button type="button" id="studioAdminUploadMusicSubmit" class="btn-action">Upload music</button>
+                            <div class="assets-manager__music-upload-layout">
+                                <section class="assets-manager__music-upload-column assets-manager__music-upload-column--asset" aria-labelledby="studioAdminUploadMusicAssetTitle" data-music-upload-column="asset">
+                                    <div class="assets-manager__music-upload-column-head">
+                                        <h5 id="studioAdminUploadMusicAssetTitle">Music upload</h5>
+                                        <p>Upload a private MP3 and save it with the generated cover.</p>
+                                    </div>
+                                    <label class="admin-hero-videos__field">
+                                        <span>Title</span>
+                                        <input id="studioAdminUploadMusicTitleInput" class="admin-search__input" type="text" maxlength="120" autocomplete="off">
+                                    </label>
+                                    <label class="admin-hero-videos__field">
+                                        <span>MP3 file</span>
+                                        <input id="studioAdminUploadMusicFile" class="admin-search__input" type="file" accept=".mp3,audio/mpeg">
+                                    </label>
+                                    <div class="admin-hero-videos__actions">
+                                        <button type="button" id="studioAdminUploadMusicSubmit" class="btn-action">Upload music</button>
+                                    </div>
+                                </section>
+                                <section class="assets-manager__music-upload-column assets-manager__music-upload-column--cover" aria-labelledby="studioAdminUploadMusicCoverTitle" data-music-upload-column="cover">
+                                    <div class="assets-manager__music-upload-column-head">
+                                        <h5 id="studioAdminUploadMusicCoverTitle">Cover generation</h5>
+                                        <p>Generate a cover from a prompt before uploading.</p>
+                                    </div>
+                                    <label class="admin-hero-videos__field">
+                                        <span>Cover prompt</span>
+                                        <textarea id="studioAdminUploadMusicPrompt" class="admin-search__input admin-hero-videos__reason" rows="4" maxlength="1000" placeholder="Describe the cover image for this track."></textarea>
+                                    </label>
+                                    <label class="admin-hero-videos__field">
+                                        <span>Admin AI image model</span>
+                                        <select id="studioAdminUploadMusicModel" class="admin-search__input"></select>
+                                        <span class="admin-hero-videos__field-help" id="studioAdminUploadMusicModelHelp">Load the image model catalog before generating.</span>
+                                    </label>
+                                    <label class="admin-hero-videos__field" id="studioAdminUploadMusicOrganizationField" hidden>
+                                        <span>Organization credits</span>
+                                        <select id="studioAdminUploadMusicOrganization" class="admin-search__input"></select>
+                                        <span class="admin-hero-videos__field-help" id="studioAdminUploadMusicOrganizationState">Organization billing is required for charged image models.</span>
+                                    </label>
+                                    <div class="assets-manager__music-cover-preview" aria-labelledby="studioAdminUploadMusicCoverPreviewTitle">
+                                        <h6 id="studioAdminUploadMusicCoverPreviewTitle">Cover preview</h6>
+                                        <div class="assets-manager__music-cover-preview-frame">
+                                            <img id="studioAdminUploadMusicCoverPreviewImg" class="assets-manager__music-cover-preview-img" alt="Generated music cover preview" hidden>
+                                            <p id="studioAdminUploadMusicCoverPreviewState" class="assets-manager__music-cover-preview-state" aria-live="polite">Generate a cover before uploading.</p>
+                                        </div>
+                                    </div>
+                                    <div class="admin-hero-videos__actions">
+                                        <button type="button" id="studioAdminUploadMusicGenerateCover" class="btn-action">Generate cover</button>
+                                    </div>
+                                </section>
                             </div>
                         </div>
                     </div>

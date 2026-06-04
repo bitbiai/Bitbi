@@ -348,6 +348,10 @@
         inline-size: min(100%, 30rem);
     }
 
+    .assets-manager__admin-upload-dialog--music {
+        inline-size: min(100%, 64rem);
+    }
+
     .assets-manager__admin-upload-head {
         display: flex;
         align-items: flex-start;
@@ -447,6 +451,117 @@
     .assets-manager__music-upload {
         display: grid;
         gap: var(--space-4);
+    }
+
+    .assets-manager__music-upload-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: var(--space-4);
+        align-items: start;
+    }
+
+    .assets-manager__music-upload-column {
+        display: grid;
+        gap: var(--space-4);
+        min-inline-size: 0;
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .assets-manager__music-upload-column-head {
+        display: grid;
+        gap: var(--space-1);
+    }
+
+    .assets-manager__music-upload-column-head h5,
+    .assets-manager__music-cover-preview h6 {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.9);
+        font: 800 0.92rem/1.25 var(--font-mono);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .assets-manager__music-upload-column-head p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.82rem;
+        line-height: 1.5;
+    }
+
+    .assets-manager__music-cover-preview {
+        display: grid;
+        gap: var(--space-2);
+    }
+
+    .assets-manager__music-cover-preview-frame {
+        position: relative;
+        display: grid;
+        place-items: center;
+        min-block-size: clamp(12rem, 24vw, 17rem);
+        aspect-ratio: 1;
+        overflow: hidden;
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        border-radius: var(--radius-lg);
+        background:
+            radial-gradient(circle at 20% 15%, rgba(0, 240, 255, 0.12), transparent 36%),
+            radial-gradient(circle at 82% 78%, rgba(255, 179, 0, 0.1), transparent 34%),
+            rgba(255, 255, 255, 0.045);
+    }
+
+    .assets-manager__music-cover-preview-img {
+        inline-size: 100%;
+        block-size: 100%;
+        object-fit: cover;
+    }
+
+    .assets-manager__music-cover-preview-state {
+        margin: 0;
+        max-inline-size: 17rem;
+        padding: var(--space-3);
+        color: rgba(220, 248, 255, 0.72);
+        font: 700 0.78rem/1.55 var(--font-mono);
+        text-align: center;
+    }
+
+    .assets-manager__music-cover-preview[data-state="ready"] .assets-manager__music-cover-preview-state,
+    .assets-manager__music-cover-preview[data-state="stale"] .assets-manager__music-cover-preview-state {
+        position: absolute;
+        inset-inline: var(--space-2);
+        inset-block-end: var(--space-2);
+        max-inline-size: none;
+        border-radius: var(--radius-sm);
+        background: rgba(5, 10, 18, 0.78);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    .assets-manager__music-cover-preview[data-state="ready"] .assets-manager__music-cover-preview-state {
+        color: rgba(0, 240, 255, 0.9);
+    }
+
+    .assets-manager__music-cover-preview[data-state="stale"] .assets-manager__music-cover-preview-state {
+        color: rgba(255, 220, 150, 0.92);
+    }
+
+    .assets-manager__music-cover-preview[data-state="error"] .assets-manager__music-cover-preview-state {
+        color: rgba(255, 150, 168, 0.92);
+    }
+
+    @media (max-width: 760px) {
+        .assets-manager__admin-upload-dialog--music {
+            inline-size: min(100%, 38rem);
+        }
+
+        .assets-manager__music-upload-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .assets-manager__music-upload-column {
+            padding: var(--space-3);
+        }
     }
 
     .assets-manager__upload-choice {

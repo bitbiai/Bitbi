@@ -49,6 +49,7 @@ let adminMusicOrganizationLoadSeq = 0;
 
 const MUSIC_UPLOAD_DEFAULT_MODEL_ID = FLUX_1_SCHNELL_IMAGE_MODEL_ID;
 const MUSIC_UPLOAD_ALLOWED_MIME_TYPES = new Set(['audio/mpeg', 'audio/mp3', 'audio/x-mpeg']);
+const MUSIC_COVER_PREVIEW_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const MUSIC_UPLOAD_TITLE_MAX_LENGTH = 120;
 const MUSIC_UPLOAD_PROMPT_MAX_LENGTH = 1000;
 
@@ -65,6 +66,14 @@ const adminMusicUploadState = {
     organizations: [],
     selectedOrganizationId: '',
     selectedOrganizationBalance: null,
+    coverStatus: 'idle',
+    coverImageBase64: '',
+    coverMimeType: '',
+    coverPreviewSrc: '',
+    coverError: '',
+    coverPromptSnapshot: '',
+    coverModelSnapshot: '',
+    coverOrganizationSnapshot: '',
 };
 
 const isGermanPage = document.documentElement.lang?.toLowerCase().startsWith('de');
@@ -98,6 +107,11 @@ const adminUploadCopy = isGermanPage
         musicOrganizationBillingFailed: 'Organisationsabrechnung konnte nicht geladen werden.',
         musicOrganizationInsufficient: 'Nicht genügend Organisations-Credits für diese Cover-Generierung.',
         musicCoverGenerating: 'Cover wird generiert...',
+        musicCoverReady: 'Cover ist bereit.',
+        musicCoverIdle: 'Generiere ein Cover vor dem Upload.',
+        musicCoverStale: 'Cover-Einstellungen wurden geändert. Bitte vor dem Upload neu generieren.',
+        musicGenerateCover: 'Cover generieren',
+        musicRegenerateCover: 'Cover neu generieren',
         musicSaveStatus: 'MP3 wird gespeichert und Cover angehängt...',
         musicSuccess: 'Musik-Asset hochgeladen. Assets Manager aktualisiert.',
         musicError: 'Musik-Upload fehlgeschlagen.',
@@ -139,6 +153,11 @@ const adminUploadCopy = isGermanPage
         musicOrganizationBillingFailed: 'Organization billing could not be loaded.',
         musicOrganizationInsufficient: 'Insufficient organization credits for this cover generation.',
         musicCoverGenerating: 'Generating cover...',
+        musicCoverReady: 'Cover ready.',
+        musicCoverIdle: 'Generate a cover before uploading.',
+        musicCoverStale: 'Cover settings changed. Regenerate before uploading.',
+        musicGenerateCover: 'Generate cover',
+        musicRegenerateCover: 'Regenerate cover',
         musicSaveStatus: 'Saving MP3 and attaching cover...',
         musicSuccess: 'Music asset uploaded. Assets Manager refreshed.',
         musicError: 'Music upload failed.',
@@ -323,6 +342,10 @@ function getMusicUploadElements() {
         organizationField: document.getElementById('studioAdminUploadMusicOrganizationField'),
         organization: document.getElementById('studioAdminUploadMusicOrganization'),
         organizationState: document.getElementById('studioAdminUploadMusicOrganizationState'),
+        generateCover: document.getElementById('studioAdminUploadMusicGenerateCover'),
+        coverPreview: document.querySelector('.assets-manager__music-cover-preview'),
+        coverPreviewImg: document.getElementById('studioAdminUploadMusicCoverPreviewImg'),
+        coverPreviewState: document.getElementById('studioAdminUploadMusicCoverPreviewState'),
         submit: document.getElementById('studioAdminUploadMusicSubmit'),
         status: document.getElementById('studioAdminUploadMusicStatus'),
     };
@@ -379,6 +402,128 @@ function extractGeneratedCoverImage(responseData) {
     };
 }
 
+function normalizeMusicCoverMimeType(value) {
+    const mimeType = String(value || 'image/png').split(';')[0].trim().toLowerCase();
+    return MUSIC_COVER_PREVIEW_MIME_TYPES.has(mimeType) ? mimeType : '';
+}
+
+function getMusicCoverMimeTypeFromBase64Payload(value) {
+    const match = String(value || '').trim().match(/^data:(image\/(?:png|jpe?g|webp));base64,/i);
+    return match ? normalizeMusicCoverMimeType(match[1].replace('image/jpg', 'image/jpeg')) : '';
+}
+
+function buildMusicCoverPreviewSrc(imageBase64, mimeType) {
+    const raw = String(imageBase64 || '').trim();
+    if (!raw) return '';
+    if (getMusicCoverMimeTypeFromBase64Payload(raw)) {
+        return raw;
+    }
+    const normalizedMime = normalizeMusicCoverMimeType(mimeType);
+    if (!normalizedMime) return '';
+    return `data:${normalizedMime};base64,${raw.replace(/\s+/g, '')}`;
+}
+
+function getCurrentMusicCoverSnapshot() {
+    const { prompt, model } = getMusicUploadElements();
+    const selectedModel = String(model?.value || adminMusicUploadState.selectedModel || '').trim();
+    return {
+        prompt: String(prompt?.value || '').trim().slice(0, MUSIC_UPLOAD_PROMPT_MAX_LENGTH),
+        model: selectedModel,
+        organization: isSelectedMusicModelChargeable(selectedModel)
+            ? String(adminMusicUploadState.selectedOrganizationId || '').trim()
+            : '',
+    };
+}
+
+function isGeneratedMusicCoverCurrent() {
+    if (adminMusicUploadState.coverStatus !== 'ready') return false;
+    if (!adminMusicUploadState.coverImageBase64 || !adminMusicUploadState.coverMimeType) return false;
+    const snapshot = getCurrentMusicCoverSnapshot();
+    return snapshot.prompt === adminMusicUploadState.coverPromptSnapshot
+        && snapshot.model === adminMusicUploadState.coverModelSnapshot
+        && snapshot.organization === adminMusicUploadState.coverOrganizationSnapshot;
+}
+
+function markGeneratedMusicCoverStaleIfNeeded() {
+    if (!adminMusicUploadState.coverImageBase64) return;
+    const snapshot = getCurrentMusicCoverSnapshot();
+    const matches = snapshot.prompt === adminMusicUploadState.coverPromptSnapshot
+        && snapshot.model === adminMusicUploadState.coverModelSnapshot
+        && snapshot.organization === adminMusicUploadState.coverOrganizationSnapshot;
+    if (matches && adminMusicUploadState.coverStatus === 'stale') {
+        adminMusicUploadState.coverStatus = 'ready';
+        adminMusicUploadState.coverError = '';
+    } else if (!matches && adminMusicUploadState.coverStatus === 'ready') {
+        adminMusicUploadState.coverStatus = 'stale';
+        adminMusicUploadState.coverError = '';
+    }
+}
+
+function resetGeneratedMusicCover() {
+    adminMusicUploadState.coverStatus = 'idle';
+    adminMusicUploadState.coverImageBase64 = '';
+    adminMusicUploadState.coverMimeType = '';
+    adminMusicUploadState.coverPreviewSrc = '';
+    adminMusicUploadState.coverError = '';
+    adminMusicUploadState.coverPromptSnapshot = '';
+    adminMusicUploadState.coverModelSnapshot = '';
+    adminMusicUploadState.coverOrganizationSnapshot = '';
+}
+
+function getMusicCoverGenerationBlocker(modelId = getSelectedMusicModelId()) {
+    const { prompt } = getMusicUploadElements();
+    const coverPrompt = String(prompt?.value || '').trim();
+    if (!coverPrompt) return adminUploadCopy.musicPromptError;
+    const billingBlocker = getSelectedMusicBillingBlocker(modelId);
+    return billingBlocker || '';
+}
+
+function syncAdminMusicCoverPreviewUi() {
+    const {
+        coverPreview,
+        coverPreviewImg,
+        coverPreviewState,
+        generateCover,
+    } = getMusicUploadElements();
+    const status = adminMusicUploadState.coverStatus || 'idle';
+    const hasPreview = !!adminMusicUploadState.coverPreviewSrc
+        && (status === 'ready' || status === 'stale');
+    if (coverPreview) {
+        coverPreview.dataset.state = status;
+    }
+    if (coverPreviewImg) {
+        if (hasPreview) {
+            coverPreviewImg.src = adminMusicUploadState.coverPreviewSrc;
+            coverPreviewImg.hidden = false;
+        } else {
+            coverPreviewImg.hidden = true;
+            coverPreviewImg.removeAttribute('src');
+        }
+    }
+    if (coverPreviewState) {
+        if (status === 'generating') {
+            coverPreviewState.textContent = adminUploadCopy.musicCoverGenerating;
+        } else if (status === 'ready') {
+            coverPreviewState.textContent = adminUploadCopy.musicCoverReady;
+        } else if (status === 'stale') {
+            coverPreviewState.textContent = adminUploadCopy.musicCoverStale;
+        } else if (status === 'error') {
+            coverPreviewState.textContent = adminMusicUploadState.coverError || adminUploadCopy.musicCoverError;
+        } else {
+            coverPreviewState.textContent = adminUploadCopy.musicCoverIdle;
+        }
+    }
+    if (generateCover) {
+        const selectedModel = getSelectedMusicModelId();
+        generateCover.textContent = adminMusicUploadState.coverImageBase64
+            ? adminUploadCopy.musicRegenerateCover
+            : adminUploadCopy.musicGenerateCover;
+        generateCover.disabled = adminMusicUploadState.busy
+            || status === 'generating'
+            || !!getMusicCoverGenerationBlocker(selectedModel);
+    }
+}
+
 function selectDefaultMusicUploadModel(models) {
     const defaultModel = models.find((model) => model?.id === MUSIC_UPLOAD_DEFAULT_MODEL_ID);
     if (defaultModel?.id) return defaultModel.id;
@@ -418,13 +563,13 @@ function syncAdminMusicBillingUi() {
     const { organizationField, organization, organizationState } = getMusicUploadElements();
     const selectedModel = getSelectedMusicModelId();
     const isChargeable = isSelectedMusicModelChargeable(selectedModel);
-    const busy = adminMusicUploadState.busy;
+    const locked = adminMusicUploadState.busy || adminMusicUploadState.coverStatus === 'generating';
     const credits = getSelectedMusicCreditCost(selectedModel);
     const selectedOrg = getSelectedMusicOrganization();
 
     if (organizationField) organizationField.hidden = !isChargeable && adminMusicUploadState.organizationStatus !== 'loading';
     if (organization) {
-        organization.disabled = busy
+        organization.disabled = locked
             || !isChargeable
             || adminMusicUploadState.organizationStatus === 'loading'
             || !adminMusicUploadState.organizations.length;
@@ -513,7 +658,7 @@ function renderAdminMusicModelOptions() {
 
     const selected = adminMusicUploadState.selectedModel || selectDefaultMusicUploadModel(adminMusicUploadState.models);
     adminMusicUploadState.selectedModel = selected;
-    model.disabled = adminMusicUploadState.busy;
+    model.disabled = adminMusicUploadState.busy || adminMusicUploadState.coverStatus === 'generating';
     if (selected) model.value = selected;
     if (modelHelp) {
         modelHelp.textContent = adminMusicUploadState.models.some((entry) => isPricedAiImageModel(entry.id))
@@ -524,6 +669,7 @@ function renderAdminMusicModelOptions() {
 }
 
 function syncAdminMusicUploadUi() {
+    markGeneratedMusicCoverStaleIfNeeded();
     const { titleInput, fileInput, prompt, model, submit } = getMusicUploadElements();
     const busy = adminMusicUploadState.busy;
     const title = String(titleInput?.value || '').trim();
@@ -534,13 +680,16 @@ function syncAdminMusicUploadUi() {
         && !!title
         && !!adminMusicUploadState.file
         && !!coverPrompt
+        && isGeneratedMusicCoverCurrent()
+        && adminMusicUploadState.coverStatus !== 'generating'
         && !billingBlocker;
 
     if (titleInput) titleInput.disabled = busy;
     if (fileInput) fileInput.disabled = busy;
-    if (prompt) prompt.disabled = busy;
-    if (model) model.disabled = busy || !adminMusicUploadState.models.length;
+    if (prompt) prompt.disabled = busy || adminMusicUploadState.coverStatus === 'generating';
+    if (model) model.disabled = busy || adminMusicUploadState.coverStatus === 'generating' || !adminMusicUploadState.models.length;
     syncAdminMusicBillingUi();
+    syncAdminMusicCoverPreviewUi();
     if (submit) submit.disabled = !canSubmit;
 }
 
@@ -551,12 +700,81 @@ function resetAdminMusicUploadForm() {
     if (titleInput) titleInput.value = '';
     if (fileInput) fileInput.value = '';
     if (prompt) prompt.value = '';
+    resetGeneratedMusicCover();
     adminMusicUploadState.selectedModel = selectDefaultMusicUploadModel(adminMusicUploadState.models);
     renderAdminMusicModelOptions();
     populateAdminMusicOrganizationSelect();
     if (model && adminMusicUploadState.selectedModel) model.value = adminMusicUploadState.selectedModel;
     setAdminMusicUploadStatus(adminUploadCopy.musicReady);
     syncAdminMusicUploadUi();
+}
+
+async function handleGenerateAdminMusicCover() {
+    if (adminMusicUploadState.busy || adminMusicUploadState.coverStatus === 'generating') return;
+    const selectedModel = getSelectedMusicModelId();
+    const blocker = getMusicCoverGenerationBlocker(selectedModel);
+    if (blocker) {
+        setAdminMusicUploadStatus(blocker, 'error');
+        syncAdminMusicUploadUi();
+        return;
+    }
+
+    const snapshot = getCurrentMusicCoverSnapshot();
+    adminMusicUploadState.coverStatus = 'generating';
+    adminMusicUploadState.coverError = '';
+    setAdminMusicUploadStatus(adminUploadCopy.musicCoverGenerating, 'loading');
+    syncAdminMusicUploadUi();
+
+    try {
+        const coverPayload = {
+            prompt: snapshot.prompt,
+            model: snapshot.model,
+        };
+        if (isSelectedMusicModelChargeable(snapshot.model)) {
+            coverPayload.organization_id = snapshot.organization;
+        }
+        const coverRes = await apiAdminAiTestImage(coverPayload, {
+            headers: {
+                'Idempotency-Key': createAdminIdempotencyKey('admin-assets-music-cover'),
+            },
+        });
+        if (!coverRes.ok) {
+            adminMusicUploadState.coverStatus = 'error';
+            adminMusicUploadState.coverError = formatApiError(coverRes, adminUploadCopy.musicCoverError);
+            setAdminMusicUploadStatus(adminMusicUploadState.coverError, 'error');
+            return;
+        }
+        if (typeof coverRes.data?.billing?.balance_after === 'number') {
+            adminMusicUploadState.selectedOrganizationBalance = coverRes.data.billing.balance_after;
+            adminMusicUploadState.billingStatus = 'ready';
+        }
+        const cover = extractGeneratedCoverImage(coverRes.data);
+        const normalizedMime = getMusicCoverMimeTypeFromBase64Payload(cover?.imageBase64)
+            || normalizeMusicCoverMimeType(cover?.mimeType);
+        const previewSrc = buildMusicCoverPreviewSrc(cover?.imageBase64, normalizedMime);
+        if (!cover || !normalizedMime || !previewSrc) {
+            adminMusicUploadState.coverStatus = 'error';
+            adminMusicUploadState.coverError = adminUploadCopy.musicCoverError;
+            setAdminMusicUploadStatus(adminUploadCopy.musicCoverError, 'error');
+            return;
+        }
+        adminMusicUploadState.coverStatus = 'ready';
+        adminMusicUploadState.coverImageBase64 = cover.imageBase64;
+        adminMusicUploadState.coverMimeType = normalizedMime;
+        adminMusicUploadState.coverPreviewSrc = previewSrc;
+        adminMusicUploadState.coverError = '';
+        adminMusicUploadState.coverPromptSnapshot = snapshot.prompt;
+        adminMusicUploadState.coverModelSnapshot = snapshot.model;
+        adminMusicUploadState.coverOrganizationSnapshot = snapshot.organization;
+        setAdminMusicUploadStatus(adminUploadCopy.musicCoverReady, 'success');
+    } catch (error) {
+        console.warn('Assets Manager music cover generation failed:', error);
+        adminMusicUploadState.coverStatus = 'error';
+        adminMusicUploadState.coverError = adminUploadCopy.musicCoverError;
+        setAdminMusicUploadStatus(adminUploadCopy.musicCoverError, 'error');
+    } finally {
+        syncAdminMusicUploadUi();
+    }
 }
 
 async function loadAdminMusicImageModels() {
@@ -757,39 +975,20 @@ async function handleAdminMusicUpload() {
         return;
     }
 
+    if (!isGeneratedMusicCoverCurrent()) {
+        const message = adminMusicUploadState.coverStatus === 'stale'
+            ? adminUploadCopy.musicCoverStale
+            : adminUploadCopy.musicCoverIdle;
+        setAdminMusicUploadStatus(message, 'error');
+        syncAdminMusicUploadUi();
+        return;
+    }
+
     adminMusicUploadState.busy = true;
-    setAdminMusicUploadStatus(adminUploadCopy.musicCoverGenerating, 'loading');
+    setAdminMusicUploadStatus(adminUploadCopy.musicSaveStatus, 'loading');
     syncAdminMusicUploadUi();
 
     try {
-        const coverPayload = {
-            prompt: coverPrompt,
-            model: selectedModel,
-        };
-        if (isSelectedMusicModelChargeable(selectedModel)) {
-            coverPayload.organization_id = adminMusicUploadState.selectedOrganizationId;
-        }
-        const coverRes = await apiAdminAiTestImage(coverPayload, {
-            headers: {
-                'Idempotency-Key': createAdminIdempotencyKey('admin-assets-music-cover'),
-            },
-        });
-        if (!coverRes.ok) {
-            setAdminMusicUploadStatus(formatApiError(coverRes, adminUploadCopy.musicCoverError), 'error');
-            return;
-        }
-        if (typeof coverRes.data?.billing?.balance_after === 'number') {
-            adminMusicUploadState.selectedOrganizationBalance = coverRes.data.billing.balance_after;
-            adminMusicUploadState.billingStatus = 'ready';
-            syncAdminMusicUploadUi();
-        }
-        const cover = extractGeneratedCoverImage(coverRes.data);
-        if (!cover) {
-            setAdminMusicUploadStatus(adminUploadCopy.musicCoverError, 'error');
-            return;
-        }
-
-        setAdminMusicUploadStatus(adminUploadCopy.musicSaveStatus, 'loading');
         const audioBase64 = await readFileAsBase64(file);
         const saveRes = await apiAiSaveAudio({
             title,
@@ -800,8 +999,8 @@ async function handleAdminMusicUpload() {
             model: selectedModel,
             mode: 'admin_assets_manager_upload',
             source: 'admin_assets_manager_upload',
-            coverImageBase64: cover.imageBase64,
-            coverMimeType: cover.mimeType,
+            coverImageBase64: adminMusicUploadState.coverImageBase64,
+            coverMimeType: adminMusicUploadState.coverMimeType,
             coverPrompt,
             coverModel: selectedModel,
             receivedAt: new Date().toISOString(),
@@ -921,6 +1120,7 @@ function setupAdminVideoUpload({ enabled = false } = {}) {
     const musicPrompt = document.getElementById('studioAdminUploadMusicPrompt');
     const musicModel = document.getElementById('studioAdminUploadMusicModel');
     const musicOrganization = document.getElementById('studioAdminUploadMusicOrganization');
+    const musicGenerateCover = document.getElementById('studioAdminUploadMusicGenerateCover');
     const musicSubmit = document.getElementById('studioAdminUploadMusicSubmit');
     const reason = document.getElementById('studioAdminUploadVideoReason');
 
@@ -1044,6 +1244,16 @@ function setupAdminVideoUpload({ enabled = false } = {}) {
     musicModal.addEventListener('click', (event) => {
         if (event.target?.closest?.('[data-assets-music-upload-close]')) {
             closeAdminMusicUploadModal();
+            return;
+        }
+        if (event.target === musicGenerateCover) {
+            handleGenerateAdminMusicCover().catch((error) => {
+                console.warn('Assets Manager music cover generation failed:', error);
+                adminMusicUploadState.coverStatus = 'error';
+                adminMusicUploadState.coverError = adminUploadCopy.musicCoverError;
+                setAdminMusicUploadStatus(adminUploadCopy.musicCoverError, 'error');
+                syncAdminMusicUploadUi();
+            });
             return;
         }
         if (event.target === musicSubmit) {
