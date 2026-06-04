@@ -42,11 +42,12 @@ const baseManifest = {
       auth: {
         name: "bitbi-auth",
         wranglerPath: "workers/auth/wrangler.jsonc",
-        vars: ["APP_BASE_URL", "RESEND_FROM_EMAIL", "BITBI_ENV"],
+        vars: ["APP_BASE_URL", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET"],
         expectedVars: {
           APP_BASE_URL: "https://bitbi.ai",
           RESEND_FROM_EMAIL: "BITBI <noreply@contact.bitbi.ai>",
           BITBI_ENV: "production",
+          ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET: "true",
         },
         triggers: {
           crons: ["0 3 * * *"],
@@ -760,6 +761,7 @@ function createValidContext() {
             APP_BASE_URL: "https://bitbi.ai",
             RESEND_FROM_EMAIL: "BITBI <noreply@contact.bitbi.ai>",
             BITBI_ENV: "production",
+            ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET: "true",
           },
           triggers: {
             crons: ["0 3 * * *"],

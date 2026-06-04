@@ -16656,45 +16656,23 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImageRun')).toHaveText('Run Image Test');
   });
 
-  test('blocks charged admin image tests until a platform admin selects an organization', async ({ page }) => {
+  test('blocks charged admin image tests when no organization is available', async ({ page }) => {
     const imageTestRequests = [];
     await page.unroute('**/api/admin/orgs**');
     await page.unroute('**/api/admin/ai/test-image');
     await mockAdminAiLab(page, {
       imageTestRequests,
-      adminOrganizations: [
-        {
-          id: 'org_11111111111111111111111111111111',
-          name: 'First Billing Org',
-          slug: 'first-billing-org',
-          status: 'active',
-        },
-        {
-          id: 'org_22222222222222222222222222222222',
-          name: 'Second Billing Org',
-          slug: 'second-billing-org',
-          status: 'active',
-        },
-      ],
+      adminOrganizations: [],
     });
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await clickAiLabMode(page, 'image');
     await page.selectOption('#aiImageModel', 'black-forest-labs/flux-2-max');
-    await expect(page.locator('#aiImageOrganizationState')).toContainText('Select an organization before running this charged image test.');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('No active organizations are available');
 
     await page.locator('#aiImageRun').click();
     await expect(page.locator('#aiImageState')).toContainText('Select an organization before running this charged image test.');
     expect(imageTestRequests).toHaveLength(0);
-
-    await page.selectOption('#aiImageOrganization', 'org_11111111111111111111111111111111');
-    await expect(page.locator('#aiImageOrganizationState')).toContainText('Selected organization: First Billing Org');
-    await page.locator('#aiImageRun').click();
-    await expect(page.locator('#aiImageState')).toContainText('Image response ready.');
-    expect(imageTestRequests).toHaveLength(1);
-    expect(imageTestRequests[0].organization_id).toBe('org_11111111111111111111111111111111');
-    await expect(page.locator('#aiImageMeta')).toContainText('Charged Org');
-    await expect(page.locator('#aiImageMeta')).toContainText('First Billing Org');
   });
 
   test('FLUX.2 Max cleans stale image state and sends only supported charged fields', async ({ page }) => {
@@ -19145,6 +19123,15 @@ test.describe('AI Lab Image capability controls', () => {
     await expect(page.locator('#aiImageResolution option')).toHaveText(['1k', '2k']);
     await expect(page.locator('#aiImageResponseFormat option')).toHaveText(['url', 'b64_json']);
     await expect(page.locator('#aiImageGptCostHint')).toContainText('Estimated credits:');
+    await expect(page.locator('#aiImageGptCostHint')).not.toContainText('No admin image-test credit charge');
+    await expect(page.locator('#aiImageOrganization')).toHaveValue('org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('Selected organization: Admin Image Billing Org');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('after provider success');
+    const persistedOrganizationId = await page.evaluate(() => {
+      const raw = localStorage.getItem('bitbi_admin_ai_lab_state_v1');
+      return raw ? JSON.parse(raw)?.forms?.image?.organizationId || '' : '';
+    });
+    expect(persistedOrganizationId).toBe('org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
 
     await page.locator('#aiImagePrompt').fill('Restyle this source image as a premium editorial cover.');
     await page.locator('.admin-ai__video-source-card', { hasText: 'Mock Image Source' }).click();
@@ -19166,6 +19153,60 @@ test.describe('AI Lab Image capability controls', () => {
         asset_id: 'image-source-mock-1',
       },
       organization_id: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    });
+    expect(imageTestRequests[0].image).toBeUndefined();
+    expect(imageTestRequests[0].images).toBeUndefined();
+    expect(imageTestRequests[0].mask).toBeUndefined();
+  });
+
+  test('keeps Grok Imagine Image organization dropdown and request payload in sync', async ({ page }) => {
+    const imageTestRequests = [];
+    await page.unroute('**/api/admin/orgs**');
+    await page.unroute('**/api/admin/ai/test-image');
+    await mockAdminAiLab(page, {
+      imageTestRequests,
+      adminOrganizations: [
+        {
+          id: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          name: 'BITBI',
+          slug: 'bitbi',
+          status: 'active',
+        },
+        {
+          id: 'org_22222222222222222222222222222222',
+          name: 'Second Billing Org',
+          slug: 'second-billing-org',
+          status: 'active',
+        },
+      ],
+      adminOrgBilling: {
+        org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: { organizationId: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', creditBalance: 100 },
+        org_22222222222222222222222222222222: { organizationId: 'org_22222222222222222222222222222222', creditBalance: 250 },
+      },
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await clickAiLabMode(page, 'image');
+    await page.selectOption('#aiImageModel', 'xai/grok-imagine-image');
+    await expect(page.locator('#aiImageOrganization')).toHaveValue('org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('Selected organization: BITBI');
+
+    await page.selectOption('#aiImageOrganization', 'org_22222222222222222222222222222222');
+    await expect(page.locator('#aiImageOrganization')).toHaveValue('org_22222222222222222222222222222222');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('Selected organization: Second Billing Org');
+    const persistedOrganizationId = await page.evaluate(() => {
+      const raw = localStorage.getItem('bitbi_admin_ai_lab_state_v1');
+      return raw ? JSON.parse(raw)?.forms?.image?.organizationId || '' : '';
+    });
+    expect(persistedOrganizationId).toBe('org_22222222222222222222222222222222');
+
+    await page.locator('#aiImagePrompt').fill('Prompt-only Grok Imagine Image request.');
+    await page.locator('#aiImageRun').click();
+    await expect(page.locator('#aiImageState')).toContainText('Image response ready.');
+    expect(imageTestRequests).toHaveLength(1);
+    expect(imageTestRequests[0]).toMatchObject({
+      model: 'xai/grok-imagine-image',
+      organization_id: 'org_22222222222222222222222222222222',
     });
     expect(imageTestRequests[0].image).toBeUndefined();
     expect(imageTestRequests[0].images).toBeUndefined();

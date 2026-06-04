@@ -12069,6 +12069,13 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
       killSwitchTarget: 'ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET',
     }));
   });
+
+  test('auth worker wrangler config exposes the xAI image budget master flag', async () => {
+    const wrangler = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'workers/auth/wrangler.jsonc'), 'utf8'));
+    expect(wrangler.vars).toEqual(expect.objectContaining({
+      ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET: 'true',
+    }));
+  });
 });
 
 test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
@@ -29259,6 +29266,34 @@ test.describe('Worker routes', () => {
           ok: false,
           code: 'admin_ai_budget_disabled',
           flag: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+        });
+        expect(aiLabRequests).toHaveLength(0);
+        expect(env.DB.state.aiUsageAttempts).toHaveLength(0);
+        expect(env.DB.state.usageEvents).toHaveLength(0);
+        expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+      }
+
+      {
+        const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+          authEnv: { ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET: 'false' },
+        });
+        seedAdminImageChargeOrg(env);
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-image', 'POST', {
+            model: 'xai/grok-imagine-image',
+            prompt: 'Disabled xAI image branch must not debit.',
+            n: 1,
+            response_format: 'b64_json',
+            organization_id: ADMIN_AI_CHARGE_ORG_ID,
+          }, adminImageChargeHeaders(authHeaders, 'admin-xai-image-switch-disabled-1')),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(503);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'admin_ai_budget_disabled',
+          flag: 'ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET',
         });
         expect(aiLabRequests).toHaveLength(0);
         expect(env.DB.state.aiUsageAttempts).toHaveLength(0);

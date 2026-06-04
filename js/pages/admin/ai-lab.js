@@ -66,6 +66,7 @@ import {
 } from './ai-lab-result-state.mjs?v=__ASSET_VERSION__';
 import {
     clearActiveOrganizationId,
+    isValidOrganizationId,
     resolveActiveOrganizationId,
     setActiveOrganizationId,
 } from '../../shared/active-organization.js?v=__ASSET_VERSION__';
@@ -2990,6 +2991,43 @@ export function createAdminAiLab({ showToast } = {}) {
         return state.imageBilling.organizations.find((org) => org.id === selectedOrgId) || null;
     }
 
+    function getPreferredImageOrganizationId({ preferDom = false } = {}) {
+        const organizations = Array.isArray(state.imageBilling.organizations)
+            ? state.imageBilling.organizations
+            : [];
+        if (!organizations.length) return '';
+        const validIds = new Set(organizations.map((org) => org.id).filter(isValidOrganizationId));
+        if (!validIds.size) return '';
+        const candidates = [];
+        if (preferDom && refs.image.organization?.value) candidates.push(refs.image.organization.value);
+        candidates.push(state.forms.image.organizationId);
+        candidates.push(state.imageBilling.selectedOrganizationId);
+        candidates.push(resolveActiveOrganizationId(organizations));
+        const bitbiOrg = organizations.find((org) => {
+            const name = String(org?.name || '').trim().toLowerCase();
+            const slug = String(org?.slug || '').trim().toLowerCase();
+            return name === 'bitbi' || slug === 'bitbi';
+        });
+        if (bitbiOrg?.id) candidates.push(bitbiOrg.id);
+        candidates.push(organizations[0]?.id);
+        return candidates.map((value) => String(value || '').trim()).find((value) => validIds.has(value)) || '';
+    }
+
+    function syncImageOrganizationSelection({ persist = false, preferDom = false } = {}) {
+        const previous = state.forms.image.organizationId || '';
+        const organizationId = getPreferredImageOrganizationId({ preferDom });
+        state.forms.image.organizationId = organizationId;
+        state.imageBilling.selectedOrganizationId = organizationId;
+        if (refs.image.organization && refs.image.organization.value !== organizationId) {
+            refs.image.organization.value = organizationId;
+        }
+        if (organizationId) setActiveOrganizationId(organizationId);
+        else if (previous) clearActiveOrganizationId();
+        const changed = previous !== organizationId;
+        if (persist && changed) persistState();
+        return { id: organizationId, changed };
+    }
+
     function getImageRunLabel() {
         const credits = getSelectedImageCreditCost();
         if (!credits) {
@@ -3002,7 +3040,6 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function populateImageOrganizationSelect() {
         if (!refs.image.organization) return;
-        const current = state.forms.image.organizationId || state.imageBilling.selectedOrganizationId || '';
         refs.image.organization.replaceChildren();
         if (state.imageBilling.status === 'loading') {
             refs.image.organization.append(new Option('Loading organizations...', ''));
@@ -3013,17 +3050,16 @@ export function createAdminAiLab({ showToast } = {}) {
         state.imageBilling.organizations.forEach((org) => {
             refs.image.organization.append(new Option(org.name || org.id, org.id));
         });
-        if (current && state.imageBilling.organizations.some((org) => org.id === current)) {
-            refs.image.organization.value = current;
-        } else {
-            refs.image.organization.value = '';
-        }
+        syncImageOrganizationSelection();
     }
 
     function syncImageBillingUi() {
         const credits = getSelectedImageCreditCost();
         const isChargeable = isSelectedImageModelChargeable();
         const isBusy = state.results.image?.status === 'loading';
+        if (state.imageBilling.status === 'ready') {
+            syncImageOrganizationSelection();
+        }
         if (refs.image.run && !isBusy) refs.image.run.textContent = getImageRunLabel();
         if (refs.image.gptCostHint) {
             if (credits) {
@@ -3105,8 +3141,9 @@ export function createAdminAiLab({ showToast } = {}) {
             .map((org) => ({
                 id: String(org?.id || org?.organizationId || '').trim(),
                 name: String(org?.name || org?.slug || org?.id || '').trim(),
+                slug: String(org?.slug || '').trim(),
             }))
-            .filter((org) => /^org_[a-f0-9]{32}$/.test(org.id));
+            .filter((org) => isValidOrganizationId(org.id));
     }
 
     function extractCreditBalance(data) {
@@ -3162,13 +3199,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!state.imageBilling.organizations.length) {
             state.imageBilling.error = 'No active organizations are available for charged admin image tests.';
         }
-        const current = resolveActiveOrganizationId(state.imageBilling.organizations);
-        if (current && state.imageBilling.organizations.some((org) => org.id === current)) {
-            state.forms.image.organizationId = current;
-        } else {
-            state.forms.image.organizationId = '';
-        }
-        state.imageBilling.selectedOrganizationId = state.forms.image.organizationId;
+        syncImageOrganizationSelection({ persist: true });
         populateImageOrganizationSelect();
         persistState();
         await loadSelectedImageOrganizationBilling();
@@ -5931,7 +5962,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const isChargeable = isSelectedImageModelChargeable();
         const requestOptions = { signal: controller.signal };
         if (isChargeable) {
-            const organizationId = state.forms.image.organizationId || '';
+            const organizationId = syncImageOrganizationSelection({ persist: true, preferDom: true }).id || '';
             if (!organizationId) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
                 clearTaskTimer('image', controller);
@@ -6856,15 +6887,23 @@ export function createAdminAiLab({ showToast } = {}) {
         attachFieldSync(refs.image.background, 'image', 'background');
         attachFieldSync(refs.image.safetyTolerance, 'image', 'safetyTolerance', (value) => value === '' ? '' : Number(value));
 
-        refs.image.model.addEventListener('change', () => {
+        refs.image.model.addEventListener('change', async () => {
             applySelectedImageModelDefaults();
             updateImageCapabilityControls();
+            const selection = syncImageOrganizationSelection({ persist: true });
+            if (isSelectedImageModelChargeable() && selection.id && selection.changed) {
+                await loadSelectedImageOrganizationBilling();
+            }
             syncImageBillingUi();
             persistState();
         });
-        refs.image.preset.addEventListener('change', () => {
+        refs.image.preset.addEventListener('change', async () => {
             applySelectedImageModelDefaults();
             updateImageCapabilityControls();
+            const selection = syncImageOrganizationSelection({ persist: true });
+            if (isSelectedImageModelChargeable() && selection.id && selection.changed) {
+                await loadSelectedImageOrganizationBilling();
+            }
             syncImageBillingUi();
             persistState();
         });
@@ -6887,11 +6926,17 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.background?.addEventListener('change', () => syncImageBillingUi());
         refs.image.safetyTolerance?.addEventListener('input', () => syncImageBillingUi());
         refs.image.organization?.addEventListener('change', async () => {
-            state.forms.image.organizationId = refs.image.organization.value;
-            state.imageBilling.selectedOrganizationId = state.forms.image.organizationId;
-            if (state.forms.image.organizationId) setActiveOrganizationId(state.forms.image.organizationId);
+            if (!refs.image.organization.value) {
+                state.forms.image.organizationId = '';
+                state.imageBilling.selectedOrganizationId = '';
+                clearActiveOrganizationId();
+                persistState();
+                await loadSelectedImageOrganizationBilling();
+                return;
+            }
+            const selection = syncImageOrganizationSelection({ persist: true, preferDom: true });
+            if (selection.id) setActiveOrganizationId(selection.id);
             else clearActiveOrganizationId();
-            persistState();
             await loadSelectedImageOrganizationBilling();
         });
 
