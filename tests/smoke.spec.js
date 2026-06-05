@@ -3513,9 +3513,54 @@ test.describe('Homepage', () => {
       });
     });
 
+    const stabilizeHeroMeasurement = async () => {
+      // Test-only: visual hero animations can shift bounding rects mid-frame in CI.
+      await page.addStyleTag({
+        content: `
+          #hero .hero__scroll-hint {
+            animation: none !important;
+            transform: translateX(-50%) !important;
+            transition: none !important;
+          }
+
+          #hero .hero__scroll-hint *,
+          #hero .hero__title-wrap,
+          #hero .hero__title-img,
+          #hero .hero__models-cta,
+          #hero .hero__models-cta::before,
+          #hero .hero__models-cta::after,
+          #hero .hero__creation-stream,
+          #hero .hero__creation-stream *,
+          #newsPulse,
+          #newsPulse * {
+            animation: none !important;
+            transition: none !important;
+          }
+        `,
+      });
+    };
+
+    const waitForStableHeroLayout = async () => {
+      await page.evaluate(async () => {
+        try {
+          await document.fonts?.ready;
+        } catch {
+          // Font readiness is best-effort in tests.
+        }
+        const titleImg = document.querySelector('#hero .hero__title-img');
+        if (titleImg && !titleImg.complete && typeof titleImg.decode === 'function') {
+          await titleImg.decode().catch(() => {});
+        }
+        await new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+      });
+    };
+
     const measureHero = async (width, height, expectScaled) => {
       await page.setViewportSize({ width, height });
       await page.goto('/', { waitUntil: 'domcontentloaded' });
+      await stabilizeHeroMeasurement();
       await expect(page.locator('#hero .hero__models-cta')).toHaveCount(2);
       await expect(page.locator('#hero .hero__creation-stream[data-creation-stream-anchored="true"]')).toHaveCount(2);
       await expect
@@ -3524,7 +3569,7 @@ test.describe('Homepage', () => {
       await expect
         .poll(() => page.locator('#newsPulse').evaluate((node) => node.dataset.newsPulseHeroPlacement || ''), { timeout: 10_000 })
         .toBe('ready');
-      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await waitForStableHeroLayout();
 
       return page.evaluate(() => {
         const hero = document.querySelector('#hero');
