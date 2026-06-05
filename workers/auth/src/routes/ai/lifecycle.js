@@ -19,6 +19,11 @@ import {
   publicMediaCommentEntryForImage,
   publicMediaCommentEntryForTextAsset,
 } from "../../lib/public-media-comments.js";
+import {
+  buildDeletePublicMediaLikesStatements,
+  publicMediaLikeEntryForImage,
+  publicMediaLikeEntryForTextAsset,
+} from "../../lib/public-media-interactions.js";
 
 const CLEANUP_QUEUE_BATCH_SIZE = 100;
 
@@ -283,6 +288,20 @@ function buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows = [
   return buildDeletePublicMediaCommentsStatements(
     env,
     textRows.map(publicMediaCommentEntryForTextAsset).filter(Boolean)
+  );
+}
+
+function buildPublicMediaLikeCleanupStatementsForImages(env, imageRows = []) {
+  return buildDeletePublicMediaLikesStatements(
+    env,
+    imageRows.map(publicMediaLikeEntryForImage).filter(Boolean)
+  );
+}
+
+function buildPublicMediaLikeCleanupStatementsForTextAssets(env, textRows = []) {
+  return buildDeletePublicMediaLikesStatements(
+    env,
+    textRows.map(publicMediaLikeEntryForTextAsset).filter(Boolean)
   );
 }
 
@@ -610,6 +629,7 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
     cleanupKeys: collectCleanupKeys([row], []),
     mutationStatements: [
       ...buildPublicMediaCommentCleanupStatementsForImages(env, [row]),
+      ...buildPublicMediaLikeCleanupStatementsForImages(env, [row]),
       buildAiImageDeleteStatement(env, userId, imageId),
     ],
     unavailableMessage: "Service temporarily unavailable. Please try again later.",
@@ -680,6 +700,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
     ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
     ...buildMemvidStreamPreviewCleanupStatements(env, { userId, assetId }),
     ...buildPublicMediaCommentCleanupStatementsForTextAssets(env, [row]),
+    ...buildPublicMediaLikeCleanupStatementsForTextAssets(env, [row]),
     buildAiTextAssetDeleteStatement(env, userId, assetId),
   ];
 
@@ -703,6 +724,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
       mutationStatements: [
         ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
         ...buildPublicMediaCommentCleanupStatementsForTextAssets(env, [row]),
+        ...buildPublicMediaLikeCleanupStatementsForTextAssets(env, [row]),
         buildAiTextAssetDeleteStatement(env, userId, assetId),
       ],
       unavailableMessage: "Text asset service unavailable. Please try again later.",
@@ -911,12 +933,14 @@ export async function deleteUserAiAssets({ env, userId, assetIds, createdAt = no
 
   if (imageIds.length > 0) {
     mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows));
+    mutationStatements.push(...buildPublicMediaLikeCleanupStatementsForImages(env, imageRows));
     imageDeleteIndex = mutationStatements.length;
     mutationStatements.push(buildImageDeleteStatementForIds(env, userId, imageIds));
   }
 
   if (textIds.length > 0) {
     mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows));
+    mutationStatements.push(...buildPublicMediaLikeCleanupStatementsForTextAssets(env, textRows));
     textDeleteIndex = mutationStatements.length;
     mutationStatements.push(buildTextAssetDeleteStatementForIds(env, userId, textIds));
   }
@@ -976,6 +1000,7 @@ export async function deleteUserAiImages({ env, userId, imageIds, createdAt = no
     cleanupKeys: collectCleanupKeys(imageRows, []),
     mutationStatements: [
       ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
+      ...buildPublicMediaLikeCleanupStatementsForImages(env, imageRows),
       buildImageDeleteStatementForIds(env, userId, matchedIds),
     ],
     createdAt,
@@ -1016,11 +1041,13 @@ export async function deleteUserAiFolder({ env, userId, folderId, createdAt = no
     const textRows = await loadFolderAiTextAssets(env, userId, folderId, { allowMissingTable: true });
     const mutationStatements = [
       ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
+      ...buildPublicMediaLikeCleanupStatementsForImages(env, imageRows),
       env.DB.prepare("DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?").bind(folderId, userId),
     ];
 
     if (textRows.length > 0) {
       mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows));
+      mutationStatements.push(...buildPublicMediaLikeCleanupStatementsForTextAssets(env, textRows));
       mutationStatements.push(
         env.DB.prepare("DELETE FROM ai_text_assets WHERE folder_id = ? AND user_id = ?").bind(folderId, userId)
       );
@@ -1060,6 +1087,7 @@ export async function deleteAllUserAiAssets({
   const textRows = await loadUserAiTextAssets(env, userId, { allowMissingTable: true });
   const mutationStatements = [
     ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
+    ...buildPublicMediaLikeCleanupStatementsForImages(env, imageRows),
   ];
   const imageDeleteIndex = mutationStatements.length;
   let textDeleteIndex = -1;
@@ -1068,6 +1096,7 @@ export async function deleteAllUserAiAssets({
 
   if (textRows.length > 0) {
     mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows));
+    mutationStatements.push(...buildPublicMediaLikeCleanupStatementsForTextAssets(env, textRows));
     textDeleteIndex = mutationStatements.length;
     mutationStatements.push(
       {

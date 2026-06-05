@@ -21,6 +21,8 @@ const USER_DEPENDENCY_TABLE_STATE = {
   siwe_challenges: 'siweChallenges',
   favorites: 'favorites',
   public_media_comments: 'publicMediaComments',
+  public_media_likes: 'publicMediaLikes',
+  profile_follows: 'profileFollows',
   ai_images: 'aiImages',
   ai_text_assets: 'aiTextAssets',
   ai_folders: 'aiFolders',
@@ -921,6 +923,8 @@ class MockD1 {
       profiles: [],
       favorites: [],
       publicMediaComments: [],
+      publicMediaLikes: [],
+      profileFollows: [],
       adminAuditLog: [],
       activitySearchIndex: [],
       rateLimitCounters: [],
@@ -1004,6 +1008,13 @@ class MockD1 {
       ...row,
     }));
     this.state.publicMediaComments = (this.state.publicMediaComments || []).map((row) => ({
+      updated_at: null,
+      ...row,
+    }));
+    this.state.publicMediaLikes = (this.state.publicMediaLikes || []).map((row) => ({
+      ...row,
+    }));
+    this.state.profileFollows = (this.state.profileFollows || []).map((row) => ({
       updated_at: null,
       ...row,
     }));
@@ -6759,6 +6770,92 @@ class MockD1 {
       this.state.publicMediaComments = this.state.publicMediaComments.filter((row) => !(row.media_type === mediaType && row.media_id === mediaId));
       const changes = before - this.state.publicMediaComments.length;
       return { success: true, meta: { changes } };
+    }
+
+    if (query === 'SELECT COUNT(*) AS count FROM public_media_likes WHERE media_type = ? AND media_id = ?') {
+      const [mediaType, mediaId] = bindings;
+      return {
+        count: this.state.publicMediaLikes.filter((row) => row.media_type === mediaType && row.media_id === mediaId).length,
+      };
+    }
+
+    if (query.startsWith('SELECT 1 AS liked FROM public_media_likes WHERE user_id = ? AND media_type = ? AND media_id = ?')) {
+      const [userId, mediaType, mediaId] = bindings;
+      return this.state.publicMediaLikes.some((row) => row.user_id === userId && row.media_type === mediaType && row.media_id === mediaId)
+        ? { liked: 1 }
+        : null;
+    }
+
+    if (query.startsWith('INSERT OR IGNORE INTO public_media_likes')) {
+      const [id, mediaType, mediaId, userId, createdAt] = bindings;
+      const exists = this.state.publicMediaLikes.some((row) => row.user_id === userId && row.media_type === mediaType && row.media_id === mediaId);
+      if (!exists) {
+        this.state.publicMediaLikes.push({
+          id,
+          media_type: mediaType,
+          media_id: mediaId,
+          user_id: userId,
+          created_at: createdAt,
+        });
+      }
+      return { success: true, meta: { changes: exists ? 0 : 1 } };
+    }
+
+    if (query === 'DELETE FROM public_media_likes WHERE media_type = ? AND media_id = ? AND user_id = ?') {
+      const [mediaType, mediaId, userId] = bindings;
+      const before = this.state.publicMediaLikes.length;
+      this.state.publicMediaLikes = this.state.publicMediaLikes.filter((row) => !(row.media_type === mediaType && row.media_id === mediaId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.publicMediaLikes.length } };
+    }
+
+    if (query === 'DELETE FROM public_media_likes WHERE media_type = ? AND media_id = ?') {
+      const [mediaType, mediaId] = bindings;
+      const before = this.state.publicMediaLikes.length;
+      this.state.publicMediaLikes = this.state.publicMediaLikes.filter((row) => !(row.media_type === mediaType && row.media_id === mediaId));
+      return { success: true, meta: { changes: before - this.state.publicMediaLikes.length } };
+    }
+
+    if (query.startsWith('SELECT 1 AS following FROM profile_follows WHERE follower_user_id = ? AND followed_user_id = ?')) {
+      const [followerUserId, followedUserId] = bindings;
+      return this.state.profileFollows.some((row) => row.follower_user_id === followerUserId && row.followed_user_id === followedUserId)
+        ? { following: 1 }
+        : null;
+    }
+
+    if (query === 'SELECT COUNT(*) AS count FROM profile_follows WHERE followed_user_id = ?') {
+      const [followedUserId] = bindings;
+      return {
+        count: this.state.profileFollows.filter((row) => row.followed_user_id === followedUserId).length,
+      };
+    }
+
+    if (query === 'SELECT COUNT(*) AS count FROM profile_follows WHERE follower_user_id = ?') {
+      const [followerUserId] = bindings;
+      return {
+        count: this.state.profileFollows.filter((row) => row.follower_user_id === followerUserId).length,
+      };
+    }
+
+    if (query.startsWith('INSERT OR IGNORE INTO profile_follows')) {
+      const [id, followerUserId, followedUserId, createdAt, updatedAt] = bindings;
+      const exists = this.state.profileFollows.some((row) => row.follower_user_id === followerUserId && row.followed_user_id === followedUserId);
+      if (!exists) {
+        this.state.profileFollows.push({
+          id,
+          follower_user_id: followerUserId,
+          followed_user_id: followedUserId,
+          created_at: createdAt,
+          updated_at: updatedAt ?? null,
+        });
+      }
+      return { success: true, meta: { changes: exists ? 0 : 1 } };
+    }
+
+    if (query === 'DELETE FROM profile_follows WHERE follower_user_id = ? AND followed_user_id = ?') {
+      const [followerUserId, followedUserId] = bindings;
+      const before = this.state.profileFollows.length;
+      this.state.profileFollows = this.state.profileFollows.filter((row) => !(row.follower_user_id === followerUserId && row.followed_user_id === followedUserId));
+      return { success: true, meta: { changes: before - this.state.profileFollows.length } };
     }
 
     if (

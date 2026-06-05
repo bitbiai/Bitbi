@@ -44,6 +44,7 @@ Current high-impact migration dependencies:
 - `0061_add_homepage_hero_video_slots.sql` for Admin-managed public homepage hero video slots and optimized derivative job metadata. Missing hero-video tables make the public homepage API return an unconfigured state so the existing Memvid fallback can continue.
 - `0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql` for signed homepage hero external_ffmpeg processing, private admin hero-source uploads, and Memvid Cloudflare Stream hover-preview metadata/telemetry. The related Worker capability flags default enabled unless explicitly set false; Admin runtime switches in `app_settings` can disable visible behavior, and provider operations still fail closed when secrets/config are absent.
 - `0063_add_public_media_comments.sql` for public Mempic, Memvid, and Memtrack comments plus cleanup indexes. Missing comment tables make the public comments API unavailable until the migration is applied.
+- `0064_add_public_media_interactions.sql` for public media likes and member follow relationships. Missing interaction tables make live like/follow controls and profile social dashboard reads unavailable until the migration is applied.
 
 Apply remote migrations before deploying Auth Worker code that depends on those columns/tables. Do not run remote migrations without explicit operator approval/evidence.
 

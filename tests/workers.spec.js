@@ -19061,7 +19061,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0063_add_public_media_comments.sql',
+        latestAuthMigration: '0064_add_public_media_interactions.sql',
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });

@@ -538,6 +538,7 @@ test.describe('Bilingual locale pages', () => {
   test('account member and recovery pages expose canonical and hreflang metadata parity', () => {
     const pagePairs = [
       ['account/profile.html', 'de/account/profile.html'],
+      ['account/profile-settings.html', 'de/account/profile-settings.html'],
       ['account/credits.html', 'de/account/credits.html'],
       ['account/assets-manager.html', 'de/account/assets-manager.html'],
       ['account/forgot-password.html', 'de/account/forgot-password.html'],
@@ -1344,6 +1345,7 @@ test.describe('Bilingual locale pages', () => {
       ['index.html', 'de/index.html'],
       ['generate-lab/index.html', 'de/generate-lab/index.html'],
       ['account/profile.html', 'de/account/profile.html'],
+      ['account/profile-settings.html', 'de/account/profile-settings.html'],
       ['account/assets-manager.html', 'de/account/assets-manager.html'],
       ['account/credits.html', 'de/account/credits.html'],
       ['account/forgot-password.html', 'de/account/forgot-password.html'],

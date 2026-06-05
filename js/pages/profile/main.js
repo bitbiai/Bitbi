@@ -25,6 +25,9 @@ import {
     apiDeleteAvatar,
     apiGetFavorites,
     apiGetProfile,
+    apiGetProfileMedia,
+    apiGetProfileSocialList,
+    apiGetProfileSocialSummary,
     apiLogout,
     apiRemoveFavorite,
     apiRequestReverification,
@@ -86,6 +89,16 @@ const $profileFavoritesOverlayClose = document.getElementById('profileFavoritesO
 const $profileFavoritesSection = document.getElementById('profileFavoritesSection');
 const $profileFavoritesBack = document.querySelector('.profile__favorites-back');
 const profileMobileQuery = window.matchMedia?.('(max-width: 1023px)');
+const $profileFollowerCount = document.getElementById('profileFollowerCount');
+const $profileFollowingCount = document.getElementById('profileFollowingCount');
+const $profileReceivedLikeCount = document.getElementById('profileReceivedLikeCount');
+const $profileMediaStatus = document.getElementById('profileMediaStatus');
+const $profileMediaGrid = document.getElementById('profileMediaGrid');
+const $profileInteractionsOverlay = document.getElementById('profileInteractionsOverlay');
+const $profileInteractionsPanel = document.getElementById('profileInteractionsPanel');
+const $profileInteractionsClose = document.getElementById('profileInteractionsClose');
+const $profileInteractionsList = document.getElementById('profileInteractionsList');
+const $profileInteractionsStatus = document.getElementById('profileInteractionsStatus');
 
 const $form           = document.getElementById('profileForm');
 const $displayName    = document.getElementById('displayName');
@@ -1723,6 +1736,274 @@ function handleTileClick(fav) {
     openFavoriteInViewer(fav);
 }
 
+/* ── Social dashboard ── */
+const profileDashboardState = {
+    mediaTab: 'published',
+    interactionsTab: 'followers',
+    interactionsCleanup: null,
+};
+
+function formatProfileCount(value) {
+    const count = Math.max(0, Number(value) || 0);
+    return new Intl.NumberFormat(document.documentElement.lang?.startsWith('de') ? 'de-DE' : 'en-US', {
+        notation: count >= 1000 ? 'compact' : 'standard',
+    }).format(count);
+}
+
+function setProfileMediaStatus(text, type = 'neutral') {
+    if (!$profileMediaStatus) return;
+    $profileMediaStatus.textContent = text || '';
+    $profileMediaStatus.dataset.state = type;
+}
+
+function setInteractionsStatus(text, type = 'neutral') {
+    if (!$profileInteractionsStatus) return;
+    $profileInteractionsStatus.textContent = text || '';
+    $profileInteractionsStatus.dataset.state = type;
+}
+
+function renderProfileSummary(summary = {}) {
+    if ($profileFollowerCount) $profileFollowerCount.textContent = formatProfileCount(summary.follower_count);
+    if ($profileFollowingCount) $profileFollowingCount.textContent = formatProfileCount(summary.following_count);
+    if ($profileReceivedLikeCount) $profileReceivedLikeCount.textContent = formatProfileCount(summary.received_like_count);
+    document.querySelectorAll('[data-profile-media-tab="published"]').forEach((button) => {
+        button.textContent = localeText('profile.publishedTabWithCount', {
+            count: formatProfileCount(summary.published_media_count),
+        });
+    });
+    document.querySelectorAll('[data-profile-media-tab="liked"]').forEach((button) => {
+        button.textContent = localeText('profile.likesTabWithCount', {
+            count: formatProfileCount(summary.liked_media_count),
+        });
+    });
+}
+
+async function loadProfileSummary() {
+    if (!$profileFollowerCount && !$profileFollowingCount && !$profileReceivedLikeCount) return;
+    const result = await apiGetProfileSocialSummary();
+    if (result.ok) renderProfileSummary(result.data?.data || result.data || {});
+}
+
+function getProfileMediaKind(item) {
+    if (item?.media_type === 'mempics') return 'Mempic';
+    if (item?.media_type === 'memvids') return 'Memvid';
+    if (item?.media_type === 'memtracks') return 'Memtrack';
+    return 'Media';
+}
+
+function getProfileMediaThumb(item) {
+    return item?.thumb?.url || item?.poster?.url || item?.preview?.url || '';
+}
+
+function renderProfileMedia(items = []) {
+    if (!$profileMediaGrid) return;
+    $profileMediaGrid.replaceChildren();
+    if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'profile__media-empty';
+        empty.textContent = profileDashboardState.mediaTab === 'liked'
+            ? localeText('profile.noLikedMedia')
+            : localeText('profile.noPublishedMedia');
+        $profileMediaGrid.appendChild(empty);
+        return;
+    }
+
+    items.forEach((item) => {
+        const card = document.createElement('article');
+        card.className = `profile__media-card profile__media-card--${item.media_type || 'media'}`;
+
+        const preview = document.createElement('div');
+        preview.className = 'profile__media-preview';
+        const thumb = getProfileMediaThumb(item);
+        if (thumb) {
+            const img = new Image();
+            img.src = thumb;
+            img.alt = item.title || getProfileMediaKind(item);
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            if (thumb.startsWith('/api/')) img.crossOrigin = 'use-credentials';
+            preview.appendChild(img);
+        } else {
+            const placeholder = document.createElement('span');
+            placeholder.className = 'profile__media-placeholder';
+            placeholder.textContent = getProfileMediaKind(item);
+            preview.appendChild(placeholder);
+        }
+
+        const body = document.createElement('div');
+        body.className = 'profile__media-body';
+        const title = document.createElement('h3');
+        title.textContent = item.title || getProfileMediaKind(item);
+        const meta = document.createElement('p');
+        meta.textContent = [
+            getProfileMediaKind(item),
+            item.published_at ? formatDate(item.published_at) : null,
+        ].filter(Boolean).join(' / ');
+        const counts = document.createElement('p');
+        counts.className = 'profile__media-counts';
+        counts.textContent = localeText('profile.mediaCardCounts', {
+            likes: formatProfileCount(item.like_count),
+            comments: formatProfileCount(item.comment_count),
+        });
+        body.append(title, meta, counts);
+        card.append(preview, body);
+        $profileMediaGrid.appendChild(card);
+    });
+}
+
+async function loadProfileMedia(tab = profileDashboardState.mediaTab) {
+    if (!$profileMediaGrid) return;
+    profileDashboardState.mediaTab = tab;
+    setProfileMediaStatus(localeText('profile.loadingProfileMedia'), 'neutral');
+    const result = await apiGetProfileMedia(tab === 'liked' ? 'liked' : 'published', { limit: 60 });
+    if (!result.ok) {
+        setProfileMediaStatus(localeText('profile.profileMediaFailed'), 'error');
+        return;
+    }
+    renderProfileMedia(result.data?.data?.items || result.data?.items || []);
+    setProfileMediaStatus('', 'neutral');
+}
+
+function setProfileMediaTab(tab) {
+    const next = tab === 'liked' ? 'liked' : 'published';
+    profileDashboardState.mediaTab = next;
+    document.querySelectorAll('[data-profile-media-tab]').forEach((button) => {
+        const isActive = button.dataset.profileMediaTab === next;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', String(isActive));
+    });
+    void loadProfileMedia(next);
+}
+
+function createInteractionAvatar() {
+    const avatar = document.createElement('span');
+    avatar.className = 'profile-interactions__avatar';
+    avatar.textContent = 'B';
+    avatar.setAttribute('aria-hidden', 'true');
+    return avatar;
+}
+
+function renderInteractionRows(items = [], tab = profileDashboardState.interactionsTab) {
+    if (!$profileInteractionsList) return;
+    $profileInteractionsList.replaceChildren();
+    if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'profile-interactions__empty';
+        empty.textContent = localeText(`profile.${tab}Empty`);
+        $profileInteractionsList.appendChild(empty);
+        return;
+    }
+
+    items.forEach((item) => {
+        const row = document.createElement('article');
+        row.className = 'profile-interactions__row';
+        row.appendChild(createInteractionAvatar());
+        const body = document.createElement('div');
+        body.className = 'profile-interactions__body';
+        const name = document.createElement('strong');
+        name.textContent = item.actor?.display_name || localeText('browse.publicMember');
+        const copy = document.createElement('span');
+        copy.textContent = tab === 'likes'
+            ? localeText('profile.likedYourMedia', { mediaType: getProfileMediaKind(item.media) })
+            : (tab === 'followers' ? localeText('profile.startedFollowingYou') : localeText('profile.youFollowThem'));
+        const date = document.createElement('time');
+        date.dateTime = item.created_at || '';
+        date.textContent = formatDate(item.created_at);
+        body.append(name, copy, date);
+        row.appendChild(body);
+        if (item.media) {
+            const thumb = getProfileMediaThumb(item.media);
+            if (thumb) {
+                const img = new Image();
+                img.className = 'profile-interactions__thumb';
+                img.src = thumb;
+                img.alt = item.media.title || getProfileMediaKind(item.media);
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                row.appendChild(img);
+            }
+        }
+        $profileInteractionsList.appendChild(row);
+    });
+}
+
+async function loadInteractionList(tab = profileDashboardState.interactionsTab) {
+    if (!$profileInteractionsList) return;
+    profileDashboardState.interactionsTab = tab;
+    setInteractionsStatus(localeText('profile.loadingInteractions'), 'neutral');
+    const result = await apiGetProfileSocialList(tab, { limit: 50 });
+    if (!result.ok) {
+        setInteractionsStatus(localeText('profile.interactionsFailed'), 'error');
+        return;
+    }
+    renderInteractionRows(result.data?.data?.items || result.data?.items || [], tab);
+    setInteractionsStatus('', 'neutral');
+}
+
+function setInteractionTab(tab) {
+    const next = ['followers', 'following', 'likes'].includes(tab) ? tab : 'followers';
+    profileDashboardState.interactionsTab = next;
+    document.querySelectorAll('[data-profile-interactions-panel-tab]').forEach((button) => {
+        const isActive = button.dataset.profileInteractionsPanelTab === next;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', String(isActive));
+    });
+    void loadInteractionList(next);
+}
+
+function openInteractionsOverlay(tab = 'followers') {
+    if (!$profileInteractionsOverlay || !$profileInteractionsPanel) return;
+    $profileInteractionsOverlay.hidden = false;
+    $profileInteractionsOverlay.setAttribute('aria-hidden', 'false');
+    $profileInteractionsOverlay.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+    if (profileDashboardState.interactionsCleanup) profileDashboardState.interactionsCleanup();
+    profileDashboardState.interactionsCleanup = setupFocusTrap($profileInteractionsPanel);
+    setInteractionTab(tab);
+    $profileInteractionsClose?.focus();
+}
+
+function closeInteractionsOverlay() {
+    if (!$profileInteractionsOverlay) return;
+    $profileInteractionsOverlay.classList.remove('is-open');
+    $profileInteractionsOverlay.hidden = true;
+    $profileInteractionsOverlay.setAttribute('aria-hidden', 'true');
+    if (profileDashboardState.interactionsCleanup) {
+        profileDashboardState.interactionsCleanup();
+        profileDashboardState.interactionsCleanup = null;
+    }
+    syncAvatarModalBodyLock();
+}
+
+function initProfileDashboard() {
+    if (!$profileMediaGrid && !$profileFollowerCount) return;
+    document.querySelectorAll('[data-profile-media-tab]').forEach((button) => {
+        button.addEventListener('click', () => setProfileMediaTab(button.dataset.profileMediaTab));
+    });
+    document.querySelectorAll('[data-profile-interactions-tab]').forEach((button) => {
+        button.addEventListener('click', () => openInteractionsOverlay(button.dataset.profileInteractionsTab));
+    });
+    document.querySelectorAll('[data-profile-interactions-panel-tab]').forEach((button) => {
+        button.addEventListener('click', () => setInteractionTab(button.dataset.profileInteractionsPanelTab));
+    });
+    $profileInteractionsClose?.addEventListener('click', closeInteractionsOverlay);
+    $profileInteractionsOverlay?.addEventListener('click', (event) => {
+        if (event.target?.hasAttribute?.('data-profile-interactions-close')) closeInteractionsOverlay();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && $profileInteractionsOverlay && !$profileInteractionsOverlay.hidden) {
+            event.preventDefault();
+            closeInteractionsOverlay();
+        }
+    });
+    window.addEventListener('bitbi:public-media-interaction-change', () => {
+        void loadProfileSummary();
+        void loadProfileMedia(profileDashboardState.mediaTab);
+    });
+    void loadProfileSummary();
+    void loadProfileMedia('published');
+}
+
 subscribeWalletState((state) => {
     walletViewState = state;
     renderWalletSection(state);
@@ -1751,6 +2032,7 @@ async function init() {
     // Show profile content
     showState($content);
     renderProfile(res.data.profile, res.data.account);
+    initProfileDashboard();
     renderPostAuthHint({
         mount: document.getElementById('profileHomeView'),
         pageSource: 'profile',

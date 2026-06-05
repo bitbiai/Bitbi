@@ -185,6 +185,38 @@ export function apiUpdateProfile(fields) {
     return request('PATCH', '/profile', fields);
 }
 
+export function apiGetProfileSocialSummary() {
+    return request('GET', '/profile/social/summary');
+}
+
+export function apiGetProfileSocialList(kind, { limit } = {}) {
+    const safeKind = ['followers', 'following', 'likes'].includes(kind) ? kind : 'followers';
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return request('GET', `/profile/social/${safeKind}${query ? `?${query}` : ''}`);
+}
+
+export function apiGetProfileMedia(kind, { limit } = {}) {
+    const safeKind = kind === 'liked' ? 'liked' : 'published';
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return request('GET', `/profile/media/${safeKind}${query ? `?${query}` : ''}`);
+}
+
+export function apiGetPublicMediaInteractions(mediaType, mediaId) {
+    return request('GET', `/gallery/${encodeURIComponent(mediaType)}/${encodeURIComponent(mediaId)}/interactions`);
+}
+
+export function apiTogglePublicMediaLike(mediaType, mediaId, liked) {
+    return request(liked ? 'POST' : 'DELETE', `/gallery/${encodeURIComponent(mediaType)}/${encodeURIComponent(mediaId)}/like`);
+}
+
+export function apiTogglePublicMediaFollow(mediaType, mediaId, followed) {
+    return request(followed ? 'POST' : 'DELETE', `/gallery/${encodeURIComponent(mediaType)}/${encodeURIComponent(mediaId)}/follow`);
+}
+
 /* ── Avatar ── */
 
 export async function apiUploadAvatar(file) {

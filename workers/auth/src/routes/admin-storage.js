@@ -44,6 +44,9 @@ import {
   buildDeletePublicMediaCommentsStatements,
   publicMediaTypeForTextAssetSourceModule,
 } from "../lib/public-media-comments.js";
+import {
+  buildDeletePublicMediaLikesStatements,
+} from "../lib/public-media-interactions.js";
 
 const ADMIN_USER_ASSET_CURSOR_TYPE = "admin_user_assets";
 const DEFAULT_ADMIN_USER_ASSET_LIMIT = 100;
@@ -701,10 +704,14 @@ async function handleUpdateUserAssetVisibility(ctx, session, targetUserId, asset
       ).bind(visibility, publishedAt, assetId, targetUser.id),
     ];
     if (image.visibility === "public" && visibility === "private") {
-      statements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+      const cleanupEntries = [{
         mediaType: "mempics",
         mediaId: assetId,
-      }]));
+      }];
+      statements.push(
+        ...buildDeletePublicMediaCommentsStatements(env, cleanupEntries),
+        ...buildDeletePublicMediaLikesStatements(env, cleanupEntries)
+      );
     }
     await env.DB.batch(statements);
     await auditStorageEvent(ctx, session.user, "admin_user_asset_visibility_updated", targetUser, {
@@ -737,10 +744,14 @@ async function handleUpdateUserAssetVisibility(ctx, session, targetUserId, asset
   ];
   const commentMediaType = publicMediaTypeForTextAssetSourceModule(file.source_module);
   if (file.visibility === "public" && visibility === "private" && commentMediaType) {
-    statements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+    const cleanupEntries = [{
       mediaType: commentMediaType,
       mediaId: assetId,
-    }]));
+    }];
+    statements.push(
+      ...buildDeletePublicMediaCommentsStatements(env, cleanupEntries),
+      ...buildDeletePublicMediaLikesStatements(env, cleanupEntries)
+    );
   }
   await env.DB.batch(statements);
   await auditStorageEvent(ctx, session.user, "admin_user_asset_visibility_updated", targetUser, {

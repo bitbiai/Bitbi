@@ -5466,6 +5466,132 @@ async function mockAuthenticatedProfile(page, {
     });
   });
 
+  await page.route('**/api/profile/social/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          follower_count: 2,
+          following_count: 1,
+          received_like_count: 4,
+          published_media_count: 1,
+          liked_media_count: 1,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/profile/social/followers**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items: [{
+            id: 'follow-row-1',
+            created_at: '2026-05-01T10:00:00.000Z',
+            actor: { display_name: 'Follower One' },
+          }],
+          has_more: false,
+          next_cursor: null,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/profile/social/following**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items: [{
+            id: 'following-row-1',
+            created_at: '2026-05-02T10:00:00.000Z',
+            actor: { display_name: 'Following One' },
+          }],
+          has_more: false,
+          next_cursor: null,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/profile/social/likes**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items: [{
+            id: 'like-row-1',
+            created_at: '2026-05-03T10:00:00.000Z',
+            actor: { display_name: 'Liker One' },
+            media: {
+              media_type: 'mempics',
+              id: 'profile-public-image',
+              title: 'Profile public image',
+              thumb: { url: '/api/gallery/mempics/profile-public-image/thumb' },
+            },
+          }],
+          has_more: false,
+          next_cursor: null,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/profile/media/published**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items: [{
+            media_type: 'mempics',
+            id: 'profile-public-image',
+            title: 'Profile public image',
+            published_at: '2026-05-01T10:00:00.000Z',
+            like_count: 4,
+            comment_count: 2,
+            thumb: { url: '/api/gallery/mempics/profile-public-image/thumb' },
+          }],
+          has_more: false,
+          next_cursor: null,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/profile/media/liked**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items: [{
+            media_type: 'memvids',
+            id: 'profile-liked-video',
+            title: 'Liked public video',
+            published_at: '2026-05-04T10:00:00.000Z',
+            like_count: 8,
+            comment_count: 1,
+            poster: { url: '/api/gallery/memvids/profile-liked-video/poster' },
+          }],
+          has_more: false,
+          next_cursor: null,
+        },
+      }),
+    });
+  });
+
   await page.route('**/api/wallet/status', async (route) => {
     await route.fulfill({
       status: 200,
@@ -8330,9 +8456,24 @@ test.describe('Homepage public browse pagination', () => {
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
   });
 
-  test('Mempic modal shows details, comments, and placeholder actions safely', async ({ page }) => {
+  test('Mempic modal shows details, comments, live interactions, and placeholder menu actions safely', async ({ page }) => {
+    const interactionRequests = [];
     await page.addInitScript(() => {
       window.__publicMediaXss = 0;
+    });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: {
+            id: 'viewer-user',
+            email: 'viewer@example.com',
+            display_name: 'Viewer',
+          },
+        }),
+      });
     });
     await page.route('**/api/gallery/mempics**', async (route) => {
       await route.fulfill({
@@ -8381,6 +8522,46 @@ test.describe('Homepage public browse pagination', () => {
         }),
       });
     });
+    await page.route('**/api/gallery/mempics/mempic-1/interactions', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            like_count: 2,
+            liked_by_viewer: false,
+            comment_count: 1,
+            follower_count: 5,
+            followed_by_viewer: false,
+            can_follow: true,
+            is_own_media: false,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/gallery/mempics/mempic-1/like', async (route) => {
+      interactionRequests.push({ type: 'like', method: route.request().method() });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { like_count: 3, liked_by_viewer: true },
+        }),
+      });
+    });
+    await page.route('**/api/gallery/mempics/mempic-1/follow', async (route) => {
+      interactionRequests.push({ type: 'follow', method: route.request().method() });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { follower_count: 6, followed_by_viewer: true, can_follow: true },
+        }),
+      });
+    });
     await page.route('**/api/gallery/memvids**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -8396,8 +8577,21 @@ test.describe('Homepage public browse pagination', () => {
 
     await expect(page.locator('#galleryModal.active .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('#galleryModal .public-media-detail-panel')).toContainText('Ada');
-    await expect(page.getByRole('button', { name: 'Follow' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Like placeholder' })).toBeVisible();
+    const followButton = page.locator('#galleryModal .public-media-detail__follow');
+    const likeButton = page.locator('#galleryModal .public-media-detail__action--like');
+    await expect(followButton).toBeVisible();
+    await expect(likeButton).toBeVisible();
+    await expect(likeButton).toContainText('Like');
+    await likeButton.click();
+    await expect(likeButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(likeButton).toContainText('3');
+    await followButton.click();
+    await expect(followButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(followButton).toContainText('Following');
+    expect(interactionRequests).toEqual([
+      { type: 'like', method: 'POST' },
+      { type: 'follow', method: 'POST' },
+    ]);
     await page.getByRole('button', { name: 'More actions' }).click();
     await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Download' })).toBeVisible();
@@ -12111,7 +12305,7 @@ test.describe('Profile page (authenticated)', () => {
       fileChooserOpened = true;
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
 
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
@@ -12176,7 +12370,7 @@ test.describe('Profile page (authenticated)', () => {
       };
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
 
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
@@ -12320,7 +12514,7 @@ test.describe('Profile page (authenticated)', () => {
       },
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
 
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
@@ -12352,7 +12546,7 @@ test.describe('Profile page (authenticated)', () => {
   test('change photo chooser surfaces the Generate option without growing', async ({ page }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
 
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
@@ -12396,7 +12590,7 @@ test.describe('Profile page (authenticated)', () => {
       });
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -12531,7 +12725,7 @@ test.describe('Profile page (authenticated)', () => {
       });
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -12633,7 +12827,7 @@ test.describe('Profile page (authenticated)', () => {
       });
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -12731,7 +12925,7 @@ test.describe('Profile page (authenticated)', () => {
       });
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -12808,7 +13002,7 @@ test.describe('Profile page (authenticated)', () => {
       });
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -13035,7 +13229,7 @@ test.describe('Profile page (authenticated)', () => {
       hasAvatar: true,
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -13068,7 +13262,7 @@ test.describe('Profile page (authenticated)', () => {
       },
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -13159,7 +13353,7 @@ test.describe('Profile page (authenticated)', () => {
       profilePatchBody: { ok: false, error: 'raw internal profile update failure' },
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
@@ -13175,7 +13369,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#formMsg')).not.toContainText('raw internal');
   });
 
-  test('non-admin desktop profile uses three columns and opens Favorites from the action stack', async ({
+  test('non-admin desktop profile shows social dashboard and opens Favorites from the five-card action stack', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -13190,10 +13384,13 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
+    await expect(page.locator('#profileSettingsCard')).toBeVisible();
+    await expect(page.locator('#profileSettingsCard')).toContainText('Profile Settings');
+    await expect(page.locator('#profileSettingsCard')).toHaveAttribute('href', '/account/profile-settings.html');
     await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
     await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
-    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(4);
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(5);
     await expect(page.locator('#profileFavoritesOverlay')).not.toHaveClass(/is-open/);
     await expect(page.locator('#profileFavoritesSection')).toBeHidden();
     await expect(page.locator('#profileFavoritesSection')).toHaveAttribute('tabindex', '-1');
@@ -13203,37 +13400,28 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('body')).not.toContainText('Member Control Center');
     await expect(page.locator('body')).not.toContainText('Workspace priority');
     await expect(page.locator('body')).not.toContainText('Usage trust');
-    await expect(page.locator('#profileCompletionCard')).toBeVisible();
-    await expect(page.locator('#profileCompletionCard')).toContainText('Checklist');
-    await expect(page.locator('#profileCompletionCard .profile__completion-item')).toHaveCount(5);
-    await expect(page.locator('#profileCompletionCard')).toContainText('Email status');
-    await expect(page.locator('#profileCompletionCard')).toContainText('Profile image');
-    await expect(page.locator('#profileCompletionCard')).toContainText('Display name');
-    await expect(page.locator('#profileCompletionCard')).not.toContainText('Profile loaded');
-    await expect(page.locator('#profileAvatarCard')).toHaveClass(/profile__avatar-card--compact/);
-    await expect(page.locator('#avatarChangeBtn')).toBeVisible();
-    await expect(page.locator('#profileAvatarCard')).toContainText('JPG, PNG or WebP. Max 2 MB.');
-    await expect(page.locator('#profileAvatarAccountStack #profileAccountCard')).toBeVisible();
-    await expect(page.locator('#profileAccountCard')).toContainText('Account Info');
-    await expect(page.locator('#profileAccountCard')).toContainText('Display Name');
-    await expect(page.locator('#profileAccountCard')).toContainText('Member Since');
-    await expect(page.locator('#profileAccountCard')).toHaveClass(/profile__account-card--compact/);
+    await expect(page.locator('#profileSocialDashboard')).toBeVisible();
+    await expect(page.locator('#profileFollowerCount')).toHaveText('2');
+    await expect(page.locator('#profileFollowingCount')).toHaveText('1');
+    await expect(page.locator('#profileReceivedLikeCount')).toHaveText('4');
+    await expect(page.locator('[data-profile-media-tab="published"]')).toContainText('Published');
+    await expect(page.locator('[data-profile-media-tab="liked"]')).toContainText('Likes');
+    await expect(page.locator('#profileMediaGrid')).toContainText('Profile public image');
+    await expect(page.locator('#profileCompletionCard')).toBeHidden();
+    await expect(page.locator('#profileAvatarCard')).toBeHidden();
+    await expect(page.locator('#profileAccountCard')).toBeHidden();
+    await expect(page.locator('.profile__settings-row')).toBeHidden();
+    await expect(page.locator('#profileForm')).toBeHidden();
     const overviewLayout = await page.locator('#profileContent').evaluate((node) => {
       const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
-      const avatar = rectOf('#profileAvatarCard');
-      const account = rectOf('#profileAccountCard');
-      const completion = rectOf('#profileCompletionCard');
-      const settings = rectOf('.profile__settings-row');
+      const social = rectOf('#profileSocialDashboard');
       const studioStack = rectOf('#profileStudioStack');
       const assets = rectOf('#profileStudioCard');
       const favorites = rectOf('#profileFavoritesQuickLink');
       const wallet = rectOf('#profileWalletCard');
       const credits = rectOf('#profileCreditsCard');
-      const heading = rectOf('#profileCompletionTitle');
-      const completionStatus = rectOf('#profileCompletionStatus');
-      const completionOrder = Array.from(node.querySelectorAll('#profileCompletionCard .profile__completion-item'))
-        .map((item) => item.getAttribute('data-completion-item'));
-      const actionHeights = [assets, favorites, wallet, credits]
+      const settings = rectOf('#profileSettingsCard');
+      const actionHeights = [assets, favorites, wallet, credits, settings]
         .filter(Boolean)
         .map((rect) => rect.height);
       const visualQuickLinks = [
@@ -13241,107 +13429,57 @@ test.describe('Profile page (authenticated)', () => {
         ['Favorites', favorites],
         ['Wallet', wallet],
         ['Credits', credits],
+        ['Profile Settings', settings],
       ]
         .filter(([, rect]) => rect && rect.width > 0 && rect.height > 0)
         .sort((a, b) => a[1].top - b[1].top)
         .map(([label]) => label);
-      const accountRows = Array.from(node.querySelectorAll('#profileAccountCard .profile__row'))
-        .map((row) => row.getBoundingClientRect());
-      const leftWidth = avatar?.width ?? 0;
-      const centerWidth = settings?.width ?? 0;
-      const rightWidth = studioStack?.width ?? 0;
       return {
-        completionOrder,
-        accountBelowAvatar: Boolean(avatar && account && account.top > avatar.bottom),
-        completionBelowAccount: Boolean(account && completion && completion.top > account.bottom),
-        avatarCompact: Boolean(avatar && avatar.height <= 112),
         actionCardsVertical: Boolean(
           assets
           && favorites
           && wallet
           && credits
+          && settings
           && favorites.top > assets.bottom
           && wallet.top > favorites.bottom
           && credits.top > wallet.bottom
+          && settings.top > credits.bottom
           && Math.abs(favorites.left - assets.left) <= 4
           && Math.abs(wallet.left - assets.left) <= 4
-          && Math.abs(credits.left - assets.left) <= 4,
+          && Math.abs(credits.left - assets.left) <= 4
+          && Math.abs(settings.left - assets.left) <= 4
         ),
         visualQuickLinks,
-        threeColumns: Boolean(
-          avatar
-          && settings
-          && studioStack
-          && avatar.left < settings.left
-          && settings.left < studioStack.left
-          && Math.max(leftWidth, centerWidth, rightWidth) - Math.min(leftWidth, centerWidth, rightWidth) <= 28
-        ),
-        accountHeightCompact: Boolean(account && account.height <= 210),
-        accountRowsReadable: accountRows.length === 5
-          && accountRows.every((row, index) => index === 0 || row.top >= accountRows[index - 1].bottom - 1),
-        summaryRightOfHeading: Boolean(heading && completionStatus && completionStatus.left > heading.right),
-        summarySameHeadingRow: Boolean(
-          heading
-          && completionStatus
-          && completionStatus.top < heading.bottom
-          && completionStatus.bottom > heading.top,
-        ),
-        quickStackTopDelta: studioStack && avatar ? Math.abs(studioStack.top - avatar.top) : null,
-        quickStackHeightDelta: studioStack && avatar && account ? Math.abs(studioStack.height - (account.bottom - avatar.top)) : null,
-        actionHeightsBalanced: actionHeights.length === 4
+        socialAndStackSideBySide: Boolean(social && studioStack && social.left < studioStack.left && social.right <= studioStack.left + 8),
+        quickStackTopDelta: studioStack && social ? Math.abs(studioStack.top - social.top) : null,
+        actionHeightsBalanced: actionHeights.length === 5
           && Math.max(...actionHeights) - Math.min(...actionHeights) <= 6,
-        actionCardsTouchSafe: actionHeights.length === 4 && Math.min(...actionHeights) >= 44,
+        actionCardsTouchSafe: actionHeights.length === 5 && Math.min(...actionHeights) >= 44,
       };
     });
-    expect(overviewLayout.completionOrder).toEqual(['signed-in', 'email', 'profile-image', 'display-name', 'wallet']);
-    expect(overviewLayout.accountBelowAvatar).toBe(true);
-    expect(overviewLayout.completionBelowAccount).toBe(true);
-    expect(overviewLayout.avatarCompact).toBe(true);
     expect(overviewLayout.actionCardsVertical).toBe(true);
-    expect(overviewLayout.visualQuickLinks).toEqual(['Assets Manager', 'Favorites', 'Wallet', 'Credits']);
-    expect(overviewLayout.threeColumns).toBe(true);
-    expect(overviewLayout.accountHeightCompact).toBe(true);
-    expect(overviewLayout.accountRowsReadable).toBe(true);
-    expect(overviewLayout.summaryRightOfHeading).toBe(true);
-    expect(overviewLayout.summarySameHeadingRow).toBe(true);
+    expect(overviewLayout.visualQuickLinks).toEqual(['Assets Manager', 'Favorites', 'Wallet', 'Credits', 'Profile Settings']);
+    expect(overviewLayout.socialAndStackSideBySide).toBe(true);
     expect(overviewLayout.quickStackTopDelta).not.toBeNull();
     expect(overviewLayout.quickStackTopDelta).toBeLessThanOrEqual(6);
-    expect(overviewLayout.quickStackHeightDelta).not.toBeNull();
-    expect(overviewLayout.quickStackHeightDelta).toBeLessThanOrEqual(8);
     expect(overviewLayout.actionHeightsBalanced).toBe(true);
     expect(overviewLayout.actionCardsTouchSafe).toBe(true);
-    const settingsRow = page.locator('.profile__settings-row');
-    await expect(settingsRow).toBeVisible();
-    const settingsOrder = await settingsRow.locator(':scope > .profile__card').evaluateAll((cards) => (
-      cards.map((card) => card.id || (card.classList.contains('profile__edit-card') ? 'profileEditCard' : 'unknown'))
-    ));
-    expect(settingsOrder).toEqual(['profileEditCard']);
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
     await expect(page.locator('#profileWalletContext')).toHaveCount(0);
     await expect(page.locator('#walletStatusRefreshBtn')).toHaveCount(0);
-    await expect(settingsRow.locator('.profile__edit-card')).not.toContainText('BITBI Account');
-    const settingsColumns = await settingsRow.evaluate((node) => getComputedStyle(node).gridTemplateColumns);
-    expect(settingsColumns.split(' ').length).toBe(1);
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
-    await expect(page.locator('#profileForm')).toBeVisible();
-    const helperSpacing = await page.locator('#profileForm').evaluate((form) => {
-      const gapFor = (controlSelector, helperSelector) => {
-        const control = form.querySelector(controlSelector)?.getBoundingClientRect();
-        const helper = form.querySelector(helperSelector)?.getBoundingClientRect();
-        return control && helper ? helper.top - control.bottom : null;
-      };
-      return {
-        displayName: gapFor('#displayName', '#displayNameHelp'),
-        bio: gapFor('#bio', '#bioHelp'),
-        website: gapFor('#website', '#websiteHelp'),
-      };
-    });
-    expect(helperSpacing.displayName).not.toBeNull();
-    expect(helperSpacing.bio).not.toBeNull();
-    expect(helperSpacing.website).not.toBeNull();
-    expect(Math.abs(helperSpacing.displayName - helperSpacing.bio)).toBeLessThanOrEqual(2);
-    expect(Math.abs(helperSpacing.website - helperSpacing.bio)).toBeLessThanOrEqual(2);
+    await page.locator('[data-profile-media-tab="liked"]').click();
+    await expect(page.locator('#profileMediaGrid')).toContainText('Liked public video');
+    await page.locator('[data-profile-interactions-tab="followers"]').click();
+    await expect(page.locator('#profileInteractionsOverlay')).toHaveClass(/is-open/);
+    await expect(page.locator('#profileInteractionsOverlay')).toContainText('Interactions');
+    await expect(page.locator('#profileInteractionsOverlay [role="tab"]')).toHaveText(['Follower', 'Following', 'Likes']);
+    await expect(page.locator('#profileInteractionsOverlay')).not.toContainText('Recreates');
+    await expect(page.locator('#profileInteractionsList')).toContainText('Follower One');
+    await page.locator('#profileInteractionsClose').click();
+    await expect(page.locator('#profileInteractionsOverlay')).not.toHaveClass(/is-open/);
     const layoutOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(layoutOverflow).toBe(false);
     await page.locator('#profileFavoritesQuickLink').click();
@@ -13352,6 +13490,24 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
+  });
+
+  test('profile settings page renders avatar, account info, checklist, and edit form', async ({ page }) => {
+    await mockAuthenticatedProfile(page, { role: 'user' });
+
+    const response = await page.goto('/account/profile-settings.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#profileAvatarCard')).toBeVisible();
+    await expect(page.locator('#avatarChangeBtn')).toBeVisible();
+    await expect(page.locator('#profileAccountCard')).toBeVisible();
+    await expect(page.locator('#profileAccountCard')).toContainText('Account Info');
+    await expect(page.locator('#profileCompletionCard')).toBeVisible();
+    await expect(page.locator('#profileCompletionCard .profile__completion-item')).toHaveCount(5);
+    await expect(page.locator('.profile__settings-row')).toBeVisible();
+    await expect(page.locator('#profileForm')).toBeVisible();
+    await expect(page.locator('#profileSocialDashboard')).toHaveCount(0);
+    await expect(page.locator('#profileSettingsCard')).toHaveCount(0);
   });
 
   test('Assets Manager strips unsafe return context without rendering workspace hint panels', async ({ page }) => {
@@ -13368,7 +13524,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(page.url()).not.toContain('raw-asset');
   });
 
-  test('admin desktop profile shows the same compact Assets Manager + Favorites + Wallet + Credits stack as non-admin users', async ({
+  test('admin desktop profile shows the same compact five-card action stack as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
@@ -13386,7 +13542,10 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileFavoritesQuickLink')).toBeVisible();
     await expect(page.locator('#profileFavoritesQuickLink')).toContainText('Favorites');
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
-    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(4);
+    await expect(page.locator('#profileSettingsCard')).toBeVisible();
+    await expect(page.locator('#profileSettingsCard')).toContainText('Profile Settings');
+    await expect(page.locator('#profileSettingsCard')).toHaveAttribute('href', '/account/profile-settings.html');
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible')).toHaveCount(5);
     const visualQuickLinks = await page.locator('#profileStudioStack').evaluate((node) => (
       Array.from(node.querySelectorAll('.profile__studio-card'))
         .map((card) => ({
@@ -13397,10 +13556,14 @@ test.describe('Profile page (authenticated)', () => {
         .sort((a, b) => a.rect.top - b.rect.top)
         .map((item) => item.text)
     ));
-    expect(visualQuickLinks).toEqual(['Assets Manager', 'Favorites', 'Wallet', 'Credits']);
+    expect(visualQuickLinks).toEqual(['Assets Manager', 'Favorites', 'Wallet', 'Credits', 'Profile Settings']);
     await expect(page.locator('#profileWalletContext')).toHaveCount(0);
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
-    await expect(page.locator('#profileCompletionCard')).toBeVisible();
+    await expect(page.locator('#profileSocialDashboard')).toBeVisible();
+    await expect(page.locator('#profileCompletionCard')).toBeHidden();
+    await expect(page.locator('#profileAvatarCard')).toBeHidden();
+    await expect(page.locator('#profileAccountCard')).toBeHidden();
+    await expect(page.locator('.profile__settings-row')).toBeHidden();
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
@@ -13530,7 +13693,7 @@ test.describe('Profile page (authenticated mobile)', () => {
       hasAvatar: true,
     });
 
-    const response = await page.goto('/account/profile.html');
+    const response = await page.goto('/account/profile-settings.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#avatarChangeBtn')).toBeVisible();
@@ -13602,42 +13765,43 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
+    await expect(page.locator('#profileSocialDashboard')).toBeVisible();
+    await expect(page.locator('#profileCompletionCard')).toBeHidden();
+    await expect(page.locator('#profileAvatarCard')).toBeHidden();
+    await expect(page.locator('#profileAccountCard')).toBeHidden();
+    await expect(page.locator('.profile__settings-row')).toBeHidden();
 
     const mobileOrder = await page.locator('#profileContent').evaluate((node) => {
       const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
-      const avatar = rectOf('#profileAvatarCard');
-      const account = rectOf('#profileAccountCard');
+      const social = rectOf('#profileSocialDashboard');
       const quickLinks = rectOf('#profileStudioStack');
-      const completion = rectOf('#profileCompletionCard');
-      const settings = rectOf('.profile__edit-card');
       const favorites = rectOf('#profileFavoritesSection');
       const back = rectOf('.profile__favorites-back');
       const quickLinkRects = Array.from(node.querySelectorAll('#profileStudioStack .profile__studio-card'))
         .map((card) => card.getBoundingClientRect());
+      const overlaps = (first, second) => Boolean(
+        first.left < second.right - 1
+        && first.right > second.left + 1
+        && first.top < second.bottom - 1
+        && first.bottom > second.top + 1
+      );
       return {
-        requestedTopOrder: Boolean(
-          avatar
-          && account
-          && quickLinks
-          && completion
-          && settings
-          && avatar.top < account.top
-          && account.top < quickLinks.top
-          && quickLinks.top < completion.top
-          && completion.top < settings.top
-        ),
+        requestedTopOrder: Boolean(social && quickLinks && social.top < quickLinks.top),
         favoritesHiddenInMainFlow: Boolean(favorites && favorites.width === 0 && favorites.height === 0),
         backHiddenInMainFlow: Boolean(back && back.width === 0 && back.height === 0),
         quickLinkCount: quickLinkRects.length,
-        quickLinksVertical: quickLinkRects.length === 4
-          && quickLinkRects.every((rect, index, list) => index === 0 || rect.top > list[index - 1].bottom),
+        quickLinksReadable: quickLinkRects.length === 5
+          && quickLinkRects.every((rect) => rect.height >= 44)
+          && quickLinkRects.every((rect, index, list) => list.every((other, otherIndex) => (
+            otherIndex <= index || !overlaps(rect, other)
+          ))),
       };
     });
     expect(mobileOrder.requestedTopOrder).toBe(true);
     expect(mobileOrder.favoritesHiddenInMainFlow).toBe(true);
     expect(mobileOrder.backHiddenInMainFlow).toBe(true);
-    expect(mobileOrder.quickLinkCount).toBe(4);
-    expect(mobileOrder.quickLinksVertical).toBe(true);
+    expect(mobileOrder.quickLinkCount).toBe(5);
+    expect(mobileOrder.quickLinksReadable).toBe(true);
 
     await page.locator('#profileFavoritesQuickLink').click();
     await expect(page.locator('#profileHomeView')).toHaveClass(/profile-view--favorites-focused/);
@@ -13663,7 +13827,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     expect(hasOverflow).toBe(false);
   });
 
-  test('non-admin mobile profile removes top links and keeps four main quick-link cards', async ({
+  test('non-admin mobile profile removes top links and keeps five main quick-link cards', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -13675,12 +13839,13 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileTabBar')).toBeHidden();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeHidden();
     await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveCount(0);
-    await expect(page.locator('#profileStudioStack .profile__studio-card')).toHaveCount(4);
+    await expect(page.locator('#profileStudioStack .profile__studio-card')).toHaveCount(5);
     await expect(page.locator('#profileStudioStack .profile__studio-label')).toHaveText([
       'Assets Manager',
+      'Favorites',
       'Wallet',
       'Credits',
-      'Favorites',
+      'Profile Settings',
     ]);
     await expect(page.locator('#profileFavoritesQuickLink')).toHaveAttribute('href', '#profileFavoritesSection');
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
@@ -13694,7 +13859,11 @@ test.describe('Profile page (authenticated mobile)', () => {
     await page.locator('.profile__favorites-back').click();
     await expect(page.locator('.profile-layout__main')).toBeVisible();
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
-    await expect(page.locator('#profileCompletionCard')).toBeVisible();
+    await expect(page.locator('#profileSocialDashboard')).toBeVisible();
+    await expect(page.locator('#profileCompletionCard')).toBeHidden();
+    await expect(page.locator('#profileAvatarCard')).toBeHidden();
+    await expect(page.locator('#profileAccountCard')).toBeHidden();
+    await expect(page.locator('.profile__settings-row')).toBeHidden();
     await expect(page.locator('#profileSecurityCard')).toHaveCount(0);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -13722,9 +13891,10 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveCount(0);
     await expect(page.locator('#profileStudioStack .profile__studio-label')).toHaveText([
       'Assets Manager',
+      'Favorites',
       'Wallet',
       'Credits',
-      'Favorites',
+      'Profile Settings',
     ]);
     await expect(page.locator('#profileCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileOrganizationLink')).toHaveCount(0);

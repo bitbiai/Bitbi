@@ -27,6 +27,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/routes/homepage-hero-videos.js",
   "workers/auth/src/routes/video-gallery.js",
   "workers/auth/src/routes/media-comments.js",
+  "workers/auth/src/routes/media-interactions.js",
   "workers/auth/src/routes/ai.js",
   "workers/auth/src/routes/favorites.js",
   "workers/auth/src/routes/orgs.js",

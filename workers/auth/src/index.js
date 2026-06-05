@@ -18,6 +18,7 @@ import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleAudioGallery } from "./routes/audio-gallery.js";
 import { handleMediaComments } from "./routes/media-comments.js";
+import { handleMediaInteractions } from "./routes/media-interactions.js";
 import { handleHomepageHeroVideos } from "./routes/homepage-hero-videos.js";
 import { handlePublicNewsPulse, handlePublicNewsPulseThumb } from "./routes/public-news-pulse.js";
 import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
@@ -449,6 +450,8 @@ export default {
 
     // Public gallery
     if (pathname.startsWith("/api/gallery/")) {
+      const interactionResult = await handleMediaInteractions(ctx);
+      if (interactionResult) return interactionResult;
       const commentsResult = await handleMediaComments(ctx);
       if (commentsResult) return commentsResult;
       const result = await handleGallery(ctx);

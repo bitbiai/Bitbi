@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>My Profile | BITBI</title>
+    <title>Profile Settings | BITBI</title>
     <meta name="robots" content="noindex, nofollow">
     <meta name="theme-color" content="#0A0A0A">
     <meta name="referrer" content="strict-origin-when-cross-origin">
-    <link rel="canonical" href="https://bitbi.ai/account/profile.html">
-    <link rel="alternate" hreflang="en" href="https://bitbi.ai/account/profile.html">
-    <link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/profile.html">
-    <link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/profile.html">
+    <link rel="canonical" href="https://bitbi.ai/account/profile-settings.html">
+    <link rel="alternate" hreflang="en" href="https://bitbi.ai/account/profile-settings.html">
+    <link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/profile-settings.html">
+    <link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/profile-settings.html">
     <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
     <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
     <link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png">
@@ -99,7 +99,7 @@
 <main id="main-content">
 
 <!-- HERO AREA -->
-<section id="profileHero" class="hero hero--compact" aria-label="My Profile">
+<section id="profileHero" class="hero hero--compact" aria-label="Profile Settings">
     <canvas id="heroCanvas" aria-hidden="true"></canvas>
     <div class="hero__gradient-overlay" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.4) 50%,#0A0A0A 100%)" aria-hidden="true"></div>
     <div class="hero__glow hero__glow--cyan-sm" style="top:30%;left:20%;width:300px;height:300px" aria-hidden="true"></div>
@@ -107,8 +107,8 @@
     <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
 
     <div class="hero__content hero__content--narrow">
-        <h1 id="profileHeroTitle" class="legal-hero__title gt-gold-cyan">My Profile</h1>
-        <p id="profileHeroDesc" class="legal-hero__desc">View and manage your account</p>
+        <h1 id="profileHeroTitle" class="legal-hero__title gt-gold-cyan">Profile Settings</h1>
+        <p id="profileHeroDesc" class="legal-hero__desc">Manage your profile details, avatar, and account completion.</p>
     </div>
 </section>
 
@@ -159,35 +159,7 @@
 
                 <div class="profile__overview-grid reveal" aria-label="Profile overview">
 
-                <section class="profile__card profile__social-card" id="profileSocialDashboard" aria-labelledby="profileSocialTitle">
-                    <div class="profile__social-head">
-                        <p class="profile__control-eyebrow">Social profile</p>
-                        <h2 id="profileSocialTitle" class="profile__title">Interactions</h2>
-                        <p class="profile__edit-copy">Track your public activity across Mempics, Memvids, and Memtracks.</p>
-                    </div>
-                    <div class="profile__stats" aria-label="Social stats">
-                        <button type="button" class="profile__stat" data-profile-interactions-tab="followers">
-                            <strong id="profileFollowerCount">0</strong>
-                            <span>Follower</span>
-                        </button>
-                        <button type="button" class="profile__stat" data-profile-interactions-tab="following">
-                            <strong id="profileFollowingCount">0</strong>
-                            <span>Following</span>
-                        </button>
-                        <button type="button" class="profile__stat" data-profile-interactions-tab="likes">
-                            <strong id="profileReceivedLikeCount">0</strong>
-                            <span>Likes</span>
-                        </button>
-                    </div>
-                    <div class="profile__media-tabs" role="tablist" aria-label="Profile media">
-                        <button type="button" class="profile__media-tab is-active" data-profile-media-tab="published" role="tab" aria-selected="true">Published</button>
-                        <button type="button" class="profile__media-tab" data-profile-media-tab="liked" role="tab" aria-selected="false">Likes</button>
-                    </div>
-                    <div id="profileMediaStatus" class="profile__media-status" role="status" aria-live="polite">Loading profile media...</div>
-                    <div id="profileMediaGrid" class="profile__media-grid" aria-live="polite"></div>
-                </section>
-
-                <section class="profile__card profile__completion-card" id="profileCompletionCard" aria-labelledby="profileCompletionTitle" hidden>
+                <section class="profile__card profile__completion-card" id="profileCompletionCard" aria-labelledby="profileCompletionTitle">
                     <div class="profile__completion-head">
                         <p class="profile__control-eyebrow">Account completion</p>
                         <div class="profile__completion-title-row">
@@ -224,7 +196,7 @@
                     </div>
                 </section>
 
-                <div class="profile__avatar-account-stack" id="profileAvatarAccountStack" hidden>
+                <div class="profile__avatar-account-stack" id="profileAvatarAccountStack">
                     <div class="profile__card profile__avatar-card profile__avatar-card--compact" id="profileAvatarCard">
                         <div class="profile__avatar-wrap">
                             <div class="profile__avatar-frame" id="avatarFrame">
@@ -283,11 +255,6 @@
                         <span class="profile__studio-label">Assets Manager</span>
                     </a>
 
-                    <a href="#profileFavoritesSection" id="profileFavoritesQuickLink" class="profile__card profile__studio-card profile__studio-card--favorites" aria-label="Open Favorites">
-                        <span class="profile__studio-emoji profile__studio-emoji--favorites" aria-hidden="true">&#9733;</span>
-                        <span class="profile__studio-label">Favorites</span>
-                    </a>
-
                     <button type="button" id="profileWalletCard" class="profile__card profile__studio-card profile__studio-card--wallet" aria-label="Open Wallet" hidden>
                         <span class="profile__studio-emoji profile__studio-emoji--wallet" aria-hidden="true">&#128142;</span>
                         <span class="profile__studio-copy">
@@ -301,15 +268,15 @@
                         <span class="profile__studio-label">Credits</span>
                     </a>
 
-                    <a href="/account/profile-settings.html" id="profileSettingsCard" class="profile__card profile__studio-card profile__studio-card--settings" aria-label="Open Profile Settings">
-                        <span class="profile__studio-emoji profile__studio-emoji--settings" aria-hidden="true">&#9881;</span>
-                        <span class="profile__studio-label">Profile Settings</span>
+                    <a href="#profileFavoritesSection" id="profileFavoritesQuickLink" class="profile__card profile__studio-card profile__studio-card--favorites" aria-label="Open Favorites">
+                        <span class="profile__studio-emoji profile__studio-emoji--favorites" aria-hidden="true">&#9733;</span>
+                        <span class="profile__studio-label">Favorites</span>
                     </a>
                 </div>
 
                 </div><!-- /.profile__overview-grid -->
 
-                <div class="profile__settings-row reveal" hidden>
+                <div class="profile__settings-row reveal">
                 <!-- Edit Profile Card -->
                 <div class="profile__card profile__edit-card">
                     <div class="profile__edit-head">
@@ -394,26 +361,6 @@
             <span>Close</span>
         </button>
     </div>
-</div>
-
-<div id="profileInteractionsOverlay" class="profile-interactions" hidden aria-hidden="true">
-    <div class="profile-interactions__backdrop" data-profile-interactions-close></div>
-    <section id="profileInteractionsPanel" class="profile-interactions__panel" role="dialog" aria-modal="true" aria-labelledby="profileInteractionsTitle">
-        <button type="button" id="profileInteractionsClose" class="profile-interactions__close" aria-label="Close Interactions">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-        <div class="profile-interactions__head">
-            <p class="profile__control-eyebrow">Social activity</p>
-            <h2 id="profileInteractionsTitle" class="profile__title">Interactions</h2>
-        </div>
-        <div class="profile-interactions__tabs" role="tablist" aria-label="Interactions">
-            <button type="button" class="profile-interactions__tab is-active" data-profile-interactions-panel-tab="followers" role="tab" aria-selected="true">Follower</button>
-            <button type="button" class="profile-interactions__tab" data-profile-interactions-panel-tab="following" role="tab" aria-selected="false">Following</button>
-            <button type="button" class="profile-interactions__tab" data-profile-interactions-panel-tab="likes" role="tab" aria-selected="false">Likes</button>
-        </div>
-        <div id="profileInteractionsStatus" class="profile-interactions__status" role="status" aria-live="polite"></div>
-        <div id="profileInteractionsList" class="profile-interactions__list"></div>
-    </section>
 </div>
 
 <div id="avatarSourceModal" class="modal-overlay profile-avatar-modal" hidden aria-hidden="true">

@@ -21,6 +21,9 @@ import {
   buildDeletePublicMediaCommentsStatements,
   publicMediaTypeForTextAssetSourceModule,
 } from "../../lib/public-media-comments.js";
+import {
+  buildDeletePublicMediaLikesStatements,
+} from "../../lib/public-media-interactions.js";
 
 export async function handleUpdateImagePublication(ctx, imageId) {
   const { request, env } = ctx;
@@ -61,10 +64,14 @@ export async function handleUpdateImagePublication(ctx, imageId) {
   ).bind(visibility, publishedAt, imageId, session.user.id);
   const publicationStatements = [updateStatement];
   if (existing.visibility === "public" && visibility === "private") {
-    publicationStatements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+    const cleanupEntries = [{
       mediaType: "mempics",
       mediaId: imageId,
-    }]));
+    }];
+    publicationStatements.push(
+      ...buildDeletePublicMediaCommentsStatements(env, cleanupEntries),
+      ...buildDeletePublicMediaLikesStatements(env, cleanupEntries)
+    );
   }
   await env.DB.batch(publicationStatements);
 
@@ -139,10 +146,14 @@ export async function handleUpdateTextAssetPublication(ctx, assetId) {
   const publicationStatements = [updateStatement];
   const commentMediaType = publicMediaTypeForTextAssetSourceModule(existing.source_module);
   if (existing.visibility === "public" && visibility === "private" && commentMediaType) {
-    publicationStatements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+    const cleanupEntries = [{
       mediaType: commentMediaType,
       mediaId: assetId,
-    }]));
+    }];
+    publicationStatements.push(
+      ...buildDeletePublicMediaCommentsStatements(env, cleanupEntries),
+      ...buildDeletePublicMediaLikesStatements(env, cleanupEntries)
+    );
   }
   await env.DB.batch(publicationStatements);
 

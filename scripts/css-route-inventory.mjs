@@ -37,6 +37,8 @@ const PRIORITY_HTML_ROUTES = Object.freeze([
   'de/legal/datenschutz.html',
   'account/profile.html',
   'de/account/profile.html',
+  'account/profile-settings.html',
+  'de/account/profile-settings.html',
   'account/assets-manager.html',
   'de/account/assets-manager.html',
   'account/credits.html',

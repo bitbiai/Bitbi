@@ -1,5 +1,10 @@
 import { formatTime } from '../../shared/format-time.js';
-import { apiGetMe } from '../../shared/auth-api.js';
+import {
+    apiGetMe,
+    apiGetPublicMediaInteractions,
+    apiTogglePublicMediaFollow,
+    apiTogglePublicMediaLike,
+} from '../../shared/auth-api.js';
 import { getAuthState } from '../../shared/auth-state.js';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
@@ -98,6 +103,11 @@ function createPlaceholderButton(text, className) {
     return button;
 }
 
+function formatCount(value) {
+    const count = Math.max(0, Number(value) || 0);
+    return new Intl.NumberFormat(getLocale(), { notation: count >= 1000 ? 'compact' : 'standard' }).format(count);
+}
+
 function renderAvatar(parent, publisher) {
     if (publisher?.avatar?.url) {
         const avatar = new Image();
@@ -177,14 +187,16 @@ export function createPublicMediaDetailPanel({
     followers.className = 'public-media-detail__creator-count';
     followers.textContent = localeText('browse.followersPlaceholder');
     identity.append(creator, count, followers);
-    const follow = createPlaceholderButton(localeText('browse.follow'), 'public-media-detail__follow');
+    const follow = createButton(localeText('browse.follow'), 'public-media-detail__follow');
+    follow.setAttribute('aria-pressed', 'false');
     header.append(avatarWrap, identity, follow);
     root.appendChild(header);
 
     const actions = document.createElement('div');
     actions.className = 'public-media-detail__actions';
-    const like = createPlaceholderButton(localeText('browse.like'), 'public-media-detail__action public-media-detail__action--like');
-    like.setAttribute('aria-label', localeText('browse.likePlaceholder'));
+    const like = createButton(localeText('browse.like'), 'public-media-detail__action public-media-detail__action--like');
+    like.setAttribute('aria-pressed', 'false');
+    like.setAttribute('aria-label', localeText('browse.like'));
     const menuWrap = document.createElement('div');
     menuWrap.className = 'public-media-detail__menu-wrap';
     const menuButton = createButton('•••', 'public-media-detail__action public-media-detail__menu-button');
@@ -199,6 +211,10 @@ export function createPublicMediaDetailPanel({
     menuWrap.append(menuButton, menu);
     actions.append(like, menuWrap);
     root.appendChild(actions);
+    const interactionStatus = document.createElement('p');
+    interactionStatus.className = 'public-media-detail__interaction-status';
+    interactionStatus.setAttribute('aria-live', 'polite');
+    root.appendChild(interactionStatus);
 
     const title = document.createElement('h3');
     title.className = 'public-media-detail__title';
@@ -267,6 +283,15 @@ export function createPublicMediaDetailPanel({
     let loading = false;
     let destroyed = false;
     let canComment = false;
+    let interactionBusy = false;
+    let interactionState = {
+        like_count: Number(item?.like_count) || 0,
+        liked_by_viewer: false,
+        follower_count: null,
+        followed_by_viewer: false,
+        can_follow: false,
+        is_own_media: false,
+    };
 
     function setCommentCount(nextCount) {
         commentCount = Math.max(0, Number(nextCount) || 0);
@@ -279,6 +304,137 @@ export function createPublicMediaDetailPanel({
         authHint.hidden = canComment;
         form.hidden = !canComment;
         submit.disabled = !canComment;
+    }
+
+    function renderInteractionState() {
+        const likeCount = Math.max(0, Number(interactionState.like_count) || 0);
+        like.textContent = interactionState.liked_by_viewer
+            ? localeText('browse.likedWithCount', { count: formatCount(likeCount) })
+            : localeText('browse.likeWithCount', { count: formatCount(likeCount) });
+        like.setAttribute('aria-pressed', String(Boolean(interactionState.liked_by_viewer)));
+        like.disabled = interactionBusy;
+
+        if (Number.isFinite(Number(interactionState.follower_count))) {
+            followers.textContent = localeText('browse.followersCount', {
+                count: formatCount(interactionState.follower_count),
+            });
+        }
+
+        follow.textContent = interactionState.followed_by_viewer
+            ? localeText('browse.following')
+            : localeText('browse.follow');
+        follow.setAttribute('aria-pressed', String(Boolean(interactionState.followed_by_viewer)));
+        follow.disabled = interactionBusy || interactionState.is_own_media === true;
+        follow.hidden = interactionState.is_own_media === true;
+    }
+
+    function dispatchInteractionChange() {
+        if (typeof window?.dispatchEvent !== 'function') return;
+        window.dispatchEvent(new CustomEvent('bitbi:public-media-interaction-change', {
+            detail: {
+                collection,
+                mediaId,
+                likeCount: interactionState.like_count,
+                likedByViewer: interactionState.liked_by_viewer,
+                followedByViewer: interactionState.followed_by_viewer,
+            },
+        }));
+    }
+
+    async function loadInteractionState() {
+        if (!mediaId || !collection) return;
+        try {
+            const result = await apiGetPublicMediaInteractions(collection, mediaId);
+            if (!result.ok) return;
+            const data = result.data?.data || result.data || {};
+            interactionState = {
+                ...interactionState,
+                like_count: Number(data.like_count) || 0,
+                liked_by_viewer: data.liked_by_viewer === true,
+                follower_count: Number(data.follower_count),
+                followed_by_viewer: data.followed_by_viewer === true,
+                can_follow: data.can_follow === true,
+                is_own_media: data.is_own_media === true,
+            };
+            if (Number.isFinite(Number(data.comment_count))) {
+                setCommentCount(Number(data.comment_count));
+            }
+            renderInteractionState();
+        } catch {
+            // Interaction state is progressive enhancement; comments/media remain usable.
+        }
+    }
+
+    async function requireInteractionAuth() {
+        const loggedIn = await resolveCommentAuthState();
+        if (loggedIn) return true;
+        interactionStatus.textContent = localeText('browse.signInToInteract');
+        return false;
+    }
+
+    async function toggleLike() {
+        if (interactionBusy || !mediaId) return;
+        if (!await requireInteractionAuth()) return;
+        interactionBusy = true;
+        interactionStatus.textContent = '';
+        const nextLiked = !interactionState.liked_by_viewer;
+        interactionState = {
+            ...interactionState,
+            liked_by_viewer: nextLiked,
+            like_count: Math.max(0, Number(interactionState.like_count || 0) + (nextLiked ? 1 : -1)),
+        };
+        renderInteractionState();
+        const result = await apiTogglePublicMediaLike(collection, mediaId, nextLiked);
+        interactionBusy = false;
+        if (result.ok) {
+            const data = result.data?.data || result.data || {};
+            interactionState = {
+                ...interactionState,
+                like_count: Number(data.like_count) || 0,
+                liked_by_viewer: data.liked_by_viewer === true,
+            };
+            dispatchInteractionChange();
+        } else {
+            interactionStatus.textContent = result.status === 401 || result.status === 403
+                ? localeText('browse.signInToInteract')
+                : localeText('browse.interactionFailed');
+            await loadInteractionState();
+        }
+        renderInteractionState();
+    }
+
+    async function toggleFollow() {
+        if (interactionBusy || !mediaId || interactionState.is_own_media) return;
+        if (!await requireInteractionAuth()) return;
+        interactionBusy = true;
+        interactionStatus.textContent = '';
+        const nextFollowed = !interactionState.followed_by_viewer;
+        interactionState = {
+            ...interactionState,
+            followed_by_viewer: nextFollowed,
+            follower_count: Number.isFinite(Number(interactionState.follower_count))
+                ? Math.max(0, Number(interactionState.follower_count) + (nextFollowed ? 1 : -1))
+                : interactionState.follower_count,
+        };
+        renderInteractionState();
+        const result = await apiTogglePublicMediaFollow(collection, mediaId, nextFollowed);
+        interactionBusy = false;
+        if (result.ok) {
+            const data = result.data?.data || result.data || {};
+            interactionState = {
+                ...interactionState,
+                follower_count: Number(data.follower_count),
+                followed_by_viewer: data.followed_by_viewer === true,
+                can_follow: data.can_follow === true,
+            };
+            dispatchInteractionChange();
+        } else {
+            interactionStatus.textContent = result.status === 401 || result.status === 403
+                ? localeText('browse.signInToInteract')
+                : localeText('browse.interactionFailed');
+            await loadInteractionState();
+        }
+        renderInteractionState();
     }
 
     async function refreshCommentAuthState() {
@@ -400,10 +556,14 @@ export function createPublicMediaDetailPanel({
     });
     document.addEventListener('click', handleDocumentClick);
     document.addEventListener('bitbi:auth-change', handleAuthChange);
+    like.addEventListener('click', toggleLike);
+    follow.addEventListener('click', toggleFollow);
     detailsTab.addEventListener('click', () => setActiveTab('details'));
     commentsTab.addEventListener('click', () => setActiveTab('comments'));
     form.addEventListener('submit', submitComment);
     renderCommentAuthState(false);
+    renderInteractionState();
+    loadInteractionState();
 
     return {
         root,
