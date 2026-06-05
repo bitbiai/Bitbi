@@ -448,6 +448,12 @@ export default {
       if (result) return result;
     }
 
+    // Profile social dashboard and media tabs.
+    if (pathname.startsWith("/api/profile/social/") || pathname.startsWith("/api/profile/media/")) {
+      const result = await handleMediaInteractions(ctx);
+      if (result) return result;
+    }
+
     // Public gallery
     if (pathname.startsWith("/api/gallery/")) {
       const interactionResult = await handleMediaInteractions(ctx);

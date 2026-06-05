@@ -705,6 +705,8 @@
       "/api/admin/",
       "/api/ai/",
       "/api/gallery/",
+      "/api/profile/media/",
+      "/api/profile/social/",
       "/api/orgs/"
     ],
     "protectedMediaPrefixes": []

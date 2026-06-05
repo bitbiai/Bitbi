@@ -402,6 +402,90 @@ function normalizeAiImageRow(row = {}) {
   };
 }
 
+function profileHarnessDisplayName(state, userId) {
+  const profile = (state.profiles || []).find((row) => row.user_id === userId);
+  return profile?.display_name ?? null;
+}
+
+function profileHarnessCommentCount(state, mediaType, mediaId) {
+  return (state.publicMediaComments || [])
+    .filter((row) => row.media_type === mediaType && row.media_id === mediaId)
+    .length;
+}
+
+function profileHarnessLikeCount(state, mediaType, mediaId) {
+  return (state.publicMediaLikes || [])
+    .filter((row) => row.media_type === mediaType && row.media_id === mediaId)
+    .length;
+}
+
+function profileHarnessImageRow(state, image, extra = {}) {
+  return {
+    id: image.id,
+    media_type: 'mempics',
+    order_at: image.published_at || image.created_at,
+    created_at: image.created_at,
+    published_at: image.published_at,
+    r2_key: image.r2_key,
+    thumb_key: image.thumb_key,
+    medium_key: image.medium_key,
+    thumb_width: image.thumb_width,
+    thumb_height: image.thumb_height,
+    medium_width: image.medium_width,
+    medium_height: image.medium_height,
+    derivatives_version: image.derivatives_version,
+    derivatives_ready_at: image.derivatives_ready_at,
+    owner_display_name: profileHarnessDisplayName(state, image.user_id),
+    comment_count: profileHarnessCommentCount(state, 'mempics', image.id),
+    like_count: profileHarnessLikeCount(state, 'mempics', image.id),
+    title: null,
+    source_module: null,
+    mime_type: null,
+    metadata_json: null,
+    size_bytes: null,
+    poster_r2_key: null,
+    poster_width: null,
+    poster_height: null,
+    ...extra,
+  };
+}
+
+function profileHarnessTextMediaType(asset) {
+  return asset.source_module === 'video' ? 'memvids' : 'memtracks';
+}
+
+function profileHarnessTextAssetRow(state, asset, extra = {}) {
+  const mediaType = profileHarnessTextMediaType(asset);
+  return {
+    id: asset.id,
+    media_type: mediaType,
+    order_at: asset.published_at || asset.created_at,
+    created_at: asset.created_at,
+    published_at: asset.published_at,
+    r2_key: asset.r2_key,
+    thumb_key: null,
+    medium_key: null,
+    thumb_width: null,
+    thumb_height: null,
+    medium_width: null,
+    medium_height: null,
+    derivatives_version: null,
+    derivatives_ready_at: null,
+    owner_display_name: profileHarnessDisplayName(state, asset.user_id),
+    comment_count: profileHarnessCommentCount(state, mediaType, asset.id),
+    like_count: profileHarnessLikeCount(state, mediaType, asset.id),
+    title: asset.title,
+    source_module: asset.source_module,
+    mime_type: asset.mime_type,
+    metadata_json: asset.metadata_json,
+    size_bytes: asset.size_bytes,
+    poster_r2_key: asset.poster_r2_key,
+    poster_width: asset.poster_width,
+    poster_height: asset.poster_height,
+    ...extra,
+  };
+}
+
 function normalizeAiFolderRow(row = {}) {
   return {
     asset_owner_type: null,
@@ -6779,6 +6863,54 @@ class MockD1 {
       };
     }
 
+    if (query === "SELECT COUNT(*) AS count FROM ai_images WHERE user_id = ? AND visibility = 'public'") {
+      const [userId] = bindings;
+      return {
+        count: this.state.aiImages.filter((row) => row.user_id === userId && row.visibility === 'public').length,
+      };
+    }
+
+    if (query.startsWith("SELECT COUNT(*) AS count FROM ai_text_assets WHERE user_id = ? AND visibility = 'public' AND source_module IN")) {
+      const [userId] = bindings;
+      return {
+        count: this.state.aiTextAssets.filter((row) =>
+          row.user_id === userId && row.visibility === 'public' && ['video', 'music'].includes(row.source_module)
+        ).length,
+      };
+    }
+
+    if (query.startsWith("SELECT COUNT(*) AS count FROM public_media_likes likes INNER JOIN ai_images images ON images.id = likes.media_id")) {
+      const [userId] = bindings;
+      const count = this.state.publicMediaLikes.filter((like) => {
+        if (query.includes('likes.user_id = ?')) {
+          if (like.user_id !== userId || like.media_type !== 'mempics') return false;
+          const image = this.state.aiImages.find((row) => row.id === like.media_id);
+          return image?.visibility === 'public';
+        }
+        if (like.media_type !== 'mempics') return false;
+        const image = this.state.aiImages.find((row) => row.id === like.media_id);
+        return image?.user_id === userId && image.visibility === 'public';
+      }).length;
+      return { count };
+    }
+
+    if (query.startsWith("SELECT COUNT(*) AS count FROM public_media_likes likes INNER JOIN ai_text_assets assets ON assets.id = likes.media_id")) {
+      const [userId] = bindings;
+      const mediaType = query.includes("likes.media_type = 'memvids'") ? 'memvids' : 'memtracks';
+      const sourceModule = mediaType === 'memvids' ? 'video' : 'music';
+      const count = this.state.publicMediaLikes.filter((like) => {
+        if (query.includes('likes.user_id = ?')) {
+          if (like.user_id !== userId || like.media_type !== mediaType) return false;
+          const asset = this.state.aiTextAssets.find((row) => row.id === like.media_id);
+          return asset?.visibility === 'public' && asset.source_module === sourceModule;
+        }
+        if (like.media_type !== mediaType) return false;
+        const asset = this.state.aiTextAssets.find((row) => row.id === like.media_id);
+        return asset?.user_id === userId && asset.visibility === 'public' && asset.source_module === sourceModule;
+      }).length;
+      return { count };
+    }
+
     if (query.startsWith('SELECT 1 AS liked FROM public_media_likes WHERE user_id = ? AND media_type = ? AND media_id = ?')) {
       const [userId, mediaType, mediaId] = bindings;
       return this.state.publicMediaLikes.some((row) => row.user_id === userId && row.media_type === mediaType && row.media_id === mediaId)
@@ -6836,6 +6968,36 @@ class MockD1 {
       };
     }
 
+    if (query.startsWith('SELECT follows.id, follows.created_at, profiles.display_name AS follower_display_name FROM profile_follows follows LEFT JOIN profiles')) {
+      const [followedUserId, limit] = bindings;
+      const rows = this.state.profileFollows
+        .filter((row) => row.followed_user_id === followedUserId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+        .slice(0, Number(limit) || 30)
+        .map((row) => ({
+          id: row.id,
+          created_at: row.created_at,
+          follower_display_name: profileHarnessDisplayName(this.state, row.follower_user_id),
+        }));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT follows.id, follows.created_at, profiles.display_name AS followed_display_name FROM profile_follows follows LEFT JOIN profiles')) {
+      const [followerUserId, limit] = bindings;
+      const rows = this.state.profileFollows
+        .filter((row) => row.follower_user_id === followerUserId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+        .slice(0, Number(limit) || 30)
+        .map((row) => ({
+          id: row.id,
+          created_at: row.created_at,
+          followed_display_name: profileHarnessDisplayName(this.state, row.followed_user_id),
+        }));
+      return { results: rows };
+    }
+
     if (query.startsWith('INSERT OR IGNORE INTO profile_follows')) {
       const [id, followerUserId, followedUserId, createdAt, updatedAt] = bindings;
       const exists = this.state.profileFollows.some((row) => row.follower_user_id === followerUserId && row.followed_user_id === followedUserId);
@@ -6856,6 +7018,96 @@ class MockD1 {
       const before = this.state.profileFollows.length;
       this.state.profileFollows = this.state.profileFollows.filter((row) => !(row.follower_user_id === followerUserId && row.followed_user_id === followedUserId));
       return { success: true, meta: { changes: before - this.state.profileFollows.length } };
+    }
+
+    if (query.startsWith('SELECT * FROM ( SELECT likes.id AS like_id')) {
+      const [imageOwnerId, assetOwnerId, limit] = bindings;
+      const rows = [];
+      for (const like of this.state.publicMediaLikes) {
+        if (like.media_type === 'mempics') {
+          const image = this.state.aiImages.find((row) => row.id === like.media_id);
+          if (!image || image.user_id !== imageOwnerId || image.visibility !== 'public') continue;
+          rows.push(profileHarnessImageRow(this.state, image, {
+            like_id: like.id,
+            like_created_at: like.created_at,
+            liker_display_name: profileHarnessDisplayName(this.state, like.user_id),
+          }));
+          continue;
+        }
+        const asset = this.state.aiTextAssets.find((row) => row.id === like.media_id);
+        if (!asset || asset.user_id !== assetOwnerId || asset.visibility !== 'public') continue;
+        if (
+          !((like.media_type === 'memvids' && asset.source_module === 'video') ||
+            (like.media_type === 'memtracks' && asset.source_module === 'music'))
+        ) {
+          continue;
+        }
+        rows.push(profileHarnessTextAssetRow(this.state, asset, {
+          like_id: like.id,
+          like_created_at: like.created_at,
+          liker_display_name: profileHarnessDisplayName(this.state, like.user_id),
+        }));
+      }
+      rows.sort((a, b) =>
+        String(b.like_created_at || '').localeCompare(String(a.like_created_at || '')) ||
+        String(b.like_id || '').localeCompare(String(a.like_id || ''))
+      );
+      return { results: rows.slice(0, Number(limit) || 30) };
+    }
+
+    if (query.startsWith("SELECT * FROM ( SELECT images.id, 'mempics' AS media_type, COALESCE(images.published_at, images.created_at) AS order_at")) {
+      const [imageOwnerId, assetOwnerId, limit] = bindings;
+      const rows = [
+        ...this.state.aiImages
+          .filter((row) =>
+            row.user_id === imageOwnerId &&
+            row.visibility === 'public' &&
+            row.derivatives_status === 'ready'
+          )
+          .map((row) => profileHarnessImageRow(this.state, row)),
+        ...this.state.aiTextAssets
+          .filter((row) =>
+            row.user_id === assetOwnerId &&
+            row.visibility === 'public' &&
+            ['video', 'music'].includes(row.source_module)
+          )
+          .map((row) => profileHarnessTextAssetRow(this.state, row)),
+      ];
+      rows.sort((a, b) =>
+        String(b.order_at || '').localeCompare(String(a.order_at || '')) ||
+        String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+        String(b.id || '').localeCompare(String(a.id || ''))
+      );
+      return { results: rows.slice(0, Number(limit) || 36) };
+    }
+
+    if (query.startsWith("SELECT * FROM ( SELECT images.id, 'mempics' AS media_type, likes.created_at AS liked_at")) {
+      const [imageLikerId, assetLikerId, limit] = bindings;
+      const rows = [];
+      for (const like of this.state.publicMediaLikes) {
+        if (like.user_id === imageLikerId && like.media_type === 'mempics') {
+          const image = this.state.aiImages.find((row) => row.id === like.media_id);
+          if (image?.visibility === 'public') {
+            rows.push(profileHarnessImageRow(this.state, image, { liked_at: like.created_at }));
+          }
+          continue;
+        }
+        if (like.user_id !== assetLikerId) continue;
+        const asset = this.state.aiTextAssets.find((row) => row.id === like.media_id);
+        if (!asset || asset.visibility !== 'public') continue;
+        if (
+          !((like.media_type === 'memvids' && asset.source_module === 'video') ||
+            (like.media_type === 'memtracks' && asset.source_module === 'music'))
+        ) {
+          continue;
+        }
+        rows.push(profileHarnessTextAssetRow(this.state, asset, { liked_at: like.created_at }));
+      }
+      rows.sort((a, b) =>
+        String(b.liked_at || '').localeCompare(String(a.liked_at || '')) ||
+        String(b.id || '').localeCompare(String(a.id || ''))
+      );
+      return { results: rows.slice(0, Number(limit) || 36) };
     }
 
     if (

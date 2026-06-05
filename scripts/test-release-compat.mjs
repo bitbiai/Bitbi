@@ -526,6 +526,8 @@ const baseManifest = {
       "/api/admin/",
       "/api/ai/",
       "/api/gallery/",
+      "/api/profile/media/",
+      "/api/profile/social/",
       "/api/orgs/",
     ],
     protectedMediaPrefixes: [],
@@ -922,6 +924,8 @@ function createValidContext() {
       if (pathname === "/api/resend-verification" && method === "POST") return handleResendVerification();
       if (pathname === "/api/request-reverification" && method === "POST") return handleRequestReverification();
       if (pathname.startsWith("/api/ai/")) { return handleAI(); }
+      if (pathname.startsWith("/api/profile/media/")) { return handleMediaInteractions(); }
+      if (pathname.startsWith("/api/profile/social/")) { return handleMediaInteractions(); }
       if (pathname.startsWith("/api/gallery/")) { return handleGallery(); }
     `,
     authAiSource: `

@@ -42164,6 +42164,268 @@ test.describe('Worker routes', () => {
     expect(hiddenListRes.status).toBe(404);
   });
 
+  test('profile social and media dashboard routes are dispatched and return bounded arrays', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'profile-user', role: 'user' }),
+        createContractUser({ id: 'profile-follower', role: 'user' }),
+        createContractUser({ id: 'profile-liked-by', role: 'user' }),
+        createContractUser({ id: 'profile-other-owner', role: 'user' }),
+      ],
+      profiles: [
+        { user_id: 'profile-user', display_name: 'Profile User' },
+        { user_id: 'profile-follower', display_name: 'Follower User' },
+        { user_id: 'profile-liked-by', display_name: 'Liker User' },
+        { user_id: 'profile-other-owner', display_name: 'Other Owner' },
+      ],
+      profileFollows: [
+        {
+          id: 'pf_follow_profile',
+          follower_user_id: 'profile-follower',
+          followed_user_id: 'profile-user',
+          created_at: '2026-05-01T10:00:00.000Z',
+        },
+        {
+          id: 'pf_profile_following',
+          follower_user_id: 'profile-user',
+          followed_user_id: 'profile-other-owner',
+          created_at: '2026-05-02T10:00:00.000Z',
+        },
+      ],
+      aiImages: [
+        {
+          id: 'aa110011',
+          user_id: 'profile-user',
+          r2_key: 'users/profile-user/public/aa110011.png',
+          created_at: '2026-05-01T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-05-01T09:30:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          derivatives_ready_at: '2026-05-01T09:31:00.000Z',
+          thumb_key: 'users/profile-user/derivatives/v1/aa110011/thumb.webp',
+          medium_key: 'users/profile-user/derivatives/v1/aa110011/medium.webp',
+          thumb_width: 320,
+          thumb_height: 320,
+          medium_width: 1280,
+          medium_height: 1280,
+        },
+        {
+          id: 'aa220022',
+          user_id: 'profile-user',
+          r2_key: 'users/profile-user/private/aa220022.png',
+          created_at: '2026-05-03T09:00:00.000Z',
+          visibility: 'private',
+          published_at: null,
+          derivatives_status: 'ready',
+        },
+      ],
+      aiTextAssets: [
+        {
+          id: 'bb220011',
+          user_id: 'profile-user',
+          title: 'Profile Video',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: '{}',
+          size_bytes: 1000,
+          created_at: '2026-05-04T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-05-04T09:30:00.000Z',
+          r2_key: 'users/profile-user/video/bb220011.mp4',
+          poster_r2_key: 'users/profile-user/video/bb220011-poster.webp',
+          poster_width: 640,
+          poster_height: 360,
+        },
+        {
+          id: 'cc330011',
+          user_id: 'profile-other-owner',
+          title: 'Liked Track',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          metadata_json: '{}',
+          size_bytes: 2000,
+          created_at: '2026-05-05T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-05-05T09:30:00.000Z',
+          r2_key: 'users/profile-other-owner/music/cc330011.mp3',
+          poster_r2_key: 'users/profile-other-owner/music/cc330011-poster.webp',
+          poster_width: 512,
+          poster_height: 512,
+        },
+      ],
+      publicMediaLikes: [
+        {
+          id: 'pml_received',
+          media_type: 'mempics',
+          media_id: 'aa110011',
+          user_id: 'profile-liked-by',
+          created_at: '2026-05-06T10:00:00.000Z',
+        },
+        {
+          id: 'pml_liked',
+          media_type: 'memtracks',
+          media_id: 'cc330011',
+          user_id: 'profile-user',
+          created_at: '2026-05-07T10:00:00.000Z',
+        },
+      ],
+    });
+    const token = await seedSession(env, 'profile-user');
+    const headers = { Cookie: `bitbi_session=${token}` };
+
+    const summaryRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile/social/summary', { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(summaryRes.status).toBe(200);
+    await expect(summaryRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        follower_count: 1,
+        following_count: 1,
+        received_like_count: 1,
+        published_media_count: 2,
+        liked_media_count: 1,
+      },
+    });
+
+    const publishedRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile/media/published?limit=60', { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publishedRes.status).toBe(200);
+    const publishedBody = await publishedRes.json();
+    expect(publishedBody.ok).toBe(true);
+    expect(publishedBody.data.items).toHaveLength(2);
+    expect(publishedBody.data.items.map((item) => item.id)).toEqual(['bb220011', 'aa110011']);
+    expect(JSON.stringify(publishedBody)).not.toContain('users/profile-user/');
+
+    const receivedLikesRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile/social/likes?limit=50', { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(receivedLikesRes.status).toBe(200);
+    const receivedLikesBody = await receivedLikesRes.json();
+    expect(receivedLikesBody.ok).toBe(true);
+    expect(receivedLikesBody.data.items).toHaveLength(1);
+    expect(receivedLikesBody.data.items[0]).toMatchObject({
+      type: 'likes',
+      actor: { display_name: 'Liker User' },
+      media: {
+        id: 'aa110011',
+        media_type: 'mempics',
+      },
+    });
+
+    const likedMediaRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile/media/liked?limit=60', { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(likedMediaRes.status).toBe(200);
+    const likedMediaBody = await likedMediaRes.json();
+    expect(likedMediaBody.ok).toBe(true);
+    expect(likedMediaBody.data.items).toHaveLength(1);
+    expect(likedMediaBody.data.items[0]).toMatchObject({
+      id: 'cc330011',
+      media_type: 'memtracks',
+      liked_at: '2026-05-07T10:00:00.000Z',
+    });
+  });
+
+  test('public media comment routes still post and list after interaction routing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'comment-route-user', role: 'user' }),
+        createContractUser({ id: 'comment-route-owner', role: 'user' }),
+      ],
+      profiles: [
+        { user_id: 'comment-route-user', display_name: 'Route Commenter' },
+      ],
+      aiImages: [
+        {
+          id: 'dd44aa11',
+          user_id: 'comment-route-owner',
+          r2_key: 'users/comment-route-owner/public/dd44aa11.png',
+          created_at: '2026-05-08T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-05-08T09:30:00.000Z',
+          derivatives_status: 'ready',
+        },
+        {
+          id: 'ee55bb22',
+          user_id: 'comment-route-owner',
+          r2_key: 'users/comment-route-owner/private/ee55bb22.png',
+          created_at: '2026-05-08T09:00:00.000Z',
+          visibility: 'private',
+          published_at: null,
+        },
+      ],
+    });
+    const token = await seedSession(env, 'comment-route-user');
+
+    const unauthPost = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/dd44aa11/comments', 'POST', { body: 'No session.' }, {
+        Origin: 'https://bitbi.ai',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unauthPost.status).toBe(401);
+
+    const privatePost = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/ee55bb22/comments', 'POST', { body: 'Private.' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(privatePost.status).toBe(404);
+
+    const postRes = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/dd44aa11/comments', 'POST', {
+        body: '  Works after interactions.  ',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(postRes.status).toBe(201);
+    await expect(postRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        count: 1,
+        comment: {
+          body: 'Works after interactions.',
+          author: { display_name: 'Route Commenter' },
+        },
+      },
+    });
+
+    const listRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics/dd44aa11/comments'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.data.count).toBe(1);
+    expect(listBody.data.comments[0]).toMatchObject({
+      body: 'Works after interactions.',
+      author: { display_name: 'Route Commenter' },
+    });
+    expect(JSON.stringify(listBody)).not.toContain('users/comment-route-owner/');
+  });
+
   test('owner can publish and unpublish a saved music asset into public Memtracks', async () => {
     const { buildPublicMemtrackUrl, buildPublicMemtrackVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');

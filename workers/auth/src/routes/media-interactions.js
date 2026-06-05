@@ -364,6 +364,7 @@ async function handleProfilePublishedMedia(ctx) {
      FROM (
        SELECT images.id,
               'mempics' AS media_type,
+              COALESCE(images.published_at, images.created_at) AS order_at,
               images.created_at,
               images.published_at,
               images.r2_key,
@@ -394,6 +395,7 @@ async function handleProfilePublishedMedia(ctx) {
        UNION ALL
        SELECT assets.id,
               CASE assets.source_module WHEN 'video' THEN 'memvids' ELSE 'memtracks' END AS media_type,
+              COALESCE(assets.published_at, assets.created_at) AS order_at,
               assets.created_at,
               assets.published_at,
               assets.r2_key,
