@@ -273,13 +273,13 @@
                             <label class="generate-lab__label" for="labVideoReference">Reference image</label>
                             <div class="generate-lab__upload-shell" id="labVideoReferenceShell">
                                 <input id="labVideoReference" class="generate-lab__file-input" type="file" accept="image/*">
-                                <label for="labVideoReference" class="generate-lab__upload">
+                                <button type="button" id="labVideoReferenceTrigger" class="generate-lab__upload">
                                     <span class="generate-lab__upload-mark" aria-hidden="true"></span>
                                     <span>
                                         <strong>Add reference image</strong>
                                         <span id="labVideoReferenceLabel">Optional image-to-video reference</span>
                                     </span>
-                                </label>
+                                </button>
                                 <button id="labVideoReferenceRemove" class="generate-lab__ghost-btn" type="button" hidden>Remove</button>
                             </div>
                         </div>
@@ -407,6 +407,11 @@
                 <p class="generate-lab-assets-overlay__copy">Manage folders, preview saved media, and publish your best work without leaving Generate Lab.</p>
             </div>
             <div class="generate-lab-assets-overlay__actions">
+                <div id="labAssetsPickerActions" class="generate-lab-assets-overlay__picker-actions" hidden>
+                    <span id="labAssetsPickerCount" class="generate-lab-assets-overlay__picker-count" aria-live="polite">0 / 0 selected</span>
+                    <button type="button" id="labAssetsPickerApply" class="generate-lab-assets-overlay__picker-apply" disabled>Use selected</button>
+                    <button type="button" id="labAssetsPickerCancel" class="generate-lab-assets-overlay__picker-cancel">Cancel selection</button>
+                </div>
                 <span id="labAssetsStorageUsage" class="assets-manager__storage-usage" aria-label="Used storage in Assets Manager" title="Used storage in Assets Manager" hidden></span>
                 <button type="button" id="labAssetsOverlayClose" class="generate-lab-assets-overlay__close" aria-label="Close Assets Manager">Close</button>
             </div>

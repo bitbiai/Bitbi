@@ -58,6 +58,10 @@ const FOOTER_COPY_TEXT = 'BITBI Studio • Built with love & code • © 2026';
 const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
 const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, 'fixtures/media/test-video.mp4'));
+const TEST_PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=',
+  'base64',
+);
 
 const expectedModelCatalogs = new Map();
 const REMOVED_MODELS_OVERLAY_MODEL_IDS = new Set([
@@ -261,6 +265,48 @@ async function mockGenerateLabMemberSession(page, {
   return {
     getLogoutRequests: () => logoutRequests,
   };
+}
+
+async function mockGenerateLabSavedImageAssets(page, assets) {
+  await page.route('**/api/ai/assets**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          assets,
+          next_cursor: null,
+          has_more: false,
+          applied_limit: Number(new URL(route.request().url()).searchParams.get('limit') || 60),
+        },
+      }),
+    });
+  });
+  await page.route('**/api/ai/images/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: TEST_PNG_BYTES,
+    });
+  });
+}
+
+function buildGenerateLabImageAssets(count = 3) {
+  return Array.from({ length: count }, (_, index) => {
+    const number = index + 1;
+    return {
+      id: `asset-ref-${number}`,
+      asset_type: 'image',
+      title: `Asset Reference ${number}`,
+      mime_type: 'image/png',
+      size_bytes: TEST_PNG_BYTES.length,
+      created_at: '2026-06-05T08:00:00.000Z',
+      original_url: `/api/ai/images/asset-ref-${number}/original`,
+      medium_url: `/api/ai/images/asset-ref-${number}/medium`,
+      thumb_url: `/api/ai/images/asset-ref-${number}/thumb`,
+      visibility: 'private',
+    };
+  });
 }
 
 async function getGenerateLabHeaderMetrics(page) {
@@ -4373,6 +4419,125 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
     await expect(page.getByLabel('Describe your track')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('150 credits');
+  });
+
+  test('Generate Lab reference slots choose ordered Assets Manager images before applying', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await mockGenerateLabMemberSession(page, {
+      userId: 'generate-lab-picker-member',
+      email: 'picker@bitbi.ai',
+      credits: 1200,
+    });
+    await mockGenerateLabSavedImageAssets(page, [
+      ...buildGenerateLabImageAssets(9),
+      {
+        id: 'asset-video-incompatible',
+        asset_type: 'video',
+        title: 'Incompatible Video Asset',
+        mime_type: 'video/mp4',
+        file_url: '/api/ai/text-assets/asset-video-incompatible/file',
+        poster_url: '/api/ai/text-assets/asset-video-incompatible/poster',
+        size_bytes: TEST_MP4_BYTES.length,
+        created_at: '2026-06-05T08:30:00.000Z',
+      },
+    ]);
+
+    await page.goto('/generate-lab/');
+    await page.selectOption('#labImageModel', 'openai/gpt-image-2');
+    await page.locator('#labImageRefPrimary .generate-lab-ref-images__slot-label').first().click();
+    const sourceDialog = page.locator('#labReferenceSourceDialog');
+    await expect(sourceDialog).toBeVisible();
+    await expect(sourceDialog).toContainText('Choose reference source');
+
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await sourceDialog.getByRole('button', { name: 'Upload from computer' }).click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({ name: 'local-reference.png', mimeType: 'image/png', buffer: TEST_PNG_BYTES });
+    await expect(page.locator('#labImageReferenceCount')).toHaveText('1 / 16');
+
+    await page.locator('#labImageRefPrimary .generate-lab-ref-images__slot-label').nth(1).click();
+    await sourceDialog.getByRole('button', { name: 'Choose from Assets Manager' }).click();
+    const overlay = page.locator('#labAssetsOverlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveClass(/generate-lab-assets-overlay--picker/);
+    await expect(page.locator('#labAssetsPickerCount')).toHaveText('0 / 15 selected');
+    await expect(page.locator('#labAssetsSelectBtn')).toBeDisabled();
+
+    const firstAsset = page.locator('#labAssetsGrid [data-asset-id="asset-ref-1"]');
+    const secondAsset = page.locator('#labAssetsGrid [data-asset-id="asset-ref-2"]');
+    await expect(firstAsset).toBeVisible();
+    await firstAsset.click();
+    await secondAsset.click();
+    await expect(firstAsset.locator('.studio__reference-order-badge')).toHaveText('1');
+    await expect(secondAsset.locator('.studio__reference-order-badge')).toHaveText('2');
+    await firstAsset.click();
+    await expect(firstAsset.locator('.studio__reference-order-badge')).toHaveCount(0);
+    await expect(secondAsset.locator('.studio__reference-order-badge')).toHaveText('1');
+
+    await page.locator('#labAssetsPickerApply').click();
+    await expect(overlay).toBeHidden();
+    await expect(page.locator('#labImageReferenceCount')).toHaveText('2 / 16');
+    await expect(page.locator('#labImageRefPrimary')).toContainText('Asset Reference 2');
+
+    await page.selectOption('#labImageModel', 'black-forest-labs/flux-2-max');
+    await page.locator('#labImageRefPrimary .generate-lab-ref-images__slot-label').first().click();
+    await sourceDialog.getByRole('button', { name: 'Choose from Assets Manager' }).click();
+    await expect(page.locator('#labAssetsPickerCount')).toHaveText('0 / 8 selected');
+    for (let index = 1; index <= 8; index += 1) {
+      await page.locator(`#labAssetsGrid [data-asset-id="asset-ref-${index}"]`).click();
+    }
+    await expect(page.locator('#labAssetsPickerCount')).toHaveText('8 / 8 selected');
+    await page.locator('#labAssetsGrid [data-asset-id="asset-ref-9"]').click();
+    await expect(page.locator('#labAssetsMsg')).toContainText('You can select up to 8 reference images.');
+  });
+
+  test('Generate Lab video image-input picker applies an image asset data URL payload', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    const videoPayloads = [];
+    await mockGenerateLabMemberSession(page, {
+      userId: 'generate-lab-video-picker-member',
+      email: 'video-picker@bitbi.ai',
+      credits: 1200,
+    });
+    await mockGenerateLabSavedImageAssets(page, buildGenerateLabImageAssets(2));
+    await page.route('**/api/ai/generate-video', async (route) => {
+      videoPayloads.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            videoUrl: '/api/ai/text-assets/pixverse-picked/file',
+            model: { id: 'pixverse/v6', label: 'PixVerse V6', vendor: 'PixVerse' },
+            asset: { id: 'pixverse-picked', source_module: 'video', mime_type: 'video/mp4' },
+          },
+          billing: { balance_after: 1015 },
+        }),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+    await page.getByRole('tab', { name: 'Video' }).click();
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
+    await expect(page.locator('#labVideoReferenceField')).toBeVisible();
+    await page.locator('#labVideoReferenceTrigger').click();
+    await expect(page.locator('#labReferenceSourceDialog')).toBeVisible();
+    await page.locator('#labReferenceSourceDialog').getByRole('button', { name: 'Choose from Assets Manager' }).click();
+    await expect(page.locator('#labAssetsPickerCount')).toHaveText('0 / 1 selected');
+    await page.locator('#labAssetsGrid [data-asset-id="asset-ref-1"]').click();
+    await page.locator('#labAssetsPickerApply').click();
+    await expect(page.locator('#labAssetsOverlay')).toBeHidden();
+    await expect(page.locator('#labVideoReferenceLabel')).toHaveText('Asset Reference 1');
+    await expect(page.locator('#labVideoReferenceRemove')).toBeVisible();
+
+    await page.locator('#labPrompt').fill('PixVerse image input from saved asset');
+    await page.locator('#labGenerate').click();
+    await expect.poll(() => videoPayloads.length).toBe(1);
+    expect(videoPayloads[0].image_input).toMatch(/^data:image\/png;base64,/);
+    expect(videoPayloads[0]).toMatchObject({
+      model: 'pixverse/v6',
+      prompt: 'PixVerse image input from saved asset',
+    });
   });
 
   test('Generate Lab shows generation status, save retry guidance, and Assets Manager handoff', async ({ page }) => {

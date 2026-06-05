@@ -56,6 +56,10 @@ const COVER_POLL_TIMEOUT_MS = 30000;
 const refs = {};
 let assetsBrowser = null;
 let releaseAssetsOverlayFocus = null;
+let assetsOverlayReturnFocus = null;
+let releaseReferenceSourceFocus = null;
+let referenceSourceDialog = null;
+let pendingReferenceRequest = null;
 const state = {
     loggedIn: false,
     user: null,
@@ -110,6 +114,10 @@ const assetsBrowserRefIds = {
     bulkMoveSelect: 'labAssetsBulkMoveSelect',
     bulkMoveConfirm: 'labAssetsBulkMoveConfirm',
     bulkMoveCancel: 'labAssetsBulkMoveCancel',
+    pickerActions: 'labAssetsPickerActions',
+    pickerCount: 'labAssetsPickerCount',
+    pickerApply: 'labAssetsPickerApply',
+    pickerCancel: 'labAssetsPickerCancel',
 };
 
 function byId(id) {
@@ -440,8 +448,36 @@ async function ensureAssetsBrowser() {
     await assetsBrowser.show();
 }
 
+function rememberAssetsOverlayDefaults() {
+    if (refs.assetsOverlayTitle && !refs.assetsOverlayTitle.dataset.defaultText) {
+        refs.assetsOverlayTitle.dataset.defaultText = refs.assetsOverlayTitle.textContent || '';
+    }
+    if (refs.assetsOverlayCopy && !refs.assetsOverlayCopy.dataset.defaultText) {
+        refs.assetsOverlayCopy.dataset.defaultText = refs.assetsOverlayCopy.textContent || '';
+    }
+}
+
+function setAssetsOverlayPickerCopy(active) {
+    rememberAssetsOverlayDefaults();
+    refs.assetsOverlay?.classList.toggle('generate-lab-assets-overlay--picker', active);
+    if (refs.assetsOverlayTitle) {
+        refs.assetsOverlayTitle.textContent = active
+            ? localeText('generateLab.assetReferencePickerTitle')
+            : (refs.assetsOverlayTitle.dataset.defaultText || localeText('generateLab.assetsManager'));
+    }
+    if (refs.assetsOverlayCopy) {
+        refs.assetsOverlayCopy.textContent = active
+            ? localeText('generateLab.assetReferencePickerCopy')
+            : (refs.assetsOverlayCopy.dataset.defaultText || '');
+    }
+}
+
 function closeAssetsOverlay() {
     if (!refs.assetsOverlay || refs.assetsOverlay.hidden) return;
+    if (assetsBrowser?.isPickerModeActive?.()) {
+        assetsBrowser.endPickerMode();
+    }
+    setAssetsOverlayPickerCopy(false);
     refs.assetsOverlay.hidden = true;
     refs.assetsOverlay.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('generate-lab-assets-open');
@@ -449,11 +485,16 @@ function closeAssetsOverlay() {
         releaseAssetsOverlayFocus();
         releaseAssetsOverlayFocus = null;
     }
+    if (assetsOverlayReturnFocus && typeof assetsOverlayReturnFocus.focus === 'function') {
+        assetsOverlayReturnFocus.focus();
+    }
+    assetsOverlayReturnFocus = null;
 }
 
 async function openAssetsOverlay() {
     if (!requireMember()) return;
     if (!refs.assetsOverlay) return;
+    setAssetsOverlayPickerCopy(false);
     refs.assetsOverlay.hidden = false;
     refs.assetsOverlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('generate-lab-assets-open');
@@ -937,6 +978,236 @@ function readImageDimensions(dataUrl) {
     });
 }
 
+function getReferenceAssetTitle(asset, fallback = localeText('generateLab.referenceImageSelected')) {
+    return asset?.title || asset?.file_name || asset?.preview_text || fallback;
+}
+
+function getReferenceAssetSourceUrl(asset) {
+    return asset?.original_url
+        || asset?.file_url
+        || asset?.url
+        || asset?.medium_url
+        || asset?.thumb_url
+        || '';
+}
+
+function isCompatibleImageReferenceAsset(asset) {
+    if (!asset || asset.asset_type !== 'image') return false;
+    return Boolean(getReferenceAssetSourceUrl(asset));
+}
+
+async function fetchAssetAsDataUri(asset, acceptedMimeTypes = IMAGE_REFERENCE_MIME_TYPES) {
+    const sourceUrl = getReferenceAssetSourceUrl(asset);
+    if (!sourceUrl) throw new Error('missing_asset_url');
+    const response = await fetch(sourceUrl, { credentials: 'include' });
+    if (!response.ok) throw new Error('asset_fetch_failed');
+    const blob = await response.blob();
+    const mimeType = String(blob.type || asset?.mime_type || '').toLowerCase();
+    if (!acceptedMimeTypes.has(mimeType)) throw new Error('unsupported_asset_type');
+    if (blob.size > MAX_IMAGE_REFERENCE_BYTES) throw new Error('asset_too_large');
+    const dataUrl = await readFileAsDataUri(blob);
+    const dimensions = await readImageDimensions(dataUrl).catch(() => null);
+    return {
+        dataUrl,
+        name: getReferenceAssetTitle(asset),
+        type: mimeType,
+        size: blob.size,
+        width: dimensions?.width,
+        height: dimensions?.height,
+        assetId: asset?.id || '',
+        source: 'assets-manager',
+    };
+}
+
+function selectedReferencePlural(count, locale = document.documentElement.lang === 'de' ? 'de' : 'en') {
+    if (locale === 'de') return Number(count) === 1 ? '' : 'er';
+    return Number(count) === 1 ? '' : 's';
+}
+
+function ensureReferenceSourceDialog() {
+    if (referenceSourceDialog) return referenceSourceDialog;
+    const titleId = 'labReferenceSourceDialogTitle';
+    const copyId = 'labReferenceSourceDialogCopy';
+    const uploadButton = el('button', {
+        className: 'generate-lab-reference-source__option generate-lab-reference-source__option--upload',
+        text: localeText('generateLab.referenceSourceUpload'),
+        attrs: { type: 'button', 'data-reference-source-action': 'upload' },
+    });
+    const assetsButton = el('button', {
+        className: 'generate-lab-reference-source__option generate-lab-reference-source__option--assets',
+        text: localeText('generateLab.referenceSourceAssets'),
+        attrs: { type: 'button', 'data-reference-source-action': 'assets' },
+    });
+    const cancelButton = el('button', {
+        className: 'generate-lab-reference-source__cancel',
+        text: localeText('generateLab.referenceSourceCancel'),
+        attrs: { type: 'button', 'data-reference-source-action': 'cancel' },
+    });
+    referenceSourceDialog = el('div', {
+        className: 'generate-lab-reference-source',
+        attrs: {
+            id: 'labReferenceSourceDialog',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': titleId,
+            'aria-describedby': copyId,
+            'aria-hidden': 'true',
+            hidden: true,
+        },
+    },
+        el('div', { className: 'generate-lab-reference-source__backdrop', attrs: { 'data-reference-source-action': 'cancel', 'aria-hidden': 'true' } }),
+        el('div', { className: 'generate-lab-reference-source__dialog', attrs: { tabindex: '-1' } },
+            el('h2', { className: 'generate-lab-reference-source__title', text: localeText('generateLab.referenceSourceDialogTitle'), attrs: { id: titleId } }),
+            el('p', { className: 'generate-lab-reference-source__copy', text: localeText('generateLab.referenceSourceDialogCopy'), attrs: { id: copyId } }),
+            el('div', { className: 'generate-lab-reference-source__options' }, uploadButton, assetsButton),
+            cancelButton,
+        ),
+    );
+    referenceSourceDialog.addEventListener('click', (event) => {
+        const action = event.target.closest('[data-reference-source-action]')?.dataset.referenceSourceAction;
+        if (!action) return;
+        event.preventDefault();
+        if (action === 'upload') {
+            const input = pendingReferenceRequest?.input || null;
+            closeReferenceSourceDialog({ returnFocus: false });
+            input?.click();
+        } else if (action === 'assets') {
+            const request = pendingReferenceRequest;
+            closeReferenceSourceDialog({ returnFocus: false });
+            if (request) {
+                openReferenceAssetsPicker(request).catch((error) => {
+                    console.warn('Generate Lab reference asset picker failed:', error);
+                    setMessage(localeText('generateLab.assetsLoadFailed'), 'error');
+                });
+            }
+        } else {
+            closeReferenceSourceDialog();
+        }
+    });
+    referenceSourceDialog.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        closeReferenceSourceDialog();
+    });
+    document.body.append(referenceSourceDialog);
+    return referenceSourceDialog;
+}
+
+function closeReferenceSourceDialog({ returnFocus = true } = {}) {
+    if (!referenceSourceDialog || referenceSourceDialog.hidden) return;
+    referenceSourceDialog.hidden = true;
+    referenceSourceDialog.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('generate-lab-reference-source-open');
+    if (releaseReferenceSourceFocus) {
+        releaseReferenceSourceFocus();
+        releaseReferenceSourceFocus = null;
+    }
+    if (returnFocus && pendingReferenceRequest?.trigger && typeof pendingReferenceRequest.trigger.focus === 'function') {
+        pendingReferenceRequest.trigger.focus();
+    }
+    pendingReferenceRequest = null;
+}
+
+function openReferenceSourceDialog(request, trigger) {
+    if (state.busy) return;
+    const dialog = ensureReferenceSourceDialog();
+    pendingReferenceRequest = { ...request, trigger };
+    dialog.hidden = false;
+    dialog.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('generate-lab-reference-source-open');
+    releaseReferenceSourceFocus = setupFocusTrap(dialog.querySelector('.generate-lab-reference-source__dialog') || dialog);
+}
+
+function getImageReferencePickerMax(startIndex = 0) {
+    const limit = selectedImageReferenceLimit();
+    return Math.max(0, limit - Math.max(0, Number(startIndex) || 0));
+}
+
+async function applyImageAssetReferences(selection, startIndex = 0) {
+    const maxReferences = selectedImageReferenceLimit();
+    if (maxReferences <= 0 || startIndex >= maxReferences) return false;
+    const entries = [];
+    for (const asset of selection.slice(0, maxReferences - startIndex)) {
+        entries.push(await fetchAssetAsDataUri(asset, IMAGE_REFERENCE_MIME_TYPES));
+    }
+    entries.forEach((entry, offset) => {
+        state.imageReferenceImages[startIndex + offset] = entry;
+    });
+    if (startIndex + entries.length > IMAGE_REFERENCE_VISIBLE_SLOTS) {
+        state.imageRefsExpanded = true;
+    }
+    renderImageReferenceSlots();
+    updateActionState();
+    setMessage(localeText('generateLab.assetReferencePickerApplied', {
+        count: entries.length,
+        plural: selectedReferencePlural(entries.length),
+    }), 'success');
+    return true;
+}
+
+async function applyVideoAssetReference(selection) {
+    const [asset] = selection;
+    if (!asset) return false;
+    const entry = await fetchAssetAsDataUri(asset, IMAGE_REFERENCE_MIME_TYPES);
+    state.videoReferenceDataUri = entry.dataUrl;
+    if (refs.videoReferenceLabel) refs.videoReferenceLabel.textContent = entry.name || localeText('generateLab.referenceImageSelected');
+    if (refs.videoReferenceRemove) refs.videoReferenceRemove.hidden = false;
+    refs.videoReferenceShell?.classList.add('has-file');
+    setMessage(localeText('generateLab.assetReferencePickerApplied', {
+        count: 1,
+        plural: selectedReferencePlural(1),
+    }), 'success');
+    return true;
+}
+
+async function openReferenceAssetsPicker(request) {
+    if (!requireMember()) return;
+    if (!refs.assetsOverlay) return;
+    const isImageRequest = request?.type === 'image';
+    const max = isImageRequest ? getImageReferencePickerMax(request.index) : 1;
+    if (max <= 0) {
+        const limit = selectedImageReferenceLimit();
+        setMessage(localeText('generateLab.assetReferencePickerMaxReached', {
+            max: limit,
+            plural: selectedReferencePlural(limit),
+        }), 'error');
+        return;
+    }
+
+    setAssetsOverlayPickerCopy(true);
+    assetsOverlayReturnFocus = request?.trigger || null;
+    refs.assetsOverlay.hidden = false;
+    refs.assetsOverlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('generate-lab-assets-open');
+    releaseAssetsOverlayFocus = setupFocusTrap(refs.assetsOverlayShell || refs.assetsOverlay);
+    refs.assetsOverlayClose?.focus();
+
+    try {
+        if (!assetsBrowser) createAssetsBrowser();
+        await assetsBrowser.startPickerMode({
+            max,
+            isAssetCompatible: isCompatibleImageReferenceAsset,
+            emptyMessage: localeText('generateLab.assetReferencePickerEmpty'),
+            unsupportedMessage: localeText('generateLab.assetReferencePickerUnsupported'),
+            fetchFailedMessage: localeText('generateLab.assetReferencePickerFetchFailed'),
+            onApply: async (selection) => {
+                setMessage(localeText('generateLab.assetReferencePickerPreparing'), 'info');
+                const applied = isImageRequest
+                    ? await applyImageAssetReferences(selection, request.index || 0)
+                    : await applyVideoAssetReference(selection);
+                return applied !== false;
+            },
+            onApplied: () => closeAssetsOverlay(),
+            onCancel: () => closeAssetsOverlay(),
+        });
+    } catch (error) {
+        console.warn('Generate Lab assets picker load failed:', error);
+        setAssetsOverlayPickerCopy(false);
+        closeAssetsOverlay();
+        setMessage(localeText('generateLab.assetsLoadFailed'), 'error');
+    }
+}
+
 function createImageReferenceSlot(index, disabled) {
     const selected = state.imageReferenceImages[index];
     const slotId = `labImageRefSlot${index + 1}`;
@@ -956,22 +1227,31 @@ function createImageReferenceSlot(index, disabled) {
         },
     });
     input.addEventListener('change', () => handleImageReferenceChange(index, input));
-    const label = el('label', {
+    const button = el('button', {
         className: 'generate-lab-ref-images__slot-label',
-        attrs: { for: inputId },
+        attrs: {
+            type: 'button',
+            disabled,
+            'aria-label': selected
+                ? localeText('generateLab.referenceImageSelected')
+                : getImageReferenceLabel(index),
+        },
     });
     if (selected) {
-        label.append(
+        button.append(
             el('img', { attrs: { src: selected.dataUrl, alt: '', loading: 'lazy' } }),
             el('span', { text: selected.name }),
         );
     } else {
-        label.append(
+        button.append(
             el('span', { className: 'generate-lab-ref-images__slot-mark', attrs: { 'aria-hidden': 'true' } }),
             el('span', { text: getImageReferenceLabel(index) }),
         );
     }
-    slot.append(input, label);
+    button.addEventListener('click', () => {
+        openReferenceSourceDialog({ type: 'image', index, input }, button);
+    });
+    slot.append(input, button);
     if (selected) {
         const remove = el('button', {
             className: 'generate-lab-ref-images__remove',
@@ -1832,6 +2112,10 @@ function bindEvents() {
     refs.videoSeed?.addEventListener('input', updateActionState);
     refs.videoWatermark?.addEventListener('change', updateActionState);
     refs.videoReference?.addEventListener('change', handleVideoReferenceChange);
+    refs.videoReferenceTrigger?.addEventListener('click', () => {
+        if (!selectedModel().controls?.supportsImageInput) return;
+        openReferenceSourceDialog({ type: 'video', input: refs.videoReference }, refs.videoReferenceTrigger);
+    });
     refs.videoReferenceRemove?.addEventListener('click', clearVideoReference);
     refs.musicInstrumental?.addEventListener('change', syncMusicOptionState);
     refs.musicGenerateLyrics?.addEventListener('change', syncMusicOptionState);
@@ -1899,6 +2183,7 @@ function cacheRefs() {
         videoNegative: byId('labVideoNegative'),
         videoReference: byId('labVideoReference'),
         videoReferenceShell: byId('labVideoReferenceShell'),
+        videoReferenceTrigger: byId('labVideoReferenceTrigger'),
         videoReferenceLabel: byId('labVideoReferenceLabel'),
         videoReferenceRemove: byId('labVideoReferenceRemove'),
         videoDuration: byId('labVideoDuration'),
@@ -1920,6 +2205,8 @@ function cacheRefs() {
         message: byId('labMessage'),
         assetsOverlay: byId('labAssetsOverlay'),
         assetsOverlayShell: document.querySelector('.generate-lab-assets-overlay__shell'),
+        assetsOverlayTitle: byId('labAssetsOverlayTitle'),
+        assetsOverlayCopy: document.querySelector('.generate-lab-assets-overlay__copy'),
         assetsOverlayClose: byId('labAssetsOverlayClose'),
     });
 }

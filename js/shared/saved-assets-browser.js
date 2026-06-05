@@ -74,6 +74,11 @@ function formatAssetCount(count) {
     return `${number} asset${number === 1 ? '' : 's'}`;
 }
 
+function formatReferenceImagePlural(count) {
+    if (getCurrentLocale() === 'de') return Number(count) === 1 ? '' : 'er';
+    return Number(count) === 1 ? '' : 's';
+}
+
 function isAudioAsset(asset) {
     if (asset?.asset_type === 'sound') return true;
     return String(asset?.mime_type || '').toLowerCase().startsWith('audio/');
@@ -461,6 +466,10 @@ export function createSavedAssetsBrowser({
     const $bulkMoveSelect = refs.bulkMoveSelect;
     const $bulkMoveConfirm = refs.bulkMoveConfirm;
     const $bulkMoveCancel = refs.bulkMoveCancel;
+    const $pickerActions = refs.pickerActions;
+    const $pickerCount = refs.pickerCount;
+    const $pickerApply = refs.pickerApply;
+    const $pickerCancel = refs.pickerCancel;
     const $actionResult = refs.actionResult;
     const $actionResultTitle = refs.actionResultTitle;
     const $actionResultCopy = refs.actionResultCopy;
@@ -473,6 +482,11 @@ export function createSavedAssetsBrowser({
             show: async () => {},
             refresh: async () => {},
             openAllAssets: async () => {},
+            startPickerMode: async () => {},
+            endPickerMode: () => {},
+            cancelPickerMode: () => {},
+            getPickerSelection: () => [],
+            isPickerModeActive: () => false,
             getViewState: () => ({ folderViewActive: true, assetCount: 0, filterValue: '' }),
             getFolders: () => [],
         };
@@ -486,6 +500,9 @@ export function createSavedAssetsBrowser({
     let selectMode = false;
     let selectedIds = new Set();
     let selectionScope = null;
+    let pickerMode = false;
+    let pickerOptions = null;
+    let pickerSelection = [];
     let currentAssets = [];
     let folderDeck = null;
     let assetDeck = null;
@@ -528,6 +545,132 @@ export function createSavedAssetsBrowser({
         if (!$galleryMsg) return;
         $galleryMsg.textContent = '';
         $galleryMsg.className = 'studio__msg';
+    }
+
+    function getPickerMax() {
+        const max = Number(pickerOptions?.max || 1);
+        return Number.isFinite(max) && max > 0 ? Math.floor(max) : 1;
+    }
+
+    function getPickerSelectedIndex(assetId) {
+        return pickerSelection.findIndex((entry) => String(entry?.id || '') === String(assetId || ''));
+    }
+
+    function getPickerAssetById(assetId) {
+        return currentAssets.find((entry) => String(entry?.id || '') === String(assetId || '')) || null;
+    }
+
+    function isPickerAssetCompatible(asset) {
+        if (!pickerMode || !asset?.id) return false;
+        if (typeof pickerOptions?.isAssetCompatible !== 'function') return true;
+        try {
+            return pickerOptions.isAssetCompatible(asset) === true;
+        } catch (error) {
+            console.warn('Saved assets picker compatibility check failed:', error);
+            return false;
+        }
+    }
+
+    function getPickerCountText() {
+        return localeText('generateLab.assetReferencePickerCount', {
+            count: pickerSelection.length,
+            max: getPickerMax(),
+        });
+    }
+
+    function setPickerActionState() {
+        root?.classList.toggle('assets-manager--picker', pickerMode);
+        if ($pickerActions) $pickerActions.hidden = !pickerMode;
+        if ($pickerCount) $pickerCount.textContent = pickerMode ? getPickerCountText() : '';
+        if ($pickerApply) $pickerApply.disabled = !pickerMode || pickerSelection.length === 0;
+        if ($selectBtn) $selectBtn.disabled = pickerMode;
+        $mobileActionsMenu?.querySelector('[data-action="select"]')?.toggleAttribute('disabled', pickerMode);
+    }
+
+    function refreshPickerSelectionStatus() {
+        setPickerActionState();
+        if (typeof pickerOptions?.onSelectionChange === 'function') {
+            pickerOptions.onSelectionChange(pickerSelection.slice());
+        }
+    }
+
+    function decoratePickerCard(item, asset) {
+        if (!item) return;
+        item.classList.remove(
+            'studio__image-item--reference-pickable',
+            'studio__image-item--reference-selected',
+            'studio__image-item--reference-incompatible',
+        );
+        item.querySelector('.studio__reference-order-badge')?.remove();
+        delete item.dataset.referencePickerOrder;
+        item.removeAttribute('aria-disabled');
+
+        if (!pickerMode || !asset?.id) return;
+
+        const compatible = isPickerAssetCompatible(asset);
+        item.classList.add('studio__image-item--reference-pickable');
+        if (!compatible) {
+            item.classList.add('studio__image-item--reference-incompatible');
+            item.setAttribute('aria-disabled', 'true');
+            return;
+        }
+
+        const selectedIndex = getPickerSelectedIndex(asset.id);
+        if (selectedIndex < 0) return;
+        const order = selectedIndex + 1;
+        item.classList.add('studio__image-item--reference-selected');
+        item.dataset.referencePickerOrder = String(order);
+
+        const badge = document.createElement('span');
+        badge.className = 'studio__reference-order-badge';
+        badge.textContent = String(order);
+        badge.setAttribute('aria-label', localeText('generateLab.assetReferencePickerOrderLabel', { count: order }));
+        item.appendChild(badge);
+    }
+
+    function refreshPickerCardDecorations() {
+        $assetGrid.querySelectorAll('.studio__image-item[data-asset-id]').forEach((item) => {
+            decoratePickerCard(item, getPickerAssetById(item.dataset.assetId));
+        });
+        setPickerActionState();
+    }
+
+    function showPickerCompatibilityHint() {
+        if (!pickerMode || currentAssets.length === 0) return;
+        const compatibleCount = currentAssets.filter((asset) => isPickerAssetCompatible(asset)).length;
+        if (compatibleCount === 0) {
+            showMsg(pickerOptions?.emptyMessage || localeText('generateLab.assetReferencePickerEmpty'), 'info');
+        }
+    }
+
+    function togglePickerAsset(asset, item) {
+        if (!pickerMode || !asset?.id) return false;
+        if (!isPickerAssetCompatible(asset)) {
+            showMsg(pickerOptions?.unsupportedMessage || localeText('generateLab.assetReferencePickerUnsupported'), 'error');
+            return true;
+        }
+
+        const selectedIndex = getPickerSelectedIndex(asset.id);
+        if (selectedIndex >= 0) {
+            pickerSelection.splice(selectedIndex, 1);
+            hideMsg();
+        } else {
+            const max = getPickerMax();
+            if (pickerSelection.length >= max) {
+                showMsg(localeText('generateLab.assetReferencePickerMaxReached', {
+                    max,
+                    plural: formatReferenceImagePlural(max),
+                }), 'error');
+                return true;
+            }
+            pickerSelection.push(asset);
+            hideMsg();
+        }
+
+        if (item) decoratePickerCard(item, asset);
+        refreshPickerCardDecorations();
+        refreshPickerSelectionStatus();
+        return true;
     }
 
     function buildActionResultButton(label, onClick) {
@@ -1812,6 +1955,10 @@ export function createSavedAssetsBrowser({
             if (event.target !== item && event.target.closest('button, a, audio, summary, details')) return;
             if (event.key !== 'Enter' && event.key !== ' ') return;
             event.preventDefault();
+            if (pickerMode) {
+                togglePickerAsset(asset, item);
+                return;
+            }
             if (selectMode) {
                 toggleSelection(item);
                 return;
@@ -1850,6 +1997,10 @@ export function createSavedAssetsBrowser({
         }));
         previewButton.addEventListener('click', (event) => {
             event.stopPropagation();
+            if (pickerMode) {
+                togglePickerAsset(asset, item);
+                return;
+            }
             if (selectMode) return;
             openImageAsset(asset);
         });
@@ -1860,6 +2011,10 @@ export function createSavedAssetsBrowser({
         publishButton.textContent = isPublishedImageAsset(asset) ? localeText('assets.unpublish') : localeText('assets.publish');
         publishButton.addEventListener('click', async (event) => {
             event.stopPropagation();
+            if (pickerMode) {
+                togglePickerAsset(asset, item);
+                return;
+            }
             const nextVisibility = isPublishedImageAsset(asset) ? 'private' : 'public';
             publishButton.disabled = true;
             publishButton.textContent = '…';
@@ -1898,6 +2053,10 @@ export function createSavedAssetsBrowser({
         deleteButton.textContent = localeText('assets.delete');
         deleteButton.addEventListener('click', async (event) => {
             event.stopPropagation();
+            if (pickerMode) {
+                togglePickerAsset(asset, item);
+                return;
+            }
             if (!confirm(localeText('assets.deleteAssetConfirm'))) return;
             deleteButton.disabled = true;
             deleteButton.textContent = '\u2026';
@@ -1919,6 +2078,15 @@ export function createSavedAssetsBrowser({
         overlay.appendChild(deleteButton);
         item.appendChild(overlay);
         appendSelectionCheck(item);
+        item.addEventListener('click', (event) => {
+            if (!pickerMode) return;
+            if (event.defaultPrevented) return;
+            if (event.target.closest('a, audio, summary, details')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            togglePickerAsset(asset, item);
+        });
+        decoratePickerCard(item, asset);
         return item;
     }
 
@@ -1981,6 +2149,10 @@ export function createSavedAssetsBrowser({
             videoTrigger.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (pickerMode) {
+                    togglePickerAsset(asset, item);
+                    return;
+                }
                 if (selectMode) {
                     toggleSelection(item);
                     return;
@@ -2040,6 +2212,10 @@ export function createSavedAssetsBrowser({
             pubBtn.textContent = isPublished ? localeText('assets.unpublish') : localeText('assets.publish');
             pubBtn.addEventListener('click', async (event) => {
                 event.stopPropagation();
+                if (pickerMode) {
+                    togglePickerAsset(asset, item);
+                    return;
+                }
                 const nextVis = isPublishedAsset(asset) ? 'private' : 'public';
                 pubBtn.disabled = true;
                 pubBtn.textContent = '\u2026';
@@ -2081,6 +2257,10 @@ export function createSavedAssetsBrowser({
         deleteButton.textContent = localeText('assets.delete');
         deleteButton.addEventListener('click', async (event) => {
             event.stopPropagation();
+            if (pickerMode) {
+                togglePickerAsset(asset, item);
+                return;
+            }
             const confirmText = isSound
                 ? localeText('assets.deleteSoundConfirm')
                 : isVideo
@@ -2109,6 +2289,13 @@ export function createSavedAssetsBrowser({
             item.setAttribute('aria-label', `Open ${getFileTitle(asset)}`);
             item.addEventListener('click', (event) => {
                 if (event.defaultPrevented) return;
+                if (pickerMode) {
+                    if (event.target.closest('a, audio, summary, details, .studio__image-check')) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    togglePickerAsset(asset, item);
+                    return;
+                }
                 if (selectMode) return;
                 if (event.target.closest('button, a, audio, summary, details, .studio__image-check')) return;
                 openTextAsset(asset);
@@ -2116,6 +2303,10 @@ export function createSavedAssetsBrowser({
             item.addEventListener('keydown', (event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
+                if (pickerMode) {
+                    togglePickerAsset(asset, item);
+                    return;
+                }
                 if (selectMode) {
                     toggleSelection(item);
                     return;
@@ -2126,6 +2317,7 @@ export function createSavedAssetsBrowser({
 
         item.appendChild(actions);
         appendSelectionCheck(item);
+        decoratePickerCard(item, asset);
         return item;
     }
 
@@ -2204,6 +2396,7 @@ export function createSavedAssetsBrowser({
             } else {
                 renderEmptyState(emptyStateMessage);
             }
+            refreshPickerCardDecorations();
             return;
         }
 
@@ -2211,6 +2404,8 @@ export function createSavedAssetsBrowser({
         currentAssets.forEach((asset) => {
             $assetGrid.appendChild(isImageAsset(asset) ? buildImageCard(asset) : buildFileCard(asset));
         });
+        refreshPickerCardDecorations();
+        showPickerCompatibilityHint();
         assetDeck?.refresh();
         updateAssetPaginationUi();
         setCurrentAssetViewStatus();
@@ -2242,6 +2437,67 @@ export function createSavedAssetsBrowser({
         $galleryFilter.value = ALL_ASSETS;
         await loadGallery();
         updateAssetPaginationUi();
+    }
+
+    async function startPickerMode(options = {}) {
+        await init();
+        if (selectMode) exitSelectMode();
+        hideNewFolderForm();
+        hideDeleteFolderForm();
+        hideRenameForm();
+        $bulkMoveForm?.classList.remove('visible');
+        pickerMode = true;
+        pickerOptions = { ...options };
+        pickerSelection = [];
+        setPickerActionState();
+        hideMsg();
+        await openAllAssets();
+        refreshPickerCardDecorations();
+        refreshPickerSelectionStatus();
+    }
+
+    function endPickerMode() {
+        if (!pickerMode) return;
+        pickerMode = false;
+        pickerOptions = null;
+        pickerSelection = [];
+        hideMsg();
+        refreshPickerCardDecorations();
+        setPickerActionState();
+    }
+
+    function cancelPickerMode() {
+        if (!pickerMode) return;
+        const options = pickerOptions;
+        endPickerMode();
+        if (typeof options?.onCancel === 'function') options.onCancel();
+    }
+
+    async function handlePickerApply() {
+        if (!pickerMode || pickerSelection.length === 0) return;
+        const options = pickerOptions;
+        const selection = pickerSelection.slice();
+        const previousText = $pickerApply?.textContent || '';
+        if ($pickerApply) {
+            $pickerApply.disabled = true;
+            $pickerApply.textContent = '\u2026';
+        }
+        try {
+            const applied = typeof options?.onApply === 'function'
+                ? await options.onApply(selection)
+                : true;
+            if (applied === false) return;
+            endPickerMode();
+            if (typeof options?.onApplied === 'function') options.onApplied(selection);
+        } catch (error) {
+            console.warn('Saved assets picker apply failed:', error);
+            showMsg(options?.fetchFailedMessage || localeText('generateLab.assetReferencePickerFetchFailed'), 'error');
+        } finally {
+            if ($pickerApply) {
+                $pickerApply.textContent = previousText || localeText('generateLab.assetReferencePickerApply');
+                setPickerActionState();
+            }
+        }
     }
 
     function exitSelectMode() {
@@ -2759,6 +3015,8 @@ export function createSavedAssetsBrowser({
             $bulkMoveForm?.classList.remove('visible');
             updateBulkMoveSummary();
         });
+        $pickerApply?.addEventListener('click', handlePickerApply);
+        $pickerCancel?.addEventListener('click', cancelPickerMode);
         $assetLoadMore.addEventListener('click', () => {
             if (!assetHasMore || assetLoadingMore) return;
             loadGallery({ append: true });
@@ -2766,6 +3024,15 @@ export function createSavedAssetsBrowser({
         $assetMobileGridTrigger.addEventListener('click', openAssetsMobileGridOverlay);
 
         $assetGrid.addEventListener('click', (event) => {
+            if (pickerMode) {
+                const item = event.target.closest('.studio__image-item[data-asset-id]');
+                if (!item) return;
+                if (event.target.closest('a, audio, summary, details')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                togglePickerAsset(getPickerAssetById(item.dataset.assetId), item);
+                return;
+            }
             if (!selectMode) return;
             const item = event.target.closest('.studio__image-item[data-asset-id]');
             if (!item) return;
@@ -2820,6 +3087,15 @@ export function createSavedAssetsBrowser({
         show,
         refresh,
         openAllAssets,
+        startPickerMode,
+        endPickerMode,
+        cancelPickerMode,
+        getPickerSelection() {
+            return pickerSelection.slice();
+        },
+        isPickerModeActive() {
+            return pickerMode;
+        },
         getViewState() {
             return {
                 folderViewActive,
