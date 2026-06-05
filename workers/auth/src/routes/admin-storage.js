@@ -40,6 +40,10 @@ import {
   slugify,
   toAiFileAssetRecord,
 } from "./ai/helpers.js";
+import {
+  buildDeletePublicMediaCommentsStatements,
+  publicMediaTypeForTextAssetSourceModule,
+} from "../lib/public-media-comments.js";
 
 const ADMIN_USER_ASSET_CURSOR_TYPE = "admin_user_assets";
 const DEFAULT_ADMIN_USER_ASSET_LIMIT = 100;
@@ -691,9 +695,18 @@ async function handleUpdateUserAssetVisibility(ctx, session, targetUserId, asset
     const publishedAt = visibility === "public"
       ? (image.visibility === "public" && image.published_at ? image.published_at : nowIso())
       : null;
-    await env.DB.prepare(
-      "UPDATE ai_images SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
-    ).bind(visibility, publishedAt, assetId, targetUser.id).run();
+    const statements = [
+      env.DB.prepare(
+        "UPDATE ai_images SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
+      ).bind(visibility, publishedAt, assetId, targetUser.id),
+    ];
+    if (image.visibility === "public" && visibility === "private") {
+      statements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+        mediaType: "mempics",
+        mediaId: assetId,
+      }]));
+    }
+    await env.DB.batch(statements);
     await auditStorageEvent(ctx, session.user, "admin_user_asset_visibility_updated", targetUser, {
       asset_id: assetId,
       asset_type: "image",
@@ -705,7 +718,7 @@ async function handleUpdateUserAssetVisibility(ctx, session, targetUserId, asset
   let file;
   try {
     file = await env.DB.prepare(
-      "SELECT id, visibility, published_at FROM ai_text_assets WHERE id = ? AND user_id = ?"
+      "SELECT id, visibility, published_at, source_module FROM ai_text_assets WHERE id = ? AND user_id = ?"
     ).bind(assetId, targetUser.id).first();
   } catch (error) {
     if (isMissingTextAssetTableError(error)) {
@@ -717,9 +730,19 @@ async function handleUpdateUserAssetVisibility(ctx, session, targetUserId, asset
   const publishedAt = visibility === "public"
     ? (file.visibility === "public" && file.published_at ? file.published_at : nowIso())
     : null;
-  await env.DB.prepare(
-    "UPDATE ai_text_assets SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
-  ).bind(visibility, publishedAt, assetId, targetUser.id).run();
+  const statements = [
+    env.DB.prepare(
+      "UPDATE ai_text_assets SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
+    ).bind(visibility, publishedAt, assetId, targetUser.id),
+  ];
+  const commentMediaType = publicMediaTypeForTextAssetSourceModule(file.source_module);
+  if (file.visibility === "public" && visibility === "private" && commentMediaType) {
+    statements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+      mediaType: commentMediaType,
+      mediaId: assetId,
+    }]));
+  }
+  await env.DB.batch(statements);
   await auditStorageEvent(ctx, session.user, "admin_user_asset_visibility_updated", targetUser, {
     asset_id: assetId,
     asset_type: "file",

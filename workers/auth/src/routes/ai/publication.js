@@ -17,6 +17,10 @@ import {
 import {
   disableAndDeleteMemvidStreamPreviewsForUnpublishedAsset,
 } from "../../lib/memvid-stream-preview-cleanup.js";
+import {
+  buildDeletePublicMediaCommentsStatements,
+  publicMediaTypeForTextAssetSourceModule,
+} from "../../lib/public-media-comments.js";
 
 export async function handleUpdateImagePublication(ctx, imageId) {
   const { request, env } = ctx;
@@ -52,9 +56,17 @@ export async function handleUpdateImagePublication(ctx, imageId) {
     ? (existing.visibility === "public" && existing.published_at ? existing.published_at : nowIso())
     : null;
 
-  await env.DB.prepare(
+  const updateStatement = env.DB.prepare(
     "UPDATE ai_images SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
-  ).bind(visibility, publishedAt, imageId, session.user.id).run();
+  ).bind(visibility, publishedAt, imageId, session.user.id);
+  const publicationStatements = [updateStatement];
+  if (existing.visibility === "public" && visibility === "private") {
+    publicationStatements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+      mediaType: "mempics",
+      mediaId: imageId,
+    }]));
+  }
+  await env.DB.batch(publicationStatements);
 
   return json({
     ok: true,
@@ -121,9 +133,18 @@ export async function handleUpdateTextAssetPublication(ctx, assetId) {
     ? (existing.visibility === "public" && existing.published_at ? existing.published_at : nowIso())
     : null;
 
-  await env.DB.prepare(
+  const updateStatement = env.DB.prepare(
     "UPDATE ai_text_assets SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
-  ).bind(visibility, publishedAt, assetId, session.user.id).run();
+  ).bind(visibility, publishedAt, assetId, session.user.id);
+  const publicationStatements = [updateStatement];
+  const commentMediaType = publicMediaTypeForTextAssetSourceModule(existing.source_module);
+  if (existing.visibility === "public" && visibility === "private" && commentMediaType) {
+    publicationStatements.push(...buildDeletePublicMediaCommentsStatements(env, [{
+      mediaType: commentMediaType,
+      mediaId: assetId,
+    }]));
+  }
+  await env.DB.batch(publicationStatements);
 
   let streamPreviewLifecycle = null;
   const wasPublic = existing.visibility === "public";

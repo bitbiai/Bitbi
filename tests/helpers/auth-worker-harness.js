@@ -20,6 +20,7 @@ const USER_DEPENDENCY_TABLE_STATE = {
   linked_wallets: 'linkedWallets',
   siwe_challenges: 'siweChallenges',
   favorites: 'favorites',
+  public_media_comments: 'publicMediaComments',
   ai_images: 'aiImages',
   ai_text_assets: 'aiTextAssets',
   ai_folders: 'aiFolders',
@@ -919,6 +920,7 @@ class MockD1 {
       siweChallenges: [],
       profiles: [],
       favorites: [],
+      publicMediaComments: [],
       adminAuditLog: [],
       activitySearchIndex: [],
       rateLimitCounters: [],
@@ -999,6 +1001,10 @@ class MockD1 {
     this.state.profiles = (this.state.profiles || []).map((row) => ({
       has_avatar: row.has_avatar ?? null,
       avatar_updated_at: row.avatar_updated_at ?? null,
+      ...row,
+    }));
+    this.state.publicMediaComments = (this.state.publicMediaComments || []).map((row) => ({
+      updated_at: null,
       ...row,
     }));
     this.state.aiFolders = (this.state.aiFolders || []).map((row) => normalizeAiFolderRow(row));
@@ -6353,13 +6359,17 @@ class MockD1 {
       };
     }
 
-    if (query === 'SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?') {
+    if (
+      query === 'SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?'
+      || query === 'SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?'
+    ) {
       const [userId] = bindings;
       return {
         results: this.state.aiTextAssets
           .filter((row) => row.user_id === userId)
           .map((row) => ({
             id: row.id,
+            source_module: row.source_module ?? null,
             r2_key: row.r2_key,
             poster_r2_key: row.poster_r2_key ?? null,
             size_bytes: row.size_bytes ?? null,
@@ -6605,6 +6615,152 @@ class MockD1 {
       return row ? { r2_key: row.r2_key } : null;
     }
 
+    if (query.startsWith("SELECT id, user_id, created_at, published_at, 'mempics' AS media_type FROM ai_images WHERE id = ? AND visibility = 'public'")) {
+      const [imageId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.visibility === 'public');
+      return row
+        ? {
+            id: row.id,
+            user_id: row.user_id,
+            created_at: row.created_at,
+            published_at: row.published_at,
+            media_type: 'mempics',
+          }
+        : null;
+    }
+
+    if (query.startsWith('SELECT id, user_id, created_at, published_at, source_module, ? AS media_type FROM ai_text_assets WHERE id = ? AND visibility = \'public\' AND source_module = ?')) {
+      const [mediaType, assetId, sourceModule] = bindings;
+      const row = this.state.aiTextAssets.find((item) =>
+        item.id === assetId && item.visibility === 'public' && item.source_module === sourceModule
+      );
+      return row
+        ? {
+            id: row.id,
+            user_id: row.user_id,
+            created_at: row.created_at,
+            published_at: row.published_at,
+            source_module: row.source_module,
+            media_type: mediaType,
+          }
+        : null;
+    }
+
+    if (query.startsWith('SELECT user_id, COUNT(*) AS count FROM ai_images WHERE visibility = \'public\' AND user_id IN (')) {
+      const ids = new Set(bindings);
+      const counts = new Map();
+      for (const row of this.state.aiImages) {
+        if (row.visibility !== 'public' || !ids.has(row.user_id)) continue;
+        counts.set(row.user_id, (counts.get(row.user_id) || 0) + 1);
+      }
+      return { results: [...counts.entries()].map(([user_id, count]) => ({ user_id, count })) };
+    }
+
+    if (query.startsWith('SELECT user_id, COUNT(*) AS count FROM ai_text_assets WHERE visibility = \'public\' AND source_module IN')) {
+      const ids = new Set(bindings);
+      const counts = new Map();
+      for (const row of this.state.aiTextAssets) {
+        if (row.visibility !== 'public' || !['video', 'music'].includes(row.source_module) || !ids.has(row.user_id)) continue;
+        counts.set(row.user_id, (counts.get(row.user_id) || 0) + 1);
+      }
+      return { results: [...counts.entries()].map(([user_id, count]) => ({ user_id, count })) };
+    }
+
+    if (query.startsWith('SELECT media_id, COUNT(*) AS count FROM public_media_comments WHERE media_type = ? AND media_id IN (')) {
+      const [mediaType, ...mediaIds] = bindings;
+      const ids = new Set(mediaIds);
+      const counts = new Map();
+      for (const row of this.state.publicMediaComments) {
+        if (row.media_type !== mediaType || !ids.has(row.media_id)) continue;
+        counts.set(row.media_id, (counts.get(row.media_id) || 0) + 1);
+      }
+      return { results: [...counts.entries()].map(([media_id, count]) => ({ media_id, count })) };
+    }
+
+    if (query.startsWith('SELECT comments.id, comments.body, comments.created_at, profiles.display_name AS author_display_name, profiles.has_avatar AS author_has_avatar, profiles.avatar_updated_at AS author_avatar_updated_at FROM public_media_comments comments LEFT JOIN profiles')) {
+      if (query.includes('WHERE comments.media_type = ?')) {
+        const [mediaType, mediaId, limit] = bindings;
+        const rows = this.state.publicMediaComments
+          .filter((row) => row.media_type === mediaType && row.media_id === mediaId)
+          .slice()
+          .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || '')))
+          .slice(0, Number(limit) || 30)
+          .map((row) => {
+            const profile = this.state.profiles.find((item) => item.user_id === row.user_id) || {};
+            return {
+              id: row.id,
+              body: row.body,
+              created_at: row.created_at,
+              author_display_name: profile.display_name ?? null,
+              author_has_avatar: profile.has_avatar ?? null,
+              author_avatar_updated_at: profile.avatar_updated_at ?? null,
+            };
+          });
+        return { results: rows };
+      }
+      if (query.includes('WHERE comments.id = ?')) {
+        const [commentId] = bindings;
+        const row = this.state.publicMediaComments.find((item) => item.id === commentId);
+        if (!row) return null;
+        const profile = this.state.profiles.find((item) => item.user_id === row.user_id) || {};
+        return {
+          id: row.id,
+          body: row.body,
+          created_at: row.created_at,
+          author_display_name: profile.display_name ?? null,
+          author_has_avatar: profile.has_avatar ?? null,
+          author_avatar_updated_at: profile.avatar_updated_at ?? null,
+        };
+      }
+    }
+
+    if (query === 'SELECT COUNT(*) AS count FROM public_media_comments WHERE media_type = ? AND media_id = ?') {
+      const [mediaType, mediaId] = bindings;
+      return {
+        count: this.state.publicMediaComments.filter((row) => row.media_type === mediaType && row.media_id === mediaId).length,
+      };
+    }
+
+    if (query.startsWith('INSERT INTO public_media_comments ( id, media_type, media_id, user_id, body, created_at, updated_at ) VALUES')) {
+      const [id, mediaType, mediaId, userId, body, createdAt] = bindings;
+      if (this.state.publicMediaComments.some((row) => row.id === id)) {
+        throw new Error('UNIQUE constraint failed: public_media_comments.id');
+      }
+      this.state.publicMediaComments.push({
+        id,
+        media_type: mediaType,
+        media_id: mediaId,
+        user_id: userId,
+        body,
+        created_at: createdAt,
+        updated_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT comments.id, comments.media_type, comments.media_id, comments.user_id, profiles.has_avatar, profiles.avatar_updated_at FROM public_media_comments comments LEFT JOIN profiles')) {
+      const [commentId] = bindings;
+      const row = this.state.publicMediaComments.find((item) => item.id === commentId);
+      if (!row) return null;
+      const profile = this.state.profiles.find((item) => item.user_id === row.user_id) || {};
+      return {
+        id: row.id,
+        media_type: row.media_type,
+        media_id: row.media_id,
+        user_id: row.user_id,
+        has_avatar: profile.has_avatar ?? null,
+        avatar_updated_at: profile.avatar_updated_at ?? null,
+      };
+    }
+
+    if (query === 'DELETE FROM public_media_comments WHERE media_type = ? AND media_id = ?') {
+      const [mediaType, mediaId] = bindings;
+      const before = this.state.publicMediaComments.length;
+      this.state.publicMediaComments = this.state.publicMediaComments.filter((row) => !(row.media_type === mediaType && row.media_id === mediaId));
+      const changes = before - this.state.publicMediaComments.length;
+      return { success: true, meta: { changes } };
+    }
+
     if (
       query.startsWith('SELECT id, user_id, prompt, model, r2_key, size_bytes, visibility, published_at, created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version, derivatives_ready_at, thumb_mime_type, medium_mime_type FROM ai_images WHERE id = ?')
       && query.includes('AND r2_key IS NOT NULL')
@@ -6746,11 +6902,15 @@ class MockD1 {
         : null;
     }
 
-    if (query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ?') {
+    if (
+      query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ?'
+      || query === 'SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ?'
+    ) {
       const [imageId, userId] = bindings;
       const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
       return row
         ? {
+            id: row.id,
             r2_key: row.r2_key,
             thumb_key: row.thumb_key,
             medium_key: row.medium_key,
@@ -6781,12 +6941,16 @@ class MockD1 {
       };
     }
 
-    if (query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE user_id = ?') {
+    if (
+      query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE user_id = ?'
+      || query === 'SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE user_id = ?'
+    ) {
       const [userId] = bindings;
       return {
         results: this.state.aiImages
           .filter((row) => row.user_id === userId)
           .map((row) => ({
+            id: row.id,
             r2_key: row.r2_key,
             thumb_key: row.thumb_key,
             medium_key: row.medium_key,
@@ -6816,12 +6980,17 @@ class MockD1 {
       };
     }
 
-    if (query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?') {
+    if (
+      query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?'
+      || query === 'SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?'
+    ) {
       const [userId] = bindings;
       return {
         results: this.state.aiTextAssets
           .filter((row) => row.user_id === userId)
           .map((row) => ({
+            id: row.id,
+            source_module: row.source_module ?? null,
             r2_key: row.r2_key,
             poster_r2_key: row.poster_r2_key ?? null,
             size_bytes: row.size_bytes ?? null,
@@ -6852,12 +7021,16 @@ class MockD1 {
       };
     }
 
-    if (query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE folder_id = ? AND user_id = ?') {
+    if (
+      query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE folder_id = ? AND user_id = ?'
+      || query === 'SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE folder_id = ? AND user_id = ?'
+    ) {
       const [folderId, userId] = bindings;
       return {
         results: this.state.aiImages
           .filter((row) => row.folder_id === folderId && row.user_id === userId)
           .map((row) => ({
+            id: row.id,
             r2_key: row.r2_key,
             thumb_key: row.thumb_key,
             medium_key: row.medium_key,
@@ -6916,12 +7089,17 @@ class MockD1 {
       };
     }
 
-    if (query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
+    if (
+      query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE folder_id = ? AND user_id = ?'
+      || query === 'SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE folder_id = ? AND user_id = ?'
+    ) {
       const [folderId, userId] = bindings;
       return {
         results: this.state.aiTextAssets
           .filter((row) => row.folder_id === folderId && row.user_id === userId)
           .map((row) => ({
+            id: row.id,
+            source_module: row.source_module ?? null,
             r2_key: row.r2_key,
             poster_r2_key: row.poster_r2_key ?? null,
             size_bytes: row.size_bytes ?? null,
@@ -6954,7 +7132,13 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith('SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+    if (
+      (
+        query.startsWith('SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id IN (')
+        || query.startsWith('SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id IN (')
+      )
+      && query.endsWith(') AND user_id = ?')
+    ) {
       const requestedIds = bindings.slice(0, -1);
       const userId = bindings[bindings.length - 1];
       return {
@@ -6962,6 +7146,7 @@ class MockD1 {
           .filter((row) => requestedIds.includes(row.id) && row.user_id === userId)
           .map((row) => ({
             id: row.id,
+            source_module: row.source_module ?? null,
             r2_key: row.r2_key,
             poster_r2_key: row.poster_r2_key ?? null,
             size_bytes: row.size_bytes ?? null,
@@ -8187,6 +8372,7 @@ class MockD1 {
           r2_key: row.r2_key,
           thumb_key: row.thumb_key,
           medium_key: row.medium_key,
+          owner_user_id: row.user_id,
           owner_display_name: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.display_name ?? null,
           owner_has_avatar: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.has_avatar ?? null,
           owner_avatar_updated_at: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.avatar_updated_at ?? null,
@@ -8292,9 +8478,11 @@ class MockD1 {
           published_at: row.published_at,
           order_at: row.order_at,
           r2_key: row.r2_key,
+          size_bytes: row.size_bytes ?? null,
           poster_r2_key: row.poster_r2_key ?? null,
           poster_width: row.poster_width ?? null,
           poster_height: row.poster_height ?? null,
+          owner_user_id: row.user_id,
           owner_display_name: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.display_name ?? null,
           owner_has_avatar: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.has_avatar ?? null,
           owner_avatar_updated_at: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.avatar_updated_at ?? null,
@@ -8688,6 +8876,7 @@ class MockD1 {
     }
 
     if (query === 'SELECT id, visibility, published_at FROM ai_text_assets WHERE id = ? AND user_id = ?'
+      || query === 'SELECT id, visibility, published_at, source_module FROM ai_text_assets WHERE id = ? AND user_id = ?'
       || (query.startsWith('SELECT id, user_id, visibility, published_at, source_module, r2_key, mime_type, size_bytes, title, metadata_json')
         && query.includes('FROM ai_text_assets')
         && query.includes('WHERE id = ?'))) {
@@ -8823,11 +9012,16 @@ class MockD1 {
       return row ? { r2_key: row.r2_key, poster_r2_key: row.poster_r2_key ?? null } : null;
     }
 
-    if (query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+    if (
+      query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?'
+      || query === 'SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?'
+    ) {
       const [assetId, userId] = bindings;
       const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
       return row
         ? {
+            id: row.id,
+            source_module: row.source_module ?? null,
             r2_key: row.r2_key,
             poster_r2_key: row.poster_r2_key ?? null,
             size_bytes: row.size_bytes ?? null,

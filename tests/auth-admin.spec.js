@@ -8329,6 +8329,152 @@ test.describe('Homepage public browse pagination', () => {
     await expect(page.locator('#videoPagination .browse-pagination__toggle')).toBeHidden();
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
   });
+
+  test('Mempic modal shows details, comments, and placeholder actions safely', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.__publicMediaXss = 0;
+    });
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [{
+              id: 'mempic-1',
+              title: 'Mempics',
+              caption: 'Published by Ada on 2026-06-05.',
+              category: 'mempics',
+              published_at: '2026-06-05T10:00:00.000Z',
+              comment_count: 1,
+              publisher: {
+                display_name: 'Ada',
+                stats: { public_media_count: 3 },
+              },
+              thumb: { url: '/api/gallery/mempics/mempic-1/thumb', w: 320, h: 320 },
+              preview: { url: '/api/gallery/mempics/mempic-1/medium', w: 1280, h: 1280 },
+              full: { url: '/api/gallery/mempics/mempic-1/file' },
+            }],
+            next_cursor: null,
+            has_more: false,
+            applied_limit: 60,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/gallery/mempics/mempic-1/comments', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            count: 1,
+            comments: [{
+              id: 'pmc_test_1',
+              body: '<script>window.__publicMediaXss = 1</script> Rendered as text.',
+              created_at: '2026-06-05T10:00:00.000Z',
+              author: { display_name: 'Comment Author' },
+            }],
+          },
+        }),
+      });
+    });
+    await page.route('**/api/gallery/memvids**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: [], next_cursor: null, has_more: false, applied_limit: 60 } }),
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await page.locator('#galleryGrid .gallery-item:visible').first().click();
+
+    await expect(page.locator('#galleryModal.active .public-media-detail-panel')).toBeVisible();
+    await expect(page.locator('#galleryModal .public-media-detail-panel')).toContainText('Ada');
+    await expect(page.getByRole('button', { name: 'Follow' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Like placeholder' })).toBeVisible();
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Download' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Report' })).toBeVisible();
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('tab', { name: /Comments \(1\)/ }).click();
+    await expect(page.locator('#galleryModal .public-media-comments__list')).toContainText('<script>window.__publicMediaXss = 1</script> Rendered as text.');
+    await expect.poll(() => page.evaluate(() => window.__publicMediaXss)).toBe(0);
+  });
+
+  test('Sound Lab cover opens media details while play controls remain playback-only', async ({ page }) => {
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: [], next_cursor: null, has_more: false, applied_limit: 60 } }),
+      });
+    });
+    await page.route('**/api/gallery/memvids**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: [], next_cursor: null, has_more: false, applied_limit: 60 } }),
+      });
+    });
+    await page.route('**/api/gallery/memtracks/feedc0de/comments', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { comments: [], count: 0 } }),
+      });
+    });
+    await page.route('**/api/gallery/memtracks?**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [{
+              id: 'feedc0de',
+              slug: 'memtrack-feedc0de',
+              title: 'Neon Drift',
+              caption: 'Published by Ada on 2026-06-05.',
+              category: 'memtracks',
+              published_at: '2026-06-05T10:00:00.000Z',
+              comment_count: 0,
+              publisher: {
+                display_name: 'Ada',
+                stats: { public_media_count: 1 },
+              },
+              mime_type: 'audio/mpeg',
+              file: { url: '/api/gallery/memtracks/feedc0de/file' },
+              poster: { url: '/api/gallery/memtracks/feedc0de/poster', w: 320, h: 320 },
+              duration_seconds: 42,
+            }],
+            next_cursor: null,
+            has_more: false,
+            applied_limit: 60,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Sound Lab' }).click();
+    await expect(page.locator('#soundLabTracks .snd-card--memtrack')).toBeVisible();
+
+    await page.locator('#soundLabTracks .snd-card--memtrack .snd-memtrack-play').click();
+    await expect(page.locator('#memtrackModal.active')).toHaveCount(0);
+
+    await page.locator('#soundLabTracks .snd-card--memtrack .snd-hero').click();
+    await expect(page.locator('#memtrackModal.active .public-media-detail-panel')).toBeVisible();
+    await expect(page.locator('#memtrackModal')).toContainText('Neon Drift');
+    await expect(page.getByRole('tab', { name: /Comments \(0\)/ })).toBeVisible();
+  });
 });
 
 test.describe('Assets Manager (authenticated)', () => {

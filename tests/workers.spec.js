@@ -19061,7 +19061,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0062_homepage_hero_external_ffmpeg_and_memvid_stream_previews.sql',
+        latestAuthMigration: '0063_add_public_media_comments.sql',
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });
@@ -42002,6 +42002,168 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('public media comments require auth and reject private, empty, and oversized comments', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'commenter', role: 'user' }),
+        createContractUser({ id: 'mempic-owner', role: 'user' }),
+      ],
+      aiImages: [
+        {
+          id: 'aa11cc22',
+          user_id: 'mempic-owner',
+          r2_key: 'users/mempic-owner/public/aa11cc22.png',
+          created_at: '2026-04-10T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-10T09:30:00.000Z',
+        },
+        {
+          id: 'bb11cc22',
+          user_id: 'mempic-owner',
+          r2_key: 'users/mempic-owner/private/bb11cc22.png',
+          created_at: '2026-04-10T09:00:00.000Z',
+          visibility: 'private',
+          published_at: null,
+        },
+      ],
+    });
+    const token = await seedSession(env, 'commenter');
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+    };
+
+    const listRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics/aa11cc22/comments'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    await expect(listRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: { comments: [], count: 0 },
+    });
+
+    const unauthPost = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/aa11cc22/comments', 'POST', { body: 'Nice.' }, {
+        Origin: 'https://bitbi.ai',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unauthPost.status).toBe(401);
+
+    const privatePost = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/bb11cc22/comments', 'POST', { body: 'Private media?' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(privatePost.status).toBe(404);
+
+    const emptyPost = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/aa11cc22/comments', 'POST', { body: '   ' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(emptyPost.status).toBe(400);
+
+    const oversizedPost = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/aa11cc22/comments', 'POST', { body: 'x'.repeat(1001) }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(oversizedPost.status).toBe(400);
+    expect(env.DB.state.publicMediaComments).toHaveLength(0);
+  });
+
+  test('public media comments list sanitized authors and are deleted when a Mempic is unpublished', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'commenter', role: 'user' }),
+        createContractUser({ id: 'mempic-owner', role: 'user' }),
+      ],
+      profiles: [
+        {
+          user_id: 'commenter',
+          display_name: 'Comment Author',
+          has_avatar: 1,
+          avatar_updated_at: '2026-04-11T10:00:00.000Z',
+          created_at: '2026-04-01T00:00:00.000Z',
+          updated_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
+      aiImages: [
+        {
+          id: 'cc11aa22',
+          user_id: 'mempic-owner',
+          r2_key: 'users/mempic-owner/public/cc11aa22.png',
+          created_at: '2026-04-10T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-10T09:30:00.000Z',
+        },
+      ],
+    });
+    const commenterToken = await seedSession(env, 'commenter');
+    const ownerToken = await seedSession(env, 'mempic-owner');
+
+    const postRes = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/cc11aa22/comments', 'POST', {
+        body: '  <script>alert(1)</script>  Great texture.  ',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${commenterToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(postRes.status).toBe(201);
+    const postBody = await postRes.json();
+    expect(postBody.data.comment).toMatchObject({
+      body: '<script>alert(1)</script> Great texture.',
+      author: {
+        display_name: 'Comment Author',
+        avatar: {
+          url: expect.stringMatching(/^\/api\/gallery\/comments\/pmc_/),
+        },
+      },
+    });
+    expect(JSON.stringify(postBody)).not.toContain('commenter@example');
+    expect(JSON.stringify(postBody)).not.toContain('user_id');
+
+    const listRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics/cc11aa22/comments'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.data.count).toBe(1);
+    expect(listBody.data.comments[0].body).toBe('<script>alert(1)</script> Great texture.');
+    expect(JSON.stringify(listBody)).not.toContain('users/mempic-owner/');
+
+    const unpublishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/cc11aa22/publication', 'PATCH', {
+        visibility: 'private',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${ownerToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unpublishRes.status).toBe(200);
+    expect(env.DB.state.publicMediaComments).toHaveLength(0);
+
+    const hiddenListRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics/cc11aa22/comments'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(hiddenListRes.status).toBe(404);
+  });
+
   test('owner can publish and unpublish a saved music asset into public Memtracks', async () => {
     const { buildPublicMemtrackUrl, buildPublicMemtrackVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');
@@ -42222,6 +42384,99 @@ test.describe('Worker routes', () => {
       visibility: 'public',
       published_at: '2026-04-14T10:00:00.000Z',
     });
+  });
+
+  test('public Memvid and Memtrack comments are removed when text assets are unpublished or deleted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'commenter', role: 'user' }),
+        createContractUser({ id: 'media-owner', role: 'user' }),
+      ],
+      aiTextAssets: [
+        {
+          id: 'aa55ee11',
+          user_id: 'media-owner',
+          title: 'Public Video',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: '{}',
+          created_at: '2026-04-12T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T10:00:00.000Z',
+          r2_key: 'users/media-owner/video/aa55ee11.mp4',
+          poster_r2_key: null,
+        },
+        {
+          id: 'aa55ee12',
+          user_id: 'media-owner',
+          title: 'Public Track',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          metadata_json: '{}',
+          created_at: '2026-04-12T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T10:00:00.000Z',
+          r2_key: 'users/media-owner/music/aa55ee12.mp3',
+          poster_r2_key: null,
+        },
+      ],
+      userImages: {
+        'users/media-owner/video/aa55ee11.mp4': {
+          body: new TextEncoder().encode('video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+        'users/media-owner/music/aa55ee12.mp3': {
+          body: new TextEncoder().encode('audio').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+        },
+      },
+    });
+    const commenterToken = await seedSession(env, 'commenter');
+    const ownerToken = await seedSession(env, 'media-owner');
+    const commenterHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${commenterToken}`,
+    };
+    const ownerHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${ownerToken}`,
+    };
+
+    const videoComment = await authWorker.fetch(
+      authJsonRequest('/api/gallery/memvids/aa55ee11/comments', 'POST', { body: 'Great clip.' }, commenterHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(videoComment.status).toBe(201);
+    const trackComment = await authWorker.fetch(
+      authJsonRequest('/api/gallery/memtracks/aa55ee12/comments', 'POST', { body: 'Great track.' }, commenterHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(trackComment.status).toBe(201);
+    expect(env.DB.state.publicMediaComments).toHaveLength(2);
+
+    const unpublishVideo = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/aa55ee11/publication', 'PATCH', {
+        visibility: 'private',
+      }, ownerHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unpublishVideo.status).toBe(200);
+    expect(env.DB.state.publicMediaComments.map((row) => `${row.media_type}:${row.media_id}`)).toEqual(['memtracks:aa55ee12']);
+
+    const deleteTrack = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/ai/text-assets/aa55ee12', {
+        method: 'DELETE',
+        headers: ownerHeaders,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(deleteTrack.status).toBe(200);
+    expect(env.DB.state.publicMediaComments).toHaveLength(0);
   });
 
   test('public Mempics listing returns only explicitly published ready images and exposes only safe public fields', async () => {

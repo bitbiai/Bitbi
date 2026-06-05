@@ -12,6 +12,10 @@ import {
   buildPublicMemtrackUrl,
   buildPublicMemtrackVersion,
 } from "../../../../js/shared/public-media-contract.mjs";
+import {
+  loadPublicMediaCommentCounts,
+  loadPublicMediaCountsByUser,
+} from "../lib/public-media-comments.js";
 
 const DEFAULT_MEMTRACKS_LIMIT = 60;
 const MAX_MEMTRACKS_LIMIT = 120;
@@ -96,7 +100,10 @@ function buildPublicUnsatisfiableRangeResponse(size, contentType) {
   return new Response(null, { status: 416, headers });
 }
 
-function toPublicMemtrackRecord(row) {
+function toPublicMemtrackRecord(row, {
+  publisherPublicMediaCount = null,
+  commentCount = 0,
+} = {}) {
   const meta = parseMetadataJson(row.metadata_json);
   const durationMs = Number(meta.duration_ms ?? meta.audio?.duration_ms ?? 0);
   const durationSeconds = Number(meta.duration_seconds ?? 0);
@@ -105,14 +112,22 @@ function toPublicMemtrackRecord(row) {
   const publisher = {
     display_name: getPublicMemtrackOwnerLabel(row.owner_display_name),
   };
+  publisher.stats = {
+    public_media_count: Number.isFinite(Number(publisherPublicMediaCount))
+      ? Number(publisherPublicMediaCount)
+      : null,
+  };
   const record = {
     id: row.id,
     slug: `memtrack-${row.id}`,
     title: row.title || "Memtrack",
     caption: getPublicMemtrackCaption(row.owner_display_name, row.published_at || row.created_at),
     category: "memtracks",
+    published_at: row.published_at || null,
+    comment_count: Number(commentCount) || 0,
     publisher,
     mime_type: row.mime_type || "audio/mpeg",
+    size_bytes: Number(row.size_bytes) || null,
     file: {
       url: buildPublicMemtrackUrl(row.id, version, "file"),
     },
@@ -200,10 +215,12 @@ async function handleListMemtracks(ctx) {
             published_at,
             order_at,
             r2_key,
+            size_bytes,
             poster_r2_key,
             poster_width,
             poster_height,
             owner_display_name,
+            owner_user_id,
             owner_has_avatar,
             owner_avatar_updated_at
      FROM (
@@ -215,10 +232,12 @@ async function handleListMemtracks(ctx) {
               ai_text_assets.published_at,
               COALESCE(ai_text_assets.published_at, ai_text_assets.created_at) AS order_at,
               ai_text_assets.r2_key,
+              ai_text_assets.size_bytes,
               ai_text_assets.poster_r2_key,
               ai_text_assets.poster_width,
               ai_text_assets.poster_height,
               profiles.display_name AS owner_display_name,
+              ai_text_assets.user_id AS owner_user_id,
               profiles.has_avatar AS owner_has_avatar,
               profiles.avatar_updated_at AS owner_avatar_updated_at
        FROM ai_text_assets
@@ -235,11 +254,23 @@ async function handleListMemtracks(ctx) {
   const hasMore = resultRows.length > appliedLimit;
   const items = hasMore ? resultRows.slice(0, appliedLimit) : resultRows;
   const last = items[items.length - 1];
+  const publisherCounts = await loadPublicMediaCountsByUser(
+    env,
+    items.map((row) => row.owner_user_id).filter(Boolean)
+  );
+  const commentCounts = await loadPublicMediaCommentCounts(
+    env,
+    "memtracks",
+    items.map((row) => row.id).filter(Boolean)
+  );
 
   return json({
     ok: true,
     data: {
-      items: items.map((row) => toPublicMemtrackRecord(row)),
+      items: items.map((row) => toPublicMemtrackRecord(row, {
+        publisherPublicMediaCount: publisherCounts.get(row.owner_user_id) ?? null,
+        commentCount: commentCounts.get(row.id) ?? 0,
+      })),
       next_cursor: hasMore
         ? await encodePaginationCursor(env, PUBLIC_MEMTRACKS_CURSOR_TYPE, {
             o: last.order_at,

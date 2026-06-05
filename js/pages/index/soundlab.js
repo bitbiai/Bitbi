@@ -2,6 +2,7 @@
    BITBI - Sound Lab: public Memtracks playback
    ============================================================ */
 
+import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { formatTime } from '../../shared/format-time.js';
 import { createStarButton } from '../../shared/favorites.js';
 import {
@@ -29,6 +30,7 @@ import {
     getStableMediaWallAvailableWidth,
     parseCssLengthToPixels,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
+import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
 
 const MEMTRACKS_PAGE_LIMIT = 60;
 const PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT = 60;
@@ -58,7 +60,7 @@ export function initSoundLab(revealObserver) {
     if (plEl) {
         plEl.hidden = true;
         plEl.style.display = 'none';
-        plEl.innerHTML = '';
+        plEl.replaceChildren();
     }
 
     initGlobalAudioManager();
@@ -69,6 +71,10 @@ export function initSoundLab(revealObserver) {
     let memtrackWidthValidationToken = 0;
     let memtrackResizeObserver = null;
     let memtrackStageObserver = null;
+    let memtrackModal = null;
+    let memtrackFocusTrapCleanup = null;
+    let memtrackDetailPanel = null;
+    let memtrackModalAudioUnsubscribe = null;
     const mobileMediaQuery = getMobileMediaGridQuery();
     const desktopSoundLayoutQuery = window.matchMedia?.(DESKTOP_SOUND_LAYOUT_MEDIA);
     const memtracksState = {
@@ -324,6 +330,182 @@ export function initSoundLab(revealObserver) {
             durationSeconds: item.duration_seconds,
         };
     }
+
+    function buildMemtrackModal() {
+        const overlay = document.createElement('div');
+        overlay.id = 'memtrackModal';
+        overlay.className = 'modal-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+
+        const content = document.createElement('div');
+        content.className = 'modal-content';
+
+        const card = document.createElement('div');
+        card.className = 'modal-card modal-card--sound modal-card--public-detail';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'modal-action modal-action--right memtrack-modal-close';
+        closeBtn.setAttribute('aria-label', localeText('browse.closeMediaDetails'));
+        closeBtn.title = localeText('browse.close');
+        closeBtn.textContent = '×';
+
+        const media = document.createElement('div');
+        media.className = 'memtrack-modal__media';
+
+        const detailSlot = document.createElement('div');
+        detailSlot.className = 'public-media-detail-slot';
+
+        card.append(closeBtn, media, detailSlot);
+        content.appendChild(card);
+        overlay.appendChild(content);
+        closeBtn.addEventListener('click', closeMemtrackModal);
+        overlay.addEventListener('click', (event) => {
+            if (event.target === overlay) closeMemtrackModal();
+        });
+        return { root: overlay, media, detailSlot };
+    }
+
+    function syncMemtrackModalControls({ track, item, playButton, status, fill, progress }) {
+        return (state = getGlobalAudioState()) => {
+            const isActive = state.trackId === track.id;
+            const isPlaying = isActive && state.status === 'playing';
+            const duration = Number(state.duration || item.duration_seconds || 0);
+            const currentTime = isActive ? Number(state.currentTime || 0) : 0;
+            const percent = isActive && duration > 0 ? clamp((currentTime / duration) * 100, 0, 100) : 0;
+            playButton.textContent = isPlaying ? localeText('browse.pauseTrack') : localeText('browse.playTrack');
+            playButton.setAttribute('aria-label', isPlaying
+                ? localeText('browse.pause', { title: item.title || 'Memtrack' })
+                : localeText('browse.play', { title: item.title || 'Memtrack' }));
+            status.textContent = isActive && duration > 0
+                ? `${isPlaying ? localeText('browse.playing') : localeText('browse.paused')} · ${formatTime(currentTime)} / ${formatTime(duration)}`
+                : localeText('browse.readyToPlay');
+            fill.style.width = `${percent}%`;
+            progress.disabled = !isActive || duration <= 0;
+        };
+    }
+
+    function renderMemtrackModalMedia(item) {
+        const track = getMemtrackTrack(item);
+        const media = document.createElement('div');
+        media.className = 'memtrack-modal__player';
+        const poster = item.poster?.url || '';
+        if (poster) {
+            const cover = new Image();
+            cover.className = 'memtrack-modal__cover';
+            cover.src = poster;
+            cover.alt = item.title || 'Memtrack';
+            cover.loading = 'lazy';
+            cover.decoding = 'async';
+            media.appendChild(cover);
+        } else {
+            const fallback = document.createElement('div');
+            fallback.className = 'memtrack-modal__cover memtrack-modal__cover--fallback';
+            fallback.setAttribute('aria-hidden', 'true');
+            fallback.textContent = '\u266B';
+            media.appendChild(fallback);
+        }
+
+        const controls = document.createElement('div');
+        controls.className = 'memtrack-modal__controls';
+        const playButton = document.createElement('button');
+        playButton.type = 'button';
+        playButton.className = 'memtrack-modal__play';
+        playButton.textContent = localeText('browse.playTrack');
+        const status = document.createElement('p');
+        status.className = 'memtrack-modal__status';
+        status.textContent = localeText('browse.readyToPlay');
+        const progress = document.createElement('button');
+        progress.type = 'button';
+        progress.className = 'memtrack-modal__progress';
+        progress.setAttribute('aria-label', localeText('browse.seekTrack'));
+        const fill = document.createElement('span');
+        fill.className = 'memtrack-modal__progress-fill';
+        progress.appendChild(fill);
+        controls.append(playButton, status, progress);
+        media.appendChild(controls);
+
+        if (track) {
+            const sync = syncMemtrackModalControls({ track, item, playButton, status, fill, progress });
+            memtrackModalAudioUnsubscribe = subscribeGlobalAudioState(sync);
+            sync(getGlobalAudioState());
+            playButton.addEventListener('click', async () => {
+                const state = getGlobalAudioState();
+                if (state.trackId === track.id && state.status === 'playing') {
+                    pauseGlobalAudio();
+                    return;
+                }
+                if (state.trackId === track.id) {
+                    await resumeGlobalAudio(true);
+                    return;
+                }
+                playGlobalTrack(track);
+            });
+            progress.addEventListener('click', (event) => {
+                const state = getGlobalAudioState();
+                if (state.trackId !== track.id || !state.duration) return;
+                seekGlobalAudio(getSeekTimeFromPointer(progress, event, state.duration));
+            });
+        } else {
+            playButton.disabled = true;
+            progress.disabled = true;
+        }
+        return media;
+    }
+
+    function openMemtrackModal(item) {
+        if (!memtrackModal) {
+            memtrackModal = buildMemtrackModal();
+            document.body.appendChild(memtrackModal.root);
+        }
+        closeMemtrackModal({ keepShell: true });
+        memtrackModal.media.replaceChildren();
+        memtrackModal.media.appendChild(renderMemtrackModalMedia(item));
+        if (memtrackDetailPanel) {
+            memtrackDetailPanel.destroy();
+            memtrackDetailPanel = null;
+        }
+        memtrackModal.root.setAttribute('aria-label', item.title || localeText('browse.memtrackDetails'));
+        memtrackDetailPanel = createPublicMediaDetailPanel({
+            item,
+            collection: 'memtracks',
+            onCommentCountChange(count) {
+                item.comment_count = count;
+            },
+        });
+        memtrackModal.detailSlot.appendChild(memtrackDetailPanel.root);
+        memtrackModal.root.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        memtrackFocusTrapCleanup = setupFocusTrap(memtrackModal.root);
+    }
+
+    function closeMemtrackModal(options = {}) {
+        if (memtrackModalAudioUnsubscribe) {
+            memtrackModalAudioUnsubscribe();
+            memtrackModalAudioUnsubscribe = null;
+        }
+        if (memtrackDetailPanel) {
+            memtrackDetailPanel.destroy();
+            memtrackDetailPanel = null;
+        }
+        if (memtrackFocusTrapCleanup) {
+            memtrackFocusTrapCleanup();
+            memtrackFocusTrapCleanup = null;
+        }
+        if (!memtrackModal) return;
+        memtrackModal.media.replaceChildren();
+        memtrackModal.root.classList.remove('active');
+        if (!options.keepShell) {
+            document.body.style.overflow = '';
+        }
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && memtrackModal?.root.classList.contains('active')) {
+            closeMemtrackModal();
+        }
+    });
 
     function getCurrentMemtrackIndex(state = currentState) {
         return memtracksState.items.findIndex(item => state.trackId === `memtrack:${item.id}`);
@@ -612,6 +794,7 @@ export function initSoundLab(revealObserver) {
             thumb_url: posterUrl || item.file?.url || '',
         });
         star.style.cssText = 'position:absolute;top:8px;right:8px';
+        star.addEventListener('click', stopControlEvent);
         hero.appendChild(star);
         const publisherInfo = createPublisherInfo();
         if (publisherInfo) hero.appendChild(publisherInfo);
@@ -692,7 +875,18 @@ export function initSoundLab(revealObserver) {
         };
 
         playButton.addEventListener('click', playItem);
-        hero.addEventListener('click', playItem);
+        hero.setAttribute('role', 'button');
+        hero.tabIndex = 0;
+        hero.setAttribute('aria-label', localeText('browse.openMemtrackDetails', { title: item.title || 'Memtrack' }));
+        hero.addEventListener('click', (event) => {
+            event.stopPropagation();
+            openMemtrackModal(item);
+        });
+        hero.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            openMemtrackModal(item);
+        });
         row.addEventListener('click', stopControlEvent);
         bar.addEventListener('pointerdown', stopControlEvent);
         bar.addEventListener('click', (event) => {
@@ -770,7 +964,7 @@ export function initSoundLab(revealObserver) {
 
     function renderVisibleMemtracks() {
         const visibleItems = getVisibleMemtracks();
-        ctn.innerHTML = '';
+        ctn.replaceChildren();
         visibleItems.forEach((item) => {
             const card = createMemtrackCard(item);
             ctn.appendChild(card);
@@ -1097,6 +1291,7 @@ export function initSoundLab(revealObserver) {
     }
     document.fonts?.ready?.then(scheduleMemtrackWidthSync).catch(() => {});
     window.addEventListener('pagehide', () => {
+        closeMemtrackModal();
         if (memtrackResizeObserver) { memtrackResizeObserver.disconnect(); memtrackResizeObserver = null; }
         if (memtrackStageObserver) { memtrackStageObserver.disconnect(); memtrackStageObserver = null; }
         window.removeEventListener('resize', scheduleMemtrackWidthSync);

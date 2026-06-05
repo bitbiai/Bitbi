@@ -18,6 +18,10 @@ import {
   toPublicStreamPreview,
 } from "../lib/cloudflare-stream-previews.js";
 import {
+  loadPublicMediaCommentCounts,
+  loadPublicMediaCountsByUser,
+} from "../lib/public-media-comments.js";
+import {
   BODY_LIMITS,
   readJsonBodyOrResponse,
 } from "../lib/request.js";
@@ -75,7 +79,10 @@ function getManualUploadAspectDimensions(metadata) {
   return MANUAL_UPLOAD_ASPECT_DIMENSIONS[aspectRatio] || null;
 }
 
-function toPublicMemvidRecord(row, streamPreview = null) {
+function toPublicMemvidRecord(row, streamPreview = null, {
+  publisherPublicMediaCount = null,
+  commentCount = 0,
+} = {}) {
   const meta = parseMetadataJson(row.metadata_json);
   const fallbackDimensions = getManualUploadAspectDimensions(meta);
   const canUseFallbackDimensions = row.poster_width == null && row.poster_height == null && fallbackDimensions;
@@ -86,19 +93,34 @@ function toPublicMemvidRecord(row, streamPreview = null) {
   const publisher = {
     display_name: getPublicMemvidOwnerLabel(row.owner_display_name),
   };
+  publisher.stats = {
+    public_media_count: Number.isFinite(Number(publisherPublicMediaCount))
+      ? Number(publisherPublicMediaCount)
+      : null,
+  };
   const record = {
     id: row.id,
     slug: `memvid-${row.id}`,
     title: row.title || "Memvids",
     caption: getPublicMemvidCaption(row.owner_display_name, row.published_at || row.created_at),
     category: "memvids",
+    published_at: row.published_at || null,
+    comment_count: Number(commentCount) || 0,
     publisher,
     mime_type: row.mime_type || "video/mp4",
+    size_bytes: Number(row.size_bytes) || null,
     file: {
       url: buildPublicMemvidUrl(row.id, version, "file"),
     },
     duration_seconds: meta.duration_seconds ?? null,
   };
+  if (meta.aspect_ratio) record.aspect_ratio = meta.aspect_ratio;
+  if (Number.isFinite(Number(meta.width)) && Number.isFinite(Number(meta.height))) {
+    record.width = Number(meta.width);
+    record.height = Number(meta.height);
+    record.video_width = Number(meta.width);
+    record.video_height = Number(meta.height);
+  }
   if (canUseFallbackDimensions) {
     record.width = fallbackDimensions.width;
     record.height = fallbackDimensions.height;
@@ -235,10 +257,12 @@ async function handleListMemvids(ctx) {
             published_at,
             order_at,
             r2_key,
+            size_bytes,
             poster_r2_key,
             poster_width,
             poster_height,
             owner_display_name,
+            owner_user_id,
             owner_has_avatar,
             owner_avatar_updated_at
      FROM (
@@ -250,10 +274,12 @@ async function handleListMemvids(ctx) {
               ai_text_assets.published_at,
               COALESCE(ai_text_assets.published_at, ai_text_assets.created_at) AS order_at,
               ai_text_assets.r2_key,
+              ai_text_assets.size_bytes,
               ai_text_assets.poster_r2_key,
               ai_text_assets.poster_width,
               ai_text_assets.poster_height,
               profiles.display_name AS owner_display_name,
+              ai_text_assets.user_id AS owner_user_id,
               profiles.has_avatar AS owner_has_avatar,
               profiles.avatar_updated_at AS owner_avatar_updated_at
        FROM ai_text_assets
@@ -276,11 +302,23 @@ async function handleListMemvids(ctx) {
     items.map((row) => row.id).filter(Boolean),
     streamPreviewConfig
   );
+  const publisherCounts = await loadPublicMediaCountsByUser(
+    env,
+    items.map((row) => row.owner_user_id).filter(Boolean)
+  );
+  const commentCounts = await loadPublicMediaCommentCounts(
+    env,
+    "memvids",
+    items.map((row) => row.id).filter(Boolean)
+  );
 
   return json({
     ok: true,
     data: {
-      items: items.map((row) => toPublicMemvidRecord(row, streamPreviews.get(row.id) || null)),
+      items: items.map((row) => toPublicMemvidRecord(row, streamPreviews.get(row.id) || null, {
+        publisherPublicMediaCount: publisherCounts.get(row.owner_user_id) ?? null,
+        commentCount: commentCounts.get(row.id) ?? 0,
+      })),
       next_cursor: hasMore
         ? await encodePaginationCursor(env, PUBLIC_MEMVIDS_CURSOR_TYPE, {
             o: last.order_at,

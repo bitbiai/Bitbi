@@ -14,6 +14,11 @@ import {
   isMissingTextAssetTableError,
 } from "./helpers.js";
 import { logDiagnostic } from "../../../../../js/shared/worker-observability.mjs";
+import {
+  buildDeletePublicMediaCommentsStatements,
+  publicMediaCommentEntryForImage,
+  publicMediaCommentEntryForTextAsset,
+} from "../../lib/public-media-comments.js";
 
 const CLEANUP_QUEUE_BATCH_SIZE = 100;
 
@@ -267,6 +272,20 @@ function buildAiTextAssetDeleteStatement(env, userId, assetId) {
   ).bind(assetId, userId);
 }
 
+function buildPublicMediaCommentCleanupStatementsForImages(env, imageRows = []) {
+  return buildDeletePublicMediaCommentsStatements(
+    env,
+    imageRows.map(publicMediaCommentEntryForImage).filter(Boolean)
+  );
+}
+
+function buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows = []) {
+  return buildDeletePublicMediaCommentsStatements(
+    env,
+    textRows.map(publicMediaCommentEntryForTextAsset).filter(Boolean)
+  );
+}
+
 function isMissingHomepageHeroVideoTableError(error) {
   const message = String(error?.message || error || "");
   return message.includes("no such table") && message.includes("homepage_hero_video_");
@@ -388,7 +407,7 @@ async function loadOwnedAiTextAssetRowsByIds(env, userId, assetIds, { allowMissi
   const placeholders = assetIds.map(() => "?").join(",");
   try {
     const result = await env.DB.prepare(
-      `SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
+      `SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
     ).bind(...assetIds, userId).all();
     return result.results || [];
   } catch (error) {
@@ -408,7 +427,7 @@ async function loadOwnedAiTextAssetRowsByIds(env, userId, assetIds, { allowMissi
 async function loadUserAiImages(env, userId) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE user_id = ?"
+      "SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE user_id = ?"
     ).bind(userId).all();
     return result.results || [];
   } catch (error) {
@@ -425,7 +444,7 @@ async function loadUserAiImages(env, userId) {
 async function loadFolderAiImages(env, userId, folderId) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE folder_id = ? AND user_id = ?"
+      "SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE folder_id = ? AND user_id = ?"
     ).bind(folderId, userId).all();
     return result.results || [];
   } catch (error) {
@@ -442,7 +461,7 @@ async function loadFolderAiImages(env, userId, folderId) {
 async function loadUserAiTextAssets(env, userId, { allowMissingTable = false } = {}) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?"
+      "SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?"
     ).bind(userId).all();
     return result.results || [];
   } catch (error) {
@@ -462,7 +481,7 @@ async function loadUserAiTextAssets(env, userId, { allowMissingTable = false } =
 async function loadFolderAiTextAssets(env, userId, folderId, { allowMissingTable = false } = {}) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
+      "SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
     ).bind(folderId, userId).all();
     return result.results || [];
   } catch (error) {
@@ -568,7 +587,7 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
   let row;
   try {
     row = await env.DB.prepare(
-      "SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ?"
+      "SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ?"
     ).bind(imageId, userId).first();
   } catch (error) {
     if (isMissingAiImageTableError(error)) {
@@ -589,12 +608,15 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
   const { mutationResults, cleanupKeys } = await executeLifecycleBatch({
     env,
     cleanupKeys: collectCleanupKeys([row], []),
-    mutationStatements: [buildAiImageDeleteStatement(env, userId, imageId)],
+    mutationStatements: [
+      ...buildPublicMediaCommentCleanupStatementsForImages(env, [row]),
+      buildAiImageDeleteStatement(env, userId, imageId),
+    ],
     unavailableMessage: "Service temporarily unavailable. Please try again later.",
     failureMessage: "Delete failed. Please try again.",
   });
 
-  const deleted = mutationResults[0]?.meta?.changes || 0;
+  const deleted = mutationResults[mutationResults.length - 1]?.meta?.changes || 0;
   if (deleted !== 1) {
     throw new AiAssetLifecycleError("Delete failed. Image may have already been removed.", 409, {
       branch: "delete_conflict",
@@ -609,7 +631,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
   let row;
   try {
     row = await env.DB.prepare(
-      "SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?"
+      "SELECT id, source_module, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?"
     ).bind(assetId, userId).first();
   } catch (error) {
     if (isMissingTextAssetTableError(error)) {
@@ -657,6 +679,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
   const mutationStatements = [
     ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
     ...buildMemvidStreamPreviewCleanupStatements(env, { userId, assetId }),
+    ...buildPublicMediaCommentCleanupStatementsForTextAssets(env, [row]),
     buildAiTextAssetDeleteStatement(env, userId, assetId),
   ];
 
@@ -679,6 +702,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
       cleanupKeys: collectCleanupKeys([], [row]),
       mutationStatements: [
         ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
+        ...buildPublicMediaCommentCleanupStatementsForTextAssets(env, [row]),
         buildAiTextAssetDeleteStatement(env, userId, assetId),
       ],
       unavailableMessage: "Text asset service unavailable. Please try again later.",
@@ -886,11 +910,13 @@ export async function deleteUserAiAssets({ env, userId, assetIds, createdAt = no
   let textDeleteIndex = -1;
 
   if (imageIds.length > 0) {
+    mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows));
     imageDeleteIndex = mutationStatements.length;
     mutationStatements.push(buildImageDeleteStatementForIds(env, userId, imageIds));
   }
 
   if (textIds.length > 0) {
+    mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows));
     textDeleteIndex = mutationStatements.length;
     mutationStatements.push(buildTextAssetDeleteStatementForIds(env, userId, textIds));
   }
@@ -948,13 +974,16 @@ export async function deleteUserAiImages({ env, userId, imageIds, createdAt = no
   const { mutationResults, cleanupKeys } = await executeLifecycleBatch({
     env,
     cleanupKeys: collectCleanupKeys(imageRows, []),
-    mutationStatements: [buildImageDeleteStatementForIds(env, userId, matchedIds)],
+    mutationStatements: [
+      ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
+      buildImageDeleteStatementForIds(env, userId, matchedIds),
+    ],
     createdAt,
     unavailableMessage: "Service temporarily unavailable. Please try again later.",
     failureMessage: "Delete failed. Please try again.",
   });
 
-  details.deleted_ai_images_count = mutationResults[0]?.meta?.changes || 0;
+  details.deleted_ai_images_count = mutationResults[mutationResults.length - 1]?.meta?.changes || 0;
   if (details.deleted_ai_images_count !== imageIds.length) {
     throw new AiAssetLifecycleError("Delete failed. Some images may have already been removed.", 409, {
       branch: "delete_conflict",
@@ -986,10 +1015,12 @@ export async function deleteUserAiFolder({ env, userId, folderId, createdAt = no
     const imageRows = await loadFolderAiImages(env, userId, folderId);
     const textRows = await loadFolderAiTextAssets(env, userId, folderId, { allowMissingTable: true });
     const mutationStatements = [
+      ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
       env.DB.prepare("DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?").bind(folderId, userId),
     ];
 
     if (textRows.length > 0) {
+      mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows));
       mutationStatements.push(
         env.DB.prepare("DELETE FROM ai_text_assets WHERE folder_id = ? AND user_id = ?").bind(folderId, userId)
       );
@@ -1027,14 +1058,16 @@ export async function deleteAllUserAiAssets({
 }) {
   const imageRows = await loadUserAiImages(env, userId);
   const textRows = await loadUserAiTextAssets(env, userId, { allowMissingTable: true });
-  const imageDeleteIndex = 0;
+  const mutationStatements = [
+    ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
+  ];
+  const imageDeleteIndex = mutationStatements.length;
   let textDeleteIndex = -1;
   let folderDeleteIndex = 1;
-  const mutationStatements = [
-    env.DB.prepare("DELETE FROM ai_images WHERE user_id = ?").bind(userId),
-  ];
+  mutationStatements.push(env.DB.prepare("DELETE FROM ai_images WHERE user_id = ?").bind(userId));
 
   if (textRows.length > 0) {
+    mutationStatements.push(...buildPublicMediaCommentCleanupStatementsForTextAssets(env, textRows));
     textDeleteIndex = mutationStatements.length;
     mutationStatements.push(
       {

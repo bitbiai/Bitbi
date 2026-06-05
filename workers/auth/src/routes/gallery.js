@@ -12,6 +12,10 @@ import {
   buildPublicMempicUrl,
   buildPublicMempicVersion,
 } from "../../../../js/shared/public-media-contract.mjs";
+import {
+  loadPublicMediaCommentCounts,
+  loadPublicMediaCountsByUser,
+} from "../lib/public-media-comments.js";
 
 const DEFAULT_MEMPICS_LIMIT = 60;
 const MAX_MEMPICS_LIMIT = 120;
@@ -43,11 +47,19 @@ function getPublicMempicCaption(displayName, publishedAt) {
   return `Published by ${ownerLabel}.`;
 }
 
-function toPublicMempicRecord(row) {
+function toPublicMempicRecord(row, {
+  publisherPublicMediaCount = null,
+  commentCount = 0,
+} = {}) {
   const version = buildPublicMempicVersion(row);
   const avatarVersion = Number(row.owner_has_avatar) ? buildPublicPublisherAvatarVersion(row.owner_avatar_updated_at) : null;
   const publisher = {
     display_name: getPublicMempicOwnerLabel(row.owner_display_name),
+  };
+  publisher.stats = {
+    public_media_count: Number.isFinite(Number(publisherPublicMediaCount))
+      ? Number(publisherPublicMediaCount)
+      : null,
   };
   if (avatarVersion) {
     publisher.avatar = {
@@ -60,6 +72,8 @@ function toPublicMempicRecord(row) {
     title: getPublicMempicTitle(),
     caption: getPublicMempicCaption(row.owner_display_name, row.published_at || row.created_at),
     category: "mempics",
+    published_at: row.published_at || null,
+    comment_count: Number(commentCount) || 0,
     publisher,
     thumb: {
       url: buildPublicMempicUrl(row.id, version, "thumb"),
@@ -150,6 +164,7 @@ async function handleListMempics(ctx) {
             derivatives_version,
             derivatives_ready_at,
             owner_display_name,
+            owner_user_id,
             owner_has_avatar,
             owner_avatar_updated_at
      FROM (
@@ -167,6 +182,7 @@ async function handleListMempics(ctx) {
               ai_images.derivatives_version,
               ai_images.derivatives_ready_at,
               profiles.display_name AS owner_display_name,
+              ai_images.user_id AS owner_user_id,
               profiles.has_avatar AS owner_has_avatar,
               profiles.avatar_updated_at AS owner_avatar_updated_at
        FROM ai_images
@@ -185,11 +201,23 @@ async function handleListMempics(ctx) {
   const hasMore = resultRows.length > appliedLimit;
   const items = hasMore ? resultRows.slice(0, appliedLimit) : resultRows;
   const last = items[items.length - 1];
+  const publisherCounts = await loadPublicMediaCountsByUser(
+    env,
+    items.map((row) => row.owner_user_id).filter(Boolean)
+  );
+  const commentCounts = await loadPublicMediaCommentCounts(
+    env,
+    "mempics",
+    items.map((row) => row.id).filter(Boolean)
+  );
 
   return json({
     ok: true,
     data: {
-      items: items.map((row) => toPublicMempicRecord(row)),
+      items: items.map((row) => toPublicMempicRecord(row, {
+        publisherPublicMediaCount: publisherCounts.get(row.owner_user_id) ?? null,
+        commentCount: commentCounts.get(row.id) ?? 0,
+      })),
       next_cursor: hasMore
         ? await encodePaginationCursor(env, PUBLIC_MEMPICS_CURSOR_TYPE, {
             o: last.order_at,

@@ -21,6 +21,7 @@ import {
     clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
+import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 
@@ -38,6 +39,7 @@ const PUBLIC_EXPLORE_MIN_PREFETCH_PAGE_SIZE = 20;
 const WIDE_COLUMN_FALLBACK_PX = 297;
 
 let focusTrapCleanup = null;
+let galleryDetailPanel = null;
 
 export function initGallery() {
     const grid = document.getElementById('galleryGrid');
@@ -61,6 +63,7 @@ export function initGallery() {
     let mempicsStageObserver = null;
     let mempicsResizeFrame = 0;
     let mempicsResizeSettledTimer = 0;
+    let suppressNextGalleryCardClick = false;
 
     const mobileMediaQuery = getMobileMediaGridQuery();
     const $paginationStatus = document.createElement('button');
@@ -538,7 +541,13 @@ export function initGallery() {
         }
 
         card.appendChild(inner);
-        card.addEventListener('click', () => openModal(item));
+        card.addEventListener('click', () => {
+            if (suppressNextGalleryCardClick) {
+                suppressNextGalleryCardClick = false;
+                return;
+            }
+            openModal(item);
+        });
         card.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
@@ -622,6 +631,17 @@ export function initGallery() {
     function openModal(item) {
         const mi = document.getElementById('modalImage');
         const fullLink = document.getElementById('modalFullLink');
+        const card = modal.querySelector('.modal-card');
+        let detailSlot = modal.querySelector('.public-media-detail-slot');
+        if (!detailSlot) {
+            detailSlot = document.createElement('div');
+            detailSlot.className = 'public-media-detail-slot';
+            card?.appendChild(detailSlot);
+        }
+        if (galleryDetailPanel) {
+            galleryDetailPanel.destroy();
+            galleryDetailPanel = null;
+        }
         mi.style.background = '#0D1B2A';
         const modalImg = new Image();
         modalImg.src = item.preview.url;
@@ -637,6 +657,17 @@ export function initGallery() {
         mi.appendChild(modalImg);
         document.getElementById('modalTitle').textContent = item.title;
         document.getElementById('modalCaption').textContent = item.caption;
+        card?.classList.add('modal-card--public-detail');
+        modal.setAttribute('aria-label', item.title || localeText('browse.mediaDetails'));
+        modal.removeAttribute('aria-labelledby');
+        galleryDetailPanel = createPublicMediaDetailPanel({
+            item,
+            collection: 'mempics',
+            onCommentCountChange(count) {
+                item.comment_count = count;
+            },
+        });
+        detailSlot.appendChild(galleryDetailPanel.root);
 
         /* Show open-full link only for public items with a full variant */
         if (fullLink) {
@@ -665,14 +696,26 @@ export function initGallery() {
 
     function closeModal() {
         const fullLink = document.getElementById('modalFullLink');
+        const card = modal.querySelector('.modal-card');
+        if (galleryDetailPanel) {
+            galleryDetailPanel.destroy();
+            galleryDetailPanel = null;
+        }
         if (fullLink) {
             fullLink.href = '#';
             fullLink.hidden = true;
             fullLink.setAttribute('tabindex', '-1');
             fullLink.onclick = null;
         }
+        card?.classList.remove('modal-card--public-detail');
+        modal.removeAttribute('aria-label');
+        modal.setAttribute('aria-labelledby', 'modalTitle');
         modal.classList.remove('active');
         modal.setAttribute('aria-hidden', 'true');
+        suppressNextGalleryCardClick = true;
+        window.setTimeout(() => {
+            suppressNextGalleryCardClick = false;
+        }, 400);
         document.body.style.overflow = '';
         if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
     }

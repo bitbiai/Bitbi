@@ -25,6 +25,7 @@ import {
     clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
+import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
@@ -66,6 +67,7 @@ export function initVideoGallery() {
     let memvidsResizeFrame = 0;
     let memvidsResizeSettledTimer = 0;
     let activeHoverPreview = null;
+    let videoDetailPanel = null;
 
     /* Replace the teaser placeholder with a live grid */
     container.innerHTML = '';
@@ -955,7 +957,7 @@ export function initVideoGallery() {
         content.className = 'modal-content';
 
         const card = document.createElement('div');
-        card.className = 'modal-card modal-card--video';
+        card.className = 'modal-card modal-card--video modal-card--public-detail';
 
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
@@ -985,10 +987,14 @@ export function initVideoGallery() {
         body.appendChild(titleEl);
         body.appendChild(captionEl);
 
+        const detailSlot = document.createElement('div');
+        detailSlot.className = 'public-media-detail-slot';
+
         card.appendChild(closeBtn);
         card.appendChild(favoriteSlot);
         card.appendChild(videoWrap);
         card.appendChild(body);
+        card.appendChild(detailSlot);
         content.appendChild(card);
         overlay.appendChild(content);
 
@@ -997,7 +1003,7 @@ export function initVideoGallery() {
             if (e.target === overlay) closeVideoModal();
         });
 
-        return { root: overlay, favoriteSlot, videoWrap, titleEl, captionEl };
+        return { root: overlay, favoriteSlot, videoWrap, titleEl, captionEl, detailSlot };
     }
 
     function openVideoModal(item) {
@@ -1011,18 +1017,31 @@ export function initVideoGallery() {
         video.style.cssText = 'width:100%;max-height:70vh;display:block;border-radius:8px;background:#000';
         video.src = item.file.url;
 
-        const star = createStarButton('video', item.id, {
-            title: displayTitle || 'Video',
+        if (videoDetailPanel) {
+            videoDetailPanel.destroy();
+            videoDetailPanel = null;
+        }
+        modal.favoriteSlot.replaceChildren();
+        const favorite = createStarButton('video', item.id, {
+            title: displayTitle || item.title || 'Memvids',
             thumb_url: item.poster?.url || '',
         });
-        star.classList.add('video-modal__fav');
-
-        modal.favoriteSlot.innerHTML = '';
-        modal.favoriteSlot.appendChild(star);
-        modal.videoWrap.innerHTML = '';
+        favorite.classList.add('video-modal__fav');
+        modal.favoriteSlot.appendChild(favorite);
+        modal.videoWrap.replaceChildren();
         modal.videoWrap.appendChild(video);
         modal.titleEl.textContent = displayTitle || 'Memvids';
         modal.captionEl.textContent = displayCaption;
+        modal.root.setAttribute('aria-label', displayTitle || localeText('browse.mediaDetails'));
+        modal.root.removeAttribute('aria-labelledby');
+        videoDetailPanel = createPublicMediaDetailPanel({
+            item,
+            collection: 'memvids',
+            onCommentCountChange(count) {
+                item.comment_count = count;
+            },
+        });
+        modal.detailSlot.appendChild(videoDetailPanel.root);
 
         modal.root.classList.add('active');
         document.body.style.overflow = 'hidden';
@@ -1038,7 +1057,13 @@ export function initVideoGallery() {
             video.load();
         }
 
-        modal.favoriteSlot.innerHTML = '';
+        if (videoDetailPanel) {
+            videoDetailPanel.destroy();
+            videoDetailPanel = null;
+        }
+        modal.favoriteSlot.replaceChildren();
+        modal.root.removeAttribute('aria-label');
+        modal.root.setAttribute('aria-labelledby', 'videoModalTitle');
         modal.root.classList.remove('active');
         document.body.style.overflow = '';
         if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
