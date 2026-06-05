@@ -6244,6 +6244,208 @@ test.describe('Homepage', () => {
     await expect(page.locator('#modalFullLink')).toHaveAttribute('href', `/api/gallery/mempics/d4c3b2a1/${mempicVersion}/file`);
   });
 
+  test('public media details overlays fit the viewport and keep comments in the Comments tab', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+
+    const commentsRequests = [];
+    const longTitle = 'Long public media title with emoji 🚀 detail';
+
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.route('**/api/favorites', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, favorites: [] }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/(mempics|memvids|memtracks)\/[^/]+\/comments(?:\?.*)?$/, async (route) => {
+      commentsRequests.push(route.request().url());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { count: 0, comments: [] } }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'detail-mempic',
+                slug: 'detail-mempic',
+                title: longTitle,
+                caption: 'A long-caption public Mempic.',
+                category: 'mempics',
+                published_at: '2026-04-12T10:00:00.000Z',
+                comment_count: 0,
+                publisher: {
+                  display_name: 'Ada Member',
+                  stats: { public_media_count: 3 },
+                },
+                thumb: { url: '/api/gallery/mempics/detail-mempic/thumb', w: 360, h: 360 },
+                preview: { url: '/api/gallery/mempics/detail-mempic/medium', w: 1600, h: 1200 },
+                full: { url: '/api/gallery/mempics/detail-mempic/file' },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: TEST_PNG_BYTES });
+    });
+
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'detail-memvid',
+                slug: 'detail-memvid',
+                title: 'Detail Memvid',
+                caption: 'A public Memvid.',
+                category: 'memvids',
+                published_at: '2026-04-13T10:00:00.000Z',
+                comment_count: 0,
+                publisher: {
+                  display_name: 'Ada Member',
+                  stats: { public_media_count: 3 },
+                },
+                file: { url: '/api/gallery/memvids/detail-memvid/file' },
+                poster: { url: '/api/gallery/memvids/detail-memvid/poster', w: 1280, h: 720 },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/memvids\/[^/]+\/(file|poster)$/, async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({ status: 200, contentType: 'image/png', body: TEST_PNG_BYTES });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'video/mp4', body: TEST_MP4_BYTES });
+    });
+
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'detail-memtrack',
+                slug: 'detail-memtrack',
+                title: 'Detail Memtrack',
+                caption: 'A public Memtrack.',
+                category: 'memtracks',
+                published_at: '2026-04-14T10:00:00.000Z',
+                comment_count: 0,
+                publisher: {
+                  display_name: 'Ada Member',
+                  stats: { public_media_count: 3 },
+                },
+                file: { url: '/api/gallery/memtracks/detail-memtrack/file' },
+                poster: { url: '/api/gallery/memtracks/detail-memtrack/poster', w: 640, h: 640 },
+              },
+            ],
+            has_more: false,
+            next_cursor: null,
+            applied_limit: 60,
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/memtracks\/[^/]+\/(file|poster)$/, async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({ status: 200, contentType: 'image/png', body: TEST_PNG_BYTES });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('mock-audio') });
+    });
+
+    const expectPublicDetailFits = async (modalSelector) => {
+      const metrics = await page.locator(`${modalSelector} .modal-content--public-detail`).evaluate((content) => {
+        const card = content.querySelector('.modal-card--public-detail');
+        const doc = document.documentElement;
+        return {
+          viewport: window.innerWidth,
+          documentOverflow: doc.scrollWidth - doc.clientWidth,
+          contentWidth: content.getBoundingClientRect().width,
+          contentOverflow: content.scrollWidth - content.clientWidth,
+          cardOverflow: (card?.scrollWidth || 0) - (card?.clientWidth || 0),
+        };
+      });
+      expect(metrics.documentOverflow).toBeLessThanOrEqual(1);
+      expect(metrics.contentOverflow).toBeLessThanOrEqual(1);
+      expect(metrics.cardOverflow).toBeLessThanOrEqual(1);
+      expect(metrics.contentWidth).toBeLessThanOrEqual(metrics.viewport * 0.8 + 1);
+      expect(metrics.contentWidth).toBeGreaterThanOrEqual(metrics.viewport * 0.8 - 2);
+    };
+
+    await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
+
+    await page.locator('#galleryGrid .gallery-item:not(.locked-area):visible').first().click();
+    await expect(page.locator('#galleryModal')).toHaveClass(/active/);
+    await expectPublicDetailFits('#galleryModal');
+
+    const galleryDetail = page.locator('#galleryModal .public-media-detail-panel');
+    const visibleTitle = await galleryDetail.locator('.public-media-detail__title').textContent();
+    expect(Array.from(visibleTitle || '').length).toBeLessThanOrEqual(21);
+    expect(visibleTitle).toMatch(/…$/);
+    await expect(galleryDetail.locator('.public-media-detail__facts')).not.toContainText('Comment count');
+    await expect(galleryDetail.locator('.public-media-detail__tab-panel--comments')).toBeHidden();
+    await expect(galleryDetail.locator('.public-media-comments__input')).toBeHidden();
+    await expect(galleryDetail).not.toContainText('No comments yet');
+    expect(commentsRequests).toHaveLength(0);
+
+    await galleryDetail.getByRole('tab', { name: 'Comments (0)' }).click();
+    await expect.poll(() => commentsRequests.length).toBe(1);
+    await expect(galleryDetail.locator('.public-media-comments__status')).toHaveText('No comments yet');
+    await expect(galleryDetail.locator('.public-media-comments__auth-hint')).toHaveText('Sign in to write a comment.');
+    await expect(galleryDetail.locator('.public-media-comments__input')).toBeHidden();
+    await expect(galleryDetail.locator('.public-media-comments__submit')).toBeHidden();
+    await expect(page.locator('.auth-modal__overlay.active')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/$/);
+    await page.locator('#galleryModal .modal-close').click();
+
+    await switchHomepageCategory(page, 'video');
+    await page.locator('#videoGrid .video-card:visible').first().click();
+    await expect(page.locator('#videoModal')).toHaveClass(/active/);
+    await expectPublicDetailFits('#videoModal');
+    await page.locator('#videoModal .video-modal-close').click();
+
+    await switchHomepageCategory(page, 'sound');
+    await waitForSoundWidthReady(page, 1);
+    await page.locator('#soundLabTracks .snd-card--memtrack:visible .snd-hero').first().click();
+    await expect(page.locator('#memtrackModal')).toHaveClass(/active/);
+    await expectPublicDetailFits('#memtrackModal');
+    await page.locator('#memtrackModal .memtrack-modal-close').click();
+  });
+
   test('Gallery and Sound Lab cleanup remove stale Exclusive admin references', () => {
     const adminHtml = fs.readFileSync(path.join(process.cwd(), 'admin/index.html'), 'utf8');
     const adminJs = fs.readFileSync(path.join(process.cwd(), 'js/pages/admin/main.js'), 'utf8');

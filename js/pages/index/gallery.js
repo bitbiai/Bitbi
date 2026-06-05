@@ -631,6 +631,7 @@ export function initGallery() {
     function openModal(item) {
         const mi = document.getElementById('modalImage');
         const fullLink = document.getElementById('modalFullLink');
+        const content = modal.querySelector('.modal-content');
         const card = modal.querySelector('.modal-card');
         let detailSlot = modal.querySelector('.public-media-detail-slot');
         if (!detailSlot) {
@@ -657,6 +658,7 @@ export function initGallery() {
         mi.appendChild(modalImg);
         document.getElementById('modalTitle').textContent = item.title;
         document.getElementById('modalCaption').textContent = item.caption;
+        content?.classList.add('modal-content--public-detail');
         card?.classList.add('modal-card--public-detail');
         modal.setAttribute('aria-label', item.title || localeText('browse.mediaDetails'));
         modal.removeAttribute('aria-labelledby');
@@ -696,6 +698,7 @@ export function initGallery() {
 
     function closeModal() {
         const fullLink = document.getElementById('modalFullLink');
+        const content = modal.querySelector('.modal-content');
         const card = modal.querySelector('.modal-card');
         if (galleryDetailPanel) {
             galleryDetailPanel.destroy();
@@ -707,6 +710,7 @@ export function initGallery() {
             fullLink.setAttribute('tabindex', '-1');
             fullLink.onclick = null;
         }
+        content?.classList.remove('modal-content--public-detail');
         card?.classList.remove('modal-card--public-detail');
         modal.removeAttribute('aria-label');
         modal.setAttribute('aria-labelledby', 'modalTitle');

@@ -1,7 +1,11 @@
 import { formatTime } from '../../shared/format-time.js';
+import { apiGetMe } from '../../shared/auth-api.js';
+import { getAuthState } from '../../shared/auth-state.js';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const COMMENT_BODY_MAX_LENGTH = 1000;
+const PUBLIC_DETAIL_TITLE_MAX_LENGTH = 21;
+let commentAuthStatePromise = null;
 
 function getLocale() {
     const lang = String(document.documentElement?.lang || '').toLowerCase();
@@ -56,8 +60,26 @@ function getMediaDetails(item, collection) {
     if (item?.aspect_ratio) details.push([localeText('browse.aspect'), item.aspect_ratio]);
     const size = formatBytes(item?.size_bytes);
     if (size) details.push([localeText('browse.fileSize'), size]);
-    details.push([localeText('browse.commentCount'), String(Number(item?.comment_count) || 0)]);
     return details;
+}
+
+function truncatePublicDetailTitle(value, maxLength = PUBLIC_DETAIL_TITLE_MAX_LENGTH) {
+    const fallback = String(value || '').trim();
+    if (!fallback) return '';
+    const characters = Array.from(fallback);
+    if (characters.length <= maxLength) return fallback;
+    return `${characters.slice(0, Math.max(0, maxLength - 1)).join('')}…`;
+}
+
+async function resolveCommentAuthState() {
+    const state = getAuthState();
+    if (state.ready) return !!state.loggedIn;
+    if (!commentAuthStatePromise) {
+        commentAuthStatePromise = apiGetMe()
+            .then((result) => !!(result?.ok && result.data?.loggedIn && result.data?.user))
+            .catch(() => false);
+    }
+    return commentAuthStatePromise;
 }
 
 function createButton(text, className) {
@@ -180,7 +202,7 @@ export function createPublicMediaDetailPanel({
 
     const title = document.createElement('h3');
     title.className = 'public-media-detail__title';
-    title.textContent = item?.title || getCollectionLabel(collection);
+    title.textContent = truncatePublicDetailTitle(item?.title || getCollectionLabel(collection));
     root.appendChild(title);
     if (item?.caption) {
         const caption = document.createElement('p');
@@ -225,6 +247,10 @@ export function createPublicMediaDetailPanel({
     commentsStatus.setAttribute('aria-live', 'polite');
     const commentsList = document.createElement('div');
     commentsList.className = 'public-media-comments__list';
+    const authHint = document.createElement('p');
+    authHint.className = 'public-media-comments__auth-hint';
+    authHint.textContent = localeText('browse.signInToComment');
+    authHint.hidden = true;
     const form = document.createElement('form');
     form.className = 'public-media-comments__form';
     const textarea = document.createElement('textarea');
@@ -234,19 +260,34 @@ export function createPublicMediaDetailPanel({
     textarea.placeholder = localeText('browse.shareThoughts');
     const submit = createButton(localeText('browse.postComment'), 'public-media-comments__submit');
     form.append(textarea, submit);
-    commentsPanel.append(commentsStatus, commentsList, form);
+    commentsPanel.append(commentsStatus, commentsList, authHint, form);
     root.append(detailsPanel, commentsPanel);
 
     let loaded = false;
     let loading = false;
     let destroyed = false;
+    let canComment = false;
 
     function setCommentCount(nextCount) {
         commentCount = Math.max(0, Number(nextCount) || 0);
         commentsTab.textContent = localeText('browse.commentsWithCount', { count: commentCount });
-        const lastFact = detailsList.querySelector('dd:last-child');
-        if (lastFact) lastFact.textContent = String(commentCount);
         if (typeof onCommentCountChange === 'function') onCommentCountChange(commentCount);
+    }
+
+    function renderCommentAuthState(loggedIn) {
+        canComment = loggedIn === true;
+        authHint.hidden = canComment;
+        form.hidden = !canComment;
+        submit.disabled = !canComment;
+    }
+
+    async function refreshCommentAuthState() {
+        const loggedIn = await resolveCommentAuthState();
+        if (!destroyed) renderCommentAuthState(loggedIn);
+    }
+
+    function handleAuthChange(event) {
+        renderCommentAuthState(event?.detail?.loggedIn === true);
     }
 
     function setActiveTab(name) {
@@ -257,7 +298,10 @@ export function createPublicMediaDetailPanel({
         commentsTab.classList.toggle('is-active', showComments);
         detailsTab.setAttribute('aria-selected', showComments ? 'false' : 'true');
         commentsTab.setAttribute('aria-selected', showComments ? 'true' : 'false');
-        if (showComments) loadComments();
+        if (showComments) {
+            refreshCommentAuthState();
+            loadComments();
+        }
     }
 
     function renderComments(comments) {
@@ -294,6 +338,11 @@ export function createPublicMediaDetailPanel({
 
     async function submitComment(event) {
         event.preventDefault();
+        if (!canComment) {
+            commentsStatus.textContent = localeText('browse.signInToComment');
+            authHint.hidden = false;
+            return;
+        }
         const body = textarea.value.replace(/\s+/g, ' ').trim();
         if (!body) {
             commentsStatus.textContent = localeText('browse.commentEmpty');
@@ -314,6 +363,7 @@ export function createPublicMediaDetailPanel({
             });
             if (response.status === 401 || response.status === 403) {
                 commentsStatus.textContent = localeText('browse.signInToComment');
+                renderCommentAuthState(false);
                 return;
             }
             if (!response.ok) throw new Error('comment_post_failed');
@@ -329,7 +379,7 @@ export function createPublicMediaDetailPanel({
         } catch {
             commentsStatus.textContent = localeText('browse.commentPostFailed');
         } finally {
-            submit.disabled = false;
+            submit.disabled = !canComment;
         }
     }
 
@@ -349,16 +399,18 @@ export function createPublicMediaDetailPanel({
         menuButton.setAttribute('aria-expanded', nextHidden ? 'false' : 'true');
     });
     document.addEventListener('click', handleDocumentClick);
+    document.addEventListener('bitbi:auth-change', handleAuthChange);
     detailsTab.addEventListener('click', () => setActiveTab('details'));
     commentsTab.addEventListener('click', () => setActiveTab('comments'));
     form.addEventListener('submit', submitComment);
-    loadComments();
+    renderCommentAuthState(false);
 
     return {
         root,
         destroy() {
             destroyed = true;
             document.removeEventListener('click', handleDocumentClick);
+            document.removeEventListener('bitbi:auth-change', handleAuthChange);
             root.remove();
         },
     };

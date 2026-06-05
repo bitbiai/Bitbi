@@ -116,24 +116,57 @@
         color: #00F0FF;
     }
 
+    .modal-content--public-detail {
+        box-sizing: border-box;
+        inline-size: 80vw;
+        max-inline-size: 80vw;
+        min-inline-size: 0;
+        margin-inline: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    #galleryModal:not(.active) .modal-action,
+    #videoModal:not(.active) .modal-action,
+    #memtrackModal:not(.active) .modal-action {
+        pointer-events: none;
+    }
+
     .modal-card--public-detail {
+        box-sizing: border-box;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
-        inline-size: min(94vw, 78rem);
+        grid-template-columns: minmax(0, 1fr) clamp(17rem, 24vw, 22rem);
+        inline-size: 100%;
+        max-inline-size: 100%;
+        min-inline-size: 0;
         max-block-size: min(92vh, 52rem);
+        overflow-x: hidden;
         overflow: hidden;
     }
 
     .modal-card--public-detail .modal-image,
     .modal-card--public-detail .video-modal__player,
     .modal-card--public-detail .memtrack-modal__media {
+        box-sizing: border-box;
+        min-inline-size: 0;
+        max-inline-size: 100%;
         min-block-size: 0;
         block-size: min(78vh, 52rem);
         background: #000;
+        overflow: hidden;
     }
 
     .modal-card--public-detail .modal-image {
         aspect-ratio: auto;
+    }
+
+    .modal-card--public-detail .modal-image img,
+    .modal-card--public-detail .video-modal__player video,
+    .modal-card--public-detail .memtrack-modal__media img,
+    .modal-card--public-detail .memtrack-modal__cover {
+        max-inline-size: 100%;
+        max-block-size: 100%;
+        object-fit: contain;
     }
 
     .modal-card--public-detail .modal-body {
@@ -141,19 +174,24 @@
     }
 
     .public-media-detail-slot {
+        min-inline-size: 0;
         min-block-size: 0;
         background: rgba(4, 10, 18, 0.88);
         border-inline-start: 1px solid rgba(255, 255, 255, 0.08);
+        overflow: hidden;
     }
 
     .public-media-detail-panel {
+        box-sizing: border-box;
         display: flex;
         flex-direction: column;
         gap: 0.85rem;
         block-size: 100%;
+        min-inline-size: 0;
         min-block-size: 0;
         padding: clamp(1rem, 2vw, 1.35rem);
         color: rgba(255, 255, 255, 0.88);
+        overflow: hidden;
     }
 
     .public-media-detail__creator {
@@ -299,6 +337,10 @@
         overflow: auto;
     }
 
+    .public-media-detail__tab-panel[hidden] {
+        display: none !important;
+    }
+
     .public-media-detail__facts {
         display: grid;
         grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
@@ -328,6 +370,21 @@
         min-block-size: 1.2em;
         font-size: 0.82rem;
         color: rgba(255, 255, 255, 0.58);
+    }
+
+    .public-media-comments__auth-hint {
+        margin: 0;
+        padding: 0.7rem 0.8rem;
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        border-radius: 10px;
+        background: rgba(0, 240, 255, 0.07);
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 0.84rem;
+    }
+
+    .public-media-comments__auth-hint[hidden],
+    .public-media-comments__form[hidden] {
+        display: none !important;
     }
 
     .public-media-comments__list {
@@ -413,7 +470,7 @@
         flex: 1 1 auto;
         min-block-size: 0;
         inline-size: 100%;
-        object-fit: cover;
+        object-fit: contain;
     }
 
     .memtrack-modal__cover--fallback {
@@ -3286,7 +3343,7 @@
     }
 
     .modal-card--video.modal-card--public-detail {
-        max-inline-size: min(94vw, 78rem);
+        max-inline-size: 100%;
     }
 
     .video-modal__favorite {

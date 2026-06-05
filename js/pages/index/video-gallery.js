@@ -954,7 +954,7 @@ export function initVideoGallery() {
         overlay.setAttribute('aria-labelledby', 'videoModalTitle');
 
         const content = document.createElement('div');
-        content.className = 'modal-content';
+        content.className = 'modal-content modal-content--public-detail';
 
         const card = document.createElement('div');
         card.className = 'modal-card modal-card--video modal-card--public-detail';

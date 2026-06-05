@@ -339,7 +339,7 @@ export function initSoundLab(revealObserver) {
         overlay.setAttribute('aria-modal', 'true');
 
         const content = document.createElement('div');
-        content.className = 'modal-content';
+        content.className = 'modal-content modal-content--public-detail';
 
         const card = document.createElement('div');
         card.className = 'modal-card modal-card--sound modal-card--public-detail';
