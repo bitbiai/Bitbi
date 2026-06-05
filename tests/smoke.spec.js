@@ -5844,6 +5844,26 @@ test.describe('Homepage', () => {
 
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
+    await page.addStyleTag({
+      content: `
+        #homeCategories .reveal {
+          opacity: 1 !important;
+          transform: none !important;
+          transition: none !important;
+          animation: none !important;
+        }
+      `,
+    });
+    await page.evaluate(async () => {
+      try {
+        await document.fonts?.ready;
+      } catch {
+        // Font readiness is best-effort in tests.
+      }
+      await new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+    });
 
     await expect(page.locator('#gallery .section__label')).toHaveCount(0);
     await expect(page.locator('#video-creations .section__label')).toHaveCount(0);
