@@ -26,6 +26,7 @@ import {
   getFollowState,
   getPublicMediaLikeCount,
   getPublicMediaViewerLiked,
+  serveProfileInteractionAvatar,
   toFollowInteractionRecord,
   toProfileMediaRecord,
   toReceivedLikeRecord,
@@ -49,6 +50,16 @@ function parseGalleryInteractionRoute(pathname) {
     mediaType: match[1],
     mediaId: match[2],
     action: match[3],
+  };
+}
+
+function parseProfileInteractionAvatarRoute(pathname) {
+  const match = pathname.match(/^\/api\/profile\/social\/(followers|following|likes)\/([A-Za-z0-9_-]+)\/([^/]+)\/avatar$/);
+  if (!match) return null;
+  return {
+    kind: match[1],
+    interactionId: match[2],
+    version: match[3],
   };
 }
 
@@ -213,7 +224,9 @@ async function handleProfileFollowers(ctx) {
   const rows = await ctx.env.DB.prepare(
     `SELECT follows.id,
             follows.created_at,
-            profiles.display_name AS follower_display_name
+            profiles.display_name AS follower_display_name,
+            profiles.has_avatar AS follower_has_avatar,
+            profiles.avatar_updated_at AS follower_avatar_updated_at
      FROM profile_follows follows
      LEFT JOIN profiles ON profiles.user_id = follows.follower_user_id
      WHERE follows.followed_user_id = ?
@@ -239,7 +252,9 @@ async function handleProfileFollowing(ctx) {
   const rows = await ctx.env.DB.prepare(
     `SELECT follows.id,
             follows.created_at,
-            profiles.display_name AS followed_display_name
+            profiles.display_name AS followed_display_name,
+            profiles.has_avatar AS followed_has_avatar,
+            profiles.avatar_updated_at AS followed_avatar_updated_at
      FROM profile_follows follows
      LEFT JOIN profiles ON profiles.user_id = follows.followed_user_id
      WHERE follows.follower_user_id = ?
@@ -265,9 +280,11 @@ async function handleProfileLikes(ctx) {
   const rows = await ctx.env.DB.prepare(
     `SELECT *
      FROM (
-       SELECT likes.id AS like_id,
-              likes.created_at AS like_created_at,
-              profiles.display_name AS liker_display_name,
+      SELECT likes.id AS like_id,
+             likes.created_at AS like_created_at,
+             profiles.display_name AS liker_display_name,
+              profiles.has_avatar AS liker_has_avatar,
+              profiles.avatar_updated_at AS liker_avatar_updated_at,
               images.id,
               'mempics' AS media_type,
               COALESCE(images.published_at, images.created_at) AS order_at,
@@ -301,9 +318,11 @@ async function handleProfileLikes(ctx) {
          AND images.user_id = ?
          AND images.visibility = 'public'
        UNION ALL
-       SELECT likes.id AS like_id,
-              likes.created_at AS like_created_at,
-              profiles.display_name AS liker_display_name,
+      SELECT likes.id AS like_id,
+             likes.created_at AS like_created_at,
+             profiles.display_name AS liker_display_name,
+              profiles.has_avatar AS liker_has_avatar,
+              profiles.avatar_updated_at AS liker_avatar_updated_at,
               assets.id,
               CASE assets.source_module WHEN 'video' THEN 'memvids' ELSE 'memtracks' END AS media_type,
               COALESCE(assets.published_at, assets.created_at) AS order_at,
@@ -525,8 +544,26 @@ async function handleProfileLikedMedia(ctx) {
   });
 }
 
+async function handleProfileInteractionAvatar(ctx, route) {
+  const session = await requireUser(ctx.request, ctx.env);
+  if (session instanceof Response) return session;
+  const response = await serveProfileInteractionAvatar(ctx, {
+    kind: route.kind,
+    interactionId: route.interactionId,
+    version: route.version,
+    sessionUserId: session.user.id,
+  });
+  if (response) return response;
+  return json({ ok: false, error: "Avatar not found." }, { status: 404 });
+}
+
 export async function handleMediaInteractions(ctx) {
   const { pathname, method } = ctx;
+
+  const avatarRoute = parseProfileInteractionAvatarRoute(pathname);
+  if (avatarRoute && method === "GET") {
+    return handleProfileInteractionAvatar(ctx, avatarRoute);
+  }
 
   const route = parseGalleryInteractionRoute(pathname);
   if (route?.action === "interactions" && method === "GET") {

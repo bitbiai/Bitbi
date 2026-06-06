@@ -277,6 +277,13 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { noneReason: "Authenticated, bounded list of likes received on the current user's public media." },
     notes: "Returns sanitized liker names and safe public thumbnail/poster URLs only.",
   }),
+  safeRead("profile.social.avatar", "GET", "/api/profile/social/:kind/:interactionId/:version/avatar", "profile", {
+    auth: "user",
+    sensitivity: "medium",
+    config: ["DB", "PRIVATE_MEDIA"],
+    rateLimit: { noneReason: "Read-only avatar route verifies the interaction row belongs to the signed-in member before serving PRIVATE_MEDIA avatar bytes." },
+    notes: "Serves only versioned actor avatars for follower, following, and received-like rows visible to the authenticated profile owner.",
+  }),
   safeRead("profile.media.published", "GET", "/api/profile/media/published", "profile", {
     auth: "user",
     sensitivity: "medium",

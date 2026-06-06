@@ -41917,9 +41917,24 @@ test.describe('Worker routes', () => {
       ],
       profiles: [
         { user_id: 'profile-user', display_name: 'Profile User' },
-        { user_id: 'profile-follower', display_name: 'Follower User' },
-        { user_id: 'profile-liked-by', display_name: 'Liker User' },
-        { user_id: 'profile-other-owner', display_name: 'Other Owner' },
+        {
+          user_id: 'profile-follower',
+          display_name: 'Follower User',
+          has_avatar: 1,
+          avatar_updated_at: '2026-05-06T08:00:00.000Z',
+        },
+        {
+          user_id: 'profile-liked-by',
+          display_name: 'Liker User',
+          has_avatar: 1,
+          avatar_updated_at: '2026-05-06T09:00:00.000Z',
+        },
+        {
+          user_id: 'profile-other-owner',
+          display_name: 'Other Owner',
+          has_avatar: 1,
+          avatar_updated_at: '2026-05-06T10:00:00.000Z',
+        },
       ],
       profileFollows: [
         {
@@ -42013,6 +42028,20 @@ test.describe('Worker routes', () => {
           created_at: '2026-05-07T10:00:00.000Z',
         },
       ],
+      privateMedia: {
+        'avatars/profile-follower': {
+          body: new TextEncoder().encode('follower-avatar').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'avatars/profile-liked-by': {
+          body: new TextEncoder().encode('liker-avatar').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'avatars/profile-other-owner': {
+          body: new TextEncoder().encode('following-avatar').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
     });
     const token = await seedSession(env, 'profile-user');
     const headers = { Cookie: `bitbi_session=${token}` };
@@ -42046,6 +42075,46 @@ test.describe('Worker routes', () => {
     expect(publishedBody.data.items.map((item) => item.id)).toEqual(['bb220011', 'aa110011']);
     expect(JSON.stringify(publishedBody)).not.toContain('users/profile-user/');
 
+    const followersRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile/social/followers?limit=50', { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(followersRes.status).toBe(200);
+    const followersBody = await followersRes.json();
+    expect(followersBody.data.items[0]).toMatchObject({
+      id: 'pf_follow_profile',
+      actor: {
+        display_name: 'Follower User',
+        avatar: { url: expect.stringMatching(/^\/api\/profile\/social\/followers\/pf_follow_profile\/av[a-z0-9]+\/avatar$/) },
+      },
+    });
+
+    const followerAvatarUrl = followersBody.data.items[0].actor.avatar.url;
+    const followerAvatarRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${followerAvatarUrl}`, { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(followerAvatarRes.status).toBe(200);
+    expect(followerAvatarRes.headers.get('content-type')).toContain('image/webp');
+    expect(env.PRIVATE_MEDIA.getCalls).toContain('avatars/profile-follower');
+
+    const followingRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile/social/following?limit=50', { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(followingRes.status).toBe(200);
+    const followingBody = await followingRes.json();
+    expect(followingBody.data.items[0]).toMatchObject({
+      id: 'pf_profile_following',
+      actor: {
+        display_name: 'Other Owner',
+        avatar: { url: expect.stringMatching(/^\/api\/profile\/social\/following\/pf_profile_following\/av[a-z0-9]+\/avatar$/) },
+      },
+    });
+
     const receivedLikesRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/profile/social/likes?limit=50', { headers }),
       env,
@@ -42057,12 +42126,35 @@ test.describe('Worker routes', () => {
     expect(receivedLikesBody.data.items).toHaveLength(1);
     expect(receivedLikesBody.data.items[0]).toMatchObject({
       type: 'likes',
-      actor: { display_name: 'Liker User' },
+      actor: {
+        display_name: 'Liker User',
+        avatar: { url: expect.stringMatching(/^\/api\/profile\/social\/likes\/pml_received\/av[a-z0-9]+\/avatar$/) },
+      },
       media: {
         id: 'aa110011',
         media_type: 'mempics',
       },
     });
+
+    const likeAvatarUrl = receivedLikesBody.data.items[0].actor.avatar.url;
+    const likeAvatarRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${likeAvatarUrl}`, { headers }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(likeAvatarRes.status).toBe(200);
+    expect(likeAvatarRes.headers.get('content-type')).toContain('image/webp');
+    expect(env.PRIVATE_MEDIA.getCalls).toContain('avatars/profile-liked-by');
+
+    const outsiderToken = await seedSession(env, 'profile-other-owner');
+    const outsiderAvatarRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${followerAvatarUrl}`, {
+        headers: { Cookie: `bitbi_session=${outsiderToken}` },
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(outsiderAvatarRes.status).toBe(404);
 
     const likedMediaRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/profile/media/liked?limit=60', { headers }),

@@ -140,6 +140,7 @@
         inline-size: 100%;
         max-inline-size: 100%;
         min-inline-size: 0;
+        block-size: min(92vh, 52rem);
         max-block-size: min(92vh, 52rem);
         overflow-x: hidden;
         overflow: hidden;
@@ -385,7 +386,10 @@
     .public-media-detail__tab-panel--comments {
         display: flex;
         flex-direction: column;
+        flex: 1 1 auto;
         gap: 0.75rem;
+        min-block-size: 0;
+        overflow: hidden;
     }
 
     .public-media-comments__status {
@@ -411,9 +415,12 @@
 
     .public-media-comments__list {
         display: grid;
+        align-content: start;
         gap: 0.75rem;
+        flex: 1 1 auto;
         min-block-size: 0;
-        overflow: auto;
+        overflow-y: auto;
+        padding-inline-end: 0.2rem;
     }
 
     .public-media-comments__item {
@@ -451,6 +458,7 @@
 
     .public-media-comments__form {
         display: grid;
+        flex: 0 0 auto;
         gap: 0.55rem;
     }
 
@@ -618,6 +626,7 @@
 
         .modal-card--public-detail {
             grid-template-columns: minmax(0, 1fr);
+            block-size: auto;
             max-block-size: 94vh;
             overflow-y: auto;
         }

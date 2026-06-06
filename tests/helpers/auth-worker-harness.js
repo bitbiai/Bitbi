@@ -407,6 +407,14 @@ function profileHarnessDisplayName(state, userId) {
   return profile?.display_name ?? null;
 }
 
+function profileHarnessAvatarFields(state, userId, prefix) {
+  const profile = (state.profiles || []).find((row) => row.user_id === userId);
+  return {
+    [`${prefix}_has_avatar`]: profile?.has_avatar ?? null,
+    [`${prefix}_avatar_updated_at`]: profile?.avatar_updated_at ?? null,
+  };
+}
+
 function profileHarnessCommentCount(state, mediaType, mediaId) {
   return (state.publicMediaComments || [])
     .filter((row) => row.media_type === mediaType && row.media_id === mediaId)
@@ -6968,7 +6976,7 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith('SELECT follows.id, follows.created_at, profiles.display_name AS follower_display_name FROM profile_follows follows LEFT JOIN profiles')) {
+    if (query.startsWith('SELECT follows.id, follows.created_at, profiles.display_name AS follower_display_name,')) {
       const [followedUserId, limit] = bindings;
       const rows = this.state.profileFollows
         .filter((row) => row.followed_user_id === followedUserId)
@@ -6979,11 +6987,12 @@ class MockD1 {
           id: row.id,
           created_at: row.created_at,
           follower_display_name: profileHarnessDisplayName(this.state, row.follower_user_id),
+          ...profileHarnessAvatarFields(this.state, row.follower_user_id, 'follower'),
         }));
       return { results: rows };
     }
 
-    if (query.startsWith('SELECT follows.id, follows.created_at, profiles.display_name AS followed_display_name FROM profile_follows follows LEFT JOIN profiles')) {
+    if (query.startsWith('SELECT follows.id, follows.created_at, profiles.display_name AS followed_display_name,')) {
       const [followerUserId, limit] = bindings;
       const rows = this.state.profileFollows
         .filter((row) => row.follower_user_id === followerUserId)
@@ -6994,8 +7003,53 @@ class MockD1 {
           id: row.id,
           created_at: row.created_at,
           followed_display_name: profileHarnessDisplayName(this.state, row.followed_user_id),
+          ...profileHarnessAvatarFields(this.state, row.followed_user_id, 'followed'),
         }));
       return { results: rows };
+    }
+
+    if (query.startsWith('SELECT follower_user_id AS avatar_user_id FROM profile_follows')) {
+      const [interactionId, followedUserId] = bindings;
+      const row = this.state.profileFollows.find((entry) => entry.id === interactionId && entry.followed_user_id === followedUserId);
+      return row ? { avatar_user_id: row.follower_user_id } : null;
+    }
+
+    if (query.startsWith('SELECT followed_user_id AS avatar_user_id FROM profile_follows')) {
+      const [interactionId, followerUserId] = bindings;
+      const row = this.state.profileFollows.find((entry) => entry.id === interactionId && entry.follower_user_id === followerUserId);
+      return row ? { avatar_user_id: row.followed_user_id } : null;
+    }
+
+    if (query.startsWith('SELECT id, media_type, media_id, user_id FROM public_media_likes WHERE id = ?')) {
+      const [interactionId] = bindings;
+      return this.state.publicMediaLikes.find((row) => row.id === interactionId) || null;
+    }
+
+    if (query.startsWith("SELECT id FROM ai_images WHERE id = ? AND user_id = ? AND visibility = 'public'")) {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((entry) => entry.id === imageId && entry.user_id === userId && entry.visibility === 'public');
+      return row ? { id: row.id } : null;
+    }
+
+    if (query.startsWith("SELECT id FROM ai_text_assets WHERE id = ? AND user_id = ? AND visibility = 'public' AND source_module = ?")) {
+      const [assetId, userId, sourceModule] = bindings;
+      const row = this.state.aiTextAssets.find((entry) =>
+        entry.id === assetId &&
+        entry.user_id === userId &&
+        entry.visibility === 'public' &&
+        entry.source_module === sourceModule
+      );
+      return row ? { id: row.id } : null;
+    }
+
+    if (query.startsWith('SELECT user_id, has_avatar, avatar_updated_at FROM profiles WHERE user_id = ?')) {
+      const [userId] = bindings;
+      const row = this.state.profiles.find((entry) => entry.user_id === userId);
+      return row ? {
+        user_id: row.user_id,
+        has_avatar: row.has_avatar ?? null,
+        avatar_updated_at: row.avatar_updated_at ?? null,
+      } : null;
     }
 
     if (query.startsWith('INSERT OR IGNORE INTO profile_follows')) {
@@ -7031,6 +7085,7 @@ class MockD1 {
             like_id: like.id,
             like_created_at: like.created_at,
             liker_display_name: profileHarnessDisplayName(this.state, like.user_id),
+            ...profileHarnessAvatarFields(this.state, like.user_id, 'liker'),
           }));
           continue;
         }
@@ -7046,6 +7101,7 @@ class MockD1 {
           like_id: like.id,
           like_created_at: like.created_at,
           liker_display_name: profileHarnessDisplayName(this.state, like.user_id),
+          ...profileHarnessAvatarFields(this.state, like.user_id, 'liker'),
         }));
       }
       rows.sort((a, b) =>

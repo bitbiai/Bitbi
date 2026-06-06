@@ -6272,6 +6272,9 @@ test.describe('Homepage', () => {
     await page.mouse.click(fullLinkPoint.x, fullLinkPoint.y);
     await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
 
+    // Gallery intentionally suppresses the first card click for 400 ms after
+    // modal close so a stale click cannot immediately reopen the same image.
+    await page.waitForTimeout(450);
     const secondMempicCard = page.locator('#galleryGrid .gallery-item:not(.locked-area):visible').nth(1);
     await secondMempicCard.click();
     await expect(page.locator('#modalTitle')).toHaveText('Second Mempic');
@@ -6473,20 +6476,12 @@ test.describe('Homepage', () => {
   });
 
   test('public media comments submit from the form and render newest first below the input', async ({ page }) => {
-    const comments = [
-      {
-        id: 'comment-newest-existing',
-        body: 'Newest existing comment',
-        created_at: '2026-04-16T12:00:00.000Z',
-        author: { display_name: 'Newest Member' },
-      },
-      {
-        id: 'comment-older-existing',
-        body: 'Older existing comment',
-        created_at: '2026-04-15T12:00:00.000Z',
-        author: { display_name: 'Older Member' },
-      },
-    ];
+    const comments = Array.from({ length: 18 }, (_, index) => ({
+      id: `comment-existing-${index + 1}`,
+      body: index === 0 ? 'Newest existing comment' : `Older existing comment ${index}`,
+      created_at: `2026-04-${String(16 - Math.min(index, 15)).padStart(2, '0')}T12:00:00.000Z`,
+      author: { display_name: index === 0 ? 'Newest Member' : `Older Member ${index}` },
+    }));
     const postedBodies = [];
 
     await page.route('**/api/me', async (route) => {
@@ -6510,7 +6505,7 @@ test.describe('Homepage', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          data: {
+            data: {
             like_count: 0,
             liked_by_viewer: false,
             comment_count: comments.length,
@@ -6599,7 +6594,7 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'gallery');
     await page.locator('#galleryGrid .gallery-item:not(.locked-area):visible').first().click();
     const detail = page.locator('#galleryModal .public-media-detail-panel');
-    await detail.getByRole('tab', { name: 'Comments (2)' }).click();
+    await detail.getByRole('tab', { name: 'Comments (18)' }).click();
 
     const form = detail.locator('.public-media-comments__form');
     const input = form.locator('.public-media-comments__input');
@@ -6622,31 +6617,47 @@ test.describe('Homepage', () => {
     expect(focusStyle.shadow).not.toContain('0, 245, 212');
     expect(focusStyle.shadow).not.toContain('0, 255, 209');
 
-    await expect(detail.locator('.public-media-comments__item')).toHaveCount(2);
+    await expect(detail.locator('.public-media-comments__item')).toHaveCount(18);
     const initialBodies = await detail.locator('.public-media-comments__item p').allTextContents();
-    expect(initialBodies).toEqual(['Newest existing comment', 'Older existing comment']);
+    expect(initialBodies.slice(0, 2)).toEqual(['Newest existing comment', 'Older existing comment 1']);
 
     const verticalOrder = await detail.evaluate(() => {
       const formRect = document.querySelector('.public-media-comments__form')?.getBoundingClientRect();
       const listRect = document.querySelector('.public-media-comments__list')?.getBoundingClientRect();
+      const card = document.querySelector('#galleryModal .modal-card--public-detail');
+      const list = document.querySelector('.public-media-comments__list');
       return {
         formTop: formRect?.top || 0,
         listTop: listRect?.top || 0,
+        cardHeight: card?.getBoundingClientRect().height || 0,
+        listScrollsInternally: Boolean(list && list.scrollHeight > list.clientHeight),
       };
     });
     expect(verticalOrder.formTop).toBeLessThan(verticalOrder.listTop);
+    expect(verticalOrder.listScrollsInternally).toBe(true);
 
     await input.fill('Fresh posted comment');
     await submit.click();
     await expect.poll(() => postedBodies).toEqual(['Fresh posted comment']);
-    await expect(detail.getByRole('tab', { name: 'Comments (3)' })).toBeVisible();
+    await expect(detail.getByRole('tab', { name: 'Comments (19)' })).toBeVisible();
     const postedBodiesRendered = await detail.locator('.public-media-comments__item p').allTextContents();
-    expect(postedBodiesRendered).toEqual([
+    expect(postedBodiesRendered.slice(0, 3)).toEqual([
       'Fresh posted comment',
       'Newest existing comment',
-      'Older existing comment',
+      'Older existing comment 1',
     ]);
     await expect(detail.locator('.public-media-comments__item').first().locator('.public-media-comments__meta')).toContainText('Posting Member');
+    await expect(detail.locator('.public-media-comments__item').first().locator('time')).toBeVisible();
+    const afterPostLayout = await detail.evaluate(() => {
+      const card = document.querySelector('#galleryModal .modal-card--public-detail');
+      const list = document.querySelector('.public-media-comments__list');
+      return {
+        cardHeight: card?.getBoundingClientRect().height || 0,
+        listScrollsInternally: Boolean(list && list.scrollHeight > list.clientHeight),
+      };
+    });
+    expect(Math.abs(afterPostLayout.cardHeight - verticalOrder.cardHeight)).toBeLessThanOrEqual(1);
+    expect(afterPostLayout.listScrollsInternally).toBe(true);
   });
 
   test('Gallery and Sound Lab cleanup remove stale Exclusive admin references', () => {

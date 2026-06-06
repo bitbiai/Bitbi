@@ -5464,8 +5464,8 @@ async function mockAuthenticatedProfile(page, {
           follower_count: 2,
           following_count: 1,
           received_like_count: 4,
-          published_media_count: 1,
-          liked_media_count: 1,
+          published_media_count: 3,
+          liked_media_count: 2,
         },
       }),
     });
@@ -5481,7 +5481,10 @@ async function mockAuthenticatedProfile(page, {
           items: [{
             id: 'follow-row-1',
             created_at: '2026-05-01T10:00:00.000Z',
-            actor: { display_name: 'Follower One' },
+            actor: {
+              display_name: 'Follower One',
+              avatar: { url: '/api/profile/social/followers/follow-row-1/avtest/avatar' },
+            },
           }],
           has_more: false,
           next_cursor: null,
@@ -5500,7 +5503,10 @@ async function mockAuthenticatedProfile(page, {
           items: [{
             id: 'following-row-1',
             created_at: '2026-05-02T10:00:00.000Z',
-            actor: { display_name: 'Following One' },
+            actor: {
+              display_name: 'Following One',
+              avatar: { url: '/api/profile/social/following/following-row-1/avtest/avatar' },
+            },
           }],
           has_more: false,
           next_cursor: null,
@@ -5519,12 +5525,15 @@ async function mockAuthenticatedProfile(page, {
           items: [{
             id: 'like-row-1',
             created_at: '2026-05-03T10:00:00.000Z',
-            actor: { display_name: 'Liker One' },
+            actor: {
+              display_name: 'Liker One',
+              avatar: { url: '/api/profile/social/likes/like-row-1/avtest/avatar' },
+            },
             media: {
               media_type: 'mempics',
-              id: 'profile-public-image',
+              id: 'aa110011',
               title: 'Profile public image',
-              thumb: { url: '/api/gallery/mempics/profile-public-image/thumb' },
+              thumb: { url: '/api/gallery/mempics/aa110011/thumb' },
             },
           }],
           has_more: false,
@@ -5543,12 +5552,40 @@ async function mockAuthenticatedProfile(page, {
         data: {
           items: [{
             media_type: 'mempics',
-            id: 'profile-public-image',
+            collection: 'mempics',
+            id: 'aa110011',
             title: 'Profile public image',
             published_at: '2026-05-01T10:00:00.000Z',
             like_count: 4,
             comment_count: 2,
-            thumb: { url: '/api/gallery/mempics/profile-public-image/thumb' },
+            publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
+            thumb: { url: '/api/gallery/mempics/aa110011/thumb', w: 320, h: 320 },
+            preview: { url: '/api/gallery/mempics/aa110011/medium', w: 1200, h: 1200 },
+            full: { url: '/api/gallery/mempics/aa110011/file' },
+          }, {
+            media_type: 'memvids',
+            collection: 'memvids',
+            id: 'bb220011',
+            title: 'Profile public video',
+            published_at: '2026-05-02T10:00:00.000Z',
+            like_count: 2,
+            comment_count: 1,
+            mime_type: 'video/mp4',
+            publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
+            poster: { url: '/api/gallery/memvids/bb220011/poster', w: 640, h: 360 },
+            file: { url: '/api/gallery/memvids/bb220011/file' },
+          }, {
+            media_type: 'memtracks',
+            collection: 'memtracks',
+            id: 'cc330011',
+            title: 'Profile public track',
+            published_at: '2026-05-03T10:00:00.000Z',
+            like_count: 1,
+            comment_count: 0,
+            mime_type: 'audio/mpeg',
+            publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
+            poster: { url: '/api/gallery/memtracks/cc330011/poster', w: 640, h: 640 },
+            file: { url: '/api/gallery/memtracks/cc330011/file' },
           }],
           has_more: false,
           next_cursor: null,
@@ -5566,12 +5603,26 @@ async function mockAuthenticatedProfile(page, {
         data: {
           items: [{
             media_type: 'memvids',
-            id: 'profile-liked-video',
+            collection: 'memvids',
+            id: 'dd440011',
             title: 'Liked public video',
             published_at: '2026-05-04T10:00:00.000Z',
             like_count: 8,
             comment_count: 1,
-            poster: { url: '/api/gallery/memvids/profile-liked-video/poster' },
+            publisher: { display_name: 'Video Owner', stats: { public_media_count: 1 } },
+            poster: { url: '/api/gallery/memvids/dd440011/poster', w: 640, h: 360 },
+            file: { url: '/api/gallery/memvids/dd440011/file' },
+          }, {
+            media_type: 'memtracks',
+            collection: 'memtracks',
+            id: 'ee550011',
+            title: 'Liked public track',
+            published_at: '2026-05-05T10:00:00.000Z',
+            like_count: 3,
+            comment_count: 0,
+            publisher: { display_name: 'Track Owner', stats: { public_media_count: 1 } },
+            poster: { url: '/api/gallery/memtracks/ee550011/poster', w: 640, h: 640 },
+            file: { url: '/api/gallery/memtracks/ee550011/file' },
           }],
           has_more: false,
           next_cursor: null,
@@ -5742,11 +5793,56 @@ async function mockAuthenticatedProfile(page, {
         ok: true,
         data: {
           balance: {
-            totalCredits: 42,
+            available: 0,
           },
+          totalCredits: 42,
         },
       }),
     });
+  });
+
+  await page.route(/\/api\/gallery\/(mempics|memvids|memtracks)\/[a-f0-9]+\/interactions$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          like_count: 0,
+          liked_by_viewer: false,
+          comment_count: 0,
+          can_follow: false,
+          followed_by_viewer: false,
+          follower_count: 0,
+          is_own_media: true,
+        },
+      }),
+    });
+  });
+
+  await page.route(/\/api\/gallery\/(mempics|memvids|memtracks)\/[a-f0-9]+\/comments(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: { comments: [], count: 0 } }),
+    });
+  });
+
+  await page.route(/\/api\/gallery\/(mempics|memvids|memtracks)\/[a-f0-9]+\/(thumb|medium|file|poster)$/, async (route) => {
+    const url = route.request().url();
+    const isAudio = url.includes('/memtracks/') && url.endsWith('/file');
+    const isVideo = url.includes('/memvids/') && url.endsWith('/file');
+    await route.fulfill({
+      status: 200,
+      contentType: isAudio ? 'audio/mpeg' : (isVideo ? 'video/mp4' : 'image/png'),
+      body: isAudio
+        ? Buffer.from('mock-audio')
+        : (isVideo ? Buffer.from('mock-video') : Buffer.from(ONE_PX_PNG_BASE64, 'base64')),
+    });
+  });
+
+  await page.route(/\/api\/profile\/social\/(followers|following|likes)\/[^/]+\/[^/]+\/avatar$/, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(ONE_PX_PNG_BASE64, 'base64') });
   });
 
   return { assetStore, avatarRequests, imageRequests };
@@ -13156,6 +13252,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileCreditsBalance')).toContainText('42');
+    await expect(page.locator('#profileCreditsBalance')).not.toContainText('0 Credits');
     await expect(page.locator('#profileSettingsCard')).toBeVisible();
     await expect(page.locator('#profileSettingsCard')).toContainText('Profile Settings');
     await expect(page.locator('#profileSettingsCard')).toHaveAttribute('href', '/account/profile-settings.html');
@@ -13229,6 +13326,35 @@ test.describe('Profile page (authenticated)', () => {
     expect(overviewLayout.quickStackTopDelta).toBeLessThanOrEqual(6);
     expect(overviewLayout.actionHeightsBalanced).toBe(true);
     expect(overviewLayout.actionCardsTouchSafe).toBe(true);
+    const cardMetaLayout = await page.locator('#profileStudioStack').evaluate((node) => {
+      const cardMetrics = (cardSelector, metaSelector) => {
+        const card = node.querySelector(cardSelector);
+        const label = card?.querySelector('.profile__studio-label');
+        const meta = card?.querySelector(metaSelector);
+        const cardRect = card?.getBoundingClientRect();
+        const labelRect = label?.getBoundingClientRect();
+        const metaRect = meta?.getBoundingClientRect();
+        const metaStyle = meta ? getComputedStyle(meta) : null;
+        return {
+          hasMeta: Boolean(metaRect),
+          metaRightAligned: Boolean(cardRect && metaRect && metaRect.right <= cardRect.right - 8 && metaRect.left > (labelRect?.right || 0)),
+          metaFontSize: metaStyle ? Number.parseFloat(metaStyle.fontSize) : 0,
+          cardHeight: cardRect?.height || 0,
+        };
+      };
+      return {
+        storage: cardMetrics('#profileStudioCard', '#profileStorageUsage'),
+        wallet: cardMetrics('#profileWalletCard', '#profileWalletCardStatus'),
+        credits: cardMetrics('#profileCreditsCard', '#profileCreditsBalance'),
+      };
+    });
+    expect(cardMetaLayout.storage.hasMeta).toBe(true);
+    expect(cardMetaLayout.wallet.hasMeta).toBe(true);
+    expect(cardMetaLayout.credits.hasMeta).toBe(true);
+    expect(cardMetaLayout.wallet.metaRightAligned).toBe(true);
+    expect(cardMetaLayout.storage.metaFontSize).toBeGreaterThanOrEqual(11);
+    expect(cardMetaLayout.wallet.metaFontSize).toBeGreaterThanOrEqual(11);
+    expect(cardMetaLayout.credits.metaFontSize).toBeGreaterThanOrEqual(11);
     await expect(page.locator('#walletSectionCard')).toHaveCount(0);
     await expect(page.locator('#profileWalletContext')).toHaveCount(0);
     await expect(page.locator('#walletStatusRefreshBtn')).toHaveCount(0);
@@ -13236,14 +13362,61 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#walletTrustStatus')).toHaveCount(0);
     await page.locator('[data-profile-media-tab="liked"]').click();
     await expect(page.locator('#profileMediaGrid')).toContainText('Liked public video');
+    await expect(page.locator('#profileMediaGrid')).toContainText('Liked public track');
     await page.locator('[data-profile-interactions-tab="followers"]').click();
     await expect(page.locator('#profileInteractionsOverlay')).toHaveClass(/is-open/);
     await expect(page.locator('#profileInteractionsOverlay')).toContainText('Interactions');
     await expect(page.locator('#profileInteractionsOverlay [role="tab"]')).toHaveText(['Follower', 'Following', 'Likes']);
     await expect(page.locator('#profileInteractionsOverlay')).not.toContainText('Recreates');
     await expect(page.locator('#profileInteractionsList')).toContainText('Follower One');
+    await expect(page.locator('#profileInteractionsList .profile-interactions__avatar')).toHaveAttribute('src', /\/api\/profile\/social\/followers\/follow-row-1\/avtest\/avatar$/);
     await page.locator('#profileInteractionsClose').click();
     await expect(page.locator('#profileInteractionsOverlay')).not.toHaveClass(/is-open/);
+
+    const publicationRequests = [];
+    await page.route('**/api/ai/images/aa110011/publication', async (route) => {
+      publicationRequests.push(JSON.parse(route.request().postData() || '{}'));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+
+    await page.locator('[data-profile-media-tab="published"]').click();
+    await page.locator('.profile__media-card[data-media-id="aa110011"]').click();
+    await expect(page.locator('#profileMediaOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#profileMediaOverlay .profile-media-overlay__media img')).toBeVisible();
+    await expect(page.locator('#profileMediaOverlay .profile-media-overlay__set-private')).toBeVisible();
+    const mediaControlsInside = await page.locator('#profileMediaOverlay .profile-media-overlay__card').evaluate((card) => {
+      const close = card.querySelector('.profile-media-overlay__close')?.getBoundingClientRect();
+      const full = card.querySelector('.profile-media-overlay__full')?.getBoundingClientRect();
+      const rect = card.getBoundingClientRect();
+      return {
+        closeInside: Boolean(close && close.left >= rect.left && close.right <= rect.right && close.top >= rect.top),
+        fullInside: Boolean(full && full.left >= rect.left && full.right <= rect.right && full.top >= rect.top),
+        closeBeforeFull: Boolean(close && full && close.right <= full.left + 1),
+      };
+    });
+    expect(mediaControlsInside).toEqual({ closeInside: true, fullInside: true, closeBeforeFull: true });
+    await page.locator('#profileMediaOverlay .profile-media-overlay__set-private').click();
+    await expect.poll(() => publicationRequests).toEqual([{ visibility: 'private' }]);
+    await expect(page.locator('#profileMediaOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('#profileMediaGrid')).not.toContainText('Profile public image');
+
+    await page.locator('.profile__media-card[data-media-id="bb220011"]').click();
+    await expect(page.locator('#profileMediaOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#profileMediaOverlay video')).toBeVisible();
+    await expect(page.locator('#profileMediaOverlay .profile-media-overlay__set-private')).toBeVisible();
+    await page.locator('#profileMediaOverlay .profile-media-overlay__close').click();
+    await page.locator('.profile__media-card[data-media-id="cc330011"]').click();
+    await expect(page.locator('#profileMediaOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#profileMediaOverlay audio')).toBeVisible();
+    await expect(page.locator('#profileMediaOverlay .profile-media-overlay__set-private')).toBeVisible();
+    await page.locator('#profileMediaOverlay .profile-media-overlay__close').click();
+
+    await page.locator('[data-profile-media-tab="liked"]').click();
+    await page.locator('.profile__media-card[data-media-id="dd440011"]').click();
+    await expect(page.locator('#profileMediaOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#profileMediaOverlay video')).toBeVisible();
+    await expect(page.locator('#profileMediaOverlay .profile-media-overlay__set-private')).toBeHidden();
+    await page.locator('#profileMediaOverlay .profile-media-overlay__close').click();
     const layoutOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(layoutOverflow).toBe(false);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);

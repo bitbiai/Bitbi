@@ -878,6 +878,11 @@ const STRINGS = Object.freeze({
             likedYourMedia: 'Liked your {mediaType}',
             startedFollowingYou: 'Started following you',
             youFollowThem: 'You follow this member',
+            openMediaInNewWindow: 'Open media in a new window',
+            setPrivate: 'Set private',
+            setPrivateBusy: 'Setting private...',
+            setPrivateDone: 'Media set private.',
+            setPrivateFailed: 'Could not set that media private.',
         }),
         credits: Object.freeze({
             unavailable: 'Credits dashboard is unavailable.',
@@ -1835,6 +1840,11 @@ const STRINGS = Object.freeze({
             likedYourMedia: 'Hat Ihr {mediaType} gelikt',
             startedFollowingYou: 'Folgt Ihnen jetzt',
             youFollowThem: 'Sie folgen diesem Mitglied',
+            openMediaInNewWindow: 'Medium in neuem Fenster öffnen',
+            setPrivate: 'Privat setzen',
+            setPrivateBusy: 'Wird privat gesetzt...',
+            setPrivateDone: 'Medium wurde privat gesetzt.',
+            setPrivateFailed: 'Dieses Medium konnte nicht privat gesetzt werden.',
         }),
         credits: Object.freeze({
             unavailable: 'Credits-Dashboard ist nicht verfügbar.',

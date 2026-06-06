@@ -22,6 +22,8 @@ import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSE
 import {
     apiAiGetFolders,
     apiAiGetImages,
+    apiAiSetImagePublication,
+    apiAiSetTextAssetPublication,
     apiDeleteAvatar,
     apiAccountCreditsDashboard,
     apiGetProfile,
@@ -35,6 +37,7 @@ import {
     apiUploadAvatar,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { formatAssetStorageUsage } from '../../shared/storage-format.js?v=__ASSET_VERSION__';
+import { createPublicMediaDetailPanel } from '../index/public-media-detail-panel.js?v=__ASSET_VERSION__';
 import {
     initAvatarGenerate,
     openAvatarGenerateModal,
@@ -344,6 +347,23 @@ function formatProfileCredits(value) {
     return localeText('credits.credits', { count: profileNumberFormatter.format(Number(value || 0)) });
 }
 
+function resolveMemberAvailableCredits(dashboard = {}) {
+    const balance = dashboard.balance || {};
+    const candidates = [
+        balance.totalCredits,
+        balance.current,
+        dashboard.totalCredits,
+        dashboard.current,
+        balance.available,
+        dashboard.available,
+    ];
+    for (const value of candidates) {
+        const number = Number(value);
+        if (Number.isFinite(number)) return number;
+    }
+    return null;
+}
+
 async function loadProfileCardMetadata() {
     if ($profileStorageUsage) {
         $profileStorageUsage.textContent = localeText('profile.loading');
@@ -362,9 +382,9 @@ async function loadProfileCardMetadata() {
         apiAccountCreditsDashboard({ limit: 1 })
             .then((result) => {
                 if (!result.ok) throw new Error('credits_unavailable');
-                const dashboard = result.data?.data || result.data || {};
-                const balance = dashboard.balance || {};
-                const credits = balance.totalCredits ?? balance.current ?? balance.available ?? 0;
+                const dashboard = result.data?.data || result.data?.dashboard || result.data || {};
+                const credits = resolveMemberAvailableCredits(dashboard);
+                if (credits === null) throw new Error('credits_unavailable');
                 $profileCreditsBalance.textContent = formatProfileCredits(credits);
             })
             .catch(() => {
@@ -902,6 +922,10 @@ const profileDashboardState = {
     mediaTab: 'published',
     interactionsTab: 'followers',
     interactionsCleanup: null,
+    mediaItems: [],
+    mediaOverlay: null,
+    mediaOverlayCleanup: null,
+    mediaDetailPanel: null,
 };
 
 function formatProfileCount(value) {
@@ -956,8 +980,233 @@ function getProfileMediaThumb(item) {
     return item?.thumb?.url || item?.poster?.url || item?.preview?.url || '';
 }
 
+function getProfileMediaCollection(item) {
+    return item?.collection || item?.media_type || 'mempics';
+}
+
+function getProfileMediaFullUrl(item) {
+    return item?.full?.url || item?.file?.url || item?.preview?.url || item?.thumb?.url || '';
+}
+
+function createProfileMediaActionButton(label, className) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.setAttribute('aria-label', label);
+    button.textContent = label;
+    return button;
+}
+
+function createProfileMediaOverlay() {
+    const overlay = document.createElement('div');
+    overlay.id = 'profileMediaOverlay';
+    overlay.className = 'modal-overlay profile-media-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+
+    const content = document.createElement('div');
+    content.className = 'modal-content profile-media-overlay__content';
+    content.setAttribute('role', 'dialog');
+    content.setAttribute('aria-modal', 'true');
+    content.setAttribute('aria-label', localeText('browse.mediaDetails'));
+
+    const card = document.createElement('div');
+    card.className = 'modal-card profile-media-overlay__card';
+
+    const close = createProfileMediaActionButton(localeText('browse.closeMediaDetails'), 'modal-action modal-action--left profile-media-overlay__close');
+    close.textContent = '×';
+
+    const fullLink = document.createElement('a');
+    fullLink.className = 'modal-action modal-action--left profile-media-overlay__full';
+    fullLink.target = '_blank';
+    fullLink.rel = 'noopener noreferrer';
+    fullLink.setAttribute('aria-label', localeText('profile.openMediaInNewWindow'));
+    fullLink.textContent = '↗';
+    fullLink.hidden = true;
+
+    const setPrivate = createProfileMediaActionButton(localeText('profile.setPrivate'), 'profile-media-overlay__set-private');
+    setPrivate.hidden = true;
+
+    const media = document.createElement('div');
+    media.className = 'profile-media-overlay__media';
+
+    const detailSlot = document.createElement('div');
+    detailSlot.className = 'profile-media-overlay__detail-slot';
+
+    card.append(close, fullLink, setPrivate, media, detailSlot);
+    content.appendChild(card);
+    overlay.appendChild(content);
+    document.body.appendChild(overlay);
+
+    return { overlay, content, card, close, fullLink, setPrivate, media, detailSlot };
+}
+
+function pauseProfileMediaOverlayMedia() {
+    const overlay = profileDashboardState.mediaOverlay;
+    if (!overlay) return;
+    overlay.media.querySelectorAll('video, audio').forEach((node) => {
+        try {
+            node.pause();
+            node.removeAttribute('src');
+            node.load?.();
+        } catch {
+            // Cleanup only; the overlay is already closing.
+        }
+    });
+}
+
+function closeProfileMediaOverlay() {
+    const overlay = profileDashboardState.mediaOverlay;
+    if (!overlay) return;
+    pauseProfileMediaOverlayMedia();
+    profileDashboardState.mediaDetailPanel?.destroy?.();
+    profileDashboardState.mediaDetailPanel = null;
+    overlay.media.replaceChildren();
+    overlay.detailSlot.replaceChildren();
+    overlay.fullLink.removeAttribute('href');
+    overlay.fullLink.hidden = true;
+    overlay.setPrivate.hidden = true;
+    overlay.setPrivate.disabled = false;
+    overlay.setPrivate.textContent = localeText('profile.setPrivate');
+    overlay.overlay.classList.remove('active');
+    overlay.overlay.setAttribute('aria-hidden', 'true');
+    if (profileDashboardState.mediaOverlayCleanup) {
+        profileDashboardState.mediaOverlayCleanup();
+        profileDashboardState.mediaOverlayCleanup = null;
+    }
+    syncAvatarModalBodyLock();
+}
+
+function ensureProfileMediaOverlay() {
+    if (profileDashboardState.mediaOverlay) return profileDashboardState.mediaOverlay;
+    const overlay = createProfileMediaOverlay();
+    overlay.close.addEventListener('click', closeProfileMediaOverlay);
+    overlay.overlay.addEventListener('click', (event) => {
+        if (event.target === overlay.overlay) closeProfileMediaOverlay();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && profileDashboardState.mediaOverlay?.overlay.classList.contains('active')) {
+            event.preventDefault();
+            closeProfileMediaOverlay();
+        }
+    });
+    profileDashboardState.mediaOverlay = overlay;
+    return overlay;
+}
+
+function renderProfileMediaOverlayMedia(mediaEl, item) {
+    mediaEl.className = `profile-media-overlay__media profile-media-overlay__media--${getProfileMediaCollection(item)}`;
+    mediaEl.replaceChildren();
+    if (item?.media_type === 'mempics') {
+        const img = new Image();
+        img.src = item.preview?.url || item.full?.url || item.thumb?.url || '';
+        img.alt = item.title || getProfileMediaKind(item);
+        img.decoding = 'async';
+        mediaEl.appendChild(img);
+        return;
+    }
+    if (item?.media_type === 'memvids') {
+        const video = document.createElement('video');
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.poster = item.poster?.url || '';
+        if (item.file?.url) video.src = item.file.url;
+        mediaEl.appendChild(video);
+        return;
+    }
+    const cover = document.createElement('div');
+    cover.className = 'profile-media-overlay__cover';
+    if (item?.poster?.url) {
+        const img = new Image();
+        img.src = item.poster.url;
+        img.alt = item.title || getProfileMediaKind(item);
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        cover.appendChild(img);
+    } else {
+        const fallback = document.createElement('span');
+        fallback.textContent = getProfileMediaKind(item);
+        cover.appendChild(fallback);
+    }
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.preload = 'metadata';
+    if (item?.file?.url) audio.src = item.file.url;
+    mediaEl.append(cover, audio);
+}
+
+function updateProfileMediaItemCounts(item, next = {}) {
+    if (!item?.id) return;
+    Object.assign(item, next);
+    const selector = `.profile__media-card[data-media-id="${CSS.escape(item.id)}"][data-media-type="${CSS.escape(item.media_type || '')}"] .profile__media-counts`;
+    const counts = document.querySelector(selector);
+    if (counts) {
+        counts.textContent = localeText('profile.mediaCardCounts', {
+            likes: formatProfileCount(item.like_count),
+            comments: formatProfileCount(item.comment_count),
+        });
+    }
+}
+
+async function setProfileMediaPrivate(item, overlay) {
+    if (!item?.id || !overlay) return;
+    overlay.setPrivate.disabled = true;
+    overlay.setPrivate.textContent = localeText('profile.setPrivateBusy');
+    const result = item.media_type === 'mempics'
+        ? await apiAiSetImagePublication(item.id, 'private')
+        : await apiAiSetTextAssetPublication(item.id, 'private');
+    if (!result.ok) {
+        overlay.setPrivate.disabled = false;
+        overlay.setPrivate.textContent = localeText('profile.setPrivate');
+        setProfileMediaStatus(localeText('profile.setPrivateFailed'), 'error');
+        return;
+    }
+    profileDashboardState.mediaItems = profileDashboardState.mediaItems.filter((entry) => (
+        entry.id !== item.id || entry.media_type !== item.media_type
+    ));
+    renderProfileMedia(profileDashboardState.mediaItems);
+    setProfileMediaStatus(localeText('profile.setPrivateDone'), 'success');
+    void loadProfileSummary();
+    closeProfileMediaOverlay();
+}
+
+function openProfileMediaOverlay(item, { ownerAction = false } = {}) {
+    if (!item?.id) return;
+    const overlay = ensureProfileMediaOverlay();
+    profileDashboardState.mediaDetailPanel?.destroy?.();
+    profileDashboardState.mediaDetailPanel = null;
+    renderProfileMediaOverlayMedia(overlay.media, item);
+    overlay.detailSlot.replaceChildren();
+    const fullUrl = getProfileMediaFullUrl(item);
+    if (fullUrl) {
+        overlay.fullLink.href = fullUrl;
+        overlay.fullLink.hidden = false;
+    } else {
+        overlay.fullLink.removeAttribute('href');
+        overlay.fullLink.hidden = true;
+    }
+    overlay.setPrivate.hidden = !ownerAction;
+    overlay.setPrivate.onclick = ownerAction ? () => setProfileMediaPrivate(item, overlay) : null;
+
+    profileDashboardState.mediaDetailPanel = createPublicMediaDetailPanel({
+        item,
+        collection: getProfileMediaCollection(item),
+        onCommentCountChange(count) {
+            updateProfileMediaItemCounts(item, { comment_count: count });
+        },
+    });
+    overlay.detailSlot.appendChild(profileDashboardState.mediaDetailPanel.root);
+    overlay.overlay.classList.add('active');
+    overlay.overlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    if (profileDashboardState.mediaOverlayCleanup) profileDashboardState.mediaOverlayCleanup();
+    profileDashboardState.mediaOverlayCleanup = setupFocusTrap(overlay.content);
+    overlay.close.focus();
+}
+
 function renderProfileMedia(items = []) {
     if (!$profileMediaGrid) return;
+    profileDashboardState.mediaItems = Array.isArray(items) ? items.slice() : [];
     $profileMediaGrid.replaceChildren();
     if (!items.length) {
         const empty = document.createElement('p');
@@ -972,6 +1221,11 @@ function renderProfileMedia(items = []) {
     items.forEach((item) => {
         const card = document.createElement('article');
         card.className = `profile__media-card profile__media-card--${item.media_type || 'media'}`;
+        card.dataset.mediaId = item.id || '';
+        card.dataset.mediaType = item.media_type || '';
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', item.title || getProfileMediaKind(item));
 
         const preview = document.createElement('div');
         preview.className = 'profile__media-preview';
@@ -1008,6 +1262,15 @@ function renderProfileMedia(items = []) {
         });
         body.append(title, meta, counts);
         card.append(preview, body);
+        card.addEventListener('click', () => {
+            openProfileMediaOverlay(item, { ownerAction: profileDashboardState.mediaTab === 'published' });
+        });
+        card.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openProfileMediaOverlay(item, { ownerAction: profileDashboardState.mediaTab === 'published' });
+            }
+        });
         $profileMediaGrid.appendChild(card);
     });
 }
@@ -1036,12 +1299,28 @@ function setProfileMediaTab(tab) {
     void loadProfileMedia(next);
 }
 
-function createInteractionAvatar() {
+function createInteractionFallbackAvatar(actor = {}) {
     const avatar = document.createElement('span');
-    avatar.className = 'profile-interactions__avatar';
-    avatar.textContent = 'B';
+    avatar.className = 'profile-interactions__avatar profile-interactions__avatar--fallback';
+    avatar.textContent = Array.from(String(actor.display_name || 'B').trim())[0]?.toUpperCase() || 'B';
     avatar.setAttribute('aria-hidden', 'true');
     return avatar;
+}
+
+function createInteractionAvatar(actor = {}) {
+    if (actor?.avatar?.url) {
+        const img = new Image();
+        img.className = 'profile-interactions__avatar';
+        img.src = actor.avatar.url;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.onerror = () => {
+            img.replaceWith(createInteractionFallbackAvatar(actor));
+        };
+        return img;
+    }
+    return createInteractionFallbackAvatar(actor);
 }
 
 function renderInteractionRows(items = [], tab = profileDashboardState.interactionsTab) {
@@ -1058,7 +1337,7 @@ function renderInteractionRows(items = [], tab = profileDashboardState.interacti
     items.forEach((item) => {
         const row = document.createElement('article');
         row.className = 'profile-interactions__row';
-        row.appendChild(createInteractionAvatar());
+        row.appendChild(createInteractionAvatar(item.actor || {}));
         const body = document.createElement('div');
         body.className = 'profile-interactions__body';
         const name = document.createElement('strong');

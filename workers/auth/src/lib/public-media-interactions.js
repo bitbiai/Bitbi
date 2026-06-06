@@ -12,6 +12,8 @@ import {
   publicMediaCommentEntryForTextAsset,
   publicMediaTypeForTextAssetSourceModule,
 } from "./public-media-comments.js";
+import { avatarKey } from "./profile-avatar-state.js";
+import { buildPublicMediaHeaders } from "./public-media.js";
 
 const TEXT_MEDIA_LABELS = Object.freeze({
   video: "Memvid",
@@ -59,6 +61,12 @@ function normalizeDisplayName(value) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 50) || "a bitbi member";
+}
+
+function buildProfileInteractionAvatarVersion(avatarUpdatedAt) {
+  const timestamp = Date.parse(String(avatarUpdatedAt || ""));
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  return `av${timestamp.toString(36)}`;
 }
 
 function parseMetadataJson(raw) {
@@ -204,10 +212,19 @@ export async function countLikedMedia(env, userId) {
   return Number(imageRow?.count || 0) + Number(videoRow?.count || 0) + Number(musicRow?.count || 0);
 }
 
-function toActor(row, prefix = "actor") {
-  return {
+function toActor(row, prefix = "actor", interactionKind = "") {
+  const actor = {
     display_name: normalizeDisplayName(row?.[`${prefix}_display_name`]),
   };
+  const version = Number(row?.[`${prefix}_has_avatar`])
+    ? buildProfileInteractionAvatarVersion(row?.[`${prefix}_avatar_updated_at`])
+    : null;
+  if (version && row?.id && interactionKind) {
+    actor.avatar = {
+      url: `/api/profile/social/${interactionKind}/${row.id}/${version}/avatar`,
+    };
+  }
+  return actor;
 }
 
 export function toFollowInteractionRecord(row, type) {
@@ -216,8 +233,8 @@ export function toFollowInteractionRecord(row, type) {
     type,
     created_at: row.created_at,
     actor: type === "followers"
-      ? toActor(row, "follower")
-      : toActor(row, "followed"),
+      ? toActor(row, "follower", "followers")
+      : toActor(row, "followed", "following"),
   };
 }
 
@@ -307,7 +324,106 @@ export function toReceivedLikeRecord(row) {
     id: row.like_id,
     type: "likes",
     created_at: row.like_created_at,
-    actor: toActor(row, "liker"),
+    actor: toActor({ ...row, id: row.like_id }, "liker", "likes"),
     media: toProfileMediaRecord(row),
   };
+}
+
+export function hasMatchingProfileInteractionAvatarVersion(row, version) {
+  return version === buildProfileInteractionAvatarVersion(row?.avatar_updated_at);
+}
+
+async function getProfileInteractionAvatarProfileRow(env, userId) {
+  if (!userId) return null;
+  return env.DB.prepare(
+    `SELECT user_id,
+            has_avatar,
+            avatar_updated_at
+     FROM profiles
+     WHERE user_id = ?
+     LIMIT 1`
+  ).bind(userId).first();
+}
+
+async function getProfileInteractionAvatarUserId(env, sessionUserId, kind, interactionId) {
+  if (kind === "followers") {
+    const row = await env.DB.prepare(
+      `SELECT follower_user_id AS avatar_user_id
+       FROM profile_follows
+       WHERE id = ?
+         AND followed_user_id = ?
+       LIMIT 1`
+    ).bind(interactionId, sessionUserId).first();
+    return row?.avatar_user_id || null;
+  }
+  if (kind === "following") {
+    const row = await env.DB.prepare(
+      `SELECT followed_user_id AS avatar_user_id
+       FROM profile_follows
+       WHERE id = ?
+         AND follower_user_id = ?
+       LIMIT 1`
+    ).bind(interactionId, sessionUserId).first();
+    return row?.avatar_user_id || null;
+  }
+  if (kind !== "likes") return null;
+  const like = await env.DB.prepare(
+    `SELECT id,
+            media_type,
+            media_id,
+            user_id
+     FROM public_media_likes
+     WHERE id = ?
+     LIMIT 1`
+  ).bind(interactionId).first();
+  if (!like?.user_id || !isPublicMediaCommentType(like.media_type)) return null;
+  if (like.media_type === "mempics") {
+    const media = await env.DB.prepare(
+      `SELECT id
+       FROM ai_images
+       WHERE id = ?
+         AND user_id = ?
+         AND visibility = 'public'
+       LIMIT 1`
+    ).bind(like.media_id, sessionUserId).first();
+    return media ? like.user_id : null;
+  }
+  const sourceModule = like.media_type === "memvids" ? "video" : "music";
+  const media = await env.DB.prepare(
+    `SELECT id
+     FROM ai_text_assets
+     WHERE id = ?
+       AND user_id = ?
+       AND visibility = 'public'
+       AND source_module = ?
+     LIMIT 1`
+  ).bind(like.media_id, sessionUserId, sourceModule).first();
+  return media ? like.user_id : null;
+}
+
+export async function serveProfileInteractionAvatar(ctx, { kind, interactionId, version, sessionUserId } = {}) {
+  if (!["followers", "following", "likes"].includes(kind) || !interactionId || !sessionUserId) return null;
+  const avatarUserId = await getProfileInteractionAvatarUserId(ctx.env, sessionUserId, kind, interactionId);
+  const profile = await getProfileInteractionAvatarProfileRow(ctx.env, avatarUserId);
+  if (
+    !profile?.user_id ||
+    !Number(profile.has_avatar) ||
+    !hasMatchingProfileInteractionAvatarVersion(profile, version)
+  ) {
+    return null;
+  }
+
+  const object = await ctx.env.PRIVATE_MEDIA.get(avatarKey(profile.user_id));
+  if (!object) return null;
+
+  return new Response(
+    object.body,
+    {
+      headers: buildPublicMediaHeaders(
+        object.httpMetadata?.contentType || "image/webp",
+        object.size,
+        { immutable: false }
+      ),
+    }
+  );
 }
