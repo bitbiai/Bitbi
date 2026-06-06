@@ -5877,27 +5877,84 @@ test.describe('Homepage', () => {
     });
 
     await page.setViewportSize({ width: 1440, height: 1200 });
-    await page.goto('/');
-    await page.addStyleTag({
-      content: `
-        #homeCategories .reveal {
+    const injectCategoryMeasurementStyles = async () => {
+      await page.addStyleTag({
+        content: `
+        html,
+        body {
+          scroll-behavior: auto !important;
+        }
+
+        #homeCategories .reveal,
+        #homeCategories .reveal.visible {
           opacity: 1 !important;
           transform: none !important;
           transition: none !important;
           animation: none !important;
         }
+
+        #homeCategories .home-categories__viewport,
+        #homeCategories .home-categories__panel,
+        #homeCategories .section__header--sm,
+        #homeCategories .gallery-mode,
+        #homeCategories .video-mode {
+          transition: none !important;
+          animation: none !important;
+        }
       `,
-    });
-    await page.evaluate(async () => {
-      try {
-        await document.fonts?.ready;
-      } catch {
-        // Font readiness is best-effort in tests.
-      }
-      await new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(resolve));
       });
-    });
+    };
+
+    const stabilizeCategoryLayout = async (category) => {
+      // Keep visual-only category animations from affecting bounding-rect reads in CI.
+      await page.evaluate(async () => {
+        try {
+          await document.fonts?.ready;
+        } catch {
+          // Font readiness is best-effort in tests.
+        }
+      });
+      await page.waitForFunction((targetCategory) => {
+        const stage = document.getElementById('homeCategories');
+        const panel = document.querySelector(`[data-category-panel="${targetCategory}"]`);
+        const nav = document.querySelector('#navbar .site-nav__links');
+        const navStyle = nav ? window.getComputedStyle(nav) : null;
+        const desktopCategoryMode = Boolean(
+          nav
+          && navStyle
+          && navStyle.display !== 'none'
+          && navStyle.visibility !== 'hidden'
+          && nav.getBoundingClientRect().width > 0
+        );
+        const panelRect = panel?.getBoundingClientRect();
+        const panelReady = Boolean(
+          stage
+          && panel
+          && panelRect
+          && panelRect.width > 0
+          && panelRect.height > 0
+          && !stage.classList.contains('is-transitioning')
+        );
+        if (!desktopCategoryMode) return panelReady;
+        return Boolean(
+          panelReady
+          && stage.dataset.activeCategory === targetCategory
+          && !stage.classList.contains('is-transitioning')
+          && panel.classList.contains('is-active')
+          && panel.getAttribute('aria-hidden') === 'false'
+        );
+      }, category, { timeout: 10_000 });
+      await page.evaluate(async () => {
+        await new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+      });
+    };
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    await injectCategoryMeasurementStyles();
+    await stabilizeCategoryLayout('video');
 
     await expect(page.locator('#gallery .section__label')).toHaveCount(0);
     await expect(page.locator('#video-creations .section__label')).toHaveCount(0);
@@ -5906,8 +5963,10 @@ test.describe('Homepage', () => {
     await expectActiveHomepageCategory(page, 'video');
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
     await switchHomepageCategory(page, 'gallery');
+    await stabilizeCategoryLayout('gallery');
     await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
     await switchHomepageCategory(page, 'sound');
+    await stabilizeCategoryLayout('sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
 
     const readActiveCategoryMetrics = async (selector, modeSelector, contentSelector) => page.evaluate((args) => {
@@ -5939,10 +5998,13 @@ test.describe('Homepage', () => {
 
     const desktopCategoryMetrics = {};
     await switchHomepageCategory(page, 'video');
+    await stabilizeCategoryLayout('video');
     desktopCategoryMetrics.video = await readActiveCategoryMetrics('#video-creations', '.video-mode', '#videoExplore');
     await switchHomepageCategory(page, 'gallery');
+    await stabilizeCategoryLayout('gallery');
     desktopCategoryMetrics.gallery = await readActiveCategoryMetrics('#gallery', '.gallery-mode', '#galleryExplore');
     await switchHomepageCategory(page, 'sound');
+    await stabilizeCategoryLayout('sound');
     desktopCategoryMetrics.sound = await readActiveCategoryMetrics('#soundlab', '.video-mode', '#soundLabExplore');
 
     Object.entries(desktopCategoryMetrics).forEach(([category, metrics]) => {
@@ -5963,6 +6025,11 @@ test.describe('Homepage', () => {
       expect(metrics.modePaddingBottom, `${category} action padding bottom`).toBeGreaterThan(7);
       expect(metrics.modePaddingBottom, `${category} action padding bottom`).toBeLessThan(9);
     });
+
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.reload();
+    await injectCategoryMeasurementStyles();
+    await stabilizeCategoryLayout('video');
 
     const readActiveGhostState = async (selector) => page.evaluate((activeSelector) => {
       const section = document.querySelector(activeSelector);
@@ -6040,10 +6107,13 @@ test.describe('Homepage', () => {
 
     const ghostState = {};
     await switchHomepageCategory(page, 'gallery');
+    await stabilizeCategoryLayout('gallery');
     ghostState.gallery = await readActiveGhostState('#gallery');
     await switchHomepageCategory(page, 'video');
+    await stabilizeCategoryLayout('video');
     ghostState.video = await readActiveGhostState('#video-creations');
     await switchHomepageCategory(page, 'sound');
+    await stabilizeCategoryLayout('sound');
     ghostState.sound = await readActiveGhostState('#soundlab');
 
     expect(ghostState.gallery.hidden).toBe(false);
@@ -6086,6 +6156,7 @@ test.describe('Homepage', () => {
     expect(ghostState.video.rightCount).toBeGreaterThanOrEqual(1);
 
     await switchHomepageCategory(page, 'video');
+    await stabilizeCategoryLayout('video');
     const initialVideoGhostSignature = ghostState.video.slotSignature;
     await expect.poll(async () => {
       const state = await readActiveGhostState('#video-creations');
@@ -6120,6 +6191,7 @@ test.describe('Homepage', () => {
     });
 
     await switchHomepageCategory(page, 'sound');
+    await stabilizeCategoryLayout('sound');
     await page.setViewportSize({ width: 390, height: 844 });
 
     await expect(page.locator('#gallery .section__label')).toHaveCount(0);
@@ -6127,10 +6199,13 @@ test.describe('Homepage', () => {
     await expect(page.locator('#soundlab .section__label')).toHaveCount(0);
     await expectActiveHomepageCategory(page, 'sound');
     await switchHomepageCategory(page, 'gallery');
+    await stabilizeCategoryLayout('gallery');
     await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
     await switchHomepageCategory(page, 'video');
+    await stabilizeCategoryLayout('video');
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
     await switchHomepageCategory(page, 'sound');
+    await stabilizeCategoryLayout('sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
   });
 
