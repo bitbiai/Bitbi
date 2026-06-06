@@ -1048,13 +1048,6 @@ test.describe('Wallet identity profile flow', () => {
         body: JSON.stringify({ ok: true }),
       });
     });
-    await page.route('**/api/favorites', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, favorites: [] }),
-      });
-    });
     await page.route('**/api/wallet/status', async (route) => {
       await route.fulfill({
         status: 200,

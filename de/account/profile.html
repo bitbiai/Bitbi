@@ -126,7 +126,7 @@
                 <div class="profile-denied__icon" aria-hidden="true">&#128274;</div>
                 <p class="auth-recovery__eyebrow">Konto erforderlich</p>
                 <h2 id="profileDeniedTitle" class="profile-denied__title">Anmelden, um Ihr Profil zu öffnen</h2>
-                <p class="profile-denied__text">Profil, Wallet, Favoriten und Mitglieder-Arbeitsbereich werden aus Ihrem angemeldeten BITBI-Konto geladen. Falls Ihre Sitzung abgelaufen ist, melden Sie sich erneut an und fahren Sie hier fort.</p>
+                <p class="profile-denied__text">Profil, Wallet, Credits und Mitglieder-Arbeitsbereich werden aus Ihrem angemeldeten BITBI-Konto geladen. Falls Ihre Sitzung abgelaufen ist, melden Sie sich erneut an und fahren Sie hier fort.</p>
                 <ul class="auth-recovery__list" aria-label="Profil-Anmeldehinweise">
                     <li>Nutzen Sie Anmelden, wenn Sie bereits ein Konto haben.</li>
                     <li>Erstellen Sie ein Konto, um Kreationen zu speichern, Credits zu verwalten und Profildaten in einem Arbeitsbereich zu behalten.</li>
@@ -151,7 +151,6 @@
                     <button type="button" class="profile-tab-link" id="profileWalletWorkspaceBtn" data-open-wallet-workspace="profile">Wallet</button>
                     <a href="/de/account/credits.html?scope=member" class="profile-tab-link" id="profileCreditsLink">Credits</a>
                     <a href="/de/account/assets-manager.html" class="profile-tab-link">Assets Manager</a>
-                    <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favoriten</button>
                 </div>
 
                 <div class="profile-layout">
@@ -187,105 +186,11 @@
                     <div id="profileMediaGrid" class="profile__media-grid" aria-live="polite"></div>
                 </section>
 
-                <section class="profile__card profile__completion-card" id="profileCompletionCard" aria-labelledby="profileCompletionTitle" hidden>
-                    <div class="profile__completion-head">
-                        <p class="profile__control-eyebrow">Kontovervollständigung</p>
-                        <div class="profile__completion-title-row">
-                            <h2 id="profileCompletionTitle" class="profile__title">Checkliste</h2>
-                            <div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>
-                        </div>
-                    </div>
-                    <div class="profile__completion-list" role="list" aria-label="Checkliste zur Profilvervollständigung">
-                        <div class="profile__completion-item" role="listitem" data-completion-item="signed-in" data-state="pending">
-                            <span class="profile__completion-check" aria-hidden="true"></span>
-                            <span class="profile__completion-label">Angemeldet</span>
-                            <strong id="completionSignedInStatus">Wird geprüft...</strong>
-                        </div>
-                        <div class="profile__completion-item" role="listitem" data-completion-item="email" data-state="pending">
-                            <span class="profile__completion-check" aria-hidden="true"></span>
-                            <span class="profile__completion-label">E-Mail-Status</span>
-                            <strong id="completionEmailStatus">Wird geprüft...</strong>
-                        </div>
-                        <div class="profile__completion-item" role="listitem" data-completion-item="profile-image" data-state="pending">
-                            <span class="profile__completion-check" aria-hidden="true"></span>
-                            <span class="profile__completion-label">Profil Bild</span>
-                            <strong id="completionProfileImageStatus">Wird geprüft...</strong>
-                        </div>
-                        <div class="profile__completion-item" role="listitem" data-completion-item="display-name" data-state="pending">
-                            <span class="profile__completion-check" aria-hidden="true"></span>
-                            <span class="profile__completion-label">Anzeige Name</span>
-                            <strong id="completionDisplayNameStatus">Wird geprüft...</strong>
-                        </div>
-                        <div class="profile__completion-item" role="listitem" data-completion-item="wallet" data-state="pending">
-                            <span class="profile__completion-check" aria-hidden="true"></span>
-                            <span class="profile__completion-label">Wallet-Link</span>
-                            <strong id="completionWalletStatus">Wallet-Status wird geladen...</strong>
-                        </div>
-                    </div>
-                </section>
-
-                <div class="profile__avatar-account-stack" id="profileAvatarAccountStack" hidden>
-                    <div class="profile__card profile__avatar-card profile__avatar-card--compact" id="profileAvatarCard">
-                        <div class="profile__avatar-wrap">
-                            <div class="profile__avatar-frame" id="avatarFrame">
-                                <svg id="avatarPlaceholder" class="profile__avatar-placeholder" viewBox="0 0 80 80" fill="none" aria-hidden="true">
-                                    <circle cx="40" cy="40" r="40" fill="rgba(255,255,255,0.04)"/>
-                                    <circle cx="40" cy="30" r="12" fill="rgba(255,255,255,0.15)"/>
-                                    <ellipse cx="40" cy="58" rx="20" ry="14" fill="rgba(255,255,255,0.15)"/>
-                                </svg>
-                                <img id="avatarImg" class="profile__avatar-img" alt="Ihr Avatar" style="display:none">
-                            </div>
-                            <div class="profile__avatar-actions">
-                                <button
-                                    type="button"
-                                    class="profile__avatar-btn"
-                                    id="avatarChangeBtn"
-                                    aria-haspopup="dialog"
-                                    aria-controls="avatarSourceModal"
-                                >
-                                    <span id="avatarUploadText">Foto ändern</span>
-                                </button>
-                                <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp" hidden>
-                            </div>
-                            <p class="profile__hint">JPG, PNG oder WebP. Max. 2 MB.</p>
-                            <div id="avatarMsg" class="profile__msg profile__avatar-message" role="status"></div>
-                        </div>
-                    </div>
-
-                    <div class="profile__card profile__account-card profile__account-card--compact" id="profileAccountCard">
-                        <h2 class="profile__title">Kontoinformationen</h2>
-                        <div class="profile__row">
-                            <span class="profile__label">Anzeigename</span>
-                            <span class="profile__value" id="summaryName">&mdash;</span>
-                        </div>
-                        <div class="profile__row">
-                            <span class="profile__label">E-Mail</span>
-                            <span class="profile__value" id="summaryEmail">&mdash;</span>
-                        </div>
-                        <div class="profile__row">
-                            <span class="profile__label">Rolle</span>
-                            <span class="profile__value" id="summaryRole"></span>
-                        </div>
-                        <div class="profile__row">
-                            <span class="profile__label">Bestätigt</span>
-                            <span class="profile__value" id="summaryVerified"></span>
-                        </div>
-                        <div class="profile__row">
-                            <span class="profile__label">Mitglied seit</span>
-                            <span class="profile__value" id="summarySince">&mdash;</span>
-                        </div>
-                    </div>
-                </div>
-
                 <div id="profileStudioStack" class="profile__studio-stack profile__studio-stack--compact">
                     <a href="/de/account/assets-manager.html" id="profileStudioCard" class="profile__card profile__studio-card" aria-label="Assets Manager öffnen">
                         <span class="profile__studio-emoji" aria-hidden="true">&#127912;</span>
                         <span class="profile__studio-label">Assets Manager</span>
-                    </a>
-
-                    <a href="#profileFavoritesSection" id="profileFavoritesQuickLink" class="profile__card profile__studio-card profile__studio-card--favorites" aria-label="Favoriten öffnen">
-                        <span class="profile__studio-emoji profile__studio-emoji--favorites" aria-hidden="true">&#9733;</span>
-                        <span class="profile__studio-label">Favoriten</span>
+                        <span id="profileStorageUsage" class="profile__studio-stat" aria-live="polite">Wird geladen…</span>
                     </a>
 
                     <button type="button" id="profileWalletCard" class="profile__card profile__studio-card profile__studio-card--wallet" aria-label="Wallet öffnen" hidden>
@@ -299,6 +204,7 @@
                     <a href="/de/account/credits.html?scope=member" id="profileCreditsCard" class="profile__card profile__studio-card profile__studio-card--credits" aria-label="Credits öffnen">
                         <span class="profile__studio-emoji profile__studio-emoji--credits" aria-hidden="true">Cr</span>
                         <span class="profile__studio-label">Credits</span>
+                        <span id="profileCreditsBalance" class="profile__studio-stat" aria-live="polite">Wird geladen…</span>
                     </a>
 
                     <a href="/de/account/profile-settings.html" id="profileSettingsCard" class="profile__card profile__studio-card profile__studio-card--settings" aria-label="Profileinstellungen öffnen">
@@ -309,73 +215,7 @@
 
                 </div><!-- /.profile__overview-grid -->
 
-                <div class="profile__settings-row reveal" hidden>
-                <!-- Profil bearbeiten Card -->
-                <div class="profile__card profile__edit-card">
-                    <div class="profile__edit-head">
-                        <p class="profile__control-eyebrow">Profileinstellungen</p>
-                        <h2 class="profile__title">Profil bearbeiten</h2>
-                        <p id="profileEditIntro" class="profile__edit-copy">Anzeigename, Bio, Website und Avatar sind hier bearbeitbar.</p>
                     </div>
-
-                    <div id="profileEditState" class="profile__edit-state" role="status" aria-live="polite">Profilfelder werden aus Ihrem Konto geladen.</div>
-                    <div id="formMsg" class="profile__msg" role="status"></div>
-                    <p id="profileSaveRecovery" class="profile__save-recovery" hidden>Speichern fehlgeschlagen. Ihre eingegebenen Werte bleiben im Formular; prüfen Sie die Verbindung oder melden Sie sich erneut an und versuchen Sie es noch einmal.</p>
-
-                    <form id="profileForm" class="profile__form" aria-describedby="profileEditIntro profileEditState">
-                        <div>
-                            <label for="displayName" class="profile__form-label">Anzeigename</label>
-                            <input type="text" id="displayName" class="profile__input" placeholder="Ihr Anzeigename" maxlength="50" autocomplete="name" aria-describedby="displayNameHelp">
-                            <p id="displayNameHelp" class="profile__hint">Max. 50 Zeichen. Dieser Name erscheint in Ihrer Mitgliedernavigation.</p>
-                        </div>
-                        <div>
-                            <label for="bio" class="profile__form-label">Bio</label>
-                            <textarea id="bio" class="profile__textarea" placeholder="Erzählen Sie etwas über sich..." maxlength="300" aria-describedby="bioHelp"></textarea>
-                            <p id="bioHelp" class="profile__hint">Max. 300 Zeichen. Halten Sie den Text öffentlich geeignet.</p>
-                        </div>
-                        <div>
-                            <label for="website" class="profile__form-label">Website</label>
-                            <input type="url" id="website" class="profile__input" placeholder="https://your-website.com" maxlength="300" autocomplete="url" spellcheck="false" aria-describedby="websiteHelp">
-                            <p id="websiteHelp" class="profile__hint">Nutzen Sie eine öffentliche https-URL, die Sie mit diesem Profil verbinden möchten.</p>
-                        </div>
-                        <button type="submit" id="submitBtn" class="profile__submit">Änderungen speichern</button>
-                    </form>
-                </div>
-                </div>
-
-                <!-- Account Actions -->
-                <div class="profile__actions">
-                    <button type="button" id="logoutBtn" class="profile__logout">Abmelden</button>
-                    <a href="/de/" class="profile__link">&larr; Zurück zur Startseite</a>
-                </div>
-
-                    </div>
-
-                    <aside id="profileFavoritesOverlay" class="profile-layout__sidebar profile-favorites-overlay" aria-label="Favoriten">
-                        <div class="profile-favorites-overlay__backdrop" data-profile-favorites-close></div>
-                        <div id="profileFavoritesOverlayPanel" class="profile-favorites-overlay__panel" aria-labelledby="profileFavoritesTitle">
-                        <button type="button" id="profileFavoritesOverlayClose" class="profile-favorites-overlay__close" aria-label="Favoriten schließen">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            <span>Schließen</span>
-                        </button>
-                        <div class="profile__card profile__favorites reveal" id="profileFavoritesSection" tabindex="-1">
-                            <h2 id="profileFavoritesTitle" class="profile__title">Favoriten</h2>
-                            <div class="favorites__group" id="favoritesMempics" data-favorites-type="mempics">
-                                <h3 class="favorites__group-label favorites__group-label--magenta">Mempics</h3>
-                                <p class="favorites__empty">Noch keine Favoriten</p>
-                            </div>
-                            <div class="favorites__group" id="favoritesVideos" data-favorites-type="video">
-                                <h3 class="favorites__group-label favorites__group-label--cyan">Memvids</h3>
-                                <p class="favorites__empty">Noch keine Favoriten</p>
-                            </div>
-                            <div class="favorites__group" id="favoritesSoundlab" data-favorites-type="soundlab">
-                                <h3 class="favorites__group-label favorites__group-label--gold">Sound Lab</h3>
-                                <p class="favorites__empty">Noch keine Favoriten</p>
-                            </div>
-                            <a href="#profileHero" class="profile__favorites-back">Zurück zum Profil</a>
-                        </div>
-                        </div>
-                    </aside>
                 </div>
             </div>
         </div>
@@ -383,18 +223,6 @@
 </section>
 
 </main>
-
-<!-- Favorites Viewer Overlay -->
-<div id="favViewer" class="fav-viewer" role="dialog" aria-modal="true" aria-label="Favoriten-Vorschau">
-    <div class="fav-viewer__backdrop"></div>
-    <div class="fav-viewer__body"></div>
-    <div class="fav-viewer__close-wrap">
-        <button type="button" id="favViewerClose" class="fav-viewer__close" aria-label="Vorschau schließen">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            <span>Schließen</span>
-        </button>
-    </div>
-</div>
 
 <div id="profileInteractionsOverlay" class="profile-interactions" hidden aria-hidden="true">
     <div class="profile-interactions__backdrop" data-profile-interactions-close></div>
@@ -414,99 +242,6 @@
         <div id="profileInteractionsStatus" class="profile-interactions__status" role="status" aria-live="polite"></div>
         <div id="profileInteractionsList" class="profile-interactions__list"></div>
     </section>
-</div>
-
-<div id="avatarSourceModal" class="modal-overlay profile-avatar-modal" hidden aria-hidden="true">
-    <div class="modal-content profile-avatar-modal__content">
-        <div class="modal-card profile-avatar-modal__card" role="dialog" aria-modal="true" aria-labelledby="avatarSourceTitle">
-            <button type="button" class="modal-action modal-action--right profile-avatar-modal__close" id="avatarSourceClose" aria-label="Auswahl schließen">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-            <div class="modal-body profile-avatar-modal__body">
-                <span class="profile-avatar-modal__eyebrow">Profilfoto</span>
-                <h3 id="avatarSourceTitle" class="modal-title">Foto ändern</h3>
-                <p class="profile-avatar-modal__desc">Wählen Sie aus, wie Sie Ihr Profilfoto aktualisieren möchten.</p>
-                <div class="profile-avatar-modal__options">
-                    <button type="button" id="avatarChooseSavedAssets" class="profile-avatar-modal__option">
-                        <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#128444;</span>
-                        <span class="profile-avatar-modal__option-title">Gespeicherte Assets</span>
-                        <span class="profile-avatar-modal__option-desc">Verwenden Sie ein Bild aus Ihrer gespeicherten Asset-Bibliothek.</span>
-                    </button>
-                    <button type="button" id="avatarChooseUploadDevice" class="profile-avatar-modal__option">
-                        <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#8682;</span>
-                        <span class="profile-avatar-modal__option-title">Vom Gerät hochladen</span>
-                        <span class="profile-avatar-modal__option-desc">Mit dem lokalen Upload fortfahren.</span>
-                    </button>
-                    <button type="button" id="avatarChooseGenerate" class="profile-avatar-modal__option">
-                        <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#9881;</span>
-                        <span class="profile-avatar-modal__option-title">Avatar generieren</span>
-                        <span class="profile-avatar-modal__option-desc">Beschreiben Sie ein Porträt und erstellen Sie einen Avatar mit KI.</span>
-                    </button>
-                    <button type="button" id="avatarRemoveBtn" class="profile-avatar-modal__remove-option" style="display:none">
-                        <span class="profile-avatar-modal__option-title">Entfernen</span>
-                        <span class="profile-avatar-modal__option-desc">Entfernt das aktuelle Profilfoto aus Ihrem BITBI-Konto.</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div id="avatarAssetsModal" class="modal-overlay profile-avatar-modal profile-avatar-modal--wide" hidden aria-hidden="true">
-    <div class="modal-content profile-avatar-modal__content profile-avatar-modal__content--wide">
-        <div class="modal-card profile-avatar-modal__card profile-avatar-picker" role="dialog" aria-modal="true" aria-labelledby="avatarAssetsTitle">
-            <button type="button" class="modal-action modal-action--right profile-avatar-modal__close" id="avatarAssetsClose" aria-label="Asset-Auswahl schließen">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-            <div class="modal-body profile-avatar-modal__body profile-avatar-modal__body--picker">
-                <div class="profile-avatar-picker__head">
-                    <div>
-                        <span class="profile-avatar-modal__eyebrow">Profilfoto</span>
-                        <h3 id="avatarAssetsTitle" class="modal-title">Gespeicherte Assets</h3>
-                        <p class="profile-avatar-modal__desc">Wählen Sie eines Ihrer gespeicherten Bilder. Profilfotos verwenden immer das optimierte Thumbnail, nie das Original.</p>
-                    </div>
-                    <label class="profile-avatar-picker__filter-wrap" for="avatarAssetsFilter">
-                        <span class="sr-only">Filter Gespeicherte Assets by folder</span>
-                        <select id="avatarAssetsFilter" class="studio__folder-filter">
-                            <option value="">Alle gespeicherten Bilder</option>
-                        </select>
-                    </label>
-                </div>
-                <div id="avatarAssetsStatus" class="profile-avatar-picker__status profile-avatar-picker__status--neutral" role="status">Wählen Sie ein Bild für Ihr Profilfoto.</div>
-                <div id="avatarAssetsGrid" class="profile-avatar-picker__grid">
-                    <div class="studio__gallery-empty">Gespeicherte Bilder werden geladen...</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div id="avatarGenerateModal" class="modal-overlay profile-avatar-modal" hidden aria-hidden="true">
-    <div class="modal-content profile-avatar-modal__content">
-        <div class="modal-card profile-avatar-modal__card profile-avatar-generate" role="dialog" aria-modal="true" aria-labelledby="avatarGenerateTitle">
-            <button type="button" class="modal-action modal-action--right profile-avatar-modal__close" id="avatarGenerateClose" aria-label="Avatar-Generator schließen">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-            <div class="modal-body profile-avatar-modal__body profile-avatar-generate__body">
-                <span class="profile-avatar-modal__eyebrow">Profilfoto</span>
-                <h3 id="avatarGenerateTitle" class="modal-title">Avatar generieren</h3>
-                <p class="profile-avatar-modal__desc">Beschreiben Sie den gewünschten Avatar; wir generieren ihn für Sie.</p>
-                <div class="profile-avatar-generate__preview" id="avatarGeneratePreview" aria-live="polite">
-                    <div class="profile-avatar-generate__preview-empty">Ihr Avatar erscheint hier.</div>
-                </div>
-                <div id="avatarGenerateMsg" class="profile__msg" role="status"></div>
-                <label class="profile-avatar-generate__prompt-label" for="avatarGeneratePrompt">
-                    <span class="sr-only">Avatar-Prompt</span>
-                    <textarea id="avatarGeneratePrompt" class="profile-avatar-generate__prompt" rows="3" maxlength="1000" placeholder="Beschreiben Sie Ihren Avatar..." autocomplete="off"></textarea>
-                </label>
-                <div class="profile-avatar-generate__actions">
-                    <button type="button" id="avatarGenerateBtn" class="profile-avatar-generate__btn profile-avatar-generate__btn--primary">Generieren</button>
-                    <button type="button" id="avatarGenerateUseBtn" class="profile-avatar-generate__btn profile-avatar-generate__btn--use" disabled>Verwenden</button>
-                </div>
-                <div id="avatarGenerateQuota" class="profile-avatar-generate__quota" aria-live="polite" hidden></div>
-            </div>
-        </div>
-    </div>
 </div>
 
 <!-- FOOTER -->

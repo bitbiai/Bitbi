@@ -110,7 +110,7 @@ function loadAccess() {
     if (rolesEl) {
         rolesEl.replaceChildren();
         rolesEl.appendChild(inventory([
-            { name: 'User', value: 'Profile, favorites, Assets Manager, view content' },
+            { name: 'User', value: 'Profile, likes, Assets Manager, view content' },
             { name: 'Admin', value: 'All user permissions + user management, audit log' },
         ]));
     }

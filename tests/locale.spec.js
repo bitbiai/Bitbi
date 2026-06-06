@@ -598,6 +598,8 @@ test.describe('Bilingual locale pages', () => {
   test('member workspace navigation keeps English and German routes equivalent', () => {
     const enProfile = repoFile('account/profile.html');
     const deProfile = repoFile('de/account/profile.html');
+    const enProfileSettings = repoFile('account/profile-settings.html');
+    const deProfileSettings = repoFile('de/account/profile-settings.html');
     const profileCss = repoFile('css/account/profile.css');
     const enCredits = repoFile('account/credits.html');
     const deCredits = repoFile('de/account/credits.html');
@@ -608,168 +610,87 @@ test.describe('Bilingual locale pages', () => {
     const localeJs = repoFile('js/shared/locale.js');
     const helpMenu = repoFile('js/shared/help-menu.js');
 
-    expect(enProfile).not.toContain('id="memberControlCenter"');
-    expect(enProfile).not.toContain('Member Control Center');
-    expect(enProfile).not.toContain('href="../css/components/member-workflow.css?v=__ASSET_VERSION__"');
-    expect(enProfile).not.toContain('id="profileWorkspacePriority"');
-    expect(enProfile).not.toContain('Workspace priority');
-    expect(enProfile).not.toContain('Start with the next useful action');
-    expect(enProfile).not.toContain('Suggested first-run steps');
+    for (const source of [enProfile, deProfile]) {
+      expect(source).not.toContain('id="memberControlCenter"');
+      expect(source).not.toContain('id="profileWorkspacePriority"');
+      expect(source).not.toContain('id="profileFavoritesQuickLink"');
+      expect(source).not.toContain('href="#profileFavoritesSection"');
+      expect(source).not.toContain('id="profileFavoritesSection"');
+      expect(source).not.toContain('id="profileCompletionCard"');
+      expect(source).not.toContain('id="profileAvatarCard"');
+      expect(source).not.toContain('id="profileAccountCard"');
+      expect(source).not.toContain('id="profileForm"');
+      expect(source).not.toContain('id="logoutBtn"');
+      expect(source).not.toContain('id="avatarSourceModal"');
+      expect(source).not.toContain('id="walletSectionCard"');
+      expect(source).not.toContain('id="profileWalletContext"');
+      expect(source).toContain('id="profileSocialDashboard"');
+      expect(source).toContain('id="profileFollowerCount"');
+      expect(source).toContain('id="profileFollowingCount"');
+      expect(source).toContain('id="profileReceivedLikeCount"');
+      expect(source).toContain('data-profile-media-tab="published"');
+      expect(source).toContain('data-profile-media-tab="liked"');
+      expect(source).toContain('id="profileStudioCard"');
+      expect(source).toContain('id="profileWalletCard"');
+      expect(source).toContain('id="profileCreditsCard"');
+      expect(source).toContain('id="profileSettingsCard"');
+      expect(source).toContain('id="profileStorageUsage"');
+      expect(source).toContain('id="profileCreditsBalance"');
+      expect(source).toContain('id="profileWalletCardStatus"');
+      expect(source).toContain('class="section__inner profile-shell"');
+      expect(source).toContain('profile__overview-grid');
+      expect(source).toContain('data-auth-source="profile"');
+    }
+
     expect(enProfile).toContain('href="/account/assets-manager.html"');
     expect(enProfile).toContain('href="/account/credits.html?scope=member"');
-    expect(enProfile).toContain('id="profileFavoritesQuickLink"');
-    expect(enProfile).toContain('href="#profileFavoritesSection"');
-    expect(enProfile).toContain('aria-label="Open Favorites"');
-    expect(enProfile).toContain('id="profileFavoritesSection" tabindex="-1"');
-    expect(enProfile).toContain('Back to Profile');
-    expect(enProfile).toContain('class="section__inner profile-shell"');
-    expect(enProfile).toContain('profile__overview-grid');
-    expect(enProfile).not.toContain('id="profileSecurityCard"');
-    expect(enProfile).not.toContain('Account security');
-    expect(enProfile).not.toContain('Your signed-in profile is the source of truth for account status.');
-    expect(enProfile).not.toContain('id="securityEmailStatus"');
-    expect(enProfile).not.toContain('id="securityReverifyBtn"');
-    expect(enProfile).toContain('After sign-in, continue here to review the profile checklist');
-    expect(enProfile).toContain('data-auth-source="profile"');
+    expect(enProfile).toContain('href="/account/profile-settings.html"');
+    expect(enProfile).toContain('Sign in to open your profile');
     expect(enProfile).toContain('href="/account/forgot-password.html?source=profile"');
-    expect(enProfile).toContain('id="profileCompletionCard"');
-    expect(enProfile).toContain('Account completion');
-    expect(enProfile).toContain('Checklist');
-    expect(enProfile).toContain('profile__completion-title-row');
-    expect(enProfile).toContain('<div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Completion loads after your profile data.</div>');
-    expect(enProfile).not.toContain('</div>\n                    <div id="profileCompletionStatus" class="profile__completion-status"');
-    expect(enProfile).toContain('profile__completion-check');
-    expect(enProfile).toContain('data-completion-item="signed-in"');
-    expect(enProfile).toContain('data-completion-item="email"');
-    expect(enProfile).toContain('data-completion-item="profile-image"');
-    expect(enProfile).toContain('data-completion-item="display-name"');
-    expect(enProfile).toContain('Email status');
-    expect(enProfile).toContain('Profile image');
-    expect(enProfile).toContain('Display name');
-    expect([...enProfile.matchAll(/data-completion-item="([^"]+)"/g)].map((match) => match[1])).toEqual([
+    expect(enProfileSettings).toContain('Back to Profile');
+    expect(enProfileSettings).toContain('id="profileCompletionCard"');
+    expect(enProfileSettings).toContain('Account completion');
+    expect(enProfileSettings).toContain('Checklist');
+    expect(enProfileSettings).toContain('profile__completion-title-row');
+    expect(enProfileSettings).toContain('id="profileAvatarCard"');
+    expect(enProfileSettings).toContain('id="profileAccountCard"');
+    expect(enProfileSettings).toContain('profile__settings-row');
+    expect(enProfileSettings).toContain('id="profileEditState"');
+    expect(enProfileSettings).toContain('Display name, bio, website, and avatar are editable here.');
+    expect(enProfileSettings).not.toContain('id="profileStudioStack"');
+    expect(enProfileSettings).not.toContain('id="logoutBtn"');
+    expect([...enProfileSettings.matchAll(/data-completion-item="([^"]+)"/g)].map((match) => match[1])).toEqual([
       'signed-in',
       'email',
       'profile-image',
       'display-name',
       'wallet',
     ]);
-    expect(enProfile).not.toContain('data-completion-item="profile-loaded"');
-    expect(enProfile).not.toContain('id="completionProfileLoadedStatus"');
-    expect(enProfile).not.toContain('Profile loaded</span>');
-    expect(enProfile).not.toContain('id="profileUsageTrustCard"');
-    expect(enProfile).not.toContain('Credits and Pro stay account-bound');
-    expect(enProfile).not.toContain('Profile keeps recovery and account identity close, but it does not grant credits.');
-    expect(enProfile).not.toContain('href="/account/credits.html?scope=member&amp;source=profile-usage"');
-    expect(enProfile).not.toContain('href="/generate-lab/?source=profile-usage"');
-    expect(enProfile).not.toContain('href="/account/assets-manager.html?source=profile-usage&amp;recent=1#generate-lab-recent"');
-    expect(enProfile).toContain('id="completionWalletStatus"');
-    expect(enProfile).toContain('id="profileAvatarAccountStack"');
-    expect(enProfile).toContain('id="profileAvatarCard"');
-    expect(enProfile).toContain('profile__avatar-card--compact');
-    expect(enProfile).toContain('id="profileAccountCard"');
-    expect(enProfile).toContain('profile__account-card--compact');
-    expect(enProfile).toContain('profile__settings-row');
-    expect(enProfile.indexOf('class="profile__card profile__edit-card"')).toBeGreaterThan(-1);
-    expect(enProfile).not.toContain('id="walletSectionCard"');
-    expect(enProfile).not.toContain('id="profileWalletContext"');
-    expect(enProfile).not.toContain('profile__wallet-context');
-    expect(enProfile).not.toContain('BITBI Account</p>');
-    expect(enProfile).toContain('id="profileWalletCardStatus"');
-    expect(enProfile).not.toContain('Wallet linking is optional and never requires sharing private keys.');
-    expect(enProfile).not.toContain('id="walletTrustStatus"');
-    expect(enProfile).not.toContain('Wallet trust notes');
-    expect(enProfile).not.toContain('not wallet custody');
-    expect(enProfile).not.toContain('id="walletStatusRefreshBtn"');
-    expect(enProfile).not.toContain('Refresh wallet status');
-    expect(enProfile).toContain('id="profileEditState"');
-    expect(enProfile).toContain('Display name, bio, website, and avatar are editable here.');
-    expect(enProfile).not.toContain('Wallet status and actions live in the compact BITBI Account context below.');
-    expect(enProfile).toContain('Sign in to open your profile');
-    expect(enProfile).toContain('Reset your password or complete email verification after sign-in');
-    expect(enProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
-    expect(enProfile).toContain('href="/account/forgot-password.html?source=profile"');
 
-    expect(deProfile).not.toContain('id="memberControlCenter"');
-    expect(deProfile).not.toContain('Mitglieder-Kontrollzentrum');
-    expect(deProfile).not.toContain('href="../../css/components/member-workflow.css?v=__ASSET_VERSION__"');
-    expect(deProfile).not.toContain('id="profileWorkspacePriority"');
-    expect(deProfile).not.toContain('Arbeitsbereich-Priorität');
-    expect(deProfile).not.toContain('Mit der sinnvollsten nächsten Aktion starten');
-    expect(deProfile).not.toContain('Empfohlene erste Schritte');
     expect(deProfile).toContain('href="/de/account/assets-manager.html"');
     expect(deProfile).toContain('href="/de/account/credits.html?scope=member"');
-    expect(deProfile).toContain('id="profileFavoritesQuickLink"');
-    expect(deProfile).toContain('href="#profileFavoritesSection"');
-    expect(deProfile).toContain('aria-label="Favoriten öffnen"');
-    expect(deProfile).toContain('id="profileFavoritesSection" tabindex="-1"');
-    expect(deProfile).toContain('Zurück zum Profil');
-    expect(deProfile).toContain('class="section__inner profile-shell"');
-    expect(deProfile).toContain('profile__overview-grid');
-    expect(deProfile).not.toContain('id="profileSecurityCard"');
-    expect(deProfile).not.toContain('Kontosicherheit');
-    expect(deProfile).not.toContain('Ihr angemeldetes Profil ist die Quelle der Wahrheit für den Kontostatus.');
-    expect(deProfile).not.toContain('id="securityEmailStatus"');
-    expect(deProfile).not.toContain('id="securityReverifyBtn"');
-    expect(deProfile).toContain('Nach der Anmeldung hier fortfahren, um Profil-Checkliste');
-    expect(deProfile).toContain('data-auth-source="profile"');
+    expect(deProfile).toContain('href="/de/account/profile-settings.html"');
+    expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
     expect(deProfile).toContain('href="/de/account/forgot-password.html?source=profile"');
-    expect(deProfile).toContain('id="profileCompletionCard"');
-    expect(deProfile).toContain('Kontovervollständigung');
-    expect(deProfile).toContain('Checkliste');
-    expect(deProfile).toContain('profile__completion-title-row');
-    expect(deProfile).toContain('<div id="profileCompletionStatus" class="profile__completion-status" role="status" aria-live="polite">Vervollständigung lädt nach den Profildaten.</div>');
-    expect(deProfile).not.toContain('</div>\n                    <div id="profileCompletionStatus" class="profile__completion-status"');
-    expect(deProfile).toContain('profile__completion-check');
-    expect(deProfile).toContain('data-completion-item="signed-in"');
-    expect(deProfile).toContain('data-completion-item="email"');
-    expect(deProfile).toContain('data-completion-item="profile-image"');
-    expect(deProfile).toContain('data-completion-item="display-name"');
-    expect(deProfile).toContain('E-Mail-Status');
-    expect(deProfile).toContain('Profil Bild');
-    expect(deProfile).toContain('Anzeige Name');
-    expect([...deProfile.matchAll(/data-completion-item="([^"]+)"/g)].map((match) => match[1])).toEqual([
+    expect(deProfileSettings).toContain('Zurück zum Profil');
+    expect(deProfileSettings).toContain('id="profileCompletionCard"');
+    expect(deProfileSettings).toContain('Kontovervollständigung');
+    expect(deProfileSettings).toContain('Checkliste');
+    expect(deProfileSettings).toContain('profile__completion-title-row');
+    expect(deProfileSettings).toContain('id="profileAvatarCard"');
+    expect(deProfileSettings).toContain('id="profileAccountCard"');
+    expect(deProfileSettings).toContain('profile__settings-row');
+    expect(deProfileSettings).toContain('id="profileEditState"');
+    expect(deProfileSettings).toContain('Anzeigename, Bio, Website und Avatar sind hier bearbeitbar.');
+    expect(deProfileSettings).not.toContain('id="profileStudioStack"');
+    expect(deProfileSettings).not.toContain('id="logoutBtn"');
+    expect([...deProfileSettings.matchAll(/data-completion-item="([^"]+)"/g)].map((match) => match[1])).toEqual([
       'signed-in',
       'email',
       'profile-image',
       'display-name',
       'wallet',
     ]);
-    expect(deProfile).not.toContain('data-completion-item="profile-loaded"');
-    expect(deProfile).not.toContain('id="completionProfileLoadedStatus"');
-    expect(deProfile).not.toContain('Profil geladen</span>');
-    expect(deProfile).not.toContain('id="profileUsageTrustCard"');
-    expect(deProfile).not.toContain('Credits und Pro bleiben konto-gebunden');
-    expect(deProfile).not.toContain('Profil hält Wiederherstellung und Kontoidentität nahe, vergibt aber keine Credits.');
-    expect(deProfile).not.toContain('href="/de/account/credits.html?scope=member&amp;source=profile-usage"');
-    expect(deProfile).not.toContain('href="/de/generate-lab/?source=profile-usage"');
-    expect(deProfile).not.toContain('href="/de/account/assets-manager.html?source=profile-usage&amp;recent=1#generate-lab-recent"');
-    expect(deProfile).toContain('id="completionWalletStatus"');
-    expect(deProfile).toContain('id="profileAvatarAccountStack"');
-    expect(deProfile).toContain('id="profileAvatarCard"');
-    expect(deProfile).toContain('profile__avatar-card--compact');
-    expect(deProfile).toContain('profile__avatar-message');
-    expect(deProfile).toContain('id="profileAccountCard"');
-    expect(deProfile).toContain('profile__account-card--compact');
-    expect(deProfile).toContain('profile__settings-row');
-    expect(deProfile.indexOf('class="profile__card profile__edit-card"')).toBeGreaterThan(-1);
-    expect(deProfile).not.toContain('id="walletSectionCard"');
-    expect(deProfile).not.toContain('id="profileWalletContext"');
-    expect(deProfile).not.toContain('profile__wallet-context');
-    expect(deProfile).not.toContain('BITBI-Konto</p>');
-    expect(deProfile).toContain('id="profileWalletCardStatus"');
-    expect(deProfile).not.toContain('Wallet-Verknüpfung ist optional und erfordert niemals private Schlüssel.');
-    expect(deProfile).not.toContain('id="walletTrustStatus"');
-    expect(deProfile).not.toContain('Hinweise zum Wallet-Vertrauen');
-    expect(deProfile).not.toContain('keine Wallet-Verwahrung');
-    expect(deProfile).not.toContain('id="walletStatusRefreshBtn"');
-    expect(deProfile).not.toContain('Wallet-Status aktualisieren');
-    expect(deProfile).toContain('id="profileEditState"');
-    expect(deProfile).toContain('Anzeigename, Bio, Website und Avatar sind hier bearbeitbar.');
-    expect(deProfile).not.toContain('Wallet-Status und Aktionen liegen kompakt im BITBI-Konto-Kontext darunter.');
-    expect(deProfile).toContain('Anmelden, um Ihr Profil zu öffnen');
-    expect(deProfile).toContain('schließen Sie die E-Mail-Bestätigung nach der Anmeldung ab');
-    expect(deProfile).toContain('data-auth-message-key="authRecovery.profileMessage"');
-    expect(deProfile).toContain('href="/de/account/forgot-password.html?source=profile"');
 
     expect(profileCss).toContain('.profile__avatar-card--compact .profile__avatar-frame');
     expect(profileCss).toContain('grid-template-areas:');
@@ -780,12 +701,12 @@ test.describe('Bilingual locale pages', () => {
     expect(profileCss).toContain('--profile-overview-account-block');
     expect(profileCss).toContain('grid-template-rows: repeat(4, minmax(0, 1fr))');
     expect(profileCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
-    expect(profileCss).toContain('#profileFavoritesQuickLink');
-    expect(profileCss).toContain('.profile-favorites-overlay.is-open');
-    expect(profileCss).toContain('.profile-favorites-overlay__close');
-    expect(profileCss).toContain('.profile__studio-card--favorites');
-    expect(profileCss).toContain('.profile__favorites-back');
-    expect(profileCss).toContain('.profile-view--favorites-focused');
+    expect(profileCss).toContain('.profile__studio-stat');
+    expect(profileCss).not.toContain('#profileFavoritesQuickLink');
+    expect(profileCss).not.toContain('.profile-favorites-overlay');
+    expect(profileCss).not.toContain('.profile__studio-card--favorites');
+    expect(profileCss).not.toContain('.profile__favorites-back');
+    expect(profileCss).not.toContain('.profile-view--favorites-focused');
     expect(profileCss).not.toContain('.profile__wallet-context');
     expect(profileCss).toContain('#profileTabBar');
     expect(profileCss).toContain('grid-row: 1 / span 2');
@@ -818,7 +739,7 @@ test.describe('Bilingual locale pages', () => {
     expect(enCredits).toContain('href="/account/profile.html">Back to Profile</a>');
     expect(enCredits).toContain('Sign in to review credits');
     expect(enCredits).toContain('Profile verification guidance are available');
-    expect(enCredits).toContain('href="/account/profile.html?returnContext=credits#profileCompletionCard"');
+    expect(enCredits).toContain('href="/account/profile-settings.html?returnContext=credits#profileCompletionCard"');
     expect(enCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
     expect(enCredits).toContain('After sign-in, continue here to refresh verified credits');
     expect(enCredits).toContain('data-auth-source="credits"');
@@ -845,7 +766,7 @@ test.describe('Bilingual locale pages', () => {
     expect(deCredits).toContain('href="/de/account/profile.html">Zurück zum Profil</a>');
     expect(deCredits).toContain('Anmelden, um Credits zu prüfen');
     expect(deCredits).toContain('Profilhinweise zur Bestätigung sind verfügbar');
-    expect(deCredits).toContain('href="/de/account/profile.html?returnContext=credits#profileCompletionCard"');
+    expect(deCredits).toContain('href="/de/account/profile-settings.html?returnContext=credits#profileCompletionCard"');
     expect(deCredits).toContain('data-auth-message-key="authRecovery.creditsMessage"');
     expect(deCredits).toContain('Nach der Anmeldung hier fortfahren, um verifizierte Credits');
     expect(deCredits).toContain('data-auth-source="credits"');
@@ -1366,7 +1287,7 @@ test.describe('Bilingual locale pages', () => {
       'Sign In Required',
       'Account needed',
       'Sign in to open your profile',
-      'Your profile, wallet, favorites',
+      'Your profile, wallet, credits',
       'Create account',
       'Reset password',
       'Account entry',

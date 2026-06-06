@@ -106,7 +106,7 @@ export function buildAuthContinuationHref(source) {
     const safeSource = normalizeAuthSource(source) || 'landing';
     switch (safeSource) {
         case 'profile':
-            return localHrefWithParams('/account/profile.html', { source: safeSource }, '#profileCompletionCard');
+            return localHrefWithParams('/account/profile-settings.html', { source: safeSource }, '#profileCompletionCard');
         case 'credits':
             return localHrefWithParams('/account/credits.html', { scope: 'member', source: safeSource });
         case 'assets-manager':
@@ -125,7 +125,7 @@ export function buildWorkspaceHref(target, source) {
     const safeSource = normalizeAuthSource(source) || authSourceFromCurrentPath();
     switch (target) {
         case 'profile':
-            return localHrefWithParams('/account/profile.html', { source: safeSource }, '#profileCompletionCard');
+            return localHrefWithParams('/account/profile-settings.html', { source: safeSource }, '#profileCompletionCard');
         case 'credits':
             return localHrefWithParams('/account/credits.html', { scope: 'member', source: safeSource });
         case 'generate-lab':
@@ -143,7 +143,7 @@ export function buildPasswordResetHref(source) {
 
 export function buildVerificationHref(source) {
     return localHrefWithParams(
-        '/account/profile.html',
+        '/account/profile-settings.html',
         { source: normalizeAuthSource(source) || 'landing', returnContext: 'verification' },
         '#profileCompletionCard',
     );

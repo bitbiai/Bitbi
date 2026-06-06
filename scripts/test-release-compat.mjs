@@ -518,7 +518,6 @@ const baseManifest = {
       "POST /api/billing/webhooks/stripe/live",
     ],
     delegatedExactPaths: [
-      "/api/favorites",
       "/api/orgs",
     ],
     delegatedPrefixes: [
@@ -910,7 +909,6 @@ function createValidContext() {
       if (pathname === "/api/account/billing/checkout/live-credit-pack" && method === "POST") return handleAccountCredits();
       if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar();
       if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar();
-      if (pathname === "/api/favorites") { return handleFavorites(); }
       if (pathname === "/api/orgs") { return handleOrgs(); }
       if (pathname.startsWith("/api/orgs/")) { return handleOrgs(); }
       if (pathname === "/api/billing/webhooks/test" && method === "POST") return handleBillingWebhooks();

@@ -23,43 +23,24 @@ import {
     apiAiGetFolders,
     apiAiGetImages,
     apiDeleteAvatar,
-    apiGetFavorites,
+    apiAccountCreditsDashboard,
     apiGetProfile,
     apiGetProfileMedia,
     apiGetProfileSocialList,
     apiGetProfileSocialSummary,
     apiLogout,
-    apiRemoveFavorite,
     apiRequestReverification,
     apiSetAvatarFromSavedAsset,
     apiUpdateProfile,
     apiUploadAvatar,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import { formatAssetStorageUsage } from '../../shared/storage-format.js?v=__ASSET_VERSION__';
 import {
     initAvatarGenerate,
     openAvatarGenerateModal,
     closeAvatarGenerateModal,
     isAvatarGenerateModalOpen,
 } from './avatar-generate.js?v=__ASSET_VERSION__';
-import { galleryItems } from '../../shared/gallery-data.js';
-import { formatTime } from '../../shared/format-time.js';
-import {
-    buildPublicMempicUrl,
-    buildPublicMemtrackUrl,
-    buildPublicMemvidUrl,
-    getPublicMempicVersionFromUrl,
-    getPublicMemtrackVersionFromUrl,
-    getPublicMemvidVersionFromUrl,
-} from '../../shared/public-media-contract.mjs';
-import {
-    initGlobalAudioManager,
-    getGlobalAudioState,
-    subscribeGlobalAudioState,
-    playGlobalTrack,
-    pauseGlobalAudio,
-    resumeGlobalAudio,
-    seekGlobalAudio,
-} from '../../shared/audio/audio-manager.js?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -82,13 +63,8 @@ const $walletCard     = document.getElementById('profileWalletCard');
 const $walletCardStatus = document.getElementById('profileWalletCardStatus');
 const $profileHomeView = document.getElementById('profileHomeView');
 const $profileHero = document.getElementById('profileHero');
-const $profileFavoritesQuickLink = document.getElementById('profileFavoritesQuickLink');
-const $profileFavoritesOverlay = document.getElementById('profileFavoritesOverlay');
-const $profileFavoritesOverlayPanel = document.getElementById('profileFavoritesOverlayPanel');
-const $profileFavoritesOverlayClose = document.getElementById('profileFavoritesOverlayClose');
-const $profileFavoritesSection = document.getElementById('profileFavoritesSection');
-const $profileFavoritesBack = document.querySelector('.profile__favorites-back');
-const profileMobileQuery = window.matchMedia?.('(max-width: 1023px)');
+const $profileStorageUsage = document.getElementById('profileStorageUsage');
+const $profileCreditsBalance = document.getElementById('profileCreditsBalance');
 const $profileFollowerCount = document.getElementById('profileFollowerCount');
 const $profileFollowingCount = document.getElementById('profileFollowingCount');
 const $profileReceivedLikeCount = document.getElementById('profileReceivedLikeCount');
@@ -154,132 +130,6 @@ if ($tabBar) {
         setActiveTab(btn.dataset.tab);
     });
 }
-
-function isMobileProfileLayout() {
-    return Boolean(profileMobileQuery?.matches);
-}
-
-let favoritesOverlayFocusCleanup = null;
-
-function syncFavoritesOverlayMode() {
-    if (!$profileFavoritesOverlay || !$profileFavoritesOverlayPanel) return;
-    if (isMobileProfileLayout()) {
-        closeFavoritesOverlay({ restoreFocus: false });
-        $profileFavoritesOverlay.removeAttribute('aria-hidden');
-        $profileFavoritesOverlayPanel.removeAttribute('role');
-        $profileFavoritesOverlayPanel.removeAttribute('aria-modal');
-        $profileFavoritesOverlayPanel.removeAttribute('tabindex');
-        return;
-    }
-    $profileFavoritesOverlayPanel.setAttribute('role', 'dialog');
-    $profileFavoritesOverlayPanel.setAttribute('aria-modal', 'true');
-    $profileFavoritesOverlayPanel.setAttribute('tabindex', '-1');
-    $profileFavoritesOverlay.setAttribute('aria-hidden', $profileFavoritesOverlay.classList.contains('is-open') ? 'false' : 'true');
-}
-
-function openFavoritesOverlay(trigger = $profileFavoritesQuickLink) {
-    if (!$profileFavoritesOverlay || !$profileFavoritesOverlayPanel || isMobileProfileLayout()) return;
-    $profileFavoritesOverlay.classList.add('is-open');
-    $profileFavoritesOverlay.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('profile-favorites-overlay-open');
-    if (favoritesOverlayFocusCleanup) favoritesOverlayFocusCleanup();
-    favoritesOverlayFocusCleanup = setupFocusTrap($profileFavoritesOverlayPanel);
-    if (trigger && typeof trigger.focus === 'function') {
-        $profileFavoritesOverlay.dataset.returnFocus = trigger.id || '';
-    }
-}
-
-function closeFavoritesOverlay({ restoreFocus = true } = {}) {
-    if (!$profileFavoritesOverlay) return;
-    const wasOpen = $profileFavoritesOverlay.classList.contains('is-open');
-    $profileFavoritesOverlay.classList.remove('is-open');
-    document.body.classList.remove('profile-favorites-overlay-open');
-    if (!isMobileProfileLayout()) {
-        $profileFavoritesOverlay.setAttribute('aria-hidden', 'true');
-    }
-    const cleanup = favoritesOverlayFocusCleanup;
-    favoritesOverlayFocusCleanup = null;
-    if (cleanup) {
-        if (restoreFocus && wasOpen) {
-            cleanup();
-        } else {
-            const active = document.activeElement;
-            cleanup();
-            if (active && typeof active.focus === 'function') active.focus({ preventScroll: true });
-        }
-    } else if (restoreFocus && wasOpen) {
-        $profileFavoritesQuickLink?.focus({ preventScroll: true });
-    }
-}
-
-function syncMobileFavoritesFromHash({ scroll = false } = {}) {
-    if (window.location.hash !== '#profileFavoritesSection' || !isMobileProfileLayout()) return;
-    setMobileFavoritesFocus(true, { scroll, updateHash: false });
-}
-
-function setMobileFavoritesFocus(active, { scroll = true, updateHash = true } = {}) {
-    if (!$profileHomeView || !$profileFavoritesSection) return;
-    const shouldFocusFavorites = Boolean(active && isMobileProfileLayout());
-    $profileHomeView.classList.toggle('profile-view--favorites-focused', shouldFocusFavorites);
-    setActiveTab(shouldFocusFavorites ? 'favorites' : 'profile');
-
-    if (updateHash && window.history?.replaceState) {
-        const targetHash = shouldFocusFavorites ? '#profileFavoritesSection' : '#profileHero';
-        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${targetHash}`);
-    }
-
-    if (!scroll) return;
-    const target = shouldFocusFavorites ? $profileFavoritesSection : $profileHero;
-    window.requestAnimationFrame(() => {
-        target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        if (shouldFocusFavorites) {
-            $profileFavoritesSection.focus({ preventScroll: true });
-        }
-    });
-}
-
-$profileFavoritesQuickLink?.addEventListener('click', (event) => {
-    event.preventDefault();
-    if (!isMobileProfileLayout()) {
-        openFavoritesOverlay(event.currentTarget);
-        return;
-    }
-    setMobileFavoritesFocus(true);
-});
-
-$profileFavoritesOverlayClose?.addEventListener('click', () => {
-    closeFavoritesOverlay();
-});
-
-$profileFavoritesOverlay?.querySelector('[data-profile-favorites-close]')?.addEventListener('click', () => {
-    closeFavoritesOverlay();
-});
-
-$profileFavoritesBack?.addEventListener('click', (event) => {
-    if (!isMobileProfileLayout()) return;
-    event.preventDefault();
-    setMobileFavoritesFocus(false);
-});
-
-window.addEventListener('hashchange', () => {
-    if (window.location.hash === '#profileFavoritesSection') {
-        syncMobileFavoritesFromHash({ scroll: true });
-    } else if (isMobileProfileLayout()) {
-        setMobileFavoritesFocus(false, { scroll: false, updateHash: false });
-    }
-});
-
-profileMobileQuery?.addEventListener?.('change', (event) => {
-    syncFavoritesOverlayMode();
-    if (!event.matches) {
-        $profileHomeView?.classList.remove('profile-view--favorites-focused');
-        setActiveTab('profile');
-        return;
-    }
-    syncMobileFavoritesFromHash({ scroll: false });
-});
-
-syncFavoritesOverlayMode();
 
 $walletCard?.addEventListener('click', () => {
     openWalletWorkspaceView();
@@ -488,6 +338,41 @@ function renderWalletSection(state = walletViewState) {
     syncWalletCardStatus(state);
 }
 
+const profileNumberFormatter = new Intl.NumberFormat(document.documentElement.lang?.startsWith('de') ? 'de-DE' : 'en-US');
+
+function formatProfileCredits(value) {
+    return localeText('credits.credits', { count: profileNumberFormatter.format(Number(value || 0)) });
+}
+
+async function loadProfileCardMetadata() {
+    if ($profileStorageUsage) {
+        $profileStorageUsage.textContent = localeText('profile.loading');
+        apiAiGetFolders()
+            .then((result) => {
+                const usageText = formatAssetStorageUsage(result?.storageUsage);
+                $profileStorageUsage.textContent = usageText || localeText('profile.storageUnavailable');
+            })
+            .catch(() => {
+                $profileStorageUsage.textContent = localeText('profile.storageUnavailable');
+            });
+    }
+
+    if ($profileCreditsBalance) {
+        $profileCreditsBalance.textContent = localeText('profile.loading');
+        apiAccountCreditsDashboard({ limit: 1 })
+            .then((result) => {
+                if (!result.ok) throw new Error('credits_unavailable');
+                const dashboard = result.data?.data || result.data || {};
+                const balance = dashboard.balance || {};
+                const credits = balance.totalCredits ?? balance.current ?? balance.available ?? 0;
+                $profileCreditsBalance.textContent = formatProfileCredits(credits);
+            })
+            .catch(() => {
+                $profileCreditsBalance.textContent = localeText('profile.creditsUnavailable');
+            });
+    }
+}
+
 /* ── Avatar helpers ── */
 const AVATAR_URL = '/api/profile/avatar';
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
@@ -507,16 +392,22 @@ const avatarPickerState = {
 let avatarActionBusy = false;
 
 function showAvatarMsg(text, type) {
+    if (!$avatarMsg) return;
     $avatarMsg.textContent = text;
     $avatarMsg.className = `profile__msg profile__msg--${type}`;
 }
 
 function hideAvatarMsg() {
+    if (!$avatarMsg) return;
     $avatarMsg.className = 'profile__msg';
     $avatarMsg.textContent = '';
 }
 
 function loadAvatar(bustCache) {
+    if (!$avatarImg || !$avatarPlaceholder || !$avatarRemoveBtn) {
+        syncProfileAvatarCompletion(false);
+        return;
+    }
     const src = bustCache ? `${AVATAR_URL}?t=${Date.now()}` : AVATAR_URL;
     const img = new Image();
     img.onload = () => {
@@ -579,9 +470,7 @@ function syncAvatarModalBodyLock() {
         document.body.style.overflow = 'hidden';
         return;
     }
-    if (!$viewer?.classList.contains('active')) {
-        document.body.style.overflow = '';
-    }
+    document.body.style.overflow = '';
 }
 
 function openAvatarModal(overlay, focusTarget = null) {
@@ -951,789 +840,61 @@ function renderProfile(profile, account) {
     }
 
     // Summary card
-    $summaryName.textContent = profile.display_name || '\u2014';
-    $summaryEmail.textContent = account.email;
+    if ($summaryName && $summaryEmail && $summaryRole && $summaryVerified && $summarySince) {
+        $summaryName.textContent = profile.display_name || '\u2014';
+        $summaryEmail.textContent = account.email;
 
-    $summaryRole.textContent = '';
-    const roleBadge = document.createElement('span');
-    roleBadge.className = 'profile__badge profile__badge--role';
-    roleBadge.textContent = account.role;
-    $summaryRole.appendChild(roleBadge);
+        $summaryRole.textContent = '';
+        const roleBadge = document.createElement('span');
+        roleBadge.className = 'profile__badge profile__badge--role';
+        roleBadge.textContent = account.role;
+        $summaryRole.appendChild(roleBadge);
 
-    $summaryVerified.textContent = '';
-    const isLegacy = account.verification_method === 'legacy_auto';
-    const isVerified = account.email_verified && !isLegacy;
+        $summaryVerified.textContent = '';
+        const isLegacy = account.verification_method === 'legacy_auto';
+        const isVerified = account.email_verified && !isLegacy;
 
-    const verifiedBadge = document.createElement('span');
-    verifiedBadge.className = `profile__badge profile__badge--${isVerified ? 'verified' : isLegacy ? 'legacy' : 'unverified'}`;
-    verifiedBadge.textContent = isVerified ? localeText('profile.yes') : isLegacy ? localeText('profile.pending') : localeText('profile.no');
-    $summaryVerified.appendChild(verifiedBadge);
+        const verifiedBadge = document.createElement('span');
+        verifiedBadge.className = `profile__badge profile__badge--${isVerified ? 'verified' : isLegacy ? 'legacy' : 'unverified'}`;
+        verifiedBadge.textContent = isVerified ? localeText('profile.yes') : isLegacy ? localeText('profile.pending') : localeText('profile.no');
+        $summaryVerified.appendChild(verifiedBadge);
 
-    if (isLegacy) {
-        const verifyLink = document.createElement('button');
-        verifyLink.type = 'button';
-        verifyLink.className = 'profile__verify-link';
-        verifyLink.textContent = localeText('profile.verifyNow');
-        verifyLink.addEventListener('click', async () => {
-            verifyLink.disabled = true;
-            verifyLink.textContent = localeText('profile.sending');
-            const res = await apiRequestReverification();
-            if (res.ok) {
-                verifyLink.textContent = localeText('profile.emailSent');
-            } else {
-                verifyLink.textContent = localeText('profile.verifyNow');
-                verifyLink.disabled = false;
-            }
-        });
-        $summaryVerified.appendChild(document.createTextNode(' '));
-        $summaryVerified.appendChild(verifyLink);
+        if (isLegacy) {
+            const verifyLink = document.createElement('button');
+            verifyLink.type = 'button';
+            verifyLink.className = 'profile__verify-link';
+            verifyLink.textContent = localeText('profile.verifyNow');
+            verifyLink.addEventListener('click', async () => {
+                verifyLink.disabled = true;
+                verifyLink.textContent = localeText('profile.sending');
+                const res = await apiRequestReverification();
+                if (res.ok) {
+                    verifyLink.textContent = localeText('profile.emailSent');
+                } else {
+                    verifyLink.textContent = localeText('profile.verifyNow');
+                    verifyLink.disabled = false;
+                }
+            });
+            $summaryVerified.appendChild(document.createTextNode(' '));
+            $summaryVerified.appendChild(verifyLink);
+        }
+
+        $summarySince.textContent = formatDate(account.created_at);
     }
 
-    $summarySince.textContent = formatDate(account.created_at);
-
     // Form fields
-    $displayName.value = profile.display_name || '';
-    $bio.value = profile.bio || '';
-    $website.value = profile.website || '';
-    savedProfileFields = normalizeProfileFields(profile);
-    updateEditState('loaded');
+    if ($displayName && $bio && $website) {
+        $displayName.value = profile.display_name || '';
+        $bio.value = profile.bio || '';
+        $website.value = profile.website || '';
+        savedProfileFields = normalizeProfileFields(profile);
+        updateEditState('loaded');
+    } else {
+        savedProfileFields = normalizeProfileFields(profile);
+    }
 
     renderProfileCompletion(profile, account);
     renderWalletSection();
-}
-
-/* ── Favorites rendering + viewer ── */
-
-const PLACEHOLDER_SVG = `<svg width="24" height="24" fill="rgba(255,255,255,0.08)" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>`;
-
-const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
-const RETIRED_SOUNDLAB_ITEM_IDS = new Set([
-    'cosmic-sea',
-    'zufall-und-notwendigkeit',
-    'relativity',
-    'tiny-hearts',
-    'grok',
-    'exclusive-track-01',
-    'burning-slow',
-    'feel-it-all',
-    'the-ones-who-made-the-light',
-    "rooms-i'll-never-live-in",
-    'rooms-i-ll-never-live-in',
-    'rooms-ill-never-live-in',
-]);
-const RETIRED_SOUNDLAB_TITLES = new Set([
-    'cosmic sea',
-    'zufall und notwendigkeit',
-    'relativity',
-    'tiny hearts',
-    'grok',
-    'groks groove remix',
-    'exclusive track 01',
-    'burning slow',
-    'feel it all',
-    'the ones who made the light',
-    'rooms ill never live in',
-]);
-
-function hasFavoriteControlChars(value) {
-    return /[\x00-\x1f\x7f]/.test(value);
-}
-
-function normalizeRetiredSoundLabValue(value) {
-    return String(value || '')
-        .trim()
-        .toLowerCase()
-        .replace(/[\u2018\u2019']/g, '')
-        .replace(/[^a-z0-9]+/g, ' ')
-        .trim();
-}
-
-function isCurrentMemtrackThumbUrl(value) {
-    const url = String(value || '').trim();
-    return /^\/api\/gallery\/memtracks\/[a-f0-9]+\/[^/]+\/poster$/i.test(url)
-        || /^\/api\/gallery\/memtracks\/[a-f0-9]+\/poster$/i.test(url);
-}
-
-function isRetiredSoundLabFavorite(fav) {
-    if (fav?.item_type !== 'soundlab') return false;
-    const itemId = String(fav.item_id || '').trim().toLowerCase();
-    const normalizedItemId = normalizeRetiredSoundLabValue(itemId);
-    const thumbUrl = String(fav.thumb_url || '').trim();
-    if (RETIRED_SOUNDLAB_ITEM_IDS.has(itemId) || RETIRED_SOUNDLAB_TITLES.has(normalizedItemId)) return true;
-    if (thumbUrl.includes('/audio/sound-lab/') || thumbUrl.includes('/sound-lab/thumbs/')) return true;
-    if (isCurrentMemtrackThumbUrl(thumbUrl)) return false;
-    return RETIRED_SOUNDLAB_TITLES.has(normalizeRetiredSoundLabValue(fav.title));
-}
-
-function normalizeFavoriteThumbUrl(value) {
-    if (typeof value !== 'string') return '';
-    const trimmed = value.trim();
-    if (!trimmed || hasFavoriteControlChars(trimmed)) return '';
-    if (trimmed.startsWith('//')) return '';
-
-    if (trimmed.startsWith('/')) {
-        if (trimmed.includes('?') || trimmed.includes('#')) return '';
-        return trimmed;
-    }
-
-    let parsed;
-    try {
-        parsed = new URL(trimmed);
-    } catch {
-        return '';
-    }
-
-    if (parsed.protocol !== 'https:') return '';
-    if (parsed.origin !== R2_PUBLIC_BASE) return '';
-    if (parsed.username || parsed.password) return '';
-    if (parsed.search || parsed.hash) return '';
-    if (!parsed.pathname || parsed.pathname === '/') return '';
-    return `${R2_PUBLIC_BASE}${parsed.pathname}`;
-}
-
-function createFavoriteViewerCard() {
-    const card = document.createElement('div');
-    card.className = 'fav-viewer__card';
-
-    const image = document.createElement('div');
-    image.className = 'fav-viewer__image';
-
-    const info = document.createElement('div');
-    info.className = 'fav-viewer__info';
-
-    card.appendChild(image);
-    card.appendChild(info);
-    return { card, image, info };
-}
-
-function createFavoriteViewerImage(url, alt) {
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = alt;
-    if (url.startsWith('/api/')) {
-        img.crossOrigin = 'use-credentials';
-    }
-    return img;
-}
-
-function buildMempicFavoritePreviewUrl(fav) {
-    const version = getPublicMempicVersionFromUrl(fav?.thumb_url);
-    if (version) {
-        return buildPublicMempicUrl(String(fav.item_id || ''), version, 'medium');
-    }
-    return `/api/gallery/mempics/${encodeURIComponent(String(fav.item_id || ''))}/medium`;
-}
-
-function buildMempicFavoriteFullUrl(fav) {
-    const version = getPublicMempicVersionFromUrl(fav?.thumb_url);
-    if (version) {
-        return buildPublicMempicUrl(String(fav.item_id || ''), version, 'file');
-    }
-    return `/api/gallery/mempics/${encodeURIComponent(String(fav.item_id || ''))}/file`;
-}
-
-function buildVideoFavoriteFileUrl(fav) {
-    const version = getPublicMemvidVersionFromUrl(fav?.thumb_url);
-    if (version) {
-        return buildPublicMemvidUrl(String(fav.item_id || ''), version, 'file');
-    }
-    return `/api/gallery/memvids/${encodeURIComponent(String(fav.item_id || ''))}/file`;
-}
-
-function buildMemtrackFavoriteFileUrl(fav) {
-    const version = getPublicMemtrackVersionFromUrl(fav?.thumb_url);
-    if (version) {
-        return buildPublicMemtrackUrl(String(fav.item_id || ''), version, 'file');
-    }
-    return '';
-}
-
-/* ── Viewer overlay ── */
-const $viewer = document.getElementById('favViewer');
-const $viewerBody = $viewer ? $viewer.querySelector('.fav-viewer__body') : null;
-const $viewerClose = document.getElementById('favViewerClose');
-let viewerAudioCleanup = null;
-let viewerFocusCleanup = null;
-let favoriteViewerItems = [];
-let viewerCurrentIndex = -1;
-
-const $viewerPrev = document.createElement('button');
-$viewerPrev.type = 'button';
-$viewerPrev.className = 'fav-viewer__nav fav-viewer__nav--prev';
-$viewerPrev.setAttribute('aria-label', localeText('profile.previousFavorite'));
-$viewerPrev.textContent = '‹';
-
-const $viewerNext = document.createElement('button');
-$viewerNext.type = 'button';
-$viewerNext.className = 'fav-viewer__nav fav-viewer__nav--next';
-$viewerNext.setAttribute('aria-label', localeText('profile.nextFavorite'));
-$viewerNext.textContent = '›';
-
-const $viewerDownload = document.createElement('a');
-$viewerDownload.className = 'fav-viewer__download';
-$viewerDownload.target = '_blank';
-$viewerDownload.rel = 'noopener noreferrer';
-$viewerDownload.setAttribute('aria-label', localeText('profile.downloadFavorite'));
-$viewerDownload.textContent = localeText('profile.download');
-if ($viewer) {
-    $viewer.appendChild($viewerPrev);
-    $viewer.appendChild($viewerNext);
-    $viewer.appendChild($viewerDownload);
-}
-
-function sameFavorite(a, b) {
-    return Boolean(a && b && a.item_type === b.item_type && String(a.item_id || '') === String(b.item_id || ''));
-}
-
-function favoriteDomKey(fav) {
-    return `${fav?.item_type || ''}:${fav?.item_id || ''}`;
-}
-
-function findFavoriteTile(fav) {
-    const key = favoriteDomKey(fav);
-    return Array.from(document.querySelectorAll('.fav-tile[data-fav-key]'))
-        .find(tile => tile.dataset.favKey === key) || null;
-}
-
-function currentFavoriteList() {
-    return favoriteViewerItems.filter(fav => Boolean(findFavoriteTile(fav)));
-}
-
-function setViewerChrome(downloadUrl = '') {
-    const items = currentFavoriteList();
-    const hasNavigation = items.length > 1;
-    $viewerPrev.disabled = !hasNavigation;
-    $viewerNext.disabled = !hasNavigation;
-    if (downloadUrl) {
-        $viewerDownload.href = downloadUrl;
-        $viewerDownload.removeAttribute('aria-hidden');
-    } else {
-        $viewerDownload.removeAttribute('href');
-        $viewerDownload.setAttribute('aria-hidden', 'true');
-    }
-}
-
-function openFavoriteInViewer(fav) {
-    if (!fav) return;
-    const items = currentFavoriteList();
-    viewerCurrentIndex = Math.max(0, items.findIndex(item => sameFavorite(item, fav)));
-    viewerCurrentFav = fav;
-    $viewerStar.classList.add('fav-star--active');
-    $viewerStar.setAttribute('aria-pressed', 'true');
-    $viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
-    $viewerStar.style.display = '';
-
-    switch (fav.item_type) {
-        case 'gallery': openGalleryInViewer(fav); break;
-        case 'mempics': openMempicInViewer(fav); break;
-        case 'video': openVideoInViewer(fav); break;
-        case 'soundlab': openSoundlabInViewer(fav); break;
-    }
-}
-
-function navigateFavoriteViewer(direction) {
-    if (!$viewer?.classList.contains('active')) return;
-    const items = currentFavoriteList();
-    if (items.length <= 1) return;
-    const current = Math.max(0, items.findIndex(item => sameFavorite(item, viewerCurrentFav)));
-    const nextIndex = (current + direction + items.length) % items.length;
-    openFavoriteInViewer(items[nextIndex]);
-}
-
-function openViewer(mode) {
-    if (!$viewer) return;
-    const wasActive = $viewer.classList.contains('active');
-    $viewer.className = `fav-viewer active ${mode || ''}`;
-    document.body.style.overflow = 'hidden';
-    if (!wasActive && !viewerFocusCleanup) {
-        viewerFocusCleanup = setupFocusTrap($viewer);
-    }
-}
-
-function closeViewer() {
-    if (!$viewer) return;
-    $viewer.classList.remove('active');
-    syncAvatarModalBodyLock();
-    if (viewerAudioCleanup) {
-        viewerAudioCleanup();
-        viewerAudioCleanup = null;
-    }
-    if (viewerFocusCleanup) {
-        viewerFocusCleanup();
-        viewerFocusCleanup = null;
-    }
-    /* Cleanup iframe */
-    const iframe = $viewerBody.querySelector('iframe');
-    if (iframe) iframe.src = '';
-    const video = $viewerBody.querySelector('video');
-    if (video) {
-        video.pause();
-        video.removeAttribute('src');
-        video.load();
-    }
-    /* Clear body */
-    $viewerBody.innerHTML = '';
-    $viewer.className = 'fav-viewer';
-    /* Reset star */
-    viewerCurrentFav = null;
-    viewerCurrentIndex = -1;
-    $viewerStar.style.display = 'none';
-}
-
-if ($viewerClose) $viewerClose.addEventListener('click', closeViewer);
-if ($viewer) {
-    $viewer.querySelector('.fav-viewer__backdrop').addEventListener('click', closeViewer);
-    document.addEventListener('keydown', (e) => {
-        const viewerOpen = $viewer.classList.contains('active');
-        if (e.key === 'Escape' && viewerOpen) {
-            e.preventDefault();
-            closeViewer();
-            return;
-        }
-        if (!viewerOpen) {
-            if (e.key === 'Escape' && $profileFavoritesOverlay?.classList.contains('is-open')) {
-                e.preventDefault();
-                closeFavoritesOverlay();
-            }
-            return;
-        }
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-            e.preventDefault();
-            navigateFavoriteViewer(e.key === 'ArrowLeft' ? -1 : 1);
-        }
-    });
-}
-
-$viewerPrev.addEventListener('click', () => navigateFavoriteViewer(-1));
-$viewerNext.addEventListener('click', () => navigateFavoriteViewer(1));
-
-/* ── Viewer favorite star (remove-from-viewer) ── */
-let viewerCurrentFav = null;
-const $viewerStar = document.createElement('button');
-$viewerStar.type = 'button';
-$viewerStar.className = 'fav-star fav-star--active fav-viewer__fav-star';
-$viewerStar.setAttribute('aria-pressed', 'true');
-$viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
-$viewerStar.innerHTML = '<svg class="fav-star__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>';
-$viewerStar.style.display = 'none';
-if ($viewer) $viewer.appendChild($viewerStar);
-
-let viewerStarBusyFav = null;
-
-$viewerStar.addEventListener('click', async () => {
-    if (!viewerCurrentFav || viewerStarBusyFav === viewerCurrentFav) return;
-    const fav = viewerCurrentFav;
-    viewerStarBusyFav = fav;
-
-    /* Optimistic UI */
-    $viewerStar.classList.remove('fav-star--active');
-    $viewerStar.setAttribute('aria-pressed', 'false');
-    $viewerStar.setAttribute('aria-label', localeText('profile.removedFavorites'));
-
-    const res = await apiRemoveFavorite(fav.item_type, fav.item_id);
-    if (viewerStarBusyFav === fav) viewerStarBusyFav = null;
-
-    /* Only mutate state if viewer still shows the same item */
-    const stale = viewerCurrentFav !== fav;
-
-    if (res.ok) {
-        favoriteViewerItems = favoriteViewerItems.filter(item => !sameFavorite(item, fav));
-        removeFavTile(fav.item_type, fav.item_id);
-        if (!stale) viewerCurrentFav = null;
-        setViewerChrome('');
-    } else if (!stale) {
-        /* Revert only if still viewing the same item */
-        $viewerStar.classList.add('fav-star--active');
-        $viewerStar.setAttribute('aria-pressed', 'true');
-        $viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
-    }
-});
-
-function removeFavTile(type, id) {
-    const tile = document.querySelector(`.fav-tile[data-fav-key="${type}:${id}"]`);
-    if (!tile) return;
-    const grid = tile.parentElement;
-    tile.remove();
-    if (grid && grid.children.length === 0) {
-        const container = grid.parentElement;
-        const toggle = container.querySelector('.favorites__toggle');
-        if (toggle) toggle.remove();
-        grid.remove();
-        const empty = document.createElement('p');
-        empty.className = 'favorites__empty';
-        empty.textContent = localeText('profile.noFavorites');
-        container.appendChild(empty);
-    } else if (grid) {
-        const container = grid.parentElement;
-        const toggle = container.querySelector('.favorites__toggle');
-        if (toggle && grid.children.length <= 4) {
-            Array.from(grid.children).forEach(t => { t.style.display = ''; });
-            toggle.remove();
-        } else if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
-            Array.from(grid.children).forEach((t, i) => { t.style.display = i < 4 ? '' : 'none'; });
-        }
-    }
-}
-
-/* ── Open gallery image in viewer ── */
-function openGalleryInViewer(fav) {
-    const item = galleryItems.find(g => g.id === fav.item_id);
-    const title = String(fav.title || '');
-    const previewUrl = item ? item.preview.url : normalizeFavoriteThumbUrl(fav.thumb_url);
-    const caption = item ? item.caption : '';
-    const fullUrl = item && item.full ? item.full.url : '';
-
-    const { card, image, info } = createFavoriteViewerCard();
-    if (previewUrl) {
-        const img = createFavoriteViewerImage(previewUrl, title);
-        img.style.background = '#0D1B2A';
-        image.appendChild(img);
-    }
-
-    const heading = document.createElement('h3');
-    heading.className = 'fav-viewer__title';
-    heading.textContent = title;
-    info.appendChild(heading);
-
-    if (caption) {
-        const captionEl = document.createElement('p');
-        captionEl.className = 'fav-viewer__caption';
-        captionEl.textContent = caption;
-        info.appendChild(captionEl);
-    }
-
-    if (fullUrl) {
-        const fullLink = document.createElement('a');
-        fullLink.className = 'fav-viewer__full-link';
-        fullLink.href = fullUrl;
-        fullLink.target = '_blank';
-        fullLink.rel = 'noopener noreferrer';
-        fullLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-        fullLink.appendChild(document.createTextNode(localeText('profile.openFullSize')));
-        info.appendChild(fullLink);
-    }
-
-    $viewerBody.innerHTML = '';
-    $viewerBody.appendChild(card);
-    openViewer('');
-    setViewerChrome(fullUrl || previewUrl);
-}
-
-function openMempicInViewer(fav) {
-    const title = String(fav.title || 'Mempics');
-    const previewUrl = buildMempicFavoritePreviewUrl(fav);
-    const fullUrl = buildMempicFavoriteFullUrl(fav);
-
-    const { card, image, info } = createFavoriteViewerCard();
-    image.appendChild(createFavoriteViewerImage(previewUrl, title));
-
-    const heading = document.createElement('h3');
-    heading.className = 'fav-viewer__title';
-    heading.textContent = title;
-    info.appendChild(heading);
-
-    const fullLink = document.createElement('a');
-    fullLink.className = 'fav-viewer__full-link';
-    fullLink.href = fullUrl;
-    fullLink.target = '_blank';
-    fullLink.rel = 'noopener noreferrer';
-    fullLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-    fullLink.appendChild(document.createTextNode(localeText('profile.openFullSize')));
-    info.appendChild(fullLink);
-
-    $viewerBody.innerHTML = '';
-    $viewerBody.appendChild(card);
-    openViewer('');
-    setViewerChrome(fullUrl);
-}
-
-/* ── Open soundlab track in viewer ── */
-function openSoundlabInViewer(fav) {
-    const title = String(fav.title || '');
-    const thumbUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
-    const memtrackFileUrl = buildMemtrackFavoriteFileUrl(fav);
-    if (!memtrackFileUrl) return;
-    initGlobalAudioManager();
-    if (viewerAudioCleanup) {
-        viewerAudioCleanup();
-        viewerAudioCleanup = null;
-    }
-
-    const player = document.createElement('div');
-    player.className = 'fav-viewer__player';
-
-    const hero = document.createElement('div');
-    hero.className = 'fav-viewer__player-hero';
-    if (thumbUrl) {
-        hero.appendChild(createFavoriteViewerImage(thumbUrl, title));
-    } else {
-        const placeholder = document.createElement('div');
-        placeholder.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 30% 40%,rgba(255,179,0,0.08),transparent 60%),#060e18';
-        placeholder.innerHTML = '<svg width="48" height="48" fill="rgba(255,179,0,0.2)" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>';
-        hero.appendChild(placeholder);
-    }
-
-    const controls = document.createElement('div');
-    controls.className = 'fav-viewer__player-controls';
-
-    const playBtn = document.createElement('button');
-    playBtn.type = 'button';
-    playBtn.className = 'fav-viewer__play-btn';
-    playBtn.id = 'fvPlay';
-    playBtn.setAttribute('aria-label', localeText('profile.play', { title }));
-    playBtn.innerHTML = '<svg id="fvPlayIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg id="fvPauseIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
-
-    const trackInfo = document.createElement('div');
-    trackInfo.className = 'fav-viewer__track-info';
-
-    const trackTitle = document.createElement('div');
-    trackTitle.className = 'fav-viewer__track-title';
-    trackTitle.textContent = title;
-
-    const timeEl = document.createElement('div');
-    timeEl.className = 'fav-viewer__track-time';
-    timeEl.id = 'fvTime';
-    timeEl.textContent = '0:00';
-
-    const barEl = document.createElement('div');
-    barEl.className = 'fav-viewer__progress';
-    barEl.id = 'fvBar';
-
-    const progEl = document.createElement('div');
-    progEl.className = 'fav-viewer__progress-fill';
-    progEl.id = 'fvProg';
-    barEl.appendChild(progEl);
-
-    trackInfo.appendChild(trackTitle);
-    trackInfo.appendChild(timeEl);
-    trackInfo.appendChild(barEl);
-    controls.appendChild(playBtn);
-    controls.appendChild(trackInfo);
-    player.appendChild(hero);
-    player.appendChild(controls);
-
-    $viewerBody.innerHTML = '';
-    $viewerBody.appendChild(player);
-
-    openViewer('');
-    setViewerChrome(memtrackFileUrl);
-
-    const track = {
-        id: `memtrack:${fav.item_id}`,
-        slug: `memtrack-${fav.item_id}`,
-        title: title || 'Memtrack',
-        sourceUrl: memtrackFileUrl,
-        src: memtrackFileUrl,
-        artworkUrl: thumbUrl,
-        artwork: thumbUrl,
-        access: 'public',
-        collection: 'memtracks',
-        originLabel: localeText('profile.profileFavorites'),
-        crossOrigin: '',
-    };
-    if (!track) return;
-
-    const playIcon = document.getElementById('fvPlayIcon');
-    const pauseIcon = document.getElementById('fvPauseIcon');
-
-    function renderViewerAudio(state) {
-        const isCurrentTrack = state.trackId === track.id;
-        const isPlaying = isCurrentTrack && state.status === 'playing';
-        const duration = isCurrentTrack ? Number(state.duration) || 0 : 0;
-        const currentTime = isCurrentTrack ? Number(state.currentTime) || 0 : 0;
-        const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-
-        playIcon.style.display = isPlaying ? 'none' : '';
-        pauseIcon.style.display = isPlaying ? '' : 'none';
-        progEl.style.width = `${progress}%`;
-        timeEl.textContent = duration > 0
-            ? `${formatTime(currentTime)} / ${formatTime(duration)}`
-            : '0:00';
-    }
-
-    viewerAudioCleanup = subscribeGlobalAudioState(renderViewerAudio);
-    renderViewerAudio(getGlobalAudioState());
-
-    playBtn.addEventListener('click', async () => {
-        const audioState = getGlobalAudioState();
-        const isCurrentTrack = audioState.trackId === track.id;
-        if (isCurrentTrack && audioState.status === 'playing') {
-            pauseGlobalAudio();
-            return;
-        }
-        if (isCurrentTrack) {
-            await resumeGlobalAudio(true);
-            return;
-        }
-        playGlobalTrack(track);
-    });
-
-    barEl.addEventListener('click', (e) => {
-        const audioState = getGlobalAudioState();
-        if (audioState.trackId !== track.id || !audioState.duration) return;
-        const rect = barEl.getBoundingClientRect();
-        seekGlobalAudio(((e.clientX - rect.left) / rect.width) * audioState.duration);
-    });
-
-    playGlobalTrack(track).catch(() => {
-        renderViewerAudio(getGlobalAudioState());
-    });
-}
-
-function openVideoInViewer(fav) {
-    const title = String(fav.title || 'Video');
-    const fileUrl = buildVideoFavoriteFileUrl(fav);
-    const posterUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
-
-    const { card, image, info } = createFavoriteViewerCard();
-
-    const video = document.createElement('video');
-    video.controls = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.preload = 'metadata';
-    video.src = fileUrl;
-    if (posterUrl) {
-        video.poster = posterUrl;
-    }
-    image.appendChild(video);
-
-    const heading = document.createElement('h3');
-    heading.className = 'fav-viewer__title';
-    heading.textContent = title;
-    info.appendChild(heading);
-
-    const openLink = document.createElement('a');
-    openLink.className = 'fav-viewer__full-link';
-    openLink.href = fileUrl;
-    openLink.target = '_blank';
-    openLink.rel = 'noopener noreferrer';
-    openLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-    openLink.appendChild(document.createTextNode(localeText('profile.openVideo')));
-    info.appendChild(openLink);
-
-    $viewerBody.innerHTML = '';
-    $viewerBody.appendChild(card);
-    openViewer('');
-    setViewerChrome(fileUrl);
-}
-
-/* ── Build favorite tiles ── */
-function renderFavorites(favorites) {
-    const groups = { mempics: [], video: [], soundlab: [] };
-    for (const f of favorites) {
-        if (isRetiredSoundLabFavorite(f)) continue;
-        if (groups[f.item_type]) groups[f.item_type].push(f);
-    }
-    favoriteViewerItems = [
-        ...groups.mempics,
-        ...groups.video,
-        ...groups.soundlab,
-    ];
-
-    for (const [type, items] of Object.entries(groups)) {
-        const container = document.querySelector(`[data-favorites-type="${type}"]`);
-        if (!container) continue;
-
-        const label = container.querySelector('.favorites__group-label');
-        container.innerHTML = '';
-        if (label) container.appendChild(label);
-
-        if (items.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'favorites__empty';
-            empty.textContent = localeText('profile.noFavorites');
-            container.appendChild(empty);
-            continue;
-        }
-
-        const grid = document.createElement('div');
-        grid.className = 'favorites__grid';
-
-        for (const fav of items) {
-            const tile = document.createElement('div');
-            tile.className = 'fav-tile fav-tile--interactive';
-            tile.setAttribute('role', 'button');
-            tile.setAttribute('tabindex', '0');
-            tile.dataset.favKey = `${fav.item_type}:${fav.item_id}`;
-            tile.title = fav.title;
-
-            tile.addEventListener('click', () => handleTileClick(fav));
-            tile.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleTileClick(fav); }
-            });
-
-            const safeThumbUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
-
-            if (safeThumbUrl) {
-                const img = document.createElement('img');
-                img.className = 'fav-tile__img';
-                img.src = safeThumbUrl;
-                img.alt = fav.title;
-                img.loading = 'lazy';
-                img.decoding = 'async';
-                if (safeThumbUrl.startsWith('/api/')) {
-                    img.crossOrigin = 'use-credentials';
-                }
-                img.onerror = function () {
-                    this.onerror = null;
-                    this.style.display = 'none';
-                    const ph = document.createElement('div');
-                    ph.className = 'fav-tile__placeholder';
-                    ph.innerHTML = PLACEHOLDER_SVG;
-                    this.parentElement.insertBefore(ph, this);
-                };
-                tile.appendChild(img);
-            } else {
-                const ph = document.createElement('div');
-                ph.className = 'fav-tile__placeholder';
-                ph.innerHTML = PLACEHOLDER_SVG;
-                tile.appendChild(ph);
-            }
-
-            const lbl = document.createElement('div');
-            lbl.className = 'fav-tile__label';
-            lbl.textContent = fav.title;
-            tile.appendChild(lbl);
-
-            grid.appendChild(tile);
-        }
-
-        container.appendChild(grid);
-
-        /* Collapse to 4 items if more exist */
-        const LIMIT = 4;
-        if (items.length > LIMIT) {
-            const tiles = Array.from(grid.children);
-            tiles.forEach((t, i) => { if (i >= LIMIT) t.style.display = 'none'; });
-
-            const toggle = document.createElement('button');
-            toggle.type = 'button';
-            toggle.className = 'favorites__toggle';
-            toggle.setAttribute('aria-expanded', 'false');
-            toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' + localeText('profile.showAll') + '';
-
-            toggle.addEventListener('click', () => {
-                const expanded = toggle.getAttribute('aria-expanded') === 'true';
-                const allTiles = Array.from(grid.children);
-                if (expanded) {
-                    allTiles.forEach((t, i) => { if (i >= LIMIT) t.style.display = 'none'; });
-                    toggle.setAttribute('aria-expanded', 'false');
-                    toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' + localeText('profile.showAll') + '';
-                } else {
-                    allTiles.forEach(t => { t.style.display = ''; });
-                    toggle.setAttribute('aria-expanded', 'true');
-                    toggle.innerHTML = '<svg class="favorites__toggle-arrow favorites__toggle-arrow--up" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' + localeText('profile.showLess') + '';
-                }
-            });
-
-            container.appendChild(toggle);
-        }
-    }
-}
-
-function handleTileClick(fav) {
-    openFavoriteInViewer(fav);
 }
 
 /* ── Social dashboard ── */
@@ -2033,21 +1194,14 @@ async function init() {
     showState($content);
     renderProfile(res.data.profile, res.data.account);
     initProfileDashboard();
+    void loadProfileCardMetadata();
     renderPostAuthHint({
         mount: document.getElementById('profileHomeView'),
         pageSource: 'profile',
         signedIn: true,
     });
-    syncMobileFavoritesFromHash({ scroll: true });
     loadAvatar(false);
     refreshWalletStatus().catch(e => console.warn('walletStatus:', e));
-
-    // Load and render favorites
-    apiGetFavorites().then(favRes => {
-        if (favRes.ok && Array.isArray(favRes.data?.favorites)) {
-            renderFavorites(favRes.data.favorites);
-        }
-    }).catch(e => console.warn('favorites:', e));
 
     // Avatar source chooser + picker
     $avatarChangeBtn?.addEventListener('click', () => {
@@ -2124,7 +1278,7 @@ async function init() {
     });
 
     // Avatar upload
-    $avatarInput.addEventListener('change', async () => {
+    $avatarInput?.addEventListener('change', async () => {
         const file = $avatarInput.files?.[0];
         if (!file) return;
 
@@ -2164,7 +1318,7 @@ async function init() {
     });
 
     // Avatar remove
-    $avatarRemoveBtn.addEventListener('click', async () => {
+    $avatarRemoveBtn?.addEventListener('click', async () => {
         hideAvatarMsg();
         closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
         setAvatarActionState(true);
@@ -2190,7 +1344,7 @@ async function init() {
     });
 
     // Form submission
-    $form.addEventListener('submit', async (e) => {
+    $form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideMsg();
         if ($profileSaveRecovery) $profileSaveRecovery.hidden = true;
@@ -2234,7 +1388,7 @@ async function init() {
     });
 
     // Logout button
-    $logoutBtn.addEventListener('click', async () => {
+    $logoutBtn?.addEventListener('click', async () => {
         await apiLogout();
         window.location.href = '/';
     });

@@ -791,14 +791,6 @@ async function routeHomepageVideoHoverFixtures(page, { items, videoRequests = []
     });
   });
 
-  await page.route('**/api/favorites', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ ok: true, favorites: [] }),
-    });
-  });
-
   await page.route('**/api/public/news-pulse**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -5785,13 +5777,6 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/favorites', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, favorites: [] }),
-      });
-    });
     await routeDefaultMemtracks(page, { modelLabel: '' });
 
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
@@ -6307,14 +6292,6 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/favorites', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, favorites: [] }),
-      });
-    });
-
     await page.route(/\/api\/gallery\/(mempics|memvids|memtracks)\/[^/]+\/comments(?:\?.*)?$/, async (route) => {
       commentsRequests.push(route.request().url());
       await route.fulfill({
@@ -6495,6 +6472,183 @@ test.describe('Homepage', () => {
     await page.locator('#memtrackModal .memtrack-modal-close').click();
   });
 
+  test('public media comments submit from the form and render newest first below the input', async ({ page }) => {
+    const comments = [
+      {
+        id: 'comment-newest-existing',
+        body: 'Newest existing comment',
+        created_at: '2026-04-16T12:00:00.000Z',
+        author: { display_name: 'Newest Member' },
+      },
+      {
+        id: 'comment-older-existing',
+        body: 'Older existing comment',
+        created_at: '2026-04-15T12:00:00.000Z',
+        author: { display_name: 'Older Member' },
+      },
+    ];
+    const postedBodies = [];
+
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: {
+            id: 'comment-ui-user',
+            email: 'comment-ui@bitbi.ai',
+            role: 'user',
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/comment-mempic\/interactions$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            like_count: 0,
+            liked_by_viewer: false,
+            comment_count: comments.length,
+            can_follow: false,
+            followed_by_viewer: false,
+            follower_count: 0,
+            is_own_media: false,
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/comment-mempic\/comments(?:\?.*)?$/, async (route) => {
+      if (route.request().method() === 'POST') {
+        const body = JSON.parse(route.request().postData() || '{}');
+        postedBodies.push(body.body);
+        const comment = {
+          id: 'comment-posted-now',
+          body: String(body.body || ''),
+          created_at: '2026-04-17T12:00:00.000Z',
+          author: { display_name: 'Posting Member' },
+        };
+        comments.unshift(comment);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            data: {
+              comment,
+              count: comments.length,
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            count: comments.length,
+            comments,
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'comment-mempic',
+                slug: 'comment-mempic',
+                title: 'Comment Mempic',
+                caption: 'A public Mempic with comments.',
+                category: 'mempics',
+                published_at: '2026-04-14T10:00:00.000Z',
+                comment_count: comments.length,
+                publisher: {
+                  display_name: 'Ada Member',
+                  stats: { public_media_count: 1 },
+                },
+                thumb: { url: '/api/gallery/mempics/comment-mempic/thumb', w: 360, h: 360 },
+                preview: { url: '/api/gallery/mempics/comment-mempic/medium', w: 1200, h: 1200 },
+                full: { url: '/api/gallery/mempics/comment-mempic/file' },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/comment-mempic\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: TEST_PNG_BYTES });
+    });
+
+    await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
+    await page.locator('#galleryGrid .gallery-item:not(.locked-area):visible').first().click();
+    const detail = page.locator('#galleryModal .public-media-detail-panel');
+    await detail.getByRole('tab', { name: 'Comments (2)' }).click();
+
+    const form = detail.locator('.public-media-comments__form');
+    const input = form.locator('.public-media-comments__input');
+    const submit = form.locator('.public-media-comments__submit');
+    await expect(submit).toHaveAttribute('type', 'submit');
+    await expect(form).toBeVisible();
+    await expect(input).toBeVisible();
+    await expect(submit).toBeVisible();
+
+    await input.focus();
+    const focusStyle = await input.evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      return {
+        outline: style.outlineStyle,
+        shadow: style.boxShadow,
+        borderColor: style.borderColor,
+      };
+    });
+    expect(focusStyle.outline).toBe('none');
+    expect(focusStyle.shadow).not.toContain('0, 245, 212');
+    expect(focusStyle.shadow).not.toContain('0, 255, 209');
+
+    await expect(detail.locator('.public-media-comments__item')).toHaveCount(2);
+    const initialBodies = await detail.locator('.public-media-comments__item p').allTextContents();
+    expect(initialBodies).toEqual(['Newest existing comment', 'Older existing comment']);
+
+    const verticalOrder = await detail.evaluate(() => {
+      const formRect = document.querySelector('.public-media-comments__form')?.getBoundingClientRect();
+      const listRect = document.querySelector('.public-media-comments__list')?.getBoundingClientRect();
+      return {
+        formTop: formRect?.top || 0,
+        listTop: listRect?.top || 0,
+      };
+    });
+    expect(verticalOrder.formTop).toBeLessThan(verticalOrder.listTop);
+
+    await input.fill('Fresh posted comment');
+    await submit.click();
+    await expect.poll(() => postedBodies).toEqual(['Fresh posted comment']);
+    await expect(detail.getByRole('tab', { name: 'Comments (3)' })).toBeVisible();
+    const postedBodiesRendered = await detail.locator('.public-media-comments__item p').allTextContents();
+    expect(postedBodiesRendered).toEqual([
+      'Fresh posted comment',
+      'Newest existing comment',
+      'Older existing comment',
+    ]);
+    await expect(detail.locator('.public-media-comments__item').first().locator('.public-media-comments__meta')).toContainText('Posting Member');
+  });
+
   test('Gallery and Sound Lab cleanup remove stale Exclusive admin references', () => {
     const adminHtml = fs.readFileSync(path.join(process.cwd(), 'admin/index.html'), 'utf8');
     const adminJs = fs.readFileSync(path.join(process.cwd(), 'js/pages/admin/main.js'), 'utf8');
@@ -6624,10 +6778,7 @@ test.describe('Homepage', () => {
     expect(videoPreviewAlt).not.toContain(rawPrompt);
     expect(videoPreviewAlt).not.toContain(rawDescription);
     expect(videoPreviewAlt).not.toContain(manualVideoTitle);
-    const favoriteAriaLabel = await videoCard.locator('.fav-star').getAttribute('aria-label');
-    expect(favoriteAriaLabel).not.toContain(rawPrompt);
-    expect(favoriteAriaLabel).not.toContain(rawDescription);
-    expect(favoriteAriaLabel).not.toContain(manualVideoTitle);
+    await expect(videoCard.locator('.fav-star')).toHaveCount(0);
   });
 
   test('published Memvid cards without ready posters show a pending placeholder instead of a blank preview', async ({ page }) => {
@@ -7963,9 +8114,12 @@ test.describe('Homepage', () => {
     expect(idsAfterClick).not.toContain('progressive-memtrack-101');
   });
 
-  test('homepage favorites reuse the shared flow for Mempics cards and video modal cards', async ({ page }) => {
-    const favoriteRequests = [];
-    const memvidVersion = 'vpubmemvid';
+  test('homepage public media detail likes use the live interaction flow for Mempics and Memvids', async ({ page }) => {
+    const likeRequests = [];
+    const interactionState = {
+      mempics: { liked: false, count: 0 },
+      memvids: { liked: false, count: 0 },
+    };
 
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -7974,34 +8128,55 @@ test.describe('Homepage', () => {
         body: JSON.stringify({
           loggedIn: true,
           user: {
-            id: 'favorites-home-user',
-            email: 'favorites@bitbi.ai',
+            id: 'likes-home-user',
+            email: 'likes@bitbi.ai',
             role: 'user',
           },
         }),
       });
     });
 
-    await page.route('**/api/favorites', async (route) => {
-      const method = route.request().method();
-      if (method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, favorites: [] }),
-        });
-        return;
-      }
-
-      favoriteRequests.push({
-        method,
-        body: route.request().postDataJSON(),
-      });
-
+    await page.route(/\/api\/gallery\/(mempics|memvids)\/([^/]+)\/interactions$/, async (route) => {
+      const [, collection] = new URL(route.request().url()).pathname.match(/^\/api\/gallery\/(mempics|memvids)\//) || [];
+      const state = interactionState[collection] || { liked: false, count: 0 };
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ok: true }),
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            like_count: state.count,
+            liked_by_viewer: state.liked,
+            comment_count: 0,
+            can_follow: false,
+            followed_by_viewer: false,
+            follower_count: 0,
+            is_own_media: false,
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/(mempics|memvids)\/([^/]+)\/like$/, async (route) => {
+      const url = new URL(route.request().url());
+      const [, collection, mediaId] = url.pathname.match(/^\/api\/gallery\/(mempics|memvids)\/([^/]+)\/like$/) || [];
+      const method = route.request().method();
+      const state = interactionState[collection];
+      if (state) {
+        state.liked = method === 'POST';
+        state.count = state.liked ? 1 : 0;
+      }
+      likeRequests.push({ method, collection, mediaId });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            like_count: state?.count || 0,
+            liked_by_viewer: state?.liked === true,
+          },
+        }),
       });
     });
 
@@ -8077,6 +8252,12 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memvids/**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/interactions') || url.pathname.endsWith('/like')) {
+        await route.fallback();
+        return;
+      }
+
       if (route.request().url().endsWith('/avatar')) {
         await route.fulfill({
           status: 200,
@@ -8106,63 +8287,53 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'gallery');
     await expect(page.locator('#videoGrid')).not.toHaveClass(/vid-deck/);
 
-    const mempicStar = page.locator('#galleryGrid .gallery-item .fav-star').first();
-    await expect(mempicStar).toBeVisible();
-    await mempicStar.click();
-    await expect(mempicStar).toHaveAttribute('aria-pressed', 'true');
-    expect(favoriteRequests.at(-1)).toEqual({
+    await expect(page.locator('#galleryGrid .gallery-item .fav-star')).toHaveCount(0);
+    await page.locator('#galleryGrid .gallery-item').first().click();
+    const mempicLike = page.locator('#galleryModal .public-media-detail__action--like');
+    await expect(mempicLike).toBeVisible();
+    await mempicLike.click();
+    await expect(mempicLike).toHaveAttribute('aria-pressed', 'true');
+    expect(likeRequests.at(-1)).toEqual({
       method: 'POST',
-      body: {
-        item_type: 'mempics',
-        item_id: 'a1b2c3d4',
-        title: 'Mempics',
-        thumb_url: '/api/gallery/mempics/a1b2c3d4/thumb',
-      },
+      collection: 'mempics',
+      mediaId: 'a1b2c3d4',
     });
 
-    await mempicStar.click();
-    await expect(mempicStar).toHaveAttribute('aria-pressed', 'false');
-    expect(favoriteRequests.at(-1)).toEqual({
+    await mempicLike.click();
+    await expect(mempicLike).toHaveAttribute('aria-pressed', 'false');
+    expect(likeRequests.at(-1)).toEqual({
       method: 'DELETE',
-      body: {
-        item_type: 'mempics',
-        item_id: 'a1b2c3d4',
-      },
+      collection: 'mempics',
+      mediaId: 'a1b2c3d4',
     });
+    await page.locator('#galleryModal .modal-close').click();
 
     await switchHomepageCategory(page, 'video');
 
     const videoCard = page.locator('#videoGrid .video-card').first();
-    const videoCardStar = videoCard.locator('.fav-star');
-    await expect(videoCardStar).toBeVisible();
+    await expect(videoCard.locator('.fav-star')).toHaveCount(0);
 
     await videoCard.click();
-    const videoModalStar = page.locator('#videoModal .video-modal__fav');
-    await expect(videoModalStar).toBeVisible();
-    await videoModalStar.click();
+    const videoModalLike = page.locator('#videoModal .public-media-detail__action--like');
+    await expect(videoModalLike).toBeVisible();
+    await videoModalLike.click();
 
-    expect(favoriteRequests.at(-1)).toEqual({
+    expect(likeRequests.at(-1)).toEqual({
       method: 'POST',
-      body: {
-        item_type: 'video',
-        item_id: 'bada55e1',
-        title: 'Launch Walkthrough',
-        thumb_url: '/api/gallery/memvids/bada55e1/poster',
-      },
+      collection: 'memvids',
+      mediaId: 'bada55e1',
     });
-    await expect(videoCardStar).toHaveAttribute('aria-pressed', 'true');
+    await expect(videoModalLike).toHaveAttribute('aria-pressed', 'true');
 
-    await page.locator('.video-modal-close').click();
-    await videoCardStar.click();
+    await videoModalLike.click();
 
-    expect(favoriteRequests.at(-1)).toEqual({
+    expect(likeRequests.at(-1)).toEqual({
       method: 'DELETE',
-      body: {
-        item_type: 'video',
-        item_id: 'bada55e1',
-      },
+      collection: 'memvids',
+      mediaId: 'bada55e1',
     });
-    await expect(videoCardStar).toHaveAttribute('aria-pressed', 'false');
+    await expect(videoModalLike).toHaveAttribute('aria-pressed', 'false');
+    await page.locator('.video-modal-close').click();
   });
 
   test('mobile Video category uses the same swipe deck interaction pattern as Gallery and Sound Lab', async ({ page }) => {
@@ -8183,14 +8354,6 @@ test.describe('Homepage', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ loggedIn: false, user: null }),
-      });
-    });
-
-    await page.route('**/api/favorites', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, favorites: [] }),
       });
     });
 
@@ -8404,10 +8567,9 @@ test.describe('Homepage', () => {
     await expectModelsOverlayOpenState(page, { homepage: true });
   });
 
-  test('mobile video modal keeps favorite and close controls above the player surface', async ({ page }) => {
+  test('mobile video modal keeps close and full-version controls inside the player surface', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
-    const favoriteRequests = [];
     const memvidVersion = 'vpubmemvid';
 
     await page.route('**/api/me', async (route) => {
@@ -8422,28 +8584,6 @@ test.describe('Homepage', () => {
             role: 'user',
           },
         }),
-      });
-    });
-
-    await page.route('**/api/favorites', async (route) => {
-      if (route.request().method() === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, favorites: [] }),
-        });
-        return;
-      }
-
-      favoriteRequests.push({
-        method: route.request().method(),
-        body: route.request().postDataJSON(),
-      });
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true }),
       });
     });
 
@@ -8479,6 +8619,26 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/interactions')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            data: {
+              like_count: 0,
+              liked_by_viewer: false,
+              comment_count: 0,
+              can_follow: false,
+              followed_by_viewer: false,
+              follower_count: 0,
+              is_own_media: false,
+            },
+          }),
+        });
+        return;
+      }
+
       if (route.request().url().endsWith('/avatar')) {
         await route.fulfill({
           status: 200,
@@ -8507,43 +8667,41 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await page.locator('#videoGrid .video-card').first().click();
 
-    const favoriteButton = page.locator('#videoModal .video-modal__fav');
+    const fullButton = page.locator('#videoModal .video-modal__full-link');
     const closeButton = page.locator('#videoModal .video-modal-close');
     const player = page.locator('#videoModal video');
 
-    await expect(favoriteButton).toBeVisible();
+    await expect(fullButton).toBeVisible();
     await expect(closeButton).toBeVisible();
     await expect(player).toBeVisible();
+    await expect(fullButton).toHaveAttribute('href', `/api/gallery/memvids/vid-modal-1/${memvidVersion}/file`);
 
     const boxes = await page.evaluate(() => {
-      const favoriteEl = document.querySelector('#videoModal .video-modal__fav');
+      const fullEl = document.querySelector('#videoModal .video-modal__full-link');
       const closeEl = document.querySelector('#videoModal .video-modal-close');
+      const cardEl = document.querySelector('#videoModal .modal-card--public-detail');
       const playerEl = document.querySelector('#videoModal video');
-      if (!favoriteEl || !closeEl || !playerEl) return null;
-      const favoriteRect = favoriteEl.getBoundingClientRect();
+      if (!fullEl || !closeEl || !cardEl || !playerEl) return null;
+      const fullRect = fullEl.getBoundingClientRect();
       const closeRect = closeEl.getBoundingClientRect();
+      const cardRect = cardEl.getBoundingClientRect();
       const playerRect = playerEl.getBoundingClientRect();
       return {
-        favoriteBottom: favoriteRect.bottom,
+        fullBottom: fullRect.bottom,
         closeBottom: closeRect.bottom,
         playerTop: playerRect.top,
+        fullInsideCard: fullRect.left >= cardRect.left && fullRect.right <= cardRect.right,
+        closeInsideCard: closeRect.left >= cardRect.left && closeRect.right <= cardRect.right,
+        closeBeforeFull: closeRect.right <= fullRect.left + 1,
       };
     });
 
     expect(boxes).toBeTruthy();
-    expect(boxes.favoriteBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
+    expect(boxes.fullBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
     expect(boxes.closeBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
-
-    await favoriteButton.click();
-    expect(favoriteRequests.at(-1)).toEqual({
-      method: 'POST',
-      body: {
-        item_type: 'video',
-        item_id: 'vid-modal-1',
-        title: 'Launch Walkthrough',
-        thumb_url: `/api/gallery/memvids/vid-modal-1/${memvidVersion}/poster`,
-      },
-    });
+    expect(boxes.fullInsideCard).toBe(true);
+    expect(boxes.closeInsideCard).toBe(true);
+    expect(boxes.closeBeforeFull).toBe(true);
 
     await closeButton.click();
     await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
@@ -9297,14 +9455,6 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/favorites', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, favorites: [] }),
-      });
-    });
-
     await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -9408,8 +9558,7 @@ test.describe('Homepage', () => {
     expect(nameBox.x).toBeGreaterThan(avatarBox.x + avatarBox.width - 1);
     await expect(memtrackCard).not.toContainText('.mp3');
     await expect(memtrackCard).not.toContainText('audio/mpeg');
-    await expect(memtrackCard.locator('.fav-star')).toBeVisible();
-    await expect(memtrackCard.locator('.fav-star')).toHaveCSS('position', 'absolute');
+    await expect(memtrackCard.locator('.fav-star')).toHaveCount(0);
     await expect(memtrackCard.locator('.snd-hero > img')).toHaveAttribute(
       'src',
       '/api/gallery/memtracks/feedc0de/vpub/poster',

@@ -126,7 +126,7 @@
                 <div class="profile-denied__icon" aria-hidden="true">&#128274;</div>
                 <p class="auth-recovery__eyebrow">Account needed</p>
                 <h2 id="profileDeniedTitle" class="profile-denied__title">Sign in to open your profile</h2>
-                <p class="profile-denied__text">Your profile, wallet, favorites, and member workspace load from your signed-in BITBI account. If your session expired, sign in again and continue here.</p>
+                <p class="profile-denied__text">Your profile, wallet, credits, and member workspace load from your signed-in BITBI account. If your session expired, sign in again and continue here.</p>
                 <ul class="auth-recovery__list" aria-label="Profile sign-in guidance">
                     <li>Use Sign in if you already have an account.</li>
                     <li>Create an account to save creations, manage credits, and keep profile basics in one workspace.</li>
@@ -151,7 +151,6 @@
                     <button type="button" class="profile-tab-link" id="profileWalletWorkspaceBtn" data-open-wallet-workspace="profile">Wallet</button>
                     <a href="/account/credits.html?scope=member" class="profile-tab-link" id="profileCreditsLink">Credits</a>
                     <a href="/account/assets-manager.html" class="profile-tab-link">Assets Manager</a>
-                    <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
                 </div>
 
                 <div class="profile-layout">
@@ -249,31 +248,6 @@
                     </div>
                 </div>
 
-                <div id="profileStudioStack" class="profile__studio-stack profile__studio-stack--compact">
-                    <a href="/account/assets-manager.html" id="profileStudioCard" class="profile__card profile__studio-card" aria-label="Open Assets Manager">
-                        <span class="profile__studio-emoji" aria-hidden="true">&#127912;</span>
-                        <span class="profile__studio-label">Assets Manager</span>
-                    </a>
-
-                    <button type="button" id="profileWalletCard" class="profile__card profile__studio-card profile__studio-card--wallet" aria-label="Open Wallet" hidden>
-                        <span class="profile__studio-emoji profile__studio-emoji--wallet" aria-hidden="true">&#128142;</span>
-                        <span class="profile__studio-copy">
-                            <span class="profile__studio-label">Wallet</span>
-                            <span id="profileWalletCardStatus" class="profile__studio-meta">Checking wallet...</span>
-                        </span>
-                    </button>
-
-                    <a href="/account/credits.html?scope=member" id="profileCreditsCard" class="profile__card profile__studio-card profile__studio-card--credits" aria-label="Open Credits">
-                        <span class="profile__studio-emoji profile__studio-emoji--credits" aria-hidden="true">Cr</span>
-                        <span class="profile__studio-label">Credits</span>
-                    </a>
-
-                    <a href="#profileFavoritesSection" id="profileFavoritesQuickLink" class="profile__card profile__studio-card profile__studio-card--favorites" aria-label="Open Favorites">
-                        <span class="profile__studio-emoji profile__studio-emoji--favorites" aria-hidden="true">&#9733;</span>
-                        <span class="profile__studio-label">Favorites</span>
-                    </a>
-                </div>
-
                 </div><!-- /.profile__overview-grid -->
 
                 <div class="profile__settings-row reveal">
@@ -312,37 +286,10 @@
 
                 <!-- Account Actions -->
                 <div class="profile__actions">
-                    <button type="button" id="logoutBtn" class="profile__logout">Sign Out</button>
-                    <a href="/" class="profile__link">&larr; Back to Homepage</a>
+                    <a href="/account/profile.html" class="profile__link">&larr; Back to Profile</a>
                 </div>
 
                     </div>
-
-                    <aside id="profileFavoritesOverlay" class="profile-layout__sidebar profile-favorites-overlay" aria-label="Favorites">
-                        <div class="profile-favorites-overlay__backdrop" data-profile-favorites-close></div>
-                        <div id="profileFavoritesOverlayPanel" class="profile-favorites-overlay__panel" aria-labelledby="profileFavoritesTitle">
-                        <button type="button" id="profileFavoritesOverlayClose" class="profile-favorites-overlay__close" aria-label="Close Favorites">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            <span>Close</span>
-                        </button>
-                        <div class="profile__card profile__favorites reveal" id="profileFavoritesSection" tabindex="-1">
-                            <h2 id="profileFavoritesTitle" class="profile__title">Favorites</h2>
-                            <div class="favorites__group" id="favoritesMempics" data-favorites-type="mempics">
-                                <h3 class="favorites__group-label favorites__group-label--magenta">Mempics</h3>
-                                <p class="favorites__empty">No favorites yet</p>
-                            </div>
-                            <div class="favorites__group" id="favoritesVideos" data-favorites-type="video">
-                                <h3 class="favorites__group-label favorites__group-label--cyan">Memvids</h3>
-                                <p class="favorites__empty">No favorites yet</p>
-                            </div>
-                            <div class="favorites__group" id="favoritesSoundlab" data-favorites-type="soundlab">
-                                <h3 class="favorites__group-label favorites__group-label--gold">Sound Lab</h3>
-                                <p class="favorites__empty">No favorites yet</p>
-                            </div>
-                            <a href="#profileHero" class="profile__favorites-back">Back to Profile</a>
-                        </div>
-                        </div>
-                    </aside>
                 </div>
             </div>
         </div>
@@ -350,18 +297,6 @@
 </section>
 
 </main>
-
-<!-- Favorites Viewer Overlay -->
-<div id="favViewer" class="fav-viewer" role="dialog" aria-modal="true" aria-label="Favorite content viewer">
-    <div class="fav-viewer__backdrop"></div>
-    <div class="fav-viewer__body"></div>
-    <div class="fav-viewer__close-wrap">
-        <button type="button" id="favViewerClose" class="fav-viewer__close" aria-label="Close viewer">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            <span>Close</span>
-        </button>
-    </div>
-</div>
 
 <div id="avatarSourceModal" class="modal-overlay profile-avatar-modal" hidden aria-hidden="true">
     <div class="modal-content profile-avatar-modal__content">

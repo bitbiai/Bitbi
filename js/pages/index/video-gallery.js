@@ -4,7 +4,6 @@
    ============================================================ */
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
-import { createStarButton } from '../../shared/favorites.js';
 import {
     MAX_MOBILE_DECK_DOTS,
     initMobileCardDeck,
@@ -818,13 +817,6 @@ export function initVideoGallery() {
         playIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
         poster.appendChild(playIcon);
 
-        const star = createStarButton('video', item.id, {
-            title: publisherDisplayName || 'Video',
-            thumb_url: item.poster?.url || '',
-        });
-        star.style.cssText = 'position:absolute;top:8px;right:8px';
-        poster.appendChild(star);
-
         inner.appendChild(poster);
 
         /* Info overlay */
@@ -961,13 +953,18 @@ export function initVideoGallery() {
 
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
-        closeBtn.className = 'modal-action modal-action--right video-modal-close';
+        closeBtn.className = 'modal-action modal-action--left modal-action--detail-close video-modal-close';
         closeBtn.setAttribute('aria-label', localeText('browse.closeVideoModal'));
         closeBtn.title = 'Close';
         closeBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
-        const favoriteSlot = document.createElement('div');
-        favoriteSlot.className = 'video-modal__favorite';
+        const fullLink = document.createElement('a');
+        fullLink.className = 'modal-action modal-action--left modal-action--detail-full video-modal__full-link';
+        fullLink.target = '_blank';
+        fullLink.rel = 'noopener noreferrer';
+        fullLink.setAttribute('aria-label', localeText('browse.openVideoInNewWindow'));
+        fullLink.title = localeText('browse.openVideoInNewWindow');
+        fullLink.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
 
         const videoWrap = document.createElement('div');
         videoWrap.id = 'videoModalPlayer';
@@ -991,7 +988,7 @@ export function initVideoGallery() {
         detailSlot.className = 'public-media-detail-slot';
 
         card.appendChild(closeBtn);
-        card.appendChild(favoriteSlot);
+        card.appendChild(fullLink);
         card.appendChild(videoWrap);
         card.appendChild(body);
         card.appendChild(detailSlot);
@@ -1003,7 +1000,7 @@ export function initVideoGallery() {
             if (e.target === overlay) closeVideoModal();
         });
 
-        return { root: overlay, favoriteSlot, videoWrap, titleEl, captionEl, detailSlot };
+        return { root: overlay, fullLink, videoWrap, titleEl, captionEl, detailSlot };
     }
 
     function openVideoModal(item) {
@@ -1021,13 +1018,12 @@ export function initVideoGallery() {
             videoDetailPanel.destroy();
             videoDetailPanel = null;
         }
-        modal.favoriteSlot.replaceChildren();
-        const favorite = createStarButton('video', item.id, {
-            title: displayTitle || item.title || 'Memvids',
-            thumb_url: item.poster?.url || '',
-        });
-        favorite.classList.add('video-modal__fav');
-        modal.favoriteSlot.appendChild(favorite);
+        modal.fullLink.href = item.file.url;
+        modal.fullLink.onclick = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            window.open(item.file.url, '_blank', 'noopener,noreferrer');
+        };
         modal.videoWrap.replaceChildren();
         modal.videoWrap.appendChild(video);
         modal.titleEl.textContent = displayTitle || 'Memvids';
@@ -1061,7 +1057,8 @@ export function initVideoGallery() {
             videoDetailPanel.destroy();
             videoDetailPanel = null;
         }
-        modal.favoriteSlot.replaceChildren();
+        modal.fullLink.removeAttribute('href');
+        modal.fullLink.onclick = null;
         modal.root.removeAttribute('aria-label');
         modal.root.setAttribute('aria-labelledby', 'videoModalTitle');
         modal.root.classList.remove('active');

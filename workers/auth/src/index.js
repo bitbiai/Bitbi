@@ -25,7 +25,6 @@ import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
-import { handleFavorites } from "./routes/favorites.js";
 import {
   handleWalletSiweNonce,
   handleWalletSiweVerify,
@@ -388,12 +387,6 @@ export default {
     if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar(ctx);
     // route-policy: profile.avatar.delete
     if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar(ctx);
-
-    // Favorites
-    if (pathname === "/api/favorites") {
-      const result = await handleFavorites(ctx);
-      if (result) return result;
-    }
 
     // Organizations / basic RBAC foundation
     if (pathname === "/api/orgs") {

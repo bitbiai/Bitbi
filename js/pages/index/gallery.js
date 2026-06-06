@@ -3,7 +3,6 @@
    ============================================================ */
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
-import { createStarButton } from '../../shared/favorites.js';
 import {
     MAX_MOBILE_DECK_DOTS,
     getMobileDeckActiveDotIndex,
@@ -331,7 +330,7 @@ export function initGallery() {
                 }
                 return {
                     items: (Array.isArray(data?.data?.items) ? data.data.items : [])
-                        .map((item) => ({ ...item, favoriteType: 'mempics' })),
+                        .map((item) => ({ ...item, publicCollection: 'mempics' })),
                     nextCursor: typeof data?.data?.next_cursor === 'string' ? data.data.next_cursor : null,
                     hasMore: data?.data?.has_more === true,
                 };
@@ -450,7 +449,7 @@ export function initGallery() {
         const publisherName = typeof publisher?.display_name === 'string'
             ? publisher.display_name.trim()
             : '';
-        const suppressGenericMempicsTitle = item.favoriteType === 'mempics'
+        const suppressGenericMempicsTitle = item.publicCollection === 'mempics'
             && String(item.title || '').trim().toLowerCase() === 'mempics';
         const visibleTitle = publisherName || (suppressGenericMempicsTitle ? '' : String(item.title || '').trim());
         const card = document.createElement('div');
@@ -530,15 +529,6 @@ export function initGallery() {
 
         overlay.appendChild(copy);
         inner.appendChild(overlay);
-
-        if (item.favoriteType !== false) {
-            const star = createStarButton(item.favoriteType || 'gallery', item.id, {
-                title: item.title,
-                thumb_url: item.thumb.url,
-            });
-            star.style.cssText = 'position:absolute;top:8px;right:8px';
-            inner.appendChild(star);
-        }
 
         card.appendChild(inner);
         card.addEventListener('click', () => {

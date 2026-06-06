@@ -261,7 +261,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Nutzen Sie das Profil für Kontokontext und Reset-/Bestätigungslinks, wenn Zugriff Aufmerksamkeit braucht.',
                 }),
                 links: Object.freeze([
-                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?source=help#profileCompletionCard' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile Settings', de: 'Profileinstellungen öffnen' }), path: '/account/profile-settings.html', suffix: '?source=help#profileCompletionCard' }),
                 ]),
             }),
             Object.freeze({
@@ -313,7 +313,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Das Zurücksetzen des Passworts repariert nur den Zugriff. Profil, Credits, Generate Lab und Assets Manager laden weiter aus Ihrem angemeldeten Konto nach Backend-Bestätigung.',
                 }),
                 links: Object.freeze([
-                    Object.freeze({ label: Object.freeze({ en: 'Open Profile', de: 'Profil öffnen' }), path: '/account/profile.html', suffix: '?returnContext=recovery&source=help-recovery#profileCompletionCard' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Profile Settings', de: 'Profileinstellungen öffnen' }), path: '/account/profile-settings.html', suffix: '?returnContext=recovery&source=help-recovery#profileCompletionCard' }),
                     Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?scope=member&source=help-recovery' }),
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-recovery' }),
                 ]),

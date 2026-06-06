@@ -87,9 +87,9 @@ async function resolveCommentAuthState() {
     return commentAuthStatePromise;
 }
 
-function createButton(text, className) {
+function createButton(text, className, { type = 'button' } = {}) {
     const button = document.createElement('button');
-    button.type = 'button';
+    button.type = type;
     button.className = className;
     button.textContent = text;
     return button;
@@ -274,9 +274,9 @@ export function createPublicMediaDetailPanel({
     textarea.maxLength = COMMENT_BODY_MAX_LENGTH;
     textarea.rows = 3;
     textarea.placeholder = localeText('browse.shareThoughts');
-    const submit = createButton(localeText('browse.postComment'), 'public-media-comments__submit');
+    const submit = createButton(localeText('browse.postComment'), 'public-media-comments__submit', { type: 'submit' });
     form.append(textarea, submit);
-    commentsPanel.append(commentsStatus, commentsList, authHint, form);
+    commentsPanel.append(authHint, form, commentsStatus, commentsList);
     root.append(detailsPanel, commentsPanel);
 
     let loaded = false;

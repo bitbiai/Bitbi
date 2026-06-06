@@ -4,7 +4,6 @@
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { formatTime } from '../../shared/format-time.js';
-import { createStarButton } from '../../shared/favorites.js';
 import {
     MAX_MOBILE_DECK_DOTS,
     getMobileDeckActiveDotIndex,
@@ -346,10 +345,18 @@ export function initSoundLab(revealObserver) {
 
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
-        closeBtn.className = 'modal-action modal-action--right memtrack-modal-close';
+        closeBtn.className = 'modal-action modal-action--left modal-action--detail-close memtrack-modal-close';
         closeBtn.setAttribute('aria-label', localeText('browse.closeMediaDetails'));
         closeBtn.title = localeText('browse.close');
         closeBtn.textContent = '×';
+
+        const fullLink = document.createElement('a');
+        fullLink.className = 'modal-action modal-action--left modal-action--detail-full memtrack-modal__full-link';
+        fullLink.target = '_blank';
+        fullLink.rel = 'noopener noreferrer';
+        fullLink.setAttribute('aria-label', localeText('browse.openTrackInNewWindow'));
+        fullLink.title = localeText('browse.openTrackInNewWindow');
+        fullLink.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
 
         const media = document.createElement('div');
         media.className = 'memtrack-modal__media';
@@ -357,14 +364,14 @@ export function initSoundLab(revealObserver) {
         const detailSlot = document.createElement('div');
         detailSlot.className = 'public-media-detail-slot';
 
-        card.append(closeBtn, media, detailSlot);
+        card.append(closeBtn, fullLink, media, detailSlot);
         content.appendChild(card);
         overlay.appendChild(content);
         closeBtn.addEventListener('click', closeMemtrackModal);
         overlay.addEventListener('click', (event) => {
             if (event.target === overlay) closeMemtrackModal();
         });
-        return { root: overlay, media, detailSlot };
+        return { root: overlay, fullLink, media, detailSlot };
     }
 
     function syncMemtrackModalControls({ track, item, playButton, status, fill, progress }) {
@@ -462,6 +469,19 @@ export function initSoundLab(revealObserver) {
         closeMemtrackModal({ keepShell: true });
         memtrackModal.media.replaceChildren();
         memtrackModal.media.appendChild(renderMemtrackModalMedia(item));
+        if (item.file?.url) {
+            memtrackModal.fullLink.href = item.file.url;
+            memtrackModal.fullLink.hidden = false;
+            memtrackModal.fullLink.onclick = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                window.open(item.file.url, '_blank', 'noopener,noreferrer');
+            };
+        } else {
+            memtrackModal.fullLink.removeAttribute('href');
+            memtrackModal.fullLink.hidden = true;
+            memtrackModal.fullLink.onclick = null;
+        }
         if (memtrackDetailPanel) {
             memtrackDetailPanel.destroy();
             memtrackDetailPanel = null;
@@ -495,6 +515,8 @@ export function initSoundLab(revealObserver) {
         }
         if (!memtrackModal) return;
         memtrackModal.media.replaceChildren();
+        memtrackModal.fullLink.removeAttribute('href');
+        memtrackModal.fullLink.onclick = null;
         memtrackModal.root.classList.remove('active');
         if (!options.keepShell) {
             document.body.style.overflow = '';
@@ -789,13 +811,6 @@ export function initSoundLab(revealObserver) {
         veil.style.cssText = 'position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.72),transparent)';
         hero.appendChild(veil);
 
-        const star = createStarButton('soundlab', String(item.id || ''), {
-            title: item.title || 'Memtrack',
-            thumb_url: posterUrl || item.file?.url || '',
-        });
-        star.style.cssText = 'position:absolute;top:8px;right:8px';
-        star.addEventListener('click', stopControlEvent);
-        hero.appendChild(star);
         const publisherInfo = createPublisherInfo();
         if (publisherInfo) hero.appendChild(publisherInfo);
 

@@ -211,15 +211,6 @@ function handleApiRequest(request, response, pathname) {
     return true;
   }
 
-  if (pathname === '/api/favorites') {
-    if (isVisualMemberRequest(request)) {
-      writeJson(response, { ok: true, favorites: [] });
-      return true;
-    }
-    writeJson(response, { ok: false, error: 'not_authenticated' }, 401);
-    return true;
-  }
-
   if (pathname === '/api/wallet/status') {
     if (isVisualMemberRequest(request)) {
       writeJson(response, {

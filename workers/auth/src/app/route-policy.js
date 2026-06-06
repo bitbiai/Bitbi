@@ -205,7 +205,7 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "public_media_like_created" },
     owner: "homepage",
     sensitivity: "medium",
-    notes: "Authenticated, idempotent likes for currently public Mempics, Memvids, and Memtracks. Favorites remain a separate user action.",
+    notes: "Authenticated, idempotent likes for currently public Mempics, Memvids, and Memtracks.",
   }),
   policy({
     id: "gallery.media.like.delete",
@@ -247,7 +247,7 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "profile_follow_deleted" },
     owner: "homepage",
     sensitivity: "medium",
-    notes: "Authenticated, idempotent unfollow of a public media owner. Favorites and likes are unaffected.",
+    notes: "Authenticated, idempotent unfollow of a public media owner. Likes are unaffected.",
   }),
   safeRead("profile.social.summary", "GET", "/api/profile/social/summary", "profile", {
     auth: "user",
@@ -289,7 +289,7 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "medium",
     config: ["DB"],
     rateLimit: { noneReason: "Authenticated, bounded list of public media liked by the current user." },
-    notes: "Favorites are not used here. Only still-public liked media is returned.",
+    notes: "Only still-public liked media is returned.",
   }),
   safeRead("auth.me.read", "GET", "/api/me", "auth", {
     auth: "optional-user",
@@ -406,9 +406,6 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "avatar-delete-ip", failClosed: true },
     audit: { event: "avatar_deleted" },
   }),
-  safeRead("favorites.list", "GET", "/api/favorites", "favorites"),
-  userJsonWrite("favorites.add", "POST", "/api/favorites", "favorites", "smallJson", "favorites-add-ip"),
-  userJsonWrite("favorites.remove", "DELETE", "/api/favorites", "favorites", "smallJson", "favorites-remove-ip"),
   safeRead("orgs.list", "GET", "/api/orgs", "organizations", {
     rateLimit: { noneReason: "Read-only membership list scoped to the authenticated user." },
   }),

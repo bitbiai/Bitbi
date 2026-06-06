@@ -35,9 +35,6 @@
     "js/shared/cookie-consent.js": {
       "innerHTML": 1
     },
-    "js/shared/favorites.js": {
-      "innerHTML": 1
-    },
     "js/shared/models-overlay.js": {
       "innerHTML": 1
     },

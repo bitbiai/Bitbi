@@ -694,7 +694,6 @@
       "POST /api/billing/webhooks/stripe/live"
     ],
     "delegatedExactPaths": [
-      "/api/favorites",
       "/api/orgs"
     ],
     "delegatedPrefixes": [

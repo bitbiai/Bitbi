@@ -4615,18 +4615,6 @@ function decodeStoredTextBody(body) {
   return String(body || '');
 }
 
-function makeFavorites(userId, count) {
-  return Array.from({ length: count }, (_, index) => ({
-    id: index + 1,
-    user_id: userId,
-    item_type: 'gallery',
-    item_id: `item-${index + 1}`,
-    title: `Favorite ${index + 1}`,
-    thumb_url: `/thumb-${index + 1}.png`,
-    created_at: nowIso(),
-  }));
-}
-
 function quotaDayStart(ts = nowIso()) {
   return ts.slice(0, 10) + 'T00:00:00.000Z';
 }
@@ -35273,238 +35261,38 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.adminAuditLog.at(-1).action).toBe('revoke_sessions');
   });
 
-  test('favorites: adding a new favorite at 99 of 100 succeeds', async () => {
+  test('favorites API dispatch is retired without mutating historical favorites rows', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [
-        {
-          id: 'fav-user-99',
-          email: 'fav99@example.com',
-          password_hash: 'unused',
-          created_at: nowIso(),
-          status: 'active',
-          role: 'user',
-          email_verified_at: nowIso(),
-          verification_method: 'email_verified',
-        },
-      ],
-      favorites: makeFavorites('fav-user-99', 99),
-    });
-
-    const token = await seedSession(env, 'fav-user-99');
-    const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
+      users: [createContractUser({ id: 'fav-retired-user', role: 'user' })],
+      favorites: [{
+        id: 1,
+        user_id: 'fav-retired-user',
         item_type: 'gallery',
-        item_id: 'item-100',
-        title: 'Favorite 100',
-        thumb_url: '/thumb-100.png',
-      }, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({ ok: true });
-    expect(env.DB.state.favorites).toHaveLength(100);
-    expect(
-      env.DB.state.favorites.some((row) => row.user_id === 'fav-user-99' && row.item_id === 'item-100')
-    ).toBe(true);
-  });
-
-  test('favorites: re-adding an existing favorite at 100 of 100 is an idempotent no-op', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [
-        {
-          id: 'fav-user-100-existing',
-          email: 'fav100existing@example.com',
-          password_hash: 'unused',
-          created_at: nowIso(),
-          status: 'active',
-          role: 'user',
-          email_verified_at: nowIso(),
-          verification_method: 'email_verified',
-        },
-      ],
-      favorites: makeFavorites('fav-user-100-existing', 100),
+        item_id: 'legacy-favorite',
+        title: 'Legacy Favorite',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
+        created_at: nowIso(),
+      }],
     });
 
-    const token = await seedSession(env, 'fav-user-100-existing');
-    const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'item-100',
-        title: 'Favorite 100',
-        thumb_url: '/thumb-100.png',
-      }, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({ ok: true });
-    expect(env.DB.state.favorites).toHaveLength(100);
-    expect(
-      env.DB.state.favorites.filter((row) => row.user_id === 'fav-user-100-existing' && row.item_id === 'item-100')
-    ).toHaveLength(1);
-  });
-
-  test('favorites: adding a new favorite at 100 of 100 still fails', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [
-        {
-          id: 'fav-user-100-new',
-          email: 'fav100new@example.com',
-          password_hash: 'unused',
-          created_at: nowIso(),
-          status: 'active',
-          role: 'user',
-          email_verified_at: nowIso(),
-          verification_method: 'email_verified',
-        },
-      ],
-      favorites: makeFavorites('fav-user-100-new', 100),
-    });
-
-    const token = await seedSession(env, 'fav-user-100-new');
-    const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'item-101',
-        title: 'Favorite 101',
-        thumb_url: '/thumb-101.png',
-      }, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      ok: false,
-      error: 'Favorites limit reached.',
-    });
-    expect(env.DB.state.favorites).toHaveLength(100);
-    expect(
-      env.DB.state.favorites.some((row) => row.user_id === 'fav-user-100-new' && row.item_id === 'item-101')
-    ).toBe(false);
-  });
-
-  test('favorites: accepts and canonicalizes the current valid thumb_url forms', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-valid-user', role: 'user' })],
-    });
-
-    const token = await seedSession(env, 'fav-valid-user');
-    const validThumbUrls = [
-      { input: '', stored: '' },
-      { input: ` ${TEST_FAVORITE_THUMB_URL} `, stored: TEST_FAVORITE_THUMB_URL },
-      { input: ' /api/gallery/mempics/a1b2c3d4/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/thumb' },
-      { input: ' /api/gallery/mempics/a1b2c3d4/vpubthumb/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/vpubthumb/thumb' },
-      { input: ' /api/gallery/memvids/bada55e1/poster ', stored: '/api/gallery/memvids/bada55e1/poster' },
-      { input: ' /api/gallery/memvids/bada55e1/vpubposter/poster ', stored: '/api/gallery/memvids/bada55e1/vpubposter/poster' },
-      { input: ' /api/gallery/memtracks/feedc0de/vpubposter/poster ', stored: '/api/gallery/memtracks/feedc0de/vpubposter/poster' },
-      {
-        input: ' https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp ',
-        stored: 'https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp',
-      },
-    ];
-
-    for (const [index, { input }] of validThumbUrls.entries()) {
-      const res = await authWorker.fetch(
-        authJsonRequest('/api/favorites', 'POST', {
-          item_type: 'gallery',
-          item_id: `valid-thumb-${index}`,
-          title: `Valid Favorite ${index}`,
-          thumb_url: input,
-        }, {
-          Origin: 'https://bitbi.ai',
-          Cookie: `bitbi_session=${token}`,
-        }),
-        env,
-        createExecutionContext().execCtx
-      );
-
-      expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toMatchObject({ ok: true });
-    }
-
-    expect(
-      env.DB.state.favorites
-        .filter((row) => row.user_id === 'fav-valid-user')
-        .map((row) => row.thumb_url)
-    ).toEqual(validThumbUrls.map(({ stored }) => stored));
-  });
-
-  test('favorites: retired Sound Lab bundled tracks are omitted while current Memtracks remain', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-soundlab-user', role: 'user' })],
-      favorites: [
-        {
-          user_id: 'fav-soundlab-user',
-          item_type: 'soundlab',
-          item_id: 'tiny-hearts',
-          title: 'Tiny Hearts',
-          thumb_url: 'https://pub.bitbi.ai/sound-lab/thumbs/thumb-tiny.webp',
-          created_at: '2026-04-10T12:00:00.000Z',
-        },
-        {
-          user_id: 'fav-soundlab-user',
-          item_type: 'soundlab',
-          item_id: 'legacy-grok',
-          title: 'Grok’s Groove Remix',
-          thumb_url: '',
-          created_at: '2026-04-10T11:59:00.000Z',
-        },
-        {
-          user_id: 'fav-soundlab-user',
-          item_type: 'soundlab',
-          item_id: 'feedc0de',
-          title: 'Published Member Track',
-          thumb_url: '/api/gallery/memtracks/feedc0de/vpubposter/poster',
-          created_at: '2026-04-10T11:58:00.000Z',
-        },
-      ],
-    });
-    const token = await seedSession(env, 'fav-soundlab-user');
-
-    const listRes = await authWorker.fetch(
+    const token = await seedSession(env, 'fav-retired-user');
+    const getRes = await authWorker.fetch(
       authJsonRequest('/api/favorites', 'GET', undefined, {
         Cookie: `bitbi_session=${token}`,
       }),
       env,
       createExecutionContext().execCtx
     );
-    expect(listRes.status).toBe(200);
-    const listBody = await listRes.json();
-    expect(listBody).toMatchObject({
-      ok: true,
-      favorites: [expect.objectContaining({
-        item_type: 'soundlab',
-        item_id: 'feedc0de',
-        title: 'Published Member Track',
-        thumb_url: '/api/gallery/memtracks/feedc0de/vpubposter/poster',
-      })],
-    });
-    expect(listBody.favorites.map((row) => row.item_id)).toEqual(['feedc0de']);
+    expect(getRes.status).toBe(404);
+    await expect(getRes.json()).resolves.toMatchObject({ ok: false, error: 'Not found' });
 
-    const addRetiredRes = await authWorker.fetch(
+    const postRes = await authWorker.fetch(
       authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'soundlab',
-        item_id: 'exclusive-track-01',
-        title: 'Exclusive Track 01',
-        thumb_url: 'https://pub.bitbi.ai/sound-lab/thumbs/thumb-bitbi.webp',
+        item_type: 'gallery',
+        item_id: 'not-created',
+        title: 'Not Created',
+        thumb_url: TEST_FAVORITE_THUMB_URL,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -35512,99 +35300,10 @@ test.describe('Worker routes', () => {
       env,
       createExecutionContext().execCtx
     );
-    expect(addRetiredRes.status).toBe(200);
-    await expect(addRetiredRes.json()).resolves.toMatchObject({ ok: true });
-    expect(env.DB.state.favorites.some((row) => row.item_id === 'exclusive-track-01')).toBe(false);
-  });
+    expect(postRes.status).toBe(404);
+    await expect(postRes.json()).resolves.toMatchObject({ ok: false, error: 'Not found' });
 
-  test('favorites: rejects unsafe thumb_url forms', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-invalid-user', role: 'user' })],
-    });
-
-    const token = await seedSession(env, 'fav-invalid-user');
-    const invalidThumbUrls = [
-      'http://pub.bitbi.ai/gallery/thumbs/test.webp',
-      'javascript:alert(1)',
-      'data:image/png;base64,AAAA',
-      'blob:https://bitbi.ai/1234',
-      '//evil.example/thumb.png',
-      'https://evil.example/thumb.png',
-      'https://user:pass@pub.bitbi.ai/gallery/thumbs/test.webp',
-      'https://pub.bitbi.ai',
-      'https://pub.bitbi.ai/',
-      `${TEST_FAVORITE_THUMB_URL}?size=large`,
-      `${TEST_FAVORITE_THUMB_URL}#hero`,
-      '/assets/images/\u0000thumb.png',
-    ];
-
-    for (const [index, thumbUrl] of invalidThumbUrls.entries()) {
-      const res = await authWorker.fetch(
-        authJsonRequest('/api/favorites', 'POST', {
-          item_type: 'gallery',
-          item_id: `invalid-thumb-${index}`,
-          title: `Invalid Favorite ${index}`,
-          thumb_url: thumbUrl,
-        }, {
-          Origin: 'https://bitbi.ai',
-          Cookie: `bitbi_session=${token}`,
-        }),
-        env,
-        createExecutionContext().execCtx
-      );
-
-      expect(res.status).toBe(400);
-      await expect(res.json()).resolves.toMatchObject({
-        ok: false,
-        error: 'Invalid thumb_url.',
-      });
-    }
-
-    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-invalid-user')).toHaveLength(0);
-  });
-
-  test('favorites: accepts mempics and video item types through the shared route', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-media-user', role: 'user' })],
-    });
-
-    const token = await seedSession(env, 'fav-media-user');
-    const cases = [
-      {
-        item_type: 'mempics',
-        item_id: 'a1b2c3d4',
-        title: 'Mempics',
-        thumb_url: '/api/gallery/mempics/a1b2c3d4/vpubthumb/thumb',
-      },
-      {
-        item_type: 'video',
-        item_id: 'bada55e1',
-        title: 'Launch Walkthrough',
-        thumb_url: '/api/gallery/memvids/bada55e1/vpubposter/poster',
-      },
-    ];
-
-    for (const favorite of cases) {
-      const res = await authWorker.fetch(
-        authJsonRequest('/api/favorites', 'POST', favorite, {
-          Origin: 'https://bitbi.ai',
-          Cookie: `bitbi_session=${token}`,
-        }),
-        env,
-        createExecutionContext().execCtx
-      );
-
-      expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toMatchObject({ ok: true });
-    }
-
-    expect(
-      env.DB.state.favorites
-        .filter((row) => row.user_id === 'fav-media-user')
-        .map((row) => ({ item_type: row.item_type, item_id: row.item_id, thumb_url: row.thumb_url }))
-    ).toEqual(cases.map(({ item_type, item_id, thumb_url }) => ({ item_type, item_id, thumb_url })));
+    expect(env.DB.state.favorites.map((row) => row.item_id)).toEqual(['legacy-favorite']);
   });
 
   test('shared limiter: login is blocked when the durable IP limit is already exhausted', async () => {
@@ -36102,23 +35801,30 @@ test.describe('Worker routes', () => {
     expect(proxied).toBe(false);
   });
 
-  test('shared limiter: favorites add is blocked when the durable IP limit is exhausted', async () => {
+  test('shared limiter: public media like create is blocked when the durable user limit is exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-rate-user', role: 'user' })],
+      users: [
+        createContractUser({ id: 'like-rate-user', role: 'user' }),
+        createContractUser({ id: 'like-rate-owner', role: 'user' }),
+      ],
+      aiImages: [{
+        id: 'aa11cc22',
+        user_id: 'like-rate-owner',
+        r2_key: 'users/like-rate-owner/public/aa11cc22.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
       publicRateLimitCounters: [
-        makeActiveRateLimitCounter('favorites-add-ip', '203.0.113.61', 30, 60_000),
+        makeActiveRateLimitCounter('public-media-like-create-user', 'like-rate-user', 60, 60_000),
       ],
     });
 
-    const token = await seedSession(env, 'fav-rate-user');
+    const token = await seedSession(env, 'like-rate-user');
     const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'rate-limited-favorite',
-        title: 'Rate Limited Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/aa11cc22/like', 'POST', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'CF-Connecting-IP': '203.0.113.61',
@@ -36132,26 +35838,33 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
-    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('favorites-add-ip:203.0.113.61');
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('public-media-like-create-user:like-rate-user');
     expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
-    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-rate-user')).toHaveLength(0);
+    expect(env.DB.state.publicMediaLikes.filter((row) => row.user_id === 'like-rate-user')).toHaveLength(0);
   });
 
-  test('shared limiter: favorites add fails closed when the durable limiter binding is missing', async () => {
+  test('shared limiter: public media like create fails closed when the durable limiter binding is missing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       disablePublicRateLimiterBinding: true,
-      users: [createContractUser({ id: 'fav-fail-closed-user', role: 'user' })],
+      users: [
+        createContractUser({ id: 'like-fail-closed-user', role: 'user' }),
+        createContractUser({ id: 'like-fail-closed-owner', role: 'user' }),
+      ],
+      aiImages: [{
+        id: 'bb22dd33',
+        user_id: 'like-fail-closed-owner',
+        r2_key: 'users/like-fail-closed-owner/public/bb22dd33.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
     });
 
-    const token = await seedSession(env, 'fav-fail-closed-user');
+    const token = await seedSession(env, 'like-fail-closed-user');
     const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'not-added-when-limiter-missing',
-        title: 'Blocked Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/bb22dd33/like', 'POST', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'CF-Connecting-IP': '203.0.113.63',
@@ -36165,7 +35878,7 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Service temporarily unavailable. Please try again later.',
     });
-    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-fail-closed-user')).toHaveLength(0);
+    expect(env.DB.state.publicMediaLikes.filter((row) => row.user_id === 'like-fail-closed-user')).toHaveLength(0);
   });
 
   test('shared limiter: profile update fails closed before profile writes when limiter state is unavailable', async () => {
@@ -36205,30 +35918,37 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.profiles.find((row) => row.user_id === 'profile-fail-closed-user')?.display_name).toBe('Before');
   });
 
-  test('shared limiter: favorites delete is blocked before deletion when the durable IP limit is exhausted', async () => {
+  test('shared limiter: public media like delete is blocked before deletion when the durable user limit is exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-delete-rate-user', role: 'user' })],
-      favorites: [{
-        id: 1,
-        user_id: 'fav-delete-rate-user',
-        item_type: 'gallery',
-        item_id: 'keep-favorite',
-        title: 'Keep Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
+      users: [
+        createContractUser({ id: 'like-delete-rate-user', role: 'user' }),
+        createContractUser({ id: 'like-delete-rate-owner', role: 'user' }),
+      ],
+      aiImages: [{
+        id: 'cc33ee44',
+        user_id: 'like-delete-rate-owner',
+        r2_key: 'users/like-delete-rate-owner/public/cc33ee44.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
+      publicMediaLikes: [{
+        id: 'like_delete_rate_existing',
+        media_type: 'mempics',
+        media_id: 'cc33ee44',
+        user_id: 'like-delete-rate-user',
         created_at: nowIso(),
       }],
       publicRateLimitCounters: [
-        makeActiveRateLimitCounter('favorites-remove-ip', '203.0.113.72', 60, 60_000),
+        makeActiveRateLimitCounter('public-media-like-delete-user', 'like-delete-rate-user', 60, 60_000),
       ],
     });
 
-    const token = await seedSession(env, 'fav-delete-rate-user');
+    const token = await seedSession(env, 'like-delete-rate-user');
     const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'DELETE', {
-        item_type: 'gallery',
-        item_id: 'keep-favorite',
-      }, {
+      authJsonRequest('/api/gallery/mempics/cc33ee44/like', 'DELETE', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'CF-Connecting-IP': '203.0.113.72',
@@ -36242,7 +35962,8 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
-    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-delete-rate-user')).toHaveLength(1);
+    expect(env.DB.state.publicMediaLikes.filter((row) => row.user_id === 'like-delete-rate-user')).toHaveLength(1);
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('public-media-like-delete-user:like-delete-rate-user');
   });
 
   test('shared limiter: AI folder create fails closed before folder writes when limiter state is unavailable', async () => {
@@ -37304,20 +37025,27 @@ test.describe('Worker routes', () => {
     }
   });
 
-  test('request trust boundary: same-origin Referer is accepted for state-changing favorites add when Origin is absent', async () => {
+  test('request trust boundary: same-origin Referer is accepted for state-changing public media likes when Origin is absent', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-referer-user', role: 'user' })],
+      users: [
+        createContractUser({ id: 'like-referer-user', role: 'user' }),
+        createContractUser({ id: 'like-referer-owner', role: 'user' }),
+      ],
+      aiImages: [{
+        id: 'dd44aa55',
+        user_id: 'like-referer-owner',
+        r2_key: 'users/like-referer-owner/public/dd44aa55.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
     });
 
-    const token = await seedSession(env, 'fav-referer-user');
+    const token = await seedSession(env, 'like-referer-user');
     const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'referer-favorite',
-        title: 'Referer Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/dd44aa55/like', 'POST', {}, {
         Referer: 'https://bitbi.ai/account/profile.html',
         Cookie: `bitbi_session=${token}`,
         'CF-Connecting-IP': '203.0.113.62',
@@ -37329,24 +37057,31 @@ test.describe('Worker routes', () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ ok: true });
     expect(
-      env.DB.state.favorites.some((row) => row.user_id === 'fav-referer-user' && row.item_id === 'referer-favorite')
+      env.DB.state.publicMediaLikes.some((row) => row.user_id === 'like-referer-user' && row.media_id === 'dd44aa55')
     ).toBe(true);
   });
 
   test('request trust boundary: Fetch Metadata allows same-origin writes and rejects cross-site protected writes', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-fetch-metadata-user', role: 'user' })],
+      users: [
+        createContractUser({ id: 'like-fetch-metadata-user', role: 'user' }),
+        createContractUser({ id: 'like-fetch-metadata-owner', role: 'user' }),
+      ],
+      aiImages: [{
+        id: 'ee55bb66',
+        user_id: 'like-fetch-metadata-owner',
+        r2_key: 'users/like-fetch-metadata-owner/public/ee55bb66.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
     });
 
-    const token = await seedSession(env, 'fav-fetch-metadata-user');
+    const token = await seedSession(env, 'like-fetch-metadata-user');
     const sameOrigin = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'fetch-metadata-same-origin',
-        title: 'Fetch Metadata Same Origin',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/ee55bb66/like', 'POST', {}, {
         Origin: 'https://bitbi.ai',
         'Sec-Fetch-Site': 'same-origin',
         Cookie: `bitbi_session=${token}`,
@@ -37358,12 +37093,7 @@ test.describe('Worker routes', () => {
     expect(sameOrigin.status).toBe(200);
 
     const crossSite = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'fetch-metadata-cross-site',
-        title: 'Fetch Metadata Cross Site',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/ee55bb66/like', 'POST', {}, {
         Origin: 'https://bitbi.ai',
         'Sec-Fetch-Site': 'cross-site',
         Cookie: `bitbi_session=${token}`,
@@ -37377,24 +37107,30 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Forbidden',
     });
-    expect(env.DB.state.favorites.some((row) => row.item_id === 'fetch-metadata-same-origin')).toBe(true);
-    expect(env.DB.state.favorites.some((row) => row.item_id === 'fetch-metadata-cross-site')).toBe(false);
+    expect(env.DB.state.publicMediaLikes.filter((row) => row.media_id === 'ee55bb66')).toHaveLength(1);
   });
 
-  test('request trust boundary: foreign Origin is rejected for state-changing favorites add', async () => {
+  test('request trust boundary: foreign Origin is rejected for state-changing public media likes', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-foreign-origin-user', role: 'user' })],
+      users: [
+        createContractUser({ id: 'like-foreign-origin-user', role: 'user' }),
+        createContractUser({ id: 'like-foreign-origin-owner', role: 'user' }),
+      ],
+      aiImages: [{
+        id: 'ff66cc77',
+        user_id: 'like-foreign-origin-owner',
+        r2_key: 'users/like-foreign-origin-owner/public/ff66cc77.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
     });
 
-    const token = await seedSession(env, 'fav-foreign-origin-user');
+    const token = await seedSession(env, 'like-foreign-origin-user');
     const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'foreign-origin-favorite',
-        title: 'Foreign Origin Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/ff66cc77/like', 'POST', {}, {
         Origin: 'https://evil.example',
         Cookie: `bitbi_session=${token}`,
         'CF-Connecting-IP': '203.0.113.63',
@@ -37408,23 +37144,30 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Forbidden',
     });
-    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-foreign-origin-user')).toHaveLength(0);
+    expect(env.DB.state.publicMediaLikes.filter((row) => row.user_id === 'like-foreign-origin-user')).toHaveLength(0);
   });
 
-  test('request trust boundary: originless state-changing favorites add is rejected without same-origin Referer', async () => {
+  test('request trust boundary: originless state-changing public media likes are rejected without same-origin Referer', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'fav-originless-user', role: 'user' })],
+      users: [
+        createContractUser({ id: 'like-originless-user', role: 'user' }),
+        createContractUser({ id: 'like-originless-owner', role: 'user' }),
+      ],
+      aiImages: [{
+        id: 'aa77dd88',
+        user_id: 'like-originless-owner',
+        r2_key: 'users/like-originless-owner/public/aa77dd88.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
     });
 
-    const token = await seedSession(env, 'fav-originless-user');
+    const token = await seedSession(env, 'like-originless-user');
     const res = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'originless-favorite',
-        title: 'Originless Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/aa77dd88/like', 'POST', {}, {
         Cookie: `bitbi_session=${token}`,
         'CF-Connecting-IP': '203.0.113.64',
       }),
@@ -37437,7 +37180,7 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Forbidden',
     });
-    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-originless-user')).toHaveLength(0);
+    expect(env.DB.state.publicMediaLikes.filter((row) => row.user_id === 'like-originless-user')).toHaveLength(0);
   });
 
   test('request trust boundary: verify-email remains allowed without Origin or Referer', async () => {
@@ -37475,13 +37218,20 @@ test.describe('Worker routes', () => {
         created_at: nowIso(),
         updated_at: nowIso(),
       }],
-      favorites: [{
-        id: 1,
+      aiImages: [{
+        id: 'bb88ee99',
+        user_id: 'csrf-target-user',
+        r2_key: 'users/csrf-target-user/public/bb88ee99.png',
+        created_at: nowIso(),
+        visibility: 'public',
+        published_at: nowIso(),
+        derivatives_status: 'ready',
+      }],
+      publicMediaLikes: [{
+        id: 'csrf_like_existing',
+        media_type: 'mempics',
+        media_id: 'bb88ee99',
         user_id: 'csrf-member-user',
-        item_type: 'gallery',
-        item_id: 'csrf-favorite',
-        title: 'CSRF Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
         created_at: nowIso(),
       }],
       linkedWallets: [{
@@ -37581,11 +37331,8 @@ test.describe('Worker routes', () => {
     );
     expect(profileRes.status).toBe(403);
 
-    const favoriteDeleteRes = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'DELETE', {
-        item_type: 'gallery',
-        item_id: 'csrf-favorite',
-      }, {
+    const likeDeleteRes = await authWorker.fetch(
+      authJsonRequest('/api/gallery/mempics/bb88ee99/like', 'DELETE', {}, {
         Origin: 'https://evil.example',
         Cookie: `bitbi_session=${memberToken}`,
         'CF-Connecting-IP': '203.0.113.71',
@@ -37593,7 +37340,7 @@ test.describe('Worker routes', () => {
       env,
       createExecutionContext().execCtx
     );
-    expect(favoriteDeleteRes.status).toBe(403);
+    expect(likeDeleteRes.status).toBe(403);
 
     const walletUnlinkRes = await authWorker.fetch(
       authJsonRequest('/api/wallet/unlink', 'POST', {}, {
@@ -37624,7 +37371,7 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.adminMfaCredentials).toHaveLength(0);
     expect(aiRunCalled).toBe(false);
     expect(env.DB.state.profiles.find((row) => row.user_id === 'csrf-member-user')?.display_name).toBe('CSRF Safe Name');
-    expect(env.DB.state.favorites.some((row) => row.user_id === 'csrf-member-user' && row.item_id === 'csrf-favorite')).toBe(true);
+    expect(env.DB.state.publicMediaLikes.some((row) => row.user_id === 'csrf-member-user' && row.media_id === 'bb88ee99')).toBe(true);
     expect(env.DB.state.linkedWallets.filter((row) => row.user_id === 'csrf-member-user')).toHaveLength(1);
     expect(env.DB.state.aiFolders.filter((row) => row.user_id === 'csrf-member-user')).toHaveLength(0);
   });
@@ -37644,12 +37391,7 @@ test.describe('Worker routes', () => {
     const tamperedAdminToken = `${adminToken.slice(0, -1)}x`;
 
     const memberRes = await authWorker.fetch(
-      authJsonRequest('/api/favorites', 'POST', {
-        item_type: 'gallery',
-        item_id: 'tampered-member-favorite',
-        title: 'Tampered Member Favorite',
-        thumb_url: TEST_FAVORITE_THUMB_URL,
-      }, {
+      authJsonRequest('/api/gallery/mempics/aa11bb22/like', 'POST', {}, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tamperedMemberToken}`,
       }),

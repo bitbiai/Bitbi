@@ -23,7 +23,6 @@ import { initLatestModelsVideoModule } from './latest-models-video-module.js?v=_
 import { initHomepageHeroResponsiveScale } from './hero-responsive-scale.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initContact } from './contact.js?v=__ASSET_VERSION__';
-import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
 import { clearGenerateLabContext } from '../../shared/generate-lab-context.js?v=__ASSET_VERSION__';
@@ -424,14 +423,6 @@ try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
 try { initAuthEntryActions(); } catch (e) { console.warn('authEntryActions:', e); }
 try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
 document.dispatchEvent(new CustomEvent('bitbi:homepage-auth-ui-ready'));
-
-/* Load user favorites (updates star button states) */
-loadFavorites().catch(e => console.warn('favorites:', e));
-
-/* Reload favorites on auth change */
-document.addEventListener('bitbi:auth-change', () => {
-    loadFavorites().catch(e => console.warn('favorites:', e));
-});
 
 /* Gallery mode toggle (Explore / Create) */
 try {
