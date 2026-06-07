@@ -13442,6 +13442,113 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileSettingsCard')).toHaveCount(0);
   });
 
+  test('profile settings layout stays wide, readable, and non-overlapping across viewports', async ({ page }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'member-with-readable-settings@bitbi.ai',
+      displayName: 'Member With Readable Settings',
+    });
+
+    const readSettingsLayout = async () => page.locator('#profileContent').evaluate((node) => {
+      const rectOf = (selector) => {
+        const rect = node.querySelector(selector)?.getBoundingClientRect();
+        if (!rect) return null;
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        };
+      };
+      const overlaps = (first, second) => Boolean(
+        first
+        && second
+        && first.left < second.right - 1
+        && first.right > second.left + 1
+        && first.top < second.bottom - 1
+        && first.bottom > second.top + 1
+      );
+      const viewportWidth = document.documentElement.clientWidth;
+      const shellRect = node.closest('.profile-shell')?.getBoundingClientRect();
+      const shell = shellRect ? {
+        left: shellRect.left,
+        right: shellRect.right,
+        top: shellRect.top,
+        bottom: shellRect.bottom,
+        width: shellRect.width,
+        height: shellRect.height,
+      } : null;
+      const overview = rectOf('.profile__overview-grid');
+      const settings = rectOf('.profile__settings-row');
+      const submit = rectOf('#submitBtn');
+      const cards = [
+        '#profileCompletionCard',
+        '#profileAvatarCard',
+        '#profileAccountCard',
+        '.profile__edit-card',
+      ].map(rectOf).filter(Boolean);
+      return {
+        viewportWidth,
+        hasDocumentOverflow: document.documentElement.scrollWidth > viewportWidth + 1,
+        shellWidth: shell?.width ?? 0,
+        overviewWidth: overview?.width ?? 0,
+        settingsWidth: settings?.width ?? 0,
+        sideBySide: Boolean(overview && settings && settings.left >= overview.right - 1),
+        majorPanelsOverlap: overlaps(overview, settings),
+        allCardsInsideViewport: cards.every((rect) => rect.left >= 0 && rect.right <= viewportWidth + 1),
+        allCardsReadable: cards.length === 4 && cards.every((rect) => rect.width >= Math.min(320, viewportWidth - 32)),
+        submitVisible: Boolean(submit && submit.width >= 120 && submit.height >= 40),
+      };
+    });
+
+    const response = await page.goto('/account/profile-settings.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 768, height: 1024 },
+      { width: 1280, height: 900 },
+      { width: 1440, height: 1000 },
+      { width: 1536, height: 1000 },
+      { width: 1728, height: 1100 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      const metrics = await readSettingsLayout();
+      expect(metrics.hasDocumentOverflow, `document overflow at ${viewport.width}px`).toBe(false);
+      expect(metrics.majorPanelsOverlap, `settings panels overlap at ${viewport.width}px`).toBe(false);
+      expect(metrics.allCardsInsideViewport, `cards stay inside viewport at ${viewport.width}px`).toBe(true);
+      expect(metrics.allCardsReadable, `cards readable at ${viewport.width}px`).toBe(true);
+      expect(metrics.submitVisible, `submit target visible at ${viewport.width}px`).toBe(true);
+
+      if (viewport.width >= 1280) {
+        expect(metrics.shellWidth, `wide shell at ${viewport.width}px`).toBeGreaterThan(1180);
+        expect(metrics.overviewWidth, `left settings column at ${viewport.width}px`).toBeGreaterThan(310);
+        expect(metrics.settingsWidth, `edit settings column at ${viewport.width}px`).toBeGreaterThan(640);
+        expect(metrics.sideBySide, `desktop settings columns at ${viewport.width}px`).toBe(true);
+      } else if (viewport.width >= 760) {
+        expect(metrics.shellWidth, `tablet shell at ${viewport.width}px`).toBeGreaterThan(700);
+        expect(metrics.settingsWidth, `tablet edit form width at ${viewport.width}px`).toBeGreaterThan(680);
+      } else {
+        expect(metrics.settingsWidth, `mobile edit form width at ${viewport.width}px`).toBeGreaterThan(330);
+      }
+    }
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto('/de/account/profile-settings.html');
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    const germanMetrics = await readSettingsLayout();
+    expect(germanMetrics.hasDocumentOverflow, 'German settings document overflow').toBe(false);
+    expect(germanMetrics.majorPanelsOverlap, 'German settings panels overlap').toBe(false);
+    expect(germanMetrics.sideBySide, 'German desktop settings columns').toBe(true);
+    expect(germanMetrics.settingsWidth, 'German desktop edit form width').toBeGreaterThan(640);
+  });
+
   test('Assets Manager strips unsafe return context without rendering workspace hint panels', async ({ page }) => {
     await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
 

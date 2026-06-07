@@ -2660,36 +2660,335 @@
 
     }
 
+    .profile-settings-page .profile-shell {
+        max-inline-size: min(var(--container-management), var(--bitbi-content-max-width, 100%));
+    }
+
+    .profile-settings-page #profileContent,
+    .profile-settings-page #profileHomeView,
+    .profile-settings-page .profile-layout,
     .profile-settings-page .profile-layout__main {
-        inline-size: min(100%, 940px);
+        inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    .profile-settings-page .profile-layout__main {
+        display: grid;
+        gap: clamp(var(--space-5), 2.4vw, var(--space-8));
+        max-inline-size: var(--container-management);
         margin-inline: auto;
     }
 
     .profile-settings-page .profile__overview-grid,
     .profile-settings-page .profile__settings-row {
-        inline-size: min(100%, 820px);
-        margin-inline: auto;
+        inline-size: 100%;
+        min-inline-size: 0;
+        max-inline-size: none;
+        margin-inline: 0;
     }
 
-    @media (min-width: 1024px) {
-        .profile-settings-page .profile-layout__main {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr);
-            justify-items: center;
-        }
+    .profile-settings-page .profile__overview-grid {
+        display: grid;
+        gap: clamp(var(--space-4), 2vw, var(--space-6));
+        align-items: start;
+    }
 
+    .profile-settings-page .profile__settings-row {
+        display: grid;
+        align-items: stretch;
+        gap: var(--space-5);
+    }
+
+    .profile-settings-page .profile__card,
+    .profile-settings-page .profile__settings-row .profile__card,
+    .profile-settings-page .profile__avatar-account-stack .profile__card {
+        box-sizing: border-box;
+        max-inline-size: none;
+        margin-inline: 0;
+        padding: clamp(1.2rem, 1.8vw, 1.85rem);
+        border-color: rgba(255, 255, 255, 0.1);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.018)),
+            rgba(13, 27, 42, 0.95);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.22);
+    }
+
+    .profile-settings-page .profile__completion-card {
+        gap: var(--space-4);
+        padding: clamp(1.15rem, 1.6vw, 1.6rem);
+    }
+
+    .profile-settings-page .profile__completion-head {
+        gap: var(--space-2);
+    }
+
+    .profile-settings-page .profile__completion-head .profile__control-eyebrow {
+        font-size: 0.68rem;
+        line-height: 1.2;
+    }
+
+    .profile-settings-page .profile__completion-title-row {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+    }
+
+    .profile-settings-page .profile__completion-status {
+        max-inline-size: 100%;
+        padding: 0.34rem 0.62rem;
+        font-size: 0.64rem;
+        line-height: 1.25;
+        text-align: start;
+        white-space: normal;
+    }
+
+    .profile-settings-page .profile__completion-list {
+        gap: var(--space-2);
+    }
+
+    .profile-settings-page .profile__completion-item {
+        min-block-size: 3rem;
+        padding: 0.62rem 0.75rem;
+        gap: 0.12rem 0.62rem;
+    }
+
+    .profile-settings-page .profile__completion-label {
+        font-size: 0.64rem;
+        line-height: 1.2;
+    }
+
+    .profile-settings-page .profile__completion-item strong {
+        font-size: 0.76rem;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+    }
+
+    .profile-settings-page .profile__avatar-account-stack {
+        display: grid;
+        grid-template-rows: none;
+        gap: clamp(var(--space-4), 1.6vw, var(--space-5));
+        align-content: start;
+        min-inline-size: 0;
+    }
+
+    .profile-settings-page .profile__avatar-card--compact {
+        block-size: auto;
+        min-block-size: 0;
+        align-items: stretch;
+        align-content: stretch;
+        padding: clamp(1rem, 1.5vw, 1.4rem);
+    }
+
+    .profile-settings-page .profile__avatar-card--compact .profile__avatar-wrap {
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-areas:
+            "frame actions"
+            "frame hint"
+            "frame message";
+        gap: 0.35rem var(--space-4);
+        align-items: center;
+    }
+
+    .profile-settings-page .profile__avatar-card--compact .profile__avatar-frame {
+        inline-size: clamp(4.25rem, 7vw, 5rem);
+        block-size: clamp(4.25rem, 7vw, 5rem);
+    }
+
+    .profile-settings-page .profile__avatar-card--compact .profile__avatar-btn {
+        min-block-size: 2.35rem;
+        padding: 0.55rem 0.82rem;
+        font-size: 0.7rem;
+    }
+
+    .profile-settings-page .profile__avatar-card--compact .profile__hint {
+        font-size: 0.72rem;
+        line-height: 1.4;
+        color: rgba(255, 255, 255, 0.52);
+    }
+
+    .profile-settings-page .profile__avatar-card--compact .profile__msg {
+        min-block-size: 2.45rem;
+        margin-block-start: var(--space-2);
+        padding: 0.62rem 0.75rem;
+        font-size: 0.72rem;
+        line-height: 1.35;
+    }
+
+    .profile-settings-page .profile__avatar-card--compact .profile__msg:empty {
+        min-block-size: 0;
+        margin-block-start: 0;
+        padding: 0;
+    }
+
+    .profile-settings-page .profile__account-card--compact {
+        block-size: auto;
+        min-block-size: 0;
+        grid-template-rows: none;
+        align-content: start;
+        gap: var(--space-2);
+        padding: clamp(1.1rem, 1.6vw, 1.5rem);
+    }
+
+    .profile-settings-page .profile__account-card--compact .profile__title {
+        margin-block-end: var(--space-1);
+        font-size: clamp(1.05rem, 1.35vw, 1.22rem);
+    }
+
+    .profile-settings-page .profile__account-card--compact .profile__row {
+        grid-template-columns: minmax(7.2rem, 0.42fr) minmax(0, 1fr);
+        gap: var(--space-3);
+        min-block-size: 2.15rem;
+        padding: 0.42rem 0;
+    }
+
+    .profile-settings-page .profile__account-card--compact .profile__label {
+        font-size: 0.68rem;
+        line-height: 1.25;
+    }
+
+    .profile-settings-page .profile__account-card--compact .profile__value {
+        font-size: 0.82rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+
+    .profile-settings-page .profile__edit-card {
+        gap: clamp(var(--space-4), 1.8vw, var(--space-6));
+    }
+
+    .profile-settings-page .profile__edit-copy {
+        max-inline-size: 58rem;
+        font-size: 0.95rem;
+        line-height: 1.65;
+        color: rgba(255, 255, 255, 0.68);
+    }
+
+    .profile-settings-page .profile__edit-state,
+    .profile-settings-page .profile__save-recovery,
+    .profile-settings-page .profile__msg {
+        font-size: 0.82rem;
+    }
+
+    .profile-settings-page .profile__form {
+        gap: clamp(var(--space-4), 1.6vw, var(--space-5));
+    }
+
+    .profile-settings-page .profile__form-label {
+        font-size: 0.72rem;
+        color: rgba(255, 255, 255, 0.52);
+    }
+
+    .profile-settings-page .profile__input,
+    .profile-settings-page .profile__textarea {
+        padding: 0.9rem 1rem;
+        font-size: 0.9rem;
+        line-height: 1.45;
+        border-color: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .profile-settings-page .profile__textarea {
+        min-block-size: 10rem;
+    }
+
+    .profile-settings-page .profile__hint {
+        font-size: 0.76rem;
+        color: rgba(255, 255, 255, 0.46);
+    }
+
+    .profile-settings-page .profile__submit {
+        justify-self: start;
+        min-inline-size: 11rem;
+        min-block-size: 2.8rem;
+        font-size: 0.78rem;
+    }
+
+    .profile-settings-page .profile__actions {
+        inline-size: 100%;
+        max-inline-size: none;
+        margin-block-start: 0;
+        margin-inline: 0;
+        justify-content: flex-start;
+    }
+
+    @media (min-width: 760px) and (max-width: 1179px) {
         .profile-settings-page .profile__overview-grid {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr);
-            gap: var(--space-5);
+            grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
         }
 
         .profile-settings-page .profile__completion-card,
-        .profile-settings-page .profile__avatar-account-stack,
-        .profile-settings-page .profile__settings-row {
+        .profile-settings-page .profile__avatar-account-stack {
             grid-column: auto;
             grid-row: auto;
-            align-self: auto;
+        }
+    }
+
+    @media (min-width: 1180px) {
+        .profile-settings-page .profile-layout__main {
+            grid-template-columns: minmax(20rem, 27rem) minmax(0, 1fr);
+            grid-template-areas:
+                "overview settings"
+                "overview actions";
+            align-items: start;
+        }
+
+        .profile-settings-page .profile__overview-grid {
+            grid-area: overview;
+            grid-template-columns: minmax(0, 1fr);
+            align-self: start;
+            position: sticky;
+            inset-block-start: calc(var(--site-nav-height, 76px) + var(--space-5));
+        }
+
+        .profile-settings-page .profile__settings-row {
+            grid-area: settings;
+            align-self: start;
+        }
+
+        .profile-settings-page .profile__actions {
+            grid-area: actions;
+        }
+    }
+
+    @media (min-width: 1500px) {
+        .profile-settings-page .profile-layout__main {
+            grid-template-columns: minmax(22rem, 29rem) minmax(0, 1fr);
+        }
+    }
+
+    @media (max-width: 759px) {
+        .profile-settings-page .profile-layout__main {
+            gap: var(--space-5);
+        }
+
+        .profile-settings-page .profile__card,
+        .profile-settings-page .profile__settings-row .profile__card,
+        .profile-settings-page .profile__avatar-account-stack .profile__card {
+            padding: var(--space-5);
+        }
+
+        .profile-settings-page .profile__avatar-card--compact .profile__avatar-wrap {
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-areas:
+                "frame"
+                "actions"
+                "hint"
+                "message";
+            justify-items: start;
+        }
+
+        .profile-settings-page .profile__avatar-card--compact .profile__avatar-frame {
+            inline-size: 5rem;
+            block-size: 5rem;
+        }
+
+        .profile-settings-page .profile__account-card--compact .profile__row {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.18rem;
+        }
+
+        .profile-settings-page .profile__submit {
+            inline-size: 100%;
         }
     }
 }
