@@ -219,25 +219,46 @@ async function expectAuthContextRemoved(page) {
   await expect(page.locator('#authContextBody')).toHaveCount(0);
 }
 
+async function markLogoutReloadProbe(page) {
+  await page.evaluate(() => {
+    window.__bitbiLogoutReloadProbe = 'before-logout';
+  });
+}
+
+async function expectLogoutHardReload(page) {
+  await expect.poll(async () => {
+    try {
+      return await page.evaluate(() => window.__bitbiLogoutReloadProbe || null);
+    } catch {
+      return 'navigating';
+    }
+  }, { timeout: 5000 }).toBeNull();
+  await page.waitForLoadState('domcontentloaded').catch(() => {});
+}
+
 async function mockGenerateLabMemberSession(page, {
   email = 'lab@bitbi.ai',
   userId = 'generate-lab-member',
   credits = 900,
 } = {}) {
   let logoutRequests = 0;
+  let loggedIn = true;
 
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        loggedIn: true,
-        user: { id: userId, email, role: 'user' },
-      }),
+      body: JSON.stringify(loggedIn
+        ? {
+          loggedIn: true,
+          user: { id: userId, email, role: 'user' },
+        }
+        : { loggedIn: false, user: null }),
     });
   });
   await page.route('**/api/logout', async (route) => {
     logoutRequests += 1;
+    loggedIn = false;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1671,10 +1692,12 @@ test.describe('Homepage', () => {
     await expect(page.locator('#newsPulse .news-pulse__mobile-item.is-active')).toContainText('mobile-auth-pulse headline 1');
     expect(requestedUrls).toHaveLength(1);
 
+    await markLogoutReloadProbe(page);
     await page.evaluate(async () => {
       const { authLogout } = await import('/js/shared/auth-state.js');
       await authLogout();
     });
+    await expectLogoutHardReload(page);
     await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
     const cleared = await page.locator('#newsPulse').evaluate((node) => ({
       childCount: node.children.length,
@@ -4078,8 +4101,10 @@ test.describe('Homepage', () => {
     await expectPathUnchanged(page, '/generate-lab/');
     await expect.poll(() => page.evaluate(() => window.__generateLabBrandMarker)).toBe('still-here');
 
+    await markLogoutReloadProbe(page);
     await page.locator('header .auth-nav__logout').click();
     await expect.poll(() => session.getLogoutRequests()).toBe(1);
+    await expectLogoutHardReload(page);
     await expect(page.locator('header .site-nav__cta')).toHaveText('Sign In');
   });
 
@@ -4111,8 +4136,10 @@ test.describe('Homepage', () => {
     await expectPathUnchanged(page, '/de/generate-lab/');
     await expect.poll(() => page.evaluate(() => window.__generateLabBrandMarker)).toBe('still-here');
 
+    await markLogoutReloadProbe(page);
     await page.locator('header .auth-nav__logout').click();
     await expect.poll(() => session.getLogoutRequests()).toBe(1);
+    await expectLogoutHardReload(page);
     await expect(page.locator('header .site-nav__cta')).toHaveText('Anmelden');
   });
 

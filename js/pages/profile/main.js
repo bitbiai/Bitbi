@@ -10,7 +10,7 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { setupFocusTrap }    from '../../shared/focus-trap.js';
-import { patchAuthUser }     from '../../shared/auth-state.js';
+import { authLogout, patchAuthUser } from '../../shared/auth-state.js';
 import {
     openWalletWorkspaceView,
     refreshWalletStatus,
@@ -30,7 +30,6 @@ import {
     apiGetProfileMedia,
     apiGetProfileSocialList,
     apiGetProfileSocialSummary,
-    apiLogout,
     apiRequestReverification,
     apiSetAvatarFromSavedAsset,
     apiUpdateProfile,
@@ -1668,8 +1667,7 @@ async function init() {
 
     // Logout button
     $logoutBtn?.addEventListener('click', async () => {
-        await apiLogout();
-        window.location.href = '/';
+        await authLogout({ redirectTo: '/' });
     });
 }
 

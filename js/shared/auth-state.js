@@ -36,10 +36,20 @@ export async function authRegister(email, password) {
     return apiRegister(email, password);
 }
 
-export async function authLogout() {
-    await apiLogout();
+export async function authLogout({ redirectTo = '' } = {}) {
+    const res = await apiLogout();
+    if (!res.ok) return res;
+
     state = { ready: true, loggedIn: false, user: null };
     dispatch();
+    if (typeof window !== 'undefined' && window.location) {
+        if (redirectTo) {
+            window.location.assign(redirectTo);
+        } else {
+            window.location.reload();
+        }
+    }
+    return res;
 }
 
 export function patchAuthUser(patch) {
