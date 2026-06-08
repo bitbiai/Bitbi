@@ -1541,11 +1541,22 @@ test.describe('Homepage', () => {
         const hero = document.querySelector('#hero').getBoundingClientRect();
         const rect = node.getBoundingClientRect();
         const distance = logo.top - header.bottom;
+        const rangeTop = header.bottom + (distance * 0.055);
+        const rangeBottom = header.bottom + (distance * 0.955);
+        const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        const expectedHeight = Math.min(
+          Math.max(5.25 * rootFontSize, window.innerHeight * 0.11),
+          6.25 * rootFontSize,
+          Math.max(0, rangeBottom - rangeTop),
+        );
+        const center = rangeTop + ((rangeBottom - rangeTop) / 2);
         return {
           top: rect.top,
           bottom: rect.bottom,
-          expectedTop: header.bottom + (distance * 0.055),
-          expectedBottom: header.bottom + (distance * 0.955),
+          height: rect.height,
+          expectedTop: center - (expectedHeight / 2),
+          expectedBottom: center + (expectedHeight / 2),
+          expectedHeight,
           headerBottom: header.bottom,
           logoTop: logo.top,
           heroTop: hero.top,
@@ -1559,6 +1570,7 @@ test.describe('Homepage', () => {
       expect(layout.visibility).toBe('visible');
       expectWithinPx(layout.top, layout.expectedTop, `${locale} mobile pulse top`, 8);
       expectWithinPx(layout.bottom, layout.expectedBottom, `${locale} mobile pulse bottom`, 8);
+      expectWithinPx(layout.height, layout.expectedHeight, `${locale} mobile pulse compact height`, 4);
       expect(layout.top).toBeGreaterThan(layout.headerBottom);
       expect(layout.bottom).toBeLessThan(layout.logoTop);
       expect(layout.top).toBeGreaterThanOrEqual(layout.heroTop - 1);
@@ -7523,6 +7535,21 @@ test.describe('Homepage', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await switchHomepageCategory(page, 'gallery');
     await expectCappedDots('.gal-deck-dots .gal-deck-dot');
+    const galleryPreviewShape = await page.locator('#galleryGrid .gallery-item:not(.locked-area)').first().evaluate((card) => {
+      const preview = card.querySelector('.gallery-inner');
+      const image = card.querySelector('.gallery-item__media');
+      const previewRect = preview.getBoundingClientRect();
+      const imageStyle = getComputedStyle(image);
+      return {
+        width: Math.round(previewRect.width * 100) / 100,
+        height: Math.round(previewRect.height * 100) / 100,
+        objectFit: imageStyle.objectFit,
+        radius: getComputedStyle(preview).borderRadius,
+      };
+    });
+    expectWithinPx(galleryPreviewShape.width, galleryPreviewShape.height, 'mobile Gallery preview square', 1);
+    expect(galleryPreviewShape.objectFit).toBe('cover');
+    expect(galleryPreviewShape.radius).not.toBe('0px');
     await swipeToDeckIndex('#galleryGrid', '.gallery-item:not(.locked-area)', 11);
     const galleryDotState = await expectCappedDots('.gal-deck-dots .gal-deck-dot');
     expect(galleryDotState.selectedTargets).toEqual(['11']);
@@ -7544,6 +7571,21 @@ test.describe('Homepage', () => {
 
     await switchHomepageCategory(page, 'video');
     await expectCappedDots('.vid-deck-dots .vid-deck-dot');
+    const videoPreviewShape = await page.locator('#videoGrid .video-card').first().evaluate((card) => {
+      const preview = card.querySelector('.video-card__poster');
+      const media = card.querySelector('.video-card__preview');
+      const previewRect = preview.getBoundingClientRect();
+      const mediaStyle = media ? getComputedStyle(media) : null;
+      return {
+        width: Math.round(previewRect.width * 100) / 100,
+        height: Math.round(previewRect.height * 100) / 100,
+        objectFit: mediaStyle?.objectFit || '',
+        radius: getComputedStyle(preview).borderRadius,
+      };
+    });
+    expectWithinPx(videoPreviewShape.width, videoPreviewShape.height, 'mobile Video preview square', 1);
+    expect(videoPreviewShape.objectFit).toBe('cover');
+    expect(videoPreviewShape.radius).not.toBe('0px');
     await swipeToDeckIndex('#videoGrid', '.video-card', 11);
     const videoDotState = await expectCappedDots('.vid-deck-dots .vid-deck-dot');
     expect(videoDotState.selectedTargets).toEqual(['11']);

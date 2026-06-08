@@ -11,6 +11,8 @@ const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 8.037;
 const NEWS_ITEM_DISPLAY_MS = 5000;
 const NEWS_SWITCH_SLOWDOWN_FACTOR = 1.21;
 const NEWS_PULSE_VERTICAL_OFFSET_FACTOR = 1.1;
+const MOBILE_FRAME_MIN_REM = 5.25;
+const MOBILE_FRAME_MAX_REM = 6.25;
 const DESKTOP_NEWS_INTERVAL_MS = NEWS_ITEM_DISPLAY_MS;
 const DESKTOP_TRANSITION_MS = 450 * NEWS_SWITCH_SLOWDOWN_FACTOR;
 const MOBILE_INTERVAL_MS = NEWS_ITEM_DISPLAY_MS;
@@ -369,8 +371,17 @@ function updateMobilePlacement(root) {
     const distance = logoRect.top - headerRect.bottom;
     if (!Number.isFinite(distance) || distance <= 0) return false;
 
-    const top = headerRect.bottom + (distance * MOBILE_TOP_RATIO);
-    const bottom = headerRect.bottom + (distance * MOBILE_BOTTOM_RATIO);
+    const rangeTop = headerRect.bottom + (distance * MOBILE_TOP_RATIO);
+    const rangeBottom = headerRect.bottom + (distance * MOBILE_BOTTOM_RATIO);
+    const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    const compactHeight = Math.min(
+        Math.max(MOBILE_FRAME_MIN_REM * rootFontSize, window.innerHeight * 0.11),
+        MOBILE_FRAME_MAX_REM * rootFontSize,
+        Math.max(0, rangeBottom - rangeTop),
+    );
+    const center = rangeTop + ((rangeBottom - rangeTop) / 2);
+    const top = center - (compactHeight / 2);
+    const bottom = center + (compactHeight / 2);
     root.style.setProperty('--news-pulse-mobile-top', `${Math.max(0, top - heroRect.top)}px`);
     root.style.setProperty('--news-pulse-mobile-height', `${Math.max(0, bottom - top)}px`);
     const rootRect = root.getBoundingClientRect();
