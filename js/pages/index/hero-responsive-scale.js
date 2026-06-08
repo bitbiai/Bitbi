@@ -22,7 +22,7 @@ const BASELINE = {
     ctaFontSize: 15.04,
     ctaIconSize: 17.28,
     newsWidth: 794.88,
-    newsHeight: 134.04,
+    newsHeight: 104,
     scrollBottom: 16,
     scrollGap: 8,
     scrollTextSize: 9,

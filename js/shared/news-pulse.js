@@ -15,7 +15,7 @@ const MOBILE_ANIMATION_MS = 1404;
 const MOBILE_TOP_RATIO = 0.05;
 const MOBILE_BOTTOM_RATIO = 0.95;
 const DESKTOP_PLACEMENT_MIN_GAP = 14;
-const DESKTOP_PLACEMENT_MIN_HEIGHT = 86;
+const DESKTOP_PLACEMENT_MIN_HEIGHT = 82;
 const DESKTOP_PLACEMENT_UPDATE_TOLERANCE_PX = 2;
 
 function normalizeLocale(value) {
@@ -404,7 +404,7 @@ function parseCssLengthToPixels(value, fallback = 0, context = document.document
 }
 
 function getDesktopFallbackHeight(rootFontSize) {
-    return Math.min(Math.max(7.15 * rootFontSize, window.innerHeight * 0.12), 9.25 * rootFontSize);
+    return Math.min(Math.max(5.75 * rootFontSize, window.innerHeight * 0.1), 6.75 * rootFontSize);
 }
 
 function getDesktopContentMinimumHeight(root) {
