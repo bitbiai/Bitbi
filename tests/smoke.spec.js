@@ -1616,8 +1616,8 @@ test.describe('Homepage', () => {
     expect(transition.sceneOverflow).toBe('hidden');
     expect(transition.cubeAnimation).toContain('news-pulse-mobile-cube-turn');
     const durationSeconds = Number.parseFloat(transition.cubeAnimationDuration);
-    expect(durationSeconds).toBeGreaterThanOrEqual(1.35);
-    expect(durationSeconds).toBeLessThanOrEqual(1.5);
+    expect(durationSeconds).toBeGreaterThanOrEqual(1.68);
+    expect(durationSeconds).toBeLessThanOrEqual(1.72);
     expect(transition.cubeTransformStyle).toBe('preserve-3d');
     expect(transition.frontBackface).toBe('hidden');
     expect(transition.rightBackface).toBe('hidden');
