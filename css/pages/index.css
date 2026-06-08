@@ -4254,16 +4254,40 @@
         content: '';
         position: absolute;
         inset-inline: 0;
-        inset-block-start: clamp(58%, 64vh, 70%);
+        inset-block-start: clamp(40%, 46vh, 52%);
         inset-block-end: 0;
         z-index: 3;
         pointer-events: none;
         background:
-            radial-gradient(75% 92% at 50% 0%, rgba(0, 240, 255, 0.2), transparent 64%),
-            radial-gradient(60% 72% at 18% 54%, rgba(20, 241, 217, 0.16), transparent 70%),
-            radial-gradient(68% 84% at 82% 48%, rgba(190, 90, 255, 0.18), transparent 72%),
-            linear-gradient(180deg, rgba(24, 69, 92, 0.16), rgba(10, 25, 42, 0.24) 48%, rgba(4, 7, 12, 0.08));
-        box-shadow: inset 0 1px 0 rgba(142, 234, 255, 0.08);
+            radial-gradient(92% 82% at 50% 100%, rgba(68, 191, 232, 0.24), transparent 74%),
+            radial-gradient(78% 72% at 18% 78%, rgba(20, 241, 217, 0.15), transparent 76%),
+            radial-gradient(76% 78% at 84% 62%, rgba(190, 90, 255, 0.14), transparent 78%),
+            radial-gradient(72% 74% at 50% 52%, rgba(0, 240, 255, 0.11), transparent 78%),
+            linear-gradient(
+                180deg,
+                rgba(4, 7, 12, 0) 0%,
+                rgba(7, 17, 27, 0.02) 16%,
+                rgba(13, 38, 59, 0.08) 34%,
+                rgba(22, 74, 105, 0.17) 58%,
+                rgba(36, 122, 158, 0.3) 84%,
+                rgba(42, 150, 190, 0.26) 100%
+            );
+        -webkit-mask-image: linear-gradient(
+            180deg,
+            transparent 0%,
+            rgba(0, 0, 0, 0.08) 14%,
+            rgba(0, 0, 0, 0.36) 34%,
+            rgba(0, 0, 0, 0.78) 58%,
+            #000 82%
+        );
+        mask-image: linear-gradient(
+            180deg,
+            transparent 0%,
+            rgba(0, 0, 0, 0.08) 14%,
+            rgba(0, 0, 0, 0.36) 34%,
+            rgba(0, 0, 0, 0.78) 58%,
+            #000 82%
+        );
         mix-blend-mode: screen;
     }
 
@@ -4850,7 +4874,7 @@
                 + var(--homepage-hero-model-height, var(--latest-models-module-height, clamp(25rem, 62vh, 39rem)))
                 - var(--homepage-hero-model-caption-space, clamp(2.5rem, 5.2vh, 3.55rem))
                 + var(--homepage-hero-model-label-gap, clamp(0.42rem, 0.9vh, 0.68rem))
-                + 1.35rem
+                - clamp(7rem, 15vh, 12rem)
             );
         }
 
