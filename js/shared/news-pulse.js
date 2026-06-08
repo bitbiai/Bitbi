@@ -10,12 +10,13 @@ const MAX_WHEEL_DURATION_SECONDS = 48.735;
 const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 8.037;
 const NEWS_ITEM_DISPLAY_MS = 5000;
 const NEWS_SWITCH_SLOWDOWN_FACTOR = 1.21;
+const NEWS_PULSE_VERTICAL_OFFSET_FACTOR = 1.1;
 const DESKTOP_NEWS_INTERVAL_MS = NEWS_ITEM_DISPLAY_MS;
 const DESKTOP_TRANSITION_MS = 450 * NEWS_SWITCH_SLOWDOWN_FACTOR;
 const MOBILE_INTERVAL_MS = NEWS_ITEM_DISPLAY_MS;
 const MOBILE_ANIMATION_MS = 1404 * NEWS_SWITCH_SLOWDOWN_FACTOR;
-const MOBILE_TOP_RATIO = 0.05;
-const MOBILE_BOTTOM_RATIO = 0.95;
+const MOBILE_TOP_RATIO = 0.055;
+const MOBILE_BOTTOM_RATIO = 0.955;
 const DESKTOP_PLACEMENT_MIN_GAP = 14;
 const DESKTOP_PLACEMENT_MIN_HEIGHT = 82;
 const DESKTOP_PLACEMENT_UPDATE_TOLERANCE_PX = 2;
@@ -492,7 +493,13 @@ function updateDesktopPlacement(root) {
     const maxTop = scrollTop - height - minGap;
     const top = Math.min(Math.max(centeredTop, minTop), Math.max(minTop, maxTop));
 
-    setPixelPropertyIfChanged(root, '--news-pulse-hero-top', Math.max(0, top - heroRect.top));
+    const topOffset = Math.max(0, top - heroRect.top);
+    const shiftedTopOffset = Math.min(
+        topOffset * NEWS_PULSE_VERTICAL_OFFSET_FACTOR,
+        Math.max(0, maxTop - heroRect.top),
+    );
+
+    setPixelPropertyIfChanged(root, '--news-pulse-hero-top', shiftedTopOffset);
     setPixelPropertyIfChanged(root, '--news-pulse-hero-height', Math.max(DESKTOP_PLACEMENT_MIN_HEIGHT, height));
     root.dataset.newsPulseHeroPlacement = 'ready';
     root.dataset.newsPulseHeroLabelBottom = String(Math.round((labelBottom - heroRect.top) * 100) / 100);

@@ -1249,6 +1249,7 @@ test.describe('Homepage', () => {
           text: node.textContent.trim(),
           centerX: rect.left + rect.width / 2,
           heroCenterX: hero.left + hero.width / 2,
+          heroTop: hero.top,
           labelBottom: Math.max(...labels.map((label) => label.bottom)),
           scrollTop: stableScrollTop,
           storedScrollTop: Number.parseFloat(node.dataset.newsPulseHeroScrollTop || 'NaN') + hero.top,
@@ -1286,7 +1287,9 @@ test.describe('Homepage', () => {
       const gapBelow = state.scrollTop - state.bottom;
       expect(gapAbove).toBeGreaterThan(8);
       expect(gapBelow).toBeGreaterThan(8);
-      expectWithinPx(gapAbove, gapBelow, `${path} desktop News Pulse vertical center`, 10);
+      const centeredTop = state.labelBottom + ((state.scrollTop - state.labelBottom - state.height) / 2);
+      const expectedLowerTop = state.heroTop + ((centeredTop - state.heroTop) * 1.1);
+      expectWithinPx(state.top, expectedLowerTop, `${path} desktop News Pulse 10% lower position`, 3);
       await page.waitForTimeout(650);
       const stableRect = await pulse.evaluate((node) => {
         const rect = node.getBoundingClientRect();
@@ -1541,8 +1544,8 @@ test.describe('Homepage', () => {
         return {
           top: rect.top,
           bottom: rect.bottom,
-          expectedTop: header.bottom + (distance * 0.05),
-          expectedBottom: header.bottom + (distance * 0.95),
+          expectedTop: header.bottom + (distance * 0.055),
+          expectedBottom: header.bottom + (distance * 0.955),
           headerBottom: header.bottom,
           logoTop: logo.top,
           heroTop: hero.top,
