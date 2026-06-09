@@ -734,6 +734,8 @@ export function initSoundLab(revealObserver) {
         const detailOptions = {
             title: title || item.title || localeText('browse.memtrackDetails'),
             className: 'mobile-media-detail-overlay--sound mobile-media-detail-overlay--media-first',
+            openOriginalUrl: item.file?.url || '',
+            openOriginalLabel: localeText('browse.openTrackInNewWindow'),
             renderContent() {
                 return renderMemtrackMobileDetailContent(item, title);
             },

@@ -2926,6 +2926,50 @@
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
         }
 
+        .mobile-media-detail-overlay__controls {
+            position: sticky;
+            inset-block-start: calc(0.25rem + env(safe-area-inset-top, 0px));
+            z-index: 3;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            max-inline-size: 100%;
+        }
+
+        .mobile-media-detail-overlay__controls .mobile-media-detail-overlay__close {
+            position: static;
+            inset: auto;
+            flex: 0 0 auto;
+        }
+
+        .mobile-media-detail-overlay__open-original {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-block-size: 2.15rem;
+            max-inline-size: min(13rem, 58vw);
+            padding-inline: 0.9rem;
+            overflow: hidden;
+            border: 1px solid rgba(0, 240, 255, 0.18);
+            border-radius: 999px;
+            background: rgba(6, 14, 24, 0.78);
+            color: rgba(198, 247, 255, 0.9);
+            font-family: var(--font-mono);
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-decoration: none;
+            text-overflow: ellipsis;
+            text-transform: uppercase;
+            white-space: nowrap;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+        }
+
+        .mobile-media-detail-overlay__open-original:focus-visible {
+            outline: 2px solid rgba(0, 240, 255, 0.85);
+            outline-offset: 2px;
+        }
+
         .mobile-media-detail-overlay__close:focus-visible {
             outline: 2px solid rgba(0, 240, 255, 0.85);
             outline-offset: 2px;
@@ -3037,6 +3081,14 @@
             min-inline-size: 0;
             overflow-wrap: anywhere;
             color: rgba(255, 255, 255, 0.86);
+        }
+
+        .mobile-media-detail-overlay__asset-status {
+            margin: 0.8rem 0 0;
+            color: rgba(198, 247, 255, 0.7);
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            line-height: 1.5;
         }
 
         .mobile-media-detail-overlay__asset-open {

@@ -1220,7 +1220,10 @@ export function createSavedAssetsBrowser({
         const originalUrl = isImageAsset(asset)
             ? (asset?.original_url || asset?.file_url || asset?.medium_url || asset?.thumb_url || '')
             : asset?.file_url || '';
-        details.append(heading, list);
+        const status = document.createElement('p');
+        status.className = 'mobile-media-detail-overlay__asset-status';
+        status.textContent = localeText('assets.detailSafeStatus');
+        details.append(heading, list, status);
         if (originalUrl) {
             const openLink = document.createElement('a');
             openLink.className = 'mobile-media-detail-overlay__asset-open';

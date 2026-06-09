@@ -7261,8 +7261,12 @@ test.describe('Homepage', () => {
     expect(videoRequests).toEqual([]);
 
     await card.click();
-    await expect(page.locator('#videoModal')).toHaveClass(/active/);
-    await expect(page.locator('#videoModal video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/mobile-hover-memvid\/vpub\/file$/);
+    await expect(page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveAttribute(
+      'src',
+      /\/api\/gallery\/memvids\/mobile-hover-memvid\/vpub\/file$/,
+    );
+    await expect(page.locator('#videoModal.active')).toHaveCount(0);
   });
 
   test('desktop published Mempics and Memvids start at two rows without changing mobile behavior', async ({ page }) => {
@@ -7610,7 +7614,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveCSS('object-fit', 'contain');
-    await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
+    await expect(page.locator('#videoModal.active')).toHaveCount(0);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
     await swipeToDeckIndex('#videoGrid', '.video-card', 11);
@@ -7624,7 +7628,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-detail-overlay--video')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/memvid-1\/file/);
-    await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
+    await expect(page.locator('#videoModal.active')).toHaveCount(0);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await page.locator('.mobile-media-grid-overlay__close').click();
@@ -7634,7 +7638,7 @@ test.describe('Homepage', () => {
     await page.locator('#soundLabTracks .snd-card--memtrack .snd-hero').first().click();
     await expect(page.locator('.mobile-media-detail-overlay--sound.mobile-media-detail-overlay--standalone')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--sound .public-media-detail-panel')).toBeVisible();
-    await expect(page.locator('#memtrackModal')).not.toHaveClass(/active/);
+    await expect(page.locator('#memtrackModal.active')).toHaveCount(0);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
     await swipeToDeckIndex('#soundLabTracks', '.snd-card--memtrack', 11);
@@ -8668,10 +8672,12 @@ test.describe('Homepage', () => {
 
     await grid.locator('.video-card').nth(1).click();
     await grid.locator('.video-card').nth(1).click();
-    await expect(page.locator('#videoModal')).toHaveClass(/active/);
-    await expect(page.locator('#videoModalTitle')).toHaveText('Second Signal');
-    await expect(page.locator('#videoModal video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/vid-2\/file$/);
-    await page.locator('.video-modal-close').click();
+    await expect(page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay__title')).toHaveText('Second Signal');
+    await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/vid-2\/file$/);
+    await expect(page.locator('#videoModal.active')).toHaveCount(0);
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
 
     await dots.nth(0).click();
     await expect(dots.nth(0)).toHaveClass(/active/);
@@ -8860,31 +8866,34 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await page.locator('#videoGrid .video-card').first().click();
 
-    const fullButton = page.locator('#videoModal .video-modal__full-link');
-    const closeButton = page.locator('#videoModal .video-modal-close');
-    const player = page.locator('#videoModal video');
+    const overlay = page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone');
+    const fullButton = overlay.locator('.mobile-media-detail-overlay__open-original');
+    const closeButton = overlay.locator('.mobile-media-detail-overlay__close');
+    const player = overlay.locator('video');
 
+    await expect(overlay).toBeVisible();
     await expect(fullButton).toBeVisible();
     await expect(closeButton).toBeVisible();
     await expect(player).toBeVisible();
     await expect(fullButton).toHaveAttribute('href', `/api/gallery/memvids/vid-modal-1/${memvidVersion}/file`);
+    await expect(page.locator('#videoModal.active')).toHaveCount(0);
 
     const boxes = await page.evaluate(() => {
-      const fullEl = document.querySelector('#videoModal .video-modal__full-link');
-      const closeEl = document.querySelector('#videoModal .video-modal-close');
-      const cardEl = document.querySelector('#videoModal .modal-card--public-detail');
-      const playerEl = document.querySelector('#videoModal video');
-      if (!fullEl || !closeEl || !cardEl || !playerEl) return null;
+      const fullEl = document.querySelector('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__open-original');
+      const closeEl = document.querySelector('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__close');
+      const shellEl = document.querySelector('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__shell');
+      const playerEl = document.querySelector('.mobile-media-detail-overlay--video video');
+      if (!fullEl || !closeEl || !shellEl || !playerEl) return null;
       const fullRect = fullEl.getBoundingClientRect();
       const closeRect = closeEl.getBoundingClientRect();
-      const cardRect = cardEl.getBoundingClientRect();
+      const shellRect = shellEl.getBoundingClientRect();
       const playerRect = playerEl.getBoundingClientRect();
       return {
         fullBottom: fullRect.bottom,
         closeBottom: closeRect.bottom,
         playerTop: playerRect.top,
-        fullInsideCard: fullRect.left >= cardRect.left && fullRect.right <= cardRect.right,
-        closeInsideCard: closeRect.left >= cardRect.left && closeRect.right <= cardRect.right,
+        fullInsideShell: fullRect.left >= shellRect.left && fullRect.right <= shellRect.right,
+        closeInsideShell: closeRect.left >= shellRect.left && closeRect.right <= shellRect.right,
         closeBeforeFull: closeRect.right <= fullRect.left + 1,
       };
     });
@@ -8892,12 +8901,12 @@ test.describe('Homepage', () => {
     expect(boxes).toBeTruthy();
     expect(boxes.fullBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
     expect(boxes.closeBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
-    expect(boxes.fullInsideCard).toBe(true);
-    expect(boxes.closeInsideCard).toBe(true);
+    expect(boxes.fullInsideShell).toBe(true);
+    expect(boxes.closeInsideShell).toBe(true);
     expect(boxes.closeBeforeFull).toBe(true);
 
     await closeButton.click();
-    await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
   });
 
   test('Sound Lab expands to five columns on wide desktops and steps down on smaller desktop widths', async ({ page }) => {

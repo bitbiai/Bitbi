@@ -282,6 +282,8 @@ export function initGallery() {
         const detailOptions = {
             title: title || item.title || localeText('browse.mediaDetails'),
             className: 'mobile-media-detail-overlay--gallery mobile-media-detail-overlay--media-first',
+            openOriginalUrl: item.full?.url || item.preview?.url || '',
+            openOriginalLabel: localeText('browse.openMediaInNewWindow'),
             renderContent() {
                 return renderMempicMobileDetailContent(item, title);
             },

@@ -102,6 +102,8 @@ function openMobileMediaDetail({
     className = '',
     standalone = false,
     returnFocus = null,
+    openOriginalUrl = '',
+    openOriginalLabel = '',
     renderContent,
 } = {}) {
     if ((!activeOverlay && !standalone) || typeof renderContent !== 'function') return;
@@ -125,6 +127,22 @@ function openMobileMediaDetail({
     close.textContent = standalone ? localeText('browse.close') : localeText('browse.back');
     close.addEventListener('click', closeMobileMediaDetail);
 
+    const controls = document.createElement('div');
+    controls.className = 'mobile-media-detail-overlay__controls';
+    controls.appendChild(close);
+
+    const fullUrl = String(openOriginalUrl || '').trim();
+    if (fullUrl) {
+        const openOriginal = document.createElement('a');
+        openOriginal.className = 'mobile-media-detail-overlay__open-original';
+        openOriginal.href = fullUrl;
+        openOriginal.target = '_blank';
+        openOriginal.rel = 'noopener noreferrer';
+        openOriginal.textContent = openOriginalLabel || localeText('browse.openMediaInNewWindow');
+        openOriginal.setAttribute('aria-label', openOriginal.textContent);
+        controls.appendChild(openOriginal);
+    }
+
     const heading = createTextElement('h3', 'mobile-media-detail-overlay__title', title);
     const body = document.createElement('div');
     body.className = 'mobile-media-detail-overlay__body';
@@ -141,7 +159,7 @@ function openMobileMediaDetail({
         detailContentCleanup = rendered.cleanup;
     }
 
-    shell.append(close, heading, body);
+    shell.append(controls, heading, body);
     detail.appendChild(shell);
     detail.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {

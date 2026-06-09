@@ -639,6 +639,8 @@ export function initVideoGallery() {
         const detailOptions = {
             title: displayTitle,
             className: 'mobile-media-detail-overlay--video mobile-media-detail-overlay--media-first',
+            openOriginalUrl: item.file?.url || '',
+            openOriginalLabel: localeText('browse.openVideoInNewWindow'),
             renderContent() {
                 return renderMemvidMobileDetailContent(item);
             },

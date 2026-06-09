@@ -11304,16 +11304,16 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.mobile-media-grid-overlay--assets')).toBeVisible();
     await expect(page.locator('.mobile-media-grid-overlay__close')).toHaveText('Schließen');
     await page.locator('.mobile-media-grid-overlay__item').first().click();
-    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
-    await expect(page.locator('#studioImageModal .studio-modal__title')).toContainText('Mobiles Asset 3');
-    await expect(page.locator('#studioImageModal .studio-modal__eyebrow')).toHaveText('Asset-Details');
-    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Typ');
-    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Bild');
-    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Kein Ordner');
-    await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Alle gespeicherten Assets');
-    await expect(page.locator('#studioImageModal .studio-modal__status')).toContainText('Private URLs, interne IDs und Provider-Payloads bleiben ausgeblendet');
-    await expect(page.locator('#studioImageModal .studio-modal__text-open')).toHaveText('Original öffnen');
-    await expect(page.locator('#studioImageModal .studio-modal__text-close')).toHaveText('Vorschau schließen');
+    await expect(page.locator('.mobile-media-detail-overlay--assets')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay__asset-title').first()).toContainText('Mobiles Asset 3');
+    await expect(page.locator('.mobile-media-detail-overlay__asset-facts')).toContainText('Typ');
+    await expect(page.locator('.mobile-media-detail-overlay__asset-facts')).toContainText('Bild');
+    await expect(page.locator('.mobile-media-detail-overlay__asset-facts')).toContainText('Kein Ordner');
+    await expect(page.locator('.mobile-media-detail-overlay__asset-facts')).toContainText('Alle gespeicherten Assets');
+    await expect(page.locator('.mobile-media-detail-overlay__asset-status')).toContainText('Private URLs, interne IDs und Provider-Payloads bleiben ausgeblendet');
+    await expect(page.locator('.mobile-media-detail-overlay__asset-open')).toHaveText('Original öffnen');
+    await expect(page.locator('.mobile-media-detail-overlay__close')).toHaveText('Zurück');
+    await expect(page.locator('#studioImageModal.active')).toHaveCount(0);
   });
 
   test('account Assets Manager keeps saved-assets type badges compact on desktop and mobile', async ({
@@ -11688,19 +11688,24 @@ test.describe('Assets Manager (authenticated)', () => {
 
     const originalUrl = page.url();
     await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-title').click();
+    await expect(page.locator('.mobile-media-detail-overlay--assets')).toBeVisible();
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
     await expectStudioModalClosed(page);
     await expect.poll(() => page.url()).toBe(originalUrl);
 
     await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-video-trigger').click();
-    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
-    await expect(page.locator('#studioImageModal .studio-modal__video')).toHaveAttribute(
+    await expect(page.locator('.mobile-media-detail-overlay--assets')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--assets video')).toHaveAttribute(
       'src',
       /\/api\/ai\/text-assets\/vid-mobile-1\/file$/,
     );
+    await expect(page.locator('#studioImageModal.active')).toHaveCount(0);
     await expect.poll(() => page.url()).toBe(originalUrl);
     await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(0);
     expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
-    await page.locator('#studioImageModal .modal-close').click();
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
 
     await page.locator('#studioImageGrid [data-asset-id="txt-mobile-1"]').evaluate((node) => node.click());
     await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
