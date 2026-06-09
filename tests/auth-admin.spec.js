@@ -13841,6 +13841,9 @@ test.describe('Profile page (authenticated mobile)', () => {
       const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
       const social = rectOf('#profileSocialDashboard');
       const quickLinks = rectOf('#profileStudioStack');
+      const stats = rectOf('#profileSocialDashboard .profile__stats');
+      const socialHead = rectOf('#profileSocialDashboard .profile__social-head');
+      const mediaTabs = rectOf('#profileSocialDashboard .profile__media-tabs');
       const quickLinkRects = Array.from(node.querySelectorAll('#profileStudioStack .profile__studio-card'))
         .map((card) => card.getBoundingClientRect());
       const overlaps = (first, second) => Boolean(
@@ -13850,7 +13853,9 @@ test.describe('Profile page (authenticated mobile)', () => {
         && first.bottom > second.top + 1
       );
       return {
-        requestedTopOrder: Boolean(social && quickLinks && social.top < quickLinks.top),
+        requestedTopOrder: Boolean(quickLinks && social && quickLinks.top < social.top),
+        statsImmediatelyAfterLinks: Boolean(quickLinks && stats && stats.top >= quickLinks.bottom - 1),
+        statsBeforeRemainingSocialContent: Boolean(stats && socialHead && mediaTabs && stats.top < socialHead.top && socialHead.bottom <= mediaTabs.top + 1),
         favoritesRemoved: !node.querySelector('#profileFavoritesSection') && !node.querySelector('.profile__favorites-back'),
         quickLinkCount: quickLinkRects.length,
         quickLinksReadable: quickLinkRects.length === 4
@@ -13861,6 +13866,8 @@ test.describe('Profile page (authenticated mobile)', () => {
       };
     });
     expect(mobileOrder.requestedTopOrder).toBe(true);
+    expect(mobileOrder.statsImmediatelyAfterLinks).toBe(true);
+    expect(mobileOrder.statsBeforeRemainingSocialContent).toBe(true);
     expect(mobileOrder.favoritesRemoved).toBe(true);
     expect(mobileOrder.quickLinkCount).toBe(4);
     expect(mobileOrder.quickLinksReadable).toBe(true);
@@ -13897,6 +13904,19 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.profile__favorites-back')).toHaveCount(0);
     await expect(page.locator('#memberControlCenter')).toHaveCount(0);
     await expect(page.locator('#profileSocialDashboard')).toBeVisible();
+    const mobileOrder = await page.locator('#profileContent').evaluate((node) => {
+      const rectOf = (selector) => node.querySelector(selector)?.getBoundingClientRect();
+      const quickLinks = rectOf('#profileStudioStack');
+      const stats = rectOf('#profileSocialDashboard .profile__stats');
+      const socialHead = rectOf('#profileSocialDashboard .profile__social-head');
+      const mediaTabs = rectOf('#profileSocialDashboard .profile__media-tabs');
+      return {
+        quickLinksBeforeStats: Boolean(quickLinks && stats && quickLinks.top < stats.top),
+        statsBeforeRemainingSocialContent: Boolean(stats && socialHead && mediaTabs && stats.top < socialHead.top && socialHead.bottom <= mediaTabs.top + 1),
+      };
+    });
+    expect(mobileOrder.quickLinksBeforeStats).toBe(true);
+    expect(mobileOrder.statsBeforeRemainingSocialContent).toBe(true);
     await expect(page.locator('#profileCompletionCard')).toHaveCount(0);
     await expect(page.locator('#profileAvatarCard')).toHaveCount(0);
     await expect(page.locator('#profileAccountCard')).toHaveCount(0);

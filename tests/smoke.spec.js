@@ -7554,7 +7554,28 @@ test.describe('Homepage', () => {
     expectWithinPx(galleryPreviewShape.width, galleryPreviewShape.height, 'mobile Gallery preview square', 1);
     expect(galleryPreviewShape.objectFit).toBe('cover');
     expect(galleryPreviewShape.radius).not.toBe('0px');
-    await page.locator('#galleryGrid .gallery-item:not(.locked-area)').first().click();
+    const firstGalleryCard = page.locator('#galleryGrid .gallery-item:not(.locked-area)').first();
+    const galleryMobileMeta = await firstGalleryCard.evaluate((card) => {
+      const overlay = card.querySelector('.gallery-overlay');
+      const title = card.querySelector('.public-media-meta__title');
+      const caption = card.querySelector('.public-media-meta__caption');
+      const cta = card.querySelector('.public-media-meta__cta');
+      const inner = card.querySelector('.gallery-inner');
+      return {
+        overlayOpacity: overlay ? getComputedStyle(overlay).opacity : '',
+        overlayPointerEvents: overlay ? getComputedStyle(overlay).pointerEvents : '',
+        title: title?.textContent?.trim() || '',
+        caption: caption?.textContent?.trim() || '',
+        cta: cta?.textContent?.trim() || '',
+        transform: inner ? getComputedStyle(inner).transform : '',
+      };
+    });
+    expect(galleryMobileMeta.overlayOpacity).toBe('1');
+    expect(galleryMobileMeta.overlayPointerEvents).toBe('none');
+    expect(galleryMobileMeta.title).toBe('Ada Member');
+    expect(galleryMobileMeta.caption).toContain('Published by Ada Member');
+    expect(galleryMobileMeta.cta).toBe('View Full →');
+    await firstGalleryCard.click();
     await expect(page.locator('.mobile-media-detail-overlay--gallery.mobile-media-detail-overlay--standalone')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
