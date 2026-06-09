@@ -22,6 +22,8 @@ import {
 } from './studio-deck.js?v=__ASSET_VERSION__';
 import {
     getMobileMediaGridQuery,
+    isMobileMediaGridEnabled,
+    openMobileMediaDetailView,
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-grid-overlay.js?v=__ASSET_VERSION__';
@@ -1102,6 +1104,7 @@ export function createSavedAssetsBrowser({
     }
 
     function openImageAsset(asset) {
+        if (isMobileMediaGridEnabled() && openAssetMobileDetail(asset)) return;
         const previewUrl = asset?.medium_url || asset?.original_url || asset?.file_url || asset?.thumb_url || '';
         const originalUrl = asset?.original_url || asset?.file_url || previewUrl;
         if (!previewUrl) return;
@@ -1116,6 +1119,7 @@ export function createSavedAssetsBrowser({
 
     function openVideoAsset(asset) {
         if (!asset?.file_url) return;
+        if (isMobileMediaGridEnabled() && openAssetMobileDetail(asset)) return;
         openStudioVideoModal({
             videoUrl: asset.file_url,
             title: getFileTitle(asset),
@@ -1127,6 +1131,131 @@ export function createSavedAssetsBrowser({
             details: getAssetDetailRows(asset),
             statusText: localeText('assets.detailSafeStatus'),
         });
+    }
+
+    function getAssetMobileDetailMediaUrl(asset) {
+        if (isImageAsset(asset)) {
+            return asset?.medium_url || asset?.original_url || asset?.file_url || asset?.thumb_url || '';
+        }
+        return asset?.file_url || '';
+    }
+
+    function renderAssetMobileDetailContent(asset, title = '') {
+        const content = document.createElement('div');
+        content.className = 'mobile-media-detail-overlay__content mobile-media-detail-overlay__content--asset';
+        const media = document.createElement('div');
+        media.className = `mobile-media-detail-overlay__media mobile-media-detail-overlay__media--asset ${isImageAsset(asset) ? 'mobile-media-detail-overlay__media--image' : isVideoAsset(asset) ? 'mobile-media-detail-overlay__media--video' : 'mobile-media-detail-overlay__media--audio'}`;
+        const cleanupCallbacks = [];
+
+        if (isImageAsset(asset)) {
+            const src = getAssetMobileDetailMediaUrl(asset);
+            if (src) {
+                const img = new Image();
+                img.src = src;
+                img.alt = title || localeText('assets.savedImage');
+                img.decoding = 'async';
+                media.appendChild(img);
+            }
+        } else if (isVideoAsset(asset) && asset?.file_url) {
+            const video = document.createElement('video');
+            video.controls = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.src = asset.file_url;
+            if (asset.poster_url) video.poster = asset.poster_url;
+            media.appendChild(video);
+            cleanupCallbacks.push(() => {
+                video.pause();
+                video.removeAttribute('src');
+                try { video.load(); } catch { /* noop */ }
+            });
+        } else if (isAudioAsset(asset) && asset?.file_url) {
+            const audioPanel = document.createElement('div');
+            audioPanel.className = 'mobile-media-detail-overlay__asset-audio';
+            if (asset.poster_url) {
+                const cover = new Image();
+                cover.className = 'mobile-media-detail-overlay__asset-audio-cover';
+                cover.src = asset.poster_url;
+                cover.alt = title || localeText('assets.savedAudioAsset');
+                cover.loading = 'lazy';
+                cover.decoding = 'async';
+                audioPanel.appendChild(cover);
+            } else {
+                const fallback = document.createElement('div');
+                fallback.className = 'mobile-media-detail-overlay__asset-audio-cover mobile-media-detail-overlay__asset-audio-cover--fallback';
+                fallback.setAttribute('aria-hidden', 'true');
+                fallback.textContent = '\u266B';
+                audioPanel.appendChild(fallback);
+            }
+            const audioTitle = document.createElement('h4');
+            audioTitle.className = 'mobile-media-detail-overlay__asset-title';
+            audioTitle.textContent = title || localeText('assets.savedAudioAsset');
+            const audio = document.createElement('audio');
+            audio.controls = true;
+            audio.preload = 'metadata';
+            audio.src = asset.file_url;
+            audioPanel.append(audioTitle, audio);
+            media.appendChild(audioPanel);
+            cleanupCallbacks.push(() => {
+                audio.pause();
+                audio.removeAttribute('src');
+                try { audio.load(); } catch { /* noop */ }
+            });
+        }
+
+        const details = document.createElement('section');
+        details.className = 'mobile-media-detail-overlay__details mobile-media-detail-overlay__asset-details';
+        const heading = document.createElement('h4');
+        heading.className = 'mobile-media-detail-overlay__asset-title';
+        heading.textContent = title || localeText('assets.savedAsset');
+        const list = document.createElement('dl');
+        list.className = 'mobile-media-detail-overlay__asset-facts';
+        getAssetDetailRows(asset).forEach((row) => {
+            const term = document.createElement('dt');
+            term.textContent = row.label || '';
+            const value = document.createElement('dd');
+            value.textContent = row.value || '—';
+            list.append(term, value);
+        });
+        const originalUrl = isImageAsset(asset)
+            ? (asset?.original_url || asset?.file_url || asset?.medium_url || asset?.thumb_url || '')
+            : asset?.file_url || '';
+        details.append(heading, list);
+        if (originalUrl) {
+            const openLink = document.createElement('a');
+            openLink.className = 'mobile-media-detail-overlay__asset-open';
+            openLink.href = originalUrl;
+            openLink.target = '_blank';
+            openLink.rel = 'noopener noreferrer';
+            openLink.textContent = localeText('assets.openOriginalAsset');
+            details.appendChild(openLink);
+        }
+        content.append(media, details);
+        return {
+            node: content,
+            cleanup() {
+                cleanupCallbacks.forEach((callback) => callback());
+            },
+        };
+    }
+
+    function openAssetMobileDetail(asset, { openDetail = null, title = '' } = {}) {
+        if (!isImageAsset(asset) && !isVideoAsset(asset) && !isAudioAsset(asset)) return false;
+        const safeTitle = title || (isImageAsset(asset)
+            ? (asset?.title || asset?.preview_text || localeText('assets.savedImage'))
+            : getFileTitle(asset));
+        const detailOptions = {
+            title: safeTitle,
+            className: 'mobile-media-detail-overlay--assets mobile-media-detail-overlay--media-first',
+            renderContent() {
+                return renderAssetMobileDetailContent(asset, safeTitle);
+            },
+        };
+        if (typeof openDetail === 'function') {
+            openDetail(detailOptions);
+            return true;
+        }
+        return openMobileMediaDetailView(detailOptions);
     }
 
     function notifyFoldersChange() {
@@ -1445,7 +1574,7 @@ export function createSavedAssetsBrowser({
             items: currentAssets,
             emptyText: emptyStateMessage,
             className: 'mobile-media-grid-overlay--assets',
-            renderItem(asset, index, { closeGrid } = {}) {
+            renderItem(asset, index, { openDetail, closeGrid } = {}) {
                 const title = getAssetOverlayTitle(asset, index);
                 const button = document.createElement('button');
                 button.type = 'button';
@@ -1478,6 +1607,7 @@ export function createSavedAssetsBrowser({
                 button.appendChild(meta);
 
                 button.addEventListener('click', () => {
+                    if (openAssetMobileDetail(asset, { openDetail, title })) return;
                     if (typeof closeGrid === 'function') closeGrid();
                     openAssetFromMobileGrid(asset);
                 });
@@ -2079,12 +2209,20 @@ export function createSavedAssetsBrowser({
         item.appendChild(overlay);
         appendSelectionCheck(item);
         item.addEventListener('click', (event) => {
-            if (!pickerMode) return;
             if (event.defaultPrevented) return;
-            if (event.target.closest('a, audio, summary, details')) return;
-            event.preventDefault();
-            event.stopPropagation();
-            togglePickerAsset(asset, item);
+            if (event.target.closest('button, a, audio, summary, details')) return;
+            if (pickerMode) {
+                event.preventDefault();
+                event.stopPropagation();
+                togglePickerAsset(asset, item);
+                return;
+            }
+            if (selectMode) return;
+            if (isMobileMediaGridEnabled()) {
+                event.preventDefault();
+                event.stopPropagation();
+                openImageAsset(asset);
+            }
         });
         decoratePickerCard(item, asset);
         return item;
@@ -2283,7 +2421,37 @@ export function createSavedAssetsBrowser({
         });
         actions.appendChild(deleteButton);
 
-        if (!isSound && !isVideo && asset.file_url) {
+        if ((isSound || isVideo) && asset.file_url) {
+            item.setAttribute('role', 'button');
+            item.tabIndex = 0;
+            item.setAttribute('aria-label', localeText('assets.openAsset', { title: getFileTitle(asset) }));
+            item.addEventListener('click', (event) => {
+                if (event.defaultPrevented) return;
+                if (pickerMode) {
+                    if (event.target.closest('a, audio, button, summary, details, .studio__image-check')) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    togglePickerAsset(asset, item);
+                    return;
+                }
+                if (selectMode) return;
+                if (event.target.closest('button, a, audio, summary, details, .studio__image-check')) return;
+                if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
+            });
+            item.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                if (pickerMode) {
+                    togglePickerAsset(asset, item);
+                    return;
+                }
+                if (selectMode) {
+                    toggleSelection(item);
+                    return;
+                }
+                if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
+            });
+        } else if (!isSound && !isVideo && asset.file_url) {
             item.setAttribute('role', 'button');
             item.tabIndex = 0;
             item.setAttribute('aria-label', `Open ${getFileTitle(asset)}`);

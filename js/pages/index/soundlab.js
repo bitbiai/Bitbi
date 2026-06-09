@@ -11,6 +11,8 @@ import {
 } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 import {
     getMobileMediaGridQuery,
+    isMobileMediaGridEnabled,
+    openMobileMediaDetailView,
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
@@ -598,92 +600,7 @@ export function initSoundLab(revealObserver) {
                     if (!track) return;
                     if (typeof openDetail === 'function') {
                         playGlobalTrack(track);
-                        openDetail({
-                            title: item.title || `Memtrack ${index + 1}`,
-                            className: 'mobile-media-detail-overlay--sound',
-                            renderContent() {
-                                const panel = document.createElement('div');
-                                panel.className = 'mobile-media-detail-overlay__sound';
-
-                                const poster = item.poster?.url || '';
-                                if (poster) {
-                                    const cover = new Image();
-                                    cover.className = 'mobile-media-detail-overlay__sound-cover';
-                                    cover.src = poster;
-                                    cover.alt = '';
-                                    cover.loading = 'lazy';
-                                    cover.decoding = 'async';
-                                    panel.appendChild(cover);
-                                }
-
-                                const content = document.createElement('div');
-                                content.className = 'mobile-media-detail-overlay__sound-content';
-                                const title = document.createElement('h4');
-                                title.className = 'mobile-media-detail-overlay__sound-title';
-                                title.textContent = item.title || `Memtrack ${index + 1}`;
-                                const status = document.createElement('p');
-                                status.className = 'mobile-media-detail-overlay__sound-status';
-                                status.textContent = localeText('browse.loading');
-                                const controls = document.createElement('div');
-                                controls.className = 'mobile-media-detail-overlay__sound-controls';
-                                const play = document.createElement('button');
-                                play.type = 'button';
-                                play.className = 'mobile-media-detail-overlay__sound-play';
-                                play.setAttribute('aria-label', `Pause ${item.title || 'Memtrack'}`);
-                                play.textContent = '\u275A\u275A';
-                                const progress = document.createElement('button');
-                                progress.type = 'button';
-                                progress.className = 'mobile-media-detail-overlay__sound-progress';
-                                progress.setAttribute('aria-label', 'Seek within track');
-                                const fill = document.createElement('span');
-                                fill.className = 'mobile-media-detail-overlay__sound-progress-fill';
-                                progress.appendChild(fill);
-                                controls.append(play, progress);
-                                content.append(title, status, controls);
-                                panel.appendChild(content);
-
-                                const sync = (state) => {
-                                    const isActive = state.trackId === track.id;
-                                    const isPlaying = isActive && state.status === 'playing';
-                                    const duration = Number(state.duration) || 0;
-                                    const currentTime = Number(state.currentTime) || 0;
-                                    const percent = isActive && duration > 0
-                                        ? Math.min(100, (currentTime / duration) * 100)
-                                        : 0;
-                                    play.textContent = isPlaying ? '\u275A\u275A' : '\u25B6';
-                                    play.setAttribute('aria-label', `${isPlaying ? 'Pause' : 'Play'} ${item.title || 'Memtrack'}`);
-                                    status.textContent = isActive && duration > 0
-                                        ? `${isPlaying ? 'Playing' : 'Paused'} \u2022 ${formatTime(currentTime)} / ${formatTime(duration)}`
-                                        : (isActive ? `${isPlaying ? 'Playing' : 'Paused'} \u2022 0:00` : 'Ready');
-                                    fill.style.width = `${percent}%`;
-                                    progress.disabled = !isActive || duration <= 0;
-                                };
-                                const unsubscribeDetail = subscribeGlobalAudioState(sync);
-
-                                play.addEventListener('click', async () => {
-                                    const state = getGlobalAudioState();
-                                    if (state.trackId === track.id && state.status === 'playing') {
-                                        pauseGlobalAudio();
-                                        return;
-                                    }
-                                    if (state.trackId === track.id) {
-                                        await resumeGlobalAudio(true);
-                                        return;
-                                    }
-                                    playGlobalTrack(track);
-                                });
-                                progress.addEventListener('click', (event) => {
-                                    const state = getGlobalAudioState();
-                                    if (state.trackId !== track.id || !state.duration) return;
-                                    seekGlobalAudio(getSeekTimeFromPointer(progress, event, state.duration));
-                                });
-
-                                return {
-                                    node: panel,
-                                    cleanup: unsubscribeDetail,
-                                };
-                            },
-                        });
+                        openMemtrackMobileDetail(item, { openDetail, title: item.title || `Memtrack ${index + 1}` });
                         return;
                     }
                     playGlobalTrack(track);
@@ -691,6 +608,141 @@ export function initSoundLab(revealObserver) {
                 return button;
             },
         });
+    }
+
+    function renderMemtrackMobilePlayer(item, fallbackTitle = '') {
+        const track = getMemtrackTrack(item);
+        const panel = document.createElement('div');
+        panel.className = 'mobile-media-detail-overlay__sound';
+
+        const poster = item.poster?.url || '';
+        if (poster) {
+            const cover = new Image();
+            cover.className = 'mobile-media-detail-overlay__sound-cover';
+            cover.src = poster;
+            cover.alt = item.title || fallbackTitle || 'Memtrack';
+            cover.loading = 'lazy';
+            cover.decoding = 'async';
+            panel.appendChild(cover);
+        }
+
+        const content = document.createElement('div');
+        content.className = 'mobile-media-detail-overlay__sound-content';
+        const title = document.createElement('h4');
+        title.className = 'mobile-media-detail-overlay__sound-title';
+        title.textContent = item.title || fallbackTitle || 'Memtrack';
+        const status = document.createElement('p');
+        status.className = 'mobile-media-detail-overlay__sound-status';
+        status.textContent = localeText('browse.loading');
+        const controls = document.createElement('div');
+        controls.className = 'mobile-media-detail-overlay__sound-controls';
+        const play = document.createElement('button');
+        play.type = 'button';
+        play.className = 'mobile-media-detail-overlay__sound-play';
+        play.setAttribute('aria-label', localeText('browse.play', { title: item.title || fallbackTitle || 'Memtrack' }));
+        play.textContent = '\u25B6';
+        const progress = document.createElement('button');
+        progress.type = 'button';
+        progress.className = 'mobile-media-detail-overlay__sound-progress';
+        progress.setAttribute('aria-label', localeText('browse.seekTrack'));
+        const fill = document.createElement('span');
+        fill.className = 'mobile-media-detail-overlay__sound-progress-fill';
+        progress.appendChild(fill);
+        controls.append(play, progress);
+        content.append(title, status, controls);
+        panel.appendChild(content);
+
+        if (!track) {
+            play.disabled = true;
+            progress.disabled = true;
+            status.textContent = localeText('browse.readyToPlay');
+            return { node: panel, cleanup: null };
+        }
+
+        const sync = (state) => {
+            const isActive = state.trackId === track.id;
+            const isPlaying = isActive && state.status === 'playing';
+            const duration = Number(state.duration) || 0;
+            const currentTime = Number(state.currentTime) || 0;
+            const percent = isActive && duration > 0
+                ? Math.min(100, (currentTime / duration) * 100)
+                : 0;
+            play.textContent = isPlaying ? '\u275A\u275A' : '\u25B6';
+            play.setAttribute('aria-label', isPlaying
+                ? localeText('browse.pause', { title: item.title || fallbackTitle || 'Memtrack' })
+                : localeText('browse.play', { title: item.title || fallbackTitle || 'Memtrack' }));
+            status.textContent = isActive && duration > 0
+                ? `${isPlaying ? localeText('browse.playing') : localeText('browse.paused')} \u2022 ${formatTime(currentTime)} / ${formatTime(duration)}`
+                : (isActive ? `${isPlaying ? localeText('browse.playing') : localeText('browse.paused')} \u2022 0:00` : localeText('browse.readyToPlay'));
+            fill.style.width = `${percent}%`;
+            progress.disabled = !isActive || duration <= 0;
+        };
+        const unsubscribeDetail = subscribeGlobalAudioState(sync);
+        sync(getGlobalAudioState());
+
+        play.addEventListener('click', async () => {
+            const state = getGlobalAudioState();
+            if (state.trackId === track.id && state.status === 'playing') {
+                pauseGlobalAudio();
+                return;
+            }
+            if (state.trackId === track.id) {
+                await resumeGlobalAudio(true);
+                return;
+            }
+            playGlobalTrack(track);
+        });
+        progress.addEventListener('click', (event) => {
+            const state = getGlobalAudioState();
+            if (state.trackId !== track.id || !state.duration) return;
+            seekGlobalAudio(getSeekTimeFromPointer(progress, event, state.duration));
+        });
+
+        return {
+            node: panel,
+            cleanup: unsubscribeDetail,
+        };
+    }
+
+    function renderMemtrackMobileDetailContent(item, title = '') {
+        const content = document.createElement('div');
+        content.className = 'mobile-media-detail-overlay__content mobile-media-detail-overlay__content--public';
+        const player = renderMemtrackMobilePlayer(item, title);
+
+        const details = document.createElement('div');
+        details.className = 'mobile-media-detail-overlay__details';
+        const panel = createPublicMediaDetailPanel({
+            item,
+            collection: 'memtracks',
+            onCommentCountChange(count) {
+                item.comment_count = count;
+            },
+        });
+        details.appendChild(panel.root);
+        content.append(player.node, details);
+
+        return {
+            node: content,
+            cleanup() {
+                if (typeof player.cleanup === 'function') player.cleanup();
+                panel.destroy();
+            },
+        };
+    }
+
+    function openMemtrackMobileDetail(item, { openDetail = null, title = '' } = {}) {
+        const detailOptions = {
+            title: title || item.title || localeText('browse.memtrackDetails'),
+            className: 'mobile-media-detail-overlay--sound mobile-media-detail-overlay--media-first',
+            renderContent() {
+                return renderMemtrackMobileDetailContent(item, title);
+            },
+        };
+        if (typeof openDetail === 'function') {
+            openDetail(detailOptions);
+            return true;
+        }
+        return openMobileMediaDetailView(detailOptions);
     }
 
     function syncMemtracksPagination() {
@@ -895,11 +947,19 @@ export function initSoundLab(revealObserver) {
         hero.setAttribute('aria-label', localeText('browse.openMemtrackDetails', { title: item.title || 'Memtrack' }));
         hero.addEventListener('click', (event) => {
             event.stopPropagation();
+            if (isMobileMediaGridEnabled()) {
+                openMemtrackMobileDetail(item);
+                return;
+            }
             openMemtrackModal(item);
         });
         hero.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter' && event.key !== ' ') return;
             event.preventDefault();
+            if (isMobileMediaGridEnabled()) {
+                openMemtrackMobileDetail(item);
+                return;
+            }
             openMemtrackModal(item);
         });
         row.addEventListener('click', stopControlEvent);

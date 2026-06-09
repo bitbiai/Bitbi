@@ -933,7 +933,20 @@
         gap: 0.85rem;
     }
 
+    .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__shell {
+        min-block-size: 100svh;
+        min-block-size: 100dvh;
+    }
+
+    .mobile-media-detail-overlay__content {
+        display: grid;
+        gap: 0.9rem;
+        min-inline-size: 0;
+    }
+
     .mobile-media-detail-overlay__media {
+        display: grid;
+        place-items: center;
         overflow: hidden;
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 1.15rem;
@@ -941,13 +954,51 @@
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
     }
 
+    .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__media {
+        block-size: min(62svh, 38rem);
+        block-size: min(62dvh, 38rem);
+        min-block-size: 18rem;
+        background: #03070d;
+    }
+
     .mobile-media-detail-overlay__media img,
     .mobile-media-detail-overlay__media video {
         display: block;
         inline-size: 100%;
+        block-size: 100%;
         max-block-size: min(68vh, 34rem);
         object-fit: contain;
         background: #03070d;
+    }
+
+    .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__media img,
+    .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__media video {
+        inline-size: 100%;
+        block-size: 100%;
+        max-inline-size: 100%;
+        max-block-size: 100%;
+        object-fit: contain;
+    }
+
+    .mobile-media-detail-overlay__details {
+        min-inline-size: 0;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 1.15rem;
+        background: rgba(4, 10, 18, 0.86);
+        overflow: hidden;
+    }
+
+    .mobile-media-detail-overlay__details .public-media-detail-panel {
+        block-size: auto;
+        min-block-size: 0;
+        overflow: visible;
+    }
+
+    .mobile-media-detail-overlay__details .public-media-detail__tab-panel,
+    .mobile-media-detail-overlay__details .public-media-detail__tab-panel--comments,
+    .mobile-media-detail-overlay__details .public-media-comments__list {
+        overflow: visible;
+        max-block-size: none;
     }
 
     .mobile-media-detail-overlay__sound {
@@ -960,6 +1011,11 @@
             linear-gradient(180deg, rgba(13, 27, 42, 0.28), rgba(3, 7, 13, 0.92)),
             rgba(13, 27, 42, 0.68);
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+    }
+
+    .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__sound {
+        min-block-size: min(62svh, 34rem);
+        min-block-size: min(62dvh, 34rem);
     }
 
     .mobile-media-detail-overlay__sound-cover {

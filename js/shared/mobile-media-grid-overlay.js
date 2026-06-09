@@ -9,6 +9,7 @@ let focusTrapCleanup = null;
 let detailFocusTrapCleanup = null;
 let detailContentCleanup = null;
 let previousBodyOverflow = '';
+let detailPreviousBodyOverflow = '';
 
 export function isMobileMediaGridEnabled() {
     return window.matchMedia?.(MOBILE_MEDIA_QUERY).matches === true;
@@ -51,6 +52,9 @@ function closeMobileMediaGrid() {
 
 function closeMobileMediaDetail() {
     if (!activeDetailOverlay) return;
+    const detail = activeDetailOverlay;
+    const standalone = detail.dataset.standalone === 'true';
+    const returnFocus = detail._returnFocusTarget;
     if (typeof detailContentCleanup === 'function') {
         try {
             detailContentCleanup();
@@ -63,10 +67,24 @@ function closeMobileMediaDetail() {
         detailFocusTrapCleanup();
         detailFocusTrapCleanup = null;
     }
-    activeDetailOverlay.remove();
+    detail.remove();
     activeDetailOverlay = null;
-    activeOverlay?.classList.remove('has-detail');
-    activeOverlay?.querySelector('.mobile-media-grid-overlay__close')?.focus();
+    if (activeOverlay) {
+        activeOverlay.classList.remove('has-detail');
+        activeOverlay.querySelector('.mobile-media-grid-overlay__close')?.focus();
+        return;
+    }
+    if (standalone) {
+        document.body.style.overflow = detailPreviousBodyOverflow;
+        detailPreviousBodyOverflow = '';
+        if (returnFocus && typeof returnFocus.focus === 'function') {
+            try {
+                returnFocus.focus({ preventScroll: true });
+            } catch {
+                returnFocus.focus();
+            }
+        }
+    }
 }
 
 function handleOverlayKeydown(event) {
@@ -82,13 +100,17 @@ function handleOverlayKeydown(event) {
 function openMobileMediaDetail({
     title = 'Media detail',
     className = '',
+    standalone = false,
+    returnFocus = null,
     renderContent,
 } = {}) {
-    if (!activeOverlay || typeof renderContent !== 'function') return;
+    if ((!activeOverlay && !standalone) || typeof renderContent !== 'function') return;
     closeMobileMediaDetail();
 
     const detail = document.createElement('div');
-    detail.className = `mobile-media-detail-overlay${className ? ` ${className}` : ''}`;
+    detail.className = `mobile-media-detail-overlay${standalone ? ' mobile-media-detail-overlay--standalone' : ''}${className ? ` ${className}` : ''}`;
+    detail.dataset.standalone = standalone ? 'true' : 'false';
+    detail._returnFocusTarget = returnFocus instanceof HTMLElement ? returnFocus : document.activeElement;
     detail.setAttribute('role', 'dialog');
     detail.setAttribute('aria-modal', 'true');
     detail.setAttribute('aria-label', title);
@@ -99,8 +121,8 @@ function openMobileMediaDetail({
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'mobile-media-detail-overlay__close';
-    close.setAttribute('aria-label', localeText('browse.backToMediaGrid'));
-    close.textContent = localeText('browse.back');
+    close.setAttribute('aria-label', standalone ? localeText('browse.closeMediaDetails') : localeText('browse.backToMediaGrid'));
+    close.textContent = standalone ? localeText('browse.close') : localeText('browse.back');
     close.addEventListener('click', closeMobileMediaDetail);
 
     const heading = createTextElement('h3', 'mobile-media-detail-overlay__title', title);
@@ -122,13 +144,33 @@ function openMobileMediaDetail({
     shell.append(close, heading, body);
     detail.appendChild(shell);
     detail.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeMobileMediaDetail();
+            return;
+        }
         if (event.key === 'Tab') event.stopPropagation();
     });
 
-    activeOverlay.appendChild(detail);
-    activeOverlay.classList.add('has-detail');
+    if (activeOverlay) {
+        activeOverlay.appendChild(detail);
+        activeOverlay.classList.add('has-detail');
+    } else {
+        detailPreviousBodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        document.body.appendChild(detail);
+    }
     activeDetailOverlay = detail;
     detailFocusTrapCleanup = setupFocusTrap(detail);
+}
+
+export function openMobileMediaDetailView(options = {}) {
+    if (!isMobileMediaGridEnabled()) return false;
+    openMobileMediaDetail({
+        ...options,
+        standalone: true,
+    });
+    return true;
 }
 
 export function openMobileMediaGrid({

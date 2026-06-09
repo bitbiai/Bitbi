@@ -11235,22 +11235,27 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(14);
 
     await page.locator('.mobile-media-grid-overlay__item').first().click();
-    await expect(page.locator('.mobile-media-grid-overlay')).toHaveCount(0);
-    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
-    await expect(page.locator('#studioImageModal .studio-modal__title')).toContainText('Mobile Asset');
-    await expect(page.locator('#studioImageModal .studio-modal__text-open')).toHaveText('Open original');
-    await expect(page.locator('#studioImageModal .studio-modal__text-close')).toHaveText('Close preview');
-    const modalActionLayout = await page.locator('#studioImageModal .studio-modal__footer-actions > *:visible').evaluateAll((nodes) => nodes.map((node) => {
-      const rect = node.getBoundingClientRect();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--assets')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay__asset-title').first()).toContainText('Mobile Asset');
+    await expect(page.locator('.mobile-media-detail-overlay__asset-open')).toHaveText('Open original');
+    await expect(page.locator('#studioImageModal.active')).toHaveCount(0);
+    const mobileDetailLayout = await page.locator('.mobile-media-detail-overlay--assets').evaluate((overlay) => {
+      const media = overlay.querySelector('.mobile-media-detail-overlay__media');
+      const details = overlay.querySelector('.mobile-media-detail-overlay__details');
+      const mediaRect = media.getBoundingClientRect();
+      const detailsRect = details.getBoundingClientRect();
       return {
-        height: rect.height,
-        left: rect.left,
-        right: rect.right,
-        viewportWidth: window.innerWidth,
+        mediaBottom: mediaRect.bottom,
+        detailsTop: detailsRect.top,
+        imageFit: getComputedStyle(media.querySelector('img')).objectFit,
       };
-    }));
-    expect(modalActionLayout).toHaveLength(2);
-    expect(modalActionLayout.every((rect) => rect.height >= 42 && rect.left >= 0 && rect.right <= rect.viewportWidth + 1)).toBe(true);
+    });
+    expect(mobileDetailLayout.detailsTop).toBeGreaterThanOrEqual(mobileDetailLayout.mediaBottom - 1);
+    expect(mobileDetailLayout.imageFit).toBe('contain');
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await page.locator('.mobile-media-grid-overlay__close').click();
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
@@ -13417,6 +13422,27 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileMediaOverlay video')).toBeVisible();
     await expect(page.locator('#profileMediaOverlay .profile-media-overlay__set-private')).toBeHidden();
     await page.locator('#profileMediaOverlay .profile-media-overlay__close').click();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.profile__media-card[data-media-id="dd440011"]').click();
+    await expect(page.locator('#profileMediaOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#profileMediaOverlay .profile-media-overlay__set-private')).toBeHidden();
+    const mobileProfileMediaLayout = await page.locator('#profileMediaOverlay .profile-media-overlay__card').evaluate((card) => {
+      const media = card.querySelector('.profile-media-overlay__media')?.getBoundingClientRect();
+      const detail = card.querySelector('.profile-media-overlay__detail-slot')?.getBoundingClientRect();
+      const content = card.closest('.profile-media-overlay__content')?.getBoundingClientRect();
+      return {
+        mediaBeforeDetails: Boolean(media && detail && detail.top >= media.bottom - 1),
+        contentWidth: content?.width || 0,
+        viewportWidth: window.innerWidth,
+        videoFit: getComputedStyle(card.querySelector('.profile-media-overlay__media video')).objectFit,
+      };
+    });
+    expect(mobileProfileMediaLayout.mediaBeforeDetails).toBe(true);
+    expect(mobileProfileMediaLayout.contentWidth).toBeLessThanOrEqual(mobileProfileMediaLayout.viewportWidth + 1);
+    expect(mobileProfileMediaLayout.videoFit).toBe('contain');
+    await page.locator('#profileMediaOverlay .profile-media-overlay__close').click();
+
     const layoutOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(layoutOverflow).toBe(false);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);

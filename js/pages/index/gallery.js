@@ -10,6 +10,8 @@ import {
 } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 import {
     getMobileMediaGridQuery,
+    isMobileMediaGridEnabled,
+    openMobileMediaDetailView,
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
@@ -230,22 +232,7 @@ export function initGallery() {
 
                 button.addEventListener('click', () => {
                     if (typeof openDetail === 'function') {
-                        openDetail({
-                            title: item.title || `Mempic ${index + 1}`,
-                            className: 'mobile-media-detail-overlay--gallery',
-                            renderContent() {
-                                const wrap = document.createElement('div');
-                                wrap.className = 'mobile-media-detail-overlay__media mobile-media-detail-overlay__media--image';
-                                const img = new Image();
-                                img.src = item.preview?.url || item.thumb?.url || '';
-                                img.alt = item.title || `Mempic ${index + 1}`;
-                                img.width = Number(item.preview?.w || item.thumb?.w) || 800;
-                                img.height = Number(item.preview?.h || item.thumb?.h) || 800;
-                                img.decoding = 'async';
-                                wrap.appendChild(img);
-                                return wrap;
-                            },
-                        });
+                        openMempicMobileDetail(item, { openDetail, title: item.title || `Mempic ${index + 1}` });
                         return;
                     }
                     galActive = index;
@@ -256,6 +243,54 @@ export function initGallery() {
                 return button;
             },
         });
+    }
+
+    function renderMempicMobileDetailContent(item, title = '') {
+        const content = document.createElement('div');
+        content.className = 'mobile-media-detail-overlay__content mobile-media-detail-overlay__content--public';
+
+        const media = document.createElement('div');
+        media.className = 'mobile-media-detail-overlay__media mobile-media-detail-overlay__media--image';
+        const img = new Image();
+        img.src = item.preview?.url || item.full?.url || item.thumb?.url || '';
+        img.alt = item.title || title || 'Mempic';
+        img.width = Number(item.preview?.w || item.full?.w || item.thumb?.w) || 800;
+        img.height = Number(item.preview?.h || item.full?.h || item.thumb?.h) || 800;
+        img.decoding = 'async';
+        media.appendChild(img);
+
+        const details = document.createElement('div');
+        details.className = 'mobile-media-detail-overlay__details';
+        const panel = createPublicMediaDetailPanel({
+            item,
+            collection: 'mempics',
+            onCommentCountChange(count) {
+                item.comment_count = count;
+            },
+        });
+        details.appendChild(panel.root);
+        content.append(media, details);
+        return {
+            node: content,
+            cleanup() {
+                panel.destroy();
+            },
+        };
+    }
+
+    function openMempicMobileDetail(item, { openDetail = null, title = '' } = {}) {
+        const detailOptions = {
+            title: title || item.title || localeText('browse.mediaDetails'),
+            className: 'mobile-media-detail-overlay--gallery mobile-media-detail-overlay--media-first',
+            renderContent() {
+                return renderMempicMobileDetailContent(item, title);
+            },
+        };
+        if (typeof openDetail === 'function') {
+            openDetail(detailOptions);
+            return true;
+        }
+        return openMobileMediaDetailView(detailOptions);
     }
 
     function updateMempicsPagination(filter, errorMessage = '') {
@@ -536,11 +571,19 @@ export function initGallery() {
                 suppressNextGalleryCardClick = false;
                 return;
             }
+            if (isMobileMediaGridEnabled()) {
+                openMempicMobileDetail(item);
+                return;
+            }
             openModal(item);
         });
         card.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
+                if (isMobileMediaGridEnabled()) {
+                    openMempicMobileDetail(item);
+                    return;
+                }
                 openModal(item);
             }
         });

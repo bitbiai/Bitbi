@@ -10,6 +10,8 @@ import {
 } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 import {
     getMobileMediaGridQuery,
+    isMobileMediaGridEnabled,
+    openMobileMediaDetailView,
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
@@ -583,30 +585,7 @@ export function initVideoGallery() {
 
                 button.addEventListener('click', () => {
                     if (typeof openDetail === 'function') {
-                        openDetail({
-                            title: safeTitle,
-                            className: 'mobile-media-detail-overlay--video',
-                            renderContent() {
-                                const wrap = document.createElement('div');
-                                wrap.className = 'mobile-media-detail-overlay__media mobile-media-detail-overlay__media--video';
-                                const video = document.createElement('video');
-                                video.controls = true;
-                                video.autoplay = true;
-                                video.playsInline = true;
-                                video.preload = 'auto';
-                                video.src = item.file?.url || '';
-                                if (item.poster?.url) video.poster = item.poster.url;
-                                wrap.appendChild(video);
-                                return {
-                                    node: wrap,
-                                    cleanup() {
-                                        video.pause();
-                                        video.removeAttribute('src');
-                                        try { video.load(); } catch (_) { /* noop */ }
-                                    },
-                                };
-                            },
-                        });
+                        openMemvidMobileDetail(item, { openDetail, title: safeTitle });
                         return;
                     }
                     deck.setActive?.(index);
@@ -615,6 +594,60 @@ export function initVideoGallery() {
                 return button;
             },
         });
+    }
+
+    function renderMemvidMobileDetailContent(item) {
+        const content = document.createElement('div');
+        content.className = 'mobile-media-detail-overlay__content mobile-media-detail-overlay__content--public';
+
+        const media = document.createElement('div');
+        media.className = 'mobile-media-detail-overlay__media mobile-media-detail-overlay__media--video';
+        const video = document.createElement('video');
+        video.controls = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.preload = 'auto';
+        video.src = item.file?.url || '';
+        if (item.poster?.url) video.poster = item.poster.url;
+        media.appendChild(video);
+
+        const details = document.createElement('div');
+        details.className = 'mobile-media-detail-overlay__details';
+        const panel = createPublicMediaDetailPanel({
+            item,
+            collection: 'memvids',
+            onCommentCountChange(count) {
+                item.comment_count = count;
+            },
+        });
+        details.appendChild(panel.root);
+        content.append(media, details);
+
+        return {
+            node: content,
+            cleanup() {
+                video.pause();
+                video.removeAttribute('src');
+                try { video.load(); } catch (_) { /* noop */ }
+                panel.destroy();
+            },
+        };
+    }
+
+    function openMemvidMobileDetail(item, { openDetail = null, title = '' } = {}) {
+        const displayTitle = title || getMemvidDisplayTitle(item) || localeText('browse.mediaDetails');
+        const detailOptions = {
+            title: displayTitle,
+            className: 'mobile-media-detail-overlay--video mobile-media-detail-overlay--media-first',
+            renderContent() {
+                return renderMemvidMobileDetailContent(item);
+            },
+        };
+        if (typeof openDetail === 'function') {
+            openDetail(detailOptions);
+            return true;
+        }
+        return openMobileMediaDetailView(detailOptions);
     }
 
     function updateMemvidsPagination(errorMessage = '') {
@@ -856,12 +889,20 @@ export function initVideoGallery() {
 
         card.addEventListener('click', () => {
             stopActiveHoverPreview(card);
+            if (isMobileMediaGridEnabled()) {
+                openMemvidMobileDetail(item);
+                return;
+            }
             openVideoModal(item);
         });
         card.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 stopActiveHoverPreview(card);
+                if (isMobileMediaGridEnabled()) {
+                    openMemvidMobileDetail(item);
+                    return;
+                }
                 openVideoModal(item);
             }
         });

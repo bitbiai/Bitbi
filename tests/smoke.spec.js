@@ -7550,6 +7550,25 @@ test.describe('Homepage', () => {
     expectWithinPx(galleryPreviewShape.width, galleryPreviewShape.height, 'mobile Gallery preview square', 1);
     expect(galleryPreviewShape.objectFit).toBe('cover');
     expect(galleryPreviewShape.radius).not.toBe('0px');
+    await page.locator('#galleryGrid .gallery-item:not(.locked-area)').first().click();
+    await expect(page.locator('.mobile-media-detail-overlay--gallery.mobile-media-detail-overlay--standalone')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--gallery .public-media-detail-panel')).toBeVisible();
+    await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
+    const directGalleryDetailLayout = await page.locator('.mobile-media-detail-overlay--gallery').evaluate((overlay) => {
+      const media = overlay.querySelector('.mobile-media-detail-overlay__media');
+      const details = overlay.querySelector('.mobile-media-detail-overlay__details');
+      const mediaRect = media.getBoundingClientRect();
+      const detailsRect = details.getBoundingClientRect();
+      return {
+        mediaBottom: mediaRect.bottom,
+        detailsTop: detailsRect.top,
+        imageFit: getComputedStyle(media.querySelector('img')).objectFit,
+      };
+    });
+    expect(directGalleryDetailLayout.detailsTop).toBeGreaterThanOrEqual(directGalleryDetailLayout.mediaBottom - 1);
+    expect(directGalleryDetailLayout.imageFit).toBe('contain');
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
     await swipeToDeckIndex('#galleryGrid', '.gallery-item:not(.locked-area)', 11);
     const galleryDotState = await expectCappedDots('.gal-deck-dots .gal-deck-dot');
     expect(galleryDotState.selectedTargets).toEqual(['11']);
@@ -7560,6 +7579,7 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--gallery .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
@@ -7586,6 +7606,13 @@ test.describe('Homepage', () => {
     expectWithinPx(videoPreviewShape.width, videoPreviewShape.height, 'mobile Video preview square', 1);
     expect(videoPreviewShape.objectFit).toBe('cover');
     expect(videoPreviewShape.radius).not.toBe('0px');
+    await page.locator('#videoGrid .video-card').first().click();
+    await expect(page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--video .public-media-detail-panel')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveCSS('object-fit', 'contain');
+    await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
     await swipeToDeckIndex('#videoGrid', '.video-card', 11);
     const videoDotState = await expectCappedDots('.vid-deck-dots .vid-deck-dot');
     expect(videoDotState.selectedTargets).toEqual(['11']);
@@ -7595,6 +7622,7 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--video .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/memvid-1\/file/);
     await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
     await page.locator('.mobile-media-detail-overlay__close').click();
@@ -7603,6 +7631,12 @@ test.describe('Homepage', () => {
 
     await switchHomepageCategory(page, 'sound');
     await expectCappedDots('.snd-deck-dots .snd-deck-dot');
+    await page.locator('#soundLabTracks .snd-card--memtrack .snd-hero').first().click();
+    await expect(page.locator('.mobile-media-detail-overlay--sound.mobile-media-detail-overlay--standalone')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--sound .public-media-detail-panel')).toBeVisible();
+    await expect(page.locator('#memtrackModal')).not.toHaveClass(/active/);
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
     await swipeToDeckIndex('#soundLabTracks', '.snd-card--memtrack', 11);
     const soundDotState = await expectCappedDots('.snd-deck-dots .snd-deck-dot');
     expect(soundDotState.selectedTargets).toEqual(['11']);
@@ -7614,6 +7648,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--sound')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay__sound-title')).toHaveText('Public Member Track 1');
+    await expect(page.locator('.mobile-media-detail-overlay--sound .public-media-detail-panel')).toBeVisible();
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await page.locator('.mobile-media-grid-overlay__close').click();
