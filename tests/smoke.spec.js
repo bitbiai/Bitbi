@@ -7385,11 +7385,28 @@ test.describe('Homepage', () => {
       const metrics = await overlay.locator('.mobile-media-grid-overlay__grid').evaluate((grid, ratioCount) => {
         const style = window.getComputedStyle(grid);
         const items = Array.from(grid.querySelectorAll('.mobile-media-grid-overlay__item'));
-        const firstTop = items[0]?.getBoundingClientRect().top ?? 0;
         const shell = grid.closest('.mobile-media-grid-overlay__shell') || grid;
+        const columnGroups = [];
+        items.forEach((item) => {
+          const rect = item.getBoundingClientRect();
+          let group = columnGroups.find((candidate) => Math.abs(candidate.left - rect.left) < 2);
+          if (!group) {
+            group = { left: rect.left, rects: [] };
+            columnGroups.push(group);
+          }
+          group.rects.push(rect);
+        });
+        const columnMaxGaps = columnGroups.map((group) => {
+          const rects = group.rects.slice().sort((first, second) => first.top - second.top);
+          return rects.slice(1).reduce((maxGap, rect, index) => (
+            Math.max(maxGap, rect.top - rects[index].bottom)
+          ), 0);
+        });
         return {
-          columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
-          firstRowCount: items.filter((item) => Math.abs(item.getBoundingClientRect().top - firstTop) < 2).length,
+          display: style.display,
+          columnCount: style.columnCount,
+          visualColumns: columnGroups.length,
+          maxVerticalGap: columnMaxGaps.length ? Math.max(...columnMaxGaps) : 0,
           overflow: shell.scrollWidth - shell.clientWidth,
           ratios: items.slice(0, ratioCount).map((item) => {
             const rect = item.getBoundingClientRect();
@@ -7403,8 +7420,10 @@ test.describe('Homepage', () => {
           }),
         };
       }, expectedRatios.length);
-      expect(metrics.columns).toBe(2);
-      expect(metrics.firstRowCount).toBe(Math.min(2, expectedCount));
+      expect(metrics.display).toBe('block');
+      expect(metrics.columnCount).toBe('2');
+      expect(metrics.visualColumns).toBe(2);
+      expect(metrics.maxVerticalGap).toBeLessThanOrEqual(10);
       expect(metrics.overflow).toBeLessThanOrEqual(1);
       metrics.ratios.forEach((ratio, index) => {
         expectWithinPx(ratio.rectRatio, expectedRatios[index], `${overlayClass} overlay item ${index + 1} rendered aspect`, 0.04);
