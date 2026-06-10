@@ -1,4 +1,5 @@
 export {
+    getMobileMediaGridItemAspectRatio,
     getMobileMediaGridQuery,
     isMobileMediaGridEnabled,
     openMobileMediaDetailView,

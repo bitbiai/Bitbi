@@ -9,6 +9,7 @@ import {
     initMobileCardDeck,
 } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 import {
+    getMobileMediaGridItemAspectRatio,
     getMobileMediaGridQuery,
     isMobileMediaGridEnabled,
     openMobileMediaDetailView,
@@ -468,6 +469,14 @@ export function initVideoGallery() {
         };
     }
 
+    function getMemvidOverlayAspectRatio(item) {
+        return getMobileMediaGridItemAspectRatio(
+            item?.poster?.w || item?.preview?.w || item?.width || item?.video_width,
+            item?.poster?.h || item?.preview?.h || item?.height || item?.video_height,
+            16 / 9,
+        );
+    }
+
     function normalizeMemvidText(value) {
         return typeof value === 'string' ? value.trim() : '';
     }
@@ -562,6 +571,7 @@ export function initVideoGallery() {
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--video';
                 button.setAttribute('aria-label', displayTitle || localeText('browse.showMemvid', { count: index + 1 }));
+                button.style.setProperty('--mobile-media-grid-item-aspect', getMemvidOverlayAspectRatio(item));
 
                 const poster = item.poster?.url || '';
                 if (poster) {

@@ -9,6 +9,7 @@ import {
     getMobileDeckDotTargets,
 } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 import {
+    getMobileMediaGridItemAspectRatio,
     getMobileMediaGridQuery,
     isMobileMediaGridEnabled,
     openMobileMediaDetailView,
@@ -187,6 +188,14 @@ export function initGallery() {
         };
     }
 
+    function getMempicOverlayAspectRatio(item) {
+        return getMobileMediaGridItemAspectRatio(
+            item?.preview?.w || item?.full?.w || item?.thumb?.w,
+            item?.preview?.h || item?.full?.h || item?.thumb?.h,
+            1,
+        );
+    }
+
     function mergeMempicsItems(items, { replace = false } = {}) {
         const nextItems = replace ? [] : mempicsState.items.slice();
         const seen = new Set(nextItems.map(getMempicIdentity).filter(Boolean));
@@ -217,6 +226,7 @@ export function initGallery() {
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--image';
                 button.setAttribute('aria-label', item.title || localeText('browse.showMempic', { count: index + 1 }));
+                button.style.setProperty('--mobile-media-grid-item-aspect', getMempicOverlayAspectRatio(item));
 
                 const img = new Image();
                 img.src = item.thumb?.url || item.preview?.url || '';

@@ -7270,6 +7270,11 @@ test.describe('Homepage', () => {
   });
 
   test('desktop published Mempics and Memvids start at two rows without changing mobile behavior', async ({ page }) => {
+    const overlayAspectFixtures = [
+      { w: 720, h: 1280, ratio: 720 / 1280 },
+      { w: 1280, h: 720, ratio: 1280 / 720 },
+      { w: 900, h: 900, ratio: 1 },
+    ];
     const mempicItems = Array.from({ length: 12 }, (_, index) => ({
       id: `mempic-${index + 1}`,
       slug: `mempic-${index + 1}`,
@@ -7281,13 +7286,13 @@ test.describe('Homepage', () => {
       },
       thumb: {
         url: `/api/gallery/mempics/mempic-${index + 1}/thumb`,
-        w: 320,
-        h: 320,
+        w: overlayAspectFixtures[index % overlayAspectFixtures.length].w,
+        h: overlayAspectFixtures[index % overlayAspectFixtures.length].h,
       },
       preview: {
         url: `/api/gallery/mempics/mempic-${index + 1}/medium`,
-        w: 1280,
-        h: 1280,
+        w: overlayAspectFixtures[index % overlayAspectFixtures.length].w,
+        h: overlayAspectFixtures[index % overlayAspectFixtures.length].h,
       },
       full: {
         url: `/api/gallery/mempics/mempic-${index + 1}/file`,
@@ -7328,8 +7333,8 @@ test.describe('Homepage', () => {
       },
       poster: {
         url: `/api/gallery/memtracks/memtrack-${index + 1}/poster`,
-        w: 320,
-        h: 320,
+        w: overlayAspectFixtures[index % overlayAspectFixtures.length].w,
+        h: overlayAspectFixtures[index % overlayAspectFixtures.length].h,
       },
     }));
 
@@ -7369,11 +7374,15 @@ test.describe('Homepage', () => {
       return metrics;
     };
 
-    const expectMobileOverlayGrid = async (expectedCount) => {
-      const overlay = page.locator('.mobile-media-grid-overlay');
+    const expectMobileOverlayGrid = async ({
+      overlayClass,
+      expectedCount,
+      expectedRatios,
+    }) => {
+      const overlay = page.locator(`.mobile-media-grid-overlay${overlayClass}`);
       await expect(overlay).toBeVisible();
-      await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(expectedCount);
-      const metrics = await page.locator('.mobile-media-grid-overlay__grid').evaluate((grid) => {
+      await expect(overlay.locator('.mobile-media-grid-overlay__item')).toHaveCount(expectedCount);
+      const metrics = await overlay.locator('.mobile-media-grid-overlay__grid').evaluate((grid, ratioCount) => {
         const style = window.getComputedStyle(grid);
         const items = Array.from(grid.querySelectorAll('.mobile-media-grid-overlay__item'));
         const firstTop = items[0]?.getBoundingClientRect().top ?? 0;
@@ -7382,11 +7391,26 @@ test.describe('Homepage', () => {
           columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
           firstRowCount: items.filter((item) => Math.abs(item.getBoundingClientRect().top - firstTop) < 2).length,
           overflow: shell.scrollWidth - shell.clientWidth,
+          ratios: items.slice(0, ratioCount).map((item) => {
+            const rect = item.getBoundingClientRect();
+            const itemStyle = window.getComputedStyle(item);
+            const img = item.querySelector('img');
+            return {
+              rectRatio: rect.height > 0 ? rect.width / rect.height : 0,
+              cssRatio: Number.parseFloat(itemStyle.getPropertyValue('--mobile-media-grid-item-aspect')) || 0,
+              objectFit: img ? window.getComputedStyle(img).objectFit : '',
+            };
+          }),
         };
-      });
-      expect(metrics.columns).toBe(3);
-      expect(metrics.firstRowCount).toBe(Math.min(3, expectedCount));
+      }, expectedRatios.length);
+      expect(metrics.columns).toBe(2);
+      expect(metrics.firstRowCount).toBe(Math.min(2, expectedCount));
       expect(metrics.overflow).toBeLessThanOrEqual(1);
+      metrics.ratios.forEach((ratio, index) => {
+        expectWithinPx(ratio.rectRatio, expectedRatios[index], `${overlayClass} overlay item ${index + 1} rendered aspect`, 0.04);
+        expectWithinPx(ratio.cssRatio, expectedRatios[index], `${overlayClass} overlay item ${index + 1} CSS aspect`, 0.001);
+        expect(ratio.objectFit).toBe('cover');
+      });
     };
 
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
@@ -7600,7 +7624,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('#galleryPagination .browse-pagination__toggle')).toBeHidden();
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toBeEnabled();
     await page.locator('#galleryPagination .browse-pagination__status').click();
-    await expectMobileOverlayGrid(12);
+    await expectMobileOverlayGrid({
+      overlayClass: '--gallery',
+      expectedCount: 12,
+      expectedRatios: overlayAspectFixtures.map((item) => item.ratio),
+    });
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery')).toBeVisible();
@@ -7643,7 +7671,11 @@ test.describe('Homepage', () => {
     expect(videoDotState.selectedTargets).toEqual(['11']);
     await expect(page.locator('#videoPagination .browse-pagination__status')).toBeEnabled();
     await page.locator('#videoPagination .browse-pagination__status').click();
-    await expectMobileOverlayGrid(12);
+    await expectMobileOverlayGrid({
+      overlayClass: '--video',
+      expectedCount: 12,
+      expectedRatios: overlayAspectFixtures.map((item) => item.ratio),
+    });
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video')).toBeVisible();
@@ -7668,7 +7700,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing all 12 Memtracks.');
     await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toBeEnabled();
     await page.locator('.snd-memtracks-pagination .browse-pagination__status').click();
-    await expectMobileOverlayGrid(12);
+    await expectMobileOverlayGrid({
+      overlayClass: '--sound',
+      expectedCount: 12,
+      expectedRatios: overlayAspectFixtures.map((item) => item.ratio),
+    });
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--sound')).toBeVisible();

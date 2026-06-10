@@ -19,6 +19,20 @@ export function getMobileMediaGridQuery() {
     return window.matchMedia?.(MOBILE_MEDIA_QUERY) || null;
 }
 
+export function getMobileMediaGridItemAspectRatio(width, height, fallback = 1) {
+    const numericWidth = Number(width);
+    const numericHeight = Number(height);
+    const fallbackRatio = Number(fallback);
+    if (!Number.isFinite(numericWidth) || !Number.isFinite(numericHeight) || numericWidth <= 0 || numericHeight <= 0) {
+        return Number.isFinite(fallbackRatio) && fallbackRatio > 0 ? fallbackRatio.toFixed(4) : '1';
+    }
+    const ratio = numericWidth / numericHeight;
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+        return Number.isFinite(fallbackRatio) && fallbackRatio > 0 ? fallbackRatio.toFixed(4) : '1';
+    }
+    return Math.min(2.4, Math.max(0.42, ratio)).toFixed(4);
+}
+
 export function syncMobileMediaTrigger(button, {
     enabled = true,
     label = 'Open media grid',

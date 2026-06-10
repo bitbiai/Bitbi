@@ -10,6 +10,7 @@ import {
     getMobileDeckDotTargets,
 } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 import {
+    getMobileMediaGridItemAspectRatio,
     getMobileMediaGridQuery,
     isMobileMediaGridEnabled,
     openMobileMediaDetailView,
@@ -549,6 +550,10 @@ export function initSoundLab(revealObserver) {
             && (memtracksState.items.length > visibleCount || memtracksState.hasMore);
     }
 
+    function getMemtrackOverlayAspectRatio(item) {
+        return getMobileMediaGridItemAspectRatio(item?.poster?.w, item?.poster?.h, 1);
+    }
+
     function syncStatus() {
         const show = memtracksState.loading || memtracksState.error || (memtracksState.loaded && !memtracksState.items.length);
         statusEl.hidden = !show;
@@ -574,6 +579,7 @@ export function initSoundLab(revealObserver) {
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--sound';
                 button.setAttribute('aria-label', localeText('browse.play', { title: item.title || `Memtrack ${index + 1}` }));
+                button.style.setProperty('--mobile-media-grid-item-aspect', getMemtrackOverlayAspectRatio(item));
 
                 const poster = item.poster?.url || '';
                 if (poster) {
