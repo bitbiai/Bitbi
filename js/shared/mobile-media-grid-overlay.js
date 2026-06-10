@@ -118,6 +118,8 @@ function openMobileMediaDetail({
     returnFocus = null,
     openOriginalUrl = '',
     openOriginalLabel = '',
+    hideTitle = false,
+    hideOpenOriginal = false,
     renderContent,
 } = {}) {
     if ((!activeOverlay && !standalone) || typeof renderContent !== 'function') return;
@@ -145,7 +147,7 @@ function openMobileMediaDetail({
     controls.className = 'mobile-media-detail-overlay__controls';
     controls.appendChild(close);
 
-    const fullUrl = String(openOriginalUrl || '').trim();
+    const fullUrl = hideOpenOriginal ? '' : String(openOriginalUrl || '').trim();
     if (fullUrl) {
         const openOriginal = document.createElement('a');
         openOriginal.className = 'mobile-media-detail-overlay__open-original';
@@ -157,7 +159,7 @@ function openMobileMediaDetail({
         controls.appendChild(openOriginal);
     }
 
-    const heading = createTextElement('h3', 'mobile-media-detail-overlay__title', title);
+    const heading = hideTitle ? null : createTextElement('h3', 'mobile-media-detail-overlay__title', title);
     const body = document.createElement('div');
     body.className = 'mobile-media-detail-overlay__body';
 
@@ -173,7 +175,9 @@ function openMobileMediaDetail({
         detailContentCleanup = rendered.cleanup;
     }
 
-    shell.append(controls, heading, body);
+    shell.append(controls);
+    if (heading) shell.appendChild(heading);
+    shell.appendChild(body);
     detail.appendChild(shell);
     detail.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {

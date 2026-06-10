@@ -294,6 +294,8 @@ export function initGallery() {
             className: 'mobile-media-detail-overlay--gallery mobile-media-detail-overlay--media-first',
             openOriginalUrl: item.full?.url || item.preview?.url || '',
             openOriginalLabel: localeText('browse.openMediaInNewWindow'),
+            hideTitle: true,
+            hideOpenOriginal: true,
             renderContent() {
                 return renderMempicMobileDetailContent(item, title);
             },

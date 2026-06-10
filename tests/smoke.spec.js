@@ -7432,6 +7432,23 @@ test.describe('Homepage', () => {
       });
     };
 
+    const expectPublicMobileDetailChrome = async (overlaySelector, { closeText = '' } = {}) => {
+      const overlay = page.locator(overlaySelector);
+      await expect(overlay.locator('.mobile-media-detail-overlay__title')).toHaveCount(0);
+      await expect(overlay.locator('.mobile-media-detail-overlay__open-original')).toHaveCount(0);
+      const close = overlay.locator('.mobile-media-detail-overlay__close');
+      await expect(close).toBeVisible();
+      if (closeText) await expect(close).toHaveText(closeText);
+      const verticalGap = await overlay.evaluate((node) => {
+        const controls = node.querySelector('.mobile-media-detail-overlay__controls');
+        const media = node.querySelector('.mobile-media-detail-overlay__media, .mobile-media-detail-overlay__sound');
+        if (!controls || !media) return null;
+        return media.getBoundingClientRect().top - controls.getBoundingClientRect().bottom;
+      });
+      expect(verticalGap).not.toBeNull();
+      expect(verticalGap).toBeLessThanOrEqual(16);
+    };
+
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -7621,6 +7638,7 @@ test.describe('Homepage', () => {
     await firstGalleryCard.click();
     await expect(page.locator('.mobile-media-detail-overlay--gallery.mobile-media-detail-overlay--standalone')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery .public-media-detail-panel')).toBeVisible();
+    await expectPublicMobileDetailChrome('.mobile-media-detail-overlay--gallery', { closeText: 'Close' });
     await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
     const directGalleryDetailLayout = await page.locator('.mobile-media-detail-overlay--gallery').evaluate((overlay) => {
       const media = overlay.querySelector('.mobile-media-detail-overlay__media');
@@ -7652,6 +7670,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--gallery .public-media-detail-panel')).toBeVisible();
+    await expectPublicMobileDetailChrome('.mobile-media-detail-overlay--gallery', { closeText: 'Back' });
     await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
@@ -7682,6 +7701,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveCSS('object-fit', 'contain');
+    await expectPublicMobileDetailChrome('.mobile-media-detail-overlay--video', { closeText: 'Close' });
     await expect(page.locator('#videoModal.active')).toHaveCount(0);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
@@ -7700,6 +7720,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-detail-overlay--video')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video .public-media-detail-panel')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/memvid-1\/file/);
+    await expectPublicMobileDetailChrome('.mobile-media-detail-overlay--video', { closeText: 'Back' });
     await expect(page.locator('#videoModal.active')).toHaveCount(0);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
@@ -7710,6 +7731,7 @@ test.describe('Homepage', () => {
     await page.locator('#soundLabTracks .snd-card--memtrack .snd-hero').first().click();
     await expect(page.locator('.mobile-media-detail-overlay--sound.mobile-media-detail-overlay--standalone')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--sound .public-media-detail-panel')).toBeVisible();
+    await expectPublicMobileDetailChrome('.mobile-media-detail-overlay--sound', { closeText: 'Close' });
     await expect(page.locator('#memtrackModal.active')).toHaveCount(0);
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
@@ -7729,6 +7751,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-detail-overlay--sound')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay__sound-title')).toHaveText('Public Member Track 1');
     await expect(page.locator('.mobile-media-detail-overlay--sound .public-media-detail-panel')).toBeVisible();
+    await expectPublicMobileDetailChrome('.mobile-media-detail-overlay--sound', { closeText: 'Back' });
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await page.locator('.mobile-media-grid-overlay__close').click();
@@ -8749,7 +8772,9 @@ test.describe('Homepage', () => {
     await grid.locator('.video-card').nth(1).click();
     await grid.locator('.video-card').nth(1).click();
     await expect(page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone')).toBeVisible();
-    await expect(page.locator('.mobile-media-detail-overlay__title')).toHaveText('Second Signal');
+    await expect(page.locator('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__title')).toHaveCount(0);
+    await expect(page.locator('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__open-original')).toHaveCount(0);
+    await expect(page.locator('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__close')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/vid-2\/file$/);
     await expect(page.locator('#videoModal.active')).toHaveCount(0);
     await page.locator('.mobile-media-detail-overlay__close').click();
@@ -8842,7 +8867,7 @@ test.describe('Homepage', () => {
     await expectModelsOverlayOpenState(page, { homepage: true });
   });
 
-  test('mobile video modal keeps close and full-version controls inside the player surface', async ({ page }) => {
+  test('mobile video modal keeps close control inside the player surface without open-original chrome', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     const memvidVersion = 'vpubmemvid';
@@ -8943,43 +8968,34 @@ test.describe('Homepage', () => {
     await page.locator('#videoGrid .video-card').first().click();
 
     const overlay = page.locator('.mobile-media-detail-overlay--video.mobile-media-detail-overlay--standalone');
-    const fullButton = overlay.locator('.mobile-media-detail-overlay__open-original');
     const closeButton = overlay.locator('.mobile-media-detail-overlay__close');
     const player = overlay.locator('video');
 
     await expect(overlay).toBeVisible();
-    await expect(fullButton).toBeVisible();
+    await expect(overlay.locator('.mobile-media-detail-overlay__title')).toHaveCount(0);
+    await expect(overlay.locator('.mobile-media-detail-overlay__open-original')).toHaveCount(0);
     await expect(closeButton).toBeVisible();
     await expect(player).toBeVisible();
-    await expect(fullButton).toHaveAttribute('href', `/api/gallery/memvids/vid-modal-1/${memvidVersion}/file`);
     await expect(page.locator('#videoModal.active')).toHaveCount(0);
 
     const boxes = await page.evaluate(() => {
-      const fullEl = document.querySelector('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__open-original');
       const closeEl = document.querySelector('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__close');
       const shellEl = document.querySelector('.mobile-media-detail-overlay--video .mobile-media-detail-overlay__shell');
       const playerEl = document.querySelector('.mobile-media-detail-overlay--video video');
-      if (!fullEl || !closeEl || !shellEl || !playerEl) return null;
-      const fullRect = fullEl.getBoundingClientRect();
+      if (!closeEl || !shellEl || !playerEl) return null;
       const closeRect = closeEl.getBoundingClientRect();
       const shellRect = shellEl.getBoundingClientRect();
       const playerRect = playerEl.getBoundingClientRect();
       return {
-        fullBottom: fullRect.bottom,
         closeBottom: closeRect.bottom,
         playerTop: playerRect.top,
-        fullInsideShell: fullRect.left >= shellRect.left && fullRect.right <= shellRect.right,
         closeInsideShell: closeRect.left >= shellRect.left && closeRect.right <= shellRect.right,
-        closeBeforeFull: closeRect.right <= fullRect.left + 1,
       };
     });
 
     expect(boxes).toBeTruthy();
-    expect(boxes.fullBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
-    expect(boxes.closeBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
-    expect(boxes.fullInsideShell).toBe(true);
+    expect(boxes.closeBottom).toBeLessThanOrEqual(boxes.playerTop + 16);
     expect(boxes.closeInsideShell).toBe(true);
-    expect(boxes.closeBeforeFull).toBe(true);
 
     await closeButton.click();
     await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);

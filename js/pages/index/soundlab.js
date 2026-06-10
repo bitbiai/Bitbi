@@ -742,6 +742,8 @@ export function initSoundLab(revealObserver) {
             className: 'mobile-media-detail-overlay--sound mobile-media-detail-overlay--media-first',
             openOriginalUrl: item.file?.url || '',
             openOriginalLabel: localeText('browse.openTrackInNewWindow'),
+            hideTitle: true,
+            hideOpenOriginal: true,
             renderContent() {
                 return renderMemtrackMobileDetailContent(item, title);
             },
