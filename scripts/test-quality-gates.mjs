@@ -52,8 +52,26 @@ import {
       npm: ">=10",
     },
   }));
-  fs.writeFileSync(path.join(tmp, ".github/workflows/static.yml"), "node-version: 22\n");
+  fs.writeFileSync(path.join(tmp, ".github/workflows/static.yml"), "node-version: 22\nnpm run check:worker-dependency-audits\n");
   assert.deepEqual(validateToolchainFiles(tmp), []);
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-toolchain-"));
+  fs.mkdirSync(path.join(tmp, ".github/workflows"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, ".nvmrc"), "22\n");
+  fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({
+    engines: {
+      node: ">=22 <23",
+      npm: ">=10",
+    },
+  }));
+  fs.writeFileSync(
+    path.join(tmp, ".github/workflows/static.yml"),
+    "node-version: 22\nnpm --prefix \"$worker\" audit --audit-level=low\n"
+  );
+  assert(validateToolchainFiles(tmp).some((issue) => issue.includes("worker dependency audit guard")));
+  assert(validateToolchainFiles(tmp).some((issue) => issue.includes("instead of direct worker npm audit")));
 }
 
 console.log("Quality gate tests passed.");

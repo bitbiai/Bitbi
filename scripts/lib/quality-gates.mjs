@@ -212,6 +212,12 @@ export function validateToolchainFiles(repoRoot) {
   if (!/node-version:\s*22\b/.test(workflow)) {
     issues.push("Static workflow must use Node 22.");
   }
+  if (!workflow.includes("npm run check:worker-dependency-audits")) {
+    issues.push("Static workflow must run the worker dependency audit guard.");
+  }
+  if (/npm\s+--prefix\s+(?:"\$worker"|'?\$worker'?|workers\/(?:auth|contact|ai))\s+audit\b/.test(workflow)) {
+    issues.push("Static workflow must use check:worker-dependency-audits instead of direct worker npm audit.");
+  }
 
   return issues;
 }
