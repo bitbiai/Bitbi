@@ -1,0 +1,143 @@
+{
+  "version": "bitbi-live-billing-artifact-summary-2026-06-12",
+  "summarizedAt": "2026-06-12T21:50:48Z",
+  "sourceDirectory": "docs/production-readiness/evidence/bitbi-live-billing-evidence",
+  "sourceArtifactsReviewed": [
+    "live-billing-readiness-evidence.json",
+    "live-billing-readiness-evidence.md",
+    "Screenshot 2026-06-12 at 23.38.59.png",
+    "Screenshot 2026-06-12 at 23.39.29.png",
+    "Screenshot 2026-06-12 at 23.40.48.png",
+    "Screenshot 2026-06-12 at 23.41.45.png"
+  ],
+  "rawScreenshotsCommitted": false,
+  "rawAdminExportCommitted": false,
+  "redaction": {
+    "rawStripeSecretsIncluded": false,
+    "webhookSigningSecretsIncluded": false,
+    "rawWebhookPayloadsIncluded": false,
+    "rawWebhookSignaturesIncluded": false,
+    "fullCustomerPortalSessionUrlsIncluded": false,
+    "cookiesIncluded": false,
+    "bearerTokensIncluded": false,
+    "privateApiKeysIncluded": false,
+    "cardNumbersIncluded": false,
+    "emailsIncluded": false,
+    "fullCustomerIdsIncluded": false
+  },
+  "adminLiveBillingExport": {
+    "generatedAt": "2026-06-12T21:30:23.751Z",
+    "productionReadiness": "blocked",
+    "liveBillingReadiness": "blocked",
+    "repositorySupport": "ready_for_operator_canary",
+    "configShapeStatus": "configured_shapes_present",
+    "evidenceStatus": "pending_operator_evidence",
+    "canaryStatus": "pending_operator_evidence",
+    "finalVerdict": "blocked_pending_operator_evidence",
+    "webhookHealth": {
+      "endpoint": "/api/billing/webhooks/stripe/live",
+      "signatureVerification": "verified_live_signature",
+      "rawPayloadsRendered": false,
+      "signaturesRendered": false,
+      "recentLiveStripeEventsShown": 25,
+      "countsByType": {
+        "checkout.session.completed": 3,
+        "checkout.session.expired": 15,
+        "customer.subscription.updated": 6,
+        "invoice.paid": 1
+      },
+      "countsByStatus": {
+        "failed": 8,
+        "planned": 2,
+        "ignored": 15
+      },
+      "providerModeLiveCount": 25
+    },
+    "billingReviews": {
+      "totalShown": 4,
+      "resolved": 1,
+      "dismissed": 1,
+      "informational": 2,
+      "blocked": 0,
+      "needsReview": 0,
+      "staleUnresolved": 0
+    },
+    "reconciliation": {
+      "verdict": "blocked",
+      "criticalItems": 0,
+      "warningItems": 1,
+      "recentLiveStripeProviderEvents": 27,
+      "failedProviderEvents": 8,
+      "duplicateEventIds": 0,
+      "conflicts": 0,
+      "ignoredPriceOrModeEvents": 0,
+      "completedWithoutLedger": 0,
+      "ledgerLinkedWithoutBillingEvent": 0,
+      "providerGrantsWithoutCheckoutLink": 0,
+      "negativeMemberBalances": 0,
+      "activeSubscriptions": 1,
+      "activeWithoutTopUpMarker": 0,
+      "activeWithoutBucket": 0
+    },
+    "customerPortal": {
+      "status": "configured_shape_present",
+      "sessionCanary": "pending_operator_evidence",
+      "memberTriggeredOnly": true,
+      "adminCustomerMutation": false,
+      "noRawCustomerIdsReturned": true
+    },
+    "creditPacks": {
+      "status": "configured_shape_present",
+      "activePackCount": 2,
+      "checkoutCanary": "pending_operator_evidence"
+    },
+    "subscription": {
+      "status": "configured_shape_present",
+      "checkoutCanary": "pending_operator_evidence",
+      "invoicePaidEvidence": "pending_operator_evidence",
+      "activeSubscriptionCountFromReconciliation": 1
+    }
+  },
+  "screenshotDerivedFacts": {
+    "adminBillingEventsScreenshot": {
+      "showsSanitizedProviderEventLog": true,
+      "showsLiveModeRows": true,
+      "showsCheckoutSessionCompletedRow": true,
+      "showsFailedSubscriptionUpdateRows": true,
+      "provesStripeDashboard2xxDelivery": false
+    },
+    "billingReviewsScreenshot": {
+      "showsFourReviewRows": true,
+      "showsResolvedOrDismissedRows": true,
+      "showsInformationalRows": true,
+      "showsBlockedRows": false
+    },
+    "billingReconciliationScreenshot": {
+      "showsCriticalItems": 0,
+      "showsBlockedReviews": 0,
+      "showsWarningItems": 1,
+      "showsVerdict": "blocked"
+    },
+    "creditsPageScreenshot": {
+      "showsBitbiProActive": true,
+      "showsManageBillingWithStripeButton": true,
+      "showsCompletedCreditPackPurchaseRow": true,
+      "rawUserNameOrAvatarVisibleInSourceScreenshot": true,
+      "provesCustomerPortalOpenedOnPayBitbiAi": false
+    }
+  },
+  "finalEvidenceDecision": {
+    "customerPortalCanary": "operator_reported_working_artifact_incomplete",
+    "stripeWebhook2xxDelivery": "pending_artifact_review",
+    "adminBillingEvents": "partial_pass_sanitized_events_visible",
+    "activeBitbiProSubscription": "partial_pass_member_page_and_reconciliation_show_active_subscription",
+    "invoicePaidOrPaymentSucceeded": "partial_pass_invoice_paid_count_present_not_full_topup_proof",
+    "creditPackExactlyOnceGrant": "pending_artifact_review",
+    "duplicateWebhookIdempotency": "partial_pass_no_duplicate_event_ids_not_replay_proof",
+    "billingReviews": "partial_pass_no_blocked_or_needs_review_rows_but_informational_rows_remain",
+    "billingReconciliation": "partial_pass_no_critical_mismatch_but_verdict_blocked",
+    "adminLiveBillingExports": "partial_pass_redacted_export_reviewed",
+    "liveBillingReadiness": "blocked_pending_complete_artifact_backed_evidence",
+    "productionReadiness": "blocked"
+  }
+}

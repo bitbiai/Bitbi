@@ -1,8 +1,8 @@
 {
   "version": "bitbi-live-billing-operator-evidence-review-2026-06-12",
-  "reviewedAt": "2026-06-12T21:18:06Z",
+  "reviewedAt": "2026-06-12T21:50:48Z",
   "branch": "main",
-  "reviewedHead": "d5c0bf068b8682e2f0d3db0857d7beee2669c0c9",
+  "reviewedHead": "93c58605d97ec77a970cb3ceab933300c7610bfe",
   "reviewStatus": "live_billing_readiness_not_transitioned",
   "safety": {
     "stripeCallsMade": false,
@@ -25,6 +25,15 @@
     "stripeSubscriptionPaymentAndBitbiBillingStateAppearOperational": true,
     "treatedAsArtifactBackedEvidence": false
   },
+  "sanitizedArtifactsAttached": [
+    "admin-live-billing-export-redacted-summary.md",
+    "live-billing-artifact-summary.md",
+    "live-billing-artifact-summary.json"
+  ],
+  "sourceArtifactsReviewedButNotCommitted": [
+    "raw screenshots containing user-facing names or avatars",
+    "raw Admin JSON export with full internal provider event identifiers"
+  ],
   "evidenceItems": [
     {
       "id": "customer_portal_canary",
@@ -39,18 +48,18 @@
     },
     {
       "id": "admin_billing_events_live_stripe_events",
-      "status": "pending_artifact_review",
-      "artifactBacked": false
+      "status": "partial_pass_sanitized_events_visible",
+      "artifactBacked": true
     },
     {
       "id": "member_subscription_active",
-      "status": "operator_reported_operational_artifact_incomplete",
-      "artifactBacked": false
+      "status": "partial_pass_member_page_and_reconciliation_show_active_subscription",
+      "artifactBacked": true
     },
     {
       "id": "invoice_paid_or_payment_succeeded",
-      "status": "pending_artifact_review",
-      "artifactBacked": false
+      "status": "partial_pass_invoice_paid_count_present_not_full_topup_proof",
+      "artifactBacked": true
     },
     {
       "id": "credit_pack_canary_exactly_once",
@@ -59,18 +68,18 @@
     },
     {
       "id": "reconciliation_no_critical_mismatch",
-      "status": "pending_artifact_review",
-      "artifactBacked": false
+      "status": "partial_pass_no_critical_mismatch_but_verdict_blocked",
+      "artifactBacked": true
     },
     {
       "id": "billing_reviews_no_unresolved_blocked_or_critical",
-      "status": "pending_artifact_review",
-      "artifactBacked": false
+      "status": "partial_pass_no_blocked_or_needs_review_rows_but_informational_rows_remain",
+      "artifactBacked": true
     },
     {
       "id": "admin_live_billing_redacted_exports",
-      "status": "pending_artifact_review",
-      "artifactBacked": false
+      "status": "partial_pass_redacted_export_reviewed_but_export_remains_blocked",
+      "artifactBacked": true
     },
     {
       "id": "no_sensitive_values_committed",
@@ -80,7 +89,7 @@
   ],
   "finalOperatorDecision": {
     "codeSupport": "ready_for_operator_canary",
-    "liveBillingReadiness": "blocked_pending_artifact_backed_evidence",
+    "liveBillingReadiness": "blocked_pending_complete_artifact_backed_evidence",
     "productionReadiness": "blocked",
     "taxInvoiceReadiness": "disabled_pending_review",
     "adminLiveBillingStatusShouldTurnGreen": false
