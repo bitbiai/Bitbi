@@ -1,0 +1,100 @@
+{
+  "version": "bitbi-live-billing-operator-evidence-review-2026-06-12",
+  "reviewedAt": "2026-06-12T21:18:06Z",
+  "branch": "main",
+  "reviewedHead": "d5c0bf068b8682e2f0d3db0857d7beee2669c0c9",
+  "reviewStatus": "live_billing_readiness_not_transitioned",
+  "safety": {
+    "stripeCallsMade": false,
+    "checkoutSessionCreated": false,
+    "webhookSent": false,
+    "creditMutationPerformed": false,
+    "subscriptionMutationPerformed": false,
+    "refundIssued": false,
+    "cloudflareMutationPerformed": false,
+    "d1MigrationRun": false,
+    "rawSecretsIncluded": false,
+    "rawWebhookSignaturesIncluded": false,
+    "rawStripePayloadsIncluded": false,
+    "rawPortalSessionUrlsIncluded": false,
+    "cardOrPaymentMethodDataIncluded": false,
+    "cookiesOrBearerTokensIncluded": false
+  },
+  "operatorReportedContext": {
+    "customerPortalWorksFromCreditsPage": true,
+    "stripeSubscriptionPaymentAndBitbiBillingStateAppearOperational": true,
+    "treatedAsArtifactBackedEvidence": false
+  },
+  "evidenceItems": [
+    {
+      "id": "customer_portal_canary",
+      "status": "operator_reported_working_artifact_incomplete",
+      "artifactBacked": false,
+      "notes": "Operator reported successful portal access through pay.bitbi.ai. No sanitized artifact is committed in this package."
+    },
+    {
+      "id": "stripe_webhook_delivery_2xx",
+      "status": "pending_artifact_review",
+      "artifactBacked": false
+    },
+    {
+      "id": "admin_billing_events_live_stripe_events",
+      "status": "pending_artifact_review",
+      "artifactBacked": false
+    },
+    {
+      "id": "member_subscription_active",
+      "status": "operator_reported_operational_artifact_incomplete",
+      "artifactBacked": false
+    },
+    {
+      "id": "invoice_paid_or_payment_succeeded",
+      "status": "pending_artifact_review",
+      "artifactBacked": false
+    },
+    {
+      "id": "credit_pack_canary_exactly_once",
+      "status": "pending_artifact_review",
+      "artifactBacked": false
+    },
+    {
+      "id": "reconciliation_no_critical_mismatch",
+      "status": "pending_artifact_review",
+      "artifactBacked": false
+    },
+    {
+      "id": "billing_reviews_no_unresolved_blocked_or_critical",
+      "status": "pending_artifact_review",
+      "artifactBacked": false
+    },
+    {
+      "id": "admin_live_billing_redacted_exports",
+      "status": "pending_artifact_review",
+      "artifactBacked": false
+    },
+    {
+      "id": "no_sensitive_values_committed",
+      "status": "validated_by_repo_secret_scan",
+      "artifactBacked": true
+    }
+  ],
+  "finalOperatorDecision": {
+    "codeSupport": "ready_for_operator_canary",
+    "liveBillingReadiness": "blocked_pending_artifact_backed_evidence",
+    "productionReadiness": "blocked",
+    "taxInvoiceReadiness": "disabled_pending_review",
+    "adminLiveBillingStatusShouldTurnGreen": false
+  },
+  "requiredBeforeGreen": [
+    "Attach sanitized Customer Portal canary evidence without raw portal URL.",
+    "Attach sanitized Stripe live webhook 2xx delivery evidence.",
+    "Attach sanitized Admin Billing Events export showing relevant live Stripe events.",
+    "Attach sanitized active member subscription state evidence.",
+    "Attach sanitized invoice.paid or invoice.payment_succeeded top-up evidence.",
+    "Attach sanitized credit-pack purchase and duplicate-delivery no-double-grant evidence.",
+    "Attach sanitized reconciliation export with no critical live-billing mismatch.",
+    "Attach sanitized Billing Reviews export with no unresolved blocked or critical item.",
+    "Attach redacted Admin Live Billing JSON and Markdown exports.",
+    "Run npm run check:secrets after evidence is attached."
+  ]
+}
