@@ -1,0 +1,107 @@
+{
+  "version": "bitbi-live-billing-go-live-packet-2026-06-12",
+  "generatedAt": "2026-06-12T18:10:00.000Z",
+  "branch": "main",
+  "auditedHeadBeforePacket": "43d9f4c72b788fd64916e6136be65d70149a4676",
+  "packageStatus": "deployment_ready_operator_closure_packet",
+  "allowedCurrentClaim": "Repository support is ready for operator live-billing canary.",
+  "blockedClaims": [
+    "Production readiness remains blocked until live/operator evidence is reviewed.",
+    "Live billing readiness remains blocked until sanitized canary evidence is reviewed.",
+    "Stripe live completion is not claimed.",
+    "Tax, invoice, accounting, and legal compliance completion are not claimed."
+  ],
+  "safety": {
+    "stripeCallsMade": false,
+    "checkoutSessionCreated": false,
+    "webhookSent": false,
+    "creditMutationPerformed": false,
+    "subscriptionMutationPerformed": false,
+    "refundIssued": false,
+    "cloudflareMutationPerformed": false,
+    "d1MigrationRun": false,
+    "rawSecretsIncluded": false,
+    "rawPayloadsIncluded": false
+  },
+  "validationMatrix": [
+    { "command": "npm run check:toolchain", "result": "PASS" },
+    { "command": "npm run check:js", "result": "PASS" },
+    { "command": "npm run check:dom-sinks", "result": "PASS" },
+    { "command": "npm run check:worker-body-parsers", "result": "PASS" },
+    { "command": "npm run check:secrets", "result": "PASS" },
+    { "command": "npm run test:doc-currentness", "result": "PASS" },
+    { "command": "npm run check:doc-currentness", "result": "PASS" },
+    { "command": "npm run check:route-policies", "result": "PASS" },
+    { "command": "npm run test:release-compat", "result": "PASS" },
+    { "command": "npm run validate:release", "result": "PASS" },
+    { "command": "npm run release:plan", "result": "PASS" },
+    { "command": "npm run release:preflight", "result": "PASS" },
+    { "command": "npm run test:readiness-evidence", "result": "PASS" },
+    { "command": "npm run billing:canary-evidence", "result": "PASS" },
+    { "command": "npm run build:static", "result": "PASS" },
+    { "command": "npm run test:workers", "result": "PASS", "summary": "695 passed" },
+    { "command": "npm run test:static", "result": "PASS", "summary": "372 passed" }
+  ],
+  "releasePlanSummary": {
+    "newD1MigrationIntroducedByThisWave": false,
+    "authWorkerDeployRequiredForExistingLiveBillingImplementationIfNotAlreadyDeployed": true,
+    "staticPagesDeployRequiredForExistingLiveBillingImplementationIfNotAlreadyDeployed": true,
+    "packetOnlyRuntimeCodeChanged": false,
+    "releaseTruth": "Use config/release-compat.json and npm run release:plan for concrete migration and deploy checkpoints."
+  },
+  "cloudflareChecklist": [
+    "STRIPE_LIVE_SECRET_KEY=<configure in Cloudflare; value redacted>",
+    "STRIPE_LIVE_WEBHOOK_SECRET=<configure in Cloudflare; value redacted>",
+    "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID=<configure in Cloudflare; value redacted>",
+    "STRIPE_LIVE_CHECKOUT_SUCCESS_URL=<configure HTTPS URL>",
+    "STRIPE_LIVE_CHECKOUT_CANCEL_URL=<configure HTTPS URL>",
+    "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL=<configure HTTPS URL>",
+    "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL=<configure HTTPS URL>",
+    "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL=<configure HTTPS URL>",
+    "ENABLE_LIVE_STRIPE_CREDIT_PACKS=false until controlled canary enablement",
+    "ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=false until controlled canary enablement",
+    "ENABLE_STRIPE_AUTOMATIC_TAX=false until accounting/legal review approves",
+    "ENABLE_STRIPE_TAX_ID_COLLECTION=false until accounting/legal review approves",
+    "ENABLE_STRIPE_INVOICE_CREATION=false until accounting/legal review approves"
+  ],
+  "stripeDashboardChecklist": [
+    "Configure live webhook endpoint to /api/billing/webhooks/stripe/live.",
+    "Subscribe live webhook endpoint to checkout, subscription, invoice, refund, and dispute events listed in the Markdown packet.",
+    "Confirm live credit-pack Prices match the BITBI public catalog.",
+    "Confirm BITBI Pro live monthly Price ID matches the configured Cloudflare var.",
+    "Configure Stripe Customer Portal before enabling member portal use.",
+    "Keep optional tax and invoice features disabled until reviewed."
+  ],
+  "canarySequence": [
+    "Deploy Auth Worker and Static Pages.",
+    "Open /admin/#live-billing.",
+    "Export redacted status before live flags.",
+    "Configure Cloudflare vars/secrets.",
+    "Keep optional tax/invoice flags false initially.",
+    "Enable live credit packs/subscriptions only for controlled canary when ready.",
+    "Run one credit-pack canary with a dedicated member account.",
+    "Confirm no credit before verified webhook.",
+    "Confirm exactly-once credit grant after verified live checkout.session.completed.",
+    "Replay or duplicate webhook and verify no double grant.",
+    "Run BITBI Pro subscription canary with a dedicated member account.",
+    "Confirm subscription state and invoice.paid or invoice.payment_succeeded top-up once.",
+    "Open Stripe Customer Portal from member Credits page and verify member-only portal behavior.",
+    "Verify failed invoice, refund, and dispute handling is review-only.",
+    "Export sanitized evidence.",
+    "Only then review go/no-go for public release."
+  ],
+  "rollbackPlan": [
+    "Set ENABLE_LIVE_STRIPE_CREDIT_PACKS=false.",
+    "Set ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=false.",
+    "Keep webhook endpoint available for already-created Stripe events unless intentionally retiring.",
+    "Do not delete ledger, subscription, checkout, billing event, review, or evidence rows.",
+    "Inspect Billing Reviews and Reconciliation before changing Stripe routing."
+  ],
+  "operatorDecision": {
+    "codeReadiness": "ready_for_operator_canary",
+    "deployReadiness": "ready_for_controlled_deployment_preparation",
+    "configReadiness": "blocked_pending_operator_configuration",
+    "canaryReadiness": "blocked_pending_operator_canary_execution",
+    "publicGoLiveReadiness": "blocked_pending_sanitized_evidence_review"
+  }
+}
